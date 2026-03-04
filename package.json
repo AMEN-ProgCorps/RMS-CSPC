@@ -1,0 +1,24 @@
+{
+  "name": "rms-cspc",
+  "version": "1.0.0",
+  "description": "Records Management System Version 2 Development",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/AMEN-ProgCorps/RMS-CSPC.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "bugs": {
+    "url": "https://github.com/AMEN-ProgCorps/RMS-CSPC/issues"
+  },
+  "homepage": "https://github.com/AMEN-ProgCorps/RMS-CSPC#readme",
+  "dependencies": {
+    "express": "^5.2.1"
+  }
+}

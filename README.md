@@ -1,4 +1,33 @@
-<p align="center"><img src="https://laravel.com/assets/img/components/logo-laravel.svg"></p>
+# Tutorial how to Access this file
+please ask <a href="https://github.com/MacCloudGZ">MacCloudGZ</a> for furthermore question
+
+### Requirements
+before you procceed please check if you have this following
+
+- Wsl enable
+- Ubuntu (in microsoft store, not the vm) intalled
+- MySQL Workbench
+  
+### Configure the Database Connection
+here's the step by step if the command 
+```bash
+wsl php artisan serve
+```
+didnt work!!!
+
+1. Rename `env` to a `.env` file to initiate the configuration
+
+2. Run the database migrations:
+    ```bash
+    wsl php artisan migrate
+    ```
+    to migrate all changes in the database, noted that MySQL WorkStation is currently running
+
+3. and finally run the web app
+
+
+<hr>
+<p align="center"><img src="https://github.com/laravel/art/blob/master/laravel-logo.svg"></p>
 
 <p align="center">
 <a href="https://travis-ci.org/laravel/framework"><img src="https://travis-ci.org/laravel/framework.svg" alt="Build Status"></a>

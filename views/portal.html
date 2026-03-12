@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Portal Page - CSPC</title>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; font-family: sans-serif; }
+        body { background: linear-gradient(to bottom right, #4a6d45, #1e4566); min-height: 100vh; display: flex; flex-direction: column; color: white; }
+        .top-bar { background-color: #eab308; color: black; text-align: center; font-weight: bold; padding: 8px; font-size: 14px; letter-spacing: 0.5px; }
+        .main-content { flex-grow: 1; display: flex; align-items: center; justify-content: center; gap: 48px; padding: 0 40px; }
+        .option { display: flex; flex-direction: column; align-items: center; cursor: pointer; text-decoration: none; color: inherit; }
+        .circle { width: 192px; height: 192px; border-radius: 50%; border: 4px solid white; display: flex; align-items: center; justify-content: center; background-color: rgba(30, 58, 138, 0.8); box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25); transition: transform 0.3s; }
+        .option:hover .circle { transform: scale(1.05); }
+        .logo-text { font-size: 12px; }
+        .option-title { margin-top: 16px; font-size: 20px; font-weight: 600; text-align: center; }
+        .footer { background-color: #60a5fa; color: black; text-align: center; padding: 4px; font-size: 12px; font-weight: 600; }
+    </style>
+</head>
+<body>
+    <div class="top-bar">RECORDS AND FREEDOM OF INFORMATION OFFICE</div>
+    <div class="main-content">
+        <a href="/login" class="option">
+            <div class="circle"><span class="logo-text">CSPC LOGO</span></div>
+            <p class="option-title">Document Tracking</p>
+        </a>
+        <a href="/login" class="option">
+            <div class="circle"><span class="logo-text">CSPC LOGO</span></div>
+            <p class="option-title">Records Disposition<br>Program</p>
+        </a>
+        <a href="/login" class="option">
+            <div class="circle"><span class="logo-text">CSPC LOGO</span></div>
+            <p class="option-title">Document Control</p>
+        </a>
+    </div>
+    <div class="footer">© Copyright 2026. All Rights Reserved.</div>
+</body>
+</html>

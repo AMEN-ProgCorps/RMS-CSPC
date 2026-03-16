@@ -123,7 +123,7 @@
         .data-table th { background-color: #f9fafb; font-weight: bold; color: #374151; }
         .data-table tbody tr:hover { background-color: #f3f4f6; }
 
-        /* Toggles and other utilities */
+        /* Toggles and Search Inputs */
         .toggle-switch-container { display: flex; align-items: center; gap: 8px; font-size: 12px; margin-bottom: 24px; }
         .toggle-switch { position: relative; display: inline-block; width: 36px; height: 20px; }
         .toggle-switch input { opacity: 0; width: 0; height: 0; }
@@ -190,7 +190,7 @@
             </div>
             
             <ul class="sidebar-nav">
-                <li><a href="#" class="nav-item active main-nav" data-target="content-default" data-title="Current Transactions" data-desc="The current transactions container has been left empty as requested." onclick="resetSearch()">
+                <li><a href="#current" class="nav-item active main-nav" data-target="content-default" onclick="resetSearch()">
                     <svg class="nav-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"></path></svg>
                     <span class="sidebar-text">Current Transactions</span>
                 </a></li>
@@ -202,27 +202,27 @@
                         <svg class="nav-icon submenu-arrow" style="margin-left:auto; width:14px; height:14px;" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path></svg>
                     </div>
                     <ul class="submenu" id="listTransactionSubmenu">
-                        <li><a href="#" class="nav-item sub-item" data-target="list-internal">
+                        <li><a href="#list-internal" class="nav-item sub-item" data-target="list-internal">
                             <span class="sidebar-text">Internal Transactions</span>
                         </a></li>
-                        <li><a href="#" class="nav-item sub-item" data-target="list-external">
+                        <li><a href="#list-external" class="nav-item sub-item" data-target="list-external">
                             <span class="sidebar-text">External Transactions</span>
                         </a></li>
-                        <li><a href="#" class="nav-item sub-item" data-target="list-application">
+                        <li><a href="#list-application" class="nav-item sub-item" data-target="list-application">
                             <span class="sidebar-text">Application Letters</span>
                         </a></li>
-                        <li><a href="#" class="nav-item sub-item" data-target="list-issuances">
+                        <li><a href="#list-issuances" class="nav-item sub-item" data-target="list-issuances">
                             <span class="sidebar-text">Issuances</span>
                         </a></li>
                     </ul>
                 </li>
 
-                <li><a href="#" class="nav-item main-nav" data-target="content-search" data-title="Search Transactions" data-desc="Use the filters to search for specific documents or transaction IDs.">
+                <li><a href="#search" class="nav-item main-nav" data-target="content-search">
                     <svg class="nav-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path></svg>
                     <span class="sidebar-text">Search Transactions</span>
                 </a></li>
 
-                <li><a href="#" class="nav-item main-nav" data-target="content-receive" data-title="Receive Transaction" data-desc="Scan or enter details to officially receive a new incoming transaction.">
+                <li><a href="#receive" class="nav-item main-nav" data-target="content-receive">
                     <svg class="nav-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 4H6a2 2 0 00-2 2v12a2 2 0 002 2h12a2 2 0 002-2V6a2 2 0 00-2-2h-2m-4-1v8m0 0l3-3m-3 3L9 8m-5 5h2.586a1 1 0 01.707.293l2.414 2.414a1 1 0 00.707.293h3.172a1 1 0 00.707-.293l2.414-2.414a1 1 0 01.707-.293H20"></path></svg>
                     <span class="sidebar-text">Receive Transaction</span>
                 </a></li>
@@ -234,22 +234,22 @@
                         <svg class="nav-icon submenu-arrow" style="margin-left:auto; width:14px; height:14px;" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path></svg>
                     </div>
                     <ul class="submenu" id="createTransactionSubmenu">
-                        <li><a href="#" class="nav-item sub-item" data-target="form-internal">
+                        <li><a href="#create-internal" class="nav-item sub-item" data-target="form-internal">
                             <span class="sidebar-text">Internal Transactions</span>
                         </a></li>
-                        <li><a href="#" class="nav-item sub-item" data-target="form-external">
+                        <li><a href="#create-external" class="nav-item sub-item" data-target="form-external">
                             <span class="sidebar-text">External Transactions</span>
                         </a></li>
-                        <li><a href="#" class="nav-item sub-item" data-target="form-application">
+                        <li><a href="#create-application" class="nav-item sub-item" data-target="form-application">
                             <span class="sidebar-text">Application Letters</span>
                         </a></li>
-                        <li><a href="#" class="nav-item sub-item" data-target="form-issuances">
+                        <li><a href="#create-issuances" class="nav-item sub-item" data-target="form-issuances">
                             <span class="sidebar-text">Issuances</span>
                         </a></li>
                     </ul>
                 </li>
                 
-                <li><a href="#" class="nav-item main-nav" data-target="content-default" data-title="Settings" data-desc="Manage system preferences.">
+                <li><a href="#settings" class="nav-item main-nav" data-target="content-settings">
                     <svg class="nav-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"></path><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path></svg>
                     <span class="sidebar-text">Settings</span>
                 </a></li>
@@ -269,13 +269,23 @@
         </aside>
 
         <main class="content-area">
+            
             <div id="content-default" class="content-section active">
                 <div class="form-header" style="margin-bottom: 16px;">CURRENT TRANSACTIONS</div>
                 <div id="transactionsContainer" class="transactions-grid"></div>
                 <div class="empty-state" id="emptyStateDisplay">
                     <svg class="empty-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20 13V6a2 2 0 00-2-2H6a2 2 0 00-2 2v7m16 0v5a2 2 0 01-2 2H6a2 2 0 01-2-2v-5m16 0h-2.586a1 1 0 00-.707.293l-2.414 2.414a1 1 0 01-.707.293h-3.172a1 1 0 01-.707-.293l-2.414-2.414A1 1 0 006.586 13H4"></path></svg>
-                    <div class="empty-title" id="contentTitle">Current Transactions</div>
-                    <div class="empty-text" id="contentDesc">No transactions have been created yet. Navigate to "Create Transaction" to add one.</div>
+                    <div class="empty-title">Current Transactions</div>
+                    <div class="empty-text">No transactions have been created yet. Navigate to "Create Transaction" to add one.</div>
+                </div>
+            </div>
+
+            <div id="content-settings" class="content-section">
+                <div class="form-header" style="margin-bottom: 16px;">SETTINGS</div>
+                <div class="empty-state">
+                    <svg class="empty-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"></path><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path></svg>
+                    <div class="empty-title">Settings & Preferences</div>
+                    <div class="empty-text">This section will contain configuration options for the Records Management System.</div>
                 </div>
             </div>
 
@@ -646,6 +656,7 @@
     </div>
 
     <script>
+        // Set to empty to ensure "removed content on the content"
         let transactions = [];
 
         function renderTransactions(txList = transactions) {
@@ -762,7 +773,9 @@
             transactions.unshift(newTx); 
             renderTransactions();
             event.target.reset();
-            document.querySelector('.main-nav[data-target="content-default"]').click();
+            
+            // Redirect via URL Route
+            window.location.hash = '#current';
         }
 
         function executeSearch() {
@@ -776,13 +789,84 @@
             });
             
             renderTransactions(filtered);
-            document.querySelector('.main-nav[data-target="content-default"]').click();
+            window.location.hash = '#current';
         }
 
         function resetSearch() {
             renderTransactions();
         }
 
+        /* --------------------------------- */
+        /* URL Routing Logic (Hash based)    */
+        /* --------------------------------- */
+        
+        const hashToTargetMap = {
+            '#current': 'content-default',
+            '#list-internal': 'list-internal',
+            '#list-external': 'list-external',
+            '#list-application': 'list-application',
+            '#list-issuances': 'list-issuances',
+            '#search': 'content-search',
+            '#receive': 'content-receive',
+            '#create-internal': 'form-internal',
+            '#create-external': 'form-external',
+            '#create-application': 'form-application',
+            '#create-issuances': 'form-issuances',
+            '#settings': 'content-settings'
+        };
+
+        function handleHashChange() {
+            let hash = window.location.hash;
+            if (!hash || !hashToTargetMap[hash]) {
+                hash = '#current'; // Default route
+            }
+            
+            const targetId = hashToTargetMap[hash];
+            const navItem = document.querySelector(`.main-nav[data-target="${targetId}"], .sub-item[data-target="${targetId}"]`);
+            
+            if(navItem) {
+                activateRoute(navItem, targetId);
+            }
+        }
+
+        function activateRoute(item, targetId) {
+            // Clear active classes
+            document.querySelectorAll('.main-nav').forEach(n => n.classList.remove('active'));
+            document.querySelectorAll('.sub-item').forEach(n => n.classList.remove('active'));
+            document.getElementById('createTransactionToggle').classList.remove('active');
+            document.getElementById('listTransactionToggle').classList.remove('active');
+            
+            // Highlight the clicked item in sidebar
+            if (item.classList.contains('sub-item')) {
+                item.classList.add('active');
+                if(item.closest('#createTransactionSubmenu')) {
+                    document.getElementById('createTransactionToggle').classList.add('active');
+                    document.getElementById('createTransactionSubmenu').classList.add('show');
+                } else if (item.closest('#listTransactionSubmenu')) {
+                    document.getElementById('listTransactionToggle').classList.add('active');
+                    document.getElementById('listTransactionSubmenu').classList.add('show');
+                }
+            } else {
+                item.classList.add('active');
+            }
+
+            // Hide all content areas, show target
+            document.querySelectorAll('.content-section').forEach(sec => sec.classList.remove('active'));
+            document.getElementById(targetId).classList.add('active');
+
+            // Special UI Resets based on route
+            if (targetId === 'content-receive') {
+                document.getElementById('receive-step-1').style.display = 'block';
+                document.getElementById('receive-step-2').style.display = 'none';
+            }
+        }
+
+        // Listen for URL changes
+        window.addEventListener('hashchange', handleHashChange);
+        
+        /* --------------------------------- */
+        /* Interactivity / UI Logics         */
+        /* --------------------------------- */
         const sidebar = document.getElementById('sidebar');
         const toggleBtn = document.getElementById('toggleSidebar');
         toggleBtn.addEventListener('click', () => {
@@ -828,41 +912,6 @@
         setupToggleMenu('createTransactionToggle', 'createTransactionSubmenu');
         setupToggleMenu('listTransactionToggle', 'listTransactionSubmenu');
 
-        const allNavItems = document.querySelectorAll('.main-nav, .sub-item');
-        const contentSections = document.querySelectorAll('.content-section');
-
-        allNavItems.forEach(item => {
-            item.addEventListener('click', (e) => {
-                e.preventDefault();
-                
-                document.querySelectorAll('.main-nav').forEach(n => n.classList.remove('active'));
-                document.querySelectorAll('.sub-item').forEach(n => n.classList.remove('active'));
-                document.getElementById('createTransactionToggle').classList.remove('active');
-                document.getElementById('listTransactionToggle').classList.remove('active');
-                
-                if (item.classList.contains('sub-item')) {
-                    item.classList.add('active');
-                    if(item.closest('#createTransactionSubmenu')) {
-                        document.getElementById('createTransactionToggle').classList.add('active');
-                    } else if (item.closest('#listTransactionSubmenu')) {
-                        document.getElementById('listTransactionToggle').classList.add('active');
-                    }
-                } else {
-                    item.classList.add('active');
-                }
-
-                contentSections.forEach(sec => sec.classList.remove('active'));
-                
-                const targetId = item.getAttribute('data-target');
-                document.getElementById(targetId).classList.add('active');
-
-                if (targetId === 'content-receive') {
-                    document.getElementById('receive-step-1').style.display = 'block';
-                    document.getElementById('receive-step-2').style.display = 'none';
-                }
-            });
-        });
-
         const searchFilters = document.querySelectorAll('.search-filter-btn');
         searchFilters.forEach(btn => {
             btn.addEventListener('click', () => {
@@ -876,6 +925,8 @@
             document.getElementById('receive-step-2').style.display = 'block';
         }
 
+        // Initialize App State based on initial URL
+        handleHashChange();
         renderTransactions();
     </script>
 </body>

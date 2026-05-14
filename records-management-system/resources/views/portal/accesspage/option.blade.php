@@ -22,30 +22,22 @@
                 </svg>
             </button>
         </div>
+        <div class="portal_header">
+            <div class="ico_con">
+                <img class="ico" src="{{ asset('images/cspc.png') }}" alt="CSPC">
+            </div>
+            <span>Welcome, {User}</span>
+        </div>
         <div class="systems-container">
-            <button class="system-con">
-                <div class="function">
-                    <img class="ico" src="{{ asset('images/cspc.png') }}" alt="CSPC">
+            <button class="system-con" id="profile" onclick="window.location.href='{{ route('dts') }}'">
+                <div class="display-box">
+                    <span>Profile</span>
                 </div>
-                <span>Document Tracking System</span>
             </button>
-            <button class="system-con">
-                <div class="function">
-                    <img class="ico" src="{{ asset('images/cspc.png') }}" alt="CSPC">
+            <button class="system-con" id="dts" onclick="window.location.href='{{ route('dts') }}'">
+                <div class="display-box">
+                    <span>Document Tracking System</span>
                 </div>
-                <span>Records Disposition Program</span>
-            </button>
-            <button class="system-con">
-                <div class="function">
-                    <img class="ico" src="{{ asset('images/cspc.png') }}" alt="CSPC">
-                </div>
-                <span>Document Control System</span>
-            </button>
-            <button class="system-con">
-                <div class="function">
-                    <img class="ico" src="{{ asset('images/administrators-6.svg') }}" alt="Administrator">
-                </div>
-                <span>Administration Access</span>
             </button>
         </div>
     </section>

@@ -12,6 +12,10 @@ Route::get('/track-document', function () {
     return view('portal.tracking.td');
 })->name('track-document');
 
+Route::get('/tracked', function(){
+    return view('portal.tracking.tracking');
+})->name('tracked');
+
 // Portal access Function
 Route::get('/portal', function () {
     return view('portal.accesspage.option');

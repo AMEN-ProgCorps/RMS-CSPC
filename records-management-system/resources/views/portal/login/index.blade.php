@@ -49,7 +49,7 @@
                         </div>
                         <input autocomplete="current-password" type="password" id="password" name="password" placeholder="Password" required>
                     </div>
-                    <button class="la-button" type="submit">LOGIN</button>
+                    <button class="la-button" type="submit" window.location.href='/portal'>LOGIN</button>
             </form>
             <span class="notice">RECORDS AND FREEDOM OF INFORMATION OFFICE</span>
         </div>

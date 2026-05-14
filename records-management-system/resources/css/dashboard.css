@@ -1,0 +1,160 @@
+@import url("./fonts.css");
+
+body {
+    position: relative;
+    width: 100%;
+    padding: 0%;
+    margin: 0%;
+}
+.actions-container {
+    position: absolute;
+    top: 10px;
+    right: 15px;
+    display: flex;
+        justify-content: center;
+}
+    .action_button {
+        cursor: pointer;
+        background-color: #FFFFFF33;
+        color: #FFFFFF;
+        width: 123px;
+        height: 30px;
+        opacity: 1;
+        border-radius: 100px;
+        box-shadow: rgba(0, 0, 0, 0.35) 0px 5px 15px;
+        border: none;
+        transition: .5s;
+        display: flex;
+            align-items: center;
+            justify-content: center;
+    }
+        .action_button img.rotate {
+            transition: .5s;
+            transform: rotate(180deg);
+        }
+        .action_button img.revert {
+            transition: .5s;
+            transform: rotate(0deg);
+        }
+    .drop_down-container {
+        position: absolute;
+        box-shadow: rgba(50, 50, 93, 0.25) 0px 13px 27px -5px, rgba(0, 0, 0, 0.3) 0px 8px 16px -8px;
+        top: 30px;
+        right: inherit;
+        background-color: #FFFFFF;
+        display: flex;
+            flex-direction: column;
+            align-items: flex-start;
+            justify-content: center;
+        max-height: 0px;
+        padding: 5px 15px 15px 15px;
+        border-radius: 10px;
+        width: 200px;
+        opacity: 0;
+        overflow: hidden;
+        pointer-events: none; 
+    }
+        .drop_down-container span {
+            font-family: 'Inter';
+            font-weight: 700;
+            font-style: Bold;
+            font-size: 13px;    
+            line-height: 121%;
+            letter-spacing: 0%;
+            color: #A2A2A2;
+
+        }
+        .drop_down-container.show {
+            animation: smooth_dropdown .5s ease-in forwards;
+            pointer-events: auto; 
+        }
+        @keyframes smooth_dropdown {
+            0% {
+                max-height: 0px;
+                opacity: 0;
+            }
+            100% {
+                max-height: 200px;
+                opacity: 1;
+            }
+            
+        } 
+        .drop_down-container hr {
+            width: 100%;
+            border: 0.5px solid #A2A2A2;
+        }
+        .drop_down-container button {
+            padding: 10px 20px;
+            background-color: transparent;
+            text-decoration: none;
+            width: 100%;
+            text-align: center;
+            border: none;
+            display: flex;
+                align-items: center;
+                gap: 10px;
+        }
+        .drop_down-container button:hover {
+            cursor: pointer;
+        }    
+        .drop_down-container button:hover span {
+            color: #003699;
+        }
+header{
+    --padding-header:15px;
+    position: relative;
+    background: #003699;
+    width: calc(100% - var(--padding-header));
+    display: flex;
+        gap: 10px;
+        align-items: center;
+    padding: 0 0 0px var(--padding-header);
+}
+.office_name{
+    position: absolute;
+    bottom: 2px;
+    right: 20px;
+    font-family: 'Roboto';
+    font-weight: 400;
+    font-style: Regular;
+    font-size: 15px;
+    line-height: 117%;
+    color: #EEEEEE;
+    letter-spacing: 0%;
+}
+.cspc-logo{
+    width: 70px;
+    height: 70px;
+    padding: 0 15px;
+    display: flex;
+        align-items: center;
+        justify-content: center;
+}
+    .cspc-logo .ico {
+        box-shadow: 0px 0px 20px 0px #0059FF;
+        border-radius: 50%;
+        width: 80%;
+        height: 80%;
+    }
+.label-container {
+    display: flex;
+        flex-direction: column;
+}
+    .label-container .subtitle {
+        font-family: Roboto;
+        font-weight: 400;
+        font-style: Regular;
+        font-size: 15px;
+        line-height: 117%;
+        letter-spacing: 0%;
+        color: #FFFFFF;
+    }
+    .label-container .title {
+        font-family: Roboto;
+        font-weight: 700;
+        font-style: Bold;
+        font-size: 27px;
+        line-height: 117%;
+        letter-spacing: 0%;
+        color: #FFB200;
+}

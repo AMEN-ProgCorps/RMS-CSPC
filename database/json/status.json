@@ -1,0 +1,46 @@
+{
+  "statuses": [
+    {
+      "id": 1,
+      "name": "pending",
+      "label": "Pending",
+      "color": "#FFC107",
+      "description": "Awaiting action"
+    },
+    {
+      "id": 2,
+      "name": "received",
+      "label": "Received",
+      "color": "#17A2B8",
+      "description": "Document received"
+    },
+    {
+      "id": 3,
+      "name": "approved",
+      "label": "Approved",
+      "color": "#28A745",
+      "description": "Approved by authority"
+    },
+    {
+      "id": 4,
+      "name": "rejected",
+      "label": "Rejected",
+      "color": "#DC3545",
+      "description": "Rejected by authority"
+    },
+    {
+      "id": 5,
+      "name": "in_progress",
+      "label": "In Progress",
+      "color": "#007BFF",
+      "description": "Currently being processed"
+    },
+    {
+      "id": 6,
+      "name": "completed",
+      "label": "Completed",
+      "color": "#6C757D",
+      "description": "Task completed"
+    }
+  ]
+}

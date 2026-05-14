@@ -1,0 +1,25 @@
+{
+  "offices": [
+    {
+      "id": 1,
+      "name": "Main Office",
+      "description": "Administrative center",
+      "location": "Building A, Floor 1",
+      "status": "active"
+    },
+    {
+      "id": 2,
+      "name": "Records Department",
+      "description": "Document management",
+      "location": "Building B, Floor 2",
+      "status": "active"
+    },
+    {
+      "id": 3,
+      "name": "Finance Office",
+      "description": "Financial operations",
+      "location": "Building A, Floor 3",
+      "status": "active"
+    }
+  ]
+}

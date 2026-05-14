@@ -1,0 +1,34 @@
+{
+  "issuances": [
+    {
+      "id": 1,
+      "title": "Office Keys",
+      "recipient": 1,
+      "itemDescription": "Main office keys",
+      "issuedAt": "2026-04-10T08:30:00Z",
+      "status": "active",
+      "quantity": 2,
+      "remarks": "Keys for rooms 101 and 102"
+    },
+    {
+      "id": 2,
+      "title": "ID Badge",
+      "recipient": 2,
+      "itemDescription": "Employee ID Card",
+      "issuedAt": "2026-04-08T09:00:00Z",
+      "status": "active",
+      "quantity": 1,
+      "remarks": "Employee ID - Valid until 2027"
+    },
+    {
+      "id": 3,
+      "title": "Laptop Assignment",
+      "recipient": 3,
+      "itemDescription": "Dell Laptop - Model XPS",
+      "issuedAt": "2026-04-12T10:00:00Z",
+      "status": "active",
+      "quantity": 1,
+      "remarks": "Serial: DL-2026-001"
+    }
+  ]
+}

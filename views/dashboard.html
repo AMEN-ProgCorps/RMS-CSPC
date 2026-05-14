@@ -170,7 +170,7 @@
                     <svg class="nav-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z"></path></svg> Records Disposition
                 </a>
                 <div class="dropdown-divider"></div>
-                <a href="/login.html" class="dropdown-item dropdown-logout">
+                <a href="/login" class="dropdown-item dropdown-logout">
                     <svg class="nav-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"></path></svg> Logout
                 </a>
             </div>
@@ -656,8 +656,94 @@
     </div>
 
     <script>
-        // Set to empty to ensure "removed content on the content"
+        // Initialize transactions array
         let transactions = [];
+
+        // Convert API transaction format to display format
+        function formatTransaction(tx) {
+            const createdDate = new Date(tx.createdAt);
+            const now = new Date();
+            const diffMs = now - createdDate;
+            const diffMins = Math.floor(diffMs / 60000);
+            const diffHours = Math.floor(diffMs / 3600000);
+            const diffDays = Math.floor(diffMs / 86400000);
+
+            let timeAgo = 'Just now';
+            if (diffMins > 60 && diffHours < 24) {
+                timeAgo = diffHours + ' hour' + (diffHours > 1 ? 's' : '') + ' ago';
+            } else if (diffMins >= 1) {
+                timeAgo = diffMins + ' minute' + (diffMins > 1 ? 's' : '') + ' ago';
+            } else if (diffDays > 0) {
+                timeAgo = diffDays + ' day' + (diffDays > 1 ? 's' : '') + ' ago';
+            }
+
+            let statusClass = 'tx-badge-green';
+            switch (tx.status) {
+                case 'pending': statusClass = 'tx-badge-orange'; break;
+                case 'rejected': statusClass = 'tx-badge-red'; break;
+                case 'approved': statusClass = 'tx-badge-green'; break;
+                case 'in_progress': statusClass = 'tx-badge-orange'; break;
+                default: statusClass = 'tx-badge-green';
+            }
+
+            return {
+                id: 'TXN-' + String(tx.id).padStart(6, '0'),
+                type: tx.type,
+                title: tx.title,
+                status: tx.status,
+                timeAgo: timeAgo,
+                statusClass: statusClass,
+                dateCreated: new Date(tx.createdAt).toISOString().slice(0, 19).replace('T', ' '),
+                createdBy: tx.createdBy ? 'User ' + tx.createdBy : 'System',
+                originatedFrom: tx.fromOffice ? 'Office ' + tx.fromOffice : 'External',
+                documentType: tx.type === 'internal' ? 'Internal Document' : 'External Document',
+                subject: tx.title + (tx.description ? ': ' + tx.description : ''),
+                receivedFrom: tx.fromOffice ? 'Office ' + tx.fromOffice : 'External Source',
+                receivedDate: tx.receivedAt ? new Date(tx.receivedAt).toISOString().slice(0, 19).replace('T', ' ') : '-',
+                nextReceivingOffice: tx.toOffice ? 'Office ' + tx.toOffice : 'Pending',
+                particulars: tx.description || 'N/A',
+                notesFrom: 'System',
+                notes: tx.remarks || 'No additional notes',
+                priority: tx.priority || 'normal'
+            };
+        }
+
+        // Fetch transactions from API
+        function loadTransactions() {
+            // Use Laravel API route
+            const apiUrl = '/api/transactions';
+            
+            console.log('Loading transactions from:', apiUrl);
+            
+            fetch(apiUrl)
+                .then(response => {
+                    console.log('Response status:', response.status);
+                    if (!response.ok) {
+                        return response.text().then(text => {
+                            console.error('Error response:', text.substring(0, 500));
+                            throw new Error('API Error ' + response.status);
+                        });
+                    }
+                    return response.json();
+                })
+                .then(data => {
+                    console.log('Transactions loaded:', data);
+                    if (Array.isArray(data)) {
+                        transactions = data.map(tx => formatTransaction(tx));
+                    } else {
+                        console.error('Invalid response format:', data);
+                        transactions = [];
+                    }
+                    renderTransactions();
+                })
+                .catch(error => {
+                    console.error('Error loading transactions:', error);
+                    renderTransactions();
+                });
+        }
+
+        // Load transactions on page start
+        document.addEventListener('DOMContentLoaded', loadTransactions);
 
         function renderTransactions(txList = transactions) {
             const container = document.getElementById('transactionsContainer');
@@ -738,44 +824,95 @@
         function handleTransactionSubmit(event, type) {
             event.preventDefault(); 
             
-            const newTx = {
-                id: '0000-0000-' + Math.floor(1000 + Math.random() * 9000),
-                timeAgo: 'Just now',
-                statusClass: 'tx-badge-green',
-                dateCreated: new Date().toISOString().slice(0, 19).replace('T', ' '),
-                createdBy: 'Current User',
-                receivedFrom: 'System',
-                receivedDate: new Date().toISOString().slice(0, 19).replace('T', ' '),
-                nextReceivingOffice: 'Pending',
-                particulars: 'N/A',
-                notesFrom: 'System',
-                notes: 'Newly created transaction.'
+            let txData = {
+                type: type === 'External' ? 'external' : 'internal',
+                category: type,
+                status: 'pending',
+                createdAt: new Date().toISOString(),
+                receivedAt: null,
+                priority: 'normal',
+                remarks: '',
+                controlNumber: 'AUTO-' + Date.now()
             };
 
             if (type === 'Internal') {
-                newTx.originatedFrom = document.getElementById('int-name').value;
-                newTx.subject = document.getElementById('int-subject').value;
-                newTx.documentType = document.getElementById('int-doc-type').value;
+                txData.title = document.getElementById('int-subject').value || 'Internal Transaction';
+                txData.description = document.getElementById('int-subject').value;
+                txData.documentType = document.getElementById('int-doc-type').value;
+                txData.classification = document.getElementById('int-class').value;
+                txData.unitCollege = document.getElementById('int-unit').value;
+                txData.requestor = document.getElementById('int-name').value;
+                txData.fromOffice = 1;
+                txData.toOffice = 2;
+                txData.createdBy = 1;
+                txData.receivedBy = null;
             } else if (type === 'External') {
-                newTx.originatedFrom = document.getElementById('ext-name').value;
-                newTx.subject = document.getElementById('ext-subject').value;
-                newTx.documentType = 'External Document';
+                txData.title = document.getElementById('ext-subject').value || 'External Transaction';
+                txData.description = document.getElementById('ext-subject').value;
+                txData.source = document.getElementById('ext-source').value;
+                txData.requestor = document.getElementById('ext-name').value;
+                txData.fromOffice = null;
+                txData.toOffice = 1;
+                txData.createdBy = null;
+                txData.receivedBy = null;
             } else if (type === 'Application') {
-                newTx.originatedFrom = document.getElementById('app-name').value;
-                newTx.subject = 'Application for ' + document.getElementById('app-pos').value;
-                newTx.documentType = document.getElementById('app-type').value;
+                txData.type = 'internal';
+                txData.applicantName = document.getElementById('app-name').value;
+                txData.position = document.getElementById('app-pos').value;
+                txData.documentType = document.getElementById('app-type').value;
+                txData.title = 'Application for ' + document.getElementById('app-pos').value;
+                txData.description = document.getElementById('app-type').value;
+                txData.fromOffice = 1;
+                txData.toOffice = 2;
+                txData.createdBy = 1;
+                txData.receivedBy = null;
             } else if (type === 'Issuance') {
-                newTx.originatedFrom = 'Issuance System';
-                newTx.subject = document.getElementById('iss-subject').value;
-                newTx.documentType = 'Issuance';
+                txData.type = 'internal';
+                txData.title = document.getElementById('iss-subject').value;
+                txData.description = 'Issuance document';
+                txData.subject = document.getElementById('iss-subject').value;
+                txData.receivingOffice = document.getElementById('iss-office').value;
+                txData.fromOffice = 1;
+                txData.toOffice = parseInt(document.getElementById('iss-office').selectedIndex) + 1;
+                txData.createdBy = 1;
+                txData.receivedBy = null;
             }
 
-            transactions.unshift(newTx); 
-            renderTransactions();
-            event.target.reset();
+            // Save to API
+            const apiUrl = '/api/transactions';
             
-            // Redirect via URL Route
-            window.location.hash = '#current';
+            console.log('Submitting to:', apiUrl, txData);
+            
+            fetch(apiUrl, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(txData)
+            })
+            .then(response => {
+                console.log('Response status:', response.status, response.statusText);
+                if (!response.ok) {
+                    return response.text().then(text => {
+                        console.error('Error response body:', text.substring(0, 500));
+                        throw new Error('HTTP ' + response.status + ': ' + text.substring(0, 300));
+                    });
+                }
+                return response.json();
+            })
+            .then(data => {
+                console.log('Response data:', data);
+                if (data.error) {
+                    throw new Error(data.error);
+                }
+                alert('Transaction created successfully!');
+                loadTransactions(); // Reload card view
+                loadTransactionLists(); // Reload lists
+                event.target.reset();
+                window.location.hash = '#current';
+            })
+            .catch(error => {
+                console.error('Full error:', error);
+                alert('Error creating transaction:\n' + error.message);
+            });
         }
 
         function executeSearch() {
@@ -925,9 +1062,144 @@
             document.getElementById('receive-step-2').style.display = 'block';
         }
 
+        // Load and populate transaction lists
+        function loadTransactionLists() {
+            fetch('/api/transactions')
+                .then(response => response.json())
+                .then(transactions => {
+                    if (!Array.isArray(transactions)) {
+                        console.error('Invalid response format');
+                        return;
+                    }
+                    
+                    // Separate transactions by category
+                    const internal = transactions.filter(t => t.category === 'Internal' || (t.type === 'internal' && !t.category));
+                    const external = transactions.filter(t => t.category === 'External' || (t.type === 'external' && !t.category));
+                    const applications = transactions.filter(t => t.category === 'Application');
+                    const issuances = transactions.filter(t => t.category === 'Issuance');
+                    
+                    // Populate tables
+                    populateInternalTable(internal);
+                    populateExternalTable(external);
+                    populateApplicationTable(applications);
+                    populateIssuanceTable(issuances);
+                })
+                .catch(error => console.error('Error loading transaction lists:', error));
+        }
+
+        function populateInternalTable(transactions) {
+            const tbody = document.querySelector('#list-internal table tbody');
+            if (!tbody) return;
+            
+            if (transactions.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="12" style="text-align: center; color: #9ca3af; padding: 20px;">No internal transactions found.</td></tr>';
+                return;
+            }
+            
+            tbody.innerHTML = transactions.map(tx => `
+                <tr>
+                    <td>${tx.controlNumber || 'AUTO-' + tx.id}</td>
+                    <td>${tx.unitCollege || '-'}</td>
+                    <td>${tx.title || '-'}</td>
+                    <td>${formatDate(tx.createdAt)}</td>
+                    <td>${tx.description || '-'}</td>
+                    <td>${tx.documentType || '-'}</td>
+                    <td>${tx.classification || '-'}</td>
+                    <td>-</td>
+                    <td>${tx.remarks || '-'}</td>
+                    <td><svg style="width:16px;height:16px;cursor:pointer;" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg></td>
+                    <td><button style="padding:4px 8px;background:#3b82f6;color:white;border:none;border-radius:4px;cursor:pointer;font-size:11px;">EDIT</button></td>
+                    <td><button style="padding:4px 8px;background:#1d4ed8;color:white;border:none;border-radius:4px;cursor:pointer;font-size:11px;">VIEW</button></td>
+                </tr>
+            `).join('');
+        }
+
+        function populateExternalTable(transactions) {
+            const tbody = document.querySelector('#list-external table tbody');
+            if (!tbody) return;
+            
+            if (transactions.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="12" style="text-align: center; color: #9ca3af; padding: 20px;">No external transactions found.</td></tr>';
+                return;
+            }
+            
+            tbody.innerHTML = transactions.map(tx => `
+                <tr>
+                    <td>${tx.controlNumber || 'AUTO-' + tx.id}</td>
+                    <td>${tx.source || '-'}</td>
+                    <td>${tx.title || '-'}</td>
+                    <td>${formatDate(tx.createdAt)}</td>
+                    <td>${tx.description || '-'}</td>
+                    <td>-</td>
+                    <td>-</td>
+                    <td>-</td>
+                    <td>${tx.remarks || '-'}</td>
+                    <td><svg style="width:16px;height:16px;cursor:pointer;" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg></td>
+                    <td><button style="padding:4px 8px;background:#3b82f6;color:white;border:none;border-radius:4px;cursor:pointer;font-size:11px;">EDIT</button></td>
+                    <td><button style="padding:4px 8px;background:#1d4ed8;color:white;border:none;border-radius:4px;cursor:pointer;font-size:11px;">VIEW</button></td>
+                </tr>
+            `).join('');
+        }
+
+        function populateApplicationTable(transactions) {
+            const tbody = document.querySelector('#list-application table tbody');
+            if (!tbody) return;
+            
+            if (transactions.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="9" style="text-align: center; color: #9ca3af; padding: 20px;">No application letters found.</td></tr>';
+                return;
+            }
+            
+            tbody.innerHTML = transactions.map(tx => `
+                <tr>
+                    <td>${tx.controlNumber || 'AUTO-' + tx.id}</td>
+                    <td>${formatDate(tx.createdAt)}</td>
+                    <td>${tx.applicantName || '-'}</td>
+                    <td>${tx.position || '-'}</td>
+                    <td>${tx.unitCollege || '-'}</td>
+                    <td>${tx.remarks || '-'}</td>
+                    <td>-</td>
+                    <td>${tx.status || 'pending'}</td>
+                    <td><svg style="width:16px;height:16px;cursor:pointer;" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg></td>
+                </tr>
+            `).join('');
+        }
+
+        function populateIssuanceTable(transactions) {
+            const tbody = document.querySelector('#list-issuances table tbody');
+            if (!tbody) return;
+            
+            if (transactions.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="10" style="text-align: center; color: #9ca3af; padding: 20px;">No issuances found.</td></tr>';
+                return;
+            }
+            
+            tbody.innerHTML = transactions.map(tx => `
+                <tr>
+                    <td>${tx.controlNumber || 'AUTO-' + tx.id}</td>
+                    <td>${tx.id}-TRK</td>
+                    <td>${formatDate(tx.createdAt)}</td>
+                    <td>${tx.receivingOffice || '-'}</td>
+                    <td>${tx.subject || tx.description || '-'}</td>
+                    <td>-</td>
+                    <td>-</td>
+                    <td>${tx.remarks || '-'}</td>
+                    <td><svg style="width:16px;height:16px;cursor:pointer;" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg></td>
+                    <td><button style="padding:4px 8px;background:#1d4ed8;color:white;border:none;border-radius:4px;cursor:pointer;font-size:11px;">VIEW</button></td>
+                </tr>
+            `).join('');
+        }
+
+        function formatDate(dateString) {
+            if (!dateString) return '-';
+            const date = new Date(dateString);
+            return date.toLocaleDateString() + ' ' + date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+        }
+
         // Initialize App State based on initial URL
         handleHashChange();
         renderTransactions();
+        loadTransactionLists();
     </script>
 </body>
 </html>

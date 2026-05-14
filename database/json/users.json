@@ -1,0 +1,31 @@
+{
+  "users": [
+    {
+      "id": 1,
+      "name": "John Doe",
+      "email": "john@example.com",
+      "officeId": 1,
+      "role": "admin",
+      "status": "active",
+      "createdAt": "2026-01-01T00:00:00Z"
+    },
+    {
+      "id": 2,
+      "name": "Jane Smith",
+      "email": "jane@example.com",
+      "officeId": 2,
+      "role": "officer",
+      "status": "active",
+      "createdAt": "2026-01-05T00:00:00Z"
+    },
+    {
+      "id": 3,
+      "name": "Mike Johnson",
+      "email": "mike@example.com",
+      "officeId": 1,
+      "role": "staff",
+      "status": "active",
+      "createdAt": "2026-02-01T00:00:00Z"
+    }
+  ]
+}

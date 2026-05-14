@@ -1,0 +1,16 @@
+{
+  "settings": {
+    "appName": "Document Tracking System",
+    "appVersion": "1.0.0",
+    "schoolName": "Default School",
+    "timezone": "Asia/Manila",
+    "dateFormat": "YYYY-MM-DD",
+    "timeFormat": "HH:mm:ss",
+    "itemsPerPage": 10,
+    "maxUploadSize": 10485760,
+    "enableNotifications": true,
+    "maintenanceMode": false,
+    "createdAt": "2026-01-01T00:00:00Z",
+    "updatedAt": "2026-04-12T00:00:00Z"
+  }
+}

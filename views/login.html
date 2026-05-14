@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Login - CSPC Records Management</title>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; font-family: sans-serif; }
+        body { background: linear-gradient(to bottom right, #4a6d45, #1e4566); min-height: 100vh; display: flex; flex-direction: column; align-items: center; justify-content: center; }
+        .header-text { text-align: center; margin-bottom: 64px; }
+        .header-title { font-size: 48px; font-weight: bold; color: #60a5fa; text-shadow: 0 4px 6px rgba(0,0,0,0.3); }
+        .header-subtitle { font-size: 24px; color: white; margin-top: 8px; }
+        .login-card { background-color: rgba(37, 99, 235, 0.9); border-radius: 16px; box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25); width: 400px; padding: 32px; color: white; position: relative; display: flex; flex-direction: column; align-items: center; border: 1px solid #60a5fa; }
+        .badge { position: absolute; top: -48px; background-color: #e5e7eb; border-bottom-left-radius: 50%; border-bottom-right-radius: 50%; width: 96px; height: 96px; display: flex; align-items: center; justify-content: center; box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1); }
+        .badge-text { color: #1e40af; font-size: 12px; font-weight: bold; }
+        .card-title { font-size: 24px; font-weight: bold; margin-top: 40px; }
+        .card-subtitle { font-size: 14px; color: #bfdbfe; margin-top: 4px; margin-bottom: 32px; }
+        .form-container { width: 100%; }
+        .input-group { margin-bottom: 24px; }
+        .input-wrapper { display: flex; align-items: center; border-bottom: 1px solid white; padding: 8px 0; }
+        .input-icon { width: 20px; height: 20px; margin-right: 12px; }
+        .input-field { background: transparent; border: none; width: 100%; color: white; padding: 4px 8px; outline: none; }
+        .input-field::placeholder { color: #bfdbfe; }
+        .submit-btn { width: 100%; background-color: #eab308; color: black; font-weight: bold; padding: 12px; border: none; border-radius: 4px; cursor: pointer; transition: background-color 0.3s; }
+        .submit-btn:hover { background-color: #facc15; }
+        .card-footer { margin-top: 32px; font-size: 12px; font-weight: bold; color: #bfdbfe; letter-spacing: 1px; }
+    </style>
+</head>
+<body>
+    <div class="header-text">
+        <h1 class="header-title">CSPC</h1>
+        <h2 class="header-subtitle">Records Management System</h2>
+    </div>
+    <div class="login-card">
+        <div class="badge"><span class="badge-text">LOGO</span></div>
+        <h3 class="card-title">LOGIN</h3>
+        <p class="card-subtitle">Please enter your details to log in your account</p>
+        <form class="form-container" action="/dashboard" method="GET">
+            <div class="input-group">
+                <div class="input-wrapper">
+                    <svg class="input-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"></path></svg>
+                    <input class="input-field" type="text" placeholder="Username" aria-label="Username">
+                </div>
+            </div>
+            <div class="input-group">
+                <div class="input-wrapper">
+                    <svg class="input-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"></path></svg>
+                    <input class="input-field" type="password" placeholder="Password" aria-label="Password">
+                </div>
+            </div>
+            <button class="submit-btn" type="submit">Log In</button>
+        </form>
+        <div class="card-footer">RECORDS AND FREEDOM OF INFORMATION OFFICE</div>
+    </div>
+</body>
+</html>

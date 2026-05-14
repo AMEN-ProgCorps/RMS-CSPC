@@ -1,0 +1,933 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dashboard - CSPC</title>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; font-family: sans-serif; }
+        body { background-color: #212121; height: 100vh; display: flex; flex-direction: column; overflow: hidden; }
+        header { background-color: #1d4ed8; color: white; display: flex; justify-content: space-between; align-items: center; padding: 8px 16px; flex-shrink: 0; }
+        .header-left { display: flex; align-items: center; gap: 12px; }
+        .logo-circle { background-color: white; color: #1e40af; border-radius: 50%; width: 32px; height: 32px; display: flex; justify-content: center; align-items: center; font-size: 12px; font-weight: bold; }
+        .header-title-small { font-size: 10px; color: #bfdbfe; }
+        .header-title-large { font-size: 18px; font-weight: bold; color: #facc15; }
+        .header-right { display: flex; align-items: center; gap: 16px; position: relative; }
+        .office-text { font-size: 10px; color: #bfdbfe; text-align: right; }
+        .actions-btn { background-color: #2563eb; color: white; border: none; font-size: 12px; font-weight: 600; padding: 4px 12px; border-radius: 4px; cursor: pointer; display: flex; align-items: center; gap: 4px; }
+        .actions-btn:hover { background-color: #3b82f6; }
+        
+        .dropdown { display: none; position: absolute; right: 0; top: 32px; background: white; border-radius: 6px; box-shadow: 0 10px 15px rgba(0,0,0,0.1); width: 192px; z-index: 50; border: 1px solid #e5e7eb; padding: 8px 0; color: #1f2937; font-size: 14px; }
+        .dropdown.show { display: block; }
+        .dropdown-label { padding: 4px 16px; font-size: 12px; color: #9ca3af; }
+        .dropdown-item { display: flex; align-items: center; gap: 8px; padding: 8px 16px; text-decoration: none; color: inherit; }
+        .dropdown-item:hover { background-color: #f3f4f6; }
+        .dropdown-divider { border-top: 1px solid #e5e7eb; margin: 4px 0; }
+        .dropdown-logout { color: #dc2626; }
+        
+        .main-workspace { display: flex; flex: 1; overflow: hidden; padding: 8px; gap: 8px; }
+        .sidebar { background-color: white; border-radius: 8px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); display: flex; flex-direction: column; width: 256px; transition: width 0.3s; flex-shrink: 0; position: relative; overflow: hidden; }
+        .sidebar.collapsed { width: 72px; }
+        
+        .sidebar-header { padding: 16px; border-bottom: 1px solid #e5e7eb; display: flex; align-items: center; gap: 12px; white-space: nowrap; overflow: hidden; }
+        .toggle-btn { background: transparent; border: none; cursor: pointer; padding: 4px; color: #4b5563; flex-shrink: 0; border-radius: 4px; }
+        .toggle-btn:hover { background-color: #f3f4f6; }
+        
+        .sidebar-nav { flex: 1; overflow-y: auto; overflow-x: hidden; padding: 8px 0; list-style: none; }
+        .nav-item { display: flex; align-items: center; gap: 12px; padding: 10px 16px; text-decoration: none; color: #4b5563; white-space: nowrap; border-left: 4px solid transparent; cursor: pointer; font-size: 13px; }
+        .nav-item:hover { background-color: #f3f4f6; }
+        .nav-item.active { background-color: #eff6ff; color: #1d4ed8; border-left: 4px solid #1d4ed8; font-weight: bold; }
+        .nav-icon { width: 18px; height: 18px; flex-shrink: 0; }
+        
+        .submenu { display: none; list-style: none; padding-left: 32px; background-color: #f9fafb; }
+        .submenu.show { display: block; }
+        .sub-item { padding: 8px 16px; font-size: 12px; border-left: none; }
+        .sub-item.active { background-color: #e5e7eb; color: #1d4ed8; border-left: none; font-weight: bold; }
+        
+        .sidebar-footer { padding: 16px; border-top: 1px solid #e5e7eb; white-space: nowrap; overflow: hidden; display: flex; flex-direction: column; gap: 16px; }
+        .notification-container { position: relative; cursor: pointer; width: max-content; color: #4b5563; }
+        .notification-dot { position: absolute; top: 0; right: 0; width: 8px; height: 8px; background-color: #ef4444; border-radius: 50%; border: 1.5px solid white; }
+        .footer-user { display: flex; align-items: center; gap: 12px; color: #4b5563; }
+        .user-avatar { width: 30px; height: 30px; border-radius: 50%; background-color: #facc15; color: white; display: flex; justify-content: center; align-items: center; font-weight: bold; flex-shrink: 0; }
+        
+        .sidebar.collapsed .sidebar-text, .sidebar.collapsed .submenu-arrow { opacity: 0; pointer-events: none; transition: opacity 0.2s; display: none; }
+        
+        /* Notification Popup */
+        .notification-popup { display: none; position: fixed; bottom: 90px; left: 24px; background: white; border-radius: 6px; box-shadow: 0 10px 25px rgba(0,0,0,0.2); width: 280px; z-index: 1000; border: 1px solid #e5e7eb; padding: 0; color: #1f2937; overflow: hidden; }
+        .notification-popup.show { display: block; }
+        .notification-header { background-color: #f9fafb; padding: 12px 16px; font-weight: bold; font-size: 14px; border-bottom: 1px solid #e5e7eb; color: #1e40af; }
+        .notification-list { max-height: 200px; overflow-y: auto; }
+        .notification-item { padding: 12px 16px; font-size: 12px; border-bottom: 1px solid #f3f4f6; line-height: 1.4; cursor: pointer; }
+        .notification-item:hover { background-color: #eff6ff; }
+        .notification-item:last-child { border-bottom: none; }
+        .notification-time { font-size: 10px; color: #9ca3af; margin-top: 4px; display: block; }
+
+        .content-area { flex: 1; background-color: white; border-radius: 8px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); border: 1px solid #60a5fa; display: flex; flex-direction: column; overflow: hidden; position: relative; padding: 24px; overflow-y: auto; }
+        
+        .content-section { display: none; height: 100%; }
+        .content-section.active { display: block; }
+        
+        .empty-state { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; background-color: #f9fafb; border: 2px dashed #d1d5db; border-radius: 8px; color: #9ca3af; text-align: center; padding: 32px; height: 100%; min-height: 400px; }
+        .empty-icon { width: 64px; height: 64px; margin-bottom: 16px; color: #d1d5db; }
+        .empty-title { font-size: 18px; font-weight: 600; color: #4b5563; }
+        .empty-text { font-size: 14px; margin-top: 8px; max-width: 400px; }
+
+        .form-header { color: #1e40af; font-size: 14px; font-weight: bold; margin-bottom: 24px; letter-spacing: 0.5px; text-transform: uppercase; }
+        .form-group { display: flex; align-items: flex-start; margin-bottom: 16px; max-width: 600px; }
+        .form-label { width: 160px; font-size: 12px; font-weight: 600; color: #374151; padding-top: 6px; flex-shrink: 0; }
+        .form-input-container { flex: 1; display: flex; align-items: center; gap: 8px; }
+        .form-input { width: 100%; padding: 6px 10px; border: 1px solid #d1d5db; border-radius: 4px; font-size: 12px; outline: none; transition: border-color 0.2s; }
+        .form-input:focus { border-color: #3b82f6; }
+        .form-input[readonly] { background-color: #f3f4f6; color: #9ca3af; }
+        .form-select { width: 100%; padding: 6px 10px; border: 1px solid #d1d5db; border-radius: 4px; font-size: 12px; outline: none; background-color: white; }
+        .form-textarea { width: 100%; padding: 6px 10px; border: 1px solid #d1d5db; border-radius: 4px; font-size: 12px; outline: none; min-height: 80px; resize: vertical; }
+        .update-link { font-size: 10px; color: #3b82f6; text-decoration: none; white-space: nowrap; margin-left: 8px; }
+        .update-link:hover { text-decoration: underline; }
+        
+        .btn-submit { background-color: #2563eb; color: white; padding: 8px 24px; border: none; border-radius: 4px; font-size: 12px; font-weight: bold; cursor: pointer; transition: background-color 0.2s; }
+        .btn-submit:hover { background-color: #1d4ed8; }
+
+        /* Dashboard Cards */
+        .transactions-grid { display: none; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 16px; padding-bottom: 24px; }
+        .transactions-grid.show { display: grid; }
+        .tx-card { border: 1px solid #e5e7eb; border-radius: 8px; padding: 12px; background: white; display: flex; flex-direction: column; font-family: sans-serif; }
+        .tx-card-divider { border-bottom: 1px solid #d1d5db; margin: 8px 0; }
+        .tx-card-header { display: flex; justify-content: space-between; align-items: center; }
+        .tx-id-text { font-size: 11px; font-weight: bold; color: #374151; }
+        .tx-status-group { display: flex; align-items: center; gap: 6px; }
+        .tx-time-ago { font-size: 9px; color: #9ca3af; }
+        .tx-badge-icon { width: 12px; height: 12px; clip-path: polygon(50% 0%, 100% 50%, 50% 100%, 0% 50%); }
+        .tx-badge-red { background-color: #ef4444; }
+        .tx-badge-orange { background-color: #f97316; }
+        .tx-badge-green { background-color: #10b981; }
+        .tx-section-col { display: flex; flex-direction: column; gap: 2px; }
+        .tx-label { font-size: 10px; font-weight: bold; color: #1f2937; }
+        .tx-value { font-size: 10px; color: #6b7280; line-height: 1.3; }
+        .tx-scroll-area { max-height: 48px; overflow-y: auto; padding-right: 4px; }
+        .tx-scroll-area::-webkit-scrollbar { width: 4px; }
+        .tx-scroll-area::-webkit-scrollbar-thumb { background: #d1d5db; border-radius: 4px; }
+        .tx-view-btn { width: 100%; background-color: #3b82f6; color: white; border: none; border-radius: 4px; padding: 8px; font-size: 10px; font-weight: bold; cursor: pointer; display: flex; justify-content: center; align-items: center; gap: 4px; margin-top: 8px; }
+        .tx-view-btn:hover { background-color: #2563eb; }
+
+        /* Data Tables */
+        .table-controls { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; font-size: 12px; }
+        .table-controls-right { display: flex; gap: 8px; align-items: center; }
+        .btn-export { background-color: #2563eb; color: white; border: none; padding: 6px 16px; font-size: 11px; border-radius: 4px; cursor: pointer; display: flex; align-items: center; gap: 6px; font-weight: bold; }
+        .search-box-small { border: 1px solid #d1d5db; border-radius: 4px; padding: 4px 8px; font-size: 11px; outline: none; }
+        .rows-select { border: 1px solid #d1d5db; border-radius: 4px; padding: 4px; font-size: 11px; outline: none; }
+        
+        .data-table-container { overflow-x: auto; border: 1px solid #e5e7eb; border-radius: 4px; }
+        .data-table { width: 100%; border-collapse: collapse; font-size: 11px; text-align: left; white-space: nowrap; }
+        .data-table th, .data-table td { padding: 10px 12px; border-bottom: 1px solid #e5e7eb; border-right: 1px solid #e5e7eb; }
+        .data-table th:last-child, .data-table td:last-child { border-right: none; }
+        .data-table th { background-color: #f9fafb; font-weight: bold; color: #374151; }
+        .data-table tbody tr:hover { background-color: #f3f4f6; }
+
+        /* Toggles and Search Inputs */
+        .toggle-switch-container { display: flex; align-items: center; gap: 8px; font-size: 12px; margin-bottom: 24px; }
+        .toggle-switch { position: relative; display: inline-block; width: 36px; height: 20px; }
+        .toggle-switch input { opacity: 0; width: 0; height: 0; }
+        .toggle-slider { position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0; background-color: #d1d5db; transition: .4s; border-radius: 20px; }
+        .toggle-slider:before { position: absolute; content: ""; height: 16px; width: 16px; left: 2px; bottom: 2px; background-color: white; transition: .4s; border-radius: 50%; }
+        .toggle-switch input:checked + .toggle-slider { background-color: #2563eb; }
+        .toggle-switch input:checked + .toggle-slider:before { transform: translateX(16px); }
+
+        .search-filter-container { display: flex; gap: 8px; margin-bottom: 32px; flex-wrap: wrap; }
+        .search-filter-btn { border: 1px solid #111827; background: transparent; color: #111827; font-weight: bold; font-size: 11px; padding: 6px 16px; border-radius: 4px; cursor: pointer; text-transform: uppercase; outline: none; }
+        .search-filter-btn.active, .search-filter-btn:hover { background-color: #f3f4f6; }
+        .search-form-row { display: flex; margin-bottom: 24px; gap: 24px; align-items: flex-end; }
+        .search-form-group { flex: 1; display: flex; flex-direction: column; }
+        .search-form-group.horizontal { flex-direction: row; align-items: flex-end; gap: 8px; width: 100%; }
+        .search-label { font-size: 12px; font-weight: bold; color: #111827; margin-bottom: 4px; white-space: nowrap; }
+        .search-input-line { border: none; border-bottom: 1px solid #d1d5db; outline: none; padding: 4px 0; font-size: 12px; width: 100%; background: transparent; transition: border-bottom-color 0.2s; }
+        .search-input-line:focus { border-bottom-color: #3b82f6; }
+
+        .action-buttons-row { display: flex; justify-content: flex-end; gap: 8px; margin-top: 24px; flex-wrap: wrap; }
+        .btn-action { background-color: #2563eb; color: white; border: none; padding: 6px 12px; font-size: 10px; border-radius: 4px; cursor: pointer; display: flex; align-items: center; gap: 6px; font-weight: bold; }
+        .btn-action:hover { background-color: #1d4ed8; }
+    </style>
+</head>
+<body>
+    <header>
+        <div class="header-left">
+            <div class="logo-circle">L</div>
+            <div>
+                <div class="header-title-small">Camarines Sur Polytechnic Colleges</div>
+                <div class="header-title-large">Records Management System</div>
+            </div>
+        </div>
+        <div class="header-right">
+            <div class="office-text">Records and Freedom of Information Office</div>
+            <button id="actionsBtn" class="actions-btn">
+                ACTIONS <svg class="nav-icon" style="width:12px;height:12px;" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path></svg>
+            </button>
+            <div id="actionsDropdown" class="dropdown">
+                <div class="dropdown-label">Move to</div>
+                <a href="#" class="dropdown-item">
+                    <svg class="nav-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z"></path></svg> Document Control
+                </a>
+                <a href="#" class="dropdown-item">
+                    <svg class="nav-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z"></path></svg> Records Disposition
+                </a>
+                <div class="dropdown-divider"></div>
+                <a href="/login.html" class="dropdown-item dropdown-logout">
+                    <svg class="nav-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"></path></svg> Logout
+                </a>
+            </div>
+        </div>
+    </header>
+
+    <div class="main-workspace">
+        <aside id="sidebar" class="sidebar">
+            <div class="sidebar-header">
+                <button id="toggleSidebar" class="toggle-btn">
+                    <svg style="width: 24px; height: 24px;" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 3v18m12-18H3v18h18V3z"></path></svg>
+                </button>
+                <div class="sidebar-text">
+                    <div style="font-weight: bold; color: #1e40af; font-size: 16px; line-height: 1.2;">Document Tracking</div>
+                    <div style="font-size: 10px; color: #6b7280;">Version: 2.0.0</div>
+                </div>
+            </div>
+            
+            <ul class="sidebar-nav">
+                <li><a href="#current" class="nav-item active main-nav" data-target="content-default" onclick="resetSearch()">
+                    <svg class="nav-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"></path></svg>
+                    <span class="sidebar-text">Current Transactions</span>
+                </a></li>
+                
+                <li>
+                    <div class="nav-item" id="listTransactionToggle">
+                        <svg class="nav-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 10h16M4 14h16M4 18h16"></path></svg>
+                        <span class="sidebar-text">List Transaction</span>
+                        <svg class="nav-icon submenu-arrow" style="margin-left:auto; width:14px; height:14px;" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path></svg>
+                    </div>
+                    <ul class="submenu" id="listTransactionSubmenu">
+                        <li><a href="#list-internal" class="nav-item sub-item" data-target="list-internal">
+                            <span class="sidebar-text">Internal Transactions</span>
+                        </a></li>
+                        <li><a href="#list-external" class="nav-item sub-item" data-target="list-external">
+                            <span class="sidebar-text">External Transactions</span>
+                        </a></li>
+                        <li><a href="#list-application" class="nav-item sub-item" data-target="list-application">
+                            <span class="sidebar-text">Application Letters</span>
+                        </a></li>
+                        <li><a href="#list-issuances" class="nav-item sub-item" data-target="list-issuances">
+                            <span class="sidebar-text">Issuances</span>
+                        </a></li>
+                    </ul>
+                </li>
+
+                <li><a href="#search" class="nav-item main-nav" data-target="content-search">
+                    <svg class="nav-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path></svg>
+                    <span class="sidebar-text">Search Transactions</span>
+                </a></li>
+
+                <li><a href="#receive" class="nav-item main-nav" data-target="content-receive">
+                    <svg class="nav-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 4H6a2 2 0 00-2 2v12a2 2 0 002 2h12a2 2 0 002-2V6a2 2 0 00-2-2h-2m-4-1v8m0 0l3-3m-3 3L9 8m-5 5h2.586a1 1 0 01.707.293l2.414 2.414a1 1 0 00.707.293h3.172a1 1 0 00.707-.293l2.414-2.414a1 1 0 01.707-.293H20"></path></svg>
+                    <span class="sidebar-text">Receive Transaction</span>
+                </a></li>
+                
+                <li>
+                    <div class="nav-item" id="createTransactionToggle">
+                        <svg class="nav-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"></path></svg>
+                        <span class="sidebar-text">Create Transaction</span>
+                        <svg class="nav-icon submenu-arrow" style="margin-left:auto; width:14px; height:14px;" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path></svg>
+                    </div>
+                    <ul class="submenu" id="createTransactionSubmenu">
+                        <li><a href="#create-internal" class="nav-item sub-item" data-target="form-internal">
+                            <span class="sidebar-text">Internal Transactions</span>
+                        </a></li>
+                        <li><a href="#create-external" class="nav-item sub-item" data-target="form-external">
+                            <span class="sidebar-text">External Transactions</span>
+                        </a></li>
+                        <li><a href="#create-application" class="nav-item sub-item" data-target="form-application">
+                            <span class="sidebar-text">Application Letters</span>
+                        </a></li>
+                        <li><a href="#create-issuances" class="nav-item sub-item" data-target="form-issuances">
+                            <span class="sidebar-text">Issuances</span>
+                        </a></li>
+                    </ul>
+                </li>
+                
+                <li><a href="#settings" class="nav-item main-nav" data-target="content-settings">
+                    <svg class="nav-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"></path><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path></svg>
+                    <span class="sidebar-text">Settings</span>
+                </a></li>
+            </ul>
+
+            <div class="sidebar-footer">
+                <div class="notification-container" id="notificationBtn">
+                    <svg class="nav-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9"></path></svg>
+                    <span class="notification-dot"></span>
+                </div>
+                <div class="footer-user">
+                    <div class="user-avatar">R</div>
+                    <span class="sidebar-text" style="font-size: 12px; font-weight: bold;">Records Office</span>
+                </div>
+                <div class="sidebar-text footer-copy" style="font-size: 10px; color: #9ca3af;">© 2026</div>
+            </div>
+        </aside>
+
+        <main class="content-area">
+            
+            <div id="content-default" class="content-section active">
+                <div class="form-header" style="margin-bottom: 16px;">CURRENT TRANSACTIONS</div>
+                <div id="transactionsContainer" class="transactions-grid"></div>
+                <div class="empty-state" id="emptyStateDisplay">
+                    <svg class="empty-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20 13V6a2 2 0 00-2-2H6a2 2 0 00-2 2v7m16 0v5a2 2 0 01-2 2H6a2 2 0 01-2-2v-5m16 0h-2.586a1 1 0 00-.707.293l-2.414 2.414a1 1 0 01-.707.293h-3.172a1 1 0 01-.707-.293l-2.414-2.414A1 1 0 006.586 13H4"></path></svg>
+                    <div class="empty-title">Current Transactions</div>
+                    <div class="empty-text">No transactions have been created yet. Navigate to "Create Transaction" to add one.</div>
+                </div>
+            </div>
+
+            <div id="content-settings" class="content-section">
+                <div class="form-header" style="margin-bottom: 16px;">SETTINGS</div>
+                <div class="empty-state">
+                    <svg class="empty-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"></path><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path></svg>
+                    <div class="empty-title">Settings & Preferences</div>
+                    <div class="empty-text">This section will contain configuration options for the Records Management System.</div>
+                </div>
+            </div>
+
+            <div id="list-internal" class="content-section">
+                <div class="form-header">INTERNAL TRANSACTION</div>
+                <div class="table-controls">
+                    <div>Rows: <select class="rows-select"><option>10</option><option>25</option><option>50</option></select></div>
+                    <div class="table-controls-right">
+                        Search: <input type="text" class="search-box-small">
+                        <button class="btn-export"><svg style="width:12px;height:12px;" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"></path></svg> EXPORT</button>
+                    </div>
+                </div>
+                <div class="data-table-container">
+                    <table class="data-table">
+                        <thead><tr><th>Ctrl No.</th><th>Unit/College</th><th>Source</th><th>Date/Time</th><th>Subject</th><th>Type of Document</th><th>Classification</th><th>Action Needed</th><th>Remarks</th><th>Info</th><th>Action</th><th>View</th></tr></thead>
+                        <tbody><tr><td colspan="12" style="text-align: center; color: #9ca3af; padding: 20px;">No internal transactions found.</td></tr></tbody>
+                    </table>
+                </div>
+            </div>
+
+            <div id="list-external" class="content-section">
+                <div class="form-header">EXTERNAL TRANSACTION</div>
+                <div class="table-controls">
+                    <div>Rows: <select class="rows-select"><option>10</option><option>25</option><option>50</option></select></div>
+                    <div class="table-controls-right">
+                        Search: <input type="text" class="search-box-small">
+                        <button class="btn-export"><svg style="width:12px;height:12px;" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"></path></svg> EXPORT</button>
+                    </div>
+                </div>
+                <div class="data-table-container">
+                    <table class="data-table">
+                        <thead><tr><th>Ctrl No.</th><th>Unit/College</th><th>Source</th><th>Date/Time</th><th>Subject</th><th>Type of Document</th><th>Classification</th><th>Action Needed</th><th>Remarks</th><th>Info</th><th>Action</th><th>View</th></tr></thead>
+                        <tbody><tr><td colspan="12" style="text-align: center; color: #9ca3af; padding: 20px;">No external transactions found.</td></tr></tbody>
+                    </table>
+                </div>
+            </div>
+
+            <div id="list-application" class="content-section">
+                <div class="form-header">APPLICATION LETTERS</div>
+                <div class="table-controls">
+                    <div>Rows: <select class="rows-select"><option>10</option><option>25</option><option>50</option></select></div>
+                    <div class="table-controls-right">
+                        Search: <input type="text" class="search-box-small">
+                        <button class="btn-export"><svg style="width:12px;height:12px;" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"></path></svg> EXPORT</button>
+                    </div>
+                </div>
+                <div class="data-table-container">
+                    <table class="data-table">
+                        <thead><tr><th>Ctrl No.</th><th>Date/Time</th><th>Name of Applicant</th><th>Position</th><th>Unit/College</th><th>Remarks</th><th>Action Needed</th><th>Status</th><th>Info</th></tr></thead>
+                        <tbody><tr><td colspan="9" style="text-align: center; color: #9ca3af; padding: 20px;">No application letters found.</td></tr></tbody>
+                    </table>
+                </div>
+            </div>
+
+            <div id="list-issuances" class="content-section">
+                <div class="form-header">ISSUANCES</div>
+                <div class="table-controls">
+                    <div>Rows: <select class="rows-select"><option>10</option><option>25</option><option>50</option></select></div>
+                    <div class="table-controls-right">
+                        Search: <input type="text" class="search-box-small">
+                        <button class="btn-export"><svg style="width:12px;height:12px;" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"></path></svg> EXPORT</button>
+                    </div>
+                </div>
+                <div class="data-table-container">
+                    <table class="data-table">
+                        <thead><tr><th>Ctrl No.</th><th>Tracking Number</th><th>Date/Time</th><th>Receiving Office/s</th><th>Subject</th><th>Category</th><th>Classification</th><th>Remarks</th><th>Info</th><th>Action</th></tr></thead>
+                        <tbody><tr><td colspan="10" style="text-align: center; color: #9ca3af; padding: 20px;">No issuances found.</td></tr></tbody>
+                    </table>
+                </div>
+            </div>
+
+            <div id="content-search" class="content-section">
+                <div class="form-header" style="font-size: 16px;">SEARCH TRANSACTIONS</div>
+                <div class="search-filter-container">
+                    <button class="search-filter-btn">INTERNAL</button>
+                    <button class="search-filter-btn">EXTERNAL</button>
+                    <button class="search-filter-btn">APPLICATION</button>
+                    <button class="search-filter-btn">ISSUANCES</button>
+                    <button class="search-filter-btn active">ALL</button>
+                </div>
+                <div class="search-form-row">
+                    <div class="search-form-group">
+                        <label class="search-label">Control #:</label>
+                        <input type="text" id="search-ctrl" class="search-input-line">
+                    </div>
+                    <div class="search-form-group">
+                        <label class="search-label">Barcode:</label>
+                        <input type="text" class="search-input-line" placeholder="Document Barcode">
+                    </div>
+                </div>
+                <div class="search-form-row">
+                    <div class="search-form-group">
+                        <label class="search-label">Originating Office:</label>
+                        <select class="search-input-line"><option></option></select>
+                    </div>
+                </div>
+                <div class="search-form-row">
+                    <div class="search-form-group horizontal">
+                        <label class="search-label">File Code:</label>
+                        <input type="text" class="search-input-line">
+                    </div>
+                </div>
+                <div class="search-form-row">
+                    <div class="search-form-group horizontal">
+                        <label class="search-label">Type of Document:</label>
+                        <input type="text" class="search-input-line">
+                    </div>
+                </div>
+                <div class="search-form-row">
+                    <div class="search-form-group horizontal">
+                        <label class="search-label">Subject:</label>
+                        <input type="text" id="search-subject" class="search-input-line">
+                    </div>
+                </div>
+                <div class="search-form-row">
+                    <div class="search-form-group horizontal">
+                        <label class="search-label">Particulars:</label>
+                        <input type="text" class="search-input-line">
+                    </div>
+                </div>
+                <div class="search-form-row" style="margin-top: 10px;">
+                    <div class="search-form-group" style="flex: none;">
+                        <label class="search-label">Date Created:</label>
+                    </div>
+                </div>
+                <div class="search-form-row" style="margin-top: -10px;">
+                    <div class="search-form-group">
+                        <input type="text" class="search-input-line" placeholder="Date start">
+                    </div>
+                    <div style="font-size: 12px; font-weight: bold; color: #374151; padding-bottom: 4px;">to</div>
+                    <div class="search-form-group">
+                        <input type="text" class="search-input-line" placeholder="Date end">
+                    </div>
+                </div>
+                <div style="display: flex; justify-content: flex-end; margin-top: 32px;">
+                    <button class="btn-submit" onclick="executeSearch()" style="margin: 0; display: flex; align-items: center; gap: 8px;">
+                        <svg style="width:14px;height:14px;" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path></svg> SEARCH TRANSACTIONS
+                    </button>
+                </div>
+            </div>
+
+            <div id="content-receive" class="content-section">
+                <div id="receive-step-1">
+                    <div class="form-header">RECEIVE TRANSACTION</div>
+                    <div style="margin-bottom: 12px; font-size: 12px; font-weight: bold; color: #374151;">Copy Furnished?</div>
+                    <div class="toggle-switch-container">
+                        <span>No</span>
+                        <label class="toggle-switch">
+                            <input type="checkbox">
+                            <span class="toggle-slider"></span>
+                        </label>
+                        <span>Yes</span>
+                    </div>
+                    <div style="margin-bottom: 12px; font-size: 12px; font-weight: bold; color: #374151;">Document Barcode</div>
+                    <input type="text" class="form-input" style="max-width: 400px;">
+                    <div style="display: flex; justify-content: flex-end; margin-top: 40px;">
+                        <button class="btn-submit" onclick="showReceiveStep2()">
+                            <svg style="width:14px;height:14px;margin-right:6px;display:inline-block;vertical-align:-2px;" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 4H6a2 2 0 00-2 2v12a2 2 0 002 2h12a2 2 0 002-2V6a2 2 0 00-2-2h-2m-4-1v8m0 0l3-3m-3 3L9 8m-5 5h2.586a1 1 0 01.707.293l2.414 2.414a1 1 0 00.707.293h3.172a1 1 0 00.707-.293l2.414-2.414a1 1 0 01.707-.293H20"></path></svg> RECEIVE TRANSACTIONS
+                        </button>
+                    </div>
+                </div>
+
+                <div id="receive-step-2" style="display: none;">
+                    <div class="form-header">RECEIVE TRANSACTION</div>
+                    <div style="display: flex; gap: 40px; margin-bottom: 24px;">
+                        <div style="flex: 1; max-width: 400px;">
+                            <div style="font-size: 12px; font-weight: bold; margin-bottom: 8px;">Control #:</div>
+                            <div style="display: flex; align-items: center;">
+                                <input type="text" class="form-input">
+                                <a href="#" class="update-link">Update/Edit</a>
+                            </div>
+                        </div>
+                        <div style="flex: 1; max-width: 400px;">
+                            <div style="font-size: 12px; font-weight: bold; margin-bottom: 8px;">File Code:</div>
+                            <div style="display: flex; align-items: center;">
+                                <input type="text" class="form-input">
+                                <a href="#" class="update-link">Update/Edit</a>
+                            </div>
+                        </div>
+                    </div>
+                    <div style="margin-bottom: 24px;">
+                        <div style="font-size: 12px; font-weight: bold; margin-bottom: 8px;">Particulars:</div>
+                        <div style="min-height: 60px;"></div>
+                    </div>
+                    <div style="font-size: 12px; font-weight: bold; margin-bottom: 8px;">Transaction Path</div>
+                    <div class="data-table-container">
+                        <table class="data-table">
+                            <thead>
+                                <tr>
+                                    <th style="width: 30px;">#</th>
+                                    <th>Office</th>
+                                    <th>Date In</th>
+                                    <th>Date Out</th>
+                                    <th>Action Needed</th>
+                                    <th>Notes</th>
+                                    <th style="text-align: center;">Info</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <tr>
+                                    <td>1</td><td>Lorem ipsum dolor sit amet...</td><td>2023-12-11 10:36:50</td><td>2023-12-11 11:00:00</td><td>Created</td><td></td><td style="text-align: center;"><svg style="width:14px;height:14px;color:#9ca3af;display:inline-block;" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg></td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                    <div class="action-buttons-row">
+                        <button class="btn-action"><svg style="width:12px;height:12px;" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"></path></svg> VIEW ATTACH</button>
+                        <button class="btn-action"><svg style="width:12px;height:12px;" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path></svg> COMPLETE</button>
+                        <button class="btn-action"><svg style="width:12px;height:12px;" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z"></path></svg> EDIT</button>
+                        <button class="btn-action"><svg style="width:12px;height:12px;" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg> DELETE</button>
+                        <button class="btn-action"><svg style="width:12px;height:12px;" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z"></path></svg> PRINT</button>
+                        <button class="btn-action"><svg style="width:12px;height:12px;" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v1m6 11h2m-6 0h-2v4m0-11v3m0 0h.01M12 12h4.01M16 20h4M4 12h4m12 0h.01M5 8h2a1 1 0 001-1V5a1 1 0 00-1-1H5a1 1 0 00-1 1v2a1 1 0 001 1zm14 0h2a1 1 0 001-1V5a1 1 0 00-1-1h-2a1 1 0 00-1 1v2a1 1 0 001 1zM5 20h2a1 1 0 001-1v-2a1 1 0 00-1-1H5a1 1 0 00-1 1v2a1 1 0 001 1z"></path></svg> BARCODE</button>
+                    </div>
+                </div>
+            </div>
+
+            <form id="form-internal" class="content-section" onsubmit="handleTransactionSubmit(event, 'Internal')">
+                <div class="form-header">INTERNAL TRANSACTION</div>
+                <div class="form-group">
+                    <div class="form-label">Control Number:</div>
+                    <div class="form-input-container">
+                        <input type="text" class="form-input" readonly value="AUTO GENERATED NUMBER">
+                    </div>
+                </div>
+                <div class="form-group">
+                    <div class="form-label">Unit/College:</div>
+                    <div class="form-input-container">
+                        <input type="text" id="int-unit" class="form-input" required>
+                        <a href="#" class="update-link">Update Unit</a>
+                    </div>
+                </div>
+                <div class="form-group">
+                    <div class="form-label">Name of Requestor:</div>
+                    <div class="form-input-container">
+                        <input type="text" id="int-name" class="form-input" required>
+                    </div>
+                </div>
+                <div class="form-group">
+                    <div class="form-label">Type of Document:</div>
+                    <div class="form-input-container">
+                        <input type="text" id="int-doc-type" class="form-input" required>
+                    </div>
+                </div>
+                <div class="form-group">
+                    <div class="form-label">Classification:</div>
+                    <div class="form-input-container">
+                        <select class="form-select" id="int-class">
+                            <option value="Routine">Routine</option>
+                            <option value="Urgent">Urgent</option>
+                            <option value="Confidential">Confidential</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="form-group">
+                    <div class="form-label">Subject:</div>
+                    <div class="form-input-container">
+                        <textarea id="int-subject" class="form-textarea" required></textarea>
+                    </div>
+                </div>
+                <button type="submit" class="btn-submit" style="margin-left: 160px; margin-top: 16px;">Submit Internal Transaction</button>
+            </form>
+
+            <form id="form-external" class="content-section" onsubmit="handleTransactionSubmit(event, 'External')">
+                <div class="form-header">EXTERNAL TRANSACTION</div>
+                <div class="form-group">
+                    <div class="form-label">Control Number:</div>
+                    <div class="form-input-container">
+                        <input type="text" class="form-input" readonly value="AUTO GENERATED NUMBER">
+                    </div>
+                </div>
+                <div class="form-group">
+                    <div class="form-label">Source:</div>
+                    <div class="form-input-container">
+                        <input type="text" id="ext-source" class="form-input" required>
+                        <a href="#" class="update-link">Update Unit</a>
+                    </div>
+                </div>
+                <div class="form-group">
+                    <div class="form-label">Name of Requestor:</div>
+                    <div class="form-input-container">
+                        <input type="text" id="ext-name" class="form-input" required>
+                    </div>
+                </div>
+                <div class="form-group">
+                    <div class="form-label">Subject:</div>
+                    <div class="form-input-container">
+                        <textarea id="ext-subject" class="form-textarea" required></textarea>
+                    </div>
+                </div>
+                <button type="submit" class="btn-submit" style="margin-left: 160px; margin-top: 16px;">Submit External Transaction</button>
+            </form>
+
+            <form id="form-application" class="content-section" onsubmit="handleTransactionSubmit(event, 'Application')">
+                <div class="form-header">APPLICATION DOCUMENT</div>
+                <div class="form-group">
+                    <div class="form-label">Control Number:</div>
+                    <div class="form-input-container">
+                        <input type="text" class="form-input" readonly value="AUTO GENERATED NUMBER">
+                    </div>
+                </div>
+                <div class="form-group">
+                    <div class="form-label">Type of Document:</div>
+                    <div class="form-input-container">
+                        <input type="text" id="app-type" class="form-input" required>
+                    </div>
+                </div>
+                <div class="form-group">
+                    <div class="form-label">Name of Applicant:</div>
+                    <div class="form-input-container">
+                        <input type="text" id="app-name" class="form-input" required>
+                    </div>
+                </div>
+                <div class="form-group">
+                    <div class="form-label">Position:</div>
+                    <div class="form-input-container">
+                        <input type="text" id="app-pos" class="form-input" required>
+                    </div>
+                </div>
+                <button type="submit" class="btn-submit" style="margin-left: 160px; margin-top: 16px;">Submit Application</button>
+            </form>
+
+            <form id="form-issuances" class="content-section" onsubmit="handleTransactionSubmit(event, 'Issuance')">
+                <div class="form-header">ISSUANCES</div>
+                <div class="form-group">
+                    <div class="form-label">Control Number:</div>
+                    <div class="form-input-container">
+                        <input type="text" class="form-input" readonly value="AUTO GENERATED NUMBER">
+                    </div>
+                </div>
+                <div class="form-group">
+                    <div class="form-label">Subject:</div>
+                    <div class="form-input-container">
+                        <textarea id="iss-subject" class="form-textarea" required></textarea>
+                    </div>
+                </div>
+                <div class="form-group">
+                    <div class="form-label">Receiving Office/s:</div>
+                    <div class="form-input-container">
+                        <select id="iss-office" class="form-select">
+                            <option value="President's Office">President's Office</option>
+                            <option value="Registrar">Registrar</option>
+                            <option value="Finance">Finance</option>
+                        </select>
+                    </div>
+                </div>
+                <button type="submit" class="btn-submit" style="margin-left: 160px; margin-top: 16px;">Submit Issuance</button>
+            </form>
+            
+        </main>
+    </div>
+
+    <div id="notificationPopup" class="notification-popup">
+        <div class="notification-header">System Notifications</div>
+        <div class="notification-list">
+            <div class="notification-item">
+                New document received from President's Office.
+                <span class="notification-time">10 minutes ago</span>
+            </div>
+            <div class="notification-item">
+                Transaction #0000-0000 requires your approval.
+                <span class="notification-time">1 hour ago</span>
+            </div>
+            <div class="notification-item">
+                Daily backup completed successfully.
+                <span class="notification-time">Yesterday</span>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Set to empty to ensure "removed content on the content"
+        let transactions = [];
+
+        function renderTransactions(txList = transactions) {
+            const container = document.getElementById('transactionsContainer');
+            const emptyState = document.getElementById('emptyStateDisplay');
+            
+            container.innerHTML = ''; 
+
+            if (txList.length === 0) {
+                container.classList.remove('show');
+                emptyState.style.display = 'flex';
+            } else {
+                emptyState.style.display = 'none';
+                container.classList.add('show');
+                
+                txList.forEach(tx => {
+                    const card = document.createElement('div');
+                    card.className = 'tx-card';
+                    card.innerHTML = `
+                        <div class="tx-card-header">
+                            <span class="tx-id-text">ID: ${tx.id}</span>
+                            <div class="tx-status-group">
+                                <span class="tx-time-ago">${tx.timeAgo || 'Just now'}</span>
+                                <div class="tx-badge-icon ${tx.statusClass || 'tx-badge-green'}"></div>
+                            </div>
+                        </div>
+                        <div class="tx-card-divider"></div>
+                        
+                        <div class="tx-section-col">
+                            <span class="tx-label">Originated From:</span>
+                            <span class="tx-value">${tx.originatedFrom || '-'}</span>
+                        </div>
+                        <div class="tx-card-divider"></div>
+
+                        <div class="tx-section-col">
+                            <span class="tx-label">Date Created: <span style="font-weight:normal; color:#6b7280">${tx.dateCreated || '-'}</span></span>
+                            <span class="tx-label">Created By: <span style="font-weight:normal; color:#6b7280">${tx.createdBy || '-'}</span></span>
+                        </div>
+                        <div class="tx-card-divider"></div>
+
+                        <div class="tx-section-col">
+                            <span class="tx-label">Document Type: <span style="font-weight:normal; color:#6b7280">${tx.documentType || '-'}</span></span>
+                            <span class="tx-label">Subject: <span style="font-weight:normal; color:#6b7280">${tx.subject || '-'}</span></span>
+                        </div>
+                        <div class="tx-card-divider"></div>
+
+                        <div class="tx-section-col">
+                            <span class="tx-label">Received From: <span style="font-weight:normal; color:#6b7280">${tx.receivedFrom || '-'}</span></span>
+                            <span class="tx-label">Received Date: <span style="font-weight:normal; color:#6b7280">${tx.receivedDate || '-'}</span></span>
+                        </div>
+                        <div class="tx-card-divider"></div>
+
+                        <div class="tx-section-col">
+                            <span class="tx-label">Next Receiving Office:</span>
+                            <span class="tx-value">${tx.nextReceivingOffice || '-'}</span>
+                        </div>
+                        <div class="tx-card-divider"></div>
+
+                        <div class="tx-section-col tx-scroll-area">
+                            <span class="tx-label">Particulars:</span>
+                            <span class="tx-value">${tx.particulars || '-'}</span>
+                        </div>
+                        <div class="tx-card-divider"></div>
+
+                        <div class="tx-section-col tx-scroll-area" style="flex:1;">
+                            <span class="tx-label">Notes<br>From: ${tx.notesFrom || '-'}</span>
+                            <span class="tx-value">${tx.notes || '-'}</span>
+                        </div>
+                        
+                        <button class="tx-view-btn">
+                            <svg style="width:12px;height:12px;" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg> VIEW TRANSACTION
+                        </button>
+                    `;
+                    container.appendChild(card);
+                });
+            }
+        }
+
+        function handleTransactionSubmit(event, type) {
+            event.preventDefault(); 
+            
+            const newTx = {
+                id: '0000-0000-' + Math.floor(1000 + Math.random() * 9000),
+                timeAgo: 'Just now',
+                statusClass: 'tx-badge-green',
+                dateCreated: new Date().toISOString().slice(0, 19).replace('T', ' '),
+                createdBy: 'Current User',
+                receivedFrom: 'System',
+                receivedDate: new Date().toISOString().slice(0, 19).replace('T', ' '),
+                nextReceivingOffice: 'Pending',
+                particulars: 'N/A',
+                notesFrom: 'System',
+                notes: 'Newly created transaction.'
+            };
+
+            if (type === 'Internal') {
+                newTx.originatedFrom = document.getElementById('int-name').value;
+                newTx.subject = document.getElementById('int-subject').value;
+                newTx.documentType = document.getElementById('int-doc-type').value;
+            } else if (type === 'External') {
+                newTx.originatedFrom = document.getElementById('ext-name').value;
+                newTx.subject = document.getElementById('ext-subject').value;
+                newTx.documentType = 'External Document';
+            } else if (type === 'Application') {
+                newTx.originatedFrom = document.getElementById('app-name').value;
+                newTx.subject = 'Application for ' + document.getElementById('app-pos').value;
+                newTx.documentType = document.getElementById('app-type').value;
+            } else if (type === 'Issuance') {
+                newTx.originatedFrom = 'Issuance System';
+                newTx.subject = document.getElementById('iss-subject').value;
+                newTx.documentType = 'Issuance';
+            }
+
+            transactions.unshift(newTx); 
+            renderTransactions();
+            event.target.reset();
+            
+            // Redirect via URL Route
+            window.location.hash = '#current';
+        }
+
+        function executeSearch() {
+            const ctrlQuery = document.getElementById('search-ctrl').value.toLowerCase();
+            const subjQuery = document.getElementById('search-subject').value.toLowerCase();
+            
+            const filtered = transactions.filter(tx => {
+                const matchesCtrl = tx.id.toLowerCase().includes(ctrlQuery);
+                const matchesSubj = tx.subject && tx.subject.toLowerCase().includes(subjQuery);
+                return matchesCtrl && matchesSubj;
+            });
+            
+            renderTransactions(filtered);
+            window.location.hash = '#current';
+        }
+
+        function resetSearch() {
+            renderTransactions();
+        }
+
+        /* --------------------------------- */
+        /* URL Routing Logic (Hash based)    */
+        /* --------------------------------- */
+        
+        const hashToTargetMap = {
+            '#current': 'content-default',
+            '#list-internal': 'list-internal',
+            '#list-external': 'list-external',
+            '#list-application': 'list-application',
+            '#list-issuances': 'list-issuances',
+            '#search': 'content-search',
+            '#receive': 'content-receive',
+            '#create-internal': 'form-internal',
+            '#create-external': 'form-external',
+            '#create-application': 'form-application',
+            '#create-issuances': 'form-issuances',
+            '#settings': 'content-settings'
+        };
+
+        function handleHashChange() {
+            let hash = window.location.hash;
+            if (!hash || !hashToTargetMap[hash]) {
+                hash = '#current'; // Default route
+            }
+            
+            const targetId = hashToTargetMap[hash];
+            const navItem = document.querySelector(`.main-nav[data-target="${targetId}"], .sub-item[data-target="${targetId}"]`);
+            
+            if(navItem) {
+                activateRoute(navItem, targetId);
+            }
+        }
+
+        function activateRoute(item, targetId) {
+            // Clear active classes
+            document.querySelectorAll('.main-nav').forEach(n => n.classList.remove('active'));
+            document.querySelectorAll('.sub-item').forEach(n => n.classList.remove('active'));
+            document.getElementById('createTransactionToggle').classList.remove('active');
+            document.getElementById('listTransactionToggle').classList.remove('active');
+            
+            // Highlight the clicked item in sidebar
+            if (item.classList.contains('sub-item')) {
+                item.classList.add('active');
+                if(item.closest('#createTransactionSubmenu')) {
+                    document.getElementById('createTransactionToggle').classList.add('active');
+                    document.getElementById('createTransactionSubmenu').classList.add('show');
+                } else if (item.closest('#listTransactionSubmenu')) {
+                    document.getElementById('listTransactionToggle').classList.add('active');
+                    document.getElementById('listTransactionSubmenu').classList.add('show');
+                }
+            } else {
+                item.classList.add('active');
+            }
+
+            // Hide all content areas, show target
+            document.querySelectorAll('.content-section').forEach(sec => sec.classList.remove('active'));
+            document.getElementById(targetId).classList.add('active');
+
+            // Special UI Resets based on route
+            if (targetId === 'content-receive') {
+                document.getElementById('receive-step-1').style.display = 'block';
+                document.getElementById('receive-step-2').style.display = 'none';
+            }
+        }
+
+        // Listen for URL changes
+        window.addEventListener('hashchange', handleHashChange);
+        
+        /* --------------------------------- */
+        /* Interactivity / UI Logics         */
+        /* --------------------------------- */
+        const sidebar = document.getElementById('sidebar');
+        const toggleBtn = document.getElementById('toggleSidebar');
+        toggleBtn.addEventListener('click', () => {
+            sidebar.classList.toggle('collapsed');
+        });
+
+        const actionsBtn = document.getElementById('actionsBtn');
+        const actionsDropdown = document.getElementById('actionsDropdown');
+        actionsBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            actionsDropdown.classList.toggle('show');
+            notificationPopup.classList.remove('show');
+        });
+
+        const notificationBtn = document.getElementById('notificationBtn');
+        const notificationPopup = document.getElementById('notificationPopup');
+        notificationBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            notificationPopup.classList.toggle('show');
+            actionsDropdown.classList.remove('show');
+        });
+
+        document.addEventListener('click', (e) => {
+            if(actionsDropdown.classList.contains('show') && !actionsDropdown.contains(e.target)) {
+                actionsDropdown.classList.remove('show');
+            }
+            if(notificationPopup.classList.contains('show') && !notificationPopup.contains(e.target)) {
+                notificationPopup.classList.remove('show');
+            }
+        });
+
+        function setupToggleMenu(toggleId, submenuId) {
+            const toggle = document.getElementById(toggleId);
+            const submenu = document.getElementById(submenuId);
+            if(toggle && submenu) {
+                toggle.addEventListener('click', () => {
+                    if (!sidebar.classList.contains('collapsed')) {
+                        submenu.classList.toggle('show');
+                    }
+                });
+            }
+        }
+        setupToggleMenu('createTransactionToggle', 'createTransactionSubmenu');
+        setupToggleMenu('listTransactionToggle', 'listTransactionSubmenu');
+
+        const searchFilters = document.querySelectorAll('.search-filter-btn');
+        searchFilters.forEach(btn => {
+            btn.addEventListener('click', () => {
+                searchFilters.forEach(b => b.classList.remove('active'));
+                btn.classList.add('active');
+            });
+        });
+
+        function showReceiveStep2() {
+            document.getElementById('receive-step-1').style.display = 'none';
+            document.getElementById('receive-step-2').style.display = 'block';
+        }
+
+        // Initialize App State based on initial URL
+        handleHashChange();
+        renderTransactions();
+    </script>
+</body>
+</html>

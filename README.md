@@ -1,4 +1,4 @@
-# RMS-CSPC: Express Front End Development
+# RMS-CSPC: Express Development
 &nbsp;&nbsp;&nbsp;Records Management System Version 2
 
 ## **Details**

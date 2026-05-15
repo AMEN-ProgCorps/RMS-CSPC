@@ -1,11 +1,17 @@
 <?php
 
+use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
 
 // Login function
 Route::get('/', function () {
     return view('portal.login.index');
 })->name('login');
+
+Route::post('/', function (Request $request) {
+    // TODO: add real authentication logic here
+    return redirect()->route('portal');
+})->name('login.submit');
 
 // Tracking document function
 Route::get('/track-document', function () {

@@ -31,7 +31,7 @@
             </div>
             <div class="lo-login">LOGIN</div>
             <div class="lo-instruction">Please Enter your login details to login your account</div>
-            <form method="POST" class="lo-form">
+            <form method="POST" action="{{ route('login.submit') }}" class="lo-form">
                     @csrf
                     <div class="form-group">
                         <div class="icon-usr">
@@ -49,7 +49,7 @@
                         </div>
                         <input autocomplete="current-password" type="password" id="password" name="password" placeholder="Password" required>
                     </div>
-                    <button class="la-button" type="submit" window.location.href='/portal'>LOGIN</button>
+                    <button class="la-button" type="submit">LOGIN</button>
             </form>
             <span class="notice">RECORDS AND FREEDOM OF INFORMATION OFFICE</span>
         </div>

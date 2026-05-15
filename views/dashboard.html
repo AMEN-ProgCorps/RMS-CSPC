@@ -16,7 +16,6 @@
         .office-text { font-size: 10px; color: #bfdbfe; text-align: right; }
         .actions-btn { background-color: #2563eb; color: white; border: none; font-size: 12px; font-weight: 600; padding: 4px 12px; border-radius: 4px; cursor: pointer; display: flex; align-items: center; gap: 4px; }
         .actions-btn:hover { background-color: #3b82f6; }
-        
         .dropdown { display: none; position: absolute; right: 0; top: 32px; background: white; border-radius: 6px; box-shadow: 0 10px 15px rgba(0,0,0,0.1); width: 192px; z-index: 50; border: 1px solid #e5e7eb; padding: 8px 0; color: #1f2937; font-size: 14px; }
         .dropdown.show { display: block; }
         .dropdown-label { padding: 4px 16px; font-size: 12px; color: #9ca3af; }
@@ -24,35 +23,27 @@
         .dropdown-item:hover { background-color: #f3f4f6; }
         .dropdown-divider { border-top: 1px solid #e5e7eb; margin: 4px 0; }
         .dropdown-logout { color: #dc2626; }
-        
         .main-workspace { display: flex; flex: 1; overflow: hidden; padding: 8px; gap: 8px; }
         .sidebar { background-color: white; border-radius: 8px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); display: flex; flex-direction: column; width: 256px; transition: width 0.3s; flex-shrink: 0; position: relative; overflow: hidden; }
         .sidebar.collapsed { width: 72px; }
-        
         .sidebar-header { padding: 16px; border-bottom: 1px solid #e5e7eb; display: flex; align-items: center; gap: 12px; white-space: nowrap; overflow: hidden; }
         .toggle-btn { background: transparent; border: none; cursor: pointer; padding: 4px; color: #4b5563; flex-shrink: 0; border-radius: 4px; }
         .toggle-btn:hover { background-color: #f3f4f6; }
-        
         .sidebar-nav { flex: 1; overflow-y: auto; overflow-x: hidden; padding: 8px 0; list-style: none; }
         .nav-item { display: flex; align-items: center; gap: 12px; padding: 10px 16px; text-decoration: none; color: #4b5563; white-space: nowrap; border-left: 4px solid transparent; cursor: pointer; font-size: 13px; }
         .nav-item:hover { background-color: #f3f4f6; }
         .nav-item.active { background-color: #eff6ff; color: #1d4ed8; border-left: 4px solid #1d4ed8; font-weight: bold; }
         .nav-icon { width: 18px; height: 18px; flex-shrink: 0; }
-        
         .submenu { display: none; list-style: none; padding-left: 32px; background-color: #f9fafb; }
         .submenu.show { display: block; }
         .sub-item { padding: 8px 16px; font-size: 12px; border-left: none; }
         .sub-item.active { background-color: #e5e7eb; color: #1d4ed8; border-left: none; font-weight: bold; }
-        
         .sidebar-footer { padding: 16px; border-top: 1px solid #e5e7eb; white-space: nowrap; overflow: hidden; display: flex; flex-direction: column; gap: 16px; }
         .notification-container { position: relative; cursor: pointer; width: max-content; color: #4b5563; }
         .notification-dot { position: absolute; top: 0; right: 0; width: 8px; height: 8px; background-color: #ef4444; border-radius: 50%; border: 1.5px solid white; }
         .footer-user { display: flex; align-items: center; gap: 12px; color: #4b5563; }
         .user-avatar { width: 30px; height: 30px; border-radius: 50%; background-color: #facc15; color: white; display: flex; justify-content: center; align-items: center; font-weight: bold; flex-shrink: 0; }
-        
         .sidebar.collapsed .sidebar-text, .sidebar.collapsed .submenu-arrow { opacity: 0; pointer-events: none; transition: opacity 0.2s; display: none; }
-        
-        /* Notification Popup */
         .notification-popup { display: none; position: fixed; bottom: 90px; left: 24px; background: white; border-radius: 6px; box-shadow: 0 10px 25px rgba(0,0,0,0.2); width: 280px; z-index: 1000; border: 1px solid #e5e7eb; padding: 0; color: #1f2937; overflow: hidden; }
         .notification-popup.show { display: block; }
         .notification-header { background-color: #f9fafb; padding: 12px 16px; font-weight: bold; font-size: 14px; border-bottom: 1px solid #e5e7eb; color: #1e40af; }
@@ -61,17 +52,13 @@
         .notification-item:hover { background-color: #eff6ff; }
         .notification-item:last-child { border-bottom: none; }
         .notification-time { font-size: 10px; color: #9ca3af; margin-top: 4px; display: block; }
-
         .content-area { flex: 1; background-color: white; border-radius: 8px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); border: 1px solid #60a5fa; display: flex; flex-direction: column; overflow: hidden; position: relative; padding: 24px; overflow-y: auto; }
-        
         .content-section { display: none; height: 100%; }
         .content-section.active { display: block; }
-        
         .empty-state { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; background-color: #f9fafb; border: 2px dashed #d1d5db; border-radius: 8px; color: #9ca3af; text-align: center; padding: 32px; height: 100%; min-height: 400px; }
         .empty-icon { width: 64px; height: 64px; margin-bottom: 16px; color: #d1d5db; }
         .empty-title { font-size: 18px; font-weight: 600; color: #4b5563; }
         .empty-text { font-size: 14px; margin-top: 8px; max-width: 400px; }
-
         .form-header { color: #1e40af; font-size: 14px; font-weight: bold; margin-bottom: 24px; letter-spacing: 0.5px; text-transform: uppercase; }
         .form-group { display: flex; align-items: flex-start; margin-bottom: 16px; max-width: 600px; }
         .form-label { width: 160px; font-size: 12px; font-weight: 600; color: #374151; padding-top: 6px; flex-shrink: 0; }
@@ -83,11 +70,8 @@
         .form-textarea { width: 100%; padding: 6px 10px; border: 1px solid #d1d5db; border-radius: 4px; font-size: 12px; outline: none; min-height: 80px; resize: vertical; }
         .update-link { font-size: 10px; color: #3b82f6; text-decoration: none; white-space: nowrap; margin-left: 8px; }
         .update-link:hover { text-decoration: underline; }
-        
         .btn-submit { background-color: #2563eb; color: white; padding: 8px 24px; border: none; border-radius: 4px; font-size: 12px; font-weight: bold; cursor: pointer; transition: background-color 0.2s; }
         .btn-submit:hover { background-color: #1d4ed8; }
-
-        /* Dashboard Cards */
         .transactions-grid { display: none; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 16px; padding-bottom: 24px; }
         .transactions-grid.show { display: grid; }
         .tx-card { border: 1px solid #e5e7eb; border-radius: 8px; padding: 12px; background: white; display: flex; flex-direction: column; font-family: sans-serif; }
@@ -108,22 +92,17 @@
         .tx-scroll-area::-webkit-scrollbar-thumb { background: #d1d5db; border-radius: 4px; }
         .tx-view-btn { width: 100%; background-color: #3b82f6; color: white; border: none; border-radius: 4px; padding: 8px; font-size: 10px; font-weight: bold; cursor: pointer; display: flex; justify-content: center; align-items: center; gap: 4px; margin-top: 8px; }
         .tx-view-btn:hover { background-color: #2563eb; }
-
-        /* Data Tables */
         .table-controls { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; font-size: 12px; }
         .table-controls-right { display: flex; gap: 8px; align-items: center; }
         .btn-export { background-color: #2563eb; color: white; border: none; padding: 6px 16px; font-size: 11px; border-radius: 4px; cursor: pointer; display: flex; align-items: center; gap: 6px; font-weight: bold; }
         .search-box-small { border: 1px solid #d1d5db; border-radius: 4px; padding: 4px 8px; font-size: 11px; outline: none; }
         .rows-select { border: 1px solid #d1d5db; border-radius: 4px; padding: 4px; font-size: 11px; outline: none; }
-        
         .data-table-container { overflow-x: auto; border: 1px solid #e5e7eb; border-radius: 4px; }
         .data-table { width: 100%; border-collapse: collapse; font-size: 11px; text-align: left; white-space: nowrap; }
         .data-table th, .data-table td { padding: 10px 12px; border-bottom: 1px solid #e5e7eb; border-right: 1px solid #e5e7eb; }
         .data-table th:last-child, .data-table td:last-child { border-right: none; }
         .data-table th { background-color: #f9fafb; font-weight: bold; color: #374151; }
         .data-table tbody tr:hover { background-color: #f3f4f6; }
-
-        /* Toggles and Search Inputs */
         .toggle-switch-container { display: flex; align-items: center; gap: 8px; font-size: 12px; margin-bottom: 24px; }
         .toggle-switch { position: relative; display: inline-block; width: 36px; height: 20px; }
         .toggle-switch input { opacity: 0; width: 0; height: 0; }
@@ -131,7 +110,6 @@
         .toggle-slider:before { position: absolute; content: ""; height: 16px; width: 16px; left: 2px; bottom: 2px; background-color: white; transition: .4s; border-radius: 50%; }
         .toggle-switch input:checked + .toggle-slider { background-color: #2563eb; }
         .toggle-switch input:checked + .toggle-slider:before { transform: translateX(16px); }
-
         .search-filter-container { display: flex; gap: 8px; margin-bottom: 32px; flex-wrap: wrap; }
         .search-filter-btn { border: 1px solid #111827; background: transparent; color: #111827; font-weight: bold; font-size: 11px; padding: 6px 16px; border-radius: 4px; cursor: pointer; text-transform: uppercase; outline: none; }
         .search-filter-btn.active, .search-filter-btn:hover { background-color: #f3f4f6; }
@@ -141,10 +119,54 @@
         .search-label { font-size: 12px; font-weight: bold; color: #111827; margin-bottom: 4px; white-space: nowrap; }
         .search-input-line { border: none; border-bottom: 1px solid #d1d5db; outline: none; padding: 4px 0; font-size: 12px; width: 100%; background: transparent; transition: border-bottom-color 0.2s; }
         .search-input-line:focus { border-bottom-color: #3b82f6; }
-
         .action-buttons-row { display: flex; justify-content: flex-end; gap: 8px; margin-top: 24px; flex-wrap: wrap; }
         .btn-action { background-color: #2563eb; color: white; border: none; padding: 6px 12px; font-size: 10px; border-radius: 4px; cursor: pointer; display: flex; align-items: center; gap: 6px; font-weight: bold; }
         .btn-action:hover { background-color: #1d4ed8; }
+
+        /* Edit Modal Styles */
+        #editModal { display: none; position: fixed; left: 0; top: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.55); align-items: center; justify-content: center; z-index: 2000; }
+        .modal-box { background: #fff; width: 560px; max-height: 90vh; overflow-y: auto; border-radius: 8px; box-shadow: 0 8px 32px rgba(0,0,0,0.25); }
+        .modal-header { background-color: #1d4ed8; color: white; padding: 14px 20px; display: flex; justify-content: space-between; align-items: center; border-radius: 8px 8px 0 0; }
+        .modal-header span { font-weight: bold; font-size: 14px; letter-spacing: .5px; }
+        .modal-close-btn { background: rgba(255,255,255,0.2); border: none; color: white; width: 28px; height: 28px; border-radius: 4px; cursor: pointer; font-size: 18px; line-height: 1; display: flex; align-items: center; justify-content: center; }
+        .modal-close-btn:hover { background: rgba(255,255,255,0.35); }
+        .modal-body { padding: 20px; display: flex; flex-direction: column; gap: 12px; }
+        .modal-footer { padding: 14px 20px; border-top: 1px solid #e5e7eb; display: flex; justify-content: flex-end; gap: 8px; background: #f9fafb; border-radius: 0 0 8px 8px; }
+        .modal-label { font-size: 11px; font-weight: bold; color: #374151; display: block; margin-bottom: 4px; }
+        .modal-input { width: 100%; padding: 7px 10px; border: 1px solid #d1d5db; border-radius: 4px; font-size: 12px; outline: none; }
+        .modal-input:focus { border-color: #3b82f6; }
+        .modal-input[readonly] { background: #f9fafb; color: #9ca3af; border-color: #e5e7eb; }
+        .modal-textarea { width: 100%; padding: 7px 10px; border: 1px solid #d1d5db; border-radius: 4px; font-size: 12px; outline: none; resize: vertical; min-height: 60px; }
+        .modal-textarea:focus { border-color: #3b82f6; }
+        .modal-select { width: 100%; padding: 7px 10px; border: 1px solid #d1d5db; border-radius: 4px; font-size: 12px; outline: none; background: white; }
+        .modal-select:focus { border-color: #3b82f6; }
+        .modal-row { display: flex; gap: 12px; }
+        .modal-col { flex: 1; }
+        .btn-cancel { padding: 8px 18px; background: #e5e7eb; border: none; border-radius: 4px; font-size: 12px; font-weight: bold; cursor: pointer; color: #374151; }
+        .btn-cancel:hover { background: #d1d5db; }
+        .btn-save { padding: 8px 18px; background: #10b981; color: white; border: none; border-radius: 4px; font-size: 12px; font-weight: bold; cursor: pointer; display: flex; align-items: center; gap: 6px; }
+        .btn-save:hover { background: #059669; }
+        .btn-save:disabled { background: #9ca3af; cursor: not-allowed; }
+
+        /* View Modal Styles */
+        #viewModal { display: none; position: fixed; left: 0; top: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.55); align-items: center; justify-content: center; z-index: 2000; }
+        #viewModal.open { display: flex; }
+        .view-modal-box { background: #fff; width: 600px; max-height: 90vh; overflow-y: auto; border-radius: 8px; box-shadow: 0 8px 32px rgba(0,0,0,0.25); }
+        .view-modal-header { background-color: #1d4ed8; color: white; padding: 14px 20px; display: flex; justify-content: space-between; align-items: center; border-radius: 8px 8px 0 0; }
+        .view-modal-header span { font-weight: bold; font-size: 14px; letter-spacing: .5px; }
+        .view-modal-body { padding: 20px; display: flex; flex-direction: column; gap: 0; }
+        .view-field-row { display: flex; border-bottom: 1px solid #f3f4f6; padding: 10px 0; }
+        .view-field-row:last-child { border-bottom: none; }
+        .view-field-label { width: 160px; font-size: 11px; font-weight: bold; color: #374151; flex-shrink: 0; padding-top: 2px; }
+        .view-field-value { flex: 1; font-size: 12px; color: #111827; word-break: break-word; }
+        .view-status-badge { display: inline-block; padding: 2px 10px; border-radius: 12px; font-size: 11px; font-weight: bold; text-transform: uppercase; }
+        .view-status-pending { background: #fef3c7; color: #92400e; }
+        .view-status-in_progress { background: #dbeafe; color: #1e40af; }
+        .view-status-approved { background: #d1fae5; color: #065f46; }
+        .view-status-rejected { background: #fee2e2; color: #991b1b; }
+        .view-status-completed { background: #e0e7ff; color: #3730a3; }
+        .view-modal-footer { padding: 14px 20px; border-top: 1px solid #e5e7eb; display: flex; justify-content: flex-end; gap: 8px; background: #f9fafb; border-radius: 0 0 8px 8px; }
+        .view-section-title { font-size: 11px; font-weight: bold; color: #1d4ed8; text-transform: uppercase; letter-spacing: .5px; padding: 12px 0 4px; border-bottom: 2px solid #dbeafe; margin-bottom: 4px; }
     </style>
 </head>
 <body>
@@ -181,39 +203,31 @@
         <aside id="sidebar" class="sidebar">
             <div class="sidebar-header">
                 <button id="toggleSidebar" class="toggle-btn">
-                    <svg style="width: 24px; height: 24px;" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 3v18m12-18H3v18h18V3z"></path></svg>
+                    <svg style="width:24px;height:24px;" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 3v18m12-18H3v18h18V3z"></path></svg>
                 </button>
                 <div class="sidebar-text">
-                    <div style="font-weight: bold; color: #1e40af; font-size: 16px; line-height: 1.2;">Document Tracking</div>
-                    <div style="font-size: 10px; color: #6b7280;">Version: 2.0.0</div>
+                    <div style="font-weight:bold;color:#1e40af;font-size:16px;line-height:1.2;">Document Tracking</div>
+                    <div style="font-size:10px;color:#6b7280;">Version: 2.0.0</div>
                 </div>
             </div>
-            
+
             <ul class="sidebar-nav">
                 <li><a href="#current" class="nav-item active main-nav" data-target="content-default" onclick="resetSearch()">
                     <svg class="nav-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"></path></svg>
                     <span class="sidebar-text">Current Transactions</span>
                 </a></li>
-                
+
                 <li>
                     <div class="nav-item" id="listTransactionToggle">
                         <svg class="nav-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 10h16M4 14h16M4 18h16"></path></svg>
                         <span class="sidebar-text">List Transaction</span>
-                        <svg class="nav-icon submenu-arrow" style="margin-left:auto; width:14px; height:14px;" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path></svg>
+                        <svg class="nav-icon submenu-arrow" style="margin-left:auto;width:14px;height:14px;" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path></svg>
                     </div>
                     <ul class="submenu" id="listTransactionSubmenu">
-                        <li><a href="#list-internal" class="nav-item sub-item" data-target="list-internal">
-                            <span class="sidebar-text">Internal Transactions</span>
-                        </a></li>
-                        <li><a href="#list-external" class="nav-item sub-item" data-target="list-external">
-                            <span class="sidebar-text">External Transactions</span>
-                        </a></li>
-                        <li><a href="#list-application" class="nav-item sub-item" data-target="list-application">
-                            <span class="sidebar-text">Application Letters</span>
-                        </a></li>
-                        <li><a href="#list-issuances" class="nav-item sub-item" data-target="list-issuances">
-                            <span class="sidebar-text">Issuances</span>
-                        </a></li>
+                        <li><a href="#list-internal" class="nav-item sub-item" data-target="list-internal"><span class="sidebar-text">Internal Transactions</span></a></li>
+                        <li><a href="#list-external" class="nav-item sub-item" data-target="list-external"><span class="sidebar-text">External Transactions</span></a></li>
+                        <li><a href="#list-application" class="nav-item sub-item" data-target="list-application"><span class="sidebar-text">Application Letters</span></a></li>
+                        <li><a href="#list-issuances" class="nav-item sub-item" data-target="list-issuances"><span class="sidebar-text">Issuances</span></a></li>
                     </ul>
                 </li>
 
@@ -226,29 +240,21 @@
                     <svg class="nav-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 4H6a2 2 0 00-2 2v12a2 2 0 002 2h12a2 2 0 002-2V6a2 2 0 00-2-2h-2m-4-1v8m0 0l3-3m-3 3L9 8m-5 5h2.586a1 1 0 01.707.293l2.414 2.414a1 1 0 00.707.293h3.172a1 1 0 00.707-.293l2.414-2.414a1 1 0 01.707-.293H20"></path></svg>
                     <span class="sidebar-text">Receive Transaction</span>
                 </a></li>
-                
+
                 <li>
                     <div class="nav-item" id="createTransactionToggle">
                         <svg class="nav-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"></path></svg>
                         <span class="sidebar-text">Create Transaction</span>
-                        <svg class="nav-icon submenu-arrow" style="margin-left:auto; width:14px; height:14px;" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path></svg>
+                        <svg class="nav-icon submenu-arrow" style="margin-left:auto;width:14px;height:14px;" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path></svg>
                     </div>
                     <ul class="submenu" id="createTransactionSubmenu">
-                        <li><a href="#create-internal" class="nav-item sub-item" data-target="form-internal">
-                            <span class="sidebar-text">Internal Transactions</span>
-                        </a></li>
-                        <li><a href="#create-external" class="nav-item sub-item" data-target="form-external">
-                            <span class="sidebar-text">External Transactions</span>
-                        </a></li>
-                        <li><a href="#create-application" class="nav-item sub-item" data-target="form-application">
-                            <span class="sidebar-text">Application Letters</span>
-                        </a></li>
-                        <li><a href="#create-issuances" class="nav-item sub-item" data-target="form-issuances">
-                            <span class="sidebar-text">Issuances</span>
-                        </a></li>
+                        <li><a href="#create-internal" class="nav-item sub-item" data-target="form-internal"><span class="sidebar-text">Internal Transactions</span></a></li>
+                        <li><a href="#create-external" class="nav-item sub-item" data-target="form-external"><span class="sidebar-text">External Transactions</span></a></li>
+                        <li><a href="#create-application" class="nav-item sub-item" data-target="form-application"><span class="sidebar-text">Application Letters</span></a></li>
+                        <li><a href="#create-issuances" class="nav-item sub-item" data-target="form-issuances"><span class="sidebar-text">Issuances</span></a></li>
                     </ul>
                 </li>
-                
+
                 <li><a href="#settings" class="nav-item main-nav" data-target="content-settings">
                     <svg class="nav-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"></path><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path></svg>
                     <span class="sidebar-text">Settings</span>
@@ -262,16 +268,17 @@
                 </div>
                 <div class="footer-user">
                     <div class="user-avatar">R</div>
-                    <span class="sidebar-text" style="font-size: 12px; font-weight: bold;">Records Office</span>
+                    <span class="sidebar-text" style="font-size:12px;font-weight:bold;">Records Office</span>
                 </div>
-                <div class="sidebar-text footer-copy" style="font-size: 10px; color: #9ca3af;">© 2026</div>
+                <div class="sidebar-text" style="font-size:10px;color:#9ca3af;">© 2026</div>
             </div>
         </aside>
 
         <main class="content-area">
-            
+
+            <!-- Current Transactions -->
             <div id="content-default" class="content-section active">
-                <div class="form-header" style="margin-bottom: 16px;">CURRENT TRANSACTIONS</div>
+                <div class="form-header" style="margin-bottom:16px;">CURRENT TRANSACTIONS</div>
                 <div id="transactionsContainer" class="transactions-grid"></div>
                 <div class="empty-state" id="emptyStateDisplay">
                     <svg class="empty-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20 13V6a2 2 0 00-2-2H6a2 2 0 00-2 2v7m16 0v5a2 2 0 01-2 2H6a2 2 0 01-2-2v-5m16 0h-2.586a1 1 0 00-.707.293l-2.414 2.414a1 1 0 01-.707.293h-3.172a1 1 0 01-.707-.293l-2.414-2.414A1 1 0 006.586 13H4"></path></svg>
@@ -280,8 +287,9 @@
                 </div>
             </div>
 
+            <!-- Settings -->
             <div id="content-settings" class="content-section">
-                <div class="form-header" style="margin-bottom: 16px;">SETTINGS</div>
+                <div class="form-header" style="margin-bottom:16px;">SETTINGS</div>
                 <div class="empty-state">
                     <svg class="empty-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"></path><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path></svg>
                     <div class="empty-title">Settings & Preferences</div>
@@ -289,6 +297,7 @@
                 </div>
             </div>
 
+            <!-- List: Internal -->
             <div id="list-internal" class="content-section">
                 <div class="form-header">INTERNAL TRANSACTION</div>
                 <div class="table-controls">
@@ -301,11 +310,12 @@
                 <div class="data-table-container">
                     <table class="data-table">
                         <thead><tr><th>Ctrl No.</th><th>Unit/College</th><th>Source</th><th>Date/Time</th><th>Subject</th><th>Type of Document</th><th>Classification</th><th>Action Needed</th><th>Remarks</th><th>Info</th><th>Action</th><th>View</th></tr></thead>
-                        <tbody><tr><td colspan="12" style="text-align: center; color: #9ca3af; padding: 20px;">No internal transactions found.</td></tr></tbody>
+                        <tbody><tr><td colspan="12" style="text-align:center;color:#9ca3af;padding:20px;">No internal transactions found.</td></tr></tbody>
                     </table>
                 </div>
             </div>
 
+            <!-- List: External -->
             <div id="list-external" class="content-section">
                 <div class="form-header">EXTERNAL TRANSACTION</div>
                 <div class="table-controls">
@@ -318,11 +328,12 @@
                 <div class="data-table-container">
                     <table class="data-table">
                         <thead><tr><th>Ctrl No.</th><th>Unit/College</th><th>Source</th><th>Date/Time</th><th>Subject</th><th>Type of Document</th><th>Classification</th><th>Action Needed</th><th>Remarks</th><th>Info</th><th>Action</th><th>View</th></tr></thead>
-                        <tbody><tr><td colspan="12" style="text-align: center; color: #9ca3af; padding: 20px;">No external transactions found.</td></tr></tbody>
+                        <tbody><tr><td colspan="12" style="text-align:center;color:#9ca3af;padding:20px;">No external transactions found.</td></tr></tbody>
                     </table>
                 </div>
             </div>
 
+            <!-- List: Application -->
             <div id="list-application" class="content-section">
                 <div class="form-header">APPLICATION LETTERS</div>
                 <div class="table-controls">
@@ -335,11 +346,12 @@
                 <div class="data-table-container">
                     <table class="data-table">
                         <thead><tr><th>Ctrl No.</th><th>Date/Time</th><th>Name of Applicant</th><th>Position</th><th>Unit/College</th><th>Remarks</th><th>Action Needed</th><th>Status</th><th>Info</th></tr></thead>
-                        <tbody><tr><td colspan="9" style="text-align: center; color: #9ca3af; padding: 20px;">No application letters found.</td></tr></tbody>
+                        <tbody><tr><td colspan="9" style="text-align:center;color:#9ca3af;padding:20px;">No application letters found.</td></tr></tbody>
                     </table>
                 </div>
             </div>
 
+            <!-- List: Issuances -->
             <div id="list-issuances" class="content-section">
                 <div class="form-header">ISSUANCES</div>
                 <div class="table-controls">
@@ -352,13 +364,14 @@
                 <div class="data-table-container">
                     <table class="data-table">
                         <thead><tr><th>Ctrl No.</th><th>Tracking Number</th><th>Date/Time</th><th>Receiving Office/s</th><th>Subject</th><th>Category</th><th>Classification</th><th>Remarks</th><th>Info</th><th>Action</th></tr></thead>
-                        <tbody><tr><td colspan="10" style="text-align: center; color: #9ca3af; padding: 20px;">No issuances found.</td></tr></tbody>
+                        <tbody><tr><td colspan="10" style="text-align:center;color:#9ca3af;padding:20px;">No issuances found.</td></tr></tbody>
                     </table>
                 </div>
             </div>
 
+            <!-- Search -->
             <div id="content-search" class="content-section">
-                <div class="form-header" style="font-size: 16px;">SEARCH TRANSACTIONS</div>
+                <div class="form-header" style="font-size:16px;">SEARCH TRANSACTIONS</div>
                 <div class="search-filter-container">
                     <button class="search-filter-btn">INTERNAL</button>
                     <button class="search-filter-btn">EXTERNAL</button>
@@ -406,88 +419,63 @@
                         <input type="text" class="search-input-line">
                     </div>
                 </div>
-                <div class="search-form-row" style="margin-top: 10px;">
-                    <div class="search-form-group" style="flex: none;">
+                <div class="search-form-row" style="margin-top:10px;">
+                    <div class="search-form-group" style="flex:none;">
                         <label class="search-label">Date Created:</label>
                     </div>
                 </div>
-                <div class="search-form-row" style="margin-top: -10px;">
-                    <div class="search-form-group">
-                        <input type="text" class="search-input-line" placeholder="Date start">
-                    </div>
-                    <div style="font-size: 12px; font-weight: bold; color: #374151; padding-bottom: 4px;">to</div>
-                    <div class="search-form-group">
-                        <input type="text" class="search-input-line" placeholder="Date end">
-                    </div>
+                <div class="search-form-row" style="margin-top:-10px;">
+                    <div class="search-form-group"><input type="text" class="search-input-line" placeholder="Date start"></div>
+                    <div style="font-size:12px;font-weight:bold;color:#374151;padding-bottom:4px;">to</div>
+                    <div class="search-form-group"><input type="text" class="search-input-line" placeholder="Date end"></div>
                 </div>
-                <div style="display: flex; justify-content: flex-end; margin-top: 32px;">
-                    <button class="btn-submit" onclick="executeSearch()" style="margin: 0; display: flex; align-items: center; gap: 8px;">
+                <div style="display:flex;justify-content:flex-end;margin-top:32px;">
+                    <button class="btn-submit" onclick="executeSearch()" style="margin:0;display:flex;align-items:center;gap:8px;">
                         <svg style="width:14px;height:14px;" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path></svg> SEARCH TRANSACTIONS
                     </button>
                 </div>
             </div>
 
+            <!-- Receive Transaction -->
             <div id="content-receive" class="content-section">
                 <div id="receive-step-1">
                     <div class="form-header">RECEIVE TRANSACTION</div>
-                    <div style="margin-bottom: 12px; font-size: 12px; font-weight: bold; color: #374151;">Copy Furnished?</div>
+                    <div style="margin-bottom:12px;font-size:12px;font-weight:bold;color:#374151;">Copy Furnished?</div>
                     <div class="toggle-switch-container">
                         <span>No</span>
-                        <label class="toggle-switch">
-                            <input type="checkbox">
-                            <span class="toggle-slider"></span>
-                        </label>
+                        <label class="toggle-switch"><input type="checkbox"><span class="toggle-slider"></span></label>
                         <span>Yes</span>
                     </div>
-                    <div style="margin-bottom: 12px; font-size: 12px; font-weight: bold; color: #374151;">Document Barcode</div>
-                    <input type="text" class="form-input" style="max-width: 400px;">
-                    <div style="display: flex; justify-content: flex-end; margin-top: 40px;">
+                    <div style="margin-bottom:12px;font-size:12px;font-weight:bold;color:#374151;">Document Barcode</div>
+                    <input type="text" class="form-input" style="max-width:400px;">
+                    <div style="display:flex;justify-content:flex-end;margin-top:40px;">
                         <button class="btn-submit" onclick="showReceiveStep2()">
                             <svg style="width:14px;height:14px;margin-right:6px;display:inline-block;vertical-align:-2px;" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 4H6a2 2 0 00-2 2v12a2 2 0 002 2h12a2 2 0 002-2V6a2 2 0 00-2-2h-2m-4-1v8m0 0l3-3m-3 3L9 8m-5 5h2.586a1 1 0 01.707.293l2.414 2.414a1 1 0 00.707.293h3.172a1 1 0 00.707-.293l2.414-2.414a1 1 0 01.707-.293H20"></path></svg> RECEIVE TRANSACTIONS
                         </button>
                     </div>
                 </div>
-
-                <div id="receive-step-2" style="display: none;">
+                <div id="receive-step-2" style="display:none;">
                     <div class="form-header">RECEIVE TRANSACTION</div>
-                    <div style="display: flex; gap: 40px; margin-bottom: 24px;">
-                        <div style="flex: 1; max-width: 400px;">
-                            <div style="font-size: 12px; font-weight: bold; margin-bottom: 8px;">Control #:</div>
-                            <div style="display: flex; align-items: center;">
-                                <input type="text" class="form-input">
-                                <a href="#" class="update-link">Update/Edit</a>
-                            </div>
+                    <div style="display:flex;gap:40px;margin-bottom:24px;">
+                        <div style="flex:1;max-width:400px;">
+                            <div style="font-size:12px;font-weight:bold;margin-bottom:8px;">Control #:</div>
+                            <div style="display:flex;align-items:center;"><input type="text" class="form-input"><a href="#" class="update-link">Update/Edit</a></div>
                         </div>
-                        <div style="flex: 1; max-width: 400px;">
-                            <div style="font-size: 12px; font-weight: bold; margin-bottom: 8px;">File Code:</div>
-                            <div style="display: flex; align-items: center;">
-                                <input type="text" class="form-input">
-                                <a href="#" class="update-link">Update/Edit</a>
-                            </div>
+                        <div style="flex:1;max-width:400px;">
+                            <div style="font-size:12px;font-weight:bold;margin-bottom:8px;">File Code:</div>
+                            <div style="display:flex;align-items:center;"><input type="text" class="form-input"><a href="#" class="update-link">Update/Edit</a></div>
                         </div>
                     </div>
-                    <div style="margin-bottom: 24px;">
-                        <div style="font-size: 12px; font-weight: bold; margin-bottom: 8px;">Particulars:</div>
-                        <div style="min-height: 60px;"></div>
+                    <div style="margin-bottom:24px;">
+                        <div style="font-size:12px;font-weight:bold;margin-bottom:8px;">Particulars:</div>
+                        <div style="min-height:60px;"></div>
                     </div>
-                    <div style="font-size: 12px; font-weight: bold; margin-bottom: 8px;">Transaction Path</div>
+                    <div style="font-size:12px;font-weight:bold;margin-bottom:8px;">Transaction Path</div>
                     <div class="data-table-container">
                         <table class="data-table">
-                            <thead>
-                                <tr>
-                                    <th style="width: 30px;">#</th>
-                                    <th>Office</th>
-                                    <th>Date In</th>
-                                    <th>Date Out</th>
-                                    <th>Action Needed</th>
-                                    <th>Notes</th>
-                                    <th style="text-align: center;">Info</th>
-                                </tr>
-                            </thead>
+                            <thead><tr><th style="width:30px;">#</th><th>Office</th><th>Date In</th><th>Date Out</th><th>Action Needed</th><th>Notes</th><th style="text-align:center;">Info</th></tr></thead>
                             <tbody>
-                                <tr>
-                                    <td>1</td><td>Lorem ipsum dolor sit amet...</td><td>2023-12-11 10:36:50</td><td>2023-12-11 11:00:00</td><td>Created</td><td></td><td style="text-align: center;"><svg style="width:14px;height:14px;color:#9ca3af;display:inline-block;" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg></td>
-                                </tr>
+                                <tr><td>1</td><td>Lorem ipsum dolor sit amet...</td><td>2023-12-11 10:36:50</td><td>2023-12-11 11:00:00</td><td>Created</td><td></td><td style="text-align:center;"><svg style="width:14px;height:14px;color:#9ca3af;display:inline-block;" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg></td></tr>
                             </tbody>
                         </table>
                     </div>
@@ -502,32 +490,24 @@
                 </div>
             </div>
 
-            <form id="form-internal" class="content-section" onsubmit="handleTransactionSubmit(event, 'Internal')">
+            <!-- Form: Internal -->
+            <form id="form-internal" class="content-section" onsubmit="handleTransactionSubmit(event,'Internal')">
                 <div class="form-header">INTERNAL TRANSACTION</div>
                 <div class="form-group">
                     <div class="form-label">Control Number:</div>
-                    <div class="form-input-container">
-                        <input type="text" class="form-input" readonly value="AUTO GENERATED NUMBER">
-                    </div>
+                    <div class="form-input-container"><input type="text" class="form-input" readonly value="AUTO GENERATED NUMBER"></div>
                 </div>
                 <div class="form-group">
                     <div class="form-label">Unit/College:</div>
-                    <div class="form-input-container">
-                        <input type="text" id="int-unit" class="form-input" required>
-                        <a href="#" class="update-link">Update Unit</a>
-                    </div>
+                    <div class="form-input-container"><input type="text" id="int-unit" class="form-input" required><a href="#" class="update-link">Update Unit</a></div>
                 </div>
                 <div class="form-group">
                     <div class="form-label">Name of Requestor:</div>
-                    <div class="form-input-container">
-                        <input type="text" id="int-name" class="form-input" required>
-                    </div>
+                    <div class="form-input-container"><input type="text" id="int-name" class="form-input" required></div>
                 </div>
                 <div class="form-group">
                     <div class="form-label">Type of Document:</div>
-                    <div class="form-input-container">
-                        <input type="text" id="int-doc-type" class="form-input" required>
-                    </div>
+                    <div class="form-input-container"><input type="text" id="int-doc-type" class="form-input" required></div>
                 </div>
                 <div class="form-group">
                     <div class="form-label">Classification:</div>
@@ -541,85 +521,65 @@
                 </div>
                 <div class="form-group">
                     <div class="form-label">Subject:</div>
-                    <div class="form-input-container">
-                        <textarea id="int-subject" class="form-textarea" required></textarea>
-                    </div>
+                    <div class="form-input-container"><textarea id="int-subject" class="form-textarea" required></textarea></div>
                 </div>
-                <button type="submit" class="btn-submit" style="margin-left: 160px; margin-top: 16px;">Submit Internal Transaction</button>
+                <button type="submit" class="btn-submit" style="margin-left:160px;margin-top:16px;">Submit Internal Transaction</button>
             </form>
 
-            <form id="form-external" class="content-section" onsubmit="handleTransactionSubmit(event, 'External')">
+            <!-- Form: External -->
+            <form id="form-external" class="content-section" onsubmit="handleTransactionSubmit(event,'External')">
                 <div class="form-header">EXTERNAL TRANSACTION</div>
                 <div class="form-group">
                     <div class="form-label">Control Number:</div>
-                    <div class="form-input-container">
-                        <input type="text" class="form-input" readonly value="AUTO GENERATED NUMBER">
-                    </div>
+                    <div class="form-input-container"><input type="text" class="form-input" readonly value="AUTO GENERATED NUMBER"></div>
                 </div>
                 <div class="form-group">
                     <div class="form-label">Source:</div>
-                    <div class="form-input-container">
-                        <input type="text" id="ext-source" class="form-input" required>
-                        <a href="#" class="update-link">Update Unit</a>
-                    </div>
+                    <div class="form-input-container"><input type="text" id="ext-source" class="form-input" required><a href="#" class="update-link">Update Unit</a></div>
                 </div>
                 <div class="form-group">
                     <div class="form-label">Name of Requestor:</div>
-                    <div class="form-input-container">
-                        <input type="text" id="ext-name" class="form-input" required>
-                    </div>
+                    <div class="form-input-container"><input type="text" id="ext-name" class="form-input" required></div>
                 </div>
                 <div class="form-group">
                     <div class="form-label">Subject:</div>
-                    <div class="form-input-container">
-                        <textarea id="ext-subject" class="form-textarea" required></textarea>
-                    </div>
+                    <div class="form-input-container"><textarea id="ext-subject" class="form-textarea" required></textarea></div>
                 </div>
-                <button type="submit" class="btn-submit" style="margin-left: 160px; margin-top: 16px;">Submit External Transaction</button>
+                <button type="submit" class="btn-submit" style="margin-left:160px;margin-top:16px;">Submit External Transaction</button>
             </form>
 
-            <form id="form-application" class="content-section" onsubmit="handleTransactionSubmit(event, 'Application')">
+            <!-- Form: Application -->
+            <form id="form-application" class="content-section" onsubmit="handleTransactionSubmit(event,'Application')">
                 <div class="form-header">APPLICATION DOCUMENT</div>
                 <div class="form-group">
                     <div class="form-label">Control Number:</div>
-                    <div class="form-input-container">
-                        <input type="text" class="form-input" readonly value="AUTO GENERATED NUMBER">
-                    </div>
+                    <div class="form-input-container"><input type="text" class="form-input" readonly value="AUTO GENERATED NUMBER"></div>
                 </div>
                 <div class="form-group">
                     <div class="form-label">Type of Document:</div>
-                    <div class="form-input-container">
-                        <input type="text" id="app-type" class="form-input" required>
-                    </div>
+                    <div class="form-input-container"><input type="text" id="app-type" class="form-input" required></div>
                 </div>
                 <div class="form-group">
                     <div class="form-label">Name of Applicant:</div>
-                    <div class="form-input-container">
-                        <input type="text" id="app-name" class="form-input" required>
-                    </div>
+                    <div class="form-input-container"><input type="text" id="app-name" class="form-input" required></div>
                 </div>
                 <div class="form-group">
                     <div class="form-label">Position:</div>
-                    <div class="form-input-container">
-                        <input type="text" id="app-pos" class="form-input" required>
-                    </div>
+                    <div class="form-input-container"><input type="text" id="app-pos" class="form-input" required></div>
                 </div>
-                <button type="submit" class="btn-submit" style="margin-left: 160px; margin-top: 16px;">Submit Application</button>
+                <button type="submit" class="btn-submit" style="margin-left:160px;margin-top:16px;">Submit Application</button>
             </form>
 
-            <form id="form-issuances" class="content-section" onsubmit="handleTransactionSubmit(event, 'Issuance')">
+            <!-- Form: Issuances -->
+            <form id="form-issuances" class="content-section" onsubmit="handleTransactionSubmit(event,'Issuance')">
                 <div class="form-header">ISSUANCES</div>
                 <div class="form-group">
                     <div class="form-label">Control Number:</div>
-                    <div class="form-input-container">
-                        <input type="text" class="form-input" readonly value="AUTO GENERATED NUMBER">
-                    </div>
+                    <div class="form-input-container"><input type="text" class="form-input" readonly value="AUTO GENERATED NUMBER"></div>
                 </div>
                 <div class="form-group">
                     <div class="form-label">Subject:</div>
-                    <div class="form-input-container">
-                        <textarea id="iss-subject" class="form-textarea" required></textarea>
-                    </div>
+                    <div class="form-input-container"><textarea id="iss-subject" class="form-textarea" required></textarea></div>
                 </div>
                 <div class="form-group">
                     <div class="form-label">Receiving Office/s:</div>
@@ -631,72 +591,236 @@
                         </select>
                     </div>
                 </div>
-                <button type="submit" class="btn-submit" style="margin-left: 160px; margin-top: 16px;">Submit Issuance</button>
+                <button type="submit" class="btn-submit" style="margin-left:160px;margin-top:16px;">Submit Issuance</button>
             </form>
-            
+
         </main>
     </div>
 
+    <!-- Notification Popup -->
     <div id="notificationPopup" class="notification-popup">
         <div class="notification-header">System Notifications</div>
         <div class="notification-list">
-            <div class="notification-item">
-                New document received from President's Office.
-                <span class="notification-time">10 minutes ago</span>
+            <div class="notification-item">New document received from President's Office.<span class="notification-time">10 minutes ago</span></div>
+            <div class="notification-item">Transaction #0000-0000 requires your approval.<span class="notification-time">1 hour ago</span></div>
+            <div class="notification-item">Daily backup completed successfully.<span class="notification-time">Yesterday</span></div>
+        </div>
+    </div>
+
+    <!-- ===================== EDIT MODAL ===================== -->
+    <div id="editModal">
+        <div class="modal-box">
+            <div class="modal-header">
+                <span>EDIT TRANSACTION</span>
+                <button class="modal-close-btn" onclick="closeEditModal()">×</button>
             </div>
-            <div class="notification-item">
-                Transaction #0000-0000 requires your approval.
-                <span class="notification-time">1 hour ago</span>
+            <div class="modal-body">
+                <input id="edit-id" type="hidden">
+                <input id="edit-description" type="hidden">
+
+                <!-- Row: Ctrl No. + Date/Time -->
+                <div class="modal-row">
+                    <div class="modal-col">
+                        <label class="modal-label">Control No.</label>
+                        <input id="edit-controlNumber_display" type="text" class="modal-input" readonly>
+                    </div>
+                    <div class="modal-col">
+                        <label class="modal-label">Date / Time</label>
+                        <input id="edit-createdAt" type="datetime-local" class="modal-input">
+                    </div>
+                </div>
+
+                <!-- Unit/College (shown for internal) -->
+                <div id="edit-unitCollege-container">
+                    <label class="modal-label">Unit / College</label>
+                    <input id="edit-unitCollege" type="text" class="modal-input">
+                </div>
+
+                <!-- Source (shown for external) -->
+                <div id="edit-source-container" style="display:none;">
+                    <label class="modal-label">Source</label>
+                    <input id="edit-source" type="text" class="modal-input">
+                </div>
+
+                <!-- Subject -->
+                <div>
+                    <label class="modal-label">Subject</label>
+                    <textarea id="edit-title" class="modal-textarea" rows="2"></textarea>
+                </div>
+
+                <!-- Doc Type + Classification -->
+                <div class="modal-row">
+                    <div class="modal-col">
+                        <label class="modal-label">Type of Document</label>
+                        <input id="edit-documentType" type="text" class="modal-input">
+                    </div>
+                    <div class="modal-col">
+                        <label class="modal-label">Classification</label>
+                        <select id="edit-classification" class="modal-select">
+                            <option value="">-- Select --</option>
+                            <option value="Routine">Routine</option>
+                            <option value="Urgent">Urgent</option>
+                            <option value="Confidential">Confidential</option>
+                        </select>
+                    </div>
+                </div>
+
+                <!-- Action Needed -->
+                <div>
+                    <label class="modal-label">Action Needed</label>
+                    <input id="edit-actionNeeded" type="text" class="modal-input">
+                </div>
+
+                <!-- Remarks -->
+                <div>
+                    <label class="modal-label">Remarks</label>
+                    <textarea id="edit-remarks" class="modal-textarea" rows="2"></textarea>
+                </div>
+
+                <!-- Status -->
+                <div>
+                    <label class="modal-label">Status</label>
+                    <select id="edit-status" class="modal-select">
+                        <option value="pending">Pending</option>
+                        <option value="in_progress">In Progress</option>
+                        <option value="approved">Approved</option>
+                        <option value="rejected">Rejected</option>
+                        <option value="completed">Completed</option>
+                    </select>
+                </div>
             </div>
-            <div class="notification-item">
-                Daily backup completed successfully.
-                <span class="notification-time">Yesterday</span>
+            <div class="modal-footer">
+                <button class="btn-cancel" onclick="closeEditModal()">CANCEL</button>
+                <button id="edit-save-btn" class="btn-save" onclick="saveEdit()">
+                    <svg style="width:12px;height:12px;" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path></svg>
+                    SAVE CHANGES
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- View Transaction Modal -->
+    <div id="viewModal">
+        <div class="view-modal-box">
+            <div class="view-modal-header">
+                <span>&#128196; VIEW TRANSACTION</span>
+                <button class="modal-close-btn" onclick="closeViewModal()">&#x2715;</button>
+            </div>
+            <div class="view-modal-body">
+                <div class="view-section-title">Transaction Info</div>
+                <div class="view-field-row"><div class="view-field-label">Control No.</div><div class="view-field-value" id="view-controlNumber">-</div></div>
+                <div class="view-field-row"><div class="view-field-label">Date / Time</div><div class="view-field-value" id="view-createdAt">-</div></div>
+                <div class="view-field-row"><div class="view-field-label">Type</div><div class="view-field-value" id="view-type">-</div></div>
+                <div class="view-field-row"><div class="view-field-label">Status</div><div class="view-field-value" id="view-status">-</div></div>
+
+                <div class="view-section-title" style="margin-top:8px;">Document Details</div>
+                <div class="view-field-row"><div class="view-field-label">Unit / College</div><div class="view-field-value" id="view-unitCollege">-</div></div>
+                <div class="view-field-row"><div class="view-field-label">Source</div><div class="view-field-value" id="view-source">-</div></div>
+                <div class="view-field-row"><div class="view-field-label">Subject</div><div class="view-field-value" id="view-title">-</div></div>
+                <div class="view-field-row"><div class="view-field-label">Type of Document</div><div class="view-field-value" id="view-documentType">-</div></div>
+                <div class="view-field-row"><div class="view-field-label">Classification</div><div class="view-field-value" id="view-classification">-</div></div>
+
+                <div class="view-section-title" style="margin-top:8px;">Action & Notes</div>
+                <div class="view-field-row"><div class="view-field-label">Action Needed</div><div class="view-field-value" id="view-actionNeeded">-</div></div>
+                <div class="view-field-row"><div class="view-field-label">Remarks</div><div class="view-field-value" id="view-remarks">-</div></div>
+                <div class="view-field-row"><div class="view-field-label">Description</div><div class="view-field-value" id="view-description">-</div></div>
+            </div>
+            <div class="view-modal-footer">
+                <button class="btn-cancel" onclick="closeViewModal()">CLOSE</button>
+                <button class="btn-save" id="view-edit-btn" onclick="">
+                    <svg style="width:12px;height:12px;" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z"></path></svg>
+                    EDIT
+                </button>
             </div>
         </div>
     </div>
 
     <script>
-        // Initialize transactions array
         let transactions = [];
 
-        // Convert API transaction format to display format
+        /* -------------------------------------------------- */
+        /* Helpers                                             */
+        /* -------------------------------------------------- */
+        function fetchWithTimeout(url, opts = {}, timeout = 1200) {
+            return Promise.race([
+                fetch(url, opts),
+                new Promise((_, rej) => setTimeout(() => rej(new Error('timeout')), timeout))
+            ]);
+        }
+
+        function formatDate(dateString) {
+            if (!dateString) return '-';
+            const d = new Date(dateString);
+            return d.toLocaleDateString() + ' ' + d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+        }
+
+        function isoToDatetimeLocal(iso) {
+            if (!iso) return '';
+            try {
+                const d = new Date(iso);
+                const pad = n => String(n).padStart(2, '0');
+                return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+            } catch(e) { return ''; }
+        }
+
+        /* -------------------------------------------------- */
+        /* API URLs                                            */
+        /* -------------------------------------------------- */
+        const NODE_BASE = 'http://localhost:3000/api/transactions';
+        const PHP_BASE  = '/rms/api/transactions';
+
+        function apiGet(path = '') {
+            return fetchWithTimeout(NODE_BASE + path, {}, 1000)
+                .catch(() => fetch(PHP_BASE + path));
+        }
+        function apiPost(path, body) {
+            const opts = { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body) };
+            return fetchWithTimeout(NODE_BASE + path, opts, 1000)
+                .catch(() => fetch(PHP_BASE + path, opts));
+        }
+        function apiPut(path, body) {
+            const opts = { method:'PUT', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body) };
+            return fetchWithTimeout(NODE_BASE + path, opts, 1000)
+                .catch(() => fetch(PHP_BASE + path, opts));
+        }
+        function apiDelete(path) {
+            const opts = { method:'DELETE' };
+            return fetchWithTimeout(NODE_BASE + path, opts, 1000)
+                .catch(() => fetch(PHP_BASE + path, opts));
+        }
+
+        /* -------------------------------------------------- */
+        /* Format transaction for card display                 */
+        /* -------------------------------------------------- */
         function formatTransaction(tx) {
             const createdDate = new Date(tx.createdAt);
             const now = new Date();
             const diffMs = now - createdDate;
-            const diffMins = Math.floor(diffMs / 60000);
+            const diffMins  = Math.floor(diffMs / 60000);
             const diffHours = Math.floor(diffMs / 3600000);
-            const diffDays = Math.floor(diffMs / 86400000);
+            const diffDays  = Math.floor(diffMs / 86400000);
 
             let timeAgo = 'Just now';
-            if (diffMins > 60 && diffHours < 24) {
-                timeAgo = diffHours + ' hour' + (diffHours > 1 ? 's' : '') + ' ago';
-            } else if (diffMins >= 1) {
-                timeAgo = diffMins + ' minute' + (diffMins > 1 ? 's' : '') + ' ago';
-            } else if (diffDays > 0) {
-                timeAgo = diffDays + ' day' + (diffDays > 1 ? 's' : '') + ' ago';
-            }
+            if (diffDays > 0)        timeAgo = diffDays  + ' day'    + (diffDays  > 1 ? 's' : '') + ' ago';
+            else if (diffHours > 0)  timeAgo = diffHours + ' hour'   + (diffHours > 1 ? 's' : '') + ' ago';
+            else if (diffMins  > 0)  timeAgo = diffMins  + ' minute' + (diffMins  > 1 ? 's' : '') + ' ago';
 
             let statusClass = 'tx-badge-green';
-            switch (tx.status) {
-                case 'pending': statusClass = 'tx-badge-orange'; break;
-                case 'rejected': statusClass = 'tx-badge-red'; break;
-                case 'approved': statusClass = 'tx-badge-green'; break;
-                case 'in_progress': statusClass = 'tx-badge-orange'; break;
-                default: statusClass = 'tx-badge-green';
-            }
+            if (tx.status === 'pending' || tx.status === 'in_progress') statusClass = 'tx-badge-orange';
+            if (tx.status === 'rejected') statusClass = 'tx-badge-red';
 
             return {
                 id: 'TXN-' + String(tx.id).padStart(6, '0'),
+                rawId: tx.id,
                 type: tx.type,
                 title: tx.title,
                 status: tx.status,
-                timeAgo: timeAgo,
-                statusClass: statusClass,
+                timeAgo,
+                statusClass,
                 dateCreated: new Date(tx.createdAt).toISOString().slice(0, 19).replace('T', ' '),
                 createdBy: tx.createdBy ? 'User ' + tx.createdBy : 'System',
                 originatedFrom: tx.fromOffice ? 'Office ' + tx.fromOffice : 'External',
-                documentType: tx.type === 'internal' ? 'Internal Document' : 'External Document',
+                documentType: tx.documentType || (tx.type === 'internal' ? 'Internal Document' : 'External Document'),
                 subject: tx.title + (tx.description ? ': ' + tx.description : ''),
                 receivedFrom: tx.fromOffice ? 'Office ' + tx.fromOffice : 'External Source',
                 receivedDate: tx.receivedAt ? new Date(tx.receivedAt).toISOString().slice(0, 19).replace('T', ' ') : '-',
@@ -704,52 +828,28 @@
                 particulars: tx.description || 'N/A',
                 notesFrom: 'System',
                 notes: tx.remarks || 'No additional notes',
-                priority: tx.priority || 'normal'
             };
         }
 
-        // Fetch transactions from API
+        /* -------------------------------------------------- */
+        /* Load & render card view                             */
+        /* -------------------------------------------------- */
         function loadTransactions() {
-            // Use Laravel API route
-            const apiUrl = '/api/transactions';
-            
-            console.log('Loading transactions from:', apiUrl);
-            
-            fetch(apiUrl)
-                .then(response => {
-                    console.log('Response status:', response.status);
-                    if (!response.ok) {
-                        return response.text().then(text => {
-                            console.error('Error response:', text.substring(0, 500));
-                            throw new Error('API Error ' + response.status);
-                        });
-                    }
-                    return response.json();
-                })
+            apiGet()
+                .then(r => { if (!r.ok) throw r; return r.json(); })
                 .then(data => {
-                    console.log('Transactions loaded:', data);
-                    if (Array.isArray(data)) {
-                        transactions = data.map(tx => formatTransaction(tx));
-                    } else {
-                        console.error('Invalid response format:', data);
-                        transactions = [];
-                    }
+                    transactions = Array.isArray(data) ? data.map(formatTransaction) : [];
                     renderTransactions();
                 })
-                .catch(error => {
-                    console.error('Error loading transactions:', error);
-                    renderTransactions();
-                });
+                .catch(err => { console.error('loadTransactions error:', err); renderTransactions(); });
         }
 
-        // Load transactions on page start
         document.addEventListener('DOMContentLoaded', loadTransactions);
 
         function renderTransactions(txList = transactions) {
-            const container = document.getElementById('transactionsContainer');
+            const container  = document.getElementById('transactionsContainer');
             const emptyState = document.getElementById('emptyStateDisplay');
-            
-            container.innerHTML = ''; 
+            container.innerHTML = '';
 
             if (txList.length === 0) {
                 container.classList.remove('show');
@@ -757,7 +857,6 @@
             } else {
                 emptyState.style.display = 'none';
                 container.classList.add('show');
-                
                 txList.forEach(tx => {
                     const card = document.createElement('div');
                     card.className = 'tx-card';
@@ -765,65 +864,46 @@
                         <div class="tx-card-header">
                             <span class="tx-id-text">ID: ${tx.id}</span>
                             <div class="tx-status-group">
-                                <span class="tx-time-ago">${tx.timeAgo || 'Just now'}</span>
-                                <div class="tx-badge-icon ${tx.statusClass || 'tx-badge-green'}"></div>
+                                <span class="tx-time-ago">${tx.timeAgo}</span>
+                                <div class="tx-badge-icon ${tx.statusClass}"></div>
                             </div>
                         </div>
                         <div class="tx-card-divider"></div>
-                        
+                        <div class="tx-section-col"><span class="tx-label">Originated From:</span><span class="tx-value">${tx.originatedFrom}</span></div>
+                        <div class="tx-card-divider"></div>
                         <div class="tx-section-col">
-                            <span class="tx-label">Originated From:</span>
-                            <span class="tx-value">${tx.originatedFrom || '-'}</span>
+                            <span class="tx-label">Date Created: <span style="font-weight:normal;color:#6b7280">${tx.dateCreated}</span></span>
+                            <span class="tx-label">Created By: <span style="font-weight:normal;color:#6b7280">${tx.createdBy}</span></span>
                         </div>
                         <div class="tx-card-divider"></div>
-
                         <div class="tx-section-col">
-                            <span class="tx-label">Date Created: <span style="font-weight:normal; color:#6b7280">${tx.dateCreated || '-'}</span></span>
-                            <span class="tx-label">Created By: <span style="font-weight:normal; color:#6b7280">${tx.createdBy || '-'}</span></span>
+                            <span class="tx-label">Document Type: <span style="font-weight:normal;color:#6b7280">${tx.documentType}</span></span>
+                            <span class="tx-label">Subject: <span style="font-weight:normal;color:#6b7280">${tx.subject}</span></span>
                         </div>
                         <div class="tx-card-divider"></div>
-
                         <div class="tx-section-col">
-                            <span class="tx-label">Document Type: <span style="font-weight:normal; color:#6b7280">${tx.documentType || '-'}</span></span>
-                            <span class="tx-label">Subject: <span style="font-weight:normal; color:#6b7280">${tx.subject || '-'}</span></span>
+                            <span class="tx-label">Received From: <span style="font-weight:normal;color:#6b7280">${tx.receivedFrom}</span></span>
+                            <span class="tx-label">Received Date: <span style="font-weight:normal;color:#6b7280">${tx.receivedDate}</span></span>
                         </div>
                         <div class="tx-card-divider"></div>
-
-                        <div class="tx-section-col">
-                            <span class="tx-label">Received From: <span style="font-weight:normal; color:#6b7280">${tx.receivedFrom || '-'}</span></span>
-                            <span class="tx-label">Received Date: <span style="font-weight:normal; color:#6b7280">${tx.receivedDate || '-'}</span></span>
-                        </div>
+                        <div class="tx-section-col"><span class="tx-label">Next Receiving Office:</span><span class="tx-value">${tx.nextReceivingOffice}</span></div>
                         <div class="tx-card-divider"></div>
-
-                        <div class="tx-section-col">
-                            <span class="tx-label">Next Receiving Office:</span>
-                            <span class="tx-value">${tx.nextReceivingOffice || '-'}</span>
-                        </div>
+                        <div class="tx-section-col tx-scroll-area"><span class="tx-label">Particulars:</span><span class="tx-value">${tx.particulars}</span></div>
                         <div class="tx-card-divider"></div>
-
-                        <div class="tx-section-col tx-scroll-area">
-                            <span class="tx-label">Particulars:</span>
-                            <span class="tx-value">${tx.particulars || '-'}</span>
-                        </div>
-                        <div class="tx-card-divider"></div>
-
-                        <div class="tx-section-col tx-scroll-area" style="flex:1;">
-                            <span class="tx-label">Notes<br>From: ${tx.notesFrom || '-'}</span>
-                            <span class="tx-value">${tx.notes || '-'}</span>
-                        </div>
-                        
-                        <button class="tx-view-btn">
+                        <div class="tx-section-col tx-scroll-area" style="flex:1;"><span class="tx-label">Notes<br>From: ${tx.notesFrom}</span><span class="tx-value">${tx.notes}</span></div>
+                        <button class="tx-view-btn" onclick="openViewModal(${tx.rawId})">
                             <svg style="width:12px;height:12px;" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg> VIEW TRANSACTION
-                        </button>
-                    `;
+                        </button>`;
                     container.appendChild(card);
                 });
             }
         }
 
+        /* -------------------------------------------------- */
+        /* Create transaction                                  */
+        /* -------------------------------------------------- */
         function handleTransactionSubmit(event, type) {
-            event.preventDefault(); 
-            
+            event.preventDefault();
             let txData = {
                 type: type === 'External' ? 'external' : 'internal',
                 category: type,
@@ -836,147 +916,104 @@
             };
 
             if (type === 'Internal') {
-                txData.title = document.getElementById('int-subject').value || 'Internal Transaction';
-                txData.description = document.getElementById('int-subject').value;
-                txData.documentType = document.getElementById('int-doc-type').value;
+                txData.title          = document.getElementById('int-subject').value || 'Internal Transaction';
+                txData.description    = document.getElementById('int-subject').value;
+                txData.documentType   = document.getElementById('int-doc-type').value;
                 txData.classification = document.getElementById('int-class').value;
-                txData.unitCollege = document.getElementById('int-unit').value;
-                txData.requestor = document.getElementById('int-name').value;
-                txData.fromOffice = 1;
-                txData.toOffice = 2;
-                txData.createdBy = 1;
-                txData.receivedBy = null;
+                txData.unitCollege    = document.getElementById('int-unit').value;
+                txData.requestor      = document.getElementById('int-name').value;
+                txData.fromOffice = 1; txData.toOffice = 2; txData.createdBy = 1;
             } else if (type === 'External') {
-                txData.title = document.getElementById('ext-subject').value || 'External Transaction';
+                txData.title       = document.getElementById('ext-subject').value || 'External Transaction';
                 txData.description = document.getElementById('ext-subject').value;
-                txData.source = document.getElementById('ext-source').value;
-                txData.requestor = document.getElementById('ext-name').value;
-                txData.fromOffice = null;
+                txData.source      = document.getElementById('ext-source').value;
+                txData.requestor   = document.getElementById('ext-name').value;
                 txData.toOffice = 1;
-                txData.createdBy = null;
-                txData.receivedBy = null;
             } else if (type === 'Application') {
-                txData.type = 'internal';
+                txData.type          = 'internal';
                 txData.applicantName = document.getElementById('app-name').value;
-                txData.position = document.getElementById('app-pos').value;
-                txData.documentType = document.getElementById('app-type').value;
-                txData.title = 'Application for ' + document.getElementById('app-pos').value;
-                txData.description = document.getElementById('app-type').value;
-                txData.fromOffice = 1;
-                txData.toOffice = 2;
-                txData.createdBy = 1;
-                txData.receivedBy = null;
+                txData.position      = document.getElementById('app-pos').value;
+                txData.documentType  = document.getElementById('app-type').value;
+                txData.title         = 'Application for ' + document.getElementById('app-pos').value;
+                txData.description   = document.getElementById('app-type').value;
+                txData.fromOffice = 1; txData.toOffice = 2; txData.createdBy = 1;
             } else if (type === 'Issuance') {
-                txData.type = 'internal';
-                txData.title = document.getElementById('iss-subject').value;
-                txData.description = 'Issuance document';
-                txData.subject = document.getElementById('iss-subject').value;
+                txData.type           = 'internal';
+                txData.title          = document.getElementById('iss-subject').value;
+                txData.description    = 'Issuance document';
+                txData.subject        = document.getElementById('iss-subject').value;
                 txData.receivingOffice = document.getElementById('iss-office').value;
                 txData.fromOffice = 1;
-                txData.toOffice = parseInt(document.getElementById('iss-office').selectedIndex) + 1;
-                txData.createdBy = 1;
-                txData.receivedBy = null;
+                txData.toOffice   = parseInt(document.getElementById('iss-office').selectedIndex) + 1;
+                txData.createdBy  = 1;
             }
 
-            // Save to API
-            const apiUrl = '/api/transactions';
-            
-            console.log('Submitting to:', apiUrl, txData);
-            
-            fetch(apiUrl, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(txData)
-            })
-            .then(response => {
-                console.log('Response status:', response.status, response.statusText);
-                if (!response.ok) {
-                    return response.text().then(text => {
-                        console.error('Error response body:', text.substring(0, 500));
-                        throw new Error('HTTP ' + response.status + ': ' + text.substring(0, 300));
-                    });
-                }
-                return response.json();
-            })
-            .then(data => {
-                console.log('Response data:', data);
-                if (data.error) {
-                    throw new Error(data.error);
-                }
-                alert('Transaction created successfully!');
-                loadTransactions(); // Reload card view
-                loadTransactionLists(); // Reload lists
-                event.target.reset();
-                window.location.hash = '#current';
-            })
-            .catch(error => {
-                console.error('Full error:', error);
-                alert('Error creating transaction:\n' + error.message);
-            });
+            apiPost('', txData)
+                .then(r => {
+                    if (!r.ok) return r.text().then(t => { throw new Error('HTTP ' + r.status + ': ' + t.substring(0, 300)); });
+                    return r.json();
+                })
+                .then(data => {
+                    if (data.error) throw new Error(data.error);
+                    alert('Transaction created successfully!');
+                    loadTransactions();
+                    loadTransactionLists();
+                    event.target.reset();
+                    window.location.hash = '#current';
+                })
+                .catch(err => alert('Error creating transaction:\n' + err.message));
         }
 
+        /* -------------------------------------------------- */
+        /* Search                                              */
+        /* -------------------------------------------------- */
         function executeSearch() {
             const ctrlQuery = document.getElementById('search-ctrl').value.toLowerCase();
             const subjQuery = document.getElementById('search-subject').value.toLowerCase();
-            
-            const filtered = transactions.filter(tx => {
-                const matchesCtrl = tx.id.toLowerCase().includes(ctrlQuery);
-                const matchesSubj = tx.subject && tx.subject.toLowerCase().includes(subjQuery);
-                return matchesCtrl && matchesSubj;
-            });
-            
+            const filtered  = transactions.filter(tx =>
+                tx.id.toLowerCase().includes(ctrlQuery) &&
+                (tx.subject || '').toLowerCase().includes(subjQuery)
+            );
             renderTransactions(filtered);
             window.location.hash = '#current';
         }
 
-        function resetSearch() {
-            renderTransactions();
-        }
+        function resetSearch() { renderTransactions(); }
 
-        /* --------------------------------- */
-        /* URL Routing Logic (Hash based)    */
-        /* --------------------------------- */
-        
+        /* -------------------------------------------------- */
+        /* Hash-based routing                                  */
+        /* -------------------------------------------------- */
         const hashToTargetMap = {
-            '#current': 'content-default',
-            '#list-internal': 'list-internal',
-            '#list-external': 'list-external',
-            '#list-application': 'list-application',
-            '#list-issuances': 'list-issuances',
-            '#search': 'content-search',
-            '#receive': 'content-receive',
-            '#create-internal': 'form-internal',
-            '#create-external': 'form-external',
-            '#create-application': 'form-application',
-            '#create-issuances': 'form-issuances',
-            '#settings': 'content-settings'
+            '#current':           'content-default',
+            '#list-internal':     'list-internal',
+            '#list-external':     'list-external',
+            '#list-application':  'list-application',
+            '#list-issuances':    'list-issuances',
+            '#search':            'content-search',
+            '#receive':           'content-receive',
+            '#create-internal':   'form-internal',
+            '#create-external':   'form-external',
+            '#create-application':'form-application',
+            '#create-issuances':  'form-issuances',
+            '#settings':          'content-settings'
         };
 
         function handleHashChange() {
             let hash = window.location.hash;
-            if (!hash || !hashToTargetMap[hash]) {
-                hash = '#current'; // Default route
-            }
-            
+            if (!hash || !hashToTargetMap[hash]) hash = '#current';
             const targetId = hashToTargetMap[hash];
-            const navItem = document.querySelector(`.main-nav[data-target="${targetId}"], .sub-item[data-target="${targetId}"]`);
-            
-            if(navItem) {
-                activateRoute(navItem, targetId);
-            }
+            const navItem  = document.querySelector(`.main-nav[data-target="${targetId}"], .sub-item[data-target="${targetId}"]`);
+            if (navItem) activateRoute(navItem, targetId);
         }
 
         function activateRoute(item, targetId) {
-            // Clear active classes
-            document.querySelectorAll('.main-nav').forEach(n => n.classList.remove('active'));
-            document.querySelectorAll('.sub-item').forEach(n => n.classList.remove('active'));
+            document.querySelectorAll('.main-nav, .sub-item').forEach(n => n.classList.remove('active'));
             document.getElementById('createTransactionToggle').classList.remove('active');
             document.getElementById('listTransactionToggle').classList.remove('active');
-            
-            // Highlight the clicked item in sidebar
+
             if (item.classList.contains('sub-item')) {
                 item.classList.add('active');
-                if(item.closest('#createTransactionSubmenu')) {
+                if (item.closest('#createTransactionSubmenu')) {
                     document.getElementById('createTransactionToggle').classList.add('active');
                     document.getElementById('createTransactionSubmenu').classList.add('show');
                 } else if (item.closest('#listTransactionSubmenu')) {
@@ -987,72 +1024,56 @@
                 item.classList.add('active');
             }
 
-            // Hide all content areas, show target
-            document.querySelectorAll('.content-section').forEach(sec => sec.classList.remove('active'));
+            document.querySelectorAll('.content-section').forEach(s => s.classList.remove('active'));
             document.getElementById(targetId).classList.add('active');
 
-            // Special UI Resets based on route
             if (targetId === 'content-receive') {
                 document.getElementById('receive-step-1').style.display = 'block';
                 document.getElementById('receive-step-2').style.display = 'none';
             }
         }
 
-        // Listen for URL changes
         window.addEventListener('hashchange', handleHashChange);
-        
-        /* --------------------------------- */
-        /* Interactivity / UI Logics         */
-        /* --------------------------------- */
-        const sidebar = document.getElementById('sidebar');
-        const toggleBtn = document.getElementById('toggleSidebar');
-        toggleBtn.addEventListener('click', () => {
-            sidebar.classList.toggle('collapsed');
-        });
 
-        const actionsBtn = document.getElementById('actionsBtn');
+        /* -------------------------------------------------- */
+        /* Sidebar & UI interactions                           */
+        /* -------------------------------------------------- */
+        const sidebar = document.getElementById('sidebar');
+        document.getElementById('toggleSidebar').addEventListener('click', () => sidebar.classList.toggle('collapsed'));
+
+        const actionsBtn      = document.getElementById('actionsBtn');
         const actionsDropdown = document.getElementById('actionsDropdown');
-        actionsBtn.addEventListener('click', (e) => {
+        actionsBtn.addEventListener('click', e => {
             e.stopPropagation();
             actionsDropdown.classList.toggle('show');
             notificationPopup.classList.remove('show');
         });
 
-        const notificationBtn = document.getElementById('notificationBtn');
+        const notificationBtn   = document.getElementById('notificationBtn');
         const notificationPopup = document.getElementById('notificationPopup');
-        notificationBtn.addEventListener('click', (e) => {
+        notificationBtn.addEventListener('click', e => {
             e.stopPropagation();
             notificationPopup.classList.toggle('show');
             actionsDropdown.classList.remove('show');
         });
 
-        document.addEventListener('click', (e) => {
-            if(actionsDropdown.classList.contains('show') && !actionsDropdown.contains(e.target)) {
-                actionsDropdown.classList.remove('show');
-            }
-            if(notificationPopup.classList.contains('show') && !notificationPopup.contains(e.target)) {
-                notificationPopup.classList.remove('show');
-            }
+        document.addEventListener('click', e => {
+            if (!actionsDropdown.contains(e.target))   actionsDropdown.classList.remove('show');
+            if (!notificationPopup.contains(e.target)) notificationPopup.classList.remove('show');
         });
 
         function setupToggleMenu(toggleId, submenuId) {
-            const toggle = document.getElementById(toggleId);
-            const submenu = document.getElementById(submenuId);
-            if(toggle && submenu) {
-                toggle.addEventListener('click', () => {
-                    if (!sidebar.classList.contains('collapsed')) {
-                        submenu.classList.toggle('show');
-                    }
-                });
-            }
+            document.getElementById(toggleId).addEventListener('click', () => {
+                if (!sidebar.classList.contains('collapsed'))
+                    document.getElementById(submenuId).classList.toggle('show');
+            });
         }
         setupToggleMenu('createTransactionToggle', 'createTransactionSubmenu');
-        setupToggleMenu('listTransactionToggle', 'listTransactionSubmenu');
+        setupToggleMenu('listTransactionToggle',   'listTransactionSubmenu');
 
-        const searchFilters = document.querySelectorAll('.search-filter-btn');
-        searchFilters.forEach(btn => {
+        document.querySelectorAll('.search-filter-btn').forEach(btn => {
             btn.addEventListener('click', () => {
-                searchFilters.forEach(b => b.classList.remove('active'));
+                document.querySelectorAll('.search-filter-btn').forEach(b => b.classList.remove('active'));
                 btn.classList.add('active');
             });
         });
@@ -1062,141 +1083,273 @@
             document.getElementById('receive-step-2').style.display = 'block';
         }
 
-        // Load and populate transaction lists
+        /* -------------------------------------------------- */
+        /* Load & render transaction lists (tables)            */
+        /* -------------------------------------------------- */
         function loadTransactionLists() {
-            fetch('/api/transactions')
-                .then(response => response.json())
-                .then(transactions => {
-                    if (!Array.isArray(transactions)) {
-                        console.error('Invalid response format');
-                        return;
-                    }
-                    
-                    // Separate transactions by category
-                    const internal = transactions.filter(t => t.category === 'Internal' || (t.type === 'internal' && !t.category));
-                    const external = transactions.filter(t => t.category === 'External' || (t.type === 'external' && !t.category));
-                    const applications = transactions.filter(t => t.category === 'Application');
-                    const issuances = transactions.filter(t => t.category === 'Issuance');
-                    
-                    // Populate tables
-                    populateInternalTable(internal);
-                    populateExternalTable(external);
-                    populateApplicationTable(applications);
-                    populateIssuanceTable(issuances);
+            apiGet()
+                .then(r => { if (!r.ok) throw r; return r.json(); })
+                .then(list => {
+                    if (!Array.isArray(list)) return;
+                    populateInternalTable(list.filter(t => t.category === 'Internal' || (t.type === 'internal' && !t.category)));
+                    populateExternalTable(list.filter(t => t.category === 'External' || (t.type === 'external' && !t.category)));
+                    populateApplicationTable(list.filter(t => t.category === 'Application'));
+                    populateIssuanceTable(list.filter(t => t.category === 'Issuance'));
                 })
-                .catch(error => console.error('Error loading transaction lists:', error));
+                .catch(err => console.error('loadTransactionLists error:', err));
         }
 
-        function populateInternalTable(transactions) {
+        function actionBtns(id) {
+            return `<button onclick="openEditModal(${id})" style="padding:4px 8px;background:#3b82f6;color:white;border:none;border-radius:4px;cursor:pointer;font-size:11px;">EDIT</button>
+                    <button onclick="deleteTransaction(${id})" style="padding:4px 8px;background:#ef4444;color:white;border:none;border-radius:4px;cursor:pointer;font-size:11px;margin-left:4px;">DELETE</button>`;
+        }
+
+        function populateInternalTable(list) {
             const tbody = document.querySelector('#list-internal table tbody');
             if (!tbody) return;
-            
-            if (transactions.length === 0) {
-                tbody.innerHTML = '<tr><td colspan="12" style="text-align: center; color: #9ca3af; padding: 20px;">No internal transactions found.</td></tr>';
-                return;
-            }
-            
-            tbody.innerHTML = transactions.map(tx => `
-                <tr>
-                    <td>${tx.controlNumber || 'AUTO-' + tx.id}</td>
-                    <td>${tx.unitCollege || '-'}</td>
-                    <td>${tx.title || '-'}</td>
-                    <td>${formatDate(tx.createdAt)}</td>
-                    <td>${tx.description || '-'}</td>
-                    <td>${tx.documentType || '-'}</td>
-                    <td>${tx.classification || '-'}</td>
-                    <td>-</td>
-                    <td>${tx.remarks || '-'}</td>
-                    <td><svg style="width:16px;height:16px;cursor:pointer;" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg></td>
-                    <td><button style="padding:4px 8px;background:#3b82f6;color:white;border:none;border-radius:4px;cursor:pointer;font-size:11px;">EDIT</button></td>
-                    <td><button style="padding:4px 8px;background:#1d4ed8;color:white;border:none;border-radius:4px;cursor:pointer;font-size:11px;">VIEW</button></td>
-                </tr>
-            `).join('');
+            if (!list.length) { tbody.innerHTML = '<tr><td colspan="12" style="text-align:center;color:#9ca3af;padding:20px;">No internal transactions found.</td></tr>'; return; }
+            tbody.innerHTML = list.map(tx => `<tr>
+                <td>${tx.controlNumber || 'AUTO-'+tx.id}</td>
+                <td>${tx.unitCollege || '-'}</td>
+                <td>${tx.source || '-'}</td>
+                <td>${formatDate(tx.createdAt)}</td>
+                <td>${tx.title || '-'}</td>
+                <td>${tx.documentType || '-'}</td>
+                <td>${tx.classification || '-'}</td>
+                <td>${tx.actionNeeded || '-'}</td>
+                <td>${tx.remarks || '-'}</td>
+                <td><svg style="width:16px;height:16px;cursor:pointer;" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg></td>
+                <td>${actionBtns(tx.id)}</td>
+                <td><button onclick="openViewModal(${tx.id})" style="padding:4px 8px;background:#1d4ed8;color:white;border:none;border-radius:4px;cursor:pointer;font-size:11px;">VIEW</button></td>
+            </tr>`).join('');
         }
 
-        function populateExternalTable(transactions) {
+        function populateExternalTable(list) {
             const tbody = document.querySelector('#list-external table tbody');
             if (!tbody) return;
-            
-            if (transactions.length === 0) {
-                tbody.innerHTML = '<tr><td colspan="12" style="text-align: center; color: #9ca3af; padding: 20px;">No external transactions found.</td></tr>';
-                return;
-            }
-            
-            tbody.innerHTML = transactions.map(tx => `
-                <tr>
-                    <td>${tx.controlNumber || 'AUTO-' + tx.id}</td>
-                    <td>${tx.source || '-'}</td>
-                    <td>${tx.title || '-'}</td>
-                    <td>${formatDate(tx.createdAt)}</td>
-                    <td>${tx.description || '-'}</td>
-                    <td>-</td>
-                    <td>-</td>
-                    <td>-</td>
-                    <td>${tx.remarks || '-'}</td>
-                    <td><svg style="width:16px;height:16px;cursor:pointer;" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg></td>
-                    <td><button style="padding:4px 8px;background:#3b82f6;color:white;border:none;border-radius:4px;cursor:pointer;font-size:11px;">EDIT</button></td>
-                    <td><button style="padding:4px 8px;background:#1d4ed8;color:white;border:none;border-radius:4px;cursor:pointer;font-size:11px;">VIEW</button></td>
-                </tr>
-            `).join('');
+            if (!list.length) { tbody.innerHTML = '<tr><td colspan="12" style="text-align:center;color:#9ca3af;padding:20px;">No external transactions found.</td></tr>'; return; }
+            tbody.innerHTML = list.map(tx => `<tr>
+                <td>${tx.controlNumber || 'AUTO-'+tx.id}</td>
+                <td>${tx.unitCollege || '-'}</td>
+                <td>${tx.source || '-'}</td>
+                <td>${formatDate(tx.createdAt)}</td>
+                <td>${tx.title || '-'}</td>
+                <td>${tx.documentType || '-'}</td>
+                <td>${tx.classification || '-'}</td>
+                <td>${tx.actionNeeded || '-'}</td>
+                <td>${tx.remarks || '-'}</td>
+                <td><svg style="width:16px;height:16px;cursor:pointer;" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg></td>
+                <td>${actionBtns(tx.id)}</td>
+                <td><button onclick="openViewModal(${tx.id})" style="padding:4px 8px;background:#1d4ed8;color:white;border:none;border-radius:4px;cursor:pointer;font-size:11px;">VIEW</button></td>
+            </tr>`).join('');
         }
 
-        function populateApplicationTable(transactions) {
+        function populateApplicationTable(list) {
             const tbody = document.querySelector('#list-application table tbody');
             if (!tbody) return;
-            
-            if (transactions.length === 0) {
-                tbody.innerHTML = '<tr><td colspan="9" style="text-align: center; color: #9ca3af; padding: 20px;">No application letters found.</td></tr>';
-                return;
-            }
-            
-            tbody.innerHTML = transactions.map(tx => `
-                <tr>
-                    <td>${tx.controlNumber || 'AUTO-' + tx.id}</td>
-                    <td>${formatDate(tx.createdAt)}</td>
-                    <td>${tx.applicantName || '-'}</td>
-                    <td>${tx.position || '-'}</td>
-                    <td>${tx.unitCollege || '-'}</td>
-                    <td>${tx.remarks || '-'}</td>
-                    <td>-</td>
-                    <td>${tx.status || 'pending'}</td>
-                    <td><svg style="width:16px;height:16px;cursor:pointer;" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg></td>
-                </tr>
-            `).join('');
+            if (!list.length) { tbody.innerHTML = '<tr><td colspan="9" style="text-align:center;color:#9ca3af;padding:20px;">No application letters found.</td></tr>'; return; }
+            tbody.innerHTML = list.map(tx => `<tr>
+                <td>${tx.controlNumber || 'AUTO-'+tx.id}</td>
+                <td>${formatDate(tx.createdAt)}</td>
+                <td>${tx.applicantName || '-'}</td>
+                <td>${tx.position || '-'}</td>
+                <td>${tx.unitCollege || '-'}</td>
+                <td>${tx.remarks || '-'}</td>
+                <td>${tx.actionNeeded || '-'}</td>
+                <td>${tx.status || 'pending'}</td>
+                <td>${actionBtns(tx.id)}</td>
+            </tr>`).join('');
         }
 
-        function populateIssuanceTable(transactions) {
+        function populateIssuanceTable(list) {
             const tbody = document.querySelector('#list-issuances table tbody');
             if (!tbody) return;
-            
-            if (transactions.length === 0) {
-                tbody.innerHTML = '<tr><td colspan="10" style="text-align: center; color: #9ca3af; padding: 20px;">No issuances found.</td></tr>';
-                return;
+            if (!list.length) { tbody.innerHTML = '<tr><td colspan="10" style="text-align:center;color:#9ca3af;padding:20px;">No issuances found.</td></tr>'; return; }
+            tbody.innerHTML = list.map(tx => `<tr>
+                <td>${tx.controlNumber || 'AUTO-'+tx.id}</td>
+                <td>${tx.id}-TRK</td>
+                <td>${formatDate(tx.createdAt)}</td>
+                <td>${tx.receivingOffice || '-'}</td>
+                <td>${tx.subject || tx.title || '-'}</td>
+                <td>-</td>
+                <td>${tx.classification || '-'}</td>
+                <td>${tx.remarks || '-'}</td>
+                <td><svg style="width:16px;height:16px;cursor:pointer;" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg></td>
+                <td>${actionBtns(tx.id)} <button onclick="openViewModal(${tx.id})" style="padding:4px 8px;background:#1d4ed8;color:white;border:none;border-radius:4px;cursor:pointer;font-size:11px;margin-left:4px;">VIEW</button></td>
+            </tr>`).join('');
+        }
+
+        /* -------------------------------------------------- */
+        /* View Modal                                          */
+        /* -------------------------------------------------- */
+        function openViewModal(id) {
+            apiGet('/' + id)
+                .then(r => { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
+                .then(tx => {
+                    if (!tx || tx.error) { alert('Transaction not found'); return; }
+                    showViewModal(tx);
+                })
+                .catch(err => { console.error(err); alert('Failed to load transaction: ' + err.message); });
+        }
+
+        function showViewModal(tx) {
+            document.getElementById('view-controlNumber').textContent  = tx.controlNumber || tx.control_number || ('AUTO-' + tx.id);
+            document.getElementById('view-createdAt').textContent      = formatDate(tx.createdAt || tx.created_at);
+            document.getElementById('view-type').textContent           = tx.category || (tx.type === 'external' ? 'External' : 'Internal');
+            document.getElementById('view-unitCollege').textContent    = tx.unitCollege || tx.unit_college || tx.unit || '-';
+            document.getElementById('view-source').textContent         = tx.source || '-';
+            document.getElementById('view-title').textContent          = tx.title || tx.subject || '-';
+            document.getElementById('view-documentType').textContent   = tx.documentType || tx.document_type || '-';
+            document.getElementById('view-classification').textContent = tx.classification || '-';
+            document.getElementById('view-actionNeeded').textContent   = tx.actionNeeded || tx.action_needed || '-';
+            document.getElementById('view-remarks').textContent        = tx.remarks || '-';
+            document.getElementById('view-description').textContent    = tx.description || '-';
+
+            // Status badge
+            const statusMap = { pending:'pending', in_progress:'in_progress', approved:'approved', rejected:'rejected', completed:'completed' };
+            const s = tx.status || 'pending';
+            const statusEl = document.getElementById('view-status');
+            statusEl.innerHTML = `<span class="view-status-badge view-status-${statusMap[s] || 'pending'}">${s.replace('_',' ')}</span>`;
+
+            // Wire the Edit button inside view modal
+            document.getElementById('view-edit-btn').onclick = function() {
+                closeViewModal();
+                openEditModal(tx.id);
+            };
+
+            document.getElementById('viewModal').classList.add('open');
+        }
+
+        function closeViewModal() {
+            document.getElementById('viewModal').classList.remove('open');
+        }
+
+        document.getElementById('viewModal').addEventListener('click', function(e) {
+            if (e.target === this) closeViewModal();
+        });
+
+        /* -------------------------------------------------- */
+        /* Edit Modal                                          */
+        /* -------------------------------------------------- */
+        function openEditModal(id) {
+            apiGet('/' + id)
+                .then(r => { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
+                .then(tx => {
+                    if (!tx || tx.error) { alert('Transaction not found'); return; }
+                    showEditModal(tx);
+                })
+                .catch(err => { console.error(err); alert('Failed to load transaction: ' + err.message); });
+        }
+
+        function showEditModal(tx) {
+            document.getElementById('edit-id').value                  = tx.id || '';
+            document.getElementById('edit-description').value         = tx.description || '';
+            document.getElementById('edit-controlNumber_display').value = tx.controlNumber || tx.control_number || ('AUTO-' + tx.id);
+            document.getElementById('edit-createdAt').value           = isoToDatetimeLocal(tx.createdAt || tx.created_at);
+            document.getElementById('edit-title').value               = tx.title || tx.subject || '';
+            document.getElementById('edit-documentType').value        = tx.documentType || tx.document_type || '';
+            document.getElementById('edit-actionNeeded').value        = tx.actionNeeded || tx.action_needed || '';
+            document.getElementById('edit-remarks').value             = tx.remarks || '';
+
+            // Classification select
+            const classEl  = document.getElementById('edit-classification');
+            const classVal = (tx.classification || '').trim();
+            classEl.value  = [...classEl.options].find(o => o.value.toLowerCase() === classVal.toLowerCase())?.value || '';
+
+            // Status select
+            const statusEl  = document.getElementById('edit-status');
+            statusEl.value  = [...statusEl.options].find(o => o.value === tx.status)?.value || 'pending';
+
+            // Unit/College vs Source
+            const isExternal = tx.category === 'External' || (tx.type === 'external' && tx.category !== 'Internal');
+            document.getElementById('edit-unitCollege-container').style.display = isExternal ? 'none' : 'block';
+            document.getElementById('edit-source-container').style.display      = isExternal ? 'block' : 'none';
+            document.getElementById('edit-unitCollege').value = tx.unitCollege || tx.unit_college || tx.unit || '';
+            document.getElementById('edit-source').value      = tx.source || '';
+
+            document.getElementById('editModal').style.display = 'flex';
+        }
+
+        function closeEditModal() {
+            document.getElementById('editModal').style.display = 'none';
+        }
+
+        // Close on backdrop click
+        document.getElementById('editModal').addEventListener('click', function(e) {
+            if (e.target === this) closeEditModal();
+        });
+
+        function saveEdit() {
+            const id = document.getElementById('edit-id').value;
+            if (!id) { alert('No transaction ID.'); return; }
+
+            const dtVal        = document.getElementById('edit-createdAt').value;
+            const createdAtISO = dtVal ? new Date(dtVal).toISOString() : undefined;
+
+            const isUnitVisible = document.getElementById('edit-unitCollege-container').style.display !== 'none';
+
+            const payload = {
+                title:          document.getElementById('edit-title').value,
+                subject:        document.getElementById('edit-title').value,
+                description:    document.getElementById('edit-description').value,
+                documentType:   document.getElementById('edit-documentType').value,
+                document_type:  document.getElementById('edit-documentType').value,
+                classification: document.getElementById('edit-classification').value,
+                actionNeeded:   document.getElementById('edit-actionNeeded').value,
+                action_needed:  document.getElementById('edit-actionNeeded').value,
+                remarks:        document.getElementById('edit-remarks').value,
+                status:         document.getElementById('edit-status').value,
+            };
+            if (createdAtISO) { payload.createdAt = createdAtISO; payload.created_at = createdAtISO; }
+            if (isUnitVisible) {
+                payload.unitCollege  = document.getElementById('edit-unitCollege').value;
+                payload.unit_college = payload.unitCollege;
+            } else {
+                payload.source = document.getElementById('edit-source').value;
             }
-            
-            tbody.innerHTML = transactions.map(tx => `
-                <tr>
-                    <td>${tx.controlNumber || 'AUTO-' + tx.id}</td>
-                    <td>${tx.id}-TRK</td>
-                    <td>${formatDate(tx.createdAt)}</td>
-                    <td>${tx.receivingOffice || '-'}</td>
-                    <td>${tx.subject || tx.description || '-'}</td>
-                    <td>-</td>
-                    <td>-</td>
-                    <td>${tx.remarks || '-'}</td>
-                    <td><svg style="width:16px;height:16px;cursor:pointer;" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg></td>
-                    <td><button style="padding:4px 8px;background:#1d4ed8;color:white;border:none;border-radius:4px;cursor:pointer;font-size:11px;">VIEW</button></td>
-                </tr>
-            `).join('');
+
+            const saveBtn       = document.getElementById('edit-save-btn');
+            saveBtn.disabled    = true;
+            saveBtn.textContent = 'Saving...';
+
+            apiPut('/' + id, payload)
+                .then(async r => {
+                    let body = null;
+                    try { body = await r.json(); } catch(e) {}
+                    if (!r.ok) throw new Error((body && body.error) ? body.error : 'HTTP ' + r.status);
+                    if (body && body.error) throw new Error(body.error);
+                    closeEditModal();
+                    loadTransactions();
+                    loadTransactionLists();
+                })
+                .catch(err => { console.error(err); alert('Update failed: ' + err.message); })
+                .finally(() => {
+                    saveBtn.disabled  = false;
+                    saveBtn.innerHTML = '<svg style="width:12px;height:12px;" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path></svg> SAVE CHANGES';
+                });
         }
 
-        function formatDate(dateString) {
-            if (!dateString) return '-';
-            const date = new Date(dateString);
-            return date.toLocaleDateString() + ' ' + date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+        /* -------------------------------------------------- */
+        /* Delete transaction                                  */
+        /* -------------------------------------------------- */
+        function deleteTransaction(id) {
+            if (!confirm('Delete transaction #' + id + '? This cannot be undone.')) return;
+            apiDelete('/' + id)
+                .then(async r => {
+                    let body = null;
+                    try { body = await r.json(); } catch(e) {}
+                    if (!r.ok) throw new Error((body && body.error) ? body.error : 'HTTP ' + r.status);
+                    alert('Transaction deleted.');
+                    closeEditModal();
+                    loadTransactions();
+                    loadTransactionLists();
+                })
+                .catch(err => { console.error(err); alert('Delete failed: ' + err.message); });
         }
 
-        // Initialize App State based on initial URL
+        /* -------------------------------------------------- */
+        /* Init                                                */
+        /* -------------------------------------------------- */
         handleHashChange();
         renderTransactions();
         loadTransactionLists();

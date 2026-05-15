@@ -4,8 +4,7 @@
   "description": "Records Management System Version 2 Development",
   "main": "index.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1",
-    "start": "node server.js"
+    "test": "echo \"Error: no test specified\" && exit 1"
   },
   "repository": {
     "type": "git",
@@ -21,9 +20,5 @@
   "homepage": "https://github.com/AMEN-ProgCorps/RMS-CSPC#readme",
   "dependencies": {
     "express": "^5.2.1"
-  },
-  "directories": {
-    "test": "tests"
-  },
-  "devDependencies": {}
+  }
 }

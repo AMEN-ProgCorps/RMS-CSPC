@@ -1,8 +1,14 @@
 <?php
 header('Content-Type: application/json');
 header('Access-Control-Allow-Origin: *');
-header('Access-Control-Allow-Methods: GET, POST, PUT, DELETE');
-header('Access-Control-Allow-Headers: Content-Type');
+header('Access-Control-Allow-Methods: GET, POST, PUT, DELETE, OPTIONS');
+header('Access-Control-Allow-Headers: Content-Type, Authorization');
+
+// Respond to CORS preflight
+if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
+    http_response_code(200);
+    exit;
+}
 
 try {
     // Load the database class
@@ -19,12 +25,12 @@ try {
     // Route the request
     switch ($method) {
         case 'GET':
-            if ($action === 'get' && $id) {
-                // Get single transaction
+            // If an ID is provided, return the single transaction (supports path-style routing)
+            if ($id) {
                 $transaction = $db->getById('transactions', $id);
                 echo json_encode($transaction ? $transaction : ['error' => 'Transaction not found']);
             } else {
-                // Get all transactions  
+                // Get all transactions
                 $transactions = $db->getAll('transactions');
                 echo json_encode(is_array($transactions) ? $transactions : []);
             }

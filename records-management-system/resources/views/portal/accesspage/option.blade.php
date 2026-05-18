@@ -29,7 +29,7 @@
             <span>Welcome, {User}</span>
         </div>
         <div class="systems-container">
-            <button class="system-con" id="profile" onclick="window.location.href='{{ route('dts') }}'">
+            <button class="system-con" id="profile" onclick="window.location.href='{{ route('profile') }}'">
                 <div class="display-box">
                     <span>Profile</span>
                 </div>

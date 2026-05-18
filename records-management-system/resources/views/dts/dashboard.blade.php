@@ -24,6 +24,7 @@
     @vite('resources/css/dashboard.css')
     <!-- below will be the modification for the header -->
     <title>CSPC - Document Tracking System</title>
+    @yield('styles')
 </head>
 <body>
     <header>
@@ -34,34 +35,38 @@
             <span class="subtitle">Camarines Sur Polytechnic Colleges</span>
             <span class="title">Records Management System</span>
         </div>
-        <span class="office_name">Records and Freedom of Information Office</span>
-    </header>
-    <div class="actions-container">
-        <button class="action_button" onclick="toggleDropdown()">
-            <span>ACTIONS</span>
-            <img id="dropdown-icon" src="{{ asset('icons/dropdown-icon.svg') }}" alt="Dropdown Icon">
-        </button>
-        <div class="drop_down-container" id="dropdown">
-            <span>Move To</span>
-            <!-- Subsystem available on the account-->
-            <button class="subSystem" onclick="window.location.href='/dts'">
-                <img src="{{ asset('icons/dts.svg') }}" alt="Document Control Icon">            
-                <span>Document Control</span>
-            </button>
-            <button class="subSystem" onclick="window.location.href='/rdp'">
-                <img src="{{ asset('icons/rdp.svg') }}" alt="Records Disposition Icon">
-                <span>Records Disposition</span>
-            </button>
-            <hr>
-            <!-- Logout -->
-            <button class="subSystem" onclick="window.location.href='/logout'">
-                <img src="{{ asset('icons/Logout.svg') }}" alt="Logout Icon">
-                <span>LOGOUT</span>
-            </button>
+        <div class="notification-container">
+            <!-- using livewire because the notifaction icon has 3 stages, and the content is dynamic -->
         </div>
-    </div>
+        <span class="office_name">Records and Freedom of Information Office</span>
+        <div class="actions-container">
+            <button class="action_button" onclick="toggleDropdown()">
+                <span>ACTIONS</span>
+                <img id="dropdown-icon" src="{{ asset('icons/dropdown-icon.svg') }}" alt="Dropdown Icon">
+            </button>
+            <div class="drop_down-container" id="dropdown">
+                <span>Move To</span>
+                <!-- Subsystem available on the account planning to use a livewire on this part-->
+                <button class="subSystem" onclick="window.location.href='/dts'">
+                    <img src="{{ asset('icons/dts.svg') }}" alt="Document Control Icon">            
+                    <span>Document Control</span>
+                </button>
+                <button class="subSystem" onclick="window.location.href='/rdp'">
+                    <img src="{{ asset('icons/rdp.svg') }}" alt="Records Disposition Icon">
+                    <span>Records Disposition</span>
+                </button>
+                <!-- Logout -->
+                <hr>
+                <button class="subSystem" onclick="window.location.href='/logout'">
+                    <img src="{{ asset('icons/Logout.svg') }}" alt="Logout Icon">
+                    <span>LOGOUT</span>
+                </button>
+            </div>
+        </div>
+    </header>
     <section>
         <span class="section">This is section</span>
+        @yield('section')
     </section>
 </body>
 </html>

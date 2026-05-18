@@ -26,7 +26,10 @@ Route::get('/tracked', function(){
 Route::get('/portal', function () {
     return view('portal.accesspage.option');
 })->name('portal');
-
+// Profile function
+Route::get('/profile', function () {
+    return view('portal.profile.page');
+})->name('profile');
 // Logout function
 Route::get('/logout', function () {
     return redirect()->route('login');

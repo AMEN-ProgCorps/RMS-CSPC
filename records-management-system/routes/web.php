@@ -1,41 +1,24 @@
 <?php
 
-use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
 
-// Login function
-Route::get('/', function () {
-    return view('portal.login.index');
-})->name('login');
+// Login
+Route::livewire('/', 'pages::portal.login')->name('login');
 
-Route::post('/', function (Request $request) {
-    // TODO: add real authentication logic here
-    return redirect()->route('portal');
-})->name('login.submit');
+// Public document tracking
+Route::livewire('/track-document', 'pages::portal.track-document')->name('track-document');
+Route::livewire('/tracked', 'pages::portal.tracked')->name('tracked');
 
-// Tracking document function
-Route::get('/track-document', function () {
-    return view('portal.tracking.td');
-})->name('track-document');
+// Authenticated portal
+Route::livewire('/portal', 'pages::portal.access-page')->name('portal');
+Route::livewire('/profile', 'pages::portal.profile')->name('profile');
 
-Route::get('/tracked', function(){
-    return view('portal.tracking.tracking');
-})->name('tracked');
-
-// Portal access Function
-Route::get('/portal', function () {
-    return view('portal.accesspage.option');
-})->name('portal');
-// Profile function
-Route::get('/profile', function () {
-    return view('portal.profile.page');
-})->name('profile');
-// Logout function
+// Logout — redirect until session auth is implemented
 Route::get('/logout', function () {
     return redirect()->route('login');
 })->name('logout');
 
-// DTS function
+// DTS (classic Blade for now)
 Route::get('/dts', function () {
     return view('dts.dashboard');
 })->name('dts');

@@ -15,11 +15,10 @@ class AccountDetail extends Model
      */
     protected $table = 'account_details';
 
-    /**
-     * Since your schema uses 'id' via increments(), it defaults to auto-incrementing.
-     * However, we disable standard 'created_at' and 'updated_at' timestamps 
-     * because you have custom 'date_created' and 'date_updated' columns.
-     */
+    protected $primaryKey = 'account_id';
+    public $incrementing = false;
+    protected $keyType = 'int';
+
     public $timestamps = false;
 
     /**
@@ -32,15 +31,16 @@ class AccountDetail extends Model
         'last_name',
         'email',
         'contact_number',
+        'is_currently_online',
+        'last_online_time',
         'date_created',
         'date_updated',
     ];
 
-    /**
-     * The attributes that should be cast.
-     */
     protected $casts = [
-        'date_created' => 'datetime',
-        'date_updated' => 'datetime',
+        'is_currently_online' => 'boolean',
+        'last_online_time'    => 'datetime',
+        'date_created'        => 'datetime',
+        'date_updated'        => 'datetime',
     ];
 }

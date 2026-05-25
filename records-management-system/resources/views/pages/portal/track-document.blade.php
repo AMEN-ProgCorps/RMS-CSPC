@@ -7,53 +7,13 @@ use Livewire\Component;
 
 new #[Layout('layouts.portal')] #[Title('Track Document')] class extends Component
 {
-    public string $trackingNumber = '';
-
-    public bool $isProcessing = false;
-
-    public ?string $errorMessage = null;
-
-    public function track(): void
-    {
-        $this->validate([
-            'trackingNumber' => ['required', 'string'],
-        ]);
-
-        $this->trackingNumber = trim($this->trackingNumber);
-        $this->isProcessing = true;
-        $this->errorMessage = null;
-
-        $this->dispatch('device-check-and-redirect');
-    }
-
-    public function registerDevice(string $duid, string $dateCreated): void
-    {
-        validator([
-            'duid' => $duid,
-            'dateCreated' => $dateCreated,
-        ], [
-            'duid' => ['required', 'uuid'],
-            'dateCreated' => ['required', 'date'],
-        ])->validate();
-
-        TrackingDevice::firstOrCreate(
-            ['duid' => $duid],
-            ['date_created' => $dateCreated],
-        );
-    }
-
-    public function proceedToTracked(): void
-    {
-        $this->redirect(
-            route('tracked', ['number' => $this->trackingNumber]),
-            navigate: true,
-        );
-    }
-};
+    public $isProcessing = false;
+    public $errorMessage = null;
+}
 ?>
 
 @push('styles')
-    @vite('resources/css/td.css')
+    @vite(['resources/css/td.css'],['data-navigate-track'=>'reload'])
     <style>
         .track-processing {
             position: fixed;
@@ -84,9 +44,9 @@ new #[Layout('layouts.portal')] #[Title('Track Document')] class extends Compone
         .track-processing__error {
             color: #b42318;
         }
+        
     </style>
 @endpush
-
 @if ($isProcessing)
     <div class="track-processing">
         <div class="track-processing__spinner" aria-hidden="true"></div>
@@ -96,7 +56,7 @@ new #[Layout('layouts.portal')] #[Title('Track Document')] class extends Compone
         @endif
     </div>
 @endif
-
+<div class="livewire-root">
 <header>
     <div class="logo">
         <img src="{{ asset('images/cspc.png') }}" alt="CSPC Logo">
@@ -141,65 +101,9 @@ new #[Layout('layouts.portal')] #[Title('Track Document')] class extends Compone
         please contact the Records and Freedom of Information Office for assistance.
     </span>
 </section>
-
+</div>
 @push('scripts')
 <script>
-    const STORAGE_KEY = 'rms_device_uuid';
-
-    function readStoredDevice() {
-        try {
-            const raw = localStorage.getItem(STORAGE_KEY);
-            if (!raw) {
-                return null;
-            }
-
-            const parsed = JSON.parse(raw);
-            if (parsed?.DUID && parsed?.DateCreated) {
-                return parsed;
-            }
-        } catch (e) {
-            localStorage.removeItem(STORAGE_KEY);
-        }
-
-        return null;
-    }
-
-    function writeStoredDevice(duid, dateCreated) {
-        localStorage.setItem(STORAGE_KEY, JSON.stringify({
-            DUID: duid,
-            DateCreated: dateCreated,
-        }));
-    }
-
-    function generateDevice() {
-        return {
-            DUID: crypto.randomUUID(),
-            DateCreated: new Date().toISOString().slice(0, 10),
-        };
-    }
-
-    async function ensureDeviceAndProceed() {
-        try {
-            let device = readStoredDevice();
-
-            if (!device) {
-                device = generateDevice();
-                writeStoredDevice(device.DUID, device.DateCreated);
-            }
-
-            await @this.registerDevice(device.DUID, device.DateCreated);
-            await @this.proceedToTracked();
-        } catch (e) {
-            @this.set('isProcessing', false);
-            @this.set('errorMessage', 'Unable to register this device. Please try again.');
-            console.error(e);
-        }
-    }
-
-    document.addEventListener('livewire:init', () => {
-        Livewire.on('device-check-and-redirect', () => {
-            ensureDeviceAndProceed();
-        });
-    });
+    
 </script>
 @endpush

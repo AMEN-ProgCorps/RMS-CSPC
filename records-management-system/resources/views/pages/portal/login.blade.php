@@ -20,9 +20,17 @@ new #[Layout('layouts.portal')] #[Title('Login')] class extends Component
 
         $credentials['account_active'] = true; // only allow active accounts to login
         // check if the credentials are correct
-        if(Auth::attempt($credentials)){
+        if (Auth::attempt($credentials)) {
             session()->regenerate();
-        
+
+            $user = Auth::user();
+            if ($user && $user->details) {
+                $user->details->update([
+                    'is_currently_online' => true,
+                    'last_online_time'    => now(),
+                ]);
+            }
+
             $this->redirect(route('portal'), navigate: true);
             return;
         }

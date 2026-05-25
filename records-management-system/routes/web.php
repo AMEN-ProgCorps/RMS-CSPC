@@ -34,10 +34,17 @@ Route::middleware(['auth'])
 
 // 3. LOGOUT ROUTE
 Route::get('/logout', function () {
-    // Clear the session cleanly when hit
+    $user = Auth::user();
+    if ($user && $user->details) {
+        $user->details->update([
+            'is_currently_online' => false,
+            'last_online_time'    => now(),
+        ]);
+    }
+
     Auth::logout();
     request()->session()->invalidate();
     request()->session()->regenerateToken();
-    
+
     return redirect()->route('login');
 })->name('logout');

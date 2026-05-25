@@ -29,6 +29,14 @@ new #[Layout('layouts.portal')] #[Title('RMS CSPC Portal')] class extends Compon
      */
     public function logout(): void
     {
+        $user = Auth::user();
+        if ($user && $user->details) {
+            $user->details->update([
+                'is_currently_online' => false,
+                'last_online_time'    => now(),
+            ]);
+        }
+
         Auth::logout();
         session()->invalidate();
         session()->regenerateToken();

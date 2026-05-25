@@ -10,7 +10,7 @@ Route::livewire('/track-document', 'pages::portal.track-document')->name('track-
 Route::livewire('/tracked', 'pages::portal.tracked')->name('tracked');
 
 // Authenticated portal
-Route::livewire('/portal', 'pages::portal.access-page')->name('portal');
+Route::livewire('/portal{userId}', 'pages::portal.access-page')->name('portal');
 Route::livewire('/profile', 'pages::portal.profile')->name('profile');
 
 // Logout — redirect until session auth is implemented

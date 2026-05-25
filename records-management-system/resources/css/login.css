@@ -7,7 +7,7 @@ html, body {
 body {
     background-size: contain;
     background-position: center;    
-    background-size: auto;
+    background-size: 100%;
     background-repeat: no-repeat;
     height: 100vh;
     display: flex;

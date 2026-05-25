@@ -8,7 +8,7 @@ use Illuminate\Support\Facades\Schema;
 return new class extends Migration
 {
     /**
-     * Run the migrations.
+     * before Run the migrations. do the create database rms first;
      */
     public function up(): void
     {

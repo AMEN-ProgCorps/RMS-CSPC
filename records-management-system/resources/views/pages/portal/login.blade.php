@@ -4,7 +4,7 @@ use Livewire\Attributes\Layout;
 use Livewire\Attributes\Title;
 use Livewire\Component;
 
-new #[Layout('layouts.portal')] #[Title('RMS CSPC — Login')] class extends Component
+new #[Layout('layouts.portal')] #[Title('Login')] class extends Component
 {
     public string $username = '';
 
@@ -12,13 +12,24 @@ new #[Layout('layouts.portal')] #[Title('RMS CSPC — Login')] class extends Com
 
     public function login(): void
     {
-        $this->validate([
+        // check authentication input
+        $credentials = $this->validate([
             'username' => ['required', 'string'],
             'password' => ['required', 'string'],
         ]);
 
-        // TODO: replace with real authentication
-        $this->redirect(route('portal'), navigate: true);
+        $credentials['account_active'] = true; // only allow active accounts to login
+        // check if the credentials are correct
+        if(Auth::attempt($credentials)){
+            session()->regenerate();
+        
+            $this->redirect(route('portal', ['userId' => Auth::id()]), navigate: true);
+            return;
+        }
+        // if the credentials are incorrect, show an error message
+        throw ValidationException::withMessages([
+            'username' => __('auth.failed'),
+        ]);
     }
 };
 ?>
@@ -40,7 +51,6 @@ new #[Layout('layouts.portal')] #[Title('RMS CSPC — Login')] class extends Com
                 <path fill="currentColor" d="M2,11V13H40L34.5,18.5L35.92,19.92L43.84,12L35.92,4.08L34.5,5.5L40,11H2Z" />
             </svg>
         </a>
-    </motion.div>
     </div>
     <div class="header-container">
         <div class="institute">CSPC</div>

@@ -4,13 +4,20 @@ use Livewire\Attributes\Layout;
 use Livewire\Attributes\Title;
 use Livewire\Component;
 
-new #[Layout('layouts.portal')] #[Title('RMS CSPC — Portal')] class extends Component
+new #[Layout('layouts.portal')] #[Title('RMS CSPC Portal')] class extends Component
 {
+    
     public string $userName = 'User';
-
+    
     public function logout(): void
     {
-        // TODO: clear session / auth when implemented
+        // Log the user out of the application session
+        Auth::logout();
+        // invalidate the user session data
+        session()->invalidate();
+        // generate CSRF token for security
+        session()->regenerateToken();
+        // redirect
         $this->redirect(route('login'), navigate: true);
     }
 };
@@ -24,6 +31,8 @@ new #[Layout('layouts.portal')] #[Title('RMS CSPC — Portal')] class extends Co
         }
     </style>
 @endpush
+
+<div class="livewire-root">
 
 <header>
     <span class="office-name">Records and Freedom of Information Office</span>
@@ -59,3 +68,5 @@ new #[Layout('layouts.portal')] #[Title('RMS CSPC — Portal')] class extends Co
 <footer>
     <div class="copy-right">Copyright 2026. All Rights Reserved.</div>
 </footer>
+
+</div>

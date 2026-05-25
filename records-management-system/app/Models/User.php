@@ -2,48 +2,54 @@
 
 namespace App\Models;
 
-// use Illuminate\Contracts\Auth\MustVerifyEmail;
-use Database\Factories\UserFactory;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
 
 class User extends Authenticatable
 {
-    /** @use HasFactory<UserFactory> */
     use HasFactory, Notifiable;
 
     /**
+     * Explicitly point to your custom table name.
+     */
+    protected $table = 'account';
+
+    /**
+     * Since your schema uses 'id' via increments(), it defaults to auto-incrementing.
+     * However, we disable standard 'created_at' and 'updated_at' timestamps 
+     * because you have custom 'date_created' and 'date_updated' columns.
+     */
+    public $timestamps = false;
+
+    /**
      * The attributes that are mass assignable.
-     *
-     * @var list<string>
+     * Match these exactly with your 'account' table columns.
      */
     protected $fillable = [
-        'name',
-        'email',
+        'username',
         'password',
+        'account_status',
+        'account_active',
+        'date_created',
+        'date_updated',
     ];
 
     /**
      * The attributes that should be hidden for serialization.
-     *
-     * @var list<string>
      */
     protected $hidden = [
         'password',
-        'remember_token',
     ];
 
     /**
-     * Get the attributes that should be cast.
-     *
-     * @return array<string, string>
+     * The attributes that should be cast.
      */
-    protected function casts(): array
-    {
-        return [
-            'email_verified_at' => 'datetime',
-            'password' => 'hashed',
-        ];
-    }
+    protected $casts = [
+        'password' => 'hashed',
+        'account_active' => 'boolean',
+        'account_status' => 'integer',
+        'date_created' => 'datetime',
+        'date_updated' => 'datetime',
+    ];
 }

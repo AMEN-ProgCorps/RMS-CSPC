@@ -43,7 +43,7 @@ new #[Layout('layouts.portal')] #[Title('Login')] class extends Component
 ?>
 
 @push('styles')
-    @vite('resources/css/login.css')
+    <link rel="stylesheet" href="{{ Vite::asset('resources/css/login.css') }}" data-navigate-track>
     <style>
         body {
             background-image: url('{{ asset('images/1cw2k34d.webp') }}');

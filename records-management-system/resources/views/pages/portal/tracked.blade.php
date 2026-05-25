@@ -45,7 +45,7 @@ new #[Layout('layouts.portal')] #[Title('Track Document — Results')] class ext
 ?>
 
 @push('styles')
-    @vite('resources/css/td.css')
+    <link rel="stylesheet" href="{{ Vite::asset('resources/css/td.css') }}" data-navigate-track>
 @endpush
 
 <header>

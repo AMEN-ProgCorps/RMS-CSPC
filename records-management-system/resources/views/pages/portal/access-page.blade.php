@@ -46,7 +46,7 @@ new #[Layout('layouts.portal')] #[Title('RMS CSPC Portal')] class extends Compon
 ?>
 
 @push('styles')
-    @vite('resources/css/accesspoint.css')
+    <link rel="stylesheet" href="{{ Vite::asset('resources/css/accesspoint.css') }}" data-navigate-track>
     <style>
         body {
             background-image: url('{{ asset('images/1cw2k34d.webp') }}');

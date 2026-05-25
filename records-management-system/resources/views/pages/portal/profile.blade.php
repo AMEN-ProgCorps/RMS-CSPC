@@ -11,7 +11,6 @@ new #[Layout('layouts.portal')] #[Title('Profile')] class extends Component
 ?>
 
 @push('styles')
-    <link rel="stylesheet" href="{{ Vite::asset('resources/css/accesspoint.css') }}" data-navigate-track>
 @endpush
 
 <section class="profile-page">

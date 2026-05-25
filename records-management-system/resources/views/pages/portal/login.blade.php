@@ -43,17 +43,15 @@ new #[Layout('layouts.portal')] #[Title('Login')] class extends Component
 ?>
 
 @push('styles')
-    <link rel="stylesheet" href="{{ Vite::asset('resources/css/login.css') }}" data-navigate-track>
-    <style>
-        body {
-            background-image: url('{{ asset('images/1cw2k34d.webp') }}');
-        }
+    @vite(['resources/css/login.css'])
+    <style data-navigate-track>
+        body { background-image: url('{{ asset('images/1cw2k34d.webp') }}'); }
     </style>
 @endpush
 
 <div class="body-container">
     <div class="td-container">
-        <a href="{{ route('track-document') }}" wire:navigate class="td-button">
+        <a href="{{ route('track-document') }}" class="td-button">
             Track Document
             <svg xmlns="http://www.w3.org/2000/svg" width="48" height="24" viewBox="0 0 48 24">
                 <path fill="currentColor" d="M2,11V13H40L34.5,18.5L35.92,19.92L43.84,12L35.92,4.08L34.5,5.5L40,11H2Z" />

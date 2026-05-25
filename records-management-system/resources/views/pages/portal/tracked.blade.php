@@ -45,7 +45,6 @@ new #[Layout('layouts.portal')] #[Title('Track Document — Results')] class ext
 ?>
 
 @push('styles')
-    <link rel="stylesheet" href="{{ Vite::asset('resources/css/td.css') }}" data-navigate-track>
 @endpush
 
 <header>
@@ -56,7 +55,7 @@ new #[Layout('layouts.portal')] #[Title('Track Document — Results')] class ext
 </header>
 <section>
     <div class="login">
-        <a href="{{ route('login') }}" wire:navigate class="log">
+        <a href="{{ route('login') }}" class="log">
             <svg xmlns="http://www.w3.org/2000/svg" width="48" height="24" viewBox="0 0 48 24">
                 <path fill="currentColor" d="M46,13V11H8L13.5,5.5L12.08,4.08L4.16,12L12.08,19.92L13.5,18.5L8,13H46Z" />
             </svg>

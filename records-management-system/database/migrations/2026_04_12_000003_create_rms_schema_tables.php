@@ -31,6 +31,7 @@ return new class extends Migration
             $table->string('key_name');
             $table->text('key_description')->nullable();
             $table->unsignedInteger('modifier_key');
+            $table->dateTime('date_created')->useCurrent();
             $table->foreign('modifier_key')->references('key_id')->on('condition_details');
         });
 

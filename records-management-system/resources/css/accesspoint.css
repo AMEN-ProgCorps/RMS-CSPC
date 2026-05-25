@@ -6,6 +6,10 @@ body{
     margin: 0;
     padding: 0; 
 }
+body .livewire-root{
+    width: 100%;
+    height: 100%;
+}
 header{
     width: 100%;
     background: linear-gradient(90deg, #E49F00 0%, #FFCE5A 50%, #E49F00 100%);
@@ -85,6 +89,8 @@ section{
             width: 300px;
             height: 80px;
             display: flex;
+            text-decoration: none;
+            color: inherit;
                 flex-direction: column;
                 align-items: center;
                 justify-content: center;    

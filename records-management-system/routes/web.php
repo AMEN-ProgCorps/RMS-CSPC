@@ -1,41 +1,50 @@
 <?php
 
-use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
 
-// Login function
-Route::get('/', function () {
-    return view('portal.login.index');
-})->name('login');
+// Login
+Route::livewire('/', 'pages::portal.login')
+    ->name('login');
 
-Route::post('/', function (Request $request) {
-    // TODO: add real authentication logic here
-    return redirect()->route('portal');
-})->name('login.submit');
+// Public document tracking
+Route::livewire('/track-document', 'pages::portal.track-document')
+    ->name('track-document');
+Route::livewire('/tracked', 'pages::portal.tracked')
+    ->name('tracked');
 
-// Tracking document function
-Route::get('/track-document', function () {
-    return view('portal.tracking.td');
-})->name('track-document');
+// 2. SECURED PORTAL ROUTES (Locked down behind the 'auth' firewall)
+Route::middleware(['auth'])
+    ->group(function () {
+    
+    Route::livewire('/portal', 'pages::portal.access-page')
+        ->name('portal')
+        ->middleware('auth');
+    Route::livewire('/profile', 'pages::portal.profile')
+        ->name('profile')
+        ->middleware('auth');
 
-Route::get('/tracked', function(){
-    return view('portal.tracking.tracking');
-})->name('tracked');
+    // Moved inside so only logged-in users can view the DTS dashboard
+    Route::get('/dts', function () {
+        return view('dts.dashboard');
+    })->name('dts')
+      ->middleware('auth');
+    
+});
 
-// Portal access Function
-Route::get('/portal', function () {
-    return view('portal.accesspage.option');
-})->name('portal');
-// Profile function
-Route::get('/profile', function () {
-    return view('portal.profile.page');
-})->name('profile');
-// Logout function
+
+// 3. LOGOUT ROUTE
 Route::get('/logout', function () {
+    $user = Auth::user();
+    if ($user && $user->details) {
+        $user->details->update([
+            'is_currently_online' => false,
+            'last_online_time'    => now(),
+        ]);
+    }
+
+    Auth::logout();
+    request()->session()->invalidate();
+    request()->session()->regenerateToken();
+
     return redirect()->route('login');
 })->name('logout');
-
-// DTS function
-Route::get('/dts', function () {
-    return view('dts.dashboard');
-})->name('dts');

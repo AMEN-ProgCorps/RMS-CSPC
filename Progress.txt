@@ -1,0 +1,37 @@
+Progress Notes for RMS ver2 development
+
+Database Structure Development Starts on [ February 4, 2026]
+    L Portal section
+        L Starts on [ February 4, 2026]
+        L status [ Ongoing ]
+            L reason: due to admin role config which increaments depends on the suggestion of the panel/client/supervisor
+        L ended on [ February 5, 2026 ]
+            L its partially finished with all the basic requirements finished
+    L DTS section
+        L Starts on [ February 6, 2026]
+        L status [ Finished - 4/5 ]
+            L reason: pending modifications
+        L ended on [ February 26, 2026 ]
+            L its almost finished but new data will be included due to another system
+    L RDP section 
+        L Starts in [ TBA ]
+        L status [ pending ]
+        L ended on [  ]
+
+Architecture: Laravel v13.0.0
+Front-end Architecture: livewire v0.6.1
+Development dependencies: 
+        - vite
+        - npm
+        - git
+        - docker
+
+Website Development Starts[ May 1, 2026 ] 
+    L Portal section
+        L Login Module
+            L status [ Finished ]
+        L Tracking Module
+            L status [ Ongoing]
+            L finding fix due to implementation of livewire
+        L Access Page Module [=]
+            L about finished, but some modules connected to it, is still not available

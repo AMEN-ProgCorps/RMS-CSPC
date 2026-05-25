@@ -2,10 +2,8 @@
 
 namespace App\Models;
 
-namespace App\Models;
-
 use Illuminate\Database\Eloquent\Factories\HasFactory;
-use Illuminate\Foundation\Auth\User as Authenticatable;
+use Illuminate\Database\Eloquent\Model;
 use Illuminate\Notifications\Notifiable;
 
 class AccountDetail extends Model
@@ -15,7 +13,7 @@ class AccountDetail extends Model
     /**
      * Explicitly point to your custom table name.
      */
-    protected $table = 'account_detail';
+    protected $table = 'account_details';
 
     /**
      * Since your schema uses 'id' via increments(), it defaults to auto-incrementing.

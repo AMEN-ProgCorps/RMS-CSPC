@@ -7,24 +7,21 @@ use Livewire\Component;
 
 new #[Layout('layouts.portal')] #[Title('RMS CSPC Portal')] class extends Component
 {
-    public string $userNameDisplay = ''; // This is for error portal if no user
+    public string $userNameDisplay = '';
 
-    /**
-     * Protects the portal view from unauthenticated access.
-     * for some reason this part is notworking properly, 
-     * add this to the TODO list
-     */
-    public function mount(): void
+    public function mount(): mixed
     {
         if (! Auth::check()) {
-            $this->redirect(route('login'));
-            return;
+            return redirect()->route('login');
         }
 
         $user = Auth::user();
         if ($user && $user->details) {
-            $this->userNameDisplay = $user->details->email;
+            $this->userNameDisplay = trim($user->details->first_name . ' ' . $user->details->last_name)
+                ?: $user->username;
         }
+
+        return null;
     }
 
     /**

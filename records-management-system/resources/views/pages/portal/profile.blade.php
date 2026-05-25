@@ -11,7 +11,6 @@ new #[Layout('layouts.portal')] #[Title('Profile')] class extends Component
 ?>
 
 @push('styles')
-    @vite('resources/css/accesspoint.css')
 @endpush
 
 <section class="profile-page">

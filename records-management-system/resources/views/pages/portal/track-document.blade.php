@@ -13,39 +13,7 @@ new #[Layout('layouts.portal')] #[Title('Track Document')] class extends Compone
 ?>
 
 @push('styles')
-    @vite(['resources/css/td.css'],['data-navigate-track'=>'reload'])
-    <style>
-        .track-processing {
-            position: fixed;
-            inset: 0;
-            z-index: 100;
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            justify-content: center;
-            gap: 1rem;
-            background: rgba(255, 255, 255, 0.92);
-            text-align: center;
-        }
-
-        .track-processing__spinner {
-            width: 2.5rem;
-            height: 2.5rem;
-            border: 3px solid rgba(65, 144, 187, 0.25);
-            border-top-color: #4190bb;
-            border-radius: 50%;
-            animation: track-processing-spin 0.8s linear infinite;
-        }
-
-        @keyframes track-processing-spin {
-            to { transform: rotate(360deg); }
-        }
-
-        .track-processing__error {
-            color: #b42318;
-        }
-        
-    </style>
+    @vite(['resources/css/td.css'])
 @endpush
 @if ($isProcessing)
     <div class="track-processing">
@@ -65,7 +33,7 @@ new #[Layout('layouts.portal')] #[Title('Track Document')] class extends Compone
 </header>
 <section>
     <div class="login">
-        <a href="{{ route('login') }}" wire:navigate class="log">
+        <a href="{{ route('login') }}" class="log">
             <svg xmlns="http://www.w3.org/2000/svg" width="48" height="24" viewBox="0 0 48 24">
                 <path fill="currentColor" d="M46,13V11H8L13.5,5.5L12.08,4.08L4.16,12L12.08,19.92L13.5,18.5L8,13H46Z" />
             </svg>

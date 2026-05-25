@@ -1,24 +1,41 @@
 <?php
 
+use Illuminate\Support\Facades\Auth;
 use Livewire\Attributes\Layout;
 use Livewire\Attributes\Title;
 use Livewire\Component;
 
 new #[Layout('layouts.portal')] #[Title('RMS CSPC Portal')] class extends Component
 {
-    
-    public string $userName = 'User';
-    
+    public string $userNameDisplay = ''; // This is for error portal if no user
+
+    /**
+     * Protects the portal view from unauthenticated access.
+     * for some reason this part is notworking properly, 
+     * add this to the TODO list
+     */
+    public function mount(): void
+    {
+        if (! Auth::check()) {
+            $this->redirect(route('login'));
+            return;
+        }
+
+        $user = Auth::user();
+        if ($user && $user->details) {
+            $this->userNameDisplay = $user->details->email;
+        }
+    }
+
+    /**
+     * Handles manual session destruction.
+     */
     public function logout(): void
     {
-        // Log the user out of the application session
         Auth::logout();
-        // invalidate the user session data
         session()->invalidate();
-        // generate CSRF token for security
         session()->regenerateToken();
-        // redirect
-        $this->redirect(route('login'), navigate: true);
+        $this->redirect(route('login'));
     }
 };
 ?>
@@ -50,7 +67,7 @@ new #[Layout('layouts.portal')] #[Title('RMS CSPC Portal')] class extends Compon
         <div class="ico_con">
             <img class="ico" src="{{ asset('images/cspc.png') }}" alt="CSPC">
         </div>
-        <span>Welcome, {{ $userName }}</span>
+        <span>Welcome, {{ $userNameDisplay }}</span>
     </div>
     <div class="systems-container">
         <a href="{{ route('profile') }}" wire:navigate class="system-con" id="profile">

@@ -23,7 +23,7 @@ new #[Layout('layouts.portal')] #[Title('Login')] class extends Component
         if(Auth::attempt($credentials)){
             session()->regenerate();
         
-            $this->redirect(route('portal', ['userId' => Auth::id()]), navigate: true);
+            $this->redirect(route('portal'), navigate: true);
             return;
         }
         // if the credentials are incorrect, show an error message

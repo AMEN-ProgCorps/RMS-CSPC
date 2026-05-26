@@ -5,6 +5,7 @@ use Illuminate\Support\Facades\Route;
 // Login
 Route::livewire('/', 'pages::portal.login')
     ->name('login');
+Route::post('/', fn () => redirect()->route('login'));
 
 // Public document tracking
 Route::livewire('/track-document', 'pages::portal.track-document')

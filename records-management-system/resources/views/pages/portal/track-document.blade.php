@@ -7,23 +7,53 @@ use Livewire\Component;
 
 new #[Layout('layouts.portal')] #[Title('Track Document')] class extends Component
 {
-    public $isProcessing = false;
-    public $errorMessage = null;
+    /* The Process here is like this
+     * Phase 1: User enters the tracking number and clicks the track button
+     * Phase 1.2: The page will check if following data is stored within the browser file storage:
+     *      data: { 
+     *             device_id: string, 
+     *             document_tracked_within_10_minutes: int / 3, //this one starts on 0
+     *             last_document_tracked_at: timestamp,
+     *             email_used_on_verification: string,
+     *             is_email_not_cspc: boolean,
+     *             device_blocked_until: timestamp     
+     *          }
+     * Phase 1.3: If the data exists, the system will check if the device is blocked or not, 
+     *                 L if the device is blocked, the system will show a message that the device is blocked until the timestamp stored in the 
+     *                      device_blocked_until, but if the last_document_tracked_at is greater than 10 minutes, the system will unblock the device 
+     *                      and reset the document_tracked_within_10_minutes to 0, and proceed to phase 1.4, 
+     *                 L if the device is not blocked, the system will check if the document_tracked_within_10_minutes is greater than or equal to 3, 
+     *                      L if it is, the system will block the device for 50 minutes and show a message that the device is blocked for 50 minutes, 
+     *                          and will recorded on device_blocked_until with the current timestamp plus 50 minutes, 
+     *                      L if it is not, then add 1 point to document_tracked_within_10_minutes and the system will proceed to phase 1.4
+     *            If the data does not exist, the system will create a new tracking device with a unique device_id and set the document_tracked_within_10_minutes 
+     *                  to 0, Then proceed to phase 1.4
+     * Phase 1.4: The system will check if the email_used_on_verification is not null,
+     *              L if it is not null, the system will check if the email_used_on_verification is a cspc email or not,
+     *                  the incicator will be this domain @cspc.edu.ph or the subdomain of cspc.edu.ph which is like this: @*.cspc.edu.ph,
+     * Phase 2: The system checks if the tracking number exists in the database[
+     *              The checking for track document is check using this: 
+     *                  the inputed code aka the tracked_id is equal to dts_transaction.qrcode in the database
+     *         ]
+     *              L if it does not exist, the system will increment the document_tracked_within_10_minutes by 1, 
+     *                  update the last_document_tracked_at to the current timestamp, and upload data to the backend: the date will be like this:
+     *                  data: {
+     *                      tracked_id: <the id of the documeent that the user inputed>
+     *                      device_id: <the unique device id generated in phase 1.3> 
+     *                      email: null, // due to the fact that the email verification is only for the documents that exist, the email_used_on_verification will be null if the tracking number does not exist,
+     *                      current_timestamp: <the current timestamp when the user inputed the tracking number>
+     *                      status: <document_tracked_within_10_minutes rated as if 1: warning, 2: danger, 3: blocked>
+     *                    }        
+     *                  and show a message that the tracking number does not exist, and will not proceed to phase 3
+     *              L If it does exist, then proceed to phase 3,
+     * Phase 3: page will be redirected to tracked.blade.php, if all phases is completed without the device being blocked, and the tracking number exists in the database
+     */
 }
 ?>
 
 @push('styles')
     @vite(['resources/css/td.css'])
 @endpush
-@if ($isProcessing)
-    <div class="track-processing">
-        <div class="track-processing__spinner" aria-hidden="true"></div>
-        <p>Preparing your device and loading tracking details…</p>
-        @if ($errorMessage)
-            <p class="track-processing__error">{{ $errorMessage }}</p>
-        @endif
-    </div>
-@endif
 <div class="livewire-root">
 <header>
     <div class="logo">

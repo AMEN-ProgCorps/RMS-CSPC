@@ -21,10 +21,17 @@ class role_list extends Model
     protected $fillable = [
         'id',
         'key_name',
+        'key_description',
+        'modifier_key',
+        'date_created',
         'date_updated',
     ];
 
     protected $casts = [
+        'id' => 'integer',
+        'key_name' => 'string',
+        'key_description' => 'string',
+        'modifier_key' => 'integer',
         'date_created' => 'datetime',
         'date_updated' => 'datetime',
     ];

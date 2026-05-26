@@ -31,7 +31,7 @@ new #[Layout('layouts.portal')] #[Title('Login')] class extends Component
                 ]);
             }
 
-            $this->redirect(route('portal'), navigate: true);
+            $this->redirect(route('portal'));
             return;
         }
         // if the credentials are incorrect, show an error message
@@ -70,7 +70,7 @@ new #[Layout('layouts.portal')] #[Title('Login')] class extends Component
         </div>
         <div class="lo-login">LOGIN</div>
         <div class="lo-instruction">Please Enter your login details to login your account</div>
-        <form wire:submit="login" class="lo-form">
+        <form wire:submit="login" method="post" action="{{ route('login') }}" class="lo-form">
             <div class="form-group">
                 <div class="icon-usr">
                     <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24">

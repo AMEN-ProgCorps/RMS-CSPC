@@ -265,3 +265,9 @@ section{
 .track-processing__error {
     color: #b42318;
 }
+.status_indicator {
+    font-family: "Inter";
+    
+    padding: 10px 15px;
+    border-radius: 5px;
+}

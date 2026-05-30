@@ -1,13 +1,10 @@
 <?php
 
-use App\Models\TrackingDevice;
+use Illuminate\Support\Facades\DB;
 use Livewire\Attributes\Layout;
 use Livewire\Attributes\Title;
 use Livewire\Component;
-
-new #[Layout('layouts.portal')] #[Title('Track Document')] class extends Component
-{
-    /* The Process here is like this
+/* The Process here is like this
      * Phase 1: User enters the tracking number and clicks the track button
      * Phase 1.2: The page will check if following data is stored within the browser file storage:
      *      data: { 
@@ -48,12 +45,105 @@ new #[Layout('layouts.portal')] #[Title('Track Document')] class extends Compone
      *              L If it does exist, then proceed to phase 3,
      * Phase 3: page will be redirected to tracked.blade.php, if all phases is completed without the device being blocked, and the tracking number exists in the database
      */
-}
+new #[Layout('layouts.portal')] #[Title('Track Document')] class extends Component
+{
+    public string $trackingNumber = '';
+    public bool $isProcessing = false;
+    public string $deviceInfoJson = '';
+
+    public function track(): void
+    {
+        $this->validate([
+            'trackingNumber' => ['required', 'string'],
+        ]);
+
+        $deviceInfo = $this->deviceInfoJson ? json_decode($this->deviceInfoJson, true) : [];
+        $deviceId   = $deviceInfo['device_id'] ?? 'unknown';
+        $attempts   = (int) ($deviceInfo['document_tracked_within_10_minutes'] ?? 1);
+
+        $status = match (true) {
+            $attempts >= 3 => 'blocked',
+            $attempts === 2 => 'danger',
+            default        => 'warning',
+        };
+
+        try {
+            // Phase 2: Check if tracking number exists in dts_transactions
+            $exists = DB::table('dts_transactions')
+                ->where('qr_code', $this->trackingNumber)
+                ->exists();
+
+            if (! $exists) {
+                DB::table('tracking_devices_log')->insert([
+                    'tracked_id'        => null,
+                    'device_id'         => $deviceId,
+                    'email'             => null,
+                    'current_timestamp' => now(),
+                    'status'            => $status,
+                    'created_at'        => now(),
+                    'updated_at'        => now(),
+                ]);
+
+                $this->dispatch('track-result', status: 'not-found');
+                return;
+            }
+
+            // Phase 3: Redirect to tracked results page
+            $this->dispatch('track-result', status: 'found');
+            $this->redirect(route('tracked') . '?number=' . urlencode($this->trackingNumber), navigate: true);
+
+        } catch (\Illuminate\Database\QueryException $e) {
+            $this->dispatch('track-result', status: 'db-error');
+        }
+    }
+};
 ?>
 
 @push('styles')
     @vite(['resources/css/td.css'])
+    <style>
+        #status_indicator {
+            display: none;
+            margin: 0.6rem 0;
+            padding: 0.65rem 0.9rem;
+            border-radius: 0.45rem;
+            border-left: 3px solid currentColor;
+        }
+        #status_indicator[data-type="checking"] {
+            background: #EFF6FF;
+            color: #1D4ED8;
+        }
+        #status_indicator[data-type="blocked"] {
+            background: #FFFBEB;
+            color: #92400E;
+        }
+        #status_indicator[data-type="error"] {
+            background: #FEF2F2;
+            color: #B91C1C;
+        }
+        #status_indicator[data-type="success"] {
+            background: #F0FDF4;
+            color: #15803D;
+        }
+        #status_indicator[data-type="db-error"] {
+            background: #FDF4FF;
+            color: #7E22CE;
+        }
+        #status_indicator .si-phase {
+            font-size: 0.65rem;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.07em;
+            opacity: 0.65;
+            margin-bottom: 0.15rem;
+        }
+        #status_indicator .si-message {
+            font-size: 0.825rem;
+            font-weight: 500;
+        }
+    </style>
 @endpush
+
 <div class="livewire-root">
 <header>
     <div class="logo">
@@ -75,12 +165,16 @@ new #[Layout('layouts.portal')] #[Title('Track Document')] class extends Compone
             <span class="top">Track Document</span>
             <span class="subtitle">Enter your tracking number to view your document status without login</span>
         </div>
-        <form wire:submit="track" class="td-search">
+        <form id="track-form" class="td-search">
             <div class="search-container">
                 <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24">
                     <path fill="currentColor" d="M9.5,3A6.5,6.5,0,1,0,16,9.5,6.51,6.51,0,0,0,9.5,3Zm0,11A4.5,4.5,0,1,1,14,9.5,4.51,4.51,0,0,1,9.5,14ZM20.71,19.29l-3.4-3.39a1,1,0,1,0-1.42,1.42l3.4,3.39a1,1,0,0,0,1.42-1.42Z" />
                 </svg>
                 <input wire:model="trackingNumber" type="text" placeholder="Enter Tracking Number" @disabled($isProcessing) required>
+            </div>
+            <div id="status_indicator">
+                <div class="si-phase"></div>
+                <div class="si-message"></div>
             </div>
             @error('trackingNumber')
                 <span class="form-error">{{ $message }}</span>
@@ -100,8 +194,153 @@ new #[Layout('layouts.portal')] #[Title('Track Document')] class extends Compone
     </span>
 </section>
 </div>
+
 @push('scripts')
 <script>
-    
+(function () {
+    const STORAGE_KEY  = 'rms_tracking_device';
+    const MAX_ATTEMPTS = 3;
+    const WINDOW_MS    = 10 * 60 * 1000; // 10 minutes
+    const BLOCK_MS     = 50 * 60 * 1000; // 50 minutes
+    const CSPC_PATTERN = /^[^@]+@(cspc\.edu\.ph|[^@]+\.cspc\.edu\.ph)$/i;
+
+    const wait = ms => new Promise(r => setTimeout(r, ms));
+    let submitting = false;
+    let cleanupTrackResult = null;
+
+    function getDevice() {
+        try { return JSON.parse(localStorage.getItem(STORAGE_KEY)); } catch { return null; }
+    }
+
+    function saveDevice(d) { localStorage.setItem(STORAGE_KEY, JSON.stringify(d)); }
+
+    function initDevice() {
+        let d = getDevice();
+        if (!d || typeof d !== 'object') {
+            d = {
+                device_id: 'dev_' + Date.now() + '_' + Math.random().toString(36).slice(2, 10),
+                document_tracked_within_10_minutes: 0,
+                last_document_tracked_at: null,
+                email_used_on_verification: null,
+                is_email_not_cspc: false,
+                device_blocked_until: null,
+            };
+            saveDevice(d);
+        }
+        return d;
+    }
+
+    function setStatus(phase, message, type) {
+        const el = document.getElementById('status_indicator');
+        if (!el) return;
+        el.dataset.type = type;
+        el.style.display = '';
+        el.querySelector('.si-phase').textContent = phase;
+        el.querySelector('.si-message').textContent = message;
+    }
+
+    function resetStatus() {
+        const el = document.getElementById('status_indicator');
+        if (el) el.style.display = 'none';
+    }
+
+    function setup() {
+        const form = document.getElementById('track-form');
+        if (!form) return;
+
+        initDevice();
+
+        // Remove any previously registered track-result listener
+        if (cleanupTrackResult) { cleanupTrackResult(); cleanupTrackResult = null; }
+
+        cleanupTrackResult = Livewire.on('track-result', function ({ status }) {
+            submitting = false;
+            if (status === 'not-found') {
+                setStatus('Phase 2 — Result', 'Document Cannot Be Found. Please check your tracking number and try again.', 'error');
+            } else if (status === 'found') {
+                setStatus('Phase 3', 'Document Found! Redirecting to results...', 'success');
+            } else if (status === 'db-error') {
+                setStatus('Phase 2 — Error', 'Cannot connect to the database server. Please try again later or contact the Records Office.', 'db-error');
+            }
+        });
+
+        form.addEventListener('submit', async function (e) {
+            e.preventDefault();
+            if (submitting) return;
+            submitting = true;
+            resetStatus();
+
+            // Phase 1 — read input
+            setStatus('Phase 1', 'Extracting input data...', 'checking');
+            await wait(180);
+
+            // Phase 1.2 — check localStorage
+            setStatus('Phase 1.2', 'Checking device storage...', 'checking');
+            let d = initDevice();
+            await wait(180);
+
+            // Phase 1.3 — verify device status
+            setStatus('Phase 1.3', 'Verifying device status...', 'checking');
+            await wait(180);
+            const nowMs = Date.now();
+
+            // Unblock if block period has expired
+            if (d.device_blocked_until) {
+                const blockedUntil = new Date(d.device_blocked_until).getTime();
+                if (nowMs < blockedUntil) {
+                    const mins = Math.ceil((blockedUntil - nowMs) / 60000);
+                    setStatus('Blocked', 'Your device is currently blocked due to excessive attempts. Please try again in ' + mins + ' minute(s).', 'blocked');
+                    submitting = false;
+                    return;
+                }
+                d.device_blocked_until = null;
+                d.document_tracked_within_10_minutes = 0;
+                d.last_document_tracked_at = null;
+                saveDevice(d);
+            }
+
+            // Reset counter if 10-minute window expired
+            if (d.last_document_tracked_at) {
+                const lastMs = new Date(d.last_document_tracked_at).getTime();
+                if (nowMs - lastMs > WINDOW_MS) {
+                    d.document_tracked_within_10_minutes = 0;
+                    d.last_document_tracked_at = null;
+                    saveDevice(d);
+                }
+            }
+
+            // Block if limit reached on this attempt
+            if (d.document_tracked_within_10_minutes >= MAX_ATTEMPTS) {
+                d.device_blocked_until = new Date(nowMs + BLOCK_MS).toISOString();
+                saveDevice(d);
+                setStatus('Blocked', 'Too many attempts. Your device has been blocked for 50 minutes.', 'blocked');
+                submitting = false;
+                return;
+            }
+
+            // Record this attempt
+            d.document_tracked_within_10_minutes += 1;
+            d.last_document_tracked_at = new Date(nowMs).toISOString();
+            saveDevice(d);
+
+            // Phase 1.4 — evaluate email domain
+            setStatus('Phase 1.4', 'Evaluating access permissions...', 'checking');
+            await wait(180);
+            if (d.email_used_on_verification) {
+                d.is_email_not_cspc = !CSPC_PATTERN.test(d.email_used_on_verification);
+                saveDevice(d);
+            }
+
+            // Phase 2 — server validation
+            setStatus('Phase 2', 'Validating tracking number with the server...', 'checking');
+            @this.set('deviceInfoJson', JSON.stringify(d)).then(function () {
+                @this.call('track');
+            });
+        });
+    }
+
+    document.addEventListener('livewire:navigated', setup);
+    document.addEventListener('DOMContentLoaded', setup);
+})();
 </script>
 @endpush

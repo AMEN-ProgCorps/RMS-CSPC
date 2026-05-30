@@ -16,7 +16,7 @@ return new class extends Migration
             Schema::table('account', function (Blueprint $table) {
                 // add `account_role` column only if missing
                 if (! Schema::hasColumn('account', 'account_role')) {
-                    $table->unsignedBigInteger('account_role')->nullable();
+                    $table->unsignedInteger('account_role')->nullable();
 
                     // Add foreign key to `condition_key` table only if that table exists
                     if (Schema::hasTable('condition_key')) {

@@ -102,44 +102,69 @@ new #[Layout('layouts.portal')] #[Title('Track Document')] class extends Compone
 @push('styles')
     @vite(['resources/css/td.css'])
     <style>
+        @keyframes si-slidein {
+            from { opacity: 0; transform: translateY(-6px); }
+            to   { opacity: 1; transform: translateY(0); }
+        }
+        @keyframes si-pulse {
+            0%, 100% { opacity: 1; }
+            50%       { opacity: 0.55; }
+        }
+        @keyframes si-shake {
+            0%, 100% { transform: translateX(0); }
+            20%       { transform: translateX(-5px); }
+            40%       { transform: translateX(5px); }
+            60%       { transform: translateX(-4px); }
+            80%       { transform: translateX(4px); }
+        }
         #status_indicator {
             display: none;
-            margin: 0.6rem 0;
-            padding: 0.65rem 0.9rem;
-            border-radius: 0.45rem;
-            border-left: 3px solid currentColor;
+            margin: 0.75rem 0;
+            padding: 0.75rem 1rem;
+            border-radius: 0.5rem;
+            border-left: 4px solid currentColor;
+            animation: si-slidein 0.2s ease;
         }
         #status_indicator[data-type="checking"] {
             background: #EFF6FF;
             color: #1D4ED8;
+            animation: si-slidein 0.2s ease, si-pulse 1.4s ease-in-out infinite;
         }
         #status_indicator[data-type="blocked"] {
             background: #FFFBEB;
             color: #92400E;
+            border-color: #D97706;
+            animation: si-slidein 0.2s ease, si-shake 0.45s ease;
         }
         #status_indicator[data-type="error"] {
             background: #FEF2F2;
             color: #B91C1C;
+            border-color: #EF4444;
+            animation: si-slidein 0.2s ease, si-shake 0.45s ease;
         }
         #status_indicator[data-type="success"] {
             background: #F0FDF4;
             color: #15803D;
+            border-color: #22C55E;
+            animation: si-slidein 0.2s ease;
         }
         #status_indicator[data-type="db-error"] {
             background: #FDF4FF;
             color: #7E22CE;
+            border-color: #A855F7;
+            animation: si-slidein 0.2s ease, si-shake 0.45s ease;
         }
         #status_indicator .si-phase {
-            font-size: 0.65rem;
-            font-weight: 700;
+            font-size: 0.68rem;
+            font-weight: 800;
             text-transform: uppercase;
-            letter-spacing: 0.07em;
-            opacity: 0.65;
-            margin-bottom: 0.15rem;
+            letter-spacing: 0.08em;
+            opacity: 0.7;
+            margin-bottom: 0.2rem;
         }
         #status_indicator .si-message {
-            font-size: 0.825rem;
-            font-weight: 500;
+            font-size: 0.9rem;
+            font-weight: 600;
         }
     </style>
 @endpush
@@ -172,7 +197,7 @@ new #[Layout('layouts.portal')] #[Title('Track Document')] class extends Compone
                 </svg>
                 <input wire:model="trackingNumber" type="text" placeholder="Enter Tracking Number" @disabled($isProcessing) required>
             </div>
-            <div id="status_indicator">
+            <div id="status_indicator" wire:ignore>
                 <div class="si-phase"></div>
                 <div class="si-message"></div>
             </div>

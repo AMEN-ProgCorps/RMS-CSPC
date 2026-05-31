@@ -46,7 +46,9 @@
             </button>
             <div class="drop_down-container" id="dropdown">
                 <span>Move To</span>
-                <!-- Subsystem available on the account planning to use a livewire on this part-->
+                <!-- Subsystem available on the account role e.g. condition_key.modified_key, 
+                        if pages will shows in here is base on roles 
+                -->
                 <button class="subSystem" onclick="window.location.href='/dts'">
                     <img src="{{ asset('icons/dts.svg') }}" alt="Document Control Icon">            
                     <span>Document Control</span>

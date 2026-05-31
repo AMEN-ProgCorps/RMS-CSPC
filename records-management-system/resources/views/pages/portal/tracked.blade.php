@@ -5,48 +5,39 @@ use Livewire\Attributes\Title;
 use Livewire\Attributes\Url;
 use Livewire\Component;
 /*
+        Filestorage_data = data: { 
+*             device_id: string, 
+*             document_tracked_within_10_minutes: int / 3, //this one starts on 0
+*             last_document_tracked_at: timestamp,
+*             email_used_on_verification: string,
+*             is_email_not_cspc: boolean,
+*             device_blocked_until: timestamp     
+*          }
 *   since this page is only continuation of track-document while being in the same url, it will revolve around this phases like track-document:
-*   Phase 1: after going throught the verification on track-document, the url value will be passed on this page eg /track-document
+*   Phase 1: after going throught the verification on track-document, the url value will be passed on this page eg /track-document=?{traacking_number} and the document will be searched, 
+*        L if found which already been before they encounter the page here, the email verification form will be shown and wll proceed to next phaase
+*        L if not found or just maniputalted the url, it will check the browser local storage for the document_tracked_within_10_minutes value or the whole data if present in the browser file storage, 
+*                L if its present and the value of document_tracked_within_10_minutes is less than 3, then add one to the value because they forcing to access the page and return to track-document... 
+*                L if not then return back to track-document
+*   Phase 2: after the email verification it will rewrite the email value on the browser file storage
+                 L   if the email is a cspc email, then it will skip the document password step
+                 L   if the email is not a cspc email, then it will show the document password step, and after the correct password is inputed, it will proceed to the next phase
+*   Phase 3: after the document password verification, it will show the document data, while at it the backend will now send a value to the tracking_device_log for audit purpose and security purposes
+            update the last_document_tracked_at to the current timestamp, and upload data to the backend: the date will be like this:           
+*                data: {
+*                      tracked_id: <the id of the documeent that the user inputed>
+*                      device_id: <the unique device id generated in phase 1.3> 
+*                      email: null, // due to the fact that the email verification is only for the documents that exist, the email_used_on_verification will be null if the tracking number does not exist,
+*                      current_timestamp: <the current timestamp when the user inputed the tracking number>
+*                      status: <document_tracked_within_10_minutes rated as if 1: warning, 2: danger, 3: blocked>
+*                    }                            
 */
 
 
 new #[Layout('layouts.portal')] #[Title('Track Document — Results')] class extends Component
 {
-    #[Url(as: 'number')]
-    public string $trackingNumber = '';
-    public string $email = '';
-    public string $documentPassword = '';
-    public string $emailStatus = 'Initializing Google sign-in...';
-    public bool $emailReadonly = true;
-    public bool $showPasswordStep = false;
-    public bool $showDocumentData = false;
-    public function mount(): void
-    {
-        if ($this->trackingNumber === '') {
-            $this->redirect(route('track-document'), navigate: true);
-        }
-    }
 
-    public function verifyEmail(): void
-    {
-        $this->validate([
-            'email' => ['required', 'email'],
-        ]);
-
-        // TODO: check institute domain vs external — toggle password step
-        $this->showPasswordStep = true;
-    }
-
-    public function submitPassword(): void
-    {
-        $this->validate([
-            'documentPassword' => ['required', 'string'],
-        ]);
-
-        // TODO: validate document password
-        $this->showDocumentData = true;
-    }
-};
+}
 ?>
 
 @push('styles')
@@ -146,62 +137,5 @@ new #[Layout('layouts.portal')] #[Title('Track Document — Results')] class ext
 </section>
 
 @push('scripts')
-    <script src="https://accounts.google.com/gsi/client" async defer></script>
-    <script>
-        document.addEventListener('livewire:navigated', initGoogleEmail);
-        document.addEventListener('DOMContentLoaded', initGoogleEmail);
-
-        function initGoogleEmail() {
-            const emailInput = document.getElementById('email-input');
-            const statusText = document.getElementById('email-status');
-
-            if (!emailInput || !statusText) {
-                return;
-            }
-
-            function setEmail(value) {
-                if (value && value.includes('@')) {
-                    @this.set('email', value);
-                    emailInput.placeholder = '';
-                    @this.set('emailStatus', 'Email loaded from Google account.');
-                }
-            }
-
-            if (typeof google === 'undefined' || !google.accounts) {
-                setTimeout(function () {
-                    if (!emailInput.value) {
-                        const stored = window.localStorage.getItem('rms_email_autofill');
-                        if (stored) {
-                            setEmail(stored);
-                        } else {
-                            @this.set('emailStatus', 'Please sign in with Google or enter email manually.');
-                            @this.set('emailReadonly', false);
-                        }
-                    }
-                }, 3000);
-                return;
-            }
-
-            google.accounts.id.initialize({
-                client_id: '{{ config('services.google.client_id') }}',
-                callback: function (response) {
-                    const payload = decodeJwtResponse(response.credential);
-                    setEmail(payload.email);
-                },
-                auto_select: true,
-                cancel_on_tap_outside: false,
-            });
-
-            google.accounts.id.prompt();
-        }
-
-        function decodeJwtResponse(token) {
-            const base64Url = token.split('.')[1];
-            const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
-            const jsonPayload = decodeURIComponent(atob(base64).split('').map(function (c) {
-                return '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2);
-            }).join(''));
-            return JSON.parse(jsonPayload);
-        }
-    </script>
+  
 @endpush

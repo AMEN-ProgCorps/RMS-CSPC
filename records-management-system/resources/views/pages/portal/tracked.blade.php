@@ -4,6 +4,11 @@ use Livewire\Attributes\Layout;
 use Livewire\Attributes\Title;
 use Livewire\Attributes\Url;
 use Livewire\Component;
+/*
+*   since this page is only continuation of track-document while being in the same url, it will revolve around this phases like track-document:
+*   Phase 1: after going throught the verification on track-document, the url value will be passed on this page eg /track-document
+*/
+
 
 new #[Layout('layouts.portal')] #[Title('Track Document — Results')] class extends Component
 {

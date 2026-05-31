@@ -205,6 +205,7 @@ new #[Layout('layouts.portal')] #[Title('Track Document')] class extends Compone
     const CSPC_PATTERN = /^[^@]+@(cspc\.edu\.ph|[^@]+\.cspc\.edu\.ph)$/i;
 
     const wait = ms => new Promise(r => setTimeout(r, ms));
+    const step = () => wait(500);
     let submitting = false;
     let cleanupTrackResult = null;
 
@@ -272,16 +273,16 @@ new #[Layout('layouts.portal')] #[Title('Track Document')] class extends Compone
 
             // Phase 1 — read input
             setStatus('Phase 1', 'Extracting input data...', 'checking');
-            await wait(180);
+            await step();
 
             // Phase 1.2 — check localStorage
             setStatus('Phase 1.2', 'Checking device storage...', 'checking');
             let d = initDevice();
-            await wait(180);
+            await step();
 
             // Phase 1.3 — verify device status
             setStatus('Phase 1.3', 'Verifying device status...', 'checking');
-            await wait(180);
+            await step();
             const nowMs = Date.now();
 
             // Unblock if block period has expired
@@ -325,7 +326,7 @@ new #[Layout('layouts.portal')] #[Title('Track Document')] class extends Compone
 
             // Phase 1.4 — evaluate email domain
             setStatus('Phase 1.4', 'Evaluating access permissions...', 'checking');
-            await wait(180);
+            await step();
             if (d.email_used_on_verification) {
                 d.is_email_not_cspc = !CSPC_PATTERN.test(d.email_used_on_verification);
                 saveDevice(d);

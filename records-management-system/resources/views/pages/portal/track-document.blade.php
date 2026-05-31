@@ -344,4 +344,37 @@ new #[Layout('layouts.portal')] #[Title('Track Document')] class extends Compone
     document.addEventListener('DOMContentLoaded', setup);
 })();
 </script>
+<script>
+window.checkDeviceStatus = function () {
+    const KEY = 'rms_tracking_device';
+    let d;
+    try { d = JSON.parse(localStorage.getItem(KEY)); } catch { d = null; }
+
+    if (!d) {
+        console.warn('%c[RMS Debug] No device data found in localStorage.', 'color:#92400E;font-weight:700;');
+        return null;
+    }
+
+    const now       = Date.now();
+    const blockTs   = d.device_blocked_until ? new Date(d.device_blocked_until).getTime() : null;
+    const isBlocked = blockTs !== null && now < blockTs;
+    const minsLeft  = isBlocked ? Math.ceil((blockTs - now) / 60000) : 0;
+
+    console.group('%c RMS — Device Status ', 'background:#1D4ED8;color:#fff;font-weight:700;border-radius:3px;padding:2px 8px;');
+    console.log('%cdevice_id%c                         ', 'font-weight:700;color:#1D4ED8;', '', d.device_id ?? 'null');
+    console.log('%cdocument_tracked_within_10_minutes%c', 'font-weight:700;color:#1D4ED8;', '', (d.document_tracked_within_10_minutes ?? 0) + ' / 3');
+    console.log('%clast_document_tracked_at%c          ', 'font-weight:700;color:#1D4ED8;', '', d.last_document_tracked_at ?? 'null');
+    console.log('%cemail_used_on_verification%c        ', 'font-weight:700;color:#1D4ED8;', '', d.email_used_on_verification ?? 'null');
+    console.log('%cis_email_not_cspc%c                 ', 'font-weight:700;color:#1D4ED8;', '', d.is_email_not_cspc ?? false);
+    console.log(
+        '%cdevice_blocked_until%c              ',
+        'font-weight:700;color:#1D4ED8;',
+        isBlocked ? 'color:#B45309;font-weight:700;' : '',
+        (d.device_blocked_until ?? 'null') + (isBlocked ? '  ⛔  blocked — ' + minsLeft + ' min remaining' : '')
+    );
+    console.groupEnd();
+
+    return d;
+};
+</script>
 @endpush

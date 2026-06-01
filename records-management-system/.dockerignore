@@ -1,0 +1,30 @@
+# Dependencies — installed inside the container
+vendor/
+node_modules/
+
+# Local env — injected at runtime via env_file
+.env
+.env.backup
+.env.production
+
+# Built frontend assets — built by the node service at startup
+public/build
+public/hot
+public/storage
+
+# Cached Laravel files — regenerated in the container
+bootstrap/cache/*.php
+storage/framework/views/*.php
+storage/framework/cache/data/
+storage/framework/sessions/
+storage/logs/
+
+# Git & IDE
+.git/
+.gitignore
+.vscode/
+.idea/
+
+# OS junk
+.DS_Store
+Thumbs.db

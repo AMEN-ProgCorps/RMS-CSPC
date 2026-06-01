@@ -15,6 +15,9 @@ export default defineConfig({
         tailwindcss(),
     ],
     server: {
+        // Bind to all interfaces only when inside Docker (set DOCKER=true in docker-compose)
+        host: process.env.DOCKER ? '0.0.0.0' : 'localhost',
+        port: 5173,
         watch: {
             ignored: ['**/storage/framework/views/**'],
         },

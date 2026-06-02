@@ -1,4 +1,3 @@
-<!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
@@ -59,7 +58,7 @@
                         </button>
                 -->
                 <button class="subSystem" onclick="window.location.href='/admin/console/'">
-                    <img src="{{ asset('icons/dts.svg') }}" alt="Document Control Icon">            
+                    <img src="{{ asset('icons/user-admin.svg') }}" alt="Document Control Icon">            
                     <span>Admin Console</span>
                 </button>
                 <button class="subSystem" onclick="window.location.href='/dts'">
@@ -84,8 +83,58 @@
         </div>
     </header>
     <section>
-        <span class="section">This is section</span>
-        @yield('section')
+        <div class="navigation" id="navigation">
+            <div class="nav">
+                <div class="nav-header-container">
+                    <div class="toggle-btn" onclick="toggleNavProperties()">
+                        <img id="nav-main-icon" src="{{ asset('icons/toggle-nav-section.svg') }}" alt="Toggle Icon">
+                    </div>
+                    <script>
+                        function toggleNavProperties() {
+                            const navigation = document.getElementById('navigation');
+                            const navMainIcon = document.getElementById('nav-main-icon');
+                            const articleContainer = document.getElementById('article-container');
+                            if(navigation.classList.contains('imup')) {
+                                navigation.classList.remove('imup');
+                                navigation.classList.add('imdown');
+                                articleContainer.classList.remove('imdown');
+                                articleContainer.classList.add('imup');
+                                navMainIcon.src = "{{ asset('icons/toggle-nav-section.svg') }}";
+                            } else if(navigation.classList.contains('imdown')) {
+                                if(navigation.classList.contains('imup')) {
+                                    navigation.classList.remove('imup');
+                                }
+                                navigation.classList.remove('imdown');
+                                articleContainer.classList.remove('imup');
+                                if(articleContainer.classList.contains('imdown')) {
+                                    articleContainer.classList.remove('imdown');
+                                }
+                                navMainIcon.src = "{{ asset('icons/toggle-nav-default.svg') }}";
+                            } else {
+                                navigation.classList.add('imup');
+                                articleContainer.classList.add('imdown');
+                                navMainIcon.src = "{{ asset('icons/toggle-nav-section.svg') }}";
+                            }
+                        }
+                    </script>
+                    <div id="nav-contexts" class="subsystem-indicator">
+                        <div class="subsystem-name">Document Tracking System
+                            @yield('subsystem_name')
+                        </div>
+                        <div class="subsystem-version">Version: @yield('subsystem_version')</div>
+                    </div>
+                </div> 
+                <hr>
+                <div class="nav-list-container">
+                    
+                </div>
+            </div>
+        </div>
+        <div id="article-container" class="article-container imdown">
+            top
+            @yield('content')
+            down
+        </article>
     </section>
 </body>
 </html>

@@ -94,6 +94,11 @@ body {
                 align-items: center;
                 gap: 10px;
         }
+            .drop_down-container button img {
+                max-width: 21px;
+                max-height: 21px;
+                color: #003699;
+            }
         .drop_down-container button:hover {
             cursor: pointer;
         }    
@@ -158,3 +163,132 @@ header{
         letter-spacing: 0%;
         color: #FFB200;
 }
+section{
+    display: flex;
+    height: calc(100% - 70px);
+    width: 100%;
+    --nav-width: 270px;
+}
+    .navigation.imup{
+        --nav-width: 80px;
+    }
+    .navigation.imdown .nav{
+        background-color: #F5F5F5;
+    }
+    .navigation{
+        position: relative;
+        min-width: var(--nav-width);
+        width: fit-content;
+        height: 100%;
+    }
+        .nav {
+            position:relative;
+                z-index: 1;
+                top: 0;
+            width: auto;
+            height: 100%;
+            background-color: #FFFFFF;
+            padding: 20px 0 20px 20px;
+            display: flex;
+                flex-direction: column;
+                gap: 20px;
+        }
+            .navigation.imdown .nav{
+                z-index: 0;
+            }
+            .navigation.imup .nav{
+                position: absolute;
+                padding: 20px;
+                box-shadow: rgba(0, 0, 0, 0.35) 0px 5px 15px;
+            }
+        .nav .nav-header-container{
+            width: 100%;
+            display: flex;
+                align-items: flex-start;
+            gap: 10px;
+        }
+            .nav-header-container .toggle-btn{
+                position:relative;
+                width: 30px;
+                aspect-ratio: 1/1;
+                font-size: 20px;
+                cursor: pointer;
+                padding: 3px;
+                display: flex;
+                    justify-content: center;
+            }
+                .nav-header-container .toggle-btn img{
+                    position: absolute;
+                    left: 0;
+                    height: 40px;
+                    transition: .5s;
+                }
+                .nav-header-container .toggle-btn:hover img{
+                    left: 4px;
+                    transition: .5s;
+                }
+            .nav-header-container .subsystem-indicator{
+                position: relative;
+                display: flex;
+                    flex-direction: column;
+                    gap: 2px;
+                    flex: 1;
+                    min-width: 0px;
+            }
+                .navigation.imup .nav .nav-header-container .subsystem-indicator{
+                    display: none;
+                }.navigation.imup:hover .nav .nav-header-container .subsystem-indicator{
+                    display: flex;
+                }
+                .subsystem-indicator .subsystem-name{
+                    position: relative;
+                    width: 270px;
+                    overflow: show;
+                    position: relative;
+                    font-family: Roboto;
+                    font-weight: 600;
+                    font-style: SemiBold;
+                    font-size: 20px;
+                    line-height: 117%;
+                    letter-spacing: 0%;
+                    color: #043899;
+                }
+        .nav hr{
+            color: #A2A2A2;
+            width: 100%;
+        }
+    
+    .article-container{
+        box-sizing:border-box;/*for the padding size to affect the nav*/
+        width: calc(100vh - var(--nav-width));
+        height: 100%;
+        padding: 10px;
+        background-color: #FFFFFF;
+        position: relative;
+        flex-grow: 1;
+        overflow-y: scroll;
+        text-overflow: ellipsis;
+    }
+        .article-container.imdown{
+            background-color: #F5F5F5;
+        }
+        .article-container.imup{
+            border-radius: 20px 0px 0px 20px;
+            box-shadow: rgba(0, 0, 0, 0.35) 0px 5px 15px;
+            z-index: 1;
+        }
+    .article-container::-webkit-scrollbar {
+        padding: 5px;
+        width: 10px;
+        position: absolute;
+    }
+    .article-container::-webkit-scrollbar-track {
+        background: transparent; 
+        cursor: pointer;
+    }
+    .article-container::-webkit-scrollbar-thumb {
+        position: absolute;
+        background: #093484bf; 
+        border-radius: 10px;
+        cursor: grabbing;
+    }

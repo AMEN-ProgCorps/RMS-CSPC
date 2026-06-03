@@ -12,6 +12,8 @@ return new class extends Migration
      */
     public function up(): void
     {
+        DB::statement("CREATE DATABASE IF NOT EXISTS rms");
+        
         Schema::create('condition_details', function (Blueprint $table) {
             $table->increments('key_id');
             $table->boolean('is_sadm')->default(false);

@@ -5,13 +5,9 @@ echo "────────────────────────�
 echo "  RMS-CSPC — Container Startup"
 echo "──────────────────────────────────────────"
 
-# ── Install PHP dependencies if vendor is missing ────────────────────────────
-if [ ! -d "vendor" ]; then
-    echo "[1/5] Running composer install..."
-    composer install --no-interaction --prefer-dist --optimize-autoloader
-else
-    echo "[1/5] vendor/ found — skipping composer install."
-fi
+# ── Install / sync PHP dependencies ─────────────────────────────────────────
+echo "[1/5] Running composer install..."
+composer install --no-interaction --prefer-dist --optimize-autoloader
 
 # ── Generate APP_KEY if not set ──────────────────────────────────────────────
 if [ -z "$APP_KEY" ]; then

@@ -83,7 +83,7 @@
         </div>
     </header>
     <section>
-        <div class="navigation" id="navigation">
+        <div class="navigation imup" id="navigation">
             <div class="nav">
                 <div class="nav-header-container">
                     <div class="toggle-btn" onclick="toggleNavProperties()">
@@ -100,20 +100,12 @@
                                 articleContainer.classList.remove('imdown');
                                 articleContainer.classList.add('imup');
                                 navMainIcon.src = "{{ asset('icons/toggle-nav-section.svg') }}";
-                            } else if(navigation.classList.contains('imdown')) {
-                                if(navigation.classList.contains('imup')) {
-                                    navigation.classList.remove('imup');
-                                }
-                                navigation.classList.remove('imdown');
-                                articleContainer.classList.remove('imup');
-                                if(articleContainer.classList.contains('imdown')) {
-                                    articleContainer.classList.remove('imdown');
-                                }
-                                navMainIcon.src = "{{ asset('icons/toggle-nav-default.svg') }}";
                             } else {
+                                navigation.classList.remove('imdown');
                                 navigation.classList.add('imup');
+                                articleContainer.classList.remove('imup');
                                 articleContainer.classList.add('imdown');
-                                navMainIcon.src = "{{ asset('icons/toggle-nav-section.svg') }}";
+                                navMainIcon.src = "{{ asset('icons/toggle-nav-default.svg') }}";
                             }
                         }
                     </script>
@@ -126,7 +118,10 @@
                 </div> 
                 <hr>
                 <div class="nav-list-container">
-                    
+                    section
+                </div>
+                <div class="account-logo-container">
+                    logo
                 </div>
             </div>
         </div>

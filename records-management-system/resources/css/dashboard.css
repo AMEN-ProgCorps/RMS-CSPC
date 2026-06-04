@@ -186,14 +186,15 @@ section{
                 z-index: 1;
                 top: 0;
             width: auto;
-            height: 100%;
+            height: 95%;
             background-color: #FFFFFF;
-            padding: 20px 0 20px 20px;
+            padding: 20px 0 20px 0;
             display: flex;
                 flex-direction: column;
                 gap: 20px;
         }
             .navigation.imdown .nav{
+                padding: 20px;
                 z-index: 0;
             }
             .navigation.imup .nav{
@@ -255,6 +256,58 @@ section{
             color: #A2A2A2;
             width: 100%;
         }
+        .nav .nav-list-contianer{
+            display: flex;
+                flex-direction: column;
+                gap: 10px;
+        }
+            .nav-list-container .button-section-container{
+                display: flex;
+                    flex-direction: row;
+                    gap: 10px;
+            }
+                .button-section-container .button-container{
+                    cursor: pointer;
+                    display: flex;
+                        align-items: center;
+                        gap: 10px;
+                    background-color: transparent;
+                    text-decoration: none;
+                    width: 100%;
+                    text-align: left;
+                    border: none;
+                }
+                .button-container .button-icon{
+                    position:relative;
+                    width: 30px;
+                    aspect-ratio: 1/1;
+                    font-size: 20px;
+                    padding: 3px;
+                    display: flex;
+                        justify-content: center;
+                }
+                    .button-container .button-icon img{
+                        width: 100%;
+                        height: 100%;
+                        position: absolute;
+                        left: 0;
+                        transition: .5s;
+                    }
+                    .button-container .button-icon:hover img{
+                        left: 4px;
+                        transition: .5s;
+                    }
+                .button-container .button-label{
+                    display: flex;
+                        align-items: center;
+                    font-family: Roboto;
+                    font-weight: 400;
+                    font-style: Regular;
+                    font-size: 20px;
+                    line-height: 117%;
+                    letter-spacing: 0%;
+                    color: #A2A2A2;
+                }
         .nav .account-container {
             position: absolute;
             bottom: 20px;
@@ -263,6 +316,12 @@ section{
                 flex-direction: column;
                 gap: 5px;
         }
+            .navigation.imdown .nav .account-container {
+                display: none;
+            }
+            .navigation.imup .nav .account-container {
+                display: flex;
+            }
              .nav .account-container .account-label {
                 display: flex;
                     flex-direction: column;
@@ -285,7 +344,8 @@ section{
                     line-height: 117%;
                     letter-spacing: 0%;
                     color: #043899;
-        }
+                }
+        
     .article-container{
         box-sizing:border-box;/*for the padding size to affect the nav*/
         width: calc(100vh - var(--nav-width));

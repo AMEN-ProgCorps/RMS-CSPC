@@ -38,7 +38,6 @@ body {
         }
     .drop_down-container {
         position: absolute;
-            z-index: 10;
         box-shadow: rgba(50, 50, 93, 0.25) 0px 13px 27px -5px, rgba(0, 0, 0, 0.3) 0px 8px 16px -8px;
         top: 30px;
         right: inherit;
@@ -170,10 +169,10 @@ section{
     width: 100%;
     --nav-width: 270px;
 }
-    .navigation.imup{
+    .navigation.imdown{
         --nav-width: 80px;
     }
-    .navigation.imdown .nav{
+    .navigation.imup .nav{
         background-color: #F5F5F5;
     }
     .navigation{
@@ -198,8 +197,8 @@ section{
                 z-index: 0;
             }
             .navigation.imup .nav{
-                position: absolute;
                 padding: 20px;
+                background-color: #FFFFFF;
                 box-shadow: rgba(0, 0, 0, 0.35) 0px 5px 15px;
             }
         .nav .nav-header-container{
@@ -236,10 +235,8 @@ section{
                     flex: 1;
                     min-width: 0px;
             }
-                .navigation.imup .nav .nav-header-container .subsystem-indicator{
+                .navigation.imdown .nav .nav-header-container .subsystem-indicator{
                     display: none;
-                }.navigation.imup:hover .nav .nav-header-container .subsystem-indicator{
-                    display: flex;
                 }
                 .subsystem-indicator .subsystem-name{
                     position: relative;

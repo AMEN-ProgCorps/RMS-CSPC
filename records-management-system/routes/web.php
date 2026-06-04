@@ -1,39 +1,36 @@
 <?php
 
+use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Route;
+use Livewire\Volt\Volt;
 
 // Login
-Route::livewire('/', 'pages::portal.login')
+Volt::route('/', 'pages.portal.login')
     ->name('login');
 Route::post('/', fn () => redirect()->route('login'));
 
 // Public document tracking
-Route::livewire('/track-document', 'pages::portal.track-document')
+Volt::route('/track-document', 'pages.portal.track-document')
     ->name('track-document');
-Route::livewire('/tracked', 'pages::portal.tracked')
+Volt::route('/tracked', 'pages.portal.tracked')
     ->name('tracked');
 
-// 2. SECURED PORTAL ROUTES (Locked down behind the 'auth' firewall)
+// Secured routes (behind auth middleware)
 Route::middleware(['auth'])
     ->group(function () {
-    
-    Route::livewire('/portal', 'pages::portal.access-page')
-        ->name('portal')
-        ->middleware('auth');
-    Route::livewire('/profile', 'pages::portal.profile')
-        ->name('profile')
-        ->middleware('auth');
 
-    // Moved inside so only logged-in users can view the DTS dashboard
+    Volt::route('/portal', 'pages.portal.access-page')
+        ->name('portal');
+    Volt::route('/profile', 'pages.portal.profile')
+        ->name('profile');
+
     Route::get('/dts', function () {
         return view('dts.dashboard');
-    })->name('dts')
-      ->middleware('auth');
-    
+    })->name('dts');
+
 });
 
-
-// 3. LOGOUT ROUTE
+// Logout
 Route::get('/logout', function () {
     $user = Auth::user();
     if ($user && $user->details) {

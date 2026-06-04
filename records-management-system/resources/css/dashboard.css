@@ -39,8 +39,9 @@ body {
     .drop_down-container {
         position: absolute;
         box-shadow: rgba(50, 50, 93, 0.25) 0px 13px 27px -5px, rgba(0, 0, 0, 0.3) 0px 8px 16px -8px;
-        top: 30px;
-        right: inherit;
+            top: 30px;
+            right: inherit;
+            z-index: 10;
         background-color: #FFFFFF;
         display: flex;
             flex-direction: column;
@@ -176,6 +177,7 @@ section{
         background-color: #F5F5F5;
     }
     .navigation{
+        user-select: none;
         position: relative;
         min-width: var(--nav-width);
         width: fit-content;
@@ -256,17 +258,22 @@ section{
             color: #A2A2A2;
             width: 100%;
         }
-        .nav .nav-list-contianer{
+        .nav .nav-list-container{
             display: flex;
                 flex-direction: column;
-                gap: 10px;
+                gap: 30px;
         }
+    .navigation.imdown .nav .nav-list-container .button-section-container .button-container .button-label,
+    .navigation.imdown .nav .nav-list-container .button-section-container .button-container .show-arrow{
+        display: none;        
+    }
             .nav-list-container .button-section-container{
                 display: flex;
-                    flex-direction: row;
+                    flex-direction: column;
                     gap: 10px;
             }
                 .button-section-container .button-container{
+                    position: relative;
                     cursor: pointer;
                     display: flex;
                         align-items: center;
@@ -290,6 +297,7 @@ section{
                         width: 100%;
                         height: 100%;
                         position: absolute;
+                        top: 0;
                         left: 0;
                         transition: .5s;
                     }
@@ -297,16 +305,68 @@ section{
                         left: 4px;
                         transition: .5s;
                     }
+                .button-section-container.show .button-container .button-label{
+                    color: #043899;
+                }
                 .button-container .button-label{
                     display: flex;
                         align-items: center;
                     font-family: Roboto;
-                    font-weight: 400;
+                    font-weight: 600;
                     font-style: Regular;
                     font-size: 20px;
                     line-height: 117%;
                     letter-spacing: 0%;
-                    color: #A2A2A2;
+                }
+                .button-section-container.show .button-container .show-arrow {
+                    transform: rotate(180deg);
+                }
+                .button-container .show-arrow {
+                    position: absolute;
+                        right: 20px;
+                    transition: transform .5s ease;
+                    transform: rotate(0deg);
+                }
+            .navigation.imdown .nav .nav-list-container .button-section-container.show .functions-container{
+                display: none;
+            }
+            .button-section-container.show .functions-container{
+                display: flex; /* Instantly turns it on so the animation can play */
+                animation: shwfunctions 1s forwards;
+            }
+            .functions-container{
+                box-sizing: border-box;
+                display: none;
+                    flex-direction: column;
+                    gap: 10px;
+                width: 70%;
+                margin-left: 25%;
+                max-height: 0;
+                opacity: 0;
+                overflow: hidden;
+            }
+               .function-button{
+                    cursor: pointer;
+                    color: #646464;
+                    font-family: Roboto;
+                    font-size: 15px;
+                    font-style: normal;
+                    font-weight: 400;
+                    line-height: 117.07%; /* 23.414px */
+               }
+               .function-button:hover{
+                    margin-left: 5px;
+                    color:#0059FF;
+               }
+               @keyframes shwfunctions {
+                    from {
+                        max-height: 0;
+                        opacity: 0;
+                    }
+                    to {
+                        max-height: fit-content; 
+                        opacity: 1;
+                    }
                 }
         .nav .account-container {
             position: absolute;

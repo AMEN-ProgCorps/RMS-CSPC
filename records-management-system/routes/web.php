@@ -29,7 +29,9 @@ Route::middleware(['auth'])
     })->name('dts');
 
 });
-
+Route::get('/url', function () {
+    return redirect('/');
+})->name('url');
 // Logout
 Route::get('/logout', function () {
     $user = Auth::user();

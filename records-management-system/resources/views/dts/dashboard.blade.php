@@ -120,8 +120,14 @@
                 <div class="nav-list-container">
                     section
                 </div>
-                <div class="account-logo-container">
-                    logo
+                <div class="account-container">
+                    <div class="account-label">
+                        <!-- it will fetch here user information 
+                            eg: account email account assigned office
+                        -->
+                        <span class="account-email">Account</span>
+                        <span class="account-office">Assigned Office</span>
+                    </div>
                 </div>
             </div>
         </div>

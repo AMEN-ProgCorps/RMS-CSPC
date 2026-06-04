@@ -255,7 +255,37 @@ section{
             color: #A2A2A2;
             width: 100%;
         }
-    
+        .nav .account-container {
+            position: absolute;
+            bottom: 20px;
+            left: 20px;
+            display: flex;
+                flex-direction: column;
+                gap: 5px;
+        }
+             .nav .account-container .account-label {
+                display: flex;
+                    flex-direction: column;
+                    gap: 2px;
+            }
+                .nav .account-container .account-label .account-email {
+                    font-family: Roboto;
+                    font-weight: 400;
+                    font-style: Regular;
+                    font-size: 13px;
+                    line-height: 117%;
+                    letter-spacing: 0%;
+                    color: #A2A2A2;
+                }
+                .nav .account-container .account-label .account-office {
+                    font-family: Roboto;
+                    font-weight: 700;
+                    font-style: Bold;
+                    font-size: 15px;
+                    line-height: 117%;
+                    letter-spacing: 0%;
+                    color: #043899;
+        }
     .article-container{
         box-sizing:border-box;/*for the padding size to affect the nav*/
         width: calc(100vh - var(--nav-width));

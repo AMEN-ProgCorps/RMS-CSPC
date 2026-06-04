@@ -31,8 +31,9 @@ services:
     volumes:
       - .:/app
       - node_modules:/app/node_modules
-    # Builds assets once on startup. Change to "npm run dev" for Vite HMR.
-    command: sh -c "npm install && npm run build"
+    ports:
+      - "5173:5173"
+    command: sh -c "npm install && npm run dev"
     networks:
       - rms_net
 

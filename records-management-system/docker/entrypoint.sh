@@ -32,9 +32,8 @@ echo "[3/5] Creating storage symlink..."
 php artisan storage:link --force 2>/dev/null || true
 
 # ── Cache ─────────────────────────────────────────────────────────────────────
-echo "[4/5] Caching config & routes..."
+echo "[4/5] Caching config..."
 php artisan config:cache
-php artisan route:cache
 
 echo "[5/5] Starting server..."
 echo "──────────────────────────────────────────"

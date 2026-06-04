@@ -3,7 +3,7 @@
 use Illuminate\Support\Facades\DB;
 use Livewire\Attributes\Layout;
 use Livewire\Attributes\Title;
-use Livewire\Component;
+use Livewire\Volt\Component;
 /* The Process here is like this
      * Phase 1: User enters the tracking number and clicks the track button
      * Phase 1.2: The page will check if following data is stored within the browser file storage:
@@ -195,7 +195,7 @@ new #[Layout('layouts.portal')] #[Title('Track Document')] class extends Compone
                 <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24">
                     <path fill="currentColor" d="M9.5,3A6.5,6.5,0,1,0,16,9.5,6.51,6.51,0,0,0,9.5,3Zm0,11A4.5,4.5,0,1,1,14,9.5,4.51,4.51,0,0,1,9.5,14ZM20.71,19.29l-3.4-3.39a1,1,0,1,0-1.42,1.42l3.4,3.39a1,1,0,0,0,1.42-1.42Z" />
                 </svg>
-                <input wire:model="trackingNumber" type="text" placeholder="Enter Tracking Number" @disabled($isProcessing) required>
+                <input wire:model="trackingNumber" type="text" placeholder="Enter Tracking Number" required>
             </div>
             <div id="status_indicator" wire:ignore>
                 <div class="si-phase"></div>
@@ -204,7 +204,7 @@ new #[Layout('layouts.portal')] #[Title('Track Document')] class extends Compone
             @error('trackingNumber')
                 <span class="form-error">{{ $message }}</span>
             @enderror
-            <button type="submit" class="search-btn" wire:loading.attr="disabled" @disabled($isProcessing)>
+            <button type="submit" class="search-btn" wire:loading.attr="disabled">
                 <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24">
                     <path fill="currentColor" d="M9.5,3A6.5,6.5,0,1,0,16,9.5,6.51,6.51,0,0,0,9.5,3Zm0,11A4.5,4.5,0,1,1,14,9.5,4.51,4.51,0,0,1,9.5,14ZM20.71,19.29l-3.4-3.39a1,1,0,1,0-1.42,1.42l3.4,3.39a1,1,0,0,0,1.42-1.42Z" />
                 </svg>

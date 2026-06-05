@@ -75,10 +75,10 @@ body {
                 opacity: 0;
             }
             100% {
-                max-height: 200px;
+                max-height: 500px;
                 opacity: 1;
             }
-            
+
         } 
         .drop_down-container hr {
             width: 100%;

@@ -94,7 +94,7 @@
                 @if(auth()->user()?->permissions?->is_sadm || auth()->user()?->permissions?->can_access_dts)
                 <button class="subSystem" onclick="window.location.href='/dts'">
                     <img src="{{ asset('icons/dts.svg') }}" alt="Document Control Icon">
-                    <span>Document Control</span>
+                    <span>Document Tracking</span>
                 </button>
                 @endif
                 @if(auth()->user()?->permissions?->is_sadm || auth()->user()?->permissions?->can_access_rdp)

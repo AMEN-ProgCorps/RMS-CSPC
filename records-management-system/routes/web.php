@@ -25,7 +25,7 @@ Route::middleware(['auth'])
         ->name('profile');
 
     Route::get('/dts', function () {
-        return view('dts.dashboard');
+        return view('dts.index');
     })->name('dts');
 
 });

@@ -293,7 +293,7 @@ section{
                     display: flex;
                         justify-content: center;
                 }
-                    .button-container .button-icon img{
+                    .button-container .button-icon svg{
                         width: 100%;
                         height: 100%;
                         position: absolute;
@@ -301,7 +301,7 @@ section{
                         left: 0;
                         transition: .5s;
                     }
-                    .button-container .button-icon:hover img{
+                    .button-container .button-icon:hover svg{
                         left: 4px;
                         transition: .5s;
                     }
@@ -405,6 +405,9 @@ section{
                     letter-spacing: 0%;
                     color: #043899;
                 }
+        .force-active{
+            color: #FFB200;
+        }
         
     .article-container{
         box-sizing:border-box;/*for the padding size to affect the nav*/

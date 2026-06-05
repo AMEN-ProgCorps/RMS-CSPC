@@ -85,19 +85,19 @@
             </button>
             <div class="drop_down-container" id="dropdown">
                 <span>Move To</span>
-                @if(auth()->user()?->is_admin)
+                @if(auth()->user()?->permissions?->is_sadm)
                 <button class="subSystem" onclick="window.location.href='/admin/console/'">
                     <img src="{{ asset('icons/user-admin.svg') }}" alt="Admin Console Icon">
                     <span>Admin Console</span>
                 </button>
                 @endif
-                @if(auth()->user()?->is_admin || auth()->user()?->can_access_dts)
+                @if(auth()->user()?->permissions?->is_sadm || auth()->user()?->permissions?->can_access_dts)
                 <button class="subSystem" onclick="window.location.href='/dts'">
                     <img src="{{ asset('icons/dts.svg') }}" alt="Document Control Icon">
                     <span>Document Control</span>
                 </button>
                 @endif
-                @if(auth()->user()?->is_admin || auth()->user()?->can_access_rdp)
+                @if(auth()->user()?->permissions?->is_sadm || auth()->user()?->permissions?->can_access_rdp)
                 <button class="subSystem" onclick="window.location.href='/rdp'">
                     <img src="{{ asset('icons/rdp.svg') }}" alt="Records Disposition Icon">
                     <span>Records Disposition</span>

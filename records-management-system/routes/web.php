@@ -21,8 +21,10 @@ Route::middleware(['auth'])
 
     Volt::route('/portal', 'pages.portal.access-page')
         ->name('portal');
-    Volt::route('/profile', 'pages.portal.profile')
-        ->name('profile');
+
+    // Profile Manager
+    Volt::route('/profile', 'pages.profile.index')->name('profile');
+    Volt::route('/profile/security-logs', 'pages.profile.security-logs')->name('profile.security-logs');
 
     // DTS — Document Tracking System (requires can_access_dts or is_sadm)
     Route::middleware(['can.access.dts'])->group(function () {

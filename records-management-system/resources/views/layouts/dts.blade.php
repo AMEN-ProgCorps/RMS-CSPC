@@ -62,7 +62,7 @@
         }
     </script>
     @vite('resources/css/dashboard.css')
-    <title>{{ $title ?? 'CSPC - Records Management System' }}</title>
+    <title>CSPC - Document Tracking System</title>
     @stack('styles')
 </head>
 <body>
@@ -123,13 +123,13 @@
                         <img id="nav-main-icon" src="{{ asset('icons/toggle-nav-section.svg') }}" alt="Toggle Icon">
                     </div>
                     <div id="nav-contexts" class="subsystem-indicator">
-                        <div class="subsystem-name">{{ $subsystem }}</div>
-                        <div class="subsystem-version">Version: {{ $subsystem }}</div>
+                        <div class="subsystem-name">Document Tracking System</div>
+                        <div class="subsystem-version">Version: {{ \DB::table('subsystems')->where('subsystem_name', 'Document Tracking System')->value('subsystem_version') ?? 'N/A' }}</div>
                     </div>
                 </div>
                 <hr>
                 <div class="nav-list-container" onclick="resetNavProperties()">
-                    {{ $navigation ?? '' }}
+                    <x-dts.nav />
                 </div>
                 <div class="account-container">
                     <div class="account-label">

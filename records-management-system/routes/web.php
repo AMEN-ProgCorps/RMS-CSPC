@@ -24,12 +24,24 @@ Route::middleware(['auth'])
     Volt::route('/profile', 'pages.portal.profile')
         ->name('profile');
 
-    Route::get('/dts', function () {
-        return view('dts.dashboard');
-    })->name('dts');
+    // DTS — Document Tracking System
+    Volt::route('/dts', 'pages.dts.index')->name('dts');
+    Volt::route('/dts/receive', 'pages.dts.receive')->name('dts.receive');
+
+    Volt::route('/dts/create/internal', 'pages.dts.create.internal')->name('dts.create.internal');
+    Volt::route('/dts/create/external', 'pages.dts.create.external')->name('dts.create.external');
+    Volt::route('/dts/create/application-letters', 'pages.dts.create.application-letters')->name('dts.create.application-letters');
+    Volt::route('/dts/create/issuances', 'pages.dts.create.issuances')->name('dts.create.issuances');
+
+    Volt::route('/dts/list/internal', 'pages.dts.list.internal')->name('dts.list.internal');
+    Volt::route('/dts/list/external', 'pages.dts.list.external')->name('dts.list.external');
+    Volt::route('/dts/list/application-letters', 'pages.dts.list.application-letters')->name('dts.list.application-letters');
+    Volt::route('/dts/list/issuances', 'pages.dts.list.issuances')->name('dts.list.issuances');
 
 });
-
+Route::get('/url', function () {
+    return redirect('/');
+})->name('url');
 // Logout
 Route::get('/logout', function () {
     $user = Auth::user();

@@ -3,7 +3,7 @@
 use Illuminate\Support\Facades\Auth;
 use Livewire\Attributes\Layout;
 use Livewire\Attributes\Title;
-use Livewire\Component;
+use Livewire\Volt\Component;
 
 new #[Layout('layouts.portal')] #[Title('RMS CSPC Portal')] class extends Component
 {

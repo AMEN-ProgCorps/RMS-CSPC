@@ -62,7 +62,7 @@
         }
     </script>
     @vite('resources/css/dashboard.css')
-    <title>{{ $title ?? 'CSPC - Records Management System' }}</title>
+    <title>CSPC - system template</title>
     @stack('styles')
 </head>
 <body>
@@ -133,8 +133,8 @@
                 </div>
                 <div class="account-container">
                     <div class="account-label">
-                        <span class="account-email">{{ auth()->user()?->details?->email }}</span>
-                        <span class="account-office">{{ auth()->user()?->details?->office?->office_name }}</span>
+                        <span class="account-email">{{ auth()->user()?->email }}</span>
+                        <span class="account-office">{{ auth()->user()?->office?->office_name }}</span>
                     </div>
                 </div>
             </div>

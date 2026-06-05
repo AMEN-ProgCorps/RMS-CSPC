@@ -16,10 +16,14 @@ export default defineConfig({
         tailwindcss(),
     ],
     server: {
-        // Bind to all interfaces only when inside Docker (set DOCKER=true in docker-compose)
         host: process.env.DOCKER ? '0.0.0.0' : 'localhost',
         port: 5173,
+        hmr: {
+            host: 'localhost',
+        },
         watch: {
+            usePolling: true,
+            interval: 800,
             ignored: ['**/storage/framework/views/**'],
         },
     },

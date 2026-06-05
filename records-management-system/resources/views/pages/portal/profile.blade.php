@@ -2,7 +2,7 @@
 
 use Livewire\Attributes\Layout;
 use Livewire\Attributes\Title;
-use Livewire\Component;
+use Livewire\Volt\Component;
 
 new #[Layout('layouts.portal')] #[Title('Profile')] class extends Component
 {

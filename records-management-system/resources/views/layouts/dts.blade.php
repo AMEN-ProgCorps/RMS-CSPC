@@ -78,42 +78,7 @@
             {{-- notification livewire component goes here --}}
         </div>
         <span class="office_name">Records and Freedom of Information Office</span>
-        <div class="actions-container">
-            <button class="action_button" onclick="toggleDropdown()">
-                <span>ACTIONS</span>
-                <img id="dropdown-icon" src="{{ asset('icons/dropdown-icon.svg') }}" alt="Dropdown Icon">
-            </button>
-            <div class="drop_down-container" id="dropdown">
-                <span>Move To</span>
-                @if(auth()->user()?->is_admin)
-                <button class="subSystem" onclick="window.location.href='/admin/console/'">
-                    <img src="{{ asset('icons/user-admin.svg') }}" alt="Admin Console Icon">
-                    <span>Admin Console</span>
-                </button>
-                @endif
-                @if(auth()->user()?->is_admin || auth()->user()?->can_access_dts)
-                <button class="subSystem" onclick="window.location.href='/dts'">
-                    <img src="{{ asset('icons/dts.svg') }}" alt="Document Control Icon">
-                    <span>Document Control</span>
-                </button>
-                @endif
-                @if(auth()->user()?->is_admin || auth()->user()?->can_access_rdp)
-                <button class="subSystem" onclick="window.location.href='/rdp'">
-                    <img src="{{ asset('icons/rdp.svg') }}" alt="Records Disposition Icon">
-                    <span>Records Disposition</span>
-                </button>
-                @endif
-                <hr>
-                <button class="subSystem" onclick="window.location.href='/profile'">
-                    <img src="{{ asset('icons/profile.svg') }}" alt="Profile Icon">
-                    <span>Profile</span>
-                </button>
-                <button class="subSystem" onclick="window.location.href='/logout'">
-                    <img src="{{ asset('icons/Logout.svg') }}" alt="Logout Icon">
-                    <span>LOGOUT</span>
-                </button>
-            </div>
-        </div>
+        <x-actions.dropdown />
     </header>
     <section>
         <div class="navigation imup" id="navigation">
@@ -129,7 +94,7 @@
                 </div>
                 <hr>
                 <div class="nav-list-container" onclick="resetNavProperties()">
-                    <x-dts.nav />
+                    <x-nav.dts />
                 </div>
                 <div class="account-container">
                     <div class="account-label">

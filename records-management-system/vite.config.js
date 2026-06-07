@@ -10,6 +10,7 @@ export default defineConfig({
                 'resources/css/dashboard.css',
                 'resources/css/accesspoint.css',
                 'resources/css/td.css',
+                'resources/css/profile/personal_details.css',
             ],
             refresh: true,
         }),

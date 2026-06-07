@@ -75,10 +75,10 @@ body {
                 opacity: 0;
             }
             100% {
-                max-height: 200px;
+                max-height: 500px;
                 opacity: 1;
             }
-            
+
         } 
         .drop_down-container hr {
             width: 100%;
@@ -327,6 +327,10 @@ section{
                     transition: transform .5s ease;
                     transform: rotate(0deg);
                 }
+            .spacer{
+                width: 18;
+                padding: 10px;
+            }
             .navigation.imdown .nav .nav-list-container .button-section-container.show .functions-container{
                 display: none;
             }

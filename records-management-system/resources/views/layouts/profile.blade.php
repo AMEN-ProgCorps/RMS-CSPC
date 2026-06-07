@@ -62,7 +62,7 @@
         }
     </script>
     @vite('resources/css/dashboard.css')
-    <title>{{ $title ?? 'CSPC - Records Management System' }}</title>
+    <title>CSPC - Profile Manager</title>
     @stack('styles')
 </head>
 <body>
@@ -78,42 +78,7 @@
             {{-- notification livewire component goes here --}}
         </div>
         <span class="office_name">Records and Freedom of Information Office</span>
-        <div class="actions-container">
-            <button class="action_button" onclick="toggleDropdown()">
-                <span>ACTIONS</span>
-                <img id="dropdown-icon" src="{{ asset('icons/dropdown-icon.svg') }}" alt="Dropdown Icon">
-            </button>
-            <div class="drop_down-container" id="dropdown">
-                <span>Move To</span>
-                @if(auth()->user()?->permissions?->is_sadm)
-                <button class="subSystem" onclick="window.location.href='/admin/console/'">
-                    <img src="{{ asset('icons/user-admin.svg') }}" alt="Admin Console Icon">
-                    <span>Admin Console</span>
-                </button>
-                @endif
-                @if(auth()->user()?->permissions?->is_sadm || auth()->user()?->permissions?->can_access_dts)
-                <button class="subSystem" onclick="window.location.href='/dts'">
-                    <img src="{{ asset('icons/dts.svg') }}" alt="Document Control Icon">
-                    <span>Document Tracking</span>
-                </button>
-                @endif
-                @if(auth()->user()?->permissions?->is_sadm || auth()->user()?->permissions?->can_access_rdp)
-                <button class="subSystem" onclick="window.location.href='/rdp'">
-                    <img src="{{ asset('icons/rdp.svg') }}" alt="Records Disposition Icon">
-                    <span>Records Disposition</span>
-                </button>
-                @endif
-                <hr>
-                <button class="subSystem" onclick="window.location.href='/profile'">
-                    <img src="{{ asset('icons/profile.svg') }}" alt="Profile Icon">
-                    <span>Profile</span>
-                </button>
-                <button class="subSystem" onclick="window.location.href='/logout'">
-                    <img src="{{ asset('icons/Logout.svg') }}" alt="Logout Icon">
-                    <span>LOGOUT</span>
-                </button>
-            </div>
-        </div>
+        <x-actions.dropdown />
     </header>
     <section>
         <div class="navigation imup" id="navigation">
@@ -123,13 +88,13 @@
                         <img id="nav-main-icon" src="{{ asset('icons/toggle-nav-section.svg') }}" alt="Toggle Icon">
                     </div>
                     <div id="nav-contexts" class="subsystem-indicator">
-                        <div class="subsystem-name">{{ $subsystem }}</div>
-                        <div class="subsystem-version">Version: {{ $subsystem }}</div>
+                        <div class="subsystem-name">Profile Manager</div>
+                        <div class="subsystem-version">Version: {{ \DB::table('subsystems')->where('subsystem_name', 'Profile Manager')->value('subsystem_version') ?? 'N/A' }}</div>
                     </div>
                 </div>
                 <hr>
                 <div class="nav-list-container" onclick="resetNavProperties()">
-                    {{ $navigation ?? '' }}
+                    <x-nav.profile />
                 </div>
                 <div class="account-container">
                     <div class="account-label">

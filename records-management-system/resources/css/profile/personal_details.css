@@ -1,0 +1,45 @@
+@import url("../fonts.css");
+
+.container {
+    height: auto;
+    width: 100%;
+    display: flex;
+        flex-direction: column;
+        gap: 10px;
+}
+.box-container{
+    height: auto;
+    width: 100%;
+    padding: 10px;
+    box-sizing: border-box;
+    display: flex;
+}
+    .box{
+        width: fit-content;
+        border-radius: 10px;
+        padding: 10px 20px;
+        background-color: #fff;
+        box-shadow: rgba(0, 0, 0, 0.35) 0px 5px 15px;   
+    }
+        [boxid="name"].box{
+            font-size: 25px;
+            font-family: 'Inter';
+            color: #000;   
+            font-weight: bold;
+        }
+            [boxid="name"] span{
+                color: #043899;
+                font-weight: bolder;
+            }
+[boxid_container="header"].box-container {
+    display: flex;
+        justify-content: space-between;
+    position: relative;
+}
+.visible-line{
+    display: none;
+    width: 100%;
+}
+    .article-container.imup .container .visible-line{
+        display: block;
+    }

@@ -12,7 +12,9 @@ return Application::configure(basePath: dirname(__DIR__))
     )
     ->withMiddleware(function (Middleware $middleware): void {
         $middleware->alias([
-            'can.access.dts' => \App\Http\Middleware\CanAccessDts::class,
+            'can.access.admin' => \App\Http\Middleware\CanAccessAdmin::class,
+            'can.access.dts'   => \App\Http\Middleware\CanAccessDts::class,
+            'can.access.rdp'   => \App\Http\Middleware\CanAccessRdp::class,
         ]);
     })
     ->withExceptions(function (Exceptions $exceptions): void {

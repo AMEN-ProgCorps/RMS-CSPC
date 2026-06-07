@@ -6,7 +6,7 @@
             </svg>
         </div>
         <div class="button-label">
-            <span>Details</span>
+            <span>Personal Details</span>
         </div>
     </div>
 </div>
@@ -20,6 +20,19 @@
         </div>
         <div class="button-label">
             <span>Security Logs</span>
+        </div>
+    </div>
+</div>
+
+<div id="profile-notifications-id" class="button-section-container">
+    <div class="button-container {{ request()->routeIs('profile.notification-manager') ? 'force-active' : '' }}" onclick="proccedto('{{ route('profile.notification-manager') }}')">
+        <div class="button-icon">
+            <svg xmlns="http://www.w3.org/2000/svg" width="29" height="29" viewBox="0 0 29 29" fill="none">
+                <path d="M14.5 26.125C15.8083 26.125 16.875 25.0583 16.875 23.75H12.125C12.125 25.0583 13.1917 26.125 14.5 26.125ZM21.625 19V13.0833C21.625 9.47748 19.7067 6.46081 16.2917 5.65831V4.85581C16.2917 3.84748 15.5083 3.02081 14.5 3.02081C13.4917 3.02081 12.7083 3.84748 12.7083 4.85581V5.65831C9.28167 6.46081 7.375 9.46581 7.375 13.0833V19L5 21.375V22.5625H24V21.375L21.625 19Z" fill="#4F4F4F"/>
+            </svg>
+        </div>
+        <div class="button-label">
+            <span>Notification Manager</span>
         </div>
     </div>
 </div>

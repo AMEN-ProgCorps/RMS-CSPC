@@ -11,7 +11,11 @@ return Application::configure(basePath: dirname(__DIR__))
         health: '/up',
     )
     ->withMiddleware(function (Middleware $middleware): void {
-        //
+        $middleware->alias([
+            'can.access.admin' => \App\Http\Middleware\CanAccessAdmin::class,
+            'can.access.dts'   => \App\Http\Middleware\CanAccessDts::class,
+            'can.access.rdp'   => \App\Http\Middleware\CanAccessRdp::class,
+        ]);
     })
     ->withExceptions(function (Exceptions $exceptions): void {
         //

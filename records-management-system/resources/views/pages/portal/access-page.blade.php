@@ -3,7 +3,7 @@
 use Illuminate\Support\Facades\Auth;
 use Livewire\Attributes\Layout;
 use Livewire\Attributes\Title;
-use Livewire\Component;
+use Livewire\Volt\Component;
 
 new #[Layout('layouts.portal')] #[Title('RMS CSPC Portal')] class extends Component
 {
@@ -73,16 +73,32 @@ new #[Layout('layouts.portal')] #[Title('RMS CSPC Portal')] class extends Compon
         <span>Welcome, {{ $userNameDisplay }}</span>
     </div>
     <div class="systems-container">
-        <a href="{{ route('profile') }}" wire:navigate class="system-con" id="profile">
+        <a href="{{ route('profile') }}" class="system-con" id="profile">
             <div class="display-box">
                 <span>Profile</span>
             </div>
         </a>
-        <a href="{{ route('dts') }}" wire:navigate class="system-con" id="dts">
+        @if(auth()->user()?->permissions?->is_sadm || auth()->user()?->permissions?->can_access_dts)
+        <a href="{{ route('dts') }}" class="system-con" id="dts">
             <div class="display-box">
                 <span>Document Tracking System</span>
             </div>
         </a>
+        @endif
+        @if(auth()->user()?->permissions?->is_sadm)
+        <a href="/admin/console/" class="system-con" id="admin">
+            <div class="display-box">
+                <span>Admin Console</span>
+            </div>
+        </a>
+        @endif
+        @if(auth()->user()?->permissions?->is_sadm || auth()->user()?->permissions?->can_access_rdp)
+        <a href="{{ route('rdp') }}" class="system-con" id="rdp">
+            <div class="display-box">
+                <span>Records Disposition Program</span>
+            </div>
+        </a>
+        @endif
     </div>
 </section>
 <footer>

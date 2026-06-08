@@ -1,4 +1,3 @@
-<!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
@@ -18,13 +17,53 @@
                 dropdownIcon.classList.add('rotate');
             }
             dropdown.classList.toggle('show');
-            console.log('Dropdown toggled'); // Debugging log
+        }
+        function toggleNavProperties() {
+            const navigation = document.getElementById('navigation');
+            const navMainIcon = document.getElementById('nav-main-icon');
+            const articleContainer = document.getElementById('article-container');
+            if (navigation.classList.contains('imup')) {
+                navigation.classList.remove('imup');
+                navigation.classList.add('imdown');
+                articleContainer.classList.remove('imdown');
+                articleContainer.classList.add('imup');
+                navMainIcon.src = "{{ asset('icons/toggle-nav-section.svg') }}";
+            } else {
+                navigation.classList.remove('imdown');
+                navigation.classList.add('imup');
+                articleContainer.classList.remove('imup');
+                articleContainer.classList.add('imdown');
+                navMainIcon.src = "{{ asset('icons/toggle-nav-default.svg') }}";
+            }
+        }
+        function resetNavProperties() {
+            const navigation = document.getElementById('navigation');
+            const navMainIcon = document.getElementById('nav-main-icon');
+            const articleContainer = document.getElementById('article-container');
+            navigation.classList.remove('imdown');
+            navigation.classList.add('imup');
+            articleContainer.classList.remove('imup');
+            articleContainer.classList.add('imdown');
+            navMainIcon.src = "{{ asset('icons/toggle-nav-default.svg') }}";
+        }
+        function showButtonSection(button_target) {
+            const navigation = document.getElementById('navigation');
+            let pla = document.getElementById(button_target);
+            if (navigation.classList.contains('imup')) {
+                if (pla.classList.contains('show')) {
+                    pla.classList.remove('show');
+                } else {
+                    pla.classList.add('show');
+                }
+            }
+        }
+        function proccedto(url) {
+            window.location.href = url;
         }
     </script>
     @vite('resources/css/dashboard.css')
-    <!-- below will be the modification for the header -->
-    <title>CSPC - Document Tracking System</title>
-    @yield('styles')
+    <title>{{ $title ?? 'CSPC - Records Management System' }}</title>
+    @stack('styles')
 </head>
 <body>
     <header>
@@ -36,7 +75,7 @@
             <span class="title">Records Management System</span>
         </div>
         <div class="notification-container">
-            <!-- using livewire because the notifaction icon has 3 stages, and the content is dynamic -->
+            {{-- notification livewire component goes here --}}
         </div>
         <span class="office_name">Records and Freedom of Information Office</span>
         <div class="actions-container">
@@ -46,31 +85,24 @@
             </button>
             <div class="drop_down-container" id="dropdown">
                 <span>Move To</span>
-                <!-- Subsystem button access will be available on the account role e.g. condition_key.modified_key if it value is true, 
-                        e.g. can_access_dts value is true on the account the subsystem button will be visible, and can_access_rdp is false then this button will be hidden, and etc., 
-                        also note if account role is_admin value is true then the user is an admin which means it can access all subsystem regardless of the value of the condition_key.modified_key, and an special button which is te Admin Console will be visible, 
-                        but if the user is not an admin then the subsystem button will be visible based on the value of the condition_key.modified_key
-
-                        incase a new subsystem is added in the future just add a new button here and follow the same logic for the visibility of the button based on the value of the condition_key.modified_key
-                        it uses this layout
-                        <button class="subSystem" onclick="window.location.href='system_url'">
-                            <img src="{{ asset('icons/subsystemicon') }}" alt="subsystem_icon">            
-                            <span>Subsystem Name</span>
-                        </button>
-                -->
+                @if(auth()->user()?->permissions?->is_sadm)
                 <button class="subSystem" onclick="window.location.href='/admin/console/'">
-                    <img src="{{ asset('icons/dts.svg') }}" alt="Document Control Icon">            
+                    <img src="{{ asset('icons/user-admin.svg') }}" alt="Admin Console Icon">
                     <span>Admin Console</span>
                 </button>
+                @endif
+                @if(auth()->user()?->permissions?->is_sadm || auth()->user()?->permissions?->can_access_dts)
                 <button class="subSystem" onclick="window.location.href='/dts'">
-                    <img src="{{ asset('icons/dts.svg') }}" alt="Document Control Icon">            
-                    <span>Document Control</span>
+                    <img src="{{ asset('icons/dts.svg') }}" alt="Document Control Icon">
+                    <span>Document Tracking</span>
                 </button>
+                @endif
+                @if(auth()->user()?->permissions?->is_sadm || auth()->user()?->permissions?->can_access_rdp)
                 <button class="subSystem" onclick="window.location.href='/rdp'">
                     <img src="{{ asset('icons/rdp.svg') }}" alt="Records Disposition Icon">
                     <span>Records Disposition</span>
                 </button>
-                <!-- Logout -->
+                @endif
                 <hr>
                 <button class="subSystem" onclick="window.location.href='/profile'">
                     <img src="{{ asset('icons/profile.svg') }}" alt="Profile Icon">
@@ -84,8 +116,33 @@
         </div>
     </header>
     <section>
-        <span class="section">This is section</span>
-        @yield('section')
+        <div class="navigation imup" id="navigation">
+            <div class="nav">
+                <div class="nav-header-container">
+                    <div class="toggle-btn" onclick="toggleNavProperties()">
+                        <img id="nav-main-icon" src="{{ asset('icons/toggle-nav-section.svg') }}" alt="Toggle Icon">
+                    </div>
+                    <div id="nav-contexts" class="subsystem-indicator">
+                        <div class="subsystem-name">{{ $subsystem }}</div>
+                        <div class="subsystem-version">Version: {{ $subsystem }}</div>
+                    </div>
+                </div>
+                <hr>
+                <div class="nav-list-container" onclick="resetNavProperties()">
+                    {{ $navigation ?? '' }}
+                </div>
+                <div class="account-container">
+                    <div class="account-label">
+                        <span class="account-email">{{ auth()->user()?->details?->email }}</span>
+                        <span class="account-office">{{ auth()->user()?->details?->office?->office_name }}</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div id="article-container" class="article-container imdown">
+            {{ $slot }}
+        </div>
     </section>
+    @stack('scripts')
 </body>
 </html>

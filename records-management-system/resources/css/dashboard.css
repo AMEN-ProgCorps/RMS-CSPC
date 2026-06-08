@@ -39,8 +39,9 @@ body {
     .drop_down-container {
         position: absolute;
         box-shadow: rgba(50, 50, 93, 0.25) 0px 13px 27px -5px, rgba(0, 0, 0, 0.3) 0px 8px 16px -8px;
-        top: 30px;
-        right: inherit;
+            top: 30px;
+            right: inherit;
+            z-index: 10;
         background-color: #FFFFFF;
         display: flex;
             flex-direction: column;
@@ -74,10 +75,10 @@ body {
                 opacity: 0;
             }
             100% {
-                max-height: 200px;
+                max-height: 500px;
                 opacity: 1;
             }
-            
+
         } 
         .drop_down-container hr {
             width: 100%;
@@ -169,13 +170,14 @@ section{
     width: 100%;
     --nav-width: 270px;
 }
-    .navigation.imup{
+    .navigation.imdown{
         --nav-width: 80px;
     }
-    .navigation.imdown .nav{
+    .navigation.imup .nav{
         background-color: #F5F5F5;
     }
     .navigation{
+        user-select: none;
         position: relative;
         min-width: var(--nav-width);
         width: fit-content;
@@ -186,19 +188,20 @@ section{
                 z-index: 1;
                 top: 0;
             width: auto;
-            height: 100%;
+            height: 95%;
             background-color: #FFFFFF;
-            padding: 20px 0 20px 20px;
+            padding: 20px 0 20px 0;
             display: flex;
                 flex-direction: column;
                 gap: 20px;
         }
             .navigation.imdown .nav{
+                padding: 20px;
                 z-index: 0;
             }
             .navigation.imup .nav{
-                position: absolute;
                 padding: 20px;
+                background-color: #FFFFFF;
                 box-shadow: rgba(0, 0, 0, 0.35) 0px 5px 15px;
             }
         .nav .nav-header-container{
@@ -235,10 +238,8 @@ section{
                     flex: 1;
                     min-width: 0px;
             }
-                .navigation.imup .nav .nav-header-container .subsystem-indicator{
+                .navigation.imdown .nav .nav-header-container .subsystem-indicator{
                     display: none;
-                }.navigation.imup:hover .nav .nav-header-container .subsystem-indicator{
-                    display: flex;
                 }
                 .subsystem-indicator .subsystem-name{
                     position: relative;
@@ -257,7 +258,161 @@ section{
             color: #A2A2A2;
             width: 100%;
         }
-    
+        .nav .nav-list-container{
+            display: flex;
+                flex-direction: column;
+                gap: 30px;
+        }
+    .navigation.imdown .nav .nav-list-container .button-section-container .button-container .button-label,
+    .navigation.imdown .nav .nav-list-container .button-section-container .button-container .show-arrow{
+        display: none;        
+    }
+            .nav-list-container .button-section-container{
+                display: flex;
+                    flex-direction: column;
+                    gap: 10px;
+            }
+                .button-section-container .button-container{
+                    position: relative;
+                    cursor: pointer;
+                    display: flex;
+                        align-items: center;
+                        gap: 10px;
+                    background-color: transparent;
+                    text-decoration: none;
+                    width: 100%;
+                    text-align: left;
+                    border: none;
+                }
+                .button-container .button-icon{
+                    position:relative;
+                    width: 30px;
+                    aspect-ratio: 1/1;
+                    font-size: 20px;
+                    padding: 3px;
+                    display: flex;
+                        justify-content: center;
+                }
+                    .button-container .button-icon svg{
+                        width: 100%;
+                        height: 100%;
+                        position: absolute;
+                        top: 0;
+                        left: 0;
+                        transition: .5s;
+                    }
+                    .button-container .button-icon:hover svg{
+                        left: 4px;
+                        transition: .5s;
+                    }
+                .button-section-container.show .button-container .button-label{
+                    color: #043899;
+                }
+                .button-container .button-label{
+                    display: flex;
+                        align-items: center;
+                    font-family: Roboto;
+                    font-weight: 600;
+                    font-style: Regular;
+                    font-size: 20px;
+                    line-height: 117%;
+                    letter-spacing: 0%;
+                }
+                .button-section-container.show .button-container .show-arrow {
+                    transform: rotate(180deg);
+                }
+                .button-container .show-arrow {
+                    position: absolute;
+                        right: 20px;
+                    transition: transform .5s ease;
+                    transform: rotate(0deg);
+                }
+            .spacer{
+                width: 18;
+                padding: 10px;
+            }
+            .navigation.imdown .nav .nav-list-container .button-section-container.show .functions-container{
+                display: none;
+            }
+            .button-section-container.show .functions-container{
+                display: flex; /* Instantly turns it on so the animation can play */
+                animation: shwfunctions 1s forwards;
+            }
+            .functions-container{
+                box-sizing: border-box;
+                display: none;
+                    flex-direction: column;
+                    gap: 10px;
+                width: 70%;
+                margin-left: 25%;
+                max-height: 0;
+                opacity: 0;
+                overflow: hidden;
+            }
+               .function-button{
+                    cursor: pointer;
+                    color: #646464;
+                    font-family: Roboto;
+                    font-size: 15px;
+                    font-style: normal;
+                    font-weight: 400;
+                    line-height: 117.07%; /* 23.414px */
+               }
+               .function-button:hover{
+                    margin-left: 5px;
+                    color:#0059FF;
+               }
+               @keyframes shwfunctions {
+                    from {
+                        max-height: 0;
+                        opacity: 0;
+                    }
+                    to {
+                        max-height: fit-content; 
+                        opacity: 1;
+                    }
+                }
+        .nav .account-container {
+            position: absolute;
+            bottom: 20px;
+            left: 20px;
+            display: flex;
+                flex-direction: column;
+                gap: 5px;
+        }
+            .navigation.imdown .nav .account-container {
+                display: none;
+            }
+            .navigation.imup .nav .account-container {
+                display: flex;
+            }
+             .nav .account-container .account-label {
+                display: flex;
+                    flex-direction: column;
+                    gap: 2px;
+            }
+                .nav .account-container .account-label .account-email {
+                    font-family: Roboto;
+                    font-weight: 400;
+                    font-style: Regular;
+                    font-size: 13px;
+                    line-height: 117%;
+                    letter-spacing: 0%;
+                    color: #A2A2A2;
+                }
+                .nav .account-container .account-label .account-office {
+                    font-family: Roboto;
+                    font-weight: 700;
+                    font-style: Bold;
+                    font-size: 15px;
+                    line-height: 117%;
+                    letter-spacing: 0%;
+                    color: #043899;
+                }
+        .force-active{
+            color: #FFB200;
+        }
+        
     .article-container{
         box-sizing:border-box;/*for the padding size to affect the nav*/
         width: calc(100vh - var(--nav-width));

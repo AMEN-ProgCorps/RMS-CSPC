@@ -6,6 +6,7 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Relations\HasOne;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
+use App\Models\role_permission;
 
 class User extends Authenticatable
 {
@@ -57,5 +58,10 @@ class User extends Authenticatable
     public function details(): HasOne
     {
         return $this->hasOne(AccountDetail::class, 'account_id');
+    }
+
+    public function permissions(): HasOne
+    {
+        return $this->hasOne(role_permission::class, 'key_id', 'account_role');
     }
 }

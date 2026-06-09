@@ -25,5 +25,9 @@ new #[Layout('layouts.profile')] #[Title('Profile Manager - Details')] class ext
     <div class="visible-line">
         <hr>
     </div>
-    
+    <div boxid_container="details" class="box-container">
+        <div boxid="details" class="box">
+            
+        </div>
+    </div>
 </div>

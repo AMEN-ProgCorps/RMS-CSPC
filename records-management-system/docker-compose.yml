@@ -60,6 +60,21 @@ services:
     networks:
       - rms_net
 
+  # ── phpMyAdmin ─────────────────────────────────────────────────────────────
+  phpmyadmin:
+    image: phpmyadmin/phpmyadmin:latest
+    container_name: rms_phpmyadmin
+    restart: unless-stopped
+    depends_on:
+      - db
+    environment:
+      PMA_HOST: db
+      MYSQL_ROOT_PASSWORD: "${DB_ROOT_PASSWORD:-rootsecret}"
+    ports:
+      - "8081:80"
+    networks:
+      - rms_net
+
 volumes:
   db_data:
   vendor:

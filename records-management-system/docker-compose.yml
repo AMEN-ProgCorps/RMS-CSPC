@@ -45,8 +45,9 @@ services:
     environment:
       MYSQL_ROOT_PASSWORD: "${DB_ROOT_PASSWORD:-rootsecret}"
       MYSQL_DATABASE: "${DB_DATABASE:-rms_cspc}"
-      MYSQL_USER: "${DB_USERNAME:-rms_user}"
-      MYSQL_PASSWORD: "${DB_PASSWORD:-secret}"
+      # Keep separate from DB_USERNAME — Laravel may use root for migrations
+      MYSQL_USER: "${MYSQL_APP_USER:-rms_user}"
+      MYSQL_PASSWORD: "${MYSQL_APP_PASSWORD:-secret}"
     ports:
       # 3307 on host so it doesn't clash with a local MySQL install
       - "3307:3306"

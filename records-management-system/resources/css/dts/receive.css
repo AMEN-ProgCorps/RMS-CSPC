@@ -160,6 +160,41 @@
     max-width: 220px;
 }
 
+.receive-table tbody td.action-cell {
+    min-width: 120px;
+}
+
+.receive-row-action-select {
+    width: 100%;
+    min-width: 110px;
+    max-width: 140px;
+    padding: 6px 28px 6px 10px;
+    border: 1px solid #c8c8c8;
+    border-radius: 4px;
+    background: #ffffff url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8' fill='none'%3E%3Cpath d='M1 1.5L6 6.5L11 1.5' stroke='%23646464' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") no-repeat right 10px center;
+    appearance: none;
+    font-family: Roboto, sans-serif;
+    font-size: 13px;
+    font-weight: 500;
+    color: #333333;
+    cursor: pointer;
+    outline: none;
+    transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.receive-row-action-select:hover {
+    border-color: #0059ff;
+}
+
+.receive-row-action-select:focus {
+    border-color: #0059ff;
+    box-shadow: 0 0 0 2px rgba(0, 89, 255, 0.12);
+}
+
+.receive-row-action-select option[value="delete"] {
+    color: #c62828;
+}
+
 .receive-table tbody tr:nth-child(even) {
     background: #fafafa;
 }

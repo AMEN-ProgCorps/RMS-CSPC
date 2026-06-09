@@ -20,20 +20,42 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Receive Transac
     /** @var array<int, array<string, mixed>> */
     public array $transactionPath = [
         [
-            'office' => 'Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt ut labore et dolore magna aliqua.',
+            'office' => 'office1',
             'date_in' => '2023-12-11 10:36:50',
             'date_out' => '2023-12-11 02:15:30',
             'action_needed' => 'Created',
             'notes' => '',
         ],
         [
-            'office' => 'Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt ut labore et dolore magna aliqua.',
+            'office' => 'office2',
             'date_in' => '2023-12-11 10:36:50',
             'date_out' => '2023-12-11 02:15:30',
             'action_needed' => 'Forwarded',
             'notes' => '',
         ],
     ];
+
+    public function handleRowAction(int $index, string $action): void
+    {
+        if ($action === '') {
+            return;
+        }
+
+        match ($action) {
+            'delete' => $this->removePathStep($index),
+            default => null,
+        };
+    }
+
+    public function removePathStep(int $index): void
+    {
+        if (! isset($this->transactionPath[$index])) {
+            return;
+        }
+
+        unset($this->transactionPath[$index]);
+        $this->transactionPath = array_values($this->transactionPath);
+    }
 
     public function startEdit(string $field): void
     {
@@ -142,6 +164,7 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Receive Transac
                         <th>Action Needed</th>
                         <th>Notes</th>
                         <th>Info</th>
+                        <th>Action</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -162,10 +185,23 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Receive Transac
                                     </svg>
                                 </button>
                             </td>
+                            <td class="action-cell">
+                                <select
+                                    class="receive-row-action-select"
+                                    aria-label="Row actions for step {{ $index + 1 }}"
+                                    wire:change="handleRowAction({{ $index }}, $event.target.value)"
+                                >
+                                    <option value="" selected disabled>Action</option>
+                                    <option value="edit">Edit</option>
+                                    <option value="delete">Delete</option>
+                                    <option value="forward">Forward</option>
+                                    <option value="receive">Receive</option>
+                                </select>
+                            </td>
                         </tr>
                     @empty
                         <tr>
-                            <td colspan="7">No transaction path records found.</td>
+                            <td colspan="8">No transaction path records found.</td>
                         </tr>
                     @endforelse
                 </tbody>

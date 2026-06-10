@@ -37,7 +37,8 @@ Website Development Starts[ May 1, 2026 ]
             L about finished, but some modules connected to it, is now available 
     L Profile Manager
         L Profile Details Module
-            L status [ ongoing ] 
+            L status [ Completed ]
+            L necessary items is included and furthur update will be added
         L Security Logs Module
             L status [ ongoing ]
         L Notification Module

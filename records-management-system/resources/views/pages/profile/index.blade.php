@@ -127,7 +127,7 @@ new #[Layout('layouts.profile')] #[Title('Profile Manager - Details')] class ext
             <hr>
             <div setid="column_header" class="sets">
                 Enabled
-                <span>AFunction </span>
+                <span>Access Function </span>
             </div>
             @forelse($enabledPermissions as $index => $permission)
             <div setid="function_{{ $index + 1 }}" class="sets">

@@ -15,6 +15,8 @@ return new class extends Migration
             $table->integer('subsystem_id')->primary()->autoIncrement();
             $table->string('subsystem_name', 255)->unique();
             $table->string('subsystem_version', 50)->index();
+            $table->timestamp('created_at')->index();
+            $table->timestamp('update_at')->index();
         });
 
         Schema::create('subsystem_versions_log', function (Blueprint $table) {

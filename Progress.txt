@@ -49,13 +49,13 @@ Website Development Starts[ May 1, 2026 ]
             L status [ partial ]
             L assigned to Magbanua
         L Receive Transactions Module 
-            L status [ ongoing]
+            L status [ partial ]
             L assigned to Oliveros
         L Create Transactions Module 
-            L status [ ongoing]
+            L status [ ongoing ]
             L assigned to Lagriada and will be assisted by Oliveros
         L List Transactions Module 
-            L status [partial]
+            L status [ partial ]
             L assigned to Luceña and will be assisted by Magbanua
 
     L Records Disposition Platform section

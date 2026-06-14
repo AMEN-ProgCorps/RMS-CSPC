@@ -23,8 +23,8 @@ return new class extends Migration
                 $table->string('child_transaction_id')->index();
                 $table->string('parent_transaction_id')->index();
                 $table->timestamp('date_append')->useCurrent();
-                $table->foreign('child_transaction_id')->references('transaction_in')->on('dts_transactions')->onDelete('cascade');
-                $table->foreign('parent_transaction_id')->references('transaction_in')->on('dts_transactions')->onDelete('cascade');
+                $table->foreign('child_transaction_id')->references('transaction_id')->on('dts_transactions')->onDelete('cascade');
+                $table->foreign('parent_transaction_id')->references('transaction_id')->on('dts_transactions')->onDelete('cascade');
             });
         }
 

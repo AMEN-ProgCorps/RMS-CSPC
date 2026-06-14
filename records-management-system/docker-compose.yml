@@ -7,9 +7,10 @@ services:
       dockerfile: Dockerfile
     container_name: rms_app
     restart: unless-stopped
-    env_file: .env
+    env_file:
+      - .env.docker
     ports:
-      - "${APP_PORT:-8000}:8000"
+      - "8000:8000"
     volumes:
       # Bind-mount source — changes reflect instantly without rebuilding
       - .:/var/www/html
@@ -42,22 +43,33 @@ services:
     image: mysql:8.0
     container_name: rms_db
     restart: unless-stopped
-    environment:
-      MYSQL_ROOT_PASSWORD: "${DB_ROOT_PASSWORD:-rootsecret}"
-      MYSQL_DATABASE: "${DB_DATABASE:-rms_cspc}"
-      # Keep separate from DB_USERNAME — Laravel may use root for migrations
-      MYSQL_USER: "${MYSQL_APP_USER:-rms_user}"
-      MYSQL_PASSWORD: "${MYSQL_APP_PASSWORD:-secret}"
+    env_file:
+      - .env.docker
     ports:
       # 3307 on host so it doesn't clash with a local MySQL install
       - "3307:3306"
     volumes:
       - db_data:/var/lib/mysql
     healthcheck:
-      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-uroot", "-p${DB_ROOT_PASSWORD:-rootsecret}"]
+      test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -uroot -p$$MYSQL_ROOT_PASSWORD --silent"]
       interval: 5s
       timeout: 5s
       retries: 12
+    networks:
+      - rms_net
+
+  # ── phpMyAdmin ─────────────────────────────────────────────────────────────
+  phpmyadmin:
+    image: phpmyadmin/phpmyadmin:latest
+    container_name: rms_phpmyadmin
+    restart: unless-stopped
+    depends_on:
+      - db
+    environment:
+      PMA_HOST: db
+      MYSQL_ROOT_PASSWORD: "MacCloud"
+    ports:
+      - "8081:80"
     networks:
       - rms_net
 

@@ -31,7 +31,39 @@ Website Development Starts[ May 1, 2026 ]
         L Login Module
             L status [ Finished ]
         L Tracking Module
-            L status [ Ongoing]
+            L status [ Finished but needed maintenance]
             L finding fix due to implementation of livewire
-        L Access Page Module [=]
-            L about finished, but some modules connected to it, is still not available
+        L Access Page Module [Finished]
+            L about finished, but some modules connected to it, is now available 
+    L Profile Manager
+        L Profile Details Module
+            L status [ Completed ]
+            L necessary items is included and furthur update will be added
+        L Security Logs Module
+            L status [ ongoing ]
+        L Notification Module
+            L status [ ongoing ]
+
+    L Document Tracking System section
+        L Current Transactions Module 
+            L status [ partial ]
+            L assigned to Magbanua
+        L Receive Transactions Module 
+            L status [ ongoing]
+            L assigned to Oliveros
+        L Create Transactions Module 
+            L status [ ongoing]
+            L assigned to Lagriada and will be assisted by Oliveros
+        L List Transactions Module 
+            L status [partial]
+            L assigned to Luceña and will be assisted by Magbanua
+
+    L Records Disposition Platform section
+        L Main Landing Module
+            L status []
+        L Main Landing Module
+            L status []
+        L Main Landing Module
+            L status []
+        L Main Landing Module
+            L status []

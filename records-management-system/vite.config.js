@@ -11,6 +11,7 @@ export default defineConfig({
                 'resources/css/accesspoint.css',
                 'resources/css/td.css',
                 'resources/css/profile/personal_details.css',
+                'resources/css/dts/receive.css',
                 'resources/css/dts/list_transaction.css',
             ],
             refresh: true,

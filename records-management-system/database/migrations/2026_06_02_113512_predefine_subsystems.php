@@ -33,6 +33,8 @@ return new class extends Migration
             $id = DB::table('subsystems')->insertGetId([
                 'subsystem_name' => $subsystem['name'],
                 'subsystem_version' => $subsystem['version'],
+                'created_at' => now(),
+                'update_at' => now(),
             ]);
 
             DB::table('subsystem_versions_log')->insert([

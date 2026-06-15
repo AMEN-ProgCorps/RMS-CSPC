@@ -65,10 +65,11 @@ Route::middleware(['auth'])
     Route::middleware(['can.access.dts'])->group(function () {
         Volt::route('/dts', 'pages.dts.index')->name('dts');
         Volt::route('/dts/receive', 'pages.dts.receive')->name('dts.receive');
-        Volt::route('/dts/internal', 'pages.dts.internal')->name('dts.internal');
-        Volt::route('/dts/external', 'pages.dts.external')->name('dts.external');
-        Volt::route('/dts/applications', 'pages.dts.applications')->name('dts.applications');
-        Volt::route('/dts/issuances', 'pages.dts.issuances')->name('dts.issuances');
+        // Sub-filter pages merged into index; these redirect to keep old links working
+        Route::get('/dts/internal', fn () => redirect()->route('dts'))->name('dts.internal');
+        Route::get('/dts/external', fn () => redirect()->route('dts'))->name('dts.external');
+        Route::get('/dts/applications', fn () => redirect()->route('dts'))->name('dts.applications');
+        Route::get('/dts/issuances', fn () => redirect()->route('dts'))->name('dts.issuances');
 
         Volt::route('/dts/create/internal', 'pages.dts.create.internal')->name('dts.create.internal');
         Volt::route('/dts/create/external', 'pages.dts.create.external')->name('dts.create.external');

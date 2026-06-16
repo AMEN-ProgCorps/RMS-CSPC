@@ -9,5 +9,5 @@ new #[Layout('layouts.profile')] #[Title('Profile Manager - Notification Manager
 ?>
 
 <div>
-    <h2>Notification Manager</h2>
+    <h2>Notification Managersss</h2>
 </div>

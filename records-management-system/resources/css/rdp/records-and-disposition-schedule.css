@@ -1,0 +1,175 @@
+/* Main container styles */
+        .rms-container { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif; background-color: #ffffff; border-radius: 8px; box-shadow: 0 4px 20px rgba(0, 0, 0, 0.08); margin: 20px; padding: 24px; color: #333333; }
+        
+        /* Header section styles */
+        .rms-header { margin-bottom: 24px; border-bottom: 1px solid #e9ecef; padding-bottom: 12px; }
+        .rms-header h2 { font-size: 1.15rem; color: #1e40af; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; margin: 0; }
+        
+        /* Toolbar and filter styles */
+        .rms-toolbar { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 20px; gap: 15px; flex-wrap: wrap; flex-direction: column; }
+        .rms-toolbar-top, .rms-toolbar-bottom { display: flex; justify-content: space-between; width: 100%; align-items: center; }
+        .rms-filters { display: flex; gap: 12px; }
+        .rms-select { padding: 6px 32px 6px 12px; font-size: 0.85rem; color: #495057; background-color: #fff; border: 1px solid #ced4da; border-radius: 4px; cursor: pointer; outline: none; background-image: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3e%3cpath fill='none' stroke='%23343a40' stroke-linecap='round' stroke-linejoin='round' stroke-width='2' d='m2 5 6 6 6-6'/%3e%3c/svg%3e"); background-repeat: no-repeat; background-position: right 12px center; background-size: 12px 12px; -webkit-appearance: none; appearance: none; }
+        .rms-select:focus { border-color: #86b7fe; box-shadow: 0 0 0 0.25rem rgba(13, 110, 253, 0.25); }
+        .rms-entries { display: flex; align-items: center; gap: 8px; font-size: 0.85rem; color: #6c757d; }
+        .rms-entries select { width: 60px; padding-right: 20px; }
+        .rms-actions { display: flex; align-items: center; gap: 12px; }
+        .rms-search-wrapper { position: relative; }
+        .btn-icon { width: 14px; height: 14px; fill: currentColor; }
+        
+        /* Table styles */
+        .rms-table-responsive { width: 100%; overflow-x: auto; border: 1px solid #dee2e6; border-radius: 4px; }
+        .rms-table { width: 100%; border-collapse: collapse; text-align: left; font-size: 0.825rem; min-width: 1200px; }
+        .rms-table th { background-color: #f8f9fa; color: #212529; font-weight: 700; padding: 12px 10px; border-bottom: 2px solid #dee2e6; border-right: 1px solid #dee2e6; text-align: center; vertical-align: middle; }
+        .rms-table th:last-child { border-right: none; }
+        .rms-table td { padding: 12px 10px; border-bottom: 1px solid #dee2e6; border-right: 1px solid #dee2e6; color: #495057; vertical-align: middle; }
+        .rms-table td:last-child { border-right: none; text-align: center; }
+        .rms-no-data { text-align: center !important; color: #868e96; font-style: italic; padding: 24px !important; background-color: #fdfdfd; }
+
+        
+        /* Link and button styles */
+        .muted-link { color:#1e3a8a; font-size:13px; text-decoration:none; }
+        .muted-link:hover { text-decoration:underline; }
+        .actions-row { display:flex; justify-content:flex-end; margin-top:20px; }
+        .btn-primary { background:#2563eb; color:#fff; padding:10px 16px; border-radius:6px; border:none; cursor:pointer; font-weight:600; display:inline-flex; align-items:center; gap:8px; }
+        .btn-primary:hover { background:#1e40af; }
+
+        /* Actions row: right-aligned and nudged slightly to the left */
+        .actions-row { display:flex; justify-content:flex-end; margin-top:20px; gap:8px; transform: translateX(-12px); }
+
+        /* Small icon holder inside buttons */
+        .action-icon { width:16px; height:16px; display:inline-block; background-repeat:no-repeat; background-position:center; background-size:16px; }
+
+        /* Icon placeholders using inline SVG data URIs */
+        .btn[data-icon="gridicons:create"] .action-icon { background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23ffffff' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M12 5v14M5 12h14'/%3E%3C/svg%3E"); }
+        .btn[data-icon="lucide:check-line"] .action-icon { background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23ffffff' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m20 6-11 11-5-5'/%3E%3C/svg%3E"); }
+        .btn[data-icon="material-symbols:upload"] .action-icon { background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23ffffff' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4'/%3E%3Cpolyline points='7 10 12 5 17 10'/%3E%3Cline x1='12' y1='5' x2='12' y2='19'/%3E%3C/svg%3E"); }
+        .btn[data-icon="zondicons:view-show"] .action-icon { background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23ffffff' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M2 12s4-7 10-7 10 7 10 7-4 7-10 7S2 12 2 12z'/%3E%3Ccircle cx='12' cy='12' r='3'/%3E%3C/svg%3E"); }
+        
+        /* ===== Stacked record-series block: single outer border, inner separators ===== */
+        .record-series-stack {
+            width: 1200px;
+            max-width: 100%;
+            margin: 24px 0 0 0;
+            box-sizing: border-box;
+            border: 1px solid #000000; /* single outer border */
+            border-radius: 0; /* no edge curve */
+            overflow: visible;
+            background: #FFFFFF;
+        }
+
+        .record-series-stack > * {
+            height: 36px;
+            display: flex;
+            align-items: center;
+            padding: 0 12px;
+            background: #FFFFFF;
+            box-sizing: border-box;
+        }
+
+        /* inner separators: 1px so thickness matches outer border */
+        .record-series-stack > *:not(:last-child) {
+            border-bottom: 1px solid #000000;
+        }
+
+        .record-series-rect {
+            position: relative;
+            width: 100%;
+            max-width: 100%;
+            background: transparent;
+            border: none; /* remove individual borders to avoid double-thickness */
+            opacity: 1;
+            display: flex;
+            align-items: center;
+            justify-content: flex-start;
+            padding: 0 12px; /* provide horizontal spacing so labels aren't flush to edge */
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif;
+        }
+
+        /* Remarks row: taller and wide textarea attached beneath Total */
+        .record-series-rect.remarks-row {
+            align-items: flex-start;
+            padding: 8px 12px;
+            height: auto;
+        }
+
+        .record-series-remarks {
+            width: 800px;
+            max-width: 100%;
+            min-width: 0;
+            box-sizing: border-box;
+            border: none; /* blend with stack border so thickness matches */
+            background: transparent;
+            resize: vertical;
+            padding: 8px 10px;
+            font-size: 13px;
+            color: #333333;
+            outline: none;
+            min-height: 64px; /* make it visually wide/tall */
+        }
+        
+        /* Left side label - "Record Series:" */
+        .record-series-label {
+            font-weight: 600;
+            font-size: 13px;
+            color: #1e40af;
+            letter-spacing: 0.3px;
+            background: transparent;
+            white-space: nowrap;
+            margin-right: 8px;
+        }
+
+        /* Content area (empty for now) */
+        .record-series-content {
+            flex: 1;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            flex-wrap: wrap;
+        }
+        
+        /* ===== DROPDOWN MATCHING RECTANGLE SIZE (attached beneath) ===== */
+        .record-series-dropdown {
+            width: 100%;
+            max-width: 100%;
+            height: 36px;
+            margin: 0;
+            padding: 0 36px 0 12px; /* reserve space for arrow at the right */
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif;
+            font-size: 13px;
+            color: #333333;
+            background-color: transparent;
+            border: none; /* remove border to keep single outer border */
+            border-radius: 0px;
+            cursor: pointer;
+            box-sizing: border-box;
+            appearance: none;
+            -webkit-appearance: none;
+            -moz-appearance: none;
+            background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%23333333' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E");
+            background-repeat: no-repeat;
+            background-position: calc(100% - 12px) center; /* consistent arrow position */
+            background-size: 14px;
+            display: block; /* ensure consistent box model */
+            line-height: 36px;
+        }
+        
+        .record-series-dropdown:focus {
+            outline: none;
+            border-color: #2563eb;
+            z-index: 1;
+            position: relative;
+        }
+        
+        /* Responsive: adjust when the screen is too small */
+        @media (max-width: 500px) {
+            .record-series-rect {
+                width: 100%;
+            }
+            .record-series-label {
+                white-space: normal;
+            }
+            .record-series-dropdown {
+                width: 100%;
+            }
+        }

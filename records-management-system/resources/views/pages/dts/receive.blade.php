@@ -1,257 +1,411 @@
 <?php
-
 use Livewire\Attributes\Layout;
 use Livewire\Attributes\Title;
 use Livewire\Volt\Component;
 
-new #[Layout('layouts.dts')] #[Title('Document Tracking System - Receive Transactions')] class extends Component {
-    public string $controlNumber = 'CTRL-2023-00142';
-
-    public string $fileCode = 'FC-ADM-2023-089';
-
-    public string $particulars = '';
-
-    public bool $editingControl = false;
-
-    public bool $editingFileCode = false;
-
-    public bool $editingParticulars = false;
-
-    /** @var array<int, array<string, mixed>> */
-    public array $transactionPath = [
-        [
-            'office' => 'office1',
-            'date_in' => '2023-12-11 10:36:50',
-            'date_out' => '2023-12-11 02:15:30',
-            'action_needed' => 'Created',
-            'notes' => '',
-        ],
-        [
-            'office' => 'office2',
-            'date_in' => '2023-12-11 10:36:50',
-            'date_out' => '2023-12-11 02:15:30',
-            'action_needed' => 'Forwarded',
-            'notes' => '',
-        ],
-    ];
-
-    public function handleRowAction(int $index, string $action): void
-    {
-        if ($action === '') {
-            return;
-        }
-
-        match ($action) {
-            'delete' => $this->removePathStep($index),
-            default => null,
-        };
-    }
-
-    public function removePathStep(int $index): void
-    {
-        if (! isset($this->transactionPath[$index])) {
-            return;
-        }
-
-        unset($this->transactionPath[$index]);
-        $this->transactionPath = array_values($this->transactionPath);
-    }
-
-    public function startEdit(string $field): void
-    {
-        $this->editingControl = $field === 'control';
-        $this->editingFileCode = $field === 'file_code';
-        $this->editingParticulars = $field === 'particulars';
-    }
-
-    public function saveField(string $field): void
-    {
-        match ($field) {
-            'control' => $this->editingControl = false,
-            'file_code' => $this->editingFileCode = false,
-            'particulars' => $this->editingParticulars = false,
-            default => null,
-        };
-    }
+// Define the Livewire Volt component with layout and page title attributes
+new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create Internal Transaction')] class extends Component {
+    // Component logic can be added here in the future
 };
 ?>
 
-@push('styles')
-    @vite(['resources/css/dts/receive.css'])
-@endpush
+<div class="rms-container">
+    <style>
+        /* Main container styles */
+        .rms-container { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif; background-color: #ffffff; border-radius: 8px; box-shadow: 0 4px 20px rgba(0, 0, 0, 0.08); margin: 20px; padding: 24px; color: #333333; }
+        
+        /* Header section styles */
+        .rms-header { margin-bottom: 24px; border-bottom: 1px solid #e9ecef; padding-bottom: 12px; }
+        .rms-header h2 { font-size: 1.15rem; color: #1e40af; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; margin: 0; }
+        
+        /* Toolbar and filter styles (reserved for future use) */
+        .rms-toolbar { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 20px; gap: 15px; flex-wrap: wrap; flex-direction: column; }
+        .rms-toolbar-top, .rms-toolbar-bottom { display: flex; justify-content: space-between; width: 100%; align-items: center; }
+        .rms-filters { display: flex; gap: 12px; }
+        .rms-select { padding: 6px 32px 6px 12px; font-size: 0.85rem; color: #495057; background-color: #fff; border: 1px solid #ced4da; border-radius: 4px; cursor: pointer; outline: none; background-image: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3e%3cpath fill='none' stroke='%23343a40' stroke-linecap='round' stroke-linejoin='round' stroke-width='2' d='m2 5 6 6 6-6'/%3e%3c/svg%3e"); background-repeat: no-repeat; background-position: right 12px center; background-size: 12px 12px; -webkit-appearance: none; appearance: none; }
+        .rms-select:focus { border-color: #86b7fe; box-shadow: 0 0 0 0.25rem rgba(13, 110, 253, 0.25); }
+        .rms-entries { display: flex; align-items: center; gap: 8px; font-size: 0.85rem; color: #6c757d; }
+        .rms-entries select { width: 60px; padding-right: 20px; }
+        .rms-actions { display: flex; align-items: center; gap: 12px; }
+        .rms-search-wrapper { position: relative; }
+        .btn-icon { width: 14px; height: 14px; fill: currentColor; }
+        
+        /* Table styles */
+        .rms-table-responsive { width: 100%; overflow-x: auto; border: 1px solid #dee2e6; border-radius: 4px; margin-top: 20px; }
+        .rms-table { width: 100%; border-collapse: collapse; text-align: left; font-size: 0.825rem; min-width: 800px; }
+        .rms-table th { background-color: #f8f9fa; color: #212529; font-weight: 700; padding: 12px 10px; border-bottom: 2px solid #dee2e6; border-right: 1px solid #dee2e6; text-align: center; vertical-align: middle; }
+        .rms-table th:last-child { border-right: none; }
+        .rms-table td { padding: 12px 10px; border-bottom: 1px solid #dee2e6; border-right: 1px solid #dee2e6; color: #495057; vertical-align: middle; text-align: center; }
+        .rms-table td:last-child { border-right: none; }
+        .rms-no-data { text-align: center !important; color: #868e96; font-style: italic; padding: 24px !important; background-color: #fdfdfd; }
+        
+        /* Control Number Input Styles */
+        .control-wrapper {
+            margin-bottom: 20px;
+            width: 100%;
+        }
+        .control-label {
+            font-family: 'Inter', sans-serif;
+            font-weight: 600;
+            font-size: 14px;
+            line-height: 121%;
+            margin-bottom: 4px;
+            display: block;
+            color: #333333;
+        }
+        .control-input {
+            width: 100%;
+            max-width: 300px;
+            height: 32px;
+            font-family: 'Inter', sans-serif;
+            font-size: 13px;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+            padding: 2px 6px;
+            outline: none;
+        }
+        .control-input:focus {
+            border-color: #3b82f6;
+        }
+        
+        /* Form layout and input field styles */
+        .form-row { display: flex; gap: 12px; align-items: flex-start; margin-bottom: 12px; }
+        .form-col { flex: 1; }
+        .input-label { display:block; font-weight:600; margin-bottom:6px; font-size:13px; color:#333; }
+        .text-input, .select-input, .textarea-input { width:100%; padding:8px 10px; border:1px solid #d1d5db; border-radius:4px; font-size:13px; color:#222; box-sizing: border-box; }
+        .text-input:focus, .select-input:focus, .textarea-input:focus { outline:none; border-color:#3b82f6; box-shadow:0 0 0 3px rgba(59,130,246,0.08); }
+        .small-input { max-width: 360px; }
+        .medium-input { max-width: 900px; }
+        .subject-area { min-height:150px; resize:vertical; }
+        
+        /* Subject textarea container styles */
+        .subject-wrapper {
+            width: 100%;
+            max-width: 800px;
+        }
+        .subject-wrapper .textarea-input {
+            width: 100%;
+            max-width: 800px;
+        }
+        
+        /* View Path container styles */
+        .viewpath-wrapper {
+            width: 100%;
+            max-width: 800px;
+        }
+        .viewpath-wrapper .text-input {
+            width: 100%;
+            max-width: 800px;
+            height: 40px;
+        }
+        
+        /* Unit/College field container styles */
+        .unit-college-wrapper { margin-bottom: 12px; }
+        .unit-college-label { display:block; font-weight:600; margin-bottom:6px; font-size:13px; color:#333; }
+        .unit-college-input-row { display: flex; align-items: center; gap: 12px; }
+        .unit-college-input { 
+            flex: 1; 
+            width: 100%;
+            min-width: 500px;
+            max-width: 100px;
+        }
+        
+        /* Link and button styles */
+        .muted-link { color:#1e3a8a; font-size:13px; text-decoration:none; }
+        .muted-link:hover { text-decoration:underline; }
+        
+        /* BUTTONS SECTION - exact same style as original CREATE TRANSACTIONS button */
+        .actions-row {
+            display: flex;
+            justify-content: flex-end;
+            gap: 12px;
+            margin-top: 100px;
+            flex-wrap: wrap;
+        }
+        
+        .action-btn {
+            background: #2563eb;
+            color: #fff;
+            padding: 10px 16px;
+            border-radius: 6px;
+            border: none;
+            cursor: pointer;
+            font-weight: 600;
+            font-size: 13px;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif;
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            transition: background 0.2s ease;
+        }
+        
+        .action-btn:hover {
+            background: #1e40af;
+        }
+        
+        .action-btn svg {
+            width: 16px;
+            height: 16px;
+            fill: none;
+            stroke: white;
+            stroke-width: 2;
+        }
+        
+        /* Side-by-side layout styles */
+        .two-columns-row {
+            display: flex;
+            gap: 30px;
+            align-items: flex-start;
+            width: 100%;
+        }
+        .two-columns-row .form-col {
+            flex: 1;
+        }
+        .two-columns-row .medium-input {
+            max-width: 100%;
+        }
+        
+        /* LINE STYLES - exactly as specified */
+        .separator-line {
+            width: 100%;
+            height: 0px;
+            border: none;
+            border-top: 2px solid #C8C8C8;
+            margin: 0;
+            opacity: 1;
+        }
+        
+        /* PARTICULARS HEADING - same size and font as Control Number label (.input-label) */
+        .particulars-heading {
+            display: block;
+            font-weight: 600;
+            margin-bottom: 6px;
+            font-size: 13px;
+            color: #333;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif;
+        }
+        
+        /* Section wrapper for particulars + line */
+        .particulars-section {
+            margin-top: 24px;
+            margin-bottom: 24px;
+        }
+        
+        /* LINE CONTAINER - adds space between "Particulars" text and the line */
+        .line-container {
+            margin-top: 50px;
+        }
+        
+        /* TRANSACTION PATH SECTION - heading only (table name) */
+        .transaction-path-section {
+            margin-top: 50px;
+        }
+        
+        .transaction-path-heading {
+            display: block;
+            font-weight: 600;
+            margin-bottom: 6px;
+            font-size: 13px;
+            color: #333;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif;
+        }
+        
+        /* Icon inside table styles */
+        .table-icon {
+            width: 20px;
+            height: 20px;
+            cursor: pointer;
+            transition: opacity 0.2s ease;
+            display: inline-block;
+        }
+        
+        .table-icon:hover {
+            opacity: 0.7;
+        }
+        
+        /* Responsive */
+        @media (max-width: 768px) {
+            .two-columns-row {
+                flex-direction: column;
+                gap: 12px;
+            }
+            .actions-row {
+                justify-content: center;
+            }
+        }
+    </style>
 
-<div class="receive-page">
-    <div class="receive-card">
-        <h1 class="receive-title">Receive Transaction</h1>
+    <!-- Header Section -->
+    <div class="rms-header">
+        <h2>Receive Transactions</h2>
+    </div>
 
-        <div class="receive-fields">
-            <div class="receive-field-row">
-                <label class="receive-field-label" for="control-number">Control #</label>
-                <input
-                    id="control-number"
-                    type="text"
-                    class="receive-field-input"
-                    wire:model="controlNumber"
-                    @readonly(! $editingControl)
-                >
-                <div class="receive-field-actions">
-                    @if ($editingControl)
-                        <button type="button" wire:click="saveField('control')">Save</button>
-                    @else
-                        <button type="button" wire:click="startEdit('control')">Update</button>
-                        <span>|</span>
-                        <button type="button" wire:click="startEdit('control')">Edit</button>
-                    @endif
+    <!-- Internal Transaction Form -->
+    <form class="rms-form" method="post" action="#" onsubmit="return false;">
+        
+        <!-- Control Number and File Code side by side in one row -->
+        <div class="two-columns-row">
+            <!-- Control Number field (LEFT) -->
+            <div class="form-col medium-input">
+                <label for="unit-college" class="input-label">Control #:</label>
+                <div style="display:flex; align-items:center; gap:8px; width: 100%;">
+                    <input type="text" class="text-input unit-college-input" placeholder="" id="unit-college">
+                    <a href="#" class="muted-link">Update | Edit</a>
                 </div>
             </div>
 
-            <div class="receive-field-row">
-                <label class="receive-field-label" for="file-code">File Code</label>
-                <input
-                    id="file-code"
-                    type="text"
-                    class="receive-field-input"
-                    wire:model="fileCode"
-                    @readonly(! $editingFileCode)
-                >
-                <div class="receive-field-actions">
-                    @if ($editingFileCode)
-                        <button type="button" wire:click="saveField('file_code')">Save</button>
-                    @else
-                        <button type="button" wire:click="startEdit('file_code')">Update</button>
-                        <span>|</span>
-                        <button type="button" wire:click="startEdit('file_code')">Edit</button>
-                    @endif
-                </div>
-            </div>
-
-            <div class="receive-field-row receive-field-row--particulars">
-                <span class="receive-field-label">Particulars</span>
-                <div>
-                    @if ($editingParticulars)
-                        <textarea
-                            id="particulars"
-                            class="receive-field-input"
-                            rows="4"
-                            wire:model="particulars"
-                            placeholder="Enter transaction particulars..."
-                        ></textarea>
-                        <div class="receive-field-actions" style="margin-top: 8px;">
-                            <button type="button" wire:click="saveField('particulars')">Save</button>
-                        </div>
-                    @else
-                        <div class="receive-particulars-display">{{ $particulars }}</div>
-                        <div class="receive-field-actions" style="margin-top: 8px;">
-                            <button type="button" wire:click="startEdit('particulars')">Update</button>
-                            <span>|</span>
-                            <button type="button" wire:click="startEdit('particulars')">Edit</button>
-                        </div>
-                    @endif
+            <!-- File Code field (RIGHT) -->
+            <div class="form-col medium-input">
+                <label for="file-code" class="input-label">File Code:</label>
+                <div style="display:flex; align-items:center; gap:8px; width: 100%;">
+                    <input type="text" class="text-input unit-college-input" placeholder="" id="file-code">
+                    <a href="#" class="muted-link">Update | Edit</a>
                 </div>
             </div>
         </div>
 
-        <hr class="receive-divider">
+        <!-- PARTICULARS SECTION: Heading + Line below it with generous spacing -->
+        <div class="particulars-section">
+            <div class="particulars-heading">Particulars:</div>
+            <!-- Extra spacing container for the line -->
+            <div class="line-container">
+                <div class="separator-line"></div>
+            </div>
+        </div>
 
-        <div class="receive-table-wrap">
-            <table class="receive-table">
+        <!-- TRANSACTION PATH SECTION: Heading only (table name) -->
+        <div class="transaction-path-section">
+            <div class="transaction-path-heading">Transaction Path</div>
+        </div>
+
+        <!-- TABLE SECTION with empty rows and icon inside Info column + blank column -->
+        <div class="rms-table-responsive">
+            <table class="rms-table">
                 <thead>
                     <tr>
                         <th>#</th>
                         <th>Office</th>
                         <th>Date In</th>
                         <th>Date Out</th>
-                        <th>Action Needed</th>
+                        <th>Action Need</th>
                         <th>Notes</th>
                         <th>Info</th>
-                        <th>Action</th>
+                        <th></th>
                     </tr>
                 </thead>
                 <tbody>
-                    @forelse ($transactionPath as $index => $step)
-                        <tr wire:key="path-{{ $index }}">
-                            <td>{{ $index + 1 }}</td>
-                            <td class="office-cell">{{ $step['office'] }}</td>
-                            <td>{{ $step['date_in'] }}</td>
-                            <td>{{ $step['date_out'] }}</td>
-                            <td>{{ $step['action_needed'] }}</td>
-                            <td>{{ $step['notes'] }}</td>
-                            <td>
-                                <button type="button" class="receive-info-btn" title="More information" aria-label="More information">
-                                    <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
-                                        <circle cx="5" cy="12" r="2"/>
-                                        <circle cx="12" cy="12" r="2"/>
-                                        <circle cx="19" cy="12" r="2"/>
-                                    </svg>
-                                </button>
-                            </td>
-                            <td class="action-cell">
-                                <select
-                                    class="receive-row-action-select"
-                                    aria-label="Row actions for step {{ $index + 1 }}"
-                                    wire:change="handleRowAction({{ $index }}, $event.target.value)"
-                                >
-                                    <option value="" selected disabled>Action</option>
-                                    <option value="edit">Edit</option>
-                                    <option value="delete">Delete</option>
-                                    <option value="forward">Forward</option>
-                                    <option value="receive">Receive</option>
-                                </select>
-                            </td>
-                        </tr>
-                    @empty
-                        <tr>
-                            <td colspan="8">No transaction path records found.</td>
-                        </tr>
-                    @endforelse
+                    <!-- Row 1 - Empty fields, icon in Info column, blank column -->
+                    <tr>
+                        <td>1</td>
+                        <td></td>
+                        <td></td>
+                        <td></td>
+                        <td></td>
+                        <td></td>
+                        <td>
+                            <svg class="table-icon" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                                <circle cx="12" cy="12" r="10" stroke="#1e3a8a" stroke-width="1.5" fill="white"/>
+                                <circle cx="12" cy="12" r="2" fill="#1e3a8a"/>
+                                <circle cx="17" cy="12" r="2" fill="#1e3a8a"/>
+                                <circle cx="7" cy="12" r="2" fill="#1e3a8a"/>
+                            </svg>
+                        </td>
+                        <td></td>
+                    </tr>
+                    <!-- Row 2 - Empty fields, icon in Info column, blank column -->
+                    <tr>
+                        <td>2</td>
+                        <td></td>
+                        <td></td>
+                        <td></td>
+                        <td></td>
+                        <td></td>
+                        <td>
+                            <svg class="table-icon" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                                <circle cx="12" cy="12" r="10" stroke="#1e3a8a" stroke-width="1.5" fill="white"/>
+                                <circle cx="12" cy="12" r="2" fill="#1e3a8a"/>
+                                <circle cx="17" cy="12" r="2" fill="#1e3a8a"/>
+                                <circle cx="7" cy="12" r="2" fill="#1e3a8a"/>
+                            </svg>
+                        </td>
+                        <td></td>
+                    </tr>
+                    <!-- Row 3 - Empty fields, icon in Info column, blank column -->
+                    <tr>
+                        <td>3</td>
+                        <td></td>
+                        <td></td>
+                        <td></td>
+                        <td></td>
+                        <td></td>
+                        <td>
+                            <svg class="table-icon" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                                <circle cx="12" cy="12" r="10" stroke="#1e3a8a" stroke-width="1.5" fill="white"/>
+                                <circle cx="12" cy="12" r="2" fill="#1e3a8a"/>
+                                <circle cx="17" cy="12" r="2" fill="#1e3a8a"/>
+                                <circle cx="7" cy="12" r="2" fill="#1e3a8a"/>
+                            </svg>
+                        </td>
+                        <td></td>
+                    </tr>
                 </tbody>
-            </table>
+             </table>
         </div>
 
-        <div class="receive-actions">
-            <button type="button" class="receive-action-btn">
-                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <!-- BUTTONS SECTION - arranged from LEFT to RIGHT, aligned to the RIGHT side -->
+        <div class="actions-row">
+            <!-- VIEW LISTED PATH -->
+            <button type="button" class="action-btn">
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                     <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
                     <circle cx="12" cy="12" r="3"/>
                 </svg>
-                View Listed Path
+                VIEW LISTED PATH
             </button>
-            <button type="button" class="receive-action-btn">
-                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+
+            <!-- COMPLETED -->
+            <button type="button" class="action-btn">
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                     <polyline points="20 6 9 17 4 12"/>
                 </svg>
-                Completed
+                COMPLETED
             </button>
-            <button type="button" class="receive-action-btn">
-                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                    <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
-                    <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
+
+            <!-- EDIT -->
+            <button type="button" class="action-btn">
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M17 3l4 4-7 7H10v-4l7-7z"/>
+                    <path d="M4 20h16"/>
                 </svg>
-                Edit
+                EDIT
             </button>
-            <button type="button" class="receive-action-btn receive-action-btn--danger">
-                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                    <polyline points="3 6 5 6 21 6"/>
-                    <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
+
+            <!-- DELETE -->
+            <button type="button" class="action-btn">
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M3 6h18M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
+                    <line x1="10" y1="11" x2="10" y2="17"/>
+                    <line x1="14" y1="11" x2="14" y2="17"/>
                 </svg>
-                Delete
+                DELETE
             </button>
-            <button type="button" class="receive-action-btn">
-                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                    <line x1="12" y1="5" x2="12" y2="19"/>
-                    <line x1="5" y1="12" x2="19" y2="12"/>
+
+            <!-- ADD CF -->
+            <button type="button" class="action-btn">
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M12 5v14M5 12h14"/>
                 </svg>
-                Add CF
+                ADD CF
             </button>
-            <button type="button" class="receive-action-btn">
-                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                    <path d="M3 5v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2z"/>
-                    <line x1="7" y1="8" x2="17" y2="8"/>
-                    <line x1="7" y1="12" x2="17" y2="12"/>
-                    <line x1="7" y1="16" x2="13" y2="16"/>
+
+            <!-- BARCODE -->
+            <button type="button" class="action-btn">
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M3 5h2v14H3zM7 5h2v14H7zM11 5h2v14h-2zM15 5h2v14h-2zM19 5h2v14h-2z"/>
                 </svg>
-                Barcode
+                BARCODE
             </button>
         </div>
-    </div>
+    </form>
+
 </div>

@@ -5,6 +5,7 @@ use Livewire\Volt\Component;
 
 // Define the Livewire Volt component with layout and page title attributes
 new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create Internal Transaction')] class extends Component {
+
 };
 ?>
 

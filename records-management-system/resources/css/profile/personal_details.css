@@ -120,3 +120,49 @@
     .article-container.imup .container .visible-line{
         display: block;
     }
+
+/* New styles for security logs table */
+.table-responsive {
+    width: 100%;
+    overflow-x: auto;
+    margin-top: 15px;
+}
+
+.table {
+    width: 100%;
+    border-collapse: collapse;
+    margin-bottom: 1rem;
+    color: #212529;
+}
+
+.table thead th {
+    padding: 0.75rem;
+    vertical-align: bottom;
+    border-bottom: 2px solid #dee2e6;
+    text-align: left;
+    font-family: 'Inter';
+    font-weight: 600;
+    color: #043899;
+    background-color: #f8f9fa;
+}
+
+.table tbody td {
+    padding: 0.75rem;
+    vertical-align: top;
+    border-top: 1px solid #dee2e6;
+    font-family: 'Roboto';
+    font-size: 14px;
+    color: #343a40;
+}
+
+.table-striped tbody tr:nth-of-type(odd) {
+    background-color: rgba(0, 0, 0, 0.05);
+}
+
+.table-striped tbody tr:hover {
+    background-color: rgba(4, 56, 153, 0.1);
+}
+
+.table tbody tr td:first-child {
+    font-weight: 500;
+}

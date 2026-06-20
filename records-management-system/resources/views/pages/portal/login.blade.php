@@ -1,6 +1,7 @@
 <?php
 
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 use Livewire\Attributes\Layout;
 use Livewire\Attributes\Title;
@@ -20,22 +21,44 @@ new #[Layout('layouts.portal')] #[Title('Login')] class extends Component
             'password' => ['required', 'string'],
         ]);
 
+        // Find user first to log failed login if account exists
+        $userObj = DB::table('account')->where('username', $this->username)->first();
+
         $credentials['account_active'] = true; // only allow active accounts to login
         // check if the credentials are correct
         if (Auth::attempt($credentials)) {
             session()->regenerate();
 
             $user = Auth::user();
-            if ($user && $user->details) {
-                $user->details->update([
-                    'is_currently_online' => true,
-                    'last_online_time'    => now(),
+            if ($user) {
+                // Log Login Successful
+                DB::table('security_logs')->insert([
+                    'status'      => 1, // Login Successful
+                    'account'     => $user->id,
+                    'user_ipaddr' => request()->ip(),
+                    'time'        => now(),
                 ]);
+
+                if ($user->details) {
+                    $user->details->update([
+                        'is_currently_online' => true,
+                        'last_online_time'    => now(),
+                    ]);
+                }
             }
 
             $this->redirect(route('portal'));
             return;
         }
+
+        // If login failed, log the attempt (account ID is null if user doesn't exist)
+        DB::table('security_logs')->insert([
+            'status'      => 2, // Login Failed
+            'account'     => $userObj ? $userObj->id : null,
+            'user_ipaddr' => request()->ip(),
+            'time'        => now(),
+        ]);
+
         // if the credentials are incorrect, show an error message
         throw ValidationException::withMessages([
             'username' => __('auth.failed'),

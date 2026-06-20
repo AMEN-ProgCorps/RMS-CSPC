@@ -12,30 +12,30 @@ return new class extends Migration
     public function up(): void
     {
         Schema::create('notif_content', function (Blueprint $table) {
-            $table->increments('id')->primary(); 
+            $table->increments('id'); 
             $table->integer('system'); 
-            $table->string('content')->notNull();
-            $table->timestamp('created_at')->useCurrent(); // Timestamp
-            $table->foreign('system')->reference('subsystems_id')->on('subsystems')->onDelete('cascade');
+            $table->string('content');
+            $table->timestamp('created_at')->useCurrent();
+            $table->foreign('system')->references('subsystem_id')->on('subsystems')->onDelete('cascade');
         });
 
         Schema::create('notifications', function (Blueprint $table) {
-            $table->increments('id')->primary();
-            $table->string('office'); 
-            $table->integer('contents');
+            $table->increments('id');
+            $table->string('office', 50); 
+            $table->unsignedInteger('contents');
             $table->timestamp('created_at')->useCurrent();
-            $table->foreign('office')->reference('office_code')->on('office')->onDelete('cascade');
-            $table->foreign('contents')->reference('id')->on('notif_content')->onDelete('cascade');
+            $table->foreign('office')->references('office_code')->on('office')->onDelete('cascade');
+            $table->foreign('contents')->references('id')->on('notif_content')->onDelete('cascade');
         });
+
         Schema::create('notification_div', function (Blueprint $table) {
-            $table->integer('id');
-            $table->integer('account_rec');
+            $table->unsignedInteger('id');
+            $table->unsignedInteger('account_rec');
             $table->enum('status', ['read', 'unread'])->default('unread'); 
-            $table->timestamp('processed_on')->notNull();
+            $table->timestamp('processed_on')->useCurrent();
             $table->boolean('is_in_user_list')->default(true);            
-            $table->foreign('id')->reference('id')->on('notificationws')->onDelete('cascade');
-            $table->foreign('account_rec')->reference('id')->on('account')->onDelete('cascade');
-            $table->foreign('id')->reference('id')->on('notifications')->onDelete('cascade');
+            $table->foreign('id')->references('id')->on('notifications')->onDelete('cascade');
+            $table->foreign('account_rec')->references('id')->on('account')->onDelete('cascade');
         });
     }
 
@@ -49,4 +49,3 @@ return new class extends Migration
         Schema::dropIfExists('notif_content');
     }
 };
-

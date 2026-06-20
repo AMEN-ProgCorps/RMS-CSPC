@@ -6,7 +6,7 @@ use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 
 new #[Layout('layouts.profile')] #[Title('Profile Manager - Security Logs')] class extends Component {
-    public $securityLogs;
+    public $securityLogs = [];
 
     public function mount()
     {
@@ -26,9 +26,11 @@ new #[Layout('layouts.profile')] #[Title('Profile Manager - Security Logs')] cla
     }
 };
 ?>
+
 @push('styles')
     @vite('resources/css/profile/personal_details.css')
 @endpush
+
 <div class="container">
     <div boxid_container="header" class="box-container">
         <div boxid="name" class="box">
@@ -43,7 +45,7 @@ new #[Layout('layouts.profile')] #[Title('Profile Manager - Security Logs')] cla
         <hr>
     </div>
     <div boxid_container="details" class="box-container">
-        <div boxid="details" class="box">
+        <div boxid="details" class="box" style="max-width: 100%;">
             <span>Recent Login Activities</span>
             <hr>
             <div class="table-responsive">
@@ -75,3 +77,31 @@ new #[Layout('layouts.profile')] #[Title('Profile Manager - Security Logs')] cla
         </div>
     </div>
 </div>
+
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+    const timeEl = document.getElementById('currTime');
+    const dateEl = document.getElementById('currDate');
+
+    if (!timeEl || !dateEl) {
+        return;
+    }
+
+    const updateDateTime = () => {
+        const now = new Date();
+        timeEl.textContent = now.toLocaleTimeString([], {
+            hour: '2-digit',
+            minute: '2-digit',
+            second: '2-digit'
+        });
+        dateEl.textContent = now.toLocaleDateString([], {
+            year: 'numeric',
+            month: 'long',
+            day: 'numeric'
+        });
+    };
+
+    updateDateTime();
+    setInterval(updateDateTime, 1000);
+});
+</script>

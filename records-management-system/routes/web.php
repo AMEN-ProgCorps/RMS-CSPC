@@ -89,11 +89,21 @@ Route::get('/url', function () {
 // Logout
 Route::get('/logout', function () {
     $user = Auth::user();
-    if ($user && $user->details) {
-        $user->details->update([
-            'is_currently_online' => false,
-            'last_online_time'    => now(),
+    if ($user) {
+        // Log Logout
+        \Illuminate\Support\Facades\DB::table('security_logs')->insert([
+            'status'      => 3, // Logout
+            'account'     => $user->id,
+            'user_ipaddr' => request()->ip(),
+            'time'        => now(),
         ]);
+
+        if ($user->details) {
+            $user->details->update([
+                'is_currently_online' => false,
+                'last_online_time'    => now(),
+            ]);
+        }
     }
 
     Auth::logout();

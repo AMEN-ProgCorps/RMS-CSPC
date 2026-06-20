@@ -1,43 +1,98 @@
 # RMS-CSPC
 Records Management System Version 2 Development
 
-## Setup
+This is the development repository for the **Records Management System (RMS) Version 2** for CSPC. The application is built using Laravel 13, Livewire, and is fully containerized with Docker.
+
+---
+
+## 🚀 Quick Start with Docker
+
+The entire stack (PHP/Laravel application, MySQL database, Node/Vite development server, and phpMyAdmin) is containerized. You do not need to install PHP, Composer, Node.js, or MySQL locally on your host machine.
 
 ### Prerequisites
-- PHP 8.1 or higher
-- Composer
-- Node.js and npm (for frontend assets)
+- [Docker Desktop](https://www.docker.com/products/docker-desktop/) (includes Docker Compose)
 
-### Laravel Installation
-1. Install the latest Laravel version:
+### Setup & Running the Application
+
+1. **Navigate to the application folder:**
    ```bash
-   composer create-project laravel/laravel records-manangement-system
+   cd records-management-system
    ```
 
-2. Install PHP dependencies:
+2. **Start the containers:**
+   Run the following command to build the images and start the services:
    ```bash
-   composer install
+   docker compose up --build
+   ```
+   *(Note: Add the `-d` flag if you want to run the containers in detached/background mode).*
+
+3. **Database Migrations:**
+   During startup, the container entrypoint script will automatically wait for the MySQL database to become healthy and then run migrations (`php artisan migrate --force`).
+
+4. **Verify Application Key:**
+   The `.env.docker` file contains a pre-configured `APP_KEY`. If you need to generate a new key or re-key the application, run:
+   ```bash
+   docker compose exec app php artisan key:generate
    ```
 
-3. Install Node.js dependencies:
-   ```bash
-   npm install
-   ```
+---
 
-4. Copy the environment file and generate application key:
-   ```bash
-   cp .env.example .env
-   php artisan key:generate
-   ```
+## 🌐 Services and Ports
 
-5. Run database migrations (if applicable):
-   ```bash
-   php artisan migrate
-   ```
+Once the containers are running, the following services are available:
 
-6. Start the development server:
-   ```bash
-   php artisan serve
-   ```
+| Service | Host URL | Description |
+| :--- | :--- | :--- |
+| **Laravel App** | [http://localhost:49000](http://localhost:49000) | The main Records Management System application. |
+| **phpMyAdmin** | [http://localhost:9000](http://localhost:9000) | Database management interface. |
+| **Vite Dev Server** | [http://localhost:5173](http://localhost:5173) | Hot Module Replacement (HMR) for frontend assets. |
+| **MySQL Database** | `localhost:3307` | Database server (mapped from port `3306` inside). |
 
-For more information, visit the [Laravel documentation](https://laravel.com/docs).
+---
+
+## 🗄️ Database Connection Details
+
+These details are defined in [records-management-system/.env.docker](file:///c:/Users/WBE/OneDrive/Desktop/RMS-CSPC/records-management-system/.env.docker) and are used to connect to the database:
+
+- **Host (from Host Machine):** `127.0.0.1` (Port: `3307`)
+- **Host (from inside Docker App Container):** `db` (Port: `3306`)
+- **Database Name:** `rms`
+- **Username:** `adminrms`
+- **Password:** `admin`
+- **Root Password:** `MacCloud`
+
+---
+
+## 🛠️ Helpful Commands
+
+Here are some common commands you can run while developing:
+
+### Run Artisan Commands
+To run any Artisan command inside the running application container:
+```bash
+docker compose exec app php artisan <command>
+```
+*Example (running seeders):*
+```bash
+docker compose exec app php artisan db:seed
+```
+
+### Stop the Application
+To stop all running containers:
+```bash
+docker compose down
+```
+
+### Clean up Volumes
+To stop containers and delete database and dependency volumes (warning: this resets database data):
+```bash
+docker compose down -v
+```
+
+---
+
+## 📁 Repository Structure
+
+- [records-management-system/](file:///c:/Users/WBE/OneDrive/Desktop/RMS-CSPC/records-management-system): Main Laravel & Livewire web application source code and Docker setup.
+- [database.sql](file:///c:/Users/WBE/OneDrive/Desktop/RMS-CSPC/database.sql): Database backup/reference schema structure.
+- [Progress.txt](file:///c:/Users/WBE/OneDrive/Desktop/RMS-CSPC/Progress.txt): Development progress notes and status of different modules.

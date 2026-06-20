@@ -52,7 +52,7 @@ Once the containers are running, the following services are available:
 
 ## 🗄️ Database Connection Details
 
-These details are defined in [records-management-system/.env.docker](file:///c:/Users/WBE/OneDrive/Desktop/RMS-CSPC/records-management-system/.env.docker) and are used to connect to the database:
+These details are defined in [records-management-system/.env.docker](file:////RMS-CSPC/records-management-system/.env.docker) and are used to connect to the database:
 
 - **Host (from Host Machine):** `127.0.0.1` (Port: `3307`)
 - **Host (from inside Docker App Container):** `db` (Port: `3306`)
@@ -93,6 +93,6 @@ docker compose down -v
 
 ## 📁 Repository Structure
 
-- [records-management-system/](file:///c:/Users/WBE/OneDrive/Desktop/RMS-CSPC/records-management-system): Main Laravel & Livewire web application source code and Docker setup.
-- [database.sql](file:///c:/Users/WBE/OneDrive/Desktop/RMS-CSPC/database.sql): Database backup/reference schema structure.
-- [Progress.txt](file:///c:/Users/WBE/OneDrive/Desktop/RMS-CSPC/Progress.txt): Development progress notes and status of different modules.
+- [records-management-system/](file:////RMS-CSPC/records-management-system): Main Laravel & Livewire web application source code and Docker setup.
+- [database.sql](file:////RMS-CSPC/database.sql): Database backup/reference schema structure.
+- [Progress.txt](file:////RMS-CSPC/Progress.txt): Development progress notes and status of different modules.

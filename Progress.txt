@@ -40,9 +40,10 @@ Website Development Starts[ May 1, 2026 ]
             L status [ Completed ]
             L necessary items is included and furthur update will be added
         L Security Logs Module
-            L status [ ongoing ]
+            L status [ Completed ]
+            L all data has been filluped
         L Notification Module
-            L status [ ongoing ]
+            L major function is done
 
     L Document Tracking System section
         L Current Transactions Module 
@@ -61,9 +62,10 @@ Website Development Starts[ May 1, 2026 ]
     L Records Disposition Platform section
         L Main Landing Module
             L status [ partially ]
-        L Main Landing Module
-            L status []
-        L Main Landing Module
-            L status []
-        L Main Landing Module
-            L status []
+            L assigned to Magbanua
+        L Add Records Module
+            L status [ Partially ]
+            L assigned to Lagriada
+        L Reports Module
+            L status [ Partially ]
+            L assigned to Luceña

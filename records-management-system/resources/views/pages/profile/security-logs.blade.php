@@ -26,7 +26,7 @@ new #[Layout('layouts.profile')] #[Title('Profile Manager - Security Logs')] cla
     }
 };
 ?>
-@push('style')
+@push('styles')
     @vite('resources/css/profile/personal_details.css')
 @endpush
 <div class="container">

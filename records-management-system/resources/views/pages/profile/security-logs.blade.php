@@ -1,4 +1,11 @@
 <?php
+/**
+ * Profile Manager - Security Logs Volt Component
+ * 
+ * This component fetches and displays the authenticated user's login history
+ * and other security audit logs from the database.
+ */
+
 use Livewire\Attributes\Layout;
 use Livewire\Attributes\Title;
 use Livewire\Volt\Component;
@@ -6,11 +13,17 @@ use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 
 new #[Layout('layouts.profile')] #[Title('Profile Manager - Security Logs')] class extends Component {
+    /** @var array<int, mixed> Holds the collection of queried security logs */
     public $securityLogs = [];
 
+    /**
+     * Component mount hook - fetches security logs for the active user account.
+     */
     public function mount()
     {
         $userId = Auth::id(); // Get the authenticated user's ID
+        
+        // Fetch security audit logs combined with security status names/descriptions
         $this->securityLogs = DB::table('security_logs')
             ->join('security_status', 'security_logs.status', '=', 'security_status.status_id')
             ->where('security_logs.account', $userId)

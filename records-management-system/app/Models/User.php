@@ -32,6 +32,7 @@ class User extends Authenticatable
         'username',
         'password',
         'account_status',
+        'account_role',
         'account_active',
         'date_created',
         'date_updated',
@@ -51,6 +52,7 @@ class User extends Authenticatable
         'password' => 'hashed',
         'account_active' => 'boolean',
         'account_status' => 'integer',
+        'account_role' => 'integer',
         'date_created' => 'datetime',
         'date_updated' => 'datetime',
     ];

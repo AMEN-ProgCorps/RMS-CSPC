@@ -33,6 +33,7 @@ Route::middleware(['auth'])
 
         Volt::route('/admin/accounts/users', 'pages.admin.accounts.users')->name('admin.accounts.users');
         Volt::route('/admin/accounts/roles', 'pages.admin.accounts.roles')->name('admin.accounts.roles');
+        Volt::route('/admin/accounts/offices', 'pages.admin.accounts.offices')->name('admin.accounts.offices');
 
         Volt::route('/admin/activity/logins', 'pages.admin.activity.logins')->name('admin.activity.logins');
         Volt::route('/admin/activity/account-changes', 'pages.admin.activity.account-changes')->name('admin.activity.account-changes');

@@ -45,6 +45,26 @@ Website Development Starts[ May 1, 2026 ]
         L Notification Module
             L major function is done
 
+    L Admin Console section
+        L Dashboard Redesign
+            L status [ Completed ]
+            L implements stats cards and recent activities matching mockup
+        L Offices Management Module
+            L status [ Completed ]
+            L soft deactivation triggers, dynamic lists, dual-pane layout
+        L Roles & Clearances Module
+            L status [ Completed ]
+            L permission toggles matrix, soft deactivation triggers, dual-pane layout
+        L Accounts Users Module
+            L status [ Completed ]
+            L user creation validation, dual-sorting selectors, sidebar routing
+        L Logins Security History
+            L status [ Completed ]
+            L real-time searching, status filter dropdown, custom pagination
+        L Account Changes History
+            L status [ Completed ]
+            L audit logging triggers in users/roles/offices, searching, subsystem filter
+
     L Document Tracking System section
         L Current Transactions Module 
             L status [ partial ]

@@ -76,56 +76,79 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Receive Transac
 ?>
 
 @push('styles')
-    @vite(['resources/css/dts/receive.css'])
+    @vite('resources/css/dts/receive.css')
 @endpush
-<div class="rms-container">
-
-    <!-- Header Section -->
-    <div class="rms-header">
-        <h2>Receive Transactions</h2>
-    </div>
-
-    <!-- Internal Transaction Form -->
-    <form class="rms-form" method="post" action="#" onsubmit="return false;">
+<div class="receive-page">
+    <form class="receive-card" method="post" action="#" onsubmit="return false;">
+        <h1 class="receive-title">Receive Transactions</h1>
         
-        <!-- Control Number and File Code side by side in one row -->
-        <div class="two-columns-row">
-            <!-- Control Number field (LEFT) -->
-            <div class="form-col medium-input">
-                <label for="unit-college" class="input-label">Control #:</label>
-                <div style="display:flex; align-items:center; gap:8px; width: 100%;">
-                    <input type="text" class="text-input unit-college-input" placeholder="" id="unit-college">
-                    <a href="#" class="muted-link">Update | Edit</a>
-                </div>
+        <div class="receive-fields">
+            <!-- Control Number field -->
+            <div class="receive-field-row">
+                <span class="receive-field-label">Control #:</span>
+                @if ($editingControl)
+                    <div style="display: flex; gap: 8px; width: 100%;">
+                        <input type="text" class="receive-field-input" wire:model="controlNumber">
+                        <div class="receive-field-actions">
+                            <button type="button" wire:click="saveField('control')">Save</button>
+                        </div>
+                    </div>
+                @else
+                    <input type="text" class="receive-field-input" value="{{ $controlNumber }}" readonly>
+                    <div class="receive-field-actions">
+                        <button type="button" wire:click="startEdit('control')">Update</button>
+                        <span>|</span>
+                        <button type="button" wire:click="startEdit('control')">Edit</button>
+                    </div>
+                @endif
             </div>
 
-            <!-- File Code field (RIGHT) -->
-            <div class="form-col medium-input">
-                <label for="file-code" class="input-label">File Code:</label>
-                <div style="display:flex; align-items:center; gap:8px; width: 100%;">
-                    <input type="text" class="text-input unit-college-input" placeholder="" id="file-code">
-                    <a href="#" class="muted-link">Update | Edit</a>
-                </div>
+            <!-- File Code field -->
+            <div class="receive-field-row">
+                <span class="receive-field-label">File Code:</span>
+                @if ($editingFileCode)
+                    <div style="display: flex; gap: 8px; width: 100%;">
+                        <input type="text" class="receive-field-input" wire:model="fileCode">
+                        <div class="receive-field-actions">
+                            <button type="button" wire:click="saveField('file_code')">Save</button>
+                        </div>
+                    </div>
+                @else
+                    <input type="text" class="receive-field-input" value="{{ $fileCode }}" readonly>
+                    <div class="receive-field-actions">
+                        <button type="button" wire:click="startEdit('file_code')">Update</button>
+                        <span>|</span>
+                        <button type="button" wire:click="startEdit('file_code')">Edit</button>
+                    </div>
+                @endif
+            </div>
+
+            <!-- Particulars field -->
+            <div class="receive-field-row receive-field-row--particulars">
+                <span class="receive-field-label">Particulars:</span>
+                @if ($editingParticulars)
+                    <div style="display: flex; flex-direction: column; gap: 8px; width: 100%;">
+                        <textarea class="receive-field-input" wire:model="particulars" style="min-height: 72px; resize: vertical;"></textarea>
+                        <div class="receive-field-actions" style="justify-content: flex-end;">
+                            <button type="button" wire:click="saveField('particulars')">Save</button>
+                        </div>
+                    </div>
+                @else
+                    <div class="receive-particulars-display" wire:click="startEdit('particulars')" style="cursor: pointer;">
+                        {{ $particulars ?: 'Click to add particulars...' }}
+                    </div>
+                @endif
             </div>
         </div>
 
-        <!-- PARTICULARS SECTION: Heading + Line below it with generous spacing -->
-        <div class="particulars-section">
-            <div class="particulars-heading">Particulars:</div>
-            <!-- Extra spacing container for the line -->
-            <div class="line-container">
-                <div class="separator-line"></div>
-            </div>
-        </div>
+        <hr class="receive-divider">
 
-        <!-- TRANSACTION PATH SECTION: Heading only (table name) -->
-        <div class="transaction-path-section">
-            <div class="transaction-path-heading">Transaction Path</div>
-        </div>
+        <!-- Transaction Path Section -->
+        <h2 class="receive-title" style="font-size: 16px; margin-top: 10px;">Transaction Path</h2>
 
-        <!-- TABLE SECTION with empty rows and icon inside Info column + blank column -->
-        <div class="rms-table-responsive">
-            <table class="rms-table">
+        <!-- Table Section -->
+        <div class="receive-table-wrap">
+            <table class="receive-table">
                 <thead>
                     <tr>
                         <th>#</th>
@@ -135,73 +158,49 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Receive Transac
                         <th>Action Need</th>
                         <th>Notes</th>
                         <th>Info</th>
-                        <th></th>
+                        <th>Actions</th>
                     </tr>
                 </thead>
                 <tbody>
-                    <!-- Row 1 - Empty fields, icon in Info column, blank column -->
-                    <tr>
-                        <td>1</td>
-                        <td></td>
-                        <td></td>
-                        <td></td>
-                        <td></td>
-                        <td></td>
-                        <td>
-                            <svg class="table-icon" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                                <circle cx="12" cy="12" r="10" stroke="#1e3a8a" stroke-width="1.5" fill="white"/>
-                                <circle cx="12" cy="12" r="2" fill="#1e3a8a"/>
-                                <circle cx="17" cy="12" r="2" fill="#1e3a8a"/>
-                                <circle cx="7" cy="12" r="2" fill="#1e3a8a"/>
-                            </svg>
-                        </td>
-                        <td></td>
-                    </tr>
-                    <!-- Row 2 - Empty fields, icon in Info column, blank column -->
-                    <tr>
-                        <td>2</td>
-                        <td></td>
-                        <td></td>
-                        <td></td>
-                        <td></td>
-                        <td></td>
-                        <td>
-                            <svg class="table-icon" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                                <circle cx="12" cy="12" r="10" stroke="#1e3a8a" stroke-width="1.5" fill="white"/>
-                                <circle cx="12" cy="12" r="2" fill="#1e3a8a"/>
-                                <circle cx="17" cy="12" r="2" fill="#1e3a8a"/>
-                                <circle cx="7" cy="12" r="2" fill="#1e3a8a"/>
-                            </svg>
-                        </td>
-                        <td></td>
-                    </tr>
-                    <!-- Row 3 - Empty fields, icon in Info column, blank column -->
-                    <tr>
-                        <td>3</td>
-                        <td></td>
-                        <td></td>
-                        <td></td>
-                        <td></td>
-                        <td></td>
-                        <td>
-                            <svg class="table-icon" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                                <circle cx="12" cy="12" r="10" stroke="#1e3a8a" stroke-width="1.5" fill="white"/>
-                                <circle cx="12" cy="12" r="2" fill="#1e3a8a"/>
-                                <circle cx="17" cy="12" r="2" fill="#1e3a8a"/>
-                                <circle cx="7" cy="12" r="2" fill="#1e3a8a"/>
-                            </svg>
-                        </td>
-                        <td></td>
-                    </tr>
+                    @forelse ($transactionPath as $index => $step)
+                        <tr>
+                            <td>{{ $index + 1 }}</td>
+                            <td class="office-cell">{{ $step['office'] }}</td>
+                            <td>{{ $step['date_in'] }}</td>
+                            <td>{{ $step['date_out'] }}</td>
+                            <td>{{ $step['action_needed'] }}</td>
+                            <td>{{ $step['notes'] }}</td>
+                            <td>
+                                <button type="button" class="receive-info-btn">
+                                    <svg class="table-icon" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" style="width: 14px; height: 14px; stroke: currentColor;">
+                                        <circle cx="12" cy="12" r="10" stroke-width="1.5" fill="none"/>
+                                        <circle cx="12" cy="12" r="2" fill="currentColor"/>
+                                        <circle cx="17" cy="12" r="2" fill="currentColor"/>
+                                        <circle cx="7" cy="12" r="2" fill="currentColor"/>
+                                    </svg>
+                                </button>
+                            </td>
+                            <td class="action-cell">
+                                <select class="receive-row-action-select" wire:change="handleRowAction({{ $index }}, $event.target.value)">
+                                    <option value="">Select Action</option>
+                                    <option value="delete">Delete</option>
+                                </select>
+                            </td>
+                        </tr>
+                    @empty
+                        <tr>
+                            <td colspan="8" style="padding: 24px; color: #888; font-style: italic;">No transaction paths listed.</td>
+                        </tr>
+                    @endforelse
                 </tbody>
-             </table>
+            </table>
         </div>
 
-        <!-- BUTTONS SECTION - arranged from LEFT to RIGHT, aligned to the RIGHT side -->
-        <div class="actions-row">
+        <!-- Buttons Section -->
+        <div class="receive-actions">
             <!-- VIEW LISTED PATH -->
-            <button type="button" class="action-btn">
-                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <button type="button" class="receive-action-btn">
+                <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
                     <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
                     <circle cx="12" cy="12" r="3"/>
                 </svg>
@@ -209,16 +208,16 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Receive Transac
             </button>
 
             <!-- COMPLETED -->
-            <button type="button" class="action-btn">
-                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <button type="button" class="receive-action-btn">
+                <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
                     <polyline points="20 6 9 17 4 12"/>
                 </svg>
                 COMPLETED
             </button>
 
             <!-- EDIT -->
-            <button type="button" class="action-btn">
-                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <button type="button" class="receive-action-btn">
+                <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
                     <path d="M17 3l4 4-7 7H10v-4l7-7z"/>
                     <path d="M4 20h16"/>
                 </svg>
@@ -226,8 +225,8 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Receive Transac
             </button>
 
             <!-- DELETE -->
-            <button type="button" class="action-btn">
-                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <button type="button" class="receive-action-btn receive-action-btn--danger">
+                <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
                     <path d="M3 6h18M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
                     <line x1="10" y1="11" x2="10" y2="17"/>
                     <line x1="14" y1="11" x2="14" y2="17"/>
@@ -236,21 +235,20 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Receive Transac
             </button>
 
             <!-- ADD CF -->
-            <button type="button" class="action-btn">
-                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <button type="button" class="receive-action-btn">
+                <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
                     <path d="M12 5v14M5 12h14"/>
                 </svg>
                 ADD CF
             </button>
 
             <!-- BARCODE -->
-            <button type="button" class="action-btn">
-                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <button type="button" class="receive-action-btn">
+                <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
                     <path d="M3 5h2v14H3zM7 5h2v14H7zM11 5h2v14h-2zM15 5h2v14h-2zM19 5h2v14h-2z"/>
                 </svg>
                 BARCODE
             </button>
         </div>
     </form>
-
 </div>

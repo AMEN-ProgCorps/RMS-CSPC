@@ -13,7 +13,7 @@ export default defineConfig({
                 'resources/css/td.css',
                 'resources/css/profile/personal_details.css',
                 'resources/css/dts/receive.css',
-                'resources/css/dts/list_transaction.css',
+                'resources/css/dts/list_trasaction.css',
                 'resources/css/dts/internal.css',
                 'resources/css/dts/create.css',
             ],

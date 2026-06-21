@@ -29,51 +29,64 @@ new #[Layout('layouts.profile')] #[Title('Profile Manager - Security Logs')] cla
 
 @push('styles')
     @vite('resources/css/profile/personal_details.css')
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css">
 @endpush
 
-<div class="container">
-    <div boxid_container="header" class="box-container">
-        <div boxid="name" class="box">
-            Login History
-        </div>
-        <div boxid="datentime" class="box">
-            <span id="currTime">--:--:--</span>
-            <span id="currDate">--</span>
-        </div>
-    </div>
-    <div class="visible-line">
-        <hr>
-    </div>
-    <div boxid_container="details" class="box-container">
-        <div boxid="details" class="box" style="max-width: 100%;">
-            <span>Recent Login Activities</span>
-            <hr>
-            <div class="table-responsive">
-                <table class="table table-striped">
-                    <thead>
-                        <tr>
-                            <th>Status</th>
-                            <th>Description</th>
-                            <th>IP Address</th>
-                            <th>Time</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        @forelse ($securityLogs as $log)
-                            <tr>
-                                <td>{{ $log->status_name }}</td>
-                                <td>{{ $log->description }}</td>
-                                <td>{{ $log->user_ipaddr }}</td>
-                                <td>{{ \Carbon\Carbon::parse($log->time)->format('Y-m-d H:i:s') }}</td>
-                            </tr>
-                        @empty
-                            <tr>
-                                <td colspan="4">No security logs found for this account.</td>
-                            </tr>
-                        @endforelse
-                    </tbody>
-                </table>
+<div class="container personal-details-container">
+    <!-- Hero Banner -->
+    <div class="profile-hero-banner">
+        <div class="hero-left">
+            <div class="avatar-circle">
+                <i class="fa-solid fa-shield-halved" style="font-size: 24px;"></i>
             </div>
+            <div class="hero-user-info">
+                <span class="hero-greeting">Profile Manager</span>
+                <h1 class="hero-name">Login History</h1>
+            </div>
+        </div>
+        <div class="hero-right">
+            <div class="hero-clock">
+                <span id="currTime" class="clock-time">--:--:--</span>
+                <span id="currDate" class="clock-date">--</span>
+            </div>
+        </div>
+    </div>
+
+    <!-- Details Card (Table) -->
+    <div class="profile-card" style="width: 100%; box-sizing: border-box;">
+        <h2 class="card-title">
+            <i class="fa-solid fa-history"></i> Recent Login Activities
+        </h2>
+        
+        <div class="table-responsive">
+            <table class="table table-striped">
+                <thead>
+                    <tr>
+                        <th>Status</th>
+                        <th>Description</th>
+                        <th>IP Address</th>
+                        <th>Time</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @forelse ($securityLogs as $log)
+                        <tr>
+                            <td>
+                                <span class="badge" style="padding: 4px 10px; border-radius: 99px; font-size: 11px; font-weight: bold; text-transform: uppercase; background-color: {{ strtolower($log->status_name) === 'success' ? 'rgba(16, 185, 129, 0.15)' : 'rgba(239, 68, 68, 0.15)' }}; color: {{ strtolower($log->status_name) === 'success' ? '#10b981' : '#ef4444' }}; border: 1px solid {{ strtolower($log->status_name) === 'success' ? 'rgba(16, 185, 129, 0.3)' : 'rgba(239, 68, 68, 0.3)' }};">
+                                    {{ $log->status_name }}
+                                </span>
+                            </td>
+                            <td>{{ $log->description }}</td>
+                            <td style="font-family: monospace; color: #4a5568;">{{ $log->user_ipaddr }}</td>
+                            <td>{{ \Carbon\Carbon::parse($log->time)->format('Y-m-d H:i:s') }}</td>
+                        </tr>
+                    @empty
+                        <tr>
+                            <td colspan="4" class="no-permissions" style="text-align: center; padding: 24px;">No security logs found for this account.</td>
+                        </tr>
+                    @endforelse
+                </tbody>
+            </table>
         </div>
     </div>
 </div>
@@ -105,3 +118,4 @@ document.addEventListener('DOMContentLoaded', function () {
     setInterval(updateDateTime, 1000);
 });
 </script>
+

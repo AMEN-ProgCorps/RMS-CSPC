@@ -11,6 +11,9 @@ return Application::configure(basePath: dirname(__DIR__))
         health: '/up',
     )
     ->withMiddleware(function (Middleware $middleware): void {
+        $middleware->web(append: [
+            \App\Http\Middleware\UpdateUserOnlineStatus::class,
+        ]);
         $middleware->alias([
             'can.access.admin' => \App\Http\Middleware\CanAccessAdmin::class,
             'can.access.dts'   => \App\Http\Middleware\CanAccessDts::class,

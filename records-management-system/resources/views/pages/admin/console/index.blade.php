@@ -26,23 +26,40 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Dashboard')] class exten
         // 1. Query counts
         $totalUsers = \App\Models\User::count();
         $activeUsers = \App\Models\User::where('account_active', true)->count();
-        $totalActivities = \DB::table('security_logs')->count();
+        
+        // Summarize all activities (security logs + admin changes logs)
+        $totalActivities = \DB::table('security_logs')->count() + \DB::table('admin_logs')->count();
 
-        // 2. Fetch recent security activity logs with user and role details
-        $activities = \DB::table('security_logs')
+        // 2. Fetch union of security logs and admin logs, sorted by time
+        $securityQuery = \DB::table('security_logs')
             ->leftJoin('security_status', 'security_logs.status', '=', 'security_status.status_id')
             ->leftJoin('account', 'security_logs.account', '=', 'account.id')
             ->leftJoin('account_details', 'account.id', '=', 'account_details.account_id')
             ->leftJoin('condition_key', 'account.account_role', '=', 'condition_key.id')
             ->select([
-                'security_logs.time',
+                'security_logs.time as time',
                 'security_status.status_name as action_name',
                 'account.username',
                 'account_details.first_name',
                 'account_details.last_name',
                 'condition_key.key_name as role_name',
-            ])
-            ->orderBy('security_logs.time', 'desc')
+            ]);
+
+        $adminQuery = \DB::table('admin_logs')
+            ->leftJoin('account', 'admin_logs.admin_id', '=', 'account.id')
+            ->leftJoin('account_details', 'account.id', '=', 'account_details.account_id')
+            ->leftJoin('condition_key', 'account.account_role', '=', 'condition_key.id')
+            ->select([
+                'admin_logs.when_changes as time',
+                'admin_logs.changes as action_name',
+                'account.username',
+                'account_details.first_name',
+                'account_details.last_name',
+                'condition_key.key_name as role_name',
+            ]);
+
+        $activities = $securityQuery->unionAll($adminQuery)
+            ->orderBy('time', 'desc')
             ->limit(7) // Retrieve last 7 items matching the artist mockup list size
             ->get();
 
@@ -114,7 +131,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Dashboard')] class exten
     </div>
 
     <!-- Recent Activities Panel -->
-    <div class="activities-panel">
+    <div class="activities-panel" wire:poll.15s>
         <h2 class="activities-title">Recent Activities</h2>
         
         <div class="activities-list">

@@ -565,6 +565,28 @@ input:checked + .slider:before {
     box-shadow: 0 4px 12px rgba(239, 68, 68, 0.1);
 }
 
+.btn-delete {
+    background: #ef4444;
+    color: #ffffff;
+    border: 1px solid #ef4444;
+    padding: 10px 24px;
+    border-radius: 99px;
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-family: 'Inter', sans-serif;
+}
+
+.btn-delete:hover {
+    background: #dc2626;
+    border-color: #dc2626;
+    transform: translateY(-1px);
+}
+
 /* Responsive */
 @media (max-width: 1024px) {
     .admin-roles-container {

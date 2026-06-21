@@ -226,6 +226,43 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Roles')] class extends C
     }
 
     /**
+     * Soft-deactivates (soft-deletes) the selected role for transparency.
+     */
+    public function deleteRole(): void
+    {
+        if ($this->selectedRoleId === null || $this->selectedRoleId === -1) {
+            return;
+        }
+
+        $this->clearMessages();
+
+        try {
+            \DB::transaction(function () {
+                $role = \App\Models\role_list::findOrFail($this->selectedRoleId);
+                
+                $role->update([
+                    'is_active' => false,
+                    'date_updated' => now(),
+                ]);
+
+                // Audit Log: soft-deleted role
+                \DB::table('admin_logs')->insert([
+                    'changes' => "Soft-deleted role (Deactivated for transparency): {$role->key_name}",
+                    'admin_id' => auth()->id(),
+                    'what_system' => 3, // Admin Console
+                    'when_changes' => now()
+                ]);
+
+                // Reset selection to close edit details pane but set success message
+                $this->cancelSelection();
+                $this->successMessage = 'Role soft-deleted successfully!';
+            });
+        } catch (\Exception $e) {
+            $this->errorMessage = 'Failed to delete role: ' . $e->getMessage();
+        }
+    }
+
+    /**
      * Map checkbox property states directly to Eloquent permission model.
      * 
      * @param \App\Models\role_permission $perms The model instance to configure
@@ -251,18 +288,18 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Roles')] class extends C
      */
     public function with(): array
     {
-        $query = \App\Models\role_list::query();
+        // Only return active roles in the directory to match deletion expectations
+        $query = \App\Models\role_list::query()->where('is_active', true);
 
         if ($this->search !== '') {
             $searchVal = '%' . $this->search . '%';
-            $query->where('key_name', 'like', $searchVal)
+            $query->where(function($q) use ($searchVal) {
+                $q->where('key_name', 'like', $searchVal)
                   ->orWhere('key_description', 'like', $searchVal);
+            });
         }
 
-        // List active roles first, then inactive ones, sorted alphabetically
-        $roles = $query->orderBy('is_active', 'desc')
-                       ->orderBy('key_name', 'asc')
-                       ->get();
+        $roles = $query->orderBy('key_name', 'asc')->get();
 
         return [
             'roles' => $roles,
@@ -525,6 +562,11 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Roles')] class extends C
 
             <!-- Footer Actions -->
             <div class="details-footer">
+                @if($selectedRoleId > 0)
+                    <button type="button" class="btn-delete" wire:click="deleteRole" style="margin-right: auto;">
+                        <i class="fa-solid fa-trash-can"></i> Delete Role
+                    </button>
+                @endif
                 <button type="button" class="btn-cancel" wire:click="cancelSelection">Cancel</button>
                 <button type="button" class="btn-save" wire:click="saveRoleChanges">
                     <i class="fa-solid fa-floppy-disk"></i> Save Configuration

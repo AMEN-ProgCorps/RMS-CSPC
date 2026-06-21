@@ -81,6 +81,18 @@ class AdminLogsTest extends TestCase
             'admin_id' => 1,
             'what_system' => 3
         ]);
+
+        // 3. Test Delete User (Soft Delete / Deactivate)
+        Volt::test('pages.admin.accounts.users')
+            ->call('selectUser', $createdUser->id)
+            ->call('deleteUser')
+            ->assertHasNoErrors();
+
+        $this->assertDatabaseHas('admin_logs', [
+            'changes' => "Soft-deleted user account (Deactivated for transparency): {$username}",
+            'admin_id' => 1,
+            'what_system' => 3
+        ]);
     }
 
     public function test_role_creation_and_update_logs()
@@ -127,6 +139,18 @@ class AdminLogsTest extends TestCase
 
         $this->assertDatabaseHas('admin_logs', [
             'changes' => "Toggled active status (Value: 0) for role: {$roleName}",
+            'admin_id' => 1,
+            'what_system' => 3
+        ]);
+
+        // 3. Test Delete Role (Soft Delete)
+        Volt::test('pages.admin.accounts.roles')
+            ->call('selectRole', $role->id)
+            ->call('deleteRole')
+            ->assertHasNoErrors();
+
+        $this->assertDatabaseHas('admin_logs', [
+            'changes' => "Soft-deleted role (Deactivated for transparency): {$roleName}",
             'admin_id' => 1,
             'what_system' => 3
         ]);
@@ -177,6 +201,18 @@ class AdminLogsTest extends TestCase
 
         $this->assertDatabaseHas('admin_logs', [
             'changes' => "Toggled active status (Value: 0) for office: {$officeName}",
+            'admin_id' => 1,
+            'what_system' => 3
+        ]);
+
+        // 3. Test Delete Office (Soft Delete)
+        Volt::test('pages.admin.accounts.offices')
+            ->call('selectOffice', $office->id)
+            ->call('deleteOffice')
+            ->assertHasNoErrors();
+
+        $this->assertDatabaseHas('admin_logs', [
+            'changes' => "Soft-deleted office (Deactivated for transparency): {$officeName}",
             'admin_id' => 1,
             'what_system' => 3
         ]);

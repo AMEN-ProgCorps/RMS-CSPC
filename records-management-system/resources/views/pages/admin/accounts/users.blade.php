@@ -279,6 +279,48 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Users')] class extends C
     }
 
     /**
+     * Soft-deactivates (soft-deletes) the selected user for transparency.
+     */
+    public function deleteUser(): void
+    {
+        if ($this->selectedUserId === null || $this->selectedUserId === -1) {
+            return;
+        }
+
+        $this->clearMessages();
+
+        if ($this->selectedUserId === auth()->id()) {
+            $this->errorMessage = 'You cannot delete your own logged-in account!';
+            return;
+        }
+
+        try {
+            \DB::transaction(function () {
+                $user = \App\Models\User::findOrFail($this->selectedUserId);
+                
+                $user->update([
+                    'account_active' => false,
+                    'date_updated' => now(),
+                ]);
+
+                // Audit Log: soft-deleted/deactivated
+                \DB::table('admin_logs')->insert([
+                    'changes' => "Soft-deleted user account (Deactivated for transparency): {$user->username}",
+                    'admin_id' => auth()->id(),
+                    'what_system' => 3, // Admin Console
+                    'when_changes' => now()
+                ]);
+
+                // Reset selection to close edit details pane but set success message
+                $this->cancelSelection();
+                $this->successMessage = 'User account soft-deleted successfully!';
+            });
+        } catch (\Exception $e) {
+            $this->errorMessage = 'Failed to delete user: ' . $e->getMessage();
+        }
+    }
+
+    /**
      * Component Lifecycle Hook - passes computed query variables to the view.
      * Queries users with live search criteria and applies custom sorting.
      * 
@@ -286,7 +328,8 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Users')] class extends C
      */
     public function with(): array
     {
-        $query = \App\Models\User::with(['details']);
+        // Only return active users in the directory to match deletion expectations
+        $query = \App\Models\User::with(['details'])->where('account_active', true);
 
         // Handle Search Filters (searches across credentials and details)
         if ($this->search !== '') {
@@ -579,6 +622,11 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Users')] class extends C
 
             <!-- Footer -->
             <div class="details-footer">
+                @if($selectedUserId > 0)
+                    <button type="button" class="btn-delete" wire:click="deleteUser" style="margin-right: auto;">
+                        <i class="fa-solid fa-trash-can"></i> Delete Account
+                    </button>
+                @endif
                 <button type="button" class="btn-cancel" wire:click="cancelSelection">Cancel</button>
                 <button type="button" class="btn-save" wire:click="saveUserChanges">
                     <i class="fa-solid fa-floppy-disk"></i> {{ $selectedUserId === -1 ? 'Create User' : 'Save Changes' }}

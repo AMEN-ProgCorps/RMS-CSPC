@@ -178,24 +178,60 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Offices')] class extends
     }
 
     /**
+     * Soft-deactivates (soft-deletes) the selected office for transparency.
+     */
+    public function deleteOffice(): void
+    {
+        if ($this->selectedOfficeId === null || $this->selectedOfficeId === -1) {
+            return;
+        }
+
+        $this->clearMessages();
+
+        try {
+            \DB::transaction(function () {
+                $office = \App\Models\office::findOrFail($this->selectedOfficeId);
+                
+                $office->update([
+                    'is_active' => false,
+                ]);
+
+                // Audit Log: soft-deleted office
+                \DB::table('admin_logs')->insert([
+                    'changes' => "Soft-deleted office (Deactivated for transparency): {$office->office_name}",
+                    'admin_id' => auth()->id(),
+                    'what_system' => 3, // Admin Console
+                    'when_changes' => now()
+                ]);
+
+                // Reset selection to close edit details pane but set success message
+                $this->cancelSelection();
+                $this->successMessage = 'Office soft-deleted successfully!';
+            });
+        } catch (\Exception $e) {
+            $this->errorMessage = 'Failed to delete office: ' . $e->getMessage();
+        }
+    }
+
+    /**
      * Computed Lifecycle Provider - returns list of offices.
      * 
      * @return array Contains offices collection
      */
     public function with(): array
     {
-        $query = \App\Models\office::query();
+        // Only return active offices in the directory to match deletion expectations
+        $query = \App\Models\office::query()->where('is_active', true);
 
         if ($this->search !== '') {
             $searchVal = '%' . $this->search . '%';
-            $query->where('office_name', 'like', $searchVal)
+            $query->where(function($q) use ($searchVal) {
+                $q->where('office_name', 'like', $searchVal)
                   ->orWhere('office_code', 'like', $searchVal);
+            });
         }
 
-        // List active offices first, then inactive ones, sorted alphabetically
-        $offices = $query->orderBy('is_active', 'desc')
-                         ->orderBy('office_name', 'asc')
-                         ->get();
+        $offices = $query->orderBy('office_name', 'asc')->get();
 
         return [
             'offices' => $offices,
@@ -320,6 +356,11 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Offices')] class extends
 
             <!-- Footer Actions -->
             <div class="details-footer">
+                @if($selectedOfficeId > 0)
+                    <button type="button" class="btn-delete" wire:click="deleteOffice" style="margin-right: auto;">
+                        <i class="fa-solid fa-trash-can"></i> Delete Office
+                    </button>
+                @endif
                 <button type="button" class="btn-cancel" wire:click="cancelSelection">Cancel</button>
                 <button type="button" class="btn-save" wire:click="saveOfficeChanges">
                     <i class="fa-solid fa-floppy-disk"></i> Save Configuration

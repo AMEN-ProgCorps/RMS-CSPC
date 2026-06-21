@@ -99,12 +99,12 @@ Route::get('/logout', function () {
             'time'        => now(),
         ]);
 
-        if ($user->details) {
-            $user->details->update([
+        \Illuminate\Support\Facades\DB::table('account_details')
+            ->where('account_id', $user->id)
+            ->update([
                 'is_currently_online' => false,
                 'last_online_time'    => now(),
             ]);
-        }
     }
 
     Auth::logout();

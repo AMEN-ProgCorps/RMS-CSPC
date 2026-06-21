@@ -1,18 +1,44 @@
 <?php
+/**
+ * Profile Manager - Details Volt Component
+ * 
+ * This component provides an interface for users to view their account details,
+ * active role, and system permissions. Sensitive details like email and contacts
+ * are masked by default and can be unmasked interactively.
+ */
+
 use Livewire\Attributes\Layout;
 use Livewire\Attributes\Title;
 use Livewire\Volt\Component;
 
 new #[Layout('layouts.profile')] #[Title('Profile Manager - Details')] class extends Component {
+    /** @var string First name of the authenticated user */
     public string $firstName     = '';
+
+    /** @var string Last name of the authenticated user */
     public string $lastName      = '';
+
+    /** @var string Middle name of the authenticated user */
     public string $middleName    = '';
+
+    /** @var string Masked email address of the user */
     public string $email         = '';
+
+    /** @var string Masked contact number of the user */
     public string $contactNumber = '';
+
+    /** @var int Account ID of the authenticated user */
     public int    $accountId     = 0;
+
+    /** @var string Role name associated with the user account */
     public string $roleName      = '';
+
+    /** @var array<int, string> List of human-readable permissions assigned to this user */
     public array  $enabledPermissions = [];
 
+    /**
+     * Component Mount hook - populates user attributes and maps roles/permissions.
+     */
     public function mount(): void
     {
         $user    = auth()->user();
@@ -27,11 +53,13 @@ new #[Layout('layouts.profile')] #[Title('Profile Manager - Details')] class ext
             $this->accountId     = $details->account_id;
         }
 
+        // Fetch and map Role name from database condition keys
         if ($user->account_role) {
             $role = \DB::table('condition_key')->where('id', $user->account_role)->first();
             $this->roleName = $role?->key_name ?? 'Unknown';
         }
 
+        // Map database boolean permissions to human-readable labels
         $perms = $user->permissions;
         if ($perms) {
             $labels = [

@@ -1,4 +1,10 @@
 <?php
+/**
+ * Profile Manager - Notification Manager Volt Component
+ * 
+ * This component handles retrieving, rendering, marking as read, and dismissing
+ * system notifications scoped to the authenticated user's office and role permissions.
+ */
 
 use Livewire\Attributes\Layout;
 use Livewire\Attributes\Title;
@@ -7,21 +13,31 @@ use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 
 new #[Layout('layouts.profile')] #[Title('Profile Manager - Notification Manager')] class extends Component {
+    /** @var array<int, mixed> Holds the collection of active notifications for display */
     public $notifications = [];
+
+    /** @var string Office name associated with the authenticated user account */
     public $officeName = 'No Office Assigned';
 
+    /**
+     * Component mount hook - loads initial notifications list.
+     */
     public function mount()
     {
         $this->loadNotifications();
     }
 
+    /**
+     * Queries notifications from database based on user's office and active subsystem access.
+     * System accesses are determined by analyzing role permission flags.
+     */
     public function loadNotifications()
     {
         $userId = Auth::id();
         $user = Auth::user();
         $perms = $user?->permissions;
 
-        // Get user's office details
+        // Get user's office details to restrict notifications scoping
         $office = DB::table('account_details')
             ->join('office', 'account_details.office_id', '=', 'office.id')
             ->where('account_details.account_id', $userId)
@@ -41,7 +57,7 @@ new #[Layout('layouts.profile')] #[Title('Profile Manager - Notification Manager
             return;
         }
 
-        // Determine accessible subsystems based on role permissions
+        // Determine accessible subsystems based on role permissions (filters notification streams)
         $allowedSubsystems = ['Profile Manager']; // Profile Manager is always accessible by default
         if ($perms) {
             if ($perms->is_sadm) {
@@ -58,7 +74,7 @@ new #[Layout('layouts.profile')] #[Title('Profile Manager - Notification Manager
             }
         }
 
-        // Fetch notifications
+        // Fetch notifications list, combining with read/unread statuses in notification_div table
         $this->notifications = DB::table('notifications')
             ->join('notif_content', 'notifications.contents', '=', 'notif_content.id')
             ->join('subsystems', 'notif_content.system', '=', 'subsystems.subsystem_id')
@@ -83,6 +99,12 @@ new #[Layout('layouts.profile')] #[Title('Profile Manager - Notification Manager
             ->get();
     }
 
+    /**
+     * Marks an active notification as read.
+     * Inserts/updates record in notification_div helper table.
+     * 
+     * @param int $notificationId The ID of the notification
+     */
     public function markAsRead($notificationId)
     {
         $userId = Auth::id();
@@ -99,6 +121,12 @@ new #[Layout('layouts.profile')] #[Title('Profile Manager - Notification Manager
         $this->loadNotifications();
     }
 
+    /**
+     * Dismisses a notification, removing it from the user's dashboard view.
+     * Sets 'is_in_user_list' flag to false.
+     * 
+     * @param int $notificationId The ID of the notification
+     */
     public function dismiss($notificationId)
     {
         $userId = Auth::id();

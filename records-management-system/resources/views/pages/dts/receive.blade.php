@@ -1,22 +1,39 @@
 <?php
+/**
+ * Document Tracking System - Receive Transactions Volt Component
+ * 
+ * This component provides an interface for receiving transactions in the Document
+ * Tracking System. It handles display, editing of metadata (control numbers, file
+ * codes, and particulars), and list manipulation of transaction paths.
+ */
+
 use Livewire\Attributes\Layout;
 use Livewire\Attributes\Title;
 use Livewire\Volt\Component;
 
 new #[Layout('layouts.dts')] #[Title('Document Tracking System - Receive Transactions')] class extends Component {
+    /** @var string Holds the transaction control number */
     public string $controlNumber = 'CTRL-2023-00142';
 
+    /** @var string Holds the file code */
     public string $fileCode = 'FC-ADM-2023-089';
 
+    /** @var string Holds the particulars description text */
     public string $particulars = '';
 
+    /** @var bool Flag indicating whether the Control Number is being edited */
     public bool $editingControl = false;
 
+    /** @var bool Flag indicating whether the File Code is being edited */
     public bool $editingFileCode = false;
 
+    /** @var bool Flag indicating whether the Particulars description is being edited */
     public bool $editingParticulars = false;
 
-    /** @var array<int, array<string, mixed>> */
+    /** 
+     * @var array<int, array<string, mixed>> 
+     * Holds the sequence of offices and transactions representing the route path
+     */
     public array $transactionPath = [
         [
             'office' => 'office1',
@@ -34,6 +51,12 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Receive Transac
         ],
     ];
 
+    /**
+     * Handles contextual select actions triggered on individual path rows.
+     * 
+     * @param int $index The index of the path step
+     * @param string $action The key of the selected action (e.g. 'delete')
+     */
     public function handleRowAction(int $index, string $action): void
     {
         if ($action === '') {
@@ -46,6 +69,12 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Receive Transac
         };
     }
 
+    /**
+     * Deletes a step from the transaction route path array.
+     * Re-indexes the array keys to preserve ordering.
+     * 
+     * @param int $index The index of the path step to delete
+     */
     public function removePathStep(int $index): void
     {
         if (! isset($this->transactionPath[$index])) {
@@ -56,6 +85,11 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Receive Transac
         $this->transactionPath = array_values($this->transactionPath);
     }
 
+    /**
+     * Switches the selected field (control, file_code, particulars) into edit mode.
+     * 
+     * @param string $field The field identifier to toggle editing state for
+     */
     public function startEdit(string $field): void
     {
         $this->editingControl = $field === 'control';
@@ -63,6 +97,11 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Receive Transac
         $this->editingParticulars = $field === 'particulars';
     }
 
+    /**
+     * Saves changes and exits edit mode for the target field.
+     * 
+     * @param string $field The field identifier to toggle save state for
+     */
     public function saveField(string $field): void
     {
         match ($field) {

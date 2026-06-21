@@ -62,56 +62,74 @@ new #[Layout('layouts.profile')] #[Title('Profile Manager - Details')] class ext
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css">
 @endpush
 
-<div class="container">
-    <div boxid_container="header" class="box-container">
-        <div boxid="name" class="box">
-            Hello!
-            <span>{{ $firstName }}</span>
+<div class="container personal-details-container">
+    <!-- Hero Banner -->
+    <div class="profile-hero-banner">
+        <div class="hero-left">
+            <div class="avatar-circle">
+                <span>{{ strtoupper(substr($firstName ?: '?', 0, 1) . substr($lastName ?: '?', 0, 1)) }}</span>
+            </div>
+            <div class="hero-user-info">
+                <span class="hero-greeting">Welcome back,</span>
+                <h1 class="hero-name">{{ $firstName }} {{ $lastName }}</h1>
+                <span class="hero-role-badge">
+                    <i class="fa-solid fa-shield-halved"></i> {{ $roleName ?: 'User' }}
+                </span>
+            </div>
         </div>
-        <div boxid="datentime" class="box">
-            <span id="currTime">--:--:--</span>
-            <span id="currDate">--</span>
+        <div class="hero-right">
+            <div class="hero-clock">
+                <span id="currTime" class="clock-time">--:--:--</span>
+                <span id="currDate" class="clock-date">--</span>
+            </div>
         </div>
     </div>
-    <div class="visible-line">
-        <hr>
-    </div>
-    <div boxid_container="details" class="box-container">
-        <div boxid="details" class="box">
-            <span>Accounts Details</span>
-            <hr>
-            <div setid="account" class="sets">
-                ACCOUNT ID
-                <span>{{ $accountId }}</span>
+
+    <!-- Details Grid -->
+    <div class="grid-layout">
+        <!-- Account Details Card -->
+        <div class="profile-card">
+            <h2 class="card-title">
+                <i class="fa-solid fa-user-gear"></i> Account Details
+            </h2>
+            
+            <div class="detail-row" setid="account">
+                <span class="detail-label">Account ID</span>
+                <span class="detail-value">{{ $accountId }}</span>
             </div>
-            <div setid="firstname" class="sets">
-                FIRSTNAME
-                <span>{{ $firstName }}</span>
+            
+            <div class="detail-row" setid="firstname">
+                <span class="detail-label">First Name</span>
+                <span class="detail-value">{{ $firstName }}</span>
             </div>
-            <div setid="middlename" class="sets">
-                MIDDLENAME
-                <span>{{ $middleName ?: '—' }}</span>
+            
+            <div class="detail-row" setid="middlename">
+                <span class="detail-label">Middle Name</span>
+                <span class="detail-value">{{ $middleName ?: '—' }}</span>
             </div>
-            <div setid="Lastname" class="sets">
-                LASTNAME
-                <span>{{ $lastName }}</span>
+            
+            <div class="detail-row" setid="Lastname">
+                <span class="detail-label">Last Name</span>
+                <span class="detail-value">{{ $lastName }}</span>
             </div>
-            <div setid="email" class="sets">
-                EMAIL
+            
+            <div class="detail-row" setid="email">
+                <span class="detail-label">Email</span>
                 <div class="masked-field">
                     <span class="masked-value" data-masked="true">{{ $email }}</span>
-                    <button type="button" class="mask-toggle" data-target="email" aria-label="Show hidden value">
+                    <button type="button" class="mask-toggle" data-target="email" aria-label="Show hidden email">
                         <span class="eye-icon">
                             <i class="fa-solid fa-eye"></i>
                         </span>
                     </button>
                 </div>
             </div>
-            <div setid="contacts" class="sets">
-                USER CONTACT NUMBER
+            
+            <div class="detail-row" setid="contacts">
+                <span class="detail-label">Contact Number</span>
                 <div class="masked-field">
                     <span class="masked-value" data-masked="true">{{ $contactNumber ?: '—' }}</span>
-                    <button type="button" class="mask-toggle" data-target="contacts" aria-label="Show hidden value">
+                    <button type="button" class="mask-toggle" data-target="contacts" aria-label="Show hidden contact number">
                         <span class="eye-icon">
                             <i class="fa-solid fa-eye"></i>
                         </span>
@@ -119,26 +137,33 @@ new #[Layout('layouts.profile')] #[Title('Profile Manager - Details')] class ext
                 </div>
             </div>
         </div>
-        <div boxid="role" class="box">
-            <div setid="role_status" class="sets">
-                Current Role
-                <span>{{ $roleName ?: 'No Role Assigned' }}</span>
+
+        <!-- Role & Permissions Card -->
+        <div class="profile-card">
+            <h2 class="card-title">
+                <i class="fa-solid fa-key"></i> System Access & Permissions
+            </h2>
+            
+            <div class="detail-row" setid="role_status">
+                <span class="detail-label">Current Role</span>
+                <span class="detail-value" style="font-weight: 700; color: #003699;">{{ $roleName ?: 'No Role Assigned' }}</span>
             </div>
-            <hr>
-            <div setid="column_header" class="sets">
-                Enabled
-                <span>Access Function </span>
+
+            <div style="margin-top: 15px;">
+                <span class="detail-label" style="display: block; margin-bottom: 10px;">Assigned Privileges</span>
+                <div class="permissions-grid">
+                    @forelse($enabledPermissions as $index => $permission)
+                        <div class="permission-badge" setid="function_{{ $index + 1 }}">
+                            <i class="fa-solid fa-circle-check"></i>
+                            <span>{{ $permission }}</span>
+                        </div>
+                    @empty
+                        <div class="no-permissions" setid="function_none">
+                            <span>No permissions assigned to this account.</span>
+                        </div>
+                    @endforelse
+                </div>
             </div>
-            @forelse($enabledPermissions as $index => $permission)
-            <div setid="function_{{ $index + 1 }}" class="sets">
-                <i class="fa-solid fa-check"></i>
-                <span>{{ $permission }}</span>
-            </div>
-            @empty
-            <div setid="function_none" class="sets">
-                <span>No permissions assigned</span>
-            </div>
-            @endforelse
         </div>
     </div>
 </div>
@@ -200,3 +225,4 @@ document.addEventListener('DOMContentLoaded', function () {
     setInterval(updateDateTime, 1000);
 });
 </script>
+

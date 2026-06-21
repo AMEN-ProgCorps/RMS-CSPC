@@ -7,7 +7,7 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - List Issuances'
     //
 };
 ?>
-@push('style')
+@push('styles')
     @vite('resources/css/dts/list_transaction.css')
 @endpush
 <div class="rms-container">

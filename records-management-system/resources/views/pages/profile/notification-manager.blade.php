@@ -119,68 +119,77 @@ new #[Layout('layouts.profile')] #[Title('Profile Manager - Notification Manager
 
 @push('styles')
     @vite('resources/css/profile/personal_details.css')
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css">
 @endpush
 
-<div class="container">
-    <div boxid_container="header" class="box-container">
-        <div boxid="name" class="box">
-            Notifications
-        </div>
-        <div boxid="datentime" class="box">
-            <span id="currTime">--:--:--</span>
-            <span id="currDate">--</span>
-        </div>
-    </div>
-    <div class="visible-line">
-        <hr>
-    </div>
-    <div boxid_container="details" class="box-container">
-        <div boxid="details" class="box" style="max-width: 100%;">
-            <span>Recent Notifications (Office: {{ $officeName }})</span>
-            <hr>
-            <div class="table-responsive">
-                <table class="table table-striped">
-                    <thead>
-                        <tr>
-                            <th>Subsystem</th>
-                            <th>Message</th>
-                            <th>Status</th>
-                            <th>Received At</th>
-                            <th>Actions</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        @forelse ($notifications as $notification)
-                            <tr>
-                                <td>{{ $notification->subsystem_name }}</td>
-                                <td>{{ $notification->content }}</td>
-                                <td>
-                                    <span class="badge" style="padding: 4px 8px; border-radius: 4px; font-size: 12px; font-weight: bold; text-transform: uppercase; background-color: {{ $notification->status === 'unread' ? '#ffc107' : '#28a745' }}; color: #fff;">
-                                        {{ $notification->status }}
-                                    </span>
-                                </td>
-                                <td>{{ \Carbon\Carbon::parse($notification->created_at)->format('Y-m-d H:i:s') }}</td>
-                                <td>
-                                    <div style="display: flex; gap: 5px;">
-                                        @if ($notification->status === 'unread')
-                                            <button wire:click="markAsRead({{ $notification->id }})" style="background-color: #043899; color: #fff; border: none; padding: 6px 12px; border-radius: 4px; cursor: pointer; font-size: 12px; font-weight: 500; transition: all 0.2s ease;">
-                                                Mark as Read
-                                            </button>
-                                        @endif
-                                        <button wire:click="dismiss({{ $notification->id }})" style="background-color: #dc3545; color: #fff; border: none; padding: 6px 12px; border-radius: 4px; cursor: pointer; font-size: 12px; font-weight: 500; transition: all 0.2s ease;">
-                                            Dismiss
-                                        </button>
-                                    </div>
-                                </td>
-                            </tr>
-                        @empty
-                            <tr>
-                                <td colspan="5">No notifications found for this account.</td>
-                            </tr>
-                        @endforelse
-                    </tbody>
-                </table>
+<div class="container personal-details-container">
+    <!-- Hero Banner -->
+    <div class="profile-hero-banner">
+        <div class="hero-left">
+            <div class="avatar-circle">
+                <i class="fa-solid fa-bell" style="font-size: 24px;"></i>
             </div>
+            <div class="hero-user-info">
+                <span class="hero-greeting">Profile Manager</span>
+                <h1 class="hero-name">Notifications</h1>
+            </div>
+        </div>
+        <div class="hero-right">
+            <div class="hero-clock">
+                <span id="currTime" class="clock-time">--:--:--</span>
+                <span id="currDate" class="clock-date">--</span>
+            </div>
+        </div>
+    </div>
+
+    <!-- Details Card (Table) -->
+    <div class="profile-card" style="width: 100%; box-sizing: border-box;">
+        <h2 class="card-title">
+            <i class="fa-solid fa-envelope-open-text"></i> Recent Notifications (Office: {{ $officeName }})
+        </h2>
+        
+        <div class="table-responsive">
+            <table class="table table-striped">
+                <thead>
+                    <tr>
+                        <th>Subsystem</th>
+                        <th>Message</th>
+                        <th>Status</th>
+                        <th>Received At</th>
+                        <th>Actions</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @forelse ($notifications as $notification)
+                        <tr>
+                            <td style="font-weight: 600; color: #003699;">{{ $notification->subsystem_name }}</td>
+                            <td>{{ $notification->content }}</td>
+                            <td>
+                                <span class="badge" style="padding: 4px 10px; border-radius: 99px; font-size: 11px; font-weight: bold; text-transform: uppercase; background-color: {{ $notification->status === 'unread' ? 'rgba(245, 158, 11, 0.15)' : 'rgba(16, 185, 129, 0.15)' }}; color: {{ $notification->status === 'unread' ? '#d97706' : '#10b981' }}; border: 1px solid {{ $notification->status === 'unread' ? 'rgba(245, 158, 11, 0.3)' : 'rgba(16, 185, 129, 0.3)' }};">
+                                    {{ $notification->status }}
+                                </span>
+                            </td>
+                            <td>{{ \Carbon\Carbon::parse($notification->created_at)->format('Y-m-d H:i:s') }}</td>
+                            <td>
+                                <div style="display: flex; gap: 8px;">
+                                    @if ($notification->status === 'unread')
+                                        <button wire:click="markAsRead({{ $notification->id }})" style="background-color: #003699; color: #fff; border: 1px solid #003699; padding: 6px 14px; border-radius: 99px; cursor: pointer; font-size: 11px; font-weight: 600; font-family: 'Inter', sans-serif; transition: all 0.2s ease; display: flex; align-items: center; gap: 4px;" onmouseover="this.style.backgroundColor='#002873'; this.style.borderColor='#002873'; this.style.transform='scale(1.05)';" onmouseout="this.style.backgroundColor='#003699'; this.style.borderColor='#003699'; this.style.transform='none';">
+                                            <i class="fa-solid fa-check"></i> Mark as Read
+                                        </button>
+                                    @endif
+                                    <button wire:click="dismiss({{ $notification->id }})" style="background-color: transparent; color: #ef4444; border: 1px solid rgba(239, 68, 68, 0.3); padding: 6px 14px; border-radius: 99px; cursor: pointer; font-size: 11px; font-weight: 600; font-family: 'Inter', sans-serif; transition: all 0.2s ease; display: flex; align-items: center; gap: 4px;" onmouseover="this.style.backgroundColor='rgba(239, 68, 68, 0.1)'; this.style.transform='scale(1.05)';" onmouseout="this.style.backgroundColor='transparent'; this.style.transform='none';">
+                                        <i class="fa-solid fa-trash-can"></i> Dismiss
+                                    </button>
+                                </div>
+                            </td>
+                        </tr>
+                    @empty
+                        <tr>
+                            <td colspan="5" class="no-permissions" style="text-align: center; padding: 24px;">No notifications found for this account.</td>
+                        </tr>
+                    @endforelse
+                </tbody>
+            </table>
         </div>
     </div>
 </div>
@@ -212,3 +221,4 @@ document.addEventListener('DOMContentLoaded', function () {
     setInterval(updateDateTime, 1000);
 });
 </script>
+

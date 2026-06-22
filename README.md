@@ -91,6 +91,35 @@ docker compose down -v
 
 ---
 
+## 📊 Project Status
+
+We track the progress of different modules using the completion ratios below (the remaining ratio represents tasks in progress):
+
+```mermaid
+pie title Project Status Breakdown
+    "Document Tracking System (Completed)" : 17
+    "Document Tracking System (In Progress)" : 13
+    "Records Disposition Program (Completed)" : 10
+    "Records Disposition Program (In Progress)" : 20
+    "Admin Console (Completed)" : 4.2
+    "Admin Console (In Progress)" : 5.8
+    "Profile Manager (Completed)" : 10
+    "Portal Access Pages (Completed)" : 18
+    "Portal Access Pages (In Progress)" : 2
+    "External Tracking (Completed)" : 9
+    "External Tracking (In Progress)" : 1
+```
+
+### Overall Completion Rate
+
+```mermaid
+pie title Overall Project Completion
+    "Total Completed" : 68.2
+    "Total In Progress" : 41.8
+```
+
+---
+
 ## 📁 Repository Structure
 
 - [records-management-system/](file:////RMS-CSPC/records-management-system): Main Laravel & Livewire web application source code and Docker setup.

@@ -107,6 +107,12 @@ new #[Layout('layouts.profile')] #[Title('Profile Manager - Notification Manager
      */
     public function markAsRead($notificationId)
     {
+        $exists = DB::table('notifications')->where('id', $notificationId)->exists();
+        if (!$exists) {
+            $this->loadNotifications();
+            return;
+        }
+
         $userId = Auth::id();
         DB::table('notification_div')->updateOrInsert(
             [
@@ -129,6 +135,12 @@ new #[Layout('layouts.profile')] #[Title('Profile Manager - Notification Manager
      */
     public function dismiss($notificationId)
     {
+        $exists = DB::table('notifications')->where('id', $notificationId)->exists();
+        if (!$exists) {
+            $this->loadNotifications();
+            return;
+        }
+
         $userId = Auth::id();
         DB::table('notification_div')->updateOrInsert(
             [

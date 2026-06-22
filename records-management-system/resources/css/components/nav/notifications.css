@@ -1,0 +1,302 @@
+[x-cloak] {
+    display: none !important;
+}
+
+.notification-container {
+    position: absolute;
+    top: 10px; /* Centered matching the actions-container top alignment */
+    right: 155px; /* Placed immediately to the left of the ACTIONS button (width: 123px) */
+    height: 30px; /* Matches the ACTIONS button height */
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 15;
+    pointer-events: none; /* Let clicks pass through container boundary to avoid blocking the action bar */
+}
+
+.notif-wrapper {
+    position: relative;
+    display: inline-block;
+    pointer-events: auto; /* Re-enable pointer events for the bell and dropdown menu */
+}
+
+.notif-bell-btn {
+    background: transparent;
+    border: none;
+    cursor: pointer;
+    padding: 3px; /* Compact padding to match 30px height */
+    border-radius: 50%;
+    position: relative;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: background-color 0.2s ease, transform 0.2s ease;
+    outline: none;
+}
+
+.notif-bell-btn:hover {
+    background-color: rgba(255, 255, 255, 0.1);
+    transform: scale(1.05);
+}
+
+.notif-bell-btn:active {
+    transform: scale(0.95);
+}
+
+.notif-bell-svg {
+    width: 24px;
+    height: 24px;
+    stroke: #ffffff;
+    fill: none;
+    transition: stroke 0.2s ease;
+}
+
+.notif-badge {
+    position: absolute;
+    top: 2px; /* Adjusted for smaller button padding */
+    right: 2px; /* Adjusted for smaller button padding */
+    width: 10px;
+    height: 10px;
+    background-color: #ef4444; /* Vivid red */
+    border-radius: 50%;
+    border: 2px solid #003699; /* Outline color matching the header background */
+}
+
+/* Dropdown Menu */
+.notif-dropdown {
+    position: absolute;
+    top: 35px; /* Adjusted to sit cleanly below the 30px height bell button */
+    right: -60px; /* Centered relative to the bell button */
+    width: 380px;
+    background-color: #ffffff;
+    border-radius: 12px;
+    box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.1), 0 8px 10px -6px rgba(0, 0, 0, 0.1);
+    border: 1px solid #e5e7eb;
+    z-index: 100;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    animation: notif_smooth_dropdown 0.25s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+    transform-origin: top right;
+}
+
+@keyframes notif_smooth_dropdown {
+    0% {
+        opacity: 0;
+        transform: scale(0.95) translateY(-10px);
+    }
+    100% {
+        opacity: 1;
+        transform: scale(1) translateY(0);
+    }
+}
+
+.notif-dropdown-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 14px 18px;
+    border-bottom: 1px solid #f3f4f6;
+    background-color: #ffffff;
+}
+
+.notif-dropdown-header h3 {
+    font-family: 'Inter', sans-serif;
+    font-size: 16px;
+    font-weight: 600;
+    color: #111827;
+    margin: 0;
+}
+
+.notif-mark-all-btn {
+    font-family: 'Inter', sans-serif;
+    font-size: 12.5px;
+    font-weight: 500;
+    color: #9ca3af;
+    background: transparent;
+    border: none;
+    cursor: pointer;
+    transition: color 0.2s ease;
+    padding: 0;
+}
+
+.notif-mark-all-btn:hover {
+    color: #003699;
+    text-decoration: underline;
+}
+
+.notif-dropdown-body {
+    max-height: 380px;
+    overflow-y: auto;
+    background-color: #ffffff;
+}
+
+/* Custom Scrollbar for Dropdown Body */
+.notif-dropdown-body::-webkit-scrollbar {
+    width: 6px;
+}
+
+.notif-dropdown-body::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+.notif-dropdown-body::-webkit-scrollbar-thumb {
+    background-color: #d1d5db;
+    border-radius: 99px;
+}
+
+.notif-dropdown-body::-webkit-scrollbar-thumb:hover {
+    background-color: #9ca3af;
+}
+
+/* Empty State */
+.notif-empty-state {
+    padding: 40px 24px;
+    text-align: center;
+    font-family: 'Inter', sans-serif;
+    color: #9ca3af;
+}
+
+.notif-empty-state i {
+    font-size: 32px;
+    margin-bottom: 12px;
+    display: block;
+    color: #d1d5db;
+}
+
+.notif-empty-state p {
+    font-size: 13.5px;
+    margin: 0;
+}
+
+/* Notification Item */
+.notif-item {
+    position: relative;
+    display: flex;
+    align-items: flex-start;
+    gap: 12px;
+    padding: 14px 18px;
+    border-bottom: 1px solid #f3f4f6;
+    transition: background-color 0.2s ease;
+}
+
+.notif-item:hover {
+    background-color: #f9fafb;
+}
+
+.notif-unread-dot {
+    width: 8px;
+    height: 8px;
+    background-color: #3b82f6; /* Blue dot for unread status */
+    border-radius: 50%;
+    flex-shrink: 0;
+    margin-top: 6px;
+}
+
+.notif-read-placeholder {
+    width: 8px;
+    height: 8px;
+    flex-shrink: 0;
+}
+
+.notif-content-wrapper {
+    flex-grow: 1;
+}
+
+.notif-message {
+    font-family: 'Inter', sans-serif;
+    font-size: 13px;
+    color: #374151;
+    line-height: 1.4;
+    margin: 0;
+    text-align: left;
+}
+
+.notif-time {
+    font-family: 'Inter', sans-serif;
+    font-size: 11px;
+    color: #9ca3af;
+    margin-top: 4px;
+    display: block;
+    text-align: left;
+}
+
+.notif-menu-wrapper {
+    position: relative;
+    margin-left: 8px;
+}
+
+.notif-actions-btn {
+    background: transparent;
+    border: none;
+    cursor: pointer;
+    padding: 4px 6px;
+    border-radius: 4px;
+    color: #9ca3af;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: background-color 0.2s ease, color 0.2s ease;
+    outline: none;
+}
+
+.notif-actions-btn:hover {
+    background-color: #f3f4f6;
+    color: #4b5563;
+}
+
+/* Contextual Action Menu */
+.notif-actions-menu {
+    position: absolute;
+    top: 24px;
+    right: 0;
+    background-color: #ffffff;
+    border: 1px solid #e5e7eb;
+    border-radius: 6px;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+    z-index: 110;
+    display: flex;
+    flex-direction: column;
+    width: 120px;
+    padding: 4px 0;
+    animation: menu_appear 0.15s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+@keyframes menu_appear {
+    0% {
+        opacity: 0;
+        transform: scale(0.95);
+    }
+    100% {
+        opacity: 1;
+        transform: scale(1);
+    }
+}
+
+.notif-action-item {
+    background: transparent;
+    border: none;
+    cursor: pointer;
+    padding: 8px 12px;
+    text-align: left;
+    font-family: 'Inter', sans-serif;
+    font-size: 12px;
+    color: #374151;
+    transition: background-color 0.2s ease, color 0.2s ease;
+    width: 100%;
+    outline: none;
+}
+
+.notif-action-item:hover {
+    background-color: #f3f4f6;
+    color: #111827;
+}
+
+.notif-action-item.delete {
+    color: #ef4444;
+}
+
+.notif-action-item.delete:hover {
+    background-color: #fee2e2;
+    color: #b91c1c;
+}

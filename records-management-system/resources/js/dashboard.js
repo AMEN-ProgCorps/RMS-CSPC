@@ -2,6 +2,10 @@ function toggleDropdown() {
     const dropdownIcon = document.getElementById('dropdown-icon');
     const dropdown = document.getElementById('dropdown');
 
+    if (!dropdown?.classList.contains('show')) {
+        window.dispatchEvent(new CustomEvent('close-notifications'));
+    }
+
     if (dropdownIcon?.classList.contains('rotate')) {
         dropdownIcon.classList.remove('rotate');
         dropdownIcon.classList.toggle('revert');
@@ -13,6 +17,18 @@ function toggleDropdown() {
     }
 
     dropdown?.classList.toggle('show');
+}
+
+function closeActionsDropdown() {
+    const dropdown = document.getElementById('dropdown');
+    const dropdownIcon = document.getElementById('dropdown-icon');
+    if (dropdown?.classList.contains('show')) {
+        dropdown.classList.remove('show');
+        if (dropdownIcon?.classList.contains('rotate')) {
+            dropdownIcon.classList.remove('rotate');
+            dropdownIcon.classList.add('revert');
+        }
+    }
 }
 
 function toggleNavProperties() {
@@ -72,3 +88,4 @@ window.toggleNavProperties = toggleNavProperties;
 window.resetNavProperties = resetNavProperties;
 window.showButtonSection = showButtonSection;
 window.proccedto = proccedto;
+window.closeActionsDropdown = closeActionsDropdown;

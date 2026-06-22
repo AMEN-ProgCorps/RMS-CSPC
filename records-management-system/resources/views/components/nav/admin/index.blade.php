@@ -62,6 +62,7 @@
     <div class="functions-container">
         <div class="function-button {{ request()->routeIs('admin.activity.logins') ? 'force-active' : '' }}" onclick="proccedto('{{ route('admin.activity.logins') }}')">Logins</div>
         <div class="function-button {{ request()->routeIs('admin.activity.account-changes') ? 'force-active' : '' }}" onclick="proccedto('{{ route('admin.activity.account-changes') }}')">Account Changes</div>
+        <div class="function-button {{ request()->routeIs('admin.activity.notifications') ? 'force-active' : '' }}" onclick="proccedto('{{ route('admin.activity.notifications') }}')">Notifications</div>
     </div>
 </div>
 

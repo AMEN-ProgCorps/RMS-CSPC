@@ -10,7 +10,7 @@
             toggleNavDefault: "{{ asset('icons/toggle-nav-default.svg') }}",
         };
     </script>
-    @vite(['resources/css/dashboard.css', 'resources/js/dashboard.js'])
+    @vite(['resources/css/dashboard.css', 'resources/css/components/nav/notifications.css', 'resources/js/dashboard.js'])
     <title>CSPC - Document Tracking System</title>
     @stack('styles')
 </head>
@@ -24,7 +24,7 @@
             <span class="title">Records Management System</span>
         </div>
         <div class="notification-container">
-            {{-- notification livewire component goes here --}}
+            <livewire:components.notification.notifications />
         </div>
         <span class="office_name">Records and Freedom of Information Office</span>
         <x-actions.dropdown />

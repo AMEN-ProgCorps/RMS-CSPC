@@ -21,6 +21,7 @@ export default defineConfig({
                 'resources/css/dts/list_trasaction.css',
                 'resources/css/dts/internal.css',
                 'resources/css/dts/create.css',
+                'resources/css/components/nav/notifications.css',
             ],
             refresh: true,
         }),

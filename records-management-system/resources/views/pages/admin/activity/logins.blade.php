@@ -58,6 +58,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Logins')] class extends 
                 'security_logs.id',
                 'security_logs.time',
                 'security_logs.user_ipaddr',
+                'security_logs.status as status_id',
                 'security_status.status_name',
                 'security_status.description',
                 'account.username',
@@ -156,22 +157,75 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Logins')] class extends 
                         <tr wire:key="log-{{ $log->id }}">
                             <td>
                                 @php
-                                    $statusLower = strtolower($log->status_name);
-                                    $badgeClass = 'badge-secondary';
-                                    if (str_contains($statusLower, 'success')) {
-                                        $badgeClass = 'badge-success';
-                                    } elseif (str_contains($statusLower, 'failed') || str_contains($statusLower, 'lock')) {
-                                        $badgeClass = 'badge-danger';
+                                    // Prefer ID-based mapping (safer than string-matching). Fallback to name if id missing.
+                                    $sid = $log->status_id ?? null;
+                                    $badgeIcon = 'fa-circle-info';
+                                    $bg = 'rgba(148,163,184,0.06)';
+                                    $color = '#64748b';
+                                    $border = 'rgba(148,163,184,0.12)';
+
+                                    switch ($sid) {
+                                        case 1: // Login Successful
+                                        case 7: // Password Reset Successful -> success styling
+                                            $badgeIcon = 'fa-circle-check';
+                                            $bg = 'rgba(16,185,129,0.15)';
+                                            $color = '#10b981';
+                                            $border = 'rgba(16,185,129,0.3)';
+                                            break;
+                                        case 3: // Logout
+                                            $badgeIcon = 'fa-right-from-bracket';
+                                            $bg = 'rgba(245,158,11,0.15)';
+                                            $color = '#f59e0b';
+                                            $border = 'rgba(245,158,11,0.3)';
+                                            break;
+                                        case 2: // Login Failed
+                                        case 5: // Account Locked
+                                            $badgeIcon = 'fa-circle-xmark';
+                                            $bg = 'rgba(239,68,68,0.15)';
+                                            $color = '#ef4444';
+                                            $border = 'rgba(239,68,68,0.3)';
+                                            break;
+                                        case 4: // Unauthorized Access
+                                            $badgeIcon = 'fa-triangle-exclamation';
+                                            $bg = 'rgba(249,115,22,0.15)';
+                                            $color = '#f97316';
+                                            $border = 'rgba(249,115,22,0.3)';
+                                            break;
+                                        case 6: // Password Reset Requested
+                                            $badgeIcon = 'fa-key';
+                                            $bg = 'rgba(139,92,246,0.12)';
+                                            $color = '#8b5cf6';
+                                            $border = 'rgba(139,92,246,0.22)';
+                                            break;
+                                        default:
+                                            // Fallback: attempt lightweight name matching
+                                            $statusLower = strtolower($log->status_name ?? '');
+                                            if (str_contains($statusLower, 'success')) {
+                                                $badgeIcon = 'fa-circle-check';
+                                                $bg = 'rgba(16,185,129,0.15)';
+                                                $color = '#10b981';
+                                                $border = 'rgba(16,185,129,0.3)';
+                                            } elseif (str_contains($statusLower, 'logout')) {
+                                                $badgeIcon = 'fa-right-from-bracket';
+                                                $bg = 'rgba(245,158,11,0.15)';
+                                                $color = '#f59e0b';
+                                                $border = 'rgba(245,158,11,0.3)';
+                                            } elseif (str_contains($statusLower, 'failed') || str_contains($statusLower, 'lock')) {
+                                                $badgeIcon = 'fa-circle-xmark';
+                                                $bg = 'rgba(239,68,68,0.15)';
+                                                $color = '#ef4444';
+                                                $border = 'rgba(239,68,68,0.3)';
+                                            } else {
+                                                $badgeIcon = 'fa-circle-info';
+                                                $bg = 'rgba(59,130,246,0.08)';
+                                                $color = '#3b82f6';
+                                                $border = 'rgba(59,130,246,0.12)';
+                                            }
+                                            break;
                                     }
                                 @endphp
-                                <span class="badge {{ $badgeClass }}">
-                                    @if($badgeClass === 'badge-success')
-                                        <i class="fa-solid fa-circle-check"></i>
-                                    @elseif($badgeClass === 'badge-danger')
-                                        <i class="fa-solid fa-circle-xmark"></i>
-                                    @else
-                                        <i class="fa-solid fa-circle-info"></i>
-                                    @endif
+                                <span class="badge" style="padding: 4px 10px; border-radius: 99px; font-size: 11px; font-weight: bold; text-transform: uppercase; background-color: {{ $bg }}; color: {{ $color }}; border: 1px solid {{ $border }};">
+                                    <i class="fa-solid {{ $badgeIcon }}" style="margin-right:6px;"></i>
                                     {{ $log->status_name }}
                                 </span>
                             </td>
@@ -198,8 +252,18 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Logins')] class extends 
                             </td>
                             <td>
                                 <div class="log-timestamp">
-                                    {{ \Carbon\Carbon::parse($log->time)->format('Y-m-d H:i:s') }}
-                                    <span class="time-ago">{{ \Carbon\Carbon::parse($log->time)->diffForHumans() }}</span>
+                                    @php
+                                        // Parse once safely to avoid repeated parsing and null errors
+                                        $time = $log->time ? \Carbon\Carbon::parse($log->time) : null;
+                                        $formattedDate = $time ? $time->format('Y-m-d') : '--';
+                                        // store epoch seconds for robust JS parsing
+                                        $epoch = $time ? $time->getTimestamp() : '';
+                                        $formattedTime = $time ? $time->format('h:i:s A') : '--';
+                                        $timeAgo = $time ? $time->diffForHumans() : '';
+                                    @endphp
+                                    <span class="log-date">{{ $formattedDate }}</span>
+                                    <span class="log-time" data-time="{{ $epoch }}">{{ $formattedTime }}</span>
+                                    <span class="time-ago">{{ $timeAgo }}</span>
                                 </div>
                             </td>
                         </tr>
@@ -252,3 +316,54 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Logins')] class extends 
         @endif
     </div>
 </div>
+<script>
+// Use Livewire hooks and epoch seconds to avoid Date parsing inconsistencies and to re-format after partial updates.
+(() => {
+    const pad = (v) => String(v).padStart(2, '0');
+
+    const formatLocalTime = (d) => {
+        let hours = d.getHours();
+        const minutes = pad(d.getMinutes());
+        const seconds = pad(d.getSeconds());
+        const period = hours >= 12 ? 'PM' : 'AM';
+        hours = hours % 12;
+        if (hours === 0) hours = 12;
+        return String(hours).padStart(2, '0') + ':' + minutes + ':' + seconds + ' ' + period;
+    };
+
+    const updateLogTimes = () => {
+        document.querySelectorAll('.log-time').forEach(el => {
+            const ts = el.getAttribute('data-time');
+            if (!ts) return;
+            const num = Number(ts);
+            if (Number.isNaN(num)) return;
+            const dt = new Date(num * 1000);
+            if (isNaN(dt)) return;
+            el.textContent = formatLocalTime(dt);
+        });
+    };
+
+    const run = () => {
+        try { updateLogTimes(); } catch (e) { /* silent */ }
+    };
+
+    // Run on initial load and every 30s. Also re-run after Livewire updates.
+    document.addEventListener('livewire:load', () => {
+        run();
+        if (window.Livewire && typeof Livewire.hook === 'function') {
+            Livewire.hook('message.processed', () => {
+                run();
+            });
+        }
+        setInterval(run, 30000);
+    });
+
+    // Fallback if Livewire not present
+    if (!window.Livewire) {
+        document.addEventListener('DOMContentLoaded', () => {
+            run();
+            setInterval(run, 30000);
+        });
+    }
+})();
+</script>

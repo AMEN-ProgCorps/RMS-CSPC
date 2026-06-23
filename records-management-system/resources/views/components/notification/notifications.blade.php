@@ -90,12 +90,33 @@ new class extends Component {
                 'notifications.id',
                 'subsystems.subsystem_name',
                 'notif_content.content',
+                'notif_content.redirect_url',
                 'notifications.created_at',
                 DB::raw("COALESCE(notification_div.status, 'unread') as status")
             )
             ->get();
 
         $this->unreadCount = $this->notifications->where('status', 'unread')->count();
+    }
+
+    /**
+     * Handles notification message click: marks it as read and redirects if redirect_url is populated.
+     */
+    public function handleNotificationClick($notificationId)
+    {
+        $notification = DB::table('notifications')
+            ->join('notif_content', 'notifications.contents', '=', 'notif_content.id')
+            ->where('notifications.id', $notificationId)
+            ->select('notif_content.redirect_url')
+            ->first();
+
+        // 1. Mark notification as read
+        $this->markAsRead($notificationId);
+
+        // 2. Redirect to item view link if present
+        if ($notification && $notification->redirect_url) {
+            $this->redirect($notification->redirect_url, navigate: true);
+        }
     }
 
     /**
@@ -214,7 +235,7 @@ new class extends Component {
                     @endif
 
                     <!-- Content -->
-                    <div class="notif-content-wrapper">
+                    <div class="notif-content-wrapper" wire:click="handleNotificationClick({{ $notification->id }})" style="cursor: pointer; flex-grow: 1;">
                         <p class="notif-message">{{ $notification->content }}</p>
                         <span class="notif-time">{{ \Carbon\Carbon::parse($notification->created_at)->diffForHumans() }}</span>
                     </div>

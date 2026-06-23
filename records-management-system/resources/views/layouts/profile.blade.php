@@ -10,7 +10,7 @@
             toggleNavDefault: "{{ asset('icons/toggle-nav-default.svg') }}",
         };
     </script>
-    @vite(['resources/css/dashboard.css', 'resources/css/components/nav/notifications.css', 'resources/js/dashboard.js'])
+    @vite(['resources/css/dashboard.css', 'resources/css/notifications.css', 'resources/js/dashboard.js'])
     <title>CSPC - Profile Manager</title>
     @stack('styles')
 </head>

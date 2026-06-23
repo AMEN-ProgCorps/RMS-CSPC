@@ -29,6 +29,7 @@ class AccountDetail extends Model
         'account_id',
         'first_name',
         'last_name',
+        'office_id',
         'email',
         'contact_number',
         'is_currently_online',
@@ -43,4 +44,9 @@ class AccountDetail extends Model
         'date_created'        => 'datetime',
         'date_updated'        => 'datetime',
     ];
+
+    public function office(): \Illuminate\Database\Eloquent\Relations\BelongsTo
+    {
+        return $this->belongsTo(office::class, 'office_id');
+    }
 }

@@ -37,6 +37,7 @@ Route::middleware(['auth'])
 
         Volt::route('/admin/activity/logins', 'pages.admin.activity.logins')->name('admin.activity.logins');
         Volt::route('/admin/activity/account-changes', 'pages.admin.activity.account-changes')->name('admin.activity.account-changes');
+        Volt::route('/admin/activity/notifications', 'pages.admin.activity.notifications')->name('admin.activity.notifications');
 
         Volt::route('/admin/rms/transaction-logs', 'pages.admin.rms.transaction-logs')->name('admin.rms.transaction-logs');
         Volt::route('/admin/rms/update-logs', 'pages.admin.rms.update-logs')->name('admin.rms.update-logs');

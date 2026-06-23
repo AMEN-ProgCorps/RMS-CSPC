@@ -7,6 +7,9 @@
         function toggleDropdown() {
             const dropdownIcon = document.getElementById('dropdown-icon');
             const dropdown = document.getElementById('dropdown');
+            if (!dropdown.classList.contains('show')) {
+                window.dispatchEvent(new CustomEvent('close-notifications'));
+            }
             if (dropdownIcon.classList.contains('rotate')) {
                 dropdownIcon.classList.remove('rotate');
                 dropdownIcon.classList.toggle('revert');
@@ -17,6 +20,17 @@
                 dropdownIcon.classList.add('rotate');
             }
             dropdown.classList.toggle('show');
+        }
+        function closeActionsDropdown() {
+            const dropdown = document.getElementById('dropdown');
+            const dropdownIcon = document.getElementById('dropdown-icon');
+            if (dropdown && dropdown.classList.contains('show')) {
+                dropdown.classList.remove('show');
+                if (dropdownIcon && dropdownIcon.classList.contains('rotate')) {
+                    dropdownIcon.classList.remove('rotate');
+                    dropdownIcon.classList.add('revert');
+                }
+            }
         }
         function toggleNavProperties() {
             const navigation = document.getElementById('navigation');

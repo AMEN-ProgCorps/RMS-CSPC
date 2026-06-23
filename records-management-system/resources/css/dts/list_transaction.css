@@ -190,3 +190,55 @@
     padding: 24px !important;
     background-color: #fdfdfd;
 }
+
+/* Status & Priority Badge Colors */
+.status-badge {
+    padding: 4px 8px;
+    border-radius: 4px;
+    font-size: 0.75rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    display: inline-block;
+}
+.status-completed {
+    background-color: #d1fae5;
+    color: #065f46;
+}
+.status-ongoing {
+    background-color: #dbeafe;
+    color: #1e40af;
+}
+.status-revision {
+    background-color: #fef3c7;
+    color: #92400e;
+}
+.status-cancelled {
+    background-color: #fee2e2;
+    color: #991b1b;
+}
+.status-drafted {
+    background-color: #f3f4f6;
+    color: #374151;
+}
+
+.priority-badge {
+    padding: 4px 8px;
+    border-radius: 4px;
+    font-size: 0.75rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    display: inline-block;
+}
+.priority-simple {
+    background-color: #e0f2fe;
+    color: #0369a1;
+}
+.priority-complex {
+    background-color: #f3e8ff;
+    color: #6b21a8;
+}
+.priority-highly_technical,
+.priority-highly-technical {
+    background-color: #ffe4e6;
+    color: #9f1239;
+}

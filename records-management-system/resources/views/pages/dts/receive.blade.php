@@ -38,6 +38,20 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Receive Transac
     public bool $editingFileCode = false;
     public bool $editingParticulars = false;
 
+    /** @var bool Toggle state for full configured path sequence */
+    public bool $showFullConfiguredPath = false;
+
+    /**
+     * Component mount hook.
+     */
+    public function mount()
+    {
+        $id = request()->query('id');
+        if ($id) {
+            $this->openTransaction($id);
+        }
+    }
+
     /**
      * Fetch list of transactions waiting at the user's assigned office.
      */
@@ -136,10 +150,73 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Receive Transac
 
         return DB::table('sub_document_tracking_system_logs as log')
             ->leftJoin('office', 'office.office_code', '=', 'log.office_code')
+            ->leftJoin('sub_document_tracking_system_logs_types as lt', 'lt.type_id', '=', 'log.type')
             ->where('log.transaction_id', $this->selectedTransactionId)
-            ->select('log.*', 'office.office_name')
+            ->select('log.*', 'office.office_name', 'lt.description')
             ->orderBy('log.id', 'asc')
-            ->get();
+            ->get()
+            ->map(function ($step) {
+                $step->is_active_step = ($step->office_code === auth()->user()?->details?->office?->office_code && is_null($step->date_out));
+                return $step;
+            });
+    }
+
+    public function toggleFullConfiguredPath(): void
+    {
+        $this->showFullConfiguredPath = !$this->showFullConfiguredPath;
+    }
+
+    public function getFullFlowPathProperty()
+    {
+        if (!$this->selectedTransactionId || !$this->selectedTransaction) {
+            return collect();
+        }
+        $flowCode = $this->selectedTransaction->transaction_flow;
+        $flow = DB::table('dts_transaction_flow')->where('flow_code', $flowCode)->first();
+        if (!$flow) {
+            return collect();
+        }
+        return DB::table('dts_sequence_list as seq')
+            ->join('office', 'office.office_code', '=', 'seq.office_code')
+            ->where('seq.control_id', $flow->id)
+            ->select('seq.sequence_ranking', 'office.office_name', 'seq.office_code')
+            ->orderBy('seq.sequence_ranking', 'asc')
+            ->get()
+            ->map(function ($step) {
+                $log = DB::table('sub_document_tracking_system_logs')
+                    ->where('transaction_id', $this->selectedTransactionId)
+                    ->where('office_code', $step->office_code)
+                    ->orderBy('id', 'desc')
+                    ->first();
+
+                $step->date_in = $log ? $log->date_in : null;
+                $step->date_out = $log ? $log->date_out : null;
+                $step->type = $log ? $log->type : 'pending';
+                $step->notes = $log ? $log->notes : '';
+
+                if ($log) {
+                    $typeRow = DB::table('sub_document_tracking_system_logs_types')
+                        ->where('type_id', $log->type)
+                        ->first();
+                    $step->description = $typeRow ? $typeRow->description : '';
+                } else {
+                    $step->description = 'Pending office flow step.';
+                }
+
+                $step->is_active_step = (
+                    $step->office_code === auth()->user()?->details?->office?->office_code
+                    && $step->office_code === $this->selectedTransaction->current_office
+                    && $step->sequence_ranking === $this->selectedTransaction->sequence
+                    && in_array($this->selectedTransaction->status, ['ongoing', 'revision'])
+                    && !is_null($step->date_in)
+                );
+                return $step;
+            });
+    }
+
+    public function getVisiblePathProperty()
+    {
+        return $this->showFullConfiguredPath ? $this->fullFlowPath : $this->transactionPath;
     }
 
     /**
@@ -161,6 +238,7 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Receive Transac
         $this->editingControl = false;
         $this->editingFileCode = false;
         $this->editingParticulars = false;
+        $this->showFullConfiguredPath = false;
     }
 
     /**
@@ -372,11 +450,19 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Receive Transac
     }
 
     /**
-     * Completely remove transaction (Admin clearance only).
+     * Completely remove transaction (Creator and non-active/revised/amended/draft states only).
      */
     public function deleteTransaction(): void
     {
-        if (!auth()->user()?->permissions?->is_sadm) {
+        if (!$this->selectedTransactionId || !$this->selectedTransaction) {
+            return;
+        }
+
+        $isCreator = ($this->selectedTransaction->created_by === auth()->id());
+        $canDeleteState = in_array($this->selectedTransaction->status, ['revision', 'drafted', 'completed', 'cancelled']) 
+                       || !is_null($this->selectedTransaction->append_transaction);
+
+        if (!$isCreator || !$canDeleteState) {
             return;
         }
 
@@ -418,7 +504,7 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Receive Transac
     @vite('resources/css/dts/receive.css')
 @endpush
 
-<div class="receive-container">
+<div class="receive-container" wire:poll.15s>
     <!-- Header Section -->
     <div class="receive-header">
         <h1 class="receive-main-title">Receive Transactions</h1>
@@ -497,7 +583,7 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Receive Transac
                                 </div>
                             @else
                                 <input type="text" class="receive-field-input" value="{{ $controlNumber }}" readonly>
-                                @if (auth()->user()?->permissions?->is_sadm)
+                                @if (auth()->user()?->permissions?->is_sadm && $selectedTransaction->current_office === auth()->user()?->details?->office?->office_code)
                                     <div class="receive-field-actions">
                                         <button type="button" wire:click="startEdit('control')">Update</button>
                                         <span>|</span>
@@ -519,7 +605,7 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Receive Transac
                                 </div>
                             @else
                                 <input type="text" class="receive-field-input" value="{{ $fileCode ?: 'N/A' }}" readonly>
-                                @if (auth()->user()?->permissions?->is_sadm)
+                                @if (auth()->user()?->permissions?->is_sadm && $selectedTransaction->current_office === auth()->user()?->details?->office?->office_code)
                                     <div class="receive-field-actions">
                                         <button type="button" wire:click="startEdit('file_code')">Update</button>
                                         <span>|</span>
@@ -540,7 +626,7 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Receive Transac
                                     </div>
                                 </div>
                             @else
-                                @if (auth()->user()?->permissions?->is_sadm)
+                                @if (auth()->user()?->permissions?->is_sadm && $selectedTransaction->current_office === auth()->user()?->details?->office?->office_code)
                                     <div class="receive-particulars-display" wire:click="startEdit('particulars')" style="cursor: pointer; width: 100%;">
                                         {{ $particulars ?: 'Click to add particulars...' }}
                                     </div>
@@ -574,21 +660,21 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Receive Transac
                                 </tr>
                             </thead>
                             <tbody>
-                                @forelse ($this->transactionPath as $index => $step)
+                                @forelse ($this->visiblePath as $index => $step)
                                     <tr>
-                                        <td>{{ $index + 1 }}</td>
+                                        <td>{{ $step->sequence_ranking ?? ($index + 1) }}</td>
                                         <td class="office-cell">{{ $step->office_name }}</td>
                                         <td>{{ $step->date_in ? \Carbon\Carbon::parse($step->date_in)->format('Y-m-d H:i') : 'N/A' }}</td>
                                         <td>{{ $step->date_out ? \Carbon\Carbon::parse($step->date_out)->format('Y-m-d H:i') : 'Pending' }}</td>
                                         <td>
-                                            @if ($step->office_code === auth()->user()?->details?->office?->office_code && is_null($step->date_out))
+                                            @if ($step->is_active_step)
                                                 <span class="text-green font-semibold" style="text-transform: uppercase;">Active</span>
                                             @else
                                                 {{ ucfirst($step->type) }}
                                             @endif
                                         </td>
                                         <td>
-                                            @if ($step->office_code === auth()->user()?->details?->office?->office_code && is_null($step->date_out))
+                                            @if ($step->is_active_step)
                                                 <input type="text" wire:model="activeNotes" class="active-notes-input" placeholder="Type notes here...">
                                             @else
                                                 {{ $step->notes ?: '-' }}
@@ -605,7 +691,7 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Receive Transac
                                             </button>
                                         </td>
                                         <td class="action-cell">
-                                            @if ($step->office_code === auth()->user()?->details?->office?->office_code && is_null($step->date_out))
+                                            @if ($step->is_active_step)
                                                 <select wire:model="activeAction" class="receive-row-action-select">
                                                     <option value="forwarded">Forward</option>
                                                     <option value="returned">Revise</option>
@@ -626,25 +712,27 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Receive Transac
 
                     <!-- Popup Action Buttons -->
                     <div class="receive-actions">
-                        <!-- VIEW LISTED PATH (Mock/Reset toggle) -->
-                        <button type="button" class="receive-action-btn" wire:click="loadSelectedTransaction">
+                        <!-- VIEW LISTED PATH / VIEW LOGS Toggle -->
+                        <button type="button" class="receive-action-btn" wire:click="toggleFullConfiguredPath">
                             <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
                                 <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
                                 <circle cx="12" cy="12" r="3"/>
                             </svg>
-                            VIEW LISTED PATH
+                            {{ $showFullConfiguredPath ? 'VIEW LOGS' : 'VIEW LISTED PATH' }}
                         </button>
 
                         <!-- COMPLETED -->
-                        <button type="button" class="receive-action-btn" wire:click="completeTransaction">
-                            <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-                                <polyline points="20 6 9 17 4 12"/>
-                            </svg>
-                            COMPLETED
-                        </button>
+                        @if ($selectedTransaction->current_office === auth()->user()?->details?->office?->office_code)
+                            <button type="button" class="receive-action-btn" wire:click="completeTransaction">
+                                <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                                    <polyline points="20 6 9 17 4 12"/>
+                                </svg>
+                                COMPLETED
+                            </button>
+                        @endif
 
                         <!-- EDIT (Save Metadata changes manually without completing) -->
-                        @if (auth()->user()?->permissions?->is_sadm)
+                        @if (auth()->user()?->permissions?->is_sadm && $selectedTransaction->current_office === auth()->user()?->details?->office?->office_code)
                             <button type="button" class="receive-action-btn" wire:click="completeTransaction">
                                 <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
                                     <path d="M17 3l4 4-7 7H10v-4l7-7z"/>
@@ -654,8 +742,13 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Receive Transac
                             </button>
                         @endif
 
-                        <!-- DELETE (Admin only) -->
-                        @if (auth()->user()?->permissions?->is_sadm)
+                        <!-- DELETE (Creator and non-active/revised/amended/draft states only) -->
+                        @php
+                            $isCreator = ($selectedTransaction->created_by === auth()->id());
+                            $canDeleteState = in_array($selectedTransaction->status, ['revision', 'drafted', 'completed', 'cancelled']) 
+                                           || !is_null($selectedTransaction->append_transaction);
+                        @endphp
+                        @if ($isCreator && $canDeleteState)
                             <button type="button" class="receive-action-btn receive-action-btn--danger" wire:click="deleteTransaction">
                                 <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
                                     <path d="M3 6h18M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
@@ -667,7 +760,7 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Receive Transac
                         @endif
 
                         <!-- + ADD CF (Dummy link to edit File Code) -->
-                        @if (auth()->user()?->permissions?->is_sadm)
+                        @if (auth()->user()?->permissions?->is_sadm && $selectedTransaction->current_office === auth()->user()?->details?->office?->office_code)
                             <button type="button" class="receive-action-btn" wire:click="startEdit('file_code')">
                                 <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
                                     <path d="M12 5v14M5 12h14"/>

@@ -75,7 +75,7 @@
             window.location.href = url;
         }
     </script>
-    @vite(['resources/css/dashboard.css', 'resources/css/components/nav/notifications.css'])
+    @vite(['resources/css/dashboard.css', 'resources/css/notifications.css'])
     <title>{{ $title ?? 'CSPC - Records Management System' }}</title>
     @stack('styles')
 </head>

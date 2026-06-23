@@ -85,13 +85,13 @@ new #[Layout('layouts.profile')] #[Title('Profile Manager - Security Logs')] cla
                     @forelse ($securityLogs as $log)
                         <tr>
                             <td>
-                                <span class="badge" style="padding: 4px 10px; border-radius: 99px; font-size: 11px; font-weight: bold; text-transform: uppercase; background-color: {{ strtolower($log->status_name) === 'success' ? 'rgba(16, 185, 129, 0.15)' : 'rgba(239, 68, 68, 0.15)' }}; color: {{ strtolower($log->status_name) === 'success' ? '#10b981' : '#ef4444' }}; border: 1px solid {{ strtolower($log->status_name) === 'success' ? 'rgba(16, 185, 129, 0.3)' : 'rgba(239, 68, 68, 0.3)' }};">
+                                <span class="badge" style="padding: 4px 10px; border-radius: 99px; font-size: 11px; font-weight: bold; text-transform: uppercase; background-color: {{ stripos($log->status_name, 'success') !== false ? 'rgba(16, 185, 129, 0.15)' : (stripos($log->status_name, 'logout') !== false ? 'rgba(245, 158, 11, 0.15)' : 'rgba(239, 68, 68, 0.15)') }}; color: {{ stripos($log->status_name, 'success') !== false ? '#10b981' : (stripos($log->status_name, 'logout') !== false ? '#f59e0b' : '#ef4444') }}; border: 1px solid {{ stripos($log->status_name, 'success') !== false ? 'rgba(16, 185, 129, 0.3)' : (stripos($log->status_name, 'logout') !== false ? 'rgba(245, 158, 11, 0.3)' : 'rgba(239, 68, 68, 0.3)') }};">
                                     {{ $log->status_name }}
                                 </span>
                             </td>
                             <td>{{ $log->description }}</td>
                             <td style="font-family: monospace; color: #4a5568;">{{ $log->user_ipaddr }}</td>
-                            <td>{{ \Carbon\Carbon::parse($log->time)->format('Y-m-d H:i:s') }}</td>
+                            <td class="log-time" data-time="{{ \Carbon\Carbon::parse($log->time)->getTimestamp() }}">{{ \Carbon\Carbon::parse($log->time)->format('Y-m-d h:i:s A') }}</td>
                         </tr>
                     @empty
                         <tr>
@@ -118,7 +118,8 @@ document.addEventListener('DOMContentLoaded', function () {
         timeEl.textContent = now.toLocaleTimeString([], {
             hour: '2-digit',
             minute: '2-digit',
-            second: '2-digit'
+            second: '2-digit',
+            hour12: true
         });
         dateEl.textContent = now.toLocaleDateString([], {
             year: 'numeric',
@@ -129,6 +130,36 @@ document.addEventListener('DOMContentLoaded', function () {
 
     updateDateTime();
     setInterval(updateDateTime, 1000);
+
+    // Update log times to user's local time and keep them in sync every second
+    const pad = (v) => String(v).padStart(2, '0');
+    const formatLocal = (d) => {
+        const year = d.getFullYear();
+        const month = pad(d.getMonth() + 1);
+        const day = pad(d.getDate());
+        let hours = d.getHours();
+        const minutes = pad(d.getMinutes());
+        const seconds = pad(d.getSeconds());
+        const period = hours >= 12 ? 'PM' : 'AM';
+        hours = hours % 12;
+        if (hours === 0) hours = 12;
+        const hourStr = pad(hours);
+        return year + '-' + month + '-' + day + ' ' + hourStr + ':' + minutes + ':' + seconds + ' ' + period;
+    };
+
+    const updateLogTimes = () => {
+        document.querySelectorAll('.log-time').forEach(el => {
+            const ts = el.getAttribute('data-time');
+            if (!ts) return;
+            const ms = Number(ts) * 1000;
+            if (Number.isNaN(ms)) return;
+            const dt = new Date(ms);
+            el.textContent = formatLocal(dt);
+        });
+    };
+
+    updateLogTimes();
+    setInterval(updateLogTimes, 1000);
 });
 </script>
 

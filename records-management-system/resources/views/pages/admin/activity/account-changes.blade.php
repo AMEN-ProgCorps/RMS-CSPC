@@ -188,8 +188,17 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Account Changes')] class
                             </td>
                             <td>
                                 <div class="log-timestamp">
-                                    {{ \Carbon\Carbon::parse($log->when_changes)->format('Y-m-d H:i:s') }}
-                                    <span class="time-ago">{{ \Carbon\Carbon::parse($log->when_changes)->diffForHumans() }}</span>
+                                    @php
+                                        // Safely parse once and expose epoch seconds for JS formatting
+                                        $t = $log->when_changes ? \Carbon\Carbon::parse($log->when_changes) : null;
+                                        $formattedDate = $t ? $t->format('Y-m-d') : '--';
+                                        $formattedTime = $t ? $t->format('h:i:s A') : '--';
+                                        $epoch = $t ? $t->getTimestamp() : '';
+                                        $timeAgo = $t ? $t->diffForHumans() : '';
+                                    @endphp
+                                    <span class="log-date">{{ $formattedDate }}</span>
+                                    <span class="log-time" data-time="{{ $epoch }}">{{ $formattedTime }}</span>
+                                    <span class="time-ago">{{ $timeAgo }}</span>
                                 </div>
                             </td>
                         </tr>
@@ -242,3 +251,47 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Account Changes')] class
         @endif
     </div>
 </div>
+<script>
+// Livewire-aware timestamp formatter (uses epoch seconds in data-time)
+(function(){
+    const pad = (v) => String(v).padStart(2, '0');
+    const formatLocalTime = (d) => {
+        let hours = d.getHours();
+        const minutes = pad(d.getMinutes());
+        const seconds = pad(d.getSeconds());
+        const period = hours >= 12 ? 'PM' : 'AM';
+        hours = hours % 12;
+        if (hours === 0) hours = 12;
+        return String(hours).padStart(2, '0') + ':' + minutes + ':' + seconds + ' ' + period;
+    };
+
+    const updateLogTimes = () => {
+        document.querySelectorAll('.log-time').forEach(el => {
+            const ts = el.getAttribute('data-time');
+            if (!ts) return;
+            const num = Number(ts);
+            if (Number.isNaN(num)) return;
+            const dt = new Date(num * 1000);
+            if (isNaN(dt)) return;
+            el.textContent = formatLocalTime(dt);
+        });
+    };
+
+    const run = () => { try { updateLogTimes(); } catch (e){} };
+
+    document.addEventListener('livewire:load', () => {
+        run();
+        if (window.Livewire && typeof Livewire.hook === 'function') {
+            Livewire.hook('message.processed', () => { run(); });
+        }
+        setInterval(run, 30000);
+    });
+
+    if (!window.Livewire) {
+        document.addEventListener('DOMContentLoaded', () => {
+            run();
+            setInterval(run, 30000);
+        });
+    }
+})();
+</script>

@@ -136,7 +136,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Dashboard')] class exten
         
         <div class="activities-list">
             @forelse($activities as $activity)
-                @php
+                    @php
                     // Resolve display name: use full name if available, fall back to username
                     $displayName = ($activity->first_name || $activity->last_name) 
                         ? trim($activity->first_name . ' ' . $activity->last_name)
@@ -145,13 +145,15 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Dashboard')] class exten
                     // Resolve role name
                     $roleLabel = $activity->role_name ?: 'System';
 
-                    // Parse and format the log timestamp matching the design mockup format (e.g. May 27, 3:03 AM)
-                    $formattedTime = \Carbon\Carbon::parse($activity->time)->format('M d, g:i A');
+                    // Keep the date server-side (do not change it) and render the time as ISO for client-side sync
+                    $formattedDate = \Carbon\Carbon::parse($activity->time)->format('M d,');
+                    $isoTime = \Carbon\Carbon::parse($activity->time)->toIso8601String();
+                    $formattedTime = \Carbon\Carbon::parse($activity->time)->format('g:i:s A');
                 @endphp
                 <div class="activity-row">
                     <div class="activity-left">
                         <span class="activity-name">{{ $displayName }}</span>
-                        <span class="activity-meta">{{ $roleLabel }} &nbsp;&nbsp;&nbsp; {{ $formattedTime }}</span>
+                        <span class="activity-meta">{{ $roleLabel }} &nbsp;&nbsp;&nbsp; <span class="activity-date">{{ $formattedDate }}</span> <span class="activity-time" data-time="{{ $isoTime }}">{{ $formattedTime }}</span></span>
                     </div>
                     <div class="activity-right">
                         <span>{{ $activity->action_name }}</span>
@@ -165,3 +167,31 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Dashboard')] class exten
         </div>
     </div>
 </div>
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+    const pad = (v) => String(v).padStart(2, '0');
+
+    const formatLocalTime = (d) => {
+        let hours = d.getHours();
+        const minutes = pad(d.getMinutes());
+        const seconds = pad(d.getSeconds());
+        const period = hours >= 12 ? 'PM' : 'AM';
+        hours = hours % 12;
+        if (hours === 0) hours = 12;
+        return String(hours).padStart(2, '0') + ':' + minutes + ':' + seconds + ' ' + period;
+    };
+
+    const updateActivityTimes = () => {
+        document.querySelectorAll('.activity-time').forEach(el => {
+            const iso = el.getAttribute('data-time');
+            if (!iso) return;
+            const dt = new Date(iso);
+            if (isNaN(dt)) return;
+            el.textContent = formatLocalTime(dt);
+        });
+    };
+
+    updateActivityTimes();
+    setInterval(updateActivityTimes, 1000);
+});
+</script>

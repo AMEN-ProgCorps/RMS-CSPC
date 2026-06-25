@@ -19,6 +19,9 @@ new #[Layout('layouts.profile')] #[Title('Profile Manager - Security Logs')] cla
     /**
      * Component mount hook - fetches security logs for the active user account.
      */
+    public ?int $currentRoleId = null;
+    public array $currentPermissions = [];
+
     public function mount()
     {
         $userId = Auth::id(); // Get the authenticated user's ID
@@ -36,6 +39,32 @@ new #[Layout('layouts.profile')] #[Title('Profile Manager - Security Logs')] cla
                 'security_logs.time'
             )
             ->get();
+
+        $this->checkRoleUpdate();
+    }
+
+    public function checkRoleUpdate()
+    {
+        $user = Auth::user();
+        if (!$user) return;
+        $user = $user->fresh();
+        
+        $perms = $user->permissions;
+        $permValues = $perms ? [
+            $perms->is_sadm, $perms->can_access_dts, $perms->can_access_archv, $perms->can_access_dcs,
+            $perms->can_modify_docflow, $perms->can_modify_accountlist, $perms->can_modify_pass,
+            $perms->can_modify_user, $perms->can_view_all_list, $perms->can_view_all_archive
+        ] : [];
+
+        if ($this->currentRoleId === null) {
+            $this->currentRoleId = $user->account_role;
+            $this->currentPermissions = $permValues;
+            return;
+        }
+
+        if ($user->account_role !== $this->currentRoleId || $permValues !== $this->currentPermissions) {
+            $this->js('window.location.reload();');
+        }
     }
 };
 ?>
@@ -45,7 +74,7 @@ new #[Layout('layouts.profile')] #[Title('Profile Manager - Security Logs')] cla
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css">
 @endpush
 
-<div class="container personal-details-container">
+<div class="container personal-details-container" wire:poll.5s="checkRoleUpdate">
     <!-- Hero Banner -->
     <div class="profile-hero-banner">
         <div class="hero-left">

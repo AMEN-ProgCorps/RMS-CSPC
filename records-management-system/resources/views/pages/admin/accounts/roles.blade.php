@@ -219,7 +219,13 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Roles')] class extends C
                 }
             });
 
-            $this->successMessage = 'Role configuration updated successfully!';
+            $currentUserRole = auth()->user() ? auth()->user()->account_role : null;
+            if ($currentUserRole && $currentUserRole === $this->selectedRoleId) {
+                session()->flash('success', 'Role configuration updated successfully!');
+                $this->js('window.location.reload();');
+            } else {
+                $this->successMessage = 'Role configuration updated successfully!';
+            }
         } catch (\Exception $e) {
             $this->errorMessage = 'Failed to save changes: ' . $e->getMessage();
         }
@@ -253,9 +259,17 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Roles')] class extends C
                     'when_changes' => now()
                 ]);
 
+                $roleId = $this->selectedRoleId;
                 // Reset selection to close edit details pane but set success message
                 $this->cancelSelection();
-                $this->successMessage = 'Role soft-deleted successfully!';
+                
+                $currentUserRole = auth()->user() ? auth()->user()->account_role : null;
+                if ($currentUserRole && $currentUserRole === $roleId) {
+                    session()->flash('success', 'Role soft-deleted successfully!');
+                    $this->js('window.location.reload();');
+                } else {
+                    $this->successMessage = 'Role soft-deleted successfully!';
+                }
             });
         } catch (\Exception $e) {
             $this->errorMessage = 'Failed to delete role: ' . $e->getMessage();
@@ -375,17 +389,17 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Roles')] class extends C
 
             <!-- Body Form -->
             <div class="details-body">
-                @if($successMessage)
+                @if($successMessage || session('success'))
                     <div class="toast-alert success">
                         <i class="fa-solid fa-circle-check"></i>
-                        <span>{{ $successMessage }}</span>
+                        <span>{{ $successMessage ?: session('success') }}</span>
                     </div>
                 @endif
 
-                @if($errorMessage)
+                @if($errorMessage || session('error'))
                     <div class="toast-alert error">
                         <i class="fa-solid fa-circle-exclamation"></i>
-                        <span>{{ $errorMessage }}</span>
+                        <span>{{ $errorMessage ?: session('error') }}</span>
                     </div>
                 @endif
 

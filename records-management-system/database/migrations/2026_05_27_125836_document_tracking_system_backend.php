@@ -76,6 +76,22 @@ return new class extends Migration
             $table->foreign('sequence')->references('sequence_ranking')->on('dts_sequence_list')->onDelete('cascade');
         });
 
+        Schema::create('dts_copy_filled_transaction', function (Blueprint $table) {
+            $table->increments('id');
+            $table->string('control_num');
+            $table->integer('total_office');
+            $table->timestamp('data_created')->useCurrent();
+            $table->integer('assign_offices_id')->unique();
+            $table->timestamp('date_modified')->useCurrent();
+        });
+
+        Schema::create('dts_copy_filled_to_office', function (Blueprint $table) {
+            $table->integer('control_id');
+            $table->string('office_code');
+            $table->foreign('control_id')->references('assign_offices_id')->on('dts_copy_filled_transaction')->onDelete('cascade');
+            $table->foreign('office_code')->references('office_code')->on('office')->onDelete('cascade');
+        });
+
         Schema::create('dts_transaction_details', function (Blueprint $table) {
             $table->string('id')->index();
             $table->enum('type', ['internal', 'external', 'memorandom','others']);
@@ -89,7 +105,7 @@ return new class extends Migration
             $table->boolean('is_active')->default(true);
             $table->timestamp('date_created')->index()->notNull();
             $table->string('control_number')->index()->notNull();
-            $table->string('copy_filled_id')->nullable();
+            $table->unsignedInteger('copy_filled_id')->nullable();
             $table->foreign('id')->references('transaction_id')->on('dts_transactions')->onDelete('cascade');
             $table->foreign('type')->references('trans_type')->on('dts_transactions')->onDelete('cascade');
             $table->foreign('created_by')->references('id')->on('account')->onDelete('cascade');
@@ -98,7 +114,7 @@ return new class extends Migration
             $table->foreign('status')->references('status')->on('dts_transactions')->onDelete('cascade');
             $table->foreign('email_access')->references('id')->on('dts_email_access')->onDelete('cascade');
             $table->foreign('transaction_flow')->references('flow_code')->on('dts_transaction_flow')->onDelete('cascade');
-            $table->foreign('copy_filled_id')->references('id')->on('dts_transaction_details')->onDelete('cascade');
+            $table->foreign('copy_filled_id')->references('id')->on('dts_copy_filled_transaction')->onDelete('cascade');
         });
     }
 
@@ -107,13 +123,15 @@ return new class extends Migration
      */
     public function down(): void
     {
+        Schema::dropIfExists('dts_copy_filled_to_office');
+        Schema::dropIfExists('dts_transaction_details');
+        Schema::dropIfExists('dts_copy_filled_transaction');
         Schema::dropIfExists('dts_qr_code');
         Schema::dropIfExists('dts_email_access');
         Schema::dropIfExists('dts_transaction_flow');
         Schema::dropIfExists('dts_document_trans');
         Schema::dropIfExists('dts_document_data');
         Schema::dropIfExists('dts_sequence_list');
-        Schema::dropIfExists('dts_transaction_details');
         Schema::dropIfExists('dts_transactions');
     }
 };

@@ -36,30 +36,23 @@ new #[Layout('layouts.profile')] #[Title('Profile Manager - Details')] class ext
     /** @var array<int, string> List of human-readable permissions assigned to this user */
     public array  $enabledPermissions = [];
 
+    public ?int $currentRoleId = null;
+
     /**
      * Component Mount hook - populates user attributes and maps roles/permissions.
      */
     public function mount(): void
     {
-        $user    = auth()->user();
-        $details = $user->details;
+        $this->refresh();
+    }
 
-        if ($details) {
-            $this->firstName     = $details->first_name     ?? '';
-            $this->lastName      = $details->last_name      ?? '';
-            $this->middleName    = $details->middle_name    ?? '';
-            $this->email         = $details->email          ?? '';
-            $this->contactNumber = $details->contact_number ?? '';
-            $this->accountId     = $details->account_id;
-        }
+    public function refresh(): void
+    {
+        $user = auth()->user()->fresh();
+        
+        $newRoleId = $user->account_role;
+        $newPermissions = [];
 
-        // Fetch and map Role name from database condition keys
-        if ($user->account_role) {
-            $role = \DB::table('condition_key')->where('id', $user->account_role)->first();
-            $this->roleName = $role?->key_name ?? 'Unknown';
-        }
-
-        // Map database boolean permissions to human-readable labels
         $perms = $user->permissions;
         if ($perms) {
             $labels = [
@@ -77,9 +70,37 @@ new #[Layout('layouts.profile')] #[Title('Profile Manager - Details')] class ext
 
             foreach ($labels as $key => $label) {
                 if ($perms->$key) {
-                    $this->enabledPermissions[] = $label;
+                    $newPermissions[] = $label;
                 }
             }
+        }
+
+        // If this is a poll request and we detect a change in role or permissions
+        if ($this->currentRoleId !== null) {
+            if ($newRoleId !== $this->currentRoleId || $newPermissions !== $this->enabledPermissions) {
+                $this->js('window.location.reload();');
+                return;
+            }
+        }
+
+        $this->currentRoleId = $newRoleId;
+        $this->enabledPermissions = $newPermissions;
+
+        $details = $user->details;
+        if ($details) {
+            $this->firstName     = $details->first_name     ?? '';
+            $this->lastName      = $details->last_name      ?? '';
+            $this->middleName    = $details->middle_name    ?? '';
+            $this->email         = $details->email          ?? '';
+            $this->contactNumber = $details->contact_number ?? '';
+            $this->accountId     = $details->account_id;
+        }
+
+        // Fetch and map Role name from database condition keys
+        $this->roleName = 'Unknown';
+        if ($user->account_role) {
+            $role = \DB::table('condition_key')->where('id', $user->account_role)->first();
+            $this->roleName = $role?->key_name ?? 'Unknown';
         }
     }
 };
@@ -90,7 +111,7 @@ new #[Layout('layouts.profile')] #[Title('Profile Manager - Details')] class ext
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css">
 @endpush
 
-<div class="container personal-details-container">
+<div class="container personal-details-container" wire:poll.5s="refresh">
     <!-- Hero Banner -->
     <div class="profile-hero-banner">
         <div class="hero-left">

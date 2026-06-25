@@ -29,6 +29,22 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - List Internal T
     public bool $editingParticulars = false;
     public bool $showFullConfiguredPath = false;
 
+    // Selection state
+    public array $selectedIds = [];
+    public bool $selectAll = false;
+
+    public function updatedSelectAll($value): void
+    {
+        if ($value) {
+            $this->selectedIds = collect($this->transactions->items())
+                ->pluck('transaction_id')
+                ->map(fn($id) => (string)$id)
+                ->toArray();
+        } else {
+            $this->selectedIds = [];
+        }
+    }
+
     public function toggleLayout(): void
     {
         $this->layoutMode = $this->layoutMode === 'table' ? 'box' : 'table';
@@ -37,21 +53,29 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - List Internal T
     public function updatingSearchQuery()
     {
         $this->resetPage();
+        $this->selectedIds = [];
+        $this->selectAll = false;
     }
 
     public function updatingSelectedPriority()
     {
         $this->resetPage();
+        $this->selectedIds = [];
+        $this->selectAll = false;
     }
 
     public function updatingSelectedStatus()
     {
         $this->resetPage();
+        $this->selectedIds = [];
+        $this->selectAll = false;
     }
 
     public function updatingPerPage()
     {
         $this->resetPage();
+        $this->selectedIds = [];
+        $this->selectAll = false;
     }
 
     public function getTransactionsProperty()
@@ -437,7 +461,11 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - List Internal T
                     <option value="drafted">Drafted</option>
                 </select>
             </div>
-            <div style="display: flex; gap: 12px; align-items: center;">
+            <div style="display: flex; gap: 16px; align-items: center;">
+                <label style="display: inline-flex; align-items: center; gap: 6px; font-size: 0.85rem; cursor: pointer; user-select: none; color: #4b5563; font-weight: 500;">
+                    <input type="checkbox" wire:model.live="selectAll" style="width: 16px; height: 16px; cursor: pointer; accent-color: #1e40af;">
+                    Select All
+                </label>
                 <button type="button" wire:click="toggleLayout" class="rms-select" style="background: white; padding-right: 12px; display: inline-flex; align-items: center; gap: 6px;">
                     @if ($layoutMode === 'table')
                         <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7"></rect><rect x="14" y="3" width="7" height="7"></rect><rect x="14" y="14" width="7" height="7"></rect><rect x="3" y="14" width="7" height="7"></rect></svg>
@@ -475,6 +503,9 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - List Internal T
             <table class="rms-table">
                 <thead>
                     <tr>
+                        <th style="width: 40px; text-align: center;">
+                            <input type="checkbox" wire:model.live="selectAll" style="width: 16px; height: 16px; cursor: pointer; accent-color: #1e40af;">
+                        </th>
                         <th style="width: 60px;">Item No.</th>
                         <th>Control Number</th>
                         <th>Barcode</th>
@@ -492,7 +523,13 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - List Internal T
                 </thead>
                 <tbody>
                     @forelse($this->transactions as $index => $t)
-                        <tr>
+                        @php
+                            $isChecked = in_array((string)$t->transaction_id, $selectedIds);
+                        @endphp
+                        <tr style="background-color: {{ $isChecked ? '#f0f6ff' : '' }};">
+                            <td style="text-align: center;">
+                                <input type="checkbox" wire:model.live="selectedIds" value="{{ $t->transaction_id }}" style="width: 16px; height: 16px; cursor: pointer; accent-color: #1e40af;">
+                            </td>
                             <td style="text-align: center;">{{ $this->transactions->firstItem() + $index }}</td>
                             <td>{{ $t->control_number }}</td>
                             <td>{{ $t->qr_code }}</td>
@@ -518,57 +555,39 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - List Internal T
                             </td>
                         </tr>
                     @empty
-                        <tr><td colspan="13" class="rms-no-data">No transactions found.</td></tr>
+                        <tr><td colspan="14" class="rms-no-data">No transactions found.</td></tr>
                     @endforelse
                 </tbody>
             </table>
         </div>
     @else
-        <!-- Box Layout (Card Grid) -->
-        <div class="dts-card-grid-container" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(360px, 1fr)); gap: 20px; margin-bottom: 20px;">
+        <!-- Box Layout (Simplified Checkable Cards Grid) -->
+        <div class="dts-card-grid-container" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 16px; margin-bottom: 20px;">
             @forelse ($this->transactions as $index => $t)
-                <div class="dts-box-card" style="background: white; border: 1.5px solid #ced4da; border-radius: 12px; padding: 24px; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.05); display: flex; flex-direction: column; justify-content: space-between; position: relative;">
-                    <!-- Top Right Info & Icon -->
-                    <div style="position: absolute; top: 16px; right: 16px; display: flex; align-items: center; gap: 8px; font-size: 11px; color: #6b7280;">
-                        <span>{{ \Carbon\Carbon::parse($t->date_created)->diffForHumans(null, true) }} ago</span>
-                        @if ($t->status === 'completed')
-                            <span style="display: inline-block; width: 14px; height: 14px; background-color: #10b981; transform: rotate(45deg); display: flex; align-items: center; justify-content: center; border-radius: 2px;" title="Completed">
-                                <span style="transform: rotate(-45deg); color: white; font-size: 9px; font-weight: bold;">✔</span>
-                            </span>
-                        @elseif ($t->classification === 'highly_technical')
-                            <span style="display: inline-block; width: 14px; height: 14px; background-color: #ef4444; transform: rotate(45deg); display: flex; align-items: center; justify-content: center; border-radius: 2px;" title="Highly Technical">
-                                <span style="transform: rotate(-45deg); color: white; font-size: 9px; font-weight: bold;">!</span>
-                            </span>
-                        @else
-                            <span style="display: inline-block; width: 14px; height: 14px; background-color: #f59e0b; transform: rotate(45deg); display: flex; align-items: center; justify-content: center; border-radius: 2px;" title="Pending Action">
-                                <span style="transform: rotate(-45deg); color: white; font-size: 9px; font-weight: bold;">!</span>
-                            </span>
-                        @endif
+                @php
+                    $isChecked = in_array((string)$t->transaction_id, $selectedIds);
+                @endphp
+                <div class="dts-box-card" style="background: {{ $isChecked ? '#f0f6ff' : 'white' }}; border: 1.5px solid {{ $isChecked ? '#1e40af' : '#ced4da' }}; border-radius: 8px; padding: 16px; box-shadow: 0 2px 4px rgba(0,0,0,0.05); display: flex; gap: 12px; align-items: flex-start; transition: all 0.2s ease;">
+                    
+                    <!-- Left side Checkbox -->
+                    <div style="display: flex; align-items: center; justify-content: center; height: 20px;">
+                        <input type="checkbox" wire:model.live="selectedIds" value="{{ $t->transaction_id }}" style="width: 18px; height: 18px; cursor: pointer; accent-color: #1e40af;">
                     </div>
 
-                    <!-- Card Body contents -->
-                    <div style="font-size: 13px; color: #4b5563; line-height: 1.6; margin-top: 12px; font-family: Roboto, sans-serif;">
-                        <div style="margin-bottom: 6px;"><strong>Subject:</strong> {{ $t->subject }}</div>
-                        <div style="margin-bottom: 6px;"><strong>Unit/College:</strong> {{ $t->originated_office_name }}</div>
-                        <div style="margin-bottom: 6px;"><strong>Name of Requestor:</strong> {{ auth()->user()?->details?->first_name }} {{ auth()->user()?->details?->last_name }}</div>
-                        <div style="margin-bottom: 6px;"><strong>Control Number:</strong> <span style="font-weight: 600; color: #1e40af;">{{ $t->control_number }}</span></div>
-                        <div style="margin-bottom: 14px;"><strong>Type of Document:</strong> {{ $t->document_name ?? ucfirst($t->classification ?: 'internal') }}</div>
+                    <!-- Right side Info Contents -->
+                    <div style="flex-grow: 1; font-family: Roboto, sans-serif; font-size: 13px;">
+                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; gap: 8px;">
+                            <span style="font-weight: 600; color: #1e40af; font-size: 13px;">{{ $t->control_number }}</span>
+                            <span class="status-badge status-{{ $t->status }}" style="font-size: 9px; padding: 2px 6px;">{{ $t->status }}</span>
+                        </div>
 
-                        <div style="margin-bottom: 6px;"><strong>Receive From:</strong> <span style="color: #ef4444; font-weight: 500;">{{ $t->from_office }}</span></div>
-                        <div style="margin-bottom: 14px;"><strong>Receive Date:</strong> {{ $t->date_created ? \Carbon\Carbon::parse($t->date_created)->format('Y-m-d H:i') : 'N/A' }}</div>
+                        <div style="font-weight: 500; color: #1f2937; margin-bottom: 4px; line-height: 1.4; word-break: break-word;">{{ $t->subject }}</div>
+                        <div style="font-size: 11px; color: #6b7280; margin-bottom: 8px;">{{ $t->document_name ?? ucfirst($t->classification ?: 'internal') }}</div>
 
-                        <div style="margin-bottom: 14px;"><strong>Next Receiving Office:</strong> {{ $t->next_office_name }}</div>
-
-                        <div style="margin-bottom: 6px;"><strong>Action Needed:</strong> <span style="color: #16a34a; font-weight: 600;">For action</span></div>
-                        <div style="margin-bottom: 6px;"><strong>Elapsed Day:</strong> <span style="color: #ef4444; font-style: italic;">{{ \Carbon\Carbon::parse($t->date_created)->diffInDays(now()) }} day(s) (period that has passed between the received date and the later date)</span></div>
-                    </div>
-
-                    <!-- Card Footer view action -->
-                    <div style="display: flex; justify-content: flex-end; margin-top: 16px;">
-                        <button type="button" wire:click="openTransaction('{{ $t->transaction_id }}')" class="rms-select" style="background-color: #3b82f6; color: white; border: none; padding: 8px 18px; border-radius: 6px; display: inline-flex; align-items: center; gap: 6px; font-weight: 500; text-decoration: none; font-size: 11px; letter-spacing: 0.3px; transition: background-color 0.2s ease; cursor: pointer;">
-                            <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="16" x2="12" y2="12"></line><line x1="12" y1="8" x2="12.01" y2="8"></line></svg>
-                            VIEW TRANSACTION
-                        </button>
+                        <div style="display: flex; justify-content: space-between; font-size: 10px; color: #9ca3af; border-top: 1px solid #f3f4f6; padding-top: 8px; margin-top: 8px; align-items: center;">
+                            <span>Source: {{ $t->originated_office_name }}</span>
+                            <button type="button" wire:click="openTransaction('{{ $t->transaction_id }}')" style="background: transparent; border: none; color: #2563eb; font-size: 11px; font-weight: 600; cursor: pointer; padding: 0;">View Details</button>
+                        </div>
                     </div>
                 </div>
             @empty

@@ -273,6 +273,11 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Users')] class extends C
                     $this->successMessage = 'User account details updated successfully!';
                 }
             });
+
+            if ($this->selectedUserId === auth()->id()) {
+                session()->flash('success', 'User account details updated successfully!');
+                $this->js('window.location.reload();');
+            }
         } catch (\Exception $e) {
             $this->errorMessage = 'Failed to save changes: ' . $e->getMessage();
         }
@@ -503,17 +508,17 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Users')] class extends C
 
             <!-- Body/Form -->
             <div class="details-body">
-                @if($successMessage)
+                @if($successMessage || session('success'))
                     <div class="toast-alert success">
                         <i class="fa-solid fa-circle-check"></i>
-                        <span>{{ $successMessage }}</span>
+                        <span>{{ $successMessage ?: session('success') }}</span>
                     </div>
                 @endif
 
-                @if($errorMessage)
+                @if($errorMessage || session('error'))
                     <div class="toast-alert error">
                         <i class="fa-solid fa-circle-exclamation"></i>
-                        <span>{{ $errorMessage }}</span>
+                        <span>{{ $errorMessage ?: session('error') }}</span>
                     </div>
                 @endif
 

@@ -9,6 +9,9 @@ new #[Layout('layouts.portal')] #[Title('RMS CSPC Portal')] class extends Compon
 {
     public string $userNameDisplay = '';
 
+    public ?int $currentRoleId = null;
+    public array $currentPermissions = [];
+
     public function mount(): mixed
     {
         if (! Auth::check()) {
@@ -21,7 +24,33 @@ new #[Layout('layouts.portal')] #[Title('RMS CSPC Portal')] class extends Compon
                 ?: $user->username;
         }
 
+        $this->checkRoleUpdate();
+
         return null;
+    }
+
+    public function checkRoleUpdate()
+    {
+        $user = Auth::user();
+        if (!$user) return;
+        $user = $user->fresh();
+        
+        $perms = $user->permissions;
+        $permValues = $perms ? [
+            $perms->is_sadm, $perms->can_access_dts, $perms->can_access_archv, $perms->can_access_dcs,
+            $perms->can_modify_docflow, $perms->can_modify_accountlist, $perms->can_modify_pass,
+            $perms->can_modify_user, $perms->can_view_all_list, $perms->can_view_all_archive
+        ] : [];
+
+        if ($this->currentRoleId === null) {
+            $this->currentRoleId = $user->account_role;
+            $this->currentPermissions = $permValues;
+            return;
+        }
+
+        if ($user->account_role !== $this->currentRoleId || $permValues !== $this->currentPermissions) {
+            $this->js('window.location.reload();');
+        }
     }
 
     /**
@@ -54,7 +83,7 @@ new #[Layout('layouts.portal')] #[Title('RMS CSPC Portal')] class extends Compon
     </style>
 @endpush
 
-<div class="livewire-root">
+<div class="livewire-root" wire:poll.5s="checkRoleUpdate">
 
 <header>
     <span class="office-name">Records and Freedom of Information Office</span>

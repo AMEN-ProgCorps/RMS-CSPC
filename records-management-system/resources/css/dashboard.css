@@ -259,9 +259,35 @@ section{
             width: 100%;
         }
         .nav .nav-list-container{
+            max-height: 100%;
             display: flex;
                 flex-direction: column;
                 gap: 30px;
+            overflow-y: auto;
+            overflow-x: hidden;
+            padding-bottom: 80px;
+        }
+        /* Custom scrollbar for expanded nav container */
+        .navigation.imup .nav .nav-list-container::-webkit-scrollbar {
+            width: 6px;
+        }
+        .navigation.imup .nav .nav-list-container::-webkit-scrollbar-track {
+            background: transparent;
+        }
+        .navigation.imup .nav .nav-list-container::-webkit-scrollbar-thumb {
+            background: #cbd5e1;
+            border-radius: 4px;
+        }
+        .navigation.imup .nav .nav-list-container::-webkit-scrollbar-thumb:hover {
+            background: #94a3b8;
+        }
+        /* Hide scrollbars completely in collapsed mode */
+        .navigation.imdown .nav .nav-list-container::-webkit-scrollbar {
+            display: none;
+        }
+        .navigation.imdown .nav .nav-list-container {
+            -ms-overflow-style: none;  /* IE and Edge */
+            scrollbar-width: none;  /* Firefox */
         }
     .navigation.imdown .nav .nav-list-container .button-section-container .button-container .button-label,
     .navigation.imdown .nav .nav-list-container .button-section-container .button-container .show-arrow{

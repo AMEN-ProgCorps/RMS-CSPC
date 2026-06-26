@@ -16,6 +16,15 @@ class CanAccessRdp
             abort(403);
         }
 
+        // Check if Records Disposition Program is active globally
+        $isActive = \DB::table('subsystems')
+            ->where('subsystem_name', 'Records Disposition Program')
+            ->value('is_active');
+
+        if (! $isActive) {
+            abort(403, 'The Records Disposition Program is currently deactivated.');
+        }
+
         return $next($request);
     }
 }

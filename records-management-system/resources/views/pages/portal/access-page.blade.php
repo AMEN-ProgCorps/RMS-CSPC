@@ -73,6 +73,20 @@ new #[Layout('layouts.portal')] #[Title('RMS CSPC Portal')] class extends Compon
         session()->regenerateToken();
         $this->redirect(route('login'));
     }
+
+    public function with(): array
+    {
+        $activeSubsystems = \DB::table('subsystems')
+            ->where('is_active', true)
+            ->pluck('subsystem_name')
+            ->toArray();
+
+        return [
+            'dtsActive' => in_array('Document Tracking System', $activeSubsystems),
+            'rdpActive' => in_array('Records Disposition Program', $activeSubsystems),
+            'adminActive' => in_array('Admin Console', $activeSubsystems),
+        ];
+    }
 };
 ?>
 
@@ -109,21 +123,21 @@ new #[Layout('layouts.portal')] #[Title('RMS CSPC Portal')] class extends Compon
                 <span>Profile</span>
             </div>
         </a>
-        @if(auth()->user()?->permissions?->is_sadm || auth()->user()?->permissions?->can_access_dts)
+        @if((auth()->user()?->permissions?->is_sadm || auth()->user()?->permissions?->can_access_dts) && $dtsActive)
         <a href="{{ route('dts') }}" class="system-con" id="dts">
             <div class="display-box">
                 <span>Document Tracking System</span>
             </div>
         </a>
         @endif
-        @if(auth()->user()?->permissions?->is_sadm)
+        @if(auth()->user()?->permissions?->is_sadm && $adminActive)
         <a href="/admin/console/" class="system-con" id="admin">
             <div class="display-box">
                 <span>Admin Console</span>
             </div>
         </a>
         @endif
-        @if(auth()->user()?->permissions?->is_sadm || auth()->user()?->permissions?->can_access_rdp)
+        @if((auth()->user()?->permissions?->is_sadm || auth()->user()?->permissions?->can_access_rdp) && $rdpActive)
         <a href="{{ route('rdp') }}" class="system-con" id="rdp">
             <div class="display-box">
                 <span>Records Disposition Program</span>

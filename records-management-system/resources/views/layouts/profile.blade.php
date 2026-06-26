@@ -58,5 +58,213 @@
         </div>
     </section>
     @stack('scripts')
+    <script>
+    (function () {
+        let clockTimer = null;
+        const storagePrefix = 'rms-profile:';
+
+        const getMaskStorageKey = (target) => storagePrefix + 'mask:' + target;
+        const getPlainStorageKey = (target) => storagePrefix + 'plain:' + target;
+
+        const queryClockElements = () => {
+            const root = document.querySelector('.hero-clock');
+            if (!root) {
+                return null;
+            }
+            const timeEl = root.querySelector('#currTime');
+            const dateEl = root.querySelector('#currDate');
+            return timeEl && dateEl ? { root, timeEl, dateEl } : null;
+        };
+
+        const renderClock = () => {
+            const elements = queryClockElements();
+            if (!elements) {
+                return false;
+            }
+            const now = new Date();
+            elements.timeEl.textContent = now.toLocaleTimeString([], {
+                hour: '2-digit',
+                minute: '2-digit',
+                second: '2-digit'
+            });
+            elements.dateEl.textContent = now.toLocaleDateString([], {
+                year: 'numeric',
+                month: 'long',
+                day: 'numeric'
+            });
+            return true;
+        };
+
+        const stopClock = () => {
+            if (clockTimer !== null) {
+                clearInterval(clockTimer);
+                clockTimer = null;
+            }
+        };
+
+        const startClock = () => {
+            stopClock();
+            if (!renderClock()) {
+                return;
+            }
+            clockTimer = setInterval(() => {
+                if (!renderClock()) {
+                    stopClock();
+                }
+            }, 1000);
+        };
+
+        const normalizeTarget = (target) => (target || '').toString().trim();
+        const readStoredBoolean = (key) => {
+            try {
+                const raw = sessionStorage.getItem(key);
+                return raw === null ? null : JSON.parse(raw);
+            } catch (e) {
+                return null;
+            }
+        };
+        const writeStoredBoolean = (key, value) => {
+            sessionStorage.setItem(key, JSON.stringify(!!value));
+        };
+
+        const readMaskState = (target) => {
+            const key = normalizeTarget(target);
+            return key ? readStoredBoolean(getMaskStorageKey(key)) : null;
+        };
+        const writeMaskState = (target, value) => {
+            const key = normalizeTarget(target);
+            if (!key) {
+                return;
+            }
+            writeStoredBoolean(getMaskStorageKey(key), value);
+        };
+        const readPlainValue = (target) => {
+            const key = normalizeTarget(target);
+            return key ? (sessionStorage.getItem(getPlainStorageKey(key)) || '') : '';
+        };
+        const writePlainValue = (target, value) => {
+            const key = normalizeTarget(target);
+            if (!key) {
+                return;
+            }
+            sessionStorage.setItem(getPlainStorageKey(key), String(value || ''));
+        };
+
+        const maskPlaceholder = (plain) => '•'.repeat(Math.max(String(plain || '').length, 8));
+        const findMaskedValueElement = (target) => {
+            if (!target) {
+                return null;
+            }
+            return document.querySelector(`[setid="${target}"] .masked-value`);
+        };
+
+        const updateButtonIcon = (buttonEl, isMasked) => {
+            const icon = buttonEl.querySelector('.eye-icon');
+            if (!icon) {
+                return;
+            }
+            icon.innerHTML = isMasked ? '<i class="fa-solid fa-eye"></i>' : '<i class="fa-solid fa-eye-slash"></i>';
+        };
+
+        const refreshMaskedField = (buttonEl, valueEl) => {
+            if (!buttonEl || !valueEl) {
+                return;
+            }
+            const target = buttonEl.getAttribute('data-target');
+            if (!target) {
+                return;
+            }
+
+            const storedPlain = readPlainValue(target);
+            const currentText = valueEl.textContent.trim();
+            const actualPlain = storedPlain || (currentText.indexOf('•') === 0 ? '' : currentText);
+            const storedMasked = readMaskState(target);
+            const isMasked = storedMasked === false ? false : true;
+
+            if (actualPlain) {
+                writePlainValue(target, actualPlain);
+            }
+
+            valueEl.setAttribute('data-plain', actualPlain);
+            valueEl.setAttribute('data-masked', String(isMasked));
+            valueEl.textContent = isMasked ? maskPlaceholder(actualPlain) : actualPlain;
+            updateButtonIcon(buttonEl, isMasked);
+        };
+
+        const refreshAllMaskedFields = () => {
+            document.querySelectorAll('.mask-toggle[data-target]').forEach((buttonEl) => {
+                const target = buttonEl.getAttribute('data-target');
+                const valueEl = findMaskedValueElement(target);
+                refreshMaskedField(buttonEl, valueEl);
+            });
+        };
+
+        const toggleMaskedField = (buttonEl) => {
+            const target = buttonEl.getAttribute('data-target');
+            const valueEl = findMaskedValueElement(target);
+            if (!valueEl || !target) {
+                return;
+            }
+
+            const currentText = valueEl.textContent.trim();
+            const plainText = readPlainValue(target) || (currentText.indexOf('•') === 0 ? '' : currentText);
+            const currentlyMasked = valueEl.getAttribute('data-masked') !== 'false';
+            const nextMasked = !currentlyMasked;
+
+            writePlainValue(target, plainText);
+            writeMaskState(target, nextMasked);
+            valueEl.setAttribute('data-plain', plainText);
+            valueEl.setAttribute('data-masked', String(nextMasked));
+            valueEl.textContent = nextMasked ? maskPlaceholder(plainText) : plainText;
+            updateButtonIcon(buttonEl, nextMasked);
+        };
+
+        const maskClickHandler = (event) => {
+            const buttonEl = event.target.closest('.mask-toggle');
+            if (!buttonEl) {
+                return;
+            }
+            toggleMaskedField(buttonEl);
+        };
+
+        const ensureMaskClickHandler = () => {
+            if (window.__rmsProfileMaskClickInstalled) {
+                return;
+            }
+            window.__rmsProfileMaskClickInstalled = true;
+            document.addEventListener('click', maskClickHandler);
+        };
+
+        const handleLivewireRefresh = () => {
+            startClock();
+            refreshAllMaskedFields();
+        };
+
+        const installLivewireHook = () => {
+            if (window.__rmsProfileLivewireHookInstalled) {
+                return;
+            }
+            if (window.Livewire && typeof Livewire.hook === 'function') {
+                window.__rmsProfileLivewireHookInstalled = true;
+                Livewire.hook('message.processed', handleLivewireRefresh);
+            }
+        };
+
+        const initialize = () => {
+            ensureMaskClickHandler();
+            startClock();
+            refreshAllMaskedFields();
+            installLivewireHook();
+        };
+
+        if (document.readyState === 'loading') {
+            document.addEventListener('DOMContentLoaded', initialize);
+        } else {
+            initialize();
+        }
+
+        document.addEventListener('livewire:load', installLivewireHook);
+    })();
+    </script>
 </body>
 </html>

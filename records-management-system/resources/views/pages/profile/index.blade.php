@@ -127,7 +127,7 @@ new #[Layout('layouts.profile')] #[Title('Profile Manager - Details')] class ext
             </div>
         </div>
         <div class="hero-right">
-            <div class="hero-clock">
+            <div class="hero-clock" wire:ignore>
                 <span id="currTime" class="clock-time">--:--:--</span>
                 <span id="currDate" class="clock-date">--</span>
             </div>
@@ -218,15 +218,17 @@ new #[Layout('layouts.profile')] #[Title('Profile Manager - Details')] class ext
 </div>
 
 <script>
-document.addEventListener('DOMContentLoaded', function () {
-    const timeEl = document.getElementById('currTime');
-    const dateEl = document.getElementById('currDate');
-
-    if (!timeEl || !dateEl) {
-        return;
-    }
+(function () {
+    let clockInterval = null;
 
     const updateDateTime = () => {
+        const timeEl = document.getElementById('currTime');
+        const dateEl = document.getElementById('currDate');
+
+        if (!timeEl || !dateEl) {
+            return;
+        }
+
         const now = new Date();
         timeEl.textContent = now.toLocaleTimeString([], {
             hour: '2-digit',
@@ -240,17 +242,37 @@ document.addEventListener('DOMContentLoaded', function () {
         });
     };
 
-    document.querySelectorAll('.masked-value').forEach(function (valueEl) {
-        const plainValue = valueEl.textContent.trim();
-        valueEl.setAttribute('data-plain', plainValue);
-        valueEl.textContent = '•'.repeat(Math.max(plainValue.length, 8));
-    });
+    const initClock = () => {
+        updateDateTime();
+        if (clockInterval) {
+            clearInterval(clockInterval);
+        }
+        clockInterval = setInterval(updateDateTime, 1000);
+    };
 
-    document.querySelectorAll('.mask-toggle').forEach(function (buttonEl) {
-        buttonEl.addEventListener('click', function () {
-            const target = this.getAttribute('data-target');
+    const resetMaskedFields = () => {
+        document.querySelectorAll('.masked-value').forEach(function (valueEl) {
+            const plainValue = valueEl.textContent.trim();
+            valueEl.setAttribute('data-plain', plainValue);
+            valueEl.textContent = '•'.repeat(Math.max(plainValue.length, 8));
+            valueEl.setAttribute('data-masked', 'true');
+        });
+    };
+
+    const installMaskToggleDelegate = () => {
+        if (window.__profileMaskingDelegateInstalled) {
+            return;
+        }
+        window.__profileMaskingDelegateInstalled = true;
+
+        document.addEventListener('click', function (event) {
+            const buttonEl = event.target.closest('.mask-toggle');
+            if (!buttonEl) {
+                return;
+            }
+
+            const target = buttonEl.getAttribute('data-target');
             const valueEl = document.querySelector(`[setid="${target}"] .masked-value`);
-
             if (!valueEl) {
                 return;
             }
@@ -261,17 +283,35 @@ document.addEventListener('DOMContentLoaded', function () {
             if (isMasked) {
                 valueEl.textContent = plainValue;
                 valueEl.setAttribute('data-masked', 'false');
-                this.querySelector('.eye-icon').innerHTML = '<i class="fa-solid fa-eye-slash"></i>';
+                buttonEl.querySelector('.eye-icon').innerHTML = '<i class="fa-solid fa-eye-slash"></i>';
             } else {
                 valueEl.textContent = '•'.repeat(Math.max(plainValue.length, 8));
                 valueEl.setAttribute('data-masked', 'true');
-                this.querySelector('.eye-icon').innerHTML = '<i class="fa-solid fa-eye"></i>';
+                buttonEl.querySelector('.eye-icon').innerHTML = '<i class="fa-solid fa-eye"></i>';
             }
         });
-    });
+    };
 
-    updateDateTime();
-    setInterval(updateDateTime, 1000);
-});
+    const run = () => {
+        initClock();
+        resetMaskedFields();
+    };
+
+    const setup = () => {
+        installMaskToggleDelegate();
+        run();
+
+        if (window.Livewire && typeof Livewire.hook === 'function' && !window.__profileClockHookInstalled) {
+            window.__profileClockHookInstalled = true;
+            Livewire.hook('message.processed', run);
+        }
+    };
+
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', setup);
+    } else {
+        setup();
+    }
+})();
 </script>
 

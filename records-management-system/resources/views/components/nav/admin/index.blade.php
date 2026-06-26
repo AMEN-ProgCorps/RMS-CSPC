@@ -97,15 +97,15 @@
 
 <hr>
 
-<div id="admin-rms-id" class="button-section-container {{ request()->routeIs('admin.rms.*') ? 'show' : '' }}">
-    <div class="button-container {{ request()->routeIs('admin.rms.*') ? 'force-active' : '' }}" onclick="showButtonSection('admin-rms-id')">
+<div id="admin-dts-logs-id" class="button-section-container {{ request()->routeIs('admin.dts.*') ? 'show' : '' }}">
+    <div class="button-container {{ request()->routeIs('admin.dts.*') ? 'force-active' : '' }}" onclick="showButtonSection('admin-dts-logs-id')">
         <div class="button-icon">
             <svg xmlns="http://www.w3.org/2000/svg" width="29" height="29" viewBox="0 0 29 29" fill="none">
                 <path d="M22.9167 5.41669H7.20833C6.54099 5.41669 6 5.95768 6 6.62502V25.9584C6 26.6257 6.54099 27.1667 7.20833 27.1667H22.9167C23.584 27.1667 24.125 26.6257 24.125 25.9584V6.62502C24.125 5.95768 23.584 5.41669 22.9167 5.41669ZM10.2292 21.7292H19.7708V23.5417H10.2292V21.7292ZM10.2292 17.5H19.7708V19.3125H10.2292V17.5ZM10.2292 13.2709H19.7708V15.0834H10.2292V13.2709ZM18.6875 3V6.625H11.3125V3H18.6875Z" fill="#4F4F4F"/>
             </svg>
         </div>
         <div class="button-label">
-            <span>Records Management Systems</span>
+            <span>Document Tracking Systems</span>
         </div>
         <div class="spacer"></div>
         <div class="show-arrow">
@@ -119,8 +119,9 @@
         </div>
     </div>
     <div class="functions-container">
-        <div class="function-button {{ request()->routeIs('admin.rms.transaction-logs') ? 'force-active' : '' }}" onclick="proccedto('{{ route('admin.rms.transaction-logs') }}')">Transactions Logs</div>
-        <div class="function-button {{ request()->routeIs('admin.rms.update-logs') ? 'force-active' : '' }}" onclick="proccedto('{{ route('admin.rms.update-logs') }}')">Update Logs</div>
+        <div class="function-button {{ request()->routeIs('admin.dts.transaction-logs') ? 'force-active' : '' }}" onclick="proccedto('{{ route('admin.dts.transaction-logs') }}')">Transactions Logs</div>
+        <div class="function-button {{ request()->routeIs('admin.dts.update-logs') ? 'force-active' : '' }}" onclick="proccedto('{{ route('admin.dts.update-logs') }}')">Update Logs</div>
+        <div class="function-button {{ request()->routeIs('admin.dts.transaction-flows') ? 'force-active' : '' }}" onclick="proccedto('{{ route('admin.dts.transaction-flows') }}')">Transaction Flows</div>
     </div>
 </div>
 

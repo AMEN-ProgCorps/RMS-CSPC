@@ -16,6 +16,15 @@ class CanAccessDts
             abort(403);
         }
 
+        // Check if Document Tracking System is active globally
+        $isActive = \DB::table('subsystems')
+            ->where('subsystem_name', 'Document Tracking System')
+            ->value('is_active');
+
+        if (! $isActive) {
+            abort(403, 'The Document Tracking System is currently deactivated.');
+        }
+
         return $next($request);
     }
 }

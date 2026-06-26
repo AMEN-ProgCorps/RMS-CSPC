@@ -53,6 +53,12 @@
                 if (pla.classList.contains('show')) {
                     pla.classList.remove('show');
                 } else {
+                    // Find all other open button section containers and close them
+                    document.querySelectorAll('.button-section-container.show').forEach(container => {
+                        if (container.id !== button_target) {
+                            container.classList.remove('show');
+                        }
+                    });
                     pla.classList.add('show');
                 }
             }

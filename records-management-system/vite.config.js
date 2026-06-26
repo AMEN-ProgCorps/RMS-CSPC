@@ -22,6 +22,7 @@ export default defineConfig({
                 'resources/css/dts/internal.css',
                 'resources/css/dts/create.css',
                 'resources/css/notifications.css',
+                'resources/css/admin/subsystems.css',
             ],
             refresh: true,
         }),

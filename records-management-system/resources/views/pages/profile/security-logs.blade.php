@@ -87,7 +87,7 @@ new #[Layout('layouts.profile')] #[Title('Profile Manager - Security Logs')] cla
             </div>
         </div>
         <div class="hero-right">
-            <div class="hero-clock">
+            <div class="hero-clock" wire:ignore>
                 <span id="currTime" class="clock-time">--:--:--</span>
                 <span id="currDate" class="clock-date">--</span>
             </div>
@@ -135,31 +135,6 @@ new #[Layout('layouts.profile')] #[Title('Profile Manager - Security Logs')] cla
 
 <script>
 document.addEventListener('DOMContentLoaded', function () {
-    const timeEl = document.getElementById('currTime');
-    const dateEl = document.getElementById('currDate');
-
-    if (!timeEl || !dateEl) {
-        return;
-    }
-
-    const updateDateTime = () => {
-        const now = new Date();
-        timeEl.textContent = now.toLocaleTimeString([], {
-            hour: '2-digit',
-            minute: '2-digit',
-            second: '2-digit',
-            hour12: true
-        });
-        dateEl.textContent = now.toLocaleDateString([], {
-            year: 'numeric',
-            month: 'long',
-            day: 'numeric'
-        });
-    };
-
-    updateDateTime();
-    setInterval(updateDateTime, 1000);
-
     // Update log times to user's local time and keep them in sync every second
     const pad = (v) => String(v).padStart(2, '0');
     const formatLocal = (d) => {

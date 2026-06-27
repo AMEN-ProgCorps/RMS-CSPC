@@ -1,0 +1,163 @@
+/* Reset and Base Styles */
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+}
+
+body {
+    height: 100vh;
+    /* This linear-gradient mimics the colors of the blurred background image */
+    background: linear-gradient(160deg, #6c8059 0%, #17384a 40%, #125e75 75%, #189cb3 100%);
+    background-attachment: fixed;
+}
+
+/* Main Wrapper */
+.livewire-root {
+    display: flex;
+    flex-direction: column;
+    height: 100vh;
+    /* Lightened the overlay slightly so the gradient colors pop through more */
+    background: rgba(14, 38, 51, 0.3); 
+}
+
+/* Header */
+header {
+    background-color: #f7a900; /* Yellow-Orange */
+    padding: 12px 10px;
+    text-align: center;
+    width: 100%;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.2);
+}
+
+.office-name {
+    color: #111;
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+/* Main Section */
+section {
+    flex: 1; /* Takes up all remaining vertical space */
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 20px;
+    overflow-y: auto;
+}
+
+/* Logout Button */
+.logout-con {
+    width: 100%;
+    display: flex;
+    justify-content: flex-end;
+    margin-bottom: 10px;
+}
+
+.logout {
+    background: transparent;
+    border: none;
+    color: #ffffff;
+    cursor: pointer;
+    padding: 5px;
+    transition: opacity 0.2s;
+}
+
+.logout:active {
+    opacity: 0.7;
+}
+
+.logout svg {
+    width: 22px;
+    height: 22px;
+}
+
+/* Logo and Welcome Text */
+.portal_header {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    margin-bottom: 35px;
+}
+
+.ico_con {
+    width: 85px;
+    height: 85px;
+    margin-bottom: 15px;
+    border-radius: 50%;
+    /* Optional subtle glow behind the logo if needed */
+    box-shadow: 0 0 15px rgba(255, 255, 255, 0.2); 
+}
+
+.ico {
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+}
+
+.portal_header span {
+    font-size: 11px;
+    color: #ffffff;
+    text-align: center;
+    font-weight: 400;
+}
+
+/* Systems Buttons Container */
+.systems-container {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+    width: 100%;
+    max-width: 320px; /* Constrains the width nicely on mobile */
+}
+
+.system-con {
+    text-decoration: none;
+    display: block;
+    outline: none;
+}
+
+/* Individual Buttons (Glassmorphic look) */
+.display-box {
+    background: rgba(45, 85, 110, 0.4); /* Semi-transparent dark blue */
+    backdrop-filter: blur(8px); /* Frosted glass effect */
+    -webkit-backdrop-filter: blur(8px); /* Safari support */
+    border: 1px solid #7bc6e8; /* Light blue border */
+    border-radius: 14px;
+    padding: 16px 20px;
+    text-align: center;
+    box-shadow: 
+        0 4px 6px rgba(0, 0, 0, 0.4), /* Drop shadow */
+        inset 0 0 12px rgba(123, 198, 232, 0.25); /* Inner light blue glow */
+    transition: transform 0.1s ease, background 0.2s ease;
+}
+
+.display-box span {
+    color: #ffffff;
+    font-size: 13px;
+    font-weight: 500;
+    letter-spacing: 0.3px;
+}
+
+/* Click effect for buttons */
+.display-box:active {
+    transform: scale(0.97);
+    background: rgba(45, 85, 110, 0.6);
+}
+
+/* Footer */
+footer {
+    background-color: #63c5e6; /* Light Blue */
+    padding: 10px;
+    text-align: center;
+    width: 100%;
+}
+
+.copy-right {
+    color: #111;
+    font-size: 10px;
+    font-weight: 700;
+}

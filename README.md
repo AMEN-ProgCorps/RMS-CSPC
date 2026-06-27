@@ -101,8 +101,8 @@ pie title Project Status Breakdown
     "Document Tracking System (In Progress)" : 13
     "Records Disposition Program (Completed)" : 10
     "Records Disposition Program (In Progress)" : 20
-    "Admin Console (Completed)" : 4.2
-    "Admin Console (In Progress)" : 5.8
+    "Admin Console (Completed)" : 6.2
+    "Admin Console (In Progress)" : 3.8
     "Profile Manager (Completed)" : 10
     "Portal Access Pages (Completed)" : 18
     "Portal Access Pages (In Progress)" : 2
@@ -114,8 +114,8 @@ pie title Project Status Breakdown
 
 ```mermaid
 pie title Overall Project Completion
-    "Total Completed" : 68.2
-    "Total In Progress" : 41.8
+    "Total Completed" : 70.2
+    "Total In Progress" : 39.8
 ```
 
 ---

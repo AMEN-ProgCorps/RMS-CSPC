@@ -10,9 +10,11 @@ use Livewire\Attributes\Layout;
 use Livewire\Attributes\Title;
 use Livewire\Volt\Component;
 use Livewire\WithPagination;
+use Livewire\WithFileUploads;
 
 new #[Layout('layouts.admin')] #[Title('Admin Console - DTS Transaction Flows')] class extends Component {
     use WithPagination;
+    use WithFileUploads;
 
     /** @var string Active tab: 'predefined' or 'custom' */
     public string $activeTab = 'predefined';
@@ -26,6 +28,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - DTS Transaction Flows')]
     public bool $isActive = true;
     public array $flowOffices = []; // list of office codes in sequence
     public string $selectedOffice = ''; // selected office from dropdown to add
+    public $flowFile; // file upload property
 
     // ---- SEARCH FOR CUSTOM FLOWS ----
     public string $searchCustom = '';
@@ -60,7 +63,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - DTS Transaction Flows')]
         $this->flowName = '';
         $this->flowCode = '';
         $this->isActive = true;
-        $this->flowOffices = ['ORIGIN'];
+        $this->flowOffices = ['ORIGIN', 'ORIGIN'];
         $this->selectedOffice = '';
         $this->clearMessages();
     }
@@ -72,11 +75,12 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - DTS Transaction Flows')]
     {
         $this->clearMessages();
 
-        if ($value === '' || $value === 'new') {
+        if ($value === '' || $value === 'new' || $value === 'import') {
             $this->flowName = '';
             $this->flowCode = '';
             $this->isActive = true;
-            $this->flowOffices = ['ORIGIN'];
+            $this->flowOffices = ['ORIGIN', 'ORIGIN'];
+            $this->flowFile = null;
             return;
         }
 
@@ -117,7 +121,14 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - DTS Transaction Flows')]
             array_unshift($this->flowOffices, 'ORIGIN');
         }
 
-        $this->flowOffices[] = $this->selectedOffice;
+        // If the last step is 'ORIGIN', insert the new office BEFORE the last step!
+        $count = count($this->flowOffices);
+        if ($count > 1 && $this->flowOffices[$count - 1] === 'ORIGIN') {
+            array_splice($this->flowOffices, $count - 1, 0, $this->selectedOffice);
+        } else {
+            $this->flowOffices[] = $this->selectedOffice;
+        }
+
         $this->selectedOffice = '';
     }
 
@@ -253,6 +264,292 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - DTS Transaction Flows')]
     }
 
     /**
+     * Parse the uploaded .txt file and populate the flow creation form.
+     */
+    public function importFlow(): void
+    {
+        $this->clearMessages();
+
+        $this->validate([
+            'flowFile' => 'required|file|mimes:txt|max:1024',
+        ], [
+            'flowFile.required' => 'Please select a text file to upload.',
+            'flowFile.mimes' => 'The file must be a plain text file (.txt).',
+            'flowFile.max' => 'The file size must be less than 1MB.',
+        ]);
+
+        try {
+            $path = $this->flowFile->getRealPath();
+            $content = file_get_contents($path);
+
+            // Normalize line endings and split
+            $rawLines = preg_split('/\r\n|\r|\n/', $content);
+            
+            // Filter out blank lines and comment lines starting with #
+            $lines = [];
+            foreach ($rawLines as $idx => $rawLine) {
+                $trimmed = trim($rawLine);
+                if ($trimmed !== '' && !str_starts_with($trimmed, '#')) {
+                    $lines[] = [
+                        'num' => $idx + 1,
+                        'text' => $trimmed
+                    ];
+                }
+            }
+
+            if (count($lines) === 0) {
+                throw new \Exception('The file is empty.');
+            }
+
+            $extractedFlows = [];
+            $tempNames = [];
+            $tempCodes = [];
+
+            // Loop over non-empty lines using a dynamic index pointer
+            $i = 0;
+            while ($i < count($lines)) {
+                // We expect at least 3 lines for a flow (Name, Code, Sequence)
+                if ($i + 2 >= count($lines)) {
+                    throw new \Exception("Incomplete flow definition starting at Line {$lines[$i]['num']}. Each flow must contain at least a name, code, and sequence.");
+                }
+
+                $nameLine = $lines[$i];
+                $codeLine = $lines[$i + 1];
+                $seqLine = $lines[$i + 2];
+
+                // 1. Verify semicolons
+                if (!str_ends_with($nameLine['text'], ';')) {
+                    throw new \Exception("Line {$nameLine['num']} (\"{$nameLine['text']}\") must end with a semicolon ';'.");
+                }
+                if (!str_ends_with($codeLine['text'], ';')) {
+                    throw new \Exception("Line {$codeLine['num']} (\"{$codeLine['text']}\") must end with a semicolon ';'.");
+                }
+                if (!str_ends_with($seqLine['text'], ';')) {
+                    throw new \Exception("Line {$seqLine['num']} (\"{$seqLine['text']}\") must end with a semicolon ';'.");
+                }
+
+                $flowName = trim(substr($nameLine['text'], 0, -1));
+                $flowCode = strtoupper(trim(substr($codeLine['text'], 0, -1)));
+                $seqText = trim(substr($seqLine['text'], 0, -1));
+
+                // 2. Validate empty values and code format
+                if (empty($flowName)) {
+                    throw new \Exception("Line {$nameLine['num']} (\"{$nameLine['text']}\"): Flow name cannot be empty.");
+                }
+                if (empty($flowCode)) {
+                    throw new \Exception("Line {$codeLine['num']} (\"{$codeLine['text']}\"): Flow code cannot be empty.");
+                }
+                if (!preg_match('/^[A-Z0-9_\-]+$/i', $flowCode)) {
+                    throw new \Exception("Line {$codeLine['num']} (\"{$codeLine['text']}\"): Flow code can only contain letters, numbers, dashes, and underscores.");
+                }
+
+                // Determine advance count and Copy Furnished index early
+                $nextIdx = $i + 3;
+                $isNewFlowStart = false;
+                if ($nextIdx < count($lines)) {
+                    if ($nextIdx + 1 < count($lines)) {
+                        $nextLineText = trim(substr($lines[$nextIdx + 1]['text'], 0, -1));
+                        if (preg_match('/^[A-Z0-9_\-]+$/i', $nextLineText)) {
+                            $isNewFlowStart = true;
+                        }
+                    }
+                }
+                $advanceCount = ($nextIdx < count($lines) && !$isNewFlowStart) ? 4 : 3;
+
+                // 3. Check database existence and conflict matching
+                $flowByCode = \DB::table('dts_transaction_flow')->where('flow_code', $flowCode)->first();
+                $flowByName = \DB::table('dts_transaction_flow')->where('flow_name', $flowName)->first();
+
+                if ($flowByCode || $flowByName) {
+                    // Check if it is a perfect match (both name and code point to the same existing record)
+                    if ($flowByCode && $flowByName && $flowByCode->id === $flowByName->id) {
+                        // Perfect match: skip importing this flow since it already exists exactly as is
+                        $i += $advanceCount;
+                        continue;
+                    }
+
+                    // Otherwise, it's a conflict
+                    if ($flowByCode && (!$flowByName || $flowByCode->flow_name !== $flowName)) {
+                        throw new \Exception("Line {$codeLine['num']} (\"{$codeLine['text']}\"): Conflict detected. The flow code '{$flowCode}' already exists in the database with a different name ('{$flowByCode->flow_name}').");
+                    }
+                    if ($flowByName && (!$flowByCode || $flowByName->flow_code !== $flowCode)) {
+                        throw new \Exception("Line {$nameLine['num']} (\"{$nameLine['text']}\"): Conflict detected. The flow name '{$flowName}' already exists in the database with a different code ('{$flowByName->flow_code}').");
+                    }
+                }
+
+                // 4. Check uniqueness within the uploaded file itself
+                if (isset($tempCodes[$flowCode])) {
+                    if ($tempCodes[$flowCode] !== $flowName) {
+                        throw new \Exception("Line {$codeLine['num']} (\"{$codeLine['text']}\"): Duplicate flow code '{$flowCode}' found within the uploaded file with a different name.");
+                    }
+                    // Perfect file duplicate: skip
+                    $i += $advanceCount;
+                    continue;
+                }
+                if (isset($tempNames[$flowName])) {
+                    if ($tempNames[$flowName] !== $flowCode) {
+                        throw new \Exception("Line {$nameLine['num']} (\"{$nameLine['text']}\"): Duplicate flow name '{$flowName}' found within the uploaded file with a different code.");
+                    }
+                    // Perfect file duplicate: skip
+                    $i += $advanceCount;
+                    continue;
+                }
+                $tempCodes[$flowCode] = $flowName;
+                $tempNames[$flowName] = $flowCode;
+
+                // 5. Parse sequence path
+                $nodes = explode('->', $seqText);
+                $nodes = array_filter(array_map('trim', $nodes));
+
+                if (count($nodes) === 0) {
+                    throw new \Exception("Line {$seqLine['num']} (\"{$seqLine['text']}\"): The flow sequence cannot be empty.");
+                }
+
+                $officesSequence = [];
+                foreach ($nodes as $node) {
+                    if ($node === '[]') {
+                        $officesSequence[] = 'ORIGIN';
+                        continue;
+                    }
+
+                    // Query by code or name
+                    $office = \DB::table('office')
+                        ->where('is_active', true)
+                        ->where(function($q) use ($node) {
+                            $q->where('office_code', $node)
+                              ->orWhere('office_name', $node);
+                        })
+                        ->first();
+
+                    if (!$office) {
+                        throw new \Exception("Line {$seqLine['num']} (\"{$seqLine['text']}\"): office '{$node}' does not exist in the database or is typoed.");
+                    }
+
+                    $officesSequence[] = $office->office_code;
+                }
+
+                // Prepend and append ORIGIN if not present
+                if (empty($officesSequence)) {
+                    $officesSequence = ['ORIGIN', 'ORIGIN'];
+                } else {
+                    if ($officesSequence[0] !== 'ORIGIN') {
+                        array_unshift($officesSequence, 'ORIGIN');
+                    }
+                    if ($officesSequence[count($officesSequence) - 1] !== 'ORIGIN') {
+                        $officesSequence[] = 'ORIGIN';
+                    }
+                }
+
+                // 6. Handle optional 4th line for Copy Furnished offices
+                $cfOffices = [];
+                if ($advanceCount === 4) {
+                    $candidateLine = $lines[$nextIdx];
+                    if (!str_ends_with($candidateLine['text'], ';')) {
+                        throw new \Exception("Line {$candidateLine['num']} (\"{$candidateLine['text']}\") must end with a semicolon ';'.");
+                    }
+
+                    $cfText = trim(substr($candidateLine['text'], 0, -1));
+                    if (!empty($cfText)) {
+                        $cfNodes = explode(',', $cfText);
+                        $cfNodes = array_filter(array_map('trim', $cfNodes));
+                        
+                        foreach ($cfNodes as $node) {
+                            $office = \DB::table('office')
+                                ->where('is_active', true)
+                                ->where(function($q) use ($node) {
+                                    $q->where('office_code', $node)
+                                      ->orWhere('office_name', $node);
+                                })
+                                ->first();
+
+                            if (!$office) {
+                                    throw new \Exception("Line {$candidateLine['num']} (\"{$candidateLine['text']}\"): Copy furnished office '{$node}' does not exist in the database or is typoed.");
+                            }
+
+                            $cfOffices[] = $office->office_code;
+                        }
+                    }
+                }
+
+                $extractedFlows[] = [
+                    'name' => $flowName,
+                    'code' => $flowCode,
+                    'offices' => $officesSequence,
+                    'cf_offices' => $cfOffices
+                ];
+            }
+
+            // Save all flows to the database in a single transaction
+            \DB::transaction(function () use ($extractedFlows) {
+                foreach ($extractedFlows as $flowData) {
+                    $maxId = \DB::table('dts_transaction_flow')->max('id') ?? 0;
+                    $flowId = $maxId + 1;
+
+                    // Insert flow record
+                    \DB::table('dts_transaction_flow')->insert([
+                        'id' => $flowId,
+                        'flow_name' => $flowData['name'],
+                        'flow_code' => $flowData['code'],
+                        'is_active' => true,
+                    ]);
+
+                    // Insert sequence list
+                    foreach ($flowData['offices'] as $rank => $officeCode) {
+                        \DB::table('dts_sequence_list')->insert([
+                            'control_id' => $flowId,
+                            'sequence_ranking' => $rank + 1,
+                            'office_code' => $officeCode,
+                        ]);
+                    }
+
+                    // Save Predefined Copy Furnished if present
+                    if (count($flowData['cf_offices']) > 0) {
+                        // Clean up existing predefined copy furnished for this flow code to prevent duplicates
+                        $existingCFs = \DB::table('dts_copy_filled_transaction')->where('control_num', $flowData['code'])->get();
+                        foreach ($existingCFs as $existingCF) {
+                            \DB::table('dts_copy_filled_to_office')->where('control_id', $existingCF->assign_offices_id)->delete();
+                        }
+                        \DB::table('dts_copy_filled_transaction')->where('control_num', $flowData['code'])->delete();
+
+                        $assignOfficesId = (\DB::table('dts_copy_filled_transaction')->max('assign_offices_id') ?? 1000) + 1;
+                        
+                        \DB::table('dts_copy_filled_transaction')->insert([
+                            'control_num' => $flowData['code'],
+                            'total_office' => count($flowData['cf_offices']),
+                            'assign_offices_id' => $assignOfficesId,
+                            'data_created' => now(),
+                            'date_modified' => now(),
+                        ]);
+
+                        foreach ($flowData['cf_offices'] as $cfOffice) {
+                            \DB::table('dts_copy_filled_to_office')->insert([
+                                'control_id' => $assignOfficesId,
+                                'office_code' => $cfOffice,
+                            ]);
+                        }
+                    }
+
+                    // Insert admin log entry
+                    \DB::table('admin_logs')->insert([
+                        'changes' => "Imported predefined transaction flow via text file: {$flowData['name']} ({$flowData['code']})",
+                        'admin_id' => auth()->id(),
+                        'what_system' => 3, // Admin Console
+                        'when_changes' => now(),
+                    ]);
+                }
+            });
+
+            $this->resetForm();
+            $this->flowFile = null;
+
+            $this->successMessage = "Successfully imported " . count($extractedFlows) . " predefined flow(s) from the file!";
+
+        } catch (\Exception $e) {
+            $this->errorMessage = 'Extraction failed: ' . $e->getMessage();
+        }
+    }
+
+    /**
      * Dynamic computed data binder.
      */
     public function with(): array
@@ -260,7 +557,6 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - DTS Transaction Flows')]
         // Fetch active offices for sequence selection
         $activeOffices = \DB::table('office')
             ->where('is_active', true)
-            ->where('office_code', '!=', 'ORIGIN')
             ->orderBy('office_name')
             ->get();
 
@@ -482,13 +778,43 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - DTS Transaction Flows')]
                     <select id="flowSelect" wire:model.live="selectedPredefined">
                         <option value="">-- Choose Option --</option>
                         <option value="new">Configure New Predefined Flow</option>
+                        <option value="import">Import Predefined Flow from File</option>
                         @foreach($predefinedFlows as $flow)
                             <option value="{{ $flow->id }}">Edit: {{ $flow->flow_name }} ({{ $flow->flow_code }})</option>
                         @endforeach
                     </select>
                 </div>
 
-                @if($selectedPredefined !== '')
+                @if($selectedPredefined === 'import')
+                    <!-- File Upload Option -->
+                    <div class="form-group" style="margin-top: 20px;">
+                        <label for="flowFileInput">Select Predefined Flow Text File (.txt)</label>
+                        <input type="file" 
+                               id="flowFileInput" 
+                               wire:model="flowFile" 
+                               accept=".txt" 
+                               style="padding: 8px; border: 1px solid #cbd5e1; border-radius: 6px; width: 100%;">
+                        @error('flowFile') <span class="error-message">{{ $message }}</span> @enderror
+                        <p style="font-size: 12.5px; color: #64748b; margin-top: 8px; line-height: 1.5;">
+                            <strong>Instructions:</strong> The uploaded file must be a plain text file (<code>.txt</code>). Every line must end with a semicolon (<code>;</code>):
+                            <br>• Line 1: <code>&lt;flow name&gt;;</code>
+                            <br>• Line 2: <code>&lt;flow code&gt;;</code>
+                            <br>• Line 3: <code>&lt;flow sequence&gt;;</code> (e.g. <code>[]-&gt;RFAO-&gt;ICTU;</code> where <code>[]</code> is the Originated Office)
+                            <br>• Line 4 (Optional): <code>&lt;copy furnished offices (comma-separated)&gt;;</code> (e.g. <code>Unit Head, HRMDU, RFOIU;</code>)
+                            <br>• Lines starting with <code>#</code> are classified as comments and will be ignored.
+                        </p>
+                    </div>
+
+                    <!-- Actions for Import -->
+                    <div class="form-actions" style="margin-top: 24px;">
+                        <button type="button" class="btn-secondary" wire:click="resetForm">
+                            Cancel
+                        </button>
+                        <button type="button" class="btn-primary" wire:click="importFlow">
+                            <i class="fa-solid fa-file-import"></i> Extract Flow Data
+                        </button>
+                    </div>
+                @elseif($selectedPredefined !== '')
                     <!-- Flow Name -->
                     <div class="form-group">
                         <label for="flowNameInput">Flow Display Name</label>

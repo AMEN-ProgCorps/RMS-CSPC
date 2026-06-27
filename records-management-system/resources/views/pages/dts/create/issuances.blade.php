@@ -105,6 +105,22 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create Issuance
                 ->orderBy('sequence_ranking', 'asc')
                 ->pluck('office_code')
                 ->toArray();
+
+            // Load predefined copy furnished offices if any
+            $predefinedCF = DB::table('dts_copy_filled_transaction')
+                ->where('control_num', $value)
+                ->first();
+
+            if ($predefinedCF) {
+                $this->cf_selected_offices = DB::table('dts_copy_filled_to_office')
+                    ->where('control_id', $predefinedCF->assign_offices_id)
+                    ->pluck('office_code')
+                    ->toArray();
+                $this->copy_furnished = 'Yes';
+            } else {
+                $this->cf_selected_offices = [];
+                $this->copy_furnished = 'No';
+            }
         } else {
             $this->flow_offices = [];
         }

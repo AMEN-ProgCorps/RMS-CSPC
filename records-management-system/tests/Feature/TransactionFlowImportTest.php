@@ -22,8 +22,9 @@ class TransactionFlowImportTest extends TestCase
         }
 
         // Clean up any existing test records to avoid conflicts
-        DB::table('office')->whereIn('office_code', ['TEST-OFF1', 'TEST-OFF2'])->delete();
-        DB::table('dts_transaction_flow')->whereIn('flow_code', ['TEST-FLOW-IMP1', 'TEST-FLOW-IMP2', 'TEST-FLOW-IMP-DUP'])->delete();
+        DB::table('office')->whereIn('office_code', ['TEST-OFF1', 'TEST-OFF2', 'TEST-OFF3', 'TEST-OFF4', 'TEST-OFF5'])->delete();
+        DB::table('dts_transaction_flow')->whereIn('flow_code', ['TEST-FLOW-IMP1', 'TEST-FLOW-IMP2', 'TEST-FLOW-IMP-DUP', 'NEW-PREDEF-CF-FLOW'])->delete();
+        DB::table('dts_copy_filled_transaction')->where('control_num', 'NEW-PREDEF-CF-FLOW')->delete();
         
         // Ensure ORIGIN exists
         DB::table('office')->updateOrInsert(
@@ -40,8 +41,9 @@ class TransactionFlowImportTest extends TestCase
 
     protected function tearDown(): void
     {
-        DB::table('office')->whereIn('office_code', ['TEST-OFF1', 'TEST-OFF2'])->delete();
-        DB::table('dts_transaction_flow')->whereIn('flow_code', ['TEST-FLOW-IMP1', 'TEST-FLOW-IMP2', 'TEST-FLOW-IMP-DUP'])->delete();
+        DB::table('office')->whereIn('office_code', ['TEST-OFF1', 'TEST-OFF2', 'TEST-OFF3', 'TEST-OFF4', 'TEST-OFF5'])->delete();
+        DB::table('dts_transaction_flow')->whereIn('flow_code', ['TEST-FLOW-IMP1', 'TEST-FLOW-IMP2', 'TEST-FLOW-IMP-DUP', 'NEW-PREDEF-CF-FLOW'])->delete();
+        DB::table('dts_copy_filled_transaction')->where('control_num', 'NEW-PREDEF-CF-FLOW')->delete();
         parent::tearDown();
     }
 
@@ -308,5 +310,103 @@ class TransactionFlowImportTest extends TestCase
             ->assertSee("Successfully imported 1 predefined flow(s) from the file!");
 
         $this->assertDatabaseHas('dts_transaction_flow', ['flow_code' => 'TEST-FLOW-IMP1', 'flow_name' => 'Test Flow No CF']);
+    }
+
+    public function test_predefined_flow_selection_and_creation_views()
+    {
+        // 1. Insert temporary predefined flow for selection testing
+        DB::table('dts_transaction_flow')->insert([
+            'id' => 88888,
+            'flow_name' => 'Select Path Flow',
+            'flow_code' => 'TEST-FLOW-SELECT',
+            'is_active' => true,
+        ]);
+        DB::table('dts_sequence_list')->insert([
+            ['control_id' => 88888, 'sequence_ranking' => 1, 'office_code' => 'ORIGIN'],
+            ['control_id' => 88888, 'sequence_ranking' => 2, 'office_code' => 'ORIGIN'],
+        ]);
+
+        Volt::test('pages.admin.dts.transaction-flows')
+            // Test search filter
+            ->set('searchPredefined', 'Select Path')
+            // Test selectFlow trigger
+            ->call('selectFlow', 88888)
+            ->assertSet('selectedPredefined', '88888')
+            ->assertSet('flowName', 'Select Path Flow')
+            ->assertSet('flowCode', 'TEST-FLOW-SELECT')
+            // Test startCreate trigger
+            ->call('startCreate')
+            ->assertSet('selectedPredefined', 'new')
+            ->assertSet('flowName', '')
+            ->assertSet('flowCode', '')
+            // Test startImport trigger
+            ->call('startImport')
+            ->assertSet('selectedPredefined', 'import');
+
+        // Clean up
+        DB::table('dts_transaction_flow')->where('id', 88888)->delete();
+        DB::table('dts_sequence_list')->where('control_id', 88888)->delete();
+    }
+
+    public function test_save_predefined_flow_with_copy_furnished()
+    {
+        // Insert temporary copy furnished offices
+        DB::table('office')->insert([
+            ['office_code' => 'TEST-OFF3', 'office_name' => 'Test Office Three', 'is_active' => true],
+            ['office_code' => 'TEST-OFF4', 'office_name' => 'Test Office Four', 'is_active' => true],
+            ['office_code' => 'TEST-OFF5', 'office_name' => 'Test Office Five', 'is_active' => true],
+        ]);
+
+        try {
+            // 1. Create a predefined flow using the component
+            Volt::test('pages.admin.dts.transaction-flows')
+                ->set('selectedPredefined', 'new')
+                ->set('flowName', 'New Custom Predefined Flow')
+                ->set('flowCode', 'NEW-PREDEF-CF-FLOW')
+                ->set('flowOffices', ['ORIGIN', 'TEST-OFF1', 'TEST-OFF2'])
+                ->set('cfOffices', ['TEST-OFF3', 'TEST-OFF4'])
+                ->call('savePredefinedFlow')
+                ->assertHasNoErrors()
+                ->assertSet('successMessage', 'Predefined flow created successfully!');
+
+            $flow = DB::table('dts_transaction_flow')->where('flow_code', 'NEW-PREDEF-CF-FLOW')->first();
+            $this->assertNotNull($flow);
+
+            // Verify sequence list
+            $this->assertDatabaseHas('dts_sequence_list', ['control_id' => $flow->id, 'sequence_ranking' => 1, 'office_code' => 'ORIGIN']);
+            $this->assertDatabaseHas('dts_sequence_list', ['control_id' => $flow->id, 'sequence_ranking' => 2, 'office_code' => 'TEST-OFF1']);
+            $this->assertDatabaseHas('dts_sequence_list', ['control_id' => $flow->id, 'sequence_ranking' => 3, 'office_code' => 'TEST-OFF2']);
+
+            // Verify copy furnished
+            $cfTx = DB::table('dts_copy_filled_transaction')->where('control_num', 'NEW-PREDEF-CF-FLOW')->first();
+            $this->assertNotNull($cfTx);
+            $this->assertDatabaseHas('dts_copy_filled_to_office', ['control_id' => $cfTx->assign_offices_id, 'office_code' => 'TEST-OFF3']);
+            $this->assertDatabaseHas('dts_copy_filled_to_office', ['control_id' => $cfTx->assign_offices_id, 'office_code' => 'TEST-OFF4']);
+
+            // 2. Update it and change copy-furnished list
+            Volt::test('pages.admin.dts.transaction-flows')
+                ->call('selectFlow', $flow->id)
+                ->assertSet('flowName', 'New Custom Predefined Flow')
+                ->assertSet('cfOffices', ['TEST-OFF3', 'TEST-OFF4'])
+                // Modify cfOffices
+                ->set('cfOffices', ['TEST-OFF5'])
+                ->call('savePredefinedFlow')
+                ->assertHasNoErrors();
+
+            // Verify update
+            $cfTxNew = DB::table('dts_copy_filled_transaction')->where('control_num', 'NEW-PREDEF-CF-FLOW')->first();
+            $this->assertNotNull($cfTxNew);
+            $this->assertDatabaseHas('dts_copy_filled_to_office', ['control_id' => $cfTxNew->assign_offices_id, 'office_code' => 'TEST-OFF5']);
+            $this->assertDatabaseMissing('dts_copy_filled_to_office', ['control_id' => $cfTxNew->assign_offices_id, 'office_code' => 'TEST-OFF3']);
+
+            // Clean up flow tables
+            DB::table('dts_transaction_flow')->where('flow_code', 'NEW-PREDEF-CF-FLOW')->delete();
+            DB::table('dts_sequence_list')->where('control_id', $flow->id)->delete();
+            DB::table('dts_copy_filled_to_office')->where('control_id', $cfTxNew->assign_offices_id)->delete();
+            DB::table('dts_copy_filled_transaction')->where('control_num', 'NEW-PREDEF-CF-FLOW')->delete();
+        } finally {
+            // Clean up temporary offices
+            DB::table('office')->whereIn('office_code', ['TEST-OFF3', 'TEST-OFF4', 'TEST-OFF5'])->delete();
+        }
     }
 }

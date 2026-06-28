@@ -28,10 +28,19 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - DTS Transaction Flows')]
     public bool $isActive = true;
     public array $flowOffices = []; // list of office codes in sequence
     public string $selectedOffice = ''; // selected office from dropdown to add
+    public string $officeSearch = ''; // text query for searching offices to add
     public $flowFile; // file upload property
+
+    // ---- COPY FURNISHED EDITOR PROPERTIES ----
+    public array $cfOffices = []; // list of office codes for predefined copy furnished
+    public string $cfSearch = ''; // text query for searching copy furnished offices to add
+    public string $selectedCfOffice = ''; // selected office from dropdown for copy furnished
 
     // ---- SEARCH FOR CUSTOM FLOWS ----
     public string $searchCustom = '';
+
+    // ---- SEARCH FOR PREDEFINED FLOWS ----
+    public string $searchPredefined = '';
 
     // ---- ALERTS ----
     public string $successMessage = '';
@@ -51,6 +60,11 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - DTS Transaction Flows')]
         $this->resetPage();
     }
 
+    public function updatingSearchPredefined(): void
+    {
+        $this->resetPage();
+    }
+
     public function clearMessages(): void
     {
         $this->successMessage = '';
@@ -65,7 +79,64 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - DTS Transaction Flows')]
         $this->isActive = true;
         $this->flowOffices = ['ORIGIN', 'ORIGIN'];
         $this->selectedOffice = '';
+        $this->officeSearch = '';
+        $this->cfOffices = [];
+        $this->cfSearch = '';
+        $this->selectedCfOffice = '';
+        $this->flowFile = null;
         $this->clearMessages();
+    }
+
+    public function selectFlow($id): void
+    {
+        $this->clearMessages();
+        $this->selectedPredefined = (string) $id;
+        $this->updatedSelectedPredefined((string) $id);
+    }
+
+    public function startCreate(): void
+    {
+        $this->clearMessages();
+        $this->selectedPredefined = 'new';
+        $this->updatedSelectedPredefined('new');
+    }
+
+    public function startImport(): void
+    {
+        $this->clearMessages();
+        $this->selectedPredefined = 'import';
+        $this->updatedSelectedPredefined('import');
+    }
+
+    public function selectOfficeForAppend(string $code, string $name): void
+    {
+        $this->selectedOffice = $code;
+        $this->officeSearch = "$name ($code)";
+    }
+
+    public function selectCfOfficeForAppend(string $code, string $name): void
+    {
+        $this->selectedCfOffice = $code;
+        $this->cfSearch = "$name ($code)";
+    }
+
+    public function addCfOfficeToPath(): void
+    {
+        if ($this->selectedCfOffice === '') return;
+
+        if (!in_array($this->selectedCfOffice, $this->cfOffices)) {
+            $this->cfOffices[] = $this->selectedCfOffice;
+        }
+
+        $this->selectedCfOffice = '';
+        $this->cfSearch = '';
+    }
+
+    public function removeCfOffice(int $index): void
+    {
+        if (isset($this->cfOffices[$index])) {
+            array_splice($this->cfOffices, $index, 1);
+        }
     }
 
     /**
@@ -81,6 +152,10 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - DTS Transaction Flows')]
             $this->isActive = true;
             $this->flowOffices = ['ORIGIN', 'ORIGIN'];
             $this->flowFile = null;
+            $this->officeSearch = '';
+            $this->cfOffices = [];
+            $this->cfSearch = '';
+            $this->selectedCfOffice = '';
             return;
         }
 
@@ -104,6 +179,21 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - DTS Transaction Flows')]
                 array_unshift($offices, 'ORIGIN');
             }
             $this->flowOffices = $offices;
+
+            // Load copy-furnished offices
+            $cfTx = \DB::table('dts_copy_filled_transaction')
+                ->where('control_num', $flow->flow_code)
+                ->first();
+            if ($cfTx) {
+                $this->cfOffices = \DB::table('dts_copy_filled_to_office')
+                    ->where('control_id', $cfTx->assign_offices_id)
+                    ->pluck('office_code')
+                    ->toArray();
+            } else {
+                $this->cfOffices = [];
+            }
+            $this->cfSearch = '';
+            $this->selectedCfOffice = '';
         }
     }
 
@@ -130,6 +220,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - DTS Transaction Flows')]
         }
 
         $this->selectedOffice = '';
+        $this->officeSearch = '';
     }
 
     /**
@@ -255,9 +346,36 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - DTS Transaction Flows')]
                         'office_code' => $officeCode,
                     ]);
                 }
+
+                // Update Predefined Copy Furnished list
+                $flowCodeUpper = strtoupper(trim($this->flowCode));
+                $existingCFs = \DB::table('dts_copy_filled_transaction')->where('control_num', $flowCodeUpper)->get();
+                foreach ($existingCFs as $existingCF) {
+                    \DB::table('dts_copy_filled_to_office')->where('control_id', $existingCF->assign_offices_id)->delete();
+                }
+                \DB::table('dts_copy_filled_transaction')->where('control_num', $flowCodeUpper)->delete();
+
+                if (count($this->cfOffices) > 0) {
+                    $assignOfficesId = (\DB::table('dts_copy_filled_transaction')->max('assign_offices_id') ?? 1000) + 1;
+                    \DB::table('dts_copy_filled_transaction')->insert([
+                        'control_num' => $flowCodeUpper,
+                        'total_office' => count($this->cfOffices),
+                        'assign_offices_id' => $assignOfficesId,
+                        'data_created' => now(),
+                        'date_modified' => now(),
+                    ]);
+                    foreach ($this->cfOffices as $cfOffice) {
+                        \DB::table('dts_copy_filled_to_office')->insert([
+                            'control_id' => $assignOfficesId,
+                            'office_code' => $cfOffice,
+                        ]);
+                    }
+                }
             });
 
+            $msg = $this->successMessage;
             $this->resetForm();
+            $this->successMessage = $msg;
         } catch (\Exception $e) {
             $this->errorMessage = 'Failed to save flow: ' . $e->getMessage();
         }
@@ -560,10 +678,19 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - DTS Transaction Flows')]
             ->orderBy('office_name')
             ->get();
 
-        // Query predefined flows dropdown
-        $predefinedFlows = \DB::table('dts_transaction_flow')
-            ->where('flow_code', 'not like', 'FLOW-CUSTOM-%')
-            ->orderBy('flow_name')
+        // Query predefined flows dropdown/directory
+        $predefinedQuery = \DB::table('dts_transaction_flow')
+            ->where('flow_code', 'not like', 'FLOW-CUSTOM-%');
+
+        if ($this->searchPredefined !== '') {
+            $searchVal = '%' . $this->searchPredefined . '%';
+            $predefinedQuery->where(function ($q) use ($searchVal) {
+                $q->where('flow_name', 'like', $searchVal)
+                  ->orWhere('flow_code', 'like', $searchVal);
+            });
+        }
+
+        $predefinedFlows = $predefinedQuery->orderBy('flow_name')
             ->get();
 
         // Query custom flows (Tab 2)
@@ -620,7 +747,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - DTS Transaction Flows')]
 ?>
 
 @push('styles')
-    @vite(['resources/css/admin/activity_logs.css', 'resources/css/admin/subsystems.css'])
+    @vite(['resources/css/admin/activity_logs.css', 'resources/css/admin/subsystems.css', 'resources/css/admin/accounts_offices.css'])
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css">
     <style>
         .tabs-header {
@@ -735,30 +862,43 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - DTS Transaction Flows')]
             color: #94a3b8;
             font-size: 12px;
         }
+        .suggestions-dropdown {
+            position: absolute;
+            top: 100%;
+            left: 0;
+            right: 0;
+            background: #ffffff;
+            border: 1.5px solid #cbd5e1;
+            border-radius: 8px;
+            max-height: 200px;
+            overflow-y: auto;
+            z-index: 1000;
+            margin-top: 4px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.08);
+        }
+        .suggestion-item {
+            padding: 10px 14px;
+            cursor: pointer;
+            display: flex;
+            justify-content: space-between;
+            font-size: 13px;
+            font-family: 'Inter', sans-serif;
+            transition: background 0.15s ease;
+            border-bottom: 1px solid #f1f5f9;
+        }
+        .suggestion-item:last-child {
+            border-bottom: none;
+        }
+        .suggestion-item:hover {
+            background-color: #f1f5f9;
+        }
     </style>
 @endpush
 
 <div class="activity-logs-container">
-    <!-- Header -->
-    <div class="page-header">
-        <h1>Document Tracking - Transaction Flows</h1>
-        <p>Define standard routing sequences for documents and monitor custom pathways utilized by colleges.</p>
-    </div>
-
-    <!-- Alert Messages -->
-    @if($successMessage)
-        <div class="alert alert-success">
-            <i class="fa-solid fa-circle-check"></i> {{ $successMessage }}
-        </div>
-    @endif
-    @if($errorMessage)
-        <div class="alert alert-error">
-            <i class="fa-solid fa-triangle-exclamation"></i> {{ $errorMessage }}
-        </div>
-    @endif
 
     <!-- Tab Selection -->
-    <div class="tabs-header">
+    <div class="tabs-header" style="margin-bottom: 20px;">
         <button type="button" class="tab-btn {{ $activeTab === 'predefined' ? 'active' : '' }}" wire:click="$set('activeTab', 'predefined')">
             <i class="fa-solid fa-gears" style="margin-right: 6px;"></i> Predefined Flow Manager
         </button>
@@ -769,150 +909,331 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - DTS Transaction Flows')]
 
     <!-- Tab 1: Predefined Flow Manager -->
     @if($activeTab === 'predefined')
-        <div class="subsystem-form-card" style="max-width: 700px;">
-            <form wire:submit.prevent="savePredefinedFlow">
-                
-                <!-- Action selector -->
-                <div class="form-group">
-                    <label for="flowSelect">Action / Selected Flow</label>
-                    <select id="flowSelect" wire:model.live="selectedPredefined">
-                        <option value="">-- Choose Option --</option>
-                        <option value="new">Configure New Predefined Flow</option>
-                        <option value="import">Import Predefined Flow from File</option>
-                        @foreach($predefinedFlows as $flow)
-                            <option value="{{ $flow->id }}">Edit: {{ $flow->flow_name }} ({{ $flow->flow_code }})</option>
-                        @endforeach
-                    </select>
+        <div class="admin-offices-container">
+            <!-- Left Pane: Predefined Flows Directory -->
+            <div class="directory-panel">
+                <div class="directory-header-row">
+                    <span class="form-label" style="margin: 0; font-size: 13px; color: #334155;">Predefined Flows</span>
+                    <div style="display: flex; gap: 6px;">
+                        <button type="button" class="btn-create-new" wire:click="startCreate">
+                            <i class="fa-solid fa-plus"></i> New Flow
+                        </button>
+                        <button type="button" class="btn-create-new" style="background-color: #0284c7; border-color: #0284c7;" wire:click="startImport">
+                            <i class="fa-solid fa-file-import"></i> Import File
+                        </button>
+                    </div>
                 </div>
 
-                @if($selectedPredefined === 'import')
-                    <!-- File Upload Option -->
-                    <div class="form-group" style="margin-top: 20px;">
-                        <label for="flowFileInput">Select Predefined Flow Text File (.txt)</label>
-                        <input type="file" 
-                               id="flowFileInput" 
-                               wire:model="flowFile" 
-                               accept=".txt" 
-                               style="padding: 8px; border: 1px solid #cbd5e1; border-radius: 6px; width: 100%;">
-                        @error('flowFile') <span class="error-message">{{ $message }}</span> @enderror
-                        <p style="font-size: 12.5px; color: #64748b; margin-top: 8px; line-height: 1.5;">
-                            <strong>Instructions:</strong> The uploaded file must be a plain text file (<code>.txt</code>). Every line must end with a semicolon (<code>;</code>):
-                            <br>• Line 1: <code>&lt;flow name&gt;;</code>
-                            <br>• Line 2: <code>&lt;flow code&gt;;</code>
-                            <br>• Line 3: <code>&lt;flow sequence&gt;;</code> (e.g. <code>[]-&gt;RFAO-&gt;ICTU;</code> where <code>[]</code> is the Originated Office)
-                            <br>• Line 4 (Optional): <code>&lt;copy furnished offices (comma-separated)&gt;;</code> (e.g. <code>Unit Head, HRMDU, RFOIU;</code>)
-                            <br>• Lines starting with <code>#</code> are classified as comments and will be ignored.
-                        </p>
-                    </div>
+                <div class="search-box-wrapper" style="flex: none; position: relative; width: 100%;">
+                    <i class="fa-solid fa-magnifying-glass search-icon" style="position: absolute; left: 14px; top: 50%; transform: translateY(-50%); color: #94a3b8; font-size: 14px; margin: 0; line-height: 1;"></i>
+                    <input type="text" class="search-box" placeholder="Search flows..." wire:model.live="searchPredefined">
+                </div>
 
-                    <!-- Actions for Import -->
-                    <div class="form-actions" style="margin-top: 24px;">
-                        <button type="button" class="btn-secondary" wire:click="resetForm">
-                            Cancel
-                        </button>
-                        <button type="button" class="btn-primary" wire:click="importFlow">
-                            <i class="fa-solid fa-file-import"></i> Extract Flow Data
-                        </button>
-                    </div>
-                @elseif($selectedPredefined !== '')
-                    <!-- Flow Name -->
-                    <div class="form-group">
-                        <label for="flowNameInput">Flow Display Name</label>
-                        <input type="text" 
-                               id="flowNameInput" 
-                               placeholder="e.g. Standard Clearance Routing" 
-                               wire:model="flowName">
-                        @error('flowName') <span class="error-message">{{ $message }}</span> @enderror
-                    </div>
-
-                    <!-- Flow Code -->
-                    <div class="form-group">
-                        <label for="flowCodeInput">Flow Unique Code</label>
-                        <input type="text" 
-                               id="flowCodeInput" 
-                               placeholder="e.g. FLOW-CLEARANCE" 
-                               wire:model="flowCode"
-                               @if($selectedPredefined !== 'new') disabled @endif>
-                        @error('flowCode') <span class="error-message">{{ $message }}</span> @enderror
-                    </div>
-
-                    <!-- Active Status -->
-                    <div class="form-group" style="flex-direction: row; align-items: center; gap: 10px;">
-                        <input type="checkbox" id="flowActive" wire:model="isActive" style="width: 18px; height: 18px; margin: 0; cursor: pointer;">
-                        <label for="flowActive" style="cursor: pointer; margin: 0;">Is Active (Visible for new transactions)</label>
-                    </div>
-
-                    <!-- Office Path Sequence Builder -->
-                    <div class="form-group" style="margin-top: 24px;">
-                        <label>Office Sequence Path</label>
-                        
-                        <!-- Add Office Row -->
-                        <div style="display: flex; gap: 10px; align-items: center; margin-bottom: 12px;">
-                            <select wire:model="selectedOffice" style="margin: 0; flex: 1;">
-                                <option value="">-- Select Office to Append --</option>
-                                @foreach($activeOffices as $office)
-                                    <option value="{{ $office->office_code }}">{{ $office->office_name }} ({{ $office->office_code }})</option>
-                                @endforeach
-                            </select>
-                            <button type="button" class="btn-primary" style="height: 40px; padding: 0 16px; margin: 0; display: inline-flex; align-items: center; gap: 5px;" wire:click="addOfficeToPath">
-                                <i class="fa-solid fa-plus"></i> Add
-                            </button>
+                <div class="offices-list">
+                    @forelse($predefinedFlows as $flow)
+                        @php
+                            $isSelected = $selectedPredefined === (string) $flow->id;
+                            $flowInitials = strtoupper(substr($flow->flow_code ?: '?', 0, 3));
+                        @endphp
+                        <div class="office-item-card {{ $isSelected ? 'active' : '' }}" wire:key="flow-item-{{ $flow->id }}" wire:click="selectFlow({{ $flow->id }})">
+                            <div class="office-avatar-small">
+                                <span>{{ $flowInitials }}</span>
+                            </div>
+                            <div class="office-meta-info">
+                                <span class="office-display-name">{{ $flow->flow_name }}</span>
+                                <span class="office-display-code">Code: {{ $flow->flow_code }}</span>
+                                <span class="office-status-badge {{ $flow->is_active ? 'active-badge' : 'inactive-badge' }}">
+                                    {{ $flow->is_active ? 'Active' : 'Inactive' }}
+                                </span>
+                            </div>
                         </div>
-
-                        <!-- Sequence List -->
-                        <div class="sequence-editor-box">
-                            @forelse($flowOffices as $index => $officeCode)
-                                @php
-                                    $officeObj = $activeOffices->firstWhere('office_code', $officeCode);
-                                    $displayName = ($officeCode === 'ORIGIN') ? 'Originated Office' : ($officeObj ? $officeObj->office_name : $officeCode);
-                                @endphp
-                                <div class="sequence-list-item" wire:key="seq-node-{{ $index }}">
-                                    <div>
-                                        <span class="seq-index">{{ $index + 1 }}.</span>
-                                        <span class="seq-name" @if($officeCode === 'ORIGIN') style="font-weight: 700; color: #0f172a;" @endif>{{ $displayName }} ({{ $officeCode }})</span>
-                                    </div>
-                                    <div class="seq-actions">
-                                        @if($index > 0)
-                                            <button type="button" class="btn-seq-nav" @if($index === 1) disabled @endif wire:click="moveOfficeUp({{ $index }})" title="Move Up">
-                                                <i class="fa-solid fa-chevron-up"></i>
-                                            </button>
-                                            <button type="button" class="btn-seq-nav" @if($index === count($flowOffices) - 1) disabled @endif wire:click="moveOfficeDown({{ $index }})" title="Move Down">
-                                                <i class="fa-solid fa-chevron-down"></i>
-                                            </button>
-                                            <button type="button" class="btn-seq-remove" wire:click="removeOffice({{ $index }})" title="Remove">
-                                                <i class="fa-solid fa-trash-can"></i>
-                                            </button>
-                                        @else
-                                            <span class="subsystem-badge" style="background-color: #f1f5f9; color: #475569; border-color: #cbd5e1; font-size: 11px; font-weight: 600; padding: 4px 8px; border-radius: 6px;">
-                                                <i class="fa-solid fa-lock" style="margin-right: 4px;"></i> Fixed First Step
-                                            </span>
-                                        @endif
-                                    </div>
-                                </div>
-                            @empty
-                                <div style="text-align: center; color: #94a3b8; font-size: 13px; padding: 12px;">
-                                    Routing path is empty. Add offices above.
-                                </div>
-                            @endforelse
+                    @empty
+                        <div style="text-align: center; color: #94a3b8; font-size: 13.5px; padding: 24px 10px;">
+                            No predefined flows found.
                         </div>
-                    </div>
+                    @endforelse
+                </div>
+            </div>
 
-                    <!-- Actions -->
-                    <div class="form-actions" style="margin-top: 24px;">
-                        <button type="button" class="btn-secondary" wire:click="resetForm">
-                            Cancel
-                        </button>
-                        <button type="submit" class="btn-primary">
-                            <i class="fa-solid fa-floppy-disk"></i> Save Configuration
-                        </button>
+            <!-- Right Pane: Flow Configuration details-panel -->
+            <div class="details-panel">
+                @if($successMessage)
+                    <div class="toast-alert success" style="margin: 20px 20px 0 20px;">
+                        <i class="fa-solid fa-circle-check"></i>
+                        <span>{{ $successMessage }}</span>
                     </div>
                 @endif
-            </form>
+
+                @if($errorMessage)
+                    <div class="toast-alert error" style="margin: 20px 20px 0 20px;">
+                        <i class="fa-solid fa-circle-exclamation"></i>
+                        <span>{{ $errorMessage }}</span>
+                    </div>
+                @endif
+
+                @if($selectedPredefined)
+                    @if($selectedPredefined === 'import')
+                        <!-- Header -->
+                        <div class="details-header" style="background: linear-gradient(135deg, #0284c7 0%, #0369a1 100%);">
+                            <div class="details-header-avatar" style="background-color: rgba(255,255,255,0.15); color: #ffffff;">
+                                <i class="fa-solid fa-file-import"></i>
+                            </div>
+                            <div class="details-header-info">
+                                <h2 class="details-header-name">Import Predefined Flow</h2>
+                                <span class="details-header-sub">Upload a text file to configure a standard routing pathway</span>
+                            </div>
+                        </div>
+
+                        <!-- Body -->
+                        <div class="details-body">
+                            <div class="form-group">
+                                <label class="form-label" for="flowFileInput" style="font-weight: 600; color: #334155; margin-bottom: 8px; display: block;">Select Predefined Flow Text File (.txt)</label>
+                                <input type="file" 
+                                       id="flowFileInput" 
+                                       wire:model="flowFile" 
+                                       accept=".txt" 
+                                       style="padding: 8px; border: 1px solid #cbd5e1; border-radius: 6px; width: 100%; font-size: 13px; font-family: 'Inter', sans-serif;">
+                                @error('flowFile') <span style="color:#ef4444; font-size:11px; margin-top:4px; display:block;">{{ $message }}</span> @enderror
+                                <p style="font-size: 12.5px; color: #64748b; margin-top: 12px; line-height: 1.5; font-family: 'Inter', sans-serif;">
+                                    <strong>Instructions:</strong> The uploaded file must be a plain text file (<code>.txt</code>). Every line must end with a semicolon (<code>;</code>):
+                                    <br>• Line 1: <code>&lt;flow name&gt;;</code>
+                                    <br>• Line 2: <code>&lt;flow code&gt;;</code>
+                                    <br>• Line 3: <code>&lt;flow sequence&gt;;</code> (e.g. <code>[]-&gt;RFAO-&gt;ICTU;</code> where <code>[]</code> is the Originated Office)
+                                    <br>• Line 4 (Optional): <code>&lt;copy furnished offices (comma-separated)&gt;;</code> (e.g. <code>Unit Head, HRMDU, RFOIU;</code>)
+                                    <br>• Lines starting with <code>#</code> are classified as comments and will be ignored.
+                                </p>
+                            </div>
+                        </div>
+
+                        <!-- Footer -->
+                        <div class="details-footer">
+                            <button type="button" class="btn-cancel" wire:click="resetForm">Cancel</button>
+                            <button type="button" class="btn-save" style="background-color: #0284c7; border-color: #0284c7;" wire:click="importFlow">
+                                <i class="fa-solid fa-file-import"></i> Extract Flow Data
+                            </button>
+                        </div>
+                    @else
+                        <!-- Header -->
+                        <div class="details-header">
+                            <div class="details-header-avatar">
+                                <i class="fa-solid fa-route"></i>
+                            </div>
+                            <div class="details-header-info">
+                                <h2 class="details-header-name">
+                                    {{ $selectedPredefined === 'new' ? 'Configure New Flow' : $flowName }}
+                                </h2>
+                                <span class="details-header-sub">
+                                    {{ $selectedPredefined === 'new' ? 'Create a standard routing path template' : 'Review & adjust predefined routing path' }}
+                                </span>
+                            </div>
+                        </div>
+
+                        <!-- Body -->
+                        <div class="details-body">
+                            <form wire:submit.prevent="savePredefinedFlow" style="display: flex; flex-direction: column; gap: 20px;">
+                                <!-- Flow Name -->
+                                <div class="form-group">
+                                    <span class="form-label">Flow Display Name</span>
+                                    <input type="text" class="form-input" placeholder="e.g. Standard Clearance Routing" wire:model="flowName">
+                                    @error('flowName') <span style="color:#ef4444; font-size:11px; margin-top:2px;">{{ $message }}</span> @enderror
+                                </div>
+
+                                <!-- Flow Code -->
+                                <div class="form-group">
+                                    <span class="form-label">Flow Unique Code</span>
+                                    <input type="text" class="form-input" placeholder="e.g. FLOW-CLEARANCE" wire:model="flowCode" @if($selectedPredefined !== 'new') disabled @endif>
+                                    @error('flowCode') <span style="color:#ef4444; font-size:11px; margin-top:2px;">{{ $message }}</span> @enderror
+                                </div>
+
+                                <!-- Active status switch -->
+                                <div class="form-group">
+                                    <div class="status-toggle-wrapper">
+                                        <div class="status-toggle-label">
+                                            <span class="status-toggle-title">Flow Active Status</span>
+                                            <span class="status-toggle-desc">Toggle whether this predefined flow is visible for new transactions.</span>
+                                        </div>
+                                        <label class="switch">
+                                            <input type="checkbox" wire:model="isActive">
+                                            <span class="slider"></span>
+                                        </label>
+                                    </div>
+                                </div>
+
+                                <!-- Sequence Builder -->
+                                <div class="form-group">
+                                    <span class="form-label">Office Sequence Path</span>
+                                    
+                                    <div style="display: flex; gap: 8px; align-items: center; margin-top: 6px; position: relative;">
+                                        <div x-data="{ open: false }" @click.outside="open = false" style="position: relative; flex: 1;">
+                                            <input type="text" 
+                                                   class="form-input" 
+                                                   placeholder="Search and select office to append..." 
+                                                   wire:model.live="officeSearch"
+                                                   @focus="open = true"
+                                                   style="margin: 0; width: 100%; padding: 9px 14px;">
+                                            
+                                            <div x-show="open" class="suggestions-dropdown">
+                                                @php
+                                                    $filtered = $activeOffices->filter(function($off) {
+                                                        if (empty($this->officeSearch)) return true;
+                                                        return stripos($off->office_name, $this->officeSearch) !== false 
+                                                            || stripos($off->office_code, $this->officeSearch) !== false;
+                                                    });
+                                                @endphp
+                                                
+                                                @forelse($filtered as $off)
+                                                    <div class="suggestion-item" 
+                                                         @click="open = false"
+                                                         wire:click="selectOfficeForAppend('{{ $off->office_code }}', '{{ $off->office_name }}')">
+                                                        <span style="font-weight: 500; color: #1e293b;">{{ $off->office_name }}</span>
+                                                        <span style="color: #64748b; font-weight: 600;">{{ $off->office_code }}</span>
+                                                    </div>
+                                                @empty
+                                                    <div style="padding: 10px 14px; color: #94a3b8; font-size: 13px; font-style: italic; text-align: center;">No offices found</div>
+                                                @endforelse
+                                            </div>
+                                        </div>
+                                        <button type="button" class="btn-save" style="padding: 10px 18px; display: inline-flex; align-items: center; gap: 5px; flex-shrink: 0;" wire:click="addOfficeToPath">
+                                            <i class="fa-solid fa-plus"></i> Add
+                                        </button>
+                                    </div>
+
+                                    <div class="sequence-editor-box" style="margin-top: 14px;">
+                                        @forelse($flowOffices as $index => $officeCode)
+                                            @php
+                                                $officeObj = $activeOffices->firstWhere('office_code', $officeCode);
+                                                $displayName = ($officeCode === 'ORIGIN') ? 'Originated Office' : ($officeObj ? $officeObj->office_name : $officeCode);
+                                            @endphp
+                                            <div class="sequence-list-item" wire:key="seq-node-{{ $index }}">
+                                                <div style="display: flex; align-items: center;">
+                                                    <span class="seq-index">#{{ $index + 1 }}</span>
+                                                    <span class="seq-name" @if($officeCode === 'ORIGIN') style="font-weight: 700; color: #0f172a;" @endif>{{ $displayName }} ({{ $officeCode }})</span>
+                                                </div>
+                                                <div class="seq-actions">
+                                                    @if($index > 0)
+                                                        <button type="button" class="btn-seq-nav" @if($index === 1) disabled @endif wire:click="moveOfficeUp({{ $index }})" title="Move Up">
+                                                            <i class="fa-solid fa-chevron-up"></i>
+                                                        </button>
+                                                        <button type="button" class="btn-seq-nav" @if($index === count($flowOffices) - 1) disabled @endif wire:click="moveOfficeDown({{ $index }})" title="Move Down">
+                                                            <i class="fa-solid fa-chevron-down"></i>
+                                                        </button>
+                                                        <button type="button" class="btn-seq-remove" wire:click="removeOffice({{ $index }})" title="Remove">
+                                                            <i class="fa-solid fa-trash-can"></i>
+                                                        </button>
+                                                    @else
+                                                        <span style="font-size: 11px; font-weight: 600; color: #64748b; background: #f1f5f9; padding: 4px 8px; border-radius: 6px;">
+                                                            <i class="fa-solid fa-lock" style="margin-right: 4px;"></i> Fixed First Step
+                                                        </span>
+                                                    @endif
+                                                </div>
+                                            </div>
+                                        @empty
+                                            <div style="text-align: center; color: #94a3b8; font-size: 13px; padding: 16px;">
+                                                Routing path is empty. Add offices above.
+                                            </div>
+                                        @endforelse
+                                    </div>
+                                </div>
+
+                                <!-- Predefined Copy Furnished Configuration -->
+                                <div class="form-group" style="border-top: 1.5px dashed #e2e8f0; padding-top: 20px; margin-top: 10px;">
+                                    <span class="form-label" style="font-size: 13.5px; font-weight: 700; color: #1e3a8a; display: flex; align-items: center; gap: 6px;">
+                                        <i class="fa-solid fa-copy"></i> Predefined Copy Furnished (CF)
+                                    </span>
+                                    <span style="font-size: 11.5px; color: #64748b; margin-bottom: 12px; display: block; line-height: 1.4;">
+                                        Specify offices that should automatically receive copy-furnished document notifications when a document is routed using this flow.
+                                    </span>
+                                    
+                                    <div style="display: flex; gap: 8px; align-items: center; position: relative;">
+                                        <div x-data="{ open: false }" @click.outside="open = false" style="position: relative; flex: 1;">
+                                            <input type="text" 
+                                                   class="form-input" 
+                                                   placeholder="Search and select office to append..." 
+                                                   wire:model.live="cfSearch"
+                                                   @focus="open = true"
+                                                   style="margin: 0; width: 100%; padding: 9px 14px;">
+                                            
+                                            <div x-show="open" class="suggestions-dropdown" style="bottom: 100%; top: auto; margin-bottom: 4px; margin-top: 0;">
+                                                @php
+                                                    $filteredCf = $activeOffices->filter(function($off) {
+                                                        if (empty($this->cfSearch)) return true;
+                                                        return stripos($off->office_name, $this->cfSearch) !== false 
+                                                            || stripos($off->office_code, $this->cfSearch) !== false;
+                                                    });
+                                                @endphp
+                                                
+                                                @forelse($filteredCf as $off)
+                                                    <div class="suggestion-item" 
+                                                         @click="open = false"
+                                                         wire:click="selectCfOfficeForAppend('{{ $off->office_code }}', '{{ $off->office_name }}')">
+                                                        <span style="font-weight: 500; color: #1e293b;">{{ $off->office_name }}</span>
+                                                        <span style="color: #64748b; font-weight: 600;">{{ $off->office_code }}</span>
+                                                    </div>
+                                                @empty
+                                                    <div style="padding: 10px 14px; color: #94a3b8; font-size: 13px; font-style: italic; text-align: center;">No offices found</div>
+                                                @endforelse
+                                            </div>
+                                        </div>
+                                        <button type="button" class="btn-save" style="padding: 10px 18px; display: inline-flex; align-items: center; gap: 5px; flex-shrink: 0; background-color: #10b981; border-color: #10b981;" wire:click="addCfOfficeToPath">
+                                            <i class="fa-solid fa-plus"></i> Add
+                                        </button>
+                                    </div>
+
+                                    <div style="display: flex; flex-wrap: wrap; gap: 8px; margin-top: 14px; padding: 12px; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; min-height: 48px; box-sizing: border-box;">
+                                        @forelse($cfOffices as $index => $officeCode)
+                                            @php
+                                                $officeObj = $activeOffices->firstWhere('office_code', $officeCode);
+                                                $displayName = $officeObj ? $officeObj->office_name : $officeCode;
+                                            @endphp
+                                            <div style="display: inline-flex; align-items: center; gap: 6px; background: #e2e8f0; color: #1e293b; padding: 5px 12px; border-radius: 20px; font-size: 12px; font-weight: 600; border: 1px solid #cbd5e1; box-shadow: 0 1px 2px rgba(0,0,0,0.05);">
+                                                <span>{{ $displayName }} ({{ $officeCode }})</span>
+                                                <button type="button" wire:click="removeCfOffice({{ $index }})" style="background: none; border: none; color: #ef4444; cursor: pointer; font-size: 14px; font-weight: bold; line-height: 1; padding: 0; display: inline-flex; align-items: center; margin-left: 2px;">&times;</button>
+                                            </div>
+                                        @empty
+                                            <div style="display: flex; align-items: center; justify-content: center; width: 100%; color: #94a3b8; font-style: italic; font-size: 12.5px; height: 24px;">
+                                                No copy furnished offices added to this flow yet.
+                                            </div>
+                                        @endforelse
+                                    </div>
+                                </div>
+                            </form>
+                        </div>
+
+                        <!-- Footer -->
+                        <div class="details-footer">
+                            <button type="button" class="btn-cancel" wire:click="resetForm">Cancel</button>
+                            <button type="button" class="btn-save" wire:click="savePredefinedFlow">
+                                <i class="fa-solid fa-floppy-disk"></i> Save Configuration
+                            </button>
+                        </div>
+                    @endif
+                @else
+                    <!-- Placeholder -->
+                    <div class="details-placeholder">
+                        <i class="fa-solid fa-route"></i>
+                        <h3>Transaction Flows Configuration</h3>
+                        <p>Click on any flow in the directory list to edit its sequence path. Click the <strong>New Flow</strong> button above to construct a new flow template from scratch, or click <strong>Import File</strong> to upload predefined flow definitions.</p>
+                    </div>
+                @endif
+            </div>
         </div>
     @endif
 
     <!-- Tab 2: Custom Flows Directory -->
     @if($activeTab === 'custom')
+        @if($successMessage)
+            <div class="toast-alert success" style="margin-bottom: 16px;">
+                <i class="fa-solid fa-circle-check"></i>
+                <span>{{ $successMessage }}</span>
+            </div>
+        @endif
+
+        @if($errorMessage)
+            <div class="toast-alert error" style="margin-bottom: 16px;">
+                <i class="fa-solid fa-circle-exclamation"></i>
+                <span>{{ $errorMessage }}</span>
+            </div>
+        @endif
         <!-- Search -->
         <div class="logs-controls-card">
             <div class="search-filter-group">

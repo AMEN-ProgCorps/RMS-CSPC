@@ -15,7 +15,7 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create External
     public string $requestor_name = '';
     public string $subject = '';
     public string $transaction_flow = '';
-    public string $copy_furnished = 'No';
+    public string $copy_furnished = 'Yes';
 
     public array $cf_selected_offices = [];
     public string $cf_search = '';
@@ -28,6 +28,7 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create External
     public array $flow_offices = [];
     public ?int $selected_gap_index = null;
     public string $insert_office_code = '';
+    public string $insert_office_search = '';
 
     public function mount(): void
     {
@@ -118,7 +119,7 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create External
                 $this->copy_furnished = 'Yes';
             } else {
                 $this->cf_selected_offices = [];
-                $this->copy_furnished = 'No';
+                $this->copy_furnished = 'Yes';
             }
         } else {
             $this->flow_offices = [];
@@ -130,8 +131,22 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create External
         if (!empty($this->transaction_flow)) {
             $this->selected_gap_index = null;
             $this->insert_office_code = '';
+            $this->insert_office_search = '';
             $this->showFlowModal = true;
         }
+    }
+
+    public function selectOfficeForInsert(string $code, string $name): void
+    {
+        $this->insert_office_code = $code;
+        $this->insert_office_search = "$name ($code)";
+    }
+
+    public function cancelInsert(): void
+    {
+        $this->selected_gap_index = null;
+        $this->insert_office_code = '';
+        $this->insert_office_search = '';
     }
 
     public function insertOffice(): void
@@ -140,6 +155,7 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create External
             array_splice($this->flow_offices, $this->selected_gap_index, 0, $this->insert_office_code);
             $this->selected_gap_index = null;
             $this->insert_office_code = '';
+            $this->insert_office_search = '';
         }
     }
 
@@ -163,6 +179,149 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create External
         $this->cf_search = '';
     }
 
+    public ?string $generatedQrCode = null;
+
+    private function splitString(string $str): array
+    {
+        $len = strlen($str);
+        if ($len > 2) {
+            return [
+                'first' => $str[0],
+                'last' => $str[$len - 1],
+                'center' => substr($str, 1, $len - 2)
+            ];
+        } elseif ($len === 2) {
+            return [
+                'first' => $str[0],
+                'last' => $str[1],
+                'center' => ''
+            ];
+        } elseif ($len === 1) {
+            return [
+                'first' => '',
+                'last' => '',
+                'center' => $str
+            ];
+        } else {
+            return [
+                'first' => '',
+                'last' => '',
+                'center' => ''
+            ];
+        }
+    }
+
+    private function combine(string $a, string $b): string
+    {
+        if ($a === '') return $b;
+        if ($b === '') return $a;
+
+        $lenA = strlen($a);
+        $lenB = strlen($b);
+
+        if ($lenA === 1 && $lenB === 1) {
+            if ($a === $b) return $a;
+            $aIsAlpha = ctype_alpha($a);
+            $bIsAlpha = ctype_alpha($b);
+            if ($aIsAlpha && !$bIsAlpha) return $a . $b;
+            if (!$aIsAlpha && $bIsAlpha) return $b . $a;
+            return $a . $b;
+        }
+
+        // Identify longer and shorter
+        if ($lenA >= $lenB) {
+            $L = $a;
+            $S = $b;
+        } else {
+            $L = $b;
+            $S = $a;
+        }
+
+        $lenL = strlen($L);
+        $lenS = strlen($S);
+
+        if ($lenL === $lenS && $lenL % 2 === 0) {
+            $res = '';
+            for ($i = 0; $i < $lenL; $i++) {
+                $res .= $a[$i] . $b[$i];
+            }
+            return $res;
+        }
+
+        $splitA = $this->splitString($a);
+        $splitB = $this->splitString($b);
+        $splitL = $lenA >= $lenB ? $splitA : $splitB;
+        $splitS = $lenA >= $lenB ? $splitB : $splitA;
+
+        // Apply deduplication rule specifically for MONTH + (YEAR + TYPE)
+        if ($lenS === 3 && $lenL === 8 && $splitS['first'] === 'M' && str_starts_with($splitL['center'], 'M')) {
+            $splitL['center'] = substr($splitL['center'], 1);
+        }
+
+        $part1 = $splitA['first'] . $splitB['first'];
+        $part3 = $splitL['last'] . $splitS['last'];
+
+        $L_center = $splitL['center'];
+        $S_center = $splitS['center'];
+
+        $part2 = '';
+        if ($L_center !== '' || $S_center !== '') {
+            $lenLc = strlen($L_center);
+            if ($lenLc > 0 && $lenLc % 2 === 0) {
+                $mid = (int)($lenLc / 2);
+                $left = substr($L_center, 0, $mid);
+                $right = substr($L_center, $mid);
+                $part2 = $left . $S_center . $right;
+            } else {
+                $part2 = $this->combine($L_center, $S_center);
+            }
+        }
+
+        return $part1 . $part2 . $part3;
+    }
+
+    public function generateQrCode(): void
+    {
+        if ($this->generatedQrCode) {
+            return;
+        }
+
+        if (empty($this->seq_number)) {
+            $this->addError('seq_number', 'Please enter the Sequence Number first before generating the QR Code.');
+            return;
+        }
+
+        // Prepare the Hacore formula variables
+        $transCode = 'D' . preg_replace('/[^0-9]/', '', $this->seq_number);
+        $month = strtoupper(now()->format('M'));
+        $year = now()->format('Y');
+        
+        $type = 'EXTR';
+
+        // Run the Hacore formula
+        $rawCode = $this->combine($transCode, $this->combine($month, $this->combine($year, $type)));
+        
+        // Pad with '0' to make length a multiple of 4
+        $len = strlen($rawCode);
+        $remainder = $len % 4;
+        if ($remainder !== 0) {
+            $rawCode .= str_repeat('0', 4 - $remainder);
+        }
+        
+        // Format to groups of 4 separated by dash
+        $formatted = implode('-', str_split($rawCode, 4));
+        $this->generatedQrCode = $formatted;
+
+        // Register in the qr code table to ensure validation passes
+        DB::table('dts_qr_code')->updateOrInsert(
+            ['code_id' => $this->generatedQrCode],
+            [
+                'qr_status' => 'used',
+                'created_at' => now(),
+            ]
+        );
+    }
+
     public function removeCfOffice(int $index): void
     {
         unset($this->cf_selected_offices[$index]);
@@ -183,6 +342,11 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create External
 
         if (count($this->flow_offices) === 0) {
             $this->addError('transaction_flow', 'The transaction flow must contain at least one office.');
+            return;
+        }
+
+        if (!$this->generatedQrCode) {
+            $this->addError('seq_number', 'Please generate a QR Code first.');
             return;
         }
 
@@ -245,24 +409,7 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create External
 
             $currentOffice = $this->flow_offices[0] ?? $this->source_office;
 
-            // Find or create an unused QR code
-            $qrCode = DB::table('dts_qr_code')
-                ->where('qr_status', 'not used')
-                ->first();
-            
-            if (!$qrCode) {
-                $qrCodeId = 'QR-' . strtoupper(Str::random(8));
-                DB::table('dts_qr_code')->insert([
-                    'code_id' => $qrCodeId,
-                    'qr_status' => 'used',
-                    'created_at' => now(),
-                ]);
-            } else {
-                $qrCodeId = $qrCode->code_id;
-                DB::table('dts_qr_code')
-                    ->where('code_id', $qrCodeId)
-                    ->update(['qr_status' => 'used']);
-            }
+            $qrCodeId = $this->generatedQrCode;
 
             $transactionId = 'TRANS-' . strtoupper(Str::random(10));
 
@@ -467,12 +614,39 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create External
                                         <option value="{{ $i }}">After Step {{ $i }}</option>
                                     @endfor
                                 </select>
-                                <select wire:model="insert_office_code" class="beta-select" style="flex: 1.5;">
-                                    <option value="">Select Office to Insert...</option>
-                                    @foreach($offices as $office)
-                                        <option value="{{ $office['office_code'] }}">{{ $office['office_name'] }}</option>
-                                    @endforeach
-                                </select>
+                                <div x-data="{ open: false }" @click.outside="open = false" style="position: relative; flex: 1.5; display: flex;">
+                                    <div style="position: relative; flex: 1;">
+                                        <input type="text" 
+                                               class="beta-select" 
+                                               placeholder="Search office..." 
+                                               wire:model.live="insert_office_search"
+                                               @focus="open = true"
+                                               style="width: 100%; box-sizing: border-box; outline: none; background: #ffffff;">
+                                        
+                                        <div x-show="open" style="position: absolute; bottom: 100%; left: 0; right: 0; background: #ffffff; border: 1.5px solid #cbd5e1; border-radius: 6px; max-height: 150px; overflow-y: auto; z-index: 2000; margin-bottom: 4px; box-shadow: 0 -4px 12px rgba(0,0,0,0.08);">
+                                            @php
+                                                $filtered = collect($offices)->filter(function($off) {
+                                                    if (empty($this->insert_office_search)) return true;
+                                                    return stripos($off['office_name'], $this->insert_office_search) !== false 
+                                                        || stripos($off['office_code'], $this->insert_office_search) !== false;
+                                                });
+                                            @endphp
+                                            
+                                            @forelse($filtered as $off)
+                                                <div @click="open = false"
+                                                     wire:click="selectOfficeForInsert('{{ $off['office_code'] }}', '{{ $off['office_name'] }}')"
+                                                     style="padding: 6px 10px; cursor: pointer; display: flex; justify-content: space-between; font-size: 11.5px; font-family: 'Inter', sans-serif; transition: background 0.15s ease; border-bottom: 1px solid #f1f5f9; text-align: left;"
+                                                     onmouseover="this.style.backgroundColor='#f1f5f9'"
+                                                     onmouseout="this.style.backgroundColor='transparent'">
+                                                    <span style="font-weight: 500; color: #1e293b; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 180px;">{{ $off['office_name'] }}</span>
+                                                    <span style="color: #64748b; font-weight: 600; flex-shrink: 0;">{{ $off['office_code'] }}</span>
+                                                </div>
+                                            @empty
+                                                <div style="padding: 6px 10px; color: #94a3b8; font-size: 11.5px; font-style: italic; text-align: center;">No offices found</div>
+                                            @endforelse
+                                        </div>
+                                    </div>
+                                </div>
                                 <button type="button" wire:click="insertOffice" class="beta-btn-add" {{ $selected_gap_index === null || empty($insert_office_code) ? 'disabled' : '' }}>
                                     <i class="fa-solid fa-plus"></i> Add
                                 </button>
@@ -731,115 +905,208 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create External
                 </div>
             @endif
 
+            <!-- QR Code Generation Panel -->
+            <div style="background: #f8fafc; border: 1.5px dashed #cbd5e1; border-radius: 8px; padding: 20px; margin-bottom: 20px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; box-sizing: border-box;">
+                @if($generatedQrCode)
+                    <div id="printable-qr-area-ext" style="display: flex; flex-direction: column; align-items: center; gap: 8px; background: white; padding: 16px; border-radius: 8px; box-shadow: 0 1px 3px rgba(0,0,0,0.1);">
+                        <img src="https://api.qrserver.com/v1/create-qr-code/?size=150x150&data={{ urlencode($generatedQrCode) }}" alt="QR Code" style="width: 150px; height: 150px;">
+                        <span style="font-family: monospace; font-weight: bold; font-size: 14px; color: #1e293b;">{{ $generatedQrCode }}</span>
+                    </div>
+                    
+                    <div style="display: flex; gap: 10px; margin-top: 4px;">
+                        <button type="button" onclick="printQrCodeExt()" style="background: #10b981; color: white; border: none; border-radius: 6px; padding: 8px 16px; font-weight: bold; font-size: 13px; cursor: pointer; display: flex; align-items: center; gap: 6px;">
+                            <i class="fa-solid fa-print"></i> Print QR Code
+                        </button>
+                    </div>
+                @else
+                    <div style="text-align: center; color: #64748b;">
+                        <i class="fa-solid fa-qrcode" style="font-size: 36px; margin-bottom: 8px; color: #94a3b8; display: block;"></i>
+                        <span style="font-size: 13.5px; font-weight: 500; display: block;">QR Code Generation Required</span>
+                        <span style="font-size: 12px; display: block; margin-top: 2px;">You must generate and print a QR code for this transaction before submitting it.</span>
+                    </div>
+                    <button type="button" wire:click="generateQrCode" style="background: #3b82f6; color: white; border: none; border-radius: 6px; padding: 10px 20px; font-weight: bold; font-size: 13px; cursor: pointer; display: flex; align-items: center; gap: 6px; box-shadow: 0 2px 4px rgba(59, 130, 246, 0.2);">
+                        <i class="fa-solid fa-gear"></i> Generate QR Code
+                    </button>
+                @endif
+            </div>
+
             <!-- Submit button -->
             <div class="actions-row">
                 @if (session()->has('error'))
                     <span style="color: #dc2626; font-size: 13px; align-self: center; margin-right: 15px;">{{ session('error') }}</span>
                 @endif
-                <button type="submit" class="btn-primary">CREATE TRANSACTION</button>
+                <button type="submit" class="btn-primary" @if(!$generatedQrCode) disabled style="background-color: #cbd5e1; color: #94a3b8; cursor: not-allowed;" @endif>CREATE TRANSACTION</button>
             </div>
         </form>
+
+        <script>
+            function printQrCodeExt() {
+                var printContents = document.getElementById('printable-qr-area-ext').innerHTML;
+                var printWindow = window.open('', '_blank', 'width=350,height=350');
+                printWindow.document.body.innerHTML = printContents;
+                
+                var style = printWindow.document.createElement('style');
+                style.innerHTML = 'body{display:flex;flex-direction:column;align-items:center;justify-content:center;height:100vh;margin:0;font-family:monospace;} img { width: 150px; height: 150px; }';
+                printWindow.document.head.appendChild(style);
+                
+                printWindow.document.close();
+                printWindow.focus();
+                setTimeout(function() {
+                    printWindow.print();
+                    printWindow.close();
+                }, 500);
+            }
+        </script>
     @endif
 
-</div>
+    <!-- Flow Diagram Modal -->
+    @if($showFlowModal)
+        <div style="position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; background: rgba(0,0,0,0.5); display: flex; align-items: center; justify-content: center; z-index: 1050; padding: 20px; box-sizing: border-box;">
+            <div style="background: #ffffff; width: 100%; max-width: 600px; border-radius: 8px; box-shadow: 0 10px 25px rgba(0,0,0,0.15); display: flex; flex-direction: column; max-height: 90vh;">
+                
+                <!-- Modal Header -->
+                <div style="padding: 16px; border-bottom: 1px solid #e5e7eb; display: flex; justify-content: space-between; align-items: center;">
+                    <h3 style="margin: 0; font-size: 1.1rem; color: #1e3a8a; font-weight: 700; text-transform: uppercase;">
+                        Transaction Flow Diagram
+                    </h3>
+                    <button type="button" wire:click="$set('showFlowModal', false)" style="background: none; border: none; font-size: 24px; color: #9ca3af; cursor: pointer; line-height: 1;">&times;</button>
+                </div>
 
-</div>
+                <!-- Modal Body -->
+                <div style="padding: 20px; overflow-y: auto; flex: 1;">
+                    <p style="font-size: 13px; color: #6b7280; margin-top: 0; margin-bottom: 20px;">
+                        This is the routing path for this transaction. You can modify the offices in the flow by inserting a new office in the gaps (indicated by +).
+                    </p>
 
-<!-- Flow Diagram Modal -->
-@if($showFlowModal)
-    <div style="position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; background: rgba(0,0,0,0.5); display: flex; align-items: center; justify-content: center; z-index: 1050; padding: 20px; box-sizing: border-box;">
-        <div style="background: #ffffff; width: 100%; max-width: 600px; border-radius: 8px; box-shadow: 0 10px 25px rgba(0,0,0,0.15); display: flex; flex-direction: column; max-height: 90vh;">
-            
-            <!-- Modal Header -->
-            <div style="padding: 16px; border-bottom: 1px solid #e5e7eb; display: flex; justify-content: space-between; align-items: center;">
-                <h3 style="margin: 0; font-size: 1.1rem; color: #1e3a8a; font-weight: 700; text-transform: uppercase;">
-                    Transaction Flow Diagram
-                </h3>
-                <button type="button" wire:click="$set('showFlowModal', false)" style="background: none; border: none; font-size: 24px; color: #9ca3af; cursor: pointer; line-height: 1;">&times;</button>
-            </div>
+                    <!-- Flow Path Nodes -->
+                    <div style="display: flex; flex-direction: column; gap: 8px; max-width: 450px; margin: 0 auto;">
+                        
+                        @for($i = 0; $i < count($flow_offices); $i++)
+                            <!-- Gap before Node $i -->
+                            <div style="display: flex; justify-content: center; align-items: center; gap: 8px; margin: 4px 0;">
+                                @if($selected_gap_index === $i)
+                                    <div x-data="{ open: false }" @click.outside="open = false" style="position: relative; flex: 1; display: flex;">
+                                        <div style="position: relative; flex: 1;">
+                                            <input type="text" 
+                                                   class="select-input" 
+                                                   placeholder="Search office..." 
+                                                   wire:model.live="insert_office_search"
+                                                   @focus="open = true"
+                                                   style="width: 100%; height: 28px; padding: 2px 8px; font-size: 12px; border: 1px solid #cbd5e1; border-radius: 4px; box-sizing: border-box; outline: none; background: #ffffff;">
+                                            
+                                            <div x-show="open" style="position: absolute; bottom: 100%; left: 0; right: 0; background: #ffffff; border: 1.5px solid #cbd5e1; border-radius: 6px; max-height: 150px; overflow-y: auto; z-index: 2000; margin-bottom: 4px; box-shadow: 0 -4px 12px rgba(0,0,0,0.08);">
+                                                @php
+                                                    $filtered = collect($offices)->filter(function($off) {
+                                                        if (empty($this->insert_office_search)) return true;
+                                                        return stripos($off['office_name'], $this->insert_office_search) !== false 
+                                                            || stripos($off['office_code'], $this->insert_office_search) !== false;
+                                                    });
+                                                @endphp
+                                                
+                                                @forelse($filtered as $off)
+                                                    <div @click="open = false"
+                                                         wire:click="selectOfficeForInsert('{{ $off['office_code'] }}', '{{ $off['office_name'] }}')"
+                                                         style="padding: 6px 10px; cursor: pointer; display: flex; justify-content: space-between; font-size: 11.5px; font-family: 'Inter', sans-serif; transition: background 0.15s ease; border-bottom: 1px solid #f1f5f9;"
+                                                         onmouseover="this.style.backgroundColor='#f1f5f9'"
+                                                         onmouseout="this.style.backgroundColor='transparent'">
+                                                        <span style="font-weight: 500; color: #1e293b; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 180px;">{{ $off['office_name'] }}</span>
+                                                        <span style="color: #64748b; font-weight: 600; flex-shrink: 0;">{{ $off['office_code'] }}</span>
+                                                    </div>
+                                                @empty
+                                                    <div style="padding: 6px 10px; color: #94a3b8; font-size: 11.5px; font-style: italic; text-align: center;">No offices found</div>
+                                                @endforelse
+                                            </div>
+                                        </div>
+                                    </div>
+                                    <button type="button" wire:click="insertOffice" class="btn-primary" style="padding: 4px 8px; font-size: 11px; background-color: #10b981; height: 28px; line-height: 20px; border-radius: 4px; border: none; color: white; cursor: pointer; font-weight: bold; flex-shrink: 0;">Insert</button>
+                                    <button type="button" wire:click="cancelInsert" style="background: #ef4444; color: white; border: none; border-radius: 4px; padding: 4px 8px; font-size: 11px; cursor: pointer; height: 28px; font-weight: bold; flex-shrink: 0;">Cancel</button>
+                                @else
+                                    <button type="button" wire:click="$set('selected_gap_index', {{ $i }})" style="width: 20px; height: 20px; border-radius: 50%; border: 1px dashed #3b82f6; background: #eff6ff; color: #3b82f6; font-weight: bold; cursor: pointer; display: flex; align-items: center; justify-content: center; font-size: 12px; outline: none;" title="Insert office here">+</button>
+                                    <span style="font-size: 11px; color: #9ca3af; font-style: italic;">Insert Gap</span>
+                                @endif
+                            </div>
 
-            <!-- Modal Body -->
-            <div style="padding: 20px; overflow-y: auto; flex: 1;">
-                <p style="font-size: 13px; color: #6b7280; margin-top: 0; margin-bottom: 20px;">
-                    This is the routing path for this transaction. You can modify the offices in the flow by inserting a new office in the gaps (indicated by +).
-                </p>
-
-                <!-- Flow Path Nodes -->
-                <div style="display: flex; flex-direction: column; gap: 8px; max-width: 450px; margin: 0 auto;">
-                    
-                    @for($i = 0; $i < count($flow_offices); $i++)
-                        <!-- Gap before Node $i -->
-                        <div style="display: flex; justify-content: center; align-items: center; gap: 8px; margin: 4px 0;">
-                            @if($selected_gap_index === $i)
-                                <div style="display: flex; gap: 6px; align-items: center; width: 100%;">
-                                    <select wire:model="insert_office_code" class="select-input" style="flex: 1; height: 28px; padding: 2px 6px; font-size: 12px;">
-                                        <option value="">Select Office</option>
-                                        @foreach($offices as $office)
-                                            <option value="{{ $office['office_code'] }}">{{ $office['office_name'] }}</option>
-                                        @endforeach
-                                    </select>
-                                    <button type="button" wire:click="insertOffice" class="btn-primary" style="padding: 4px 8px; font-size: 11px; background-color: #10b981; height: 28px; line-height: 20px;">Insert</button>
-                                    <button type="button" wire:click="$set('selected_gap_index', null)" style="background: #ef4444; color: white; border: none; border-radius: 4px; padding: 4px 8px; font-size: 11px; cursor: pointer; height: 28px;">Cancel</button>
+                            <!-- Office Node Card -->
+                            @php
+                                $code = $flow_offices[$i];
+                                $officeName = collect($offices)->firstWhere('office_code', $code)['office_name'] ?? $code;
+                            @endphp
+                            <div style="padding: 10px 14px; background: #f8fafc; border: 1px solid #cbd5e1; border-radius: 6px; display: flex; justify-content: space-between; align-items: center; box-shadow: 0 1px 3px rgba(0,0,0,0.05);">
+                                <div style="display: flex; align-items: center; gap: 8px;">
+                                    <span style="display: flex; align-items: center; justify-content: center; width: 22px; height: 22px; border-radius: 50%; background: #3b82f6; color: #ffffff; font-size: 11px; font-weight: bold;">
+                                        {{ $i + 1 }}
+                                    </span>
+                                    <span style="font-size: 13px; font-weight: 600; color: #1e293b;">
+                                        {{ $officeName }} ({{ $code }})
+                                    </span>
                                 </div>
+                                <!-- Remove node button -->
+                                @if(count($flow_offices) > 1)
+                                    <button type="button" wire:click="removeOfficeFromFlow({{ $i }})" style="background: none; border: none; color: #ef4444; cursor: pointer; font-size: 14px; padding: 0 4px;" title="Remove office">&times;</button>
+                                @endif
+                            </div>
+                        @endfor
+
+                        <!-- Final Gap after last node -->
+                        <div style="display: flex; justify-content: center; align-items: center; gap: 8px; margin: 4px 0;">
+                            @if($selected_gap_index === count($flow_offices))
+                                <div x-data="{ open: false }" @click.outside="open = false" style="position: relative; flex: 1; display: flex;">
+                                    <div style="position: relative; flex: 1;">
+                                        <input type="text" 
+                                               class="select-input" 
+                                               placeholder="Search office..." 
+                                               wire:model.live="insert_office_search"
+                                               @focus="open = true"
+                                               style="width: 100%; height: 28px; padding: 2px 8px; font-size: 12px; border: 1px solid #cbd5e1; border-radius: 4px; box-sizing: border-box; outline: none; background: #ffffff;">
+                                        
+                                        <div x-show="open" style="position: absolute; bottom: 100%; left: 0; right: 0; background: #ffffff; border: 1.5px solid #cbd5e1; border-radius: 6px; max-height: 150px; overflow-y: auto; z-index: 2000; margin-bottom: 4px; box-shadow: 0 -4px 12px rgba(0,0,0,0.08);">
+                                            @php
+                                                $filtered = collect($offices)->filter(function($off) {
+                                                    if (empty($this->insert_office_search)) return true;
+                                                    return stripos($off['office_name'], $this->insert_office_search) !== false 
+                                                        || stripos($off['office_code'], $this->insert_office_search) !== false;
+                                                    });
+                                                @endphp
+                                                
+                                                @forelse($filtered as $off)
+                                                    <div @click="open = false"
+                                                         wire:click="selectOfficeForInsert('{{ $off['office_code'] }}', '{{ $off['office_name'] }}')"
+                                                         style="padding: 6px 10px; cursor: pointer; display: flex; justify-content: space-between; font-size: 11.5px; font-family: 'Inter', sans-serif; transition: background 0.15s ease; border-bottom: 1px solid #f1f5f9;"
+                                                         onmouseover="this.style.backgroundColor='#f1f5f9'"
+                                                         onmouseout="this.style.backgroundColor='transparent'">
+                                                        <span style="font-weight: 500; color: #1e293b; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 180px;">{{ $off['office_name'] }}</span>
+                                                        <span style="color: #64748b; font-weight: 600; flex-shrink: 0;">{{ $off['office_code'] }}</span>
+                                                    </div>
+                                                @empty
+                                                    <div style="padding: 6px 10px; color: #94a3b8; font-size: 11.5px; font-style: italic; text-align: center;">No offices found</div>
+                                                @endforelse
+                                            </div>
+                                        </div>
+                                    </div>
+                                    <button type="button" wire:click="insertOffice" class="btn-primary" style="padding: 4px 8px; font-size: 11px; background-color: #10b981; height: 28px; line-height: 20px; border-radius: 4px; border: none; color: white; cursor: pointer; font-weight: bold; flex-shrink: 0;">Insert</button>
+                                    <button type="button" wire:click="cancelInsert" style="background: #ef4444; color: white; border: none; border-radius: 4px; padding: 4px 8px; font-size: 11px; cursor: pointer; height: 28px; font-weight: bold; flex-shrink: 0;">Cancel</button>
                             @else
-                                <button type="button" wire:click="$set('selected_gap_index', {{ $i }})" style="width: 20px; height: 20px; border-radius: 50%; border: 1px dashed #3b82f6; background: #eff6ff; color: #3b82f6; font-weight: bold; cursor: pointer; display: flex; align-items: center; justify-content: center; font-size: 12px; outline: none;" title="Insert office here">+</button>
+                                <button type="button" wire:click="$set('selected_gap_index', {{ count($flow_offices) }})" style="width: 20px; height: 20px; border-radius: 50%; border: 1px dashed #3b82f6; background: #eff6ff; color: #3b82f6; font-weight: bold; cursor: pointer; display: flex; align-items: center; justify-content: center; font-size: 12px; outline: none;" title="Insert office here">+</button>
                                 <span style="font-size: 11px; color: #9ca3af; font-style: italic;">Insert Gap</span>
                             @endif
                         </div>
 
-                        <!-- Office Node Card -->
-                        @php
-                            $code = $flow_offices[$i];
-                            $officeName = collect($offices)->firstWhere('office_code', $code)['office_name'] ?? $code;
-                        @endphp
-                        <div style="padding: 10px 14px; background: #f8fafc; border: 1px solid #cbd5e1; border-radius: 6px; display: flex; justify-content: space-between; align-items: center; box-shadow: 0 1px 3px rgba(0,0,0,0.05);">
-                            <div style="display: flex; align-items: center; gap: 8px;">
-                                <span style="display: flex; align-items: center; justify-content: center; width: 22px; height: 22px; border-radius: 50%; background: #3b82f6; color: #ffffff; font-size: 11px; font-weight: bold;">
-                                    {{ $i + 1 }}
-                                </span>
-                                <span style="font-size: 13px; font-weight: 600; color: #1e293b;">
-                                    {{ $officeName }} ({{ $code }})
-                                </span>
-                            </div>
-                            <!-- Remove node button -->
-                            @if(count($flow_offices) > 1)
-                                <button type="button" wire:click="removeOfficeFromFlow({{ $i }})" style="background: none; border: none; color: #ef4444; cursor: pointer; font-size: 14px; padding: 0 4px;" title="Remove office">&times;</button>
-                            @endif
-                        </div>
-                    @endfor
-
-                    <!-- Final Gap after last node -->
-                    <div style="display: flex; justify-content: center; align-items: center; gap: 8px; margin: 4px 0;">
-                        @if($selected_gap_index === count($flow_offices))
-                            <div style="display: flex; gap: 6px; align-items: center; width: 100%;">
-                                <select wire:model="insert_office_code" class="select-input" style="flex: 1; height: 28px; padding: 2px 6px; font-size: 12px;">
-                                    <option value="">Select Office</option>
-                                    @foreach($offices as $office)
-                                        <option value="{{ $office['office_code'] }}">{{ $office['office_name'] }}</option>
-                                    @endforeach
-                                </select>
-                                <button type="button" wire:click="insertOffice" class="btn-primary" style="padding: 4px 8px; font-size: 11px; background-color: #10b981; height: 28px; line-height: 20px;">Insert</button>
-                                <button type="button" wire:click="$set('selected_gap_index', null)" style="background: #ef4444; color: white; border: none; border-radius: 4px; padding: 4px 8px; font-size: 11px; cursor: pointer; height: 28px;">Cancel</button>
-                            </div>
-                        @else
-                            <button type="button" wire:click="$set('selected_gap_index', {{ count($flow_offices) }})" style="width: 20px; height: 20px; border-radius: 50%; border: 1px dashed #3b82f6; background: #eff6ff; color: #3b82f6; font-weight: bold; cursor: pointer; display: flex; align-items: center; justify-content: center; font-size: 12px; outline: none;" title="Insert office here">+</button>
-                            <span style="font-size: 11px; color: #9ca3af; font-style: italic;">Insert Gap</span>
-                        @endif
                     </div>
-
                 </div>
-            </div>
 
-            <!-- Modal Footer -->
-            <div style="padding: 16px; border-top: 1px solid #e5e7eb; display: flex; justify-content: space-between; align-items: center; background-color: #f9fafb;">
-                <button type="button" wire:click="resetFlowToDefault" style="background: #ef4444; color: white; border: none; border-radius: 6px; padding: 8px 14px; font-size: 13px; font-weight: 600; cursor: pointer;">
-                    Reset to Default
-                </button>
-                <button type="button" wire:click="$set('showFlowModal', false)" style="background: #3b82f6; color: white; border: none; border-radius: 6px; padding: 8px 16px; font-size: 13px; font-weight: 600; cursor: pointer;">
-                    Close
-                </button>
-            </div>
+                <!-- Modal Footer -->
+                <div style="padding: 16px; border-top: 1px solid #e5e7eb; display: flex; justify-content: space-between; align-items: center; background-color: #f9fafb;">
+                    <button type="button" wire:click="resetFlowToDefault" style="background: #ef4444; color: white; border: none; border-radius: 6px; padding: 8px 14px; font-size: 13px; font-weight: 600; cursor: pointer;">
+                        Reset to Default
+                    </button>
+                    <button type="button" wire:click="$set('showFlowModal', false)" style="background: #3b82f6; color: white; border: none; border-radius: 6px; padding: 8px 16px; font-size: 13px; font-weight: 600; cursor: pointer;">
+                        Close
+                    </button>
+                </div>
 
+            </div>
         </div>
-    </div>
-@endif
+    @endif
+
+</div>
+</div>

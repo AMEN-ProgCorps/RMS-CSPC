@@ -93,15 +93,21 @@ class CreateTransactionQrCodeTest extends TestCase
         $this->assertNotNull($qrCode);
         $this->assertMatchesRegularExpression('/^[A-Z0-9]{4}-[A-Z0-9]{4}-[A-Z0-9]{4}-[A-Z0-9]{4}$/i', $qrCode);
 
-        // Verify it was marked used in DB
+        // Verify it was registered as not used in DB
         $this->assertDatabaseHas('dts_qr_code', [
             'code_id' => $qrCode,
-            'qr_status' => 'used'
+            'qr_status' => 'not used'
         ]);
 
         // 3. Save should now succeed
         $component->call('save')
             ->assertHasNoErrors();
+
+        // Verify it was marked used in DB after save
+        $this->assertDatabaseHas('dts_qr_code', [
+            'code_id' => $qrCode,
+            'qr_status' => 'used'
+        ]);
 
         // Verify transaction was created in DB
         $this->assertDatabaseHas('dts_transactions', [

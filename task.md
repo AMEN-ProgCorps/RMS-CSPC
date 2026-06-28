@@ -1,0 +1,36 @@
+# Tasks - Predefined Flow & Offices File Import
+
+- `[x]` Update Predefined Flow Editor & Import Logic (`transaction-flows.blade.php`)
+  - `[x]` Re-include `ORIGIN` in `$activeOffices` dropdown by removing the SQL filter.
+  - `[x]` Update `updatedSelectedPredefined` and `resetForm` to initialize sequences to `['ORIGIN', 'ORIGIN']`.
+  - `[x]` Update `addOfficeToPath` to insert new offices before the final `ORIGIN` if present.
+  - `[x]` Update `importFlow` sequence parsing to automatically append `ORIGIN` if missing from the end.
+- `[x]` Update Loop Import to support Predefined Copy Furnished offices
+  - `[x]` Update `importFlow` parsing logic to support optional 4th line for Copy Furnished offices.
+  - `[x]` Update database transactions in `importFlow` to save predefined Copy Furnished configurations to `dts_copy_filled_transaction` and `dts_copy_filled_to_office`.
+- `[x]` Update Document Creation views to auto-load Predefined Copy Furnished offices
+  - `[x]` Update `updatedTransactionFlow` in `internal.blade.php`.
+  - `[x]` Update `updatedTransactionFlow` in `external.blade.php`.
+  - `[x]` Update `updatedTransactionFlow` in `issuances.blade.php`.
+  - `[x]` Update `updatedTransactionFlow` in `application-letters.blade.php`.
+- `[x]` Implement Offices Management bulk import feature (`offices.blade.php`)
+  - `[x]` Add "Import File" UI trigger button to Offices list directory header.
+  - `[x]` Implement Import Panel view with file selector and detailed layout instructions.
+  - `[x]` Implement loop parser with support for optional 3rd line active status (defaults to true).
+  - `[x]` Implement database transaction for atomic office insertion and logging.
+  - `[x]` Relocate status alerts to the top of the details panel.
+- `[x]` Predefined Flows Management Dual-Pane UI Redesign (`transaction-flows.blade.php`)
+  - `[x]` Port premium dual-pane directory sidebar & details panel configurator layout.
+  - `[x]` Implement flows search filter and sidebar active card selections.
+  - `[x]` Fix search box wrapper flex vertical stretching and absolute icon alignment.
+- `[x]` Searchable Office Dropdown for Sequence Builder (`transaction-flows.blade.php`)
+  - `[x]` Replace static `<select>` elements with searchable `<input>` text fields.
+  - `[x]` Implement Alpine.js popover suggestion list wrapper with dismiss-on-click-away behavior.
+  - `[x]` Add Livewire query matches and auto-fill selection handlers.
+- `[x]` Update Feature Tests (`TransactionFlowImportTest.php` and `OfficeImportTest.php`)
+  - `[x]` Test multi-flow imports with and without copy furnished lines.
+  - `[x]` Test component auto-loading of copy furnished offices.
+  - `[x]` Test bulk office import with and without optional active status lines.
+  - `[x]` Test flows search, selection, and starting creation panel transitions.
+- `[x]` Run PHPUnit tests and verify success.
+- `[x]` Update Walkthrough documentation.

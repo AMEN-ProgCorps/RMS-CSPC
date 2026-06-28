@@ -781,6 +781,19 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - DTS Transaction Flows')]
             background: #003699;
             border-radius: 99px;
         }
+        .activity-logs-container {
+            padding: 12px 24px;
+        }
+        .admin-offices-container {
+            min-height: calc(100vh - 190px) !important;
+            height: calc(100vh - 190px) !important;
+        }
+        .directory-panel {
+            max-height: calc(100vh - 210px) !important;
+        }
+        .details-panel {
+            max-height: calc(100vh - 210px) !important;
+        }
         .sequence-editor-box {
             border: 1.5px dashed #cbd5e1;
             border-radius: 12px;

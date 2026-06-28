@@ -320,11 +320,11 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create Internal
         $formatted = implode('-', str_split($rawCode, 4));
         $this->generatedQrCode = $formatted;
 
-        // Register in the qr code table to ensure validation passes
+        // Register in the qr code table with 'not used' status
         DB::table('dts_qr_code')->updateOrInsert(
             ['code_id' => $this->generatedQrCode],
             [
-                'qr_status' => 'used',
+                'qr_status' => 'not used',
                 'created_at' => now(),
             ]
         );
@@ -374,6 +374,11 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create Internal
 
         DB::beginTransaction();
         try {
+            // Mark the QR code as used
+            DB::table('dts_qr_code')
+                ->where('code_id', $this->generatedQrCode)
+                ->update(['qr_status' => 'used']);
+
             // Check if the flow has been modified
             $flowCode = $this->transaction_flow;
             $flow = DB::table('dts_transaction_flow')->where('flow_code', $this->transaction_flow)->first();
@@ -778,12 +783,41 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create Internal
                     @endif
                 </div>
 
+                <!-- QR Code Generation Card for Beta -->
+                <div class="beta-card" style="border: 2px dashed rgba(37, 99, 235, 0.3); background: rgba(37, 99, 235, 0.02); display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 24px; gap: 16px; margin-bottom: 24px;">
+                    <h3 class="beta-card-title" style="margin-bottom: 0; align-self: flex-start;">
+                        <i class="fa-solid fa-qrcode"></i> Transaction QR Code
+                    </h3>
+                    
+                    @if($generatedQrCode)
+                        <div id="printable-qr-area-internal" style="display: flex; flex-direction: column; align-items: center; gap: 12px; background: white; padding: 20px; border-radius: 12px; box-shadow: 0 4px 12px rgba(0,0,0,0.05); border: 1px solid #e2e8f0;">
+                            <img src="https://api.qrserver.com/v1/create-qr-code/?size=150x150&data={{ urlencode($generatedQrCode) }}" alt="QR Code" style="width: 150px; height: 150px; border-radius: 4px;">
+                            <span style="font-family: 'Space Mono', monospace; font-weight: 700; font-size: 15px; color: #1e293b; letter-spacing: 0.5px;">{{ $generatedQrCode }}</span>
+                        </div>
+                        
+                        <div style="display: flex; gap: 12px; margin-top: 4px;">
+                            <button type="button" onclick="printQrCodeInternal()" class="beta-btn-submit" style="background: #10b981; box-shadow: 0 4px 10px rgba(16, 185, 129, 0.25); padding: 10px 20px; font-size: 13px;">
+                                <i class="fa-solid fa-print"></i> Print QR Code
+                            </button>
+                        </div>
+                    @else
+                        <div style="text-align: center; color: #64748b; max-width: 400px;">
+                            <i class="fa-solid fa-qrcode" style="font-size: 48px; margin-bottom: 12px; color: #94a3b8; display: block; opacity: 0.8;"></i>
+                            <span style="font-size: 15px; font-weight: 700; display: block; color: #1e293b;">QR Code Generation Required</span>
+                            <span style="font-size: 12.5px; display: block; margin-top: 6px; color: #64748b; line-height: 1.5;">You must generate and print a transaction QR code using the sequence number before you can proceed to create this transaction.</span>
+                        </div>
+                        <button type="button" wire:click="generateQrCode" class="beta-btn-submit" style="padding: 10px 20px; font-size: 13px;">
+                            <i class="fa-solid fa-gear"></i> Generate QR Code
+                        </button>
+                    @endif
+                </div>
+
                 <!-- Submit Footer -->
                 <div class="beta-form-footer">
                     @if (session()->has('error'))
                         <span class="beta-error" style="margin-right: 15px; align-self: center;">{{ session('error') }}</span>
                     @endif
-                    <button type="submit" class="beta-btn-submit">
+                    <button type="submit" class="beta-btn-submit" @if(!$generatedQrCode) disabled style="background: #cbd5e1; color: #94a3b8; cursor: not-allowed; box-shadow: none;" @endif>
                         <i class="fa-solid fa-floppy-disk"></i> Create Transaction
                     </button>
                 </div>
@@ -1044,7 +1078,7 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create Internal
                 <button type="submit" class="btn-primary" @if(!$generatedQrCode) disabled style="background-color: #cbd5e1; color: #94a3b8; cursor: not-allowed;" @endif>CREATE TRANSACTION</button>
             </div>
         </form>
-
+<!-- Modify the QRCODE-HERE -->
         <script>
             function printQrCodeInternal() {
                 var printContents = document.getElementById('printable-qr-area-internal').innerHTML;

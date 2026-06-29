@@ -35,7 +35,7 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create Issuance
         $this->enableBeta = session('enable_beta', false);
         $this->offices = DB::table('office')
             ->where('is_active', true)
-            ->where('office_code', '!=', 'ORIGIN')
+            ->whereNotIn('office_code', ['ORIGIN', '[H]'])
             ->orderBy('office_name')
             ->get()
             ->map(fn($o) => (array)$o)
@@ -381,9 +381,25 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create Issuance
             $flowCode = $this->transaction_flow;
             $flow = DB::table('dts_transaction_flow')->where('flow_code', $this->transaction_flow)->first();
             
-            // Resolve dynamic ORIGIN to the creator's office
-            if (count($this->flow_offices) > 0 && $this->flow_offices[0] === 'ORIGIN') {
-                $this->flow_offices[0] = $userOfficeCode;
+            // Find cluster head of the originating office
+            $originOfficeCode = $userOfficeCode;
+            $originOffice = DB::table('office')->where('office_code', $originOfficeCode)->first();
+            $clusterHead = null;
+            if ($originOffice && $originOffice->cluster) {
+                $cluster = DB::table('cluster')->where('cluster_code', $originOffice->cluster)->first();
+                if ($cluster) {
+                    $clusterHead = $cluster->cluster_head;
+                }
+            }
+
+            // Resolve dynamic ORIGIN and [H] to the creator's office / cluster head for all elements
+            foreach ($this->flow_offices as $idx => $officeCode) {
+                if ($officeCode === 'ORIGIN') {
+                    $this->flow_offices[$idx] = $originOfficeCode;
+                }
+                if ($officeCode === '[H]') {
+                    $this->flow_offices[$idx] = $clusterHead ?: $originOfficeCode;
+                }
             }
 
             $defaultOffices = [];
@@ -393,10 +409,6 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create Issuance
                     ->orderBy('sequence_ranking', 'asc')
                     ->pluck('office_code')
                     ->toArray();
-
-                if (count($defaultOffices) > 0 && $defaultOffices[0] === 'ORIGIN') {
-                    $defaultOffices[0] = $userOfficeCode;
-                }
             }
 
             if ($defaultOffices !== $this->flow_offices) {

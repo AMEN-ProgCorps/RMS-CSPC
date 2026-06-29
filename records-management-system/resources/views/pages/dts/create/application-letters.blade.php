@@ -36,7 +36,7 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create Applicat
         $this->enableBeta = session('enable_beta', false);
         $this->offices = DB::table('office')
             ->where('is_active', true)
-            ->where('office_code', '!=', 'ORIGIN')
+            ->whereNotIn('office_code', ['ORIGIN', '[H]'])
             ->orderBy('office_name')
             ->get()
             ->map(fn($o) => (array)$o)
@@ -379,9 +379,25 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create Applicat
             $flowCode = $this->transaction_flow;
             $flow = DB::table('dts_transaction_flow')->where('flow_code', $this->transaction_flow)->first();
             
-            // Resolve dynamic ORIGIN to the creator's office
-            if (count($this->flow_offices) > 0 && $this->flow_offices[0] === 'ORIGIN') {
-                $this->flow_offices[0] = $this->unit_college;
+            // Find cluster head of the originating office
+            $originOfficeCode = $this->unit_college;
+            $originOffice = DB::table('office')->where('office_code', $originOfficeCode)->first();
+            $clusterHead = null;
+            if ($originOffice && $originOffice->cluster) {
+                $cluster = DB::table('cluster')->where('cluster_code', $originOffice->cluster)->first();
+                if ($cluster) {
+                    $clusterHead = $cluster->cluster_head;
+                }
+            }
+
+            // Resolve dynamic ORIGIN and [H] to the creator's office / cluster head for all elements
+            foreach ($this->flow_offices as $idx => $officeCode) {
+                if ($officeCode === 'ORIGIN') {
+                    $this->flow_offices[$idx] = $originOfficeCode;
+                }
+                if ($officeCode === '[H]') {
+                    $this->flow_offices[$idx] = $clusterHead ?: $originOfficeCode;
+                }
             }
 
             $defaultOffices = [];
@@ -391,10 +407,6 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create Applicat
                     ->orderBy('sequence_ranking', 'asc')
                     ->pluck('office_code')
                     ->toArray();
-
-                if (count($defaultOffices) > 0 && $defaultOffices[0] === 'ORIGIN') {
-                    $defaultOffices[0] = $this->unit_college;
-                }
             }
 
             if ($defaultOffices !== $this->flow_offices) {
@@ -1026,7 +1038,7 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create Applicat
                 printWindow.document.body.innerHTML = printContents;
                 
                 var style = printWindow.document.createElement('style');
-                style.innerHTML = 'body{display:flex;flex-direction:column;align-items:center;justify-content:center;height:100vh;margin:0;font-family:monospace;} img { width: 150px; height: 150px; }';
+                style.innerHTML = 'body { display:flex; flex-direction:column;align-items:flex-start; justify-content: flex-end;height:100vh;margin:0;font-family:monospace;}img {width: 20px;height: 20px;}';
                 printWindow.document.head.appendChild(style);
                 
                 printWindow.document.close();

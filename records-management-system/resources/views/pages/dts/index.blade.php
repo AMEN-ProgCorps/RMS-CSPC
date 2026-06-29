@@ -104,7 +104,18 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
 
             $dateReceived = $currentLog ? $currentLog->date_in : $t->date_created;
             $t->date_received = $dateReceived;
-            $t->elapsed_days = $dateReceived ? now()->diffInDays(\Carbon\Carbon::parse($dateReceived)) : 0;
+
+            // Only calculate elapsed days if the transaction has been forwarded
+            $hasBeenForwarded = DB::table('sub_document_tracking_system_logs')
+                ->where('transaction_id', $t->transaction_id)
+                ->where('type', 'forwarded')
+                ->exists();
+
+            if ($hasBeenForwarded) {
+                $t->elapsed_days = $dateReceived ? now()->diffInDays(\Carbon\Carbon::parse($dateReceived)) : 0;
+            } else {
+                $t->elapsed_days = 0;
+            }
 
             // Previous office (from office)
             $prevLog = DB::table('sub_document_tracking_system_logs as log')
@@ -564,7 +575,7 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
 
                     <!-- Card Body contents -->
                     <div style="font-size: 13px; color: #4b5563; line-height: 1.6; margin-top: 12px; font-family: Roboto, sans-serif;">
-                        <div style="margin-bottom: 6px;"><strong>Subject:</strong> {{ $t->subject }}</div>
+                        <div style="margin-bottom: 6px; word-break: break-word; overflow-wrap: break-word; white-space: normal;"><strong>Subject:</strong> {{ $t->subject }}</div>
                         <div style="margin-bottom: 6px;"><strong>Unit/College:</strong> {{ $t->originated_office_name }}</div>
                         <div style="margin-bottom: 6px;"><strong>Name of Requestor:</strong> {{ $t->requestor_name }}</div>
                         <div style="margin-bottom: 6px;"><strong>Control Number:</strong> <span style="font-weight: 600; color: #1e40af;">{{ $t->control_number }}</span></div>

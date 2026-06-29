@@ -530,7 +530,7 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Receive Transac
                 <div class="receive-card-line"><strong>Unit/College:</strong> {{ $t->originated_office_name ?? 'N/A' }}</div>
                 <div class="receive-card-line"><strong>Name of Requestor:</strong> {{ $t->requestor_name ?? 'N/A' }}</div>
                 <div class="receive-card-line"><strong>Type of Document:</strong> {{ ucfirst($t->type) }}</div>
-                <div class="receive-card-line"><strong>Subject:</strong> {{ $t->subject ?? 'No Subject Provided' }}</div>
+                <div class="receive-card-line" style="word-break: break-word; overflow-wrap: break-word; white-space: normal;"><strong>Subject:</strong> {{ $t->subject ?? 'No Subject Provided' }}</div>
                 
                 <div class="receive-card-row">
                     <div><strong>Received Date:</strong><br>{{ $t->date_received ? \Carbon\Carbon::parse($t->date_received)->format('Y-m-d H:i') : 'N/A' }}</div>

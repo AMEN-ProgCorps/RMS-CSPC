@@ -34,7 +34,7 @@ class OfficeImportTest extends TestCase
     public function test_successful_office_import_with_optional_status()
     {
         // Office 1 has no status line (defaults to active), Office 2 has status line (false), Office 3 has status line (true)
-        $fileContent = "Test Import Office One;\nTEST-IMP-OFF1;\nTest Import Office Two;\nTEST-IMP-OFF2;\nfalse;\nTest Import Office Three;\nTEST-IMP-OFF3;\ntrue;\n";
+        $fileContent = "=Test Import Office One;\nTEST-IMP-OFF1;\n=Test Import Office Two;\nTEST-IMP-OFF2;\nfalse;\n=Test Import Office Three;\nTEST-IMP-OFF3;\ntrue;\n";
         $file = UploadedFile::fake()->createWithContent('offices.txt', $fileContent);
 
         Volt::test('pages.admin.accounts.offices')
@@ -53,7 +53,7 @@ class OfficeImportTest extends TestCase
 
     public function test_office_import_fails_on_missing_semicolon()
     {
-        $fileContent = "Test Import Office One;\nTEST-IMP-OFF1\n";
+        $fileContent = "=Test Import Office One;\nTEST-IMP-OFF1\n";
         $file = UploadedFile::fake()->createWithContent('offices.txt', $fileContent);
 
         Volt::test('pages.admin.accounts.offices')
@@ -61,6 +61,18 @@ class OfficeImportTest extends TestCase
             ->set('officeFile', $file)
             ->call('importOffices')
             ->assertSet('errorMessage', 'Extraction failed: Line 2 ("TEST-IMP-OFF1") must end with a semicolon \';\'.');
+    }
+
+    public function test_office_import_fails_on_missing_equals_prefix()
+    {
+        $fileContent = "Test Import Office One;\nTEST-IMP-OFF1;\n";
+        $file = UploadedFile::fake()->createWithContent('offices.txt', $fileContent);
+
+        Volt::test('pages.admin.accounts.offices')
+            ->set('selectedOfficeId', -2)
+            ->set('officeFile', $file)
+            ->call('importOffices')
+            ->assertSet('errorMessage', 'Extraction failed: Line 1 ("Test Import Office One;") must start with \'=\' to indicate the start of an office name.');
     }
 
     public function test_office_import_skips_perfect_db_duplicate()
@@ -71,7 +83,7 @@ class OfficeImportTest extends TestCase
             'is_active' => true,
         ]);
 
-        $fileContent = "Duplicate Office;\nTEST-IMP-OFF1;\nTest Import Office Two;\nTEST-IMP-OFF2;\n";
+        $fileContent = "=Duplicate Office;\nTEST-IMP-OFF1;\n=Test Import Office Two;\nTEST-IMP-OFF2;\n";
         $file = UploadedFile::fake()->createWithContent('offices.txt', $fileContent);
 
         Volt::test('pages.admin.accounts.offices')
@@ -95,7 +107,7 @@ class OfficeImportTest extends TestCase
             'is_active' => true,
         ]);
 
-        $fileContent = "Different Office Name;\nTEST-IMP-OFF1;\n";
+        $fileContent = "=Different Office Name;\nTEST-IMP-OFF1;\n";
         $file = UploadedFile::fake()->createWithContent('offices.txt', $fileContent);
 
         Volt::test('pages.admin.accounts.offices')
@@ -110,7 +122,7 @@ class OfficeImportTest extends TestCase
     public function test_import_ignores_comment_lines()
     {
         // Incorporate lines starting with # which should be completely skipped
-        $fileContent = "# This is a comment at the top\nTest Import Office One;\nTEST-IMP-OFF1;\n# Another comment in the middle\n";
+        $fileContent = "# This is a comment at the top\n=Test Import Office One;\nTEST-IMP-OFF1;\n# Another comment in the middle\n";
         $file = UploadedFile::fake()->createWithContent('offices.txt', $fileContent);
 
         Volt::test('pages.admin.accounts.offices')

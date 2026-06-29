@@ -1,0 +1,11 @@
+'body {
+    display:flex;
+    justify-content: flex-end;
+    height:100vh;
+    margin:0;
+    font-family:monospace;
+} 
+    img { 
+        width: 50px; 
+        height: 150px; 
+}';

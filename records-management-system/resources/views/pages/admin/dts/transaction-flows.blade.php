@@ -426,12 +426,17 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - DTS Transaction Flows')]
             // Loop over non-empty lines using a dynamic index pointer
             $i = 0;
             while ($i < count($lines)) {
+                $nameLine = $lines[$i];
+
+                if (!str_starts_with($nameLine['text'], '=')) {
+                    throw new \Exception("Line {$nameLine['num']} (\"{$nameLine['text']}\") must start with '=' to indicate the start of a flow name.");
+                }
+
                 // We expect at least 3 lines for a flow (Name, Code, Sequence)
                 if ($i + 2 >= count($lines)) {
                     throw new \Exception("Incomplete flow definition starting at Line {$lines[$i]['num']}. Each flow must contain at least a name, code, and sequence.");
                 }
 
-                $nameLine = $lines[$i];
                 $codeLine = $lines[$i + 1];
                 $seqLine = $lines[$i + 2];
 
@@ -446,9 +451,19 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - DTS Transaction Flows')]
                     throw new \Exception("Line {$seqLine['num']} (\"{$seqLine['text']}\") must end with a semicolon ';'.");
                 }
 
-                $flowName = trim(substr($nameLine['text'], 0, -1));
+                $flowName = trim(substr($nameLine['text'], 1, -1));
                 $flowCode = strtoupper(trim(substr($codeLine['text'], 0, -1)));
                 $seqText = trim(substr($seqLine['text'], 0, -1));
+
+                // Determine advance count and Copy Furnished index early
+                $advanceCount = 3;
+                $nextIdx = $i + 3;
+                if ($nextIdx < count($lines)) {
+                    $fourthLine = $lines[$nextIdx];
+                    if (!str_starts_with($fourthLine['text'], '=')) {
+                        $advanceCount = 4;
+                    }
+                }
 
                 // 2. Validate empty values and code format
                 if (empty($flowName)) {
@@ -461,18 +476,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - DTS Transaction Flows')]
                     throw new \Exception("Line {$codeLine['num']} (\"{$codeLine['text']}\"): Flow code can only contain letters, numbers, dashes, and underscores.");
                 }
 
-                // Determine advance count and Copy Furnished index early
-                $nextIdx = $i + 3;
-                $isNewFlowStart = false;
-                if ($nextIdx < count($lines)) {
-                    if ($nextIdx + 1 < count($lines)) {
-                        $nextLineText = trim(substr($lines[$nextIdx + 1]['text'], 0, -1));
-                        if (preg_match('/^[A-Z0-9_\-]+$/i', $nextLineText)) {
-                            $isNewFlowStart = true;
-                        }
-                    }
-                }
-                $advanceCount = ($nextIdx < count($lines) && !$isNewFlowStart) ? 4 : 3;
+
 
                 // 3. Check database existence and conflict matching
                 $flowByCode = \DB::table('dts_transaction_flow')->where('flow_code', $flowCode)->first();
@@ -527,6 +531,10 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - DTS Transaction Flows')]
                 foreach ($nodes as $node) {
                     if ($node === '[]') {
                         $officesSequence[] = 'ORIGIN';
+                        continue;
+                    }
+                    if ($node === '[H]') {
+                        $officesSequence[] = '[H]';
                         continue;
                     }
 
@@ -1009,9 +1017,9 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - DTS Transaction Flows')]
                                 @error('flowFile') <span style="color:#ef4444; font-size:11px; margin-top:4px; display:block;">{{ $message }}</span> @enderror
                                 <p style="font-size: 12.5px; color: #64748b; margin-top: 12px; line-height: 1.5; font-family: 'Inter', sans-serif;">
                                     <strong>Instructions:</strong> The uploaded file must be a plain text file (<code>.txt</code>). Every line must end with a semicolon (<code>;</code>):
-                                    <br>• Line 1: <code>&lt;flow name&gt;;</code>
+                                    <br>• Line 1: <code>=&lt;flow name&gt;;</code> (must start with an equals sign <code>=</code>)
                                     <br>• Line 2: <code>&lt;flow code&gt;;</code>
-                                    <br>• Line 3: <code>&lt;flow sequence&gt;;</code> (e.g. <code>[]-&gt;RFAO-&gt;ICTU;</code> where <code>[]</code> is the Originated Office)
+                                    <br>• Line 3: <code>&lt;flow sequence&gt;;</code> (e.g. <code>[]-&gt;[H]-&gt;ICTU;</code> where <code>[]</code> is the Originated Office and <code>[H]</code> is the Cluster Head of that office)
                                     <br>• Line 4 (Optional): <code>&lt;copy furnished offices (comma-separated)&gt;;</code> (e.g. <code>Unit Head, HRMDU, RFOIU;</code>)
                                     <br>• Lines starting with <code>#</code> are classified as comments and will be ignored.
                                 </p>

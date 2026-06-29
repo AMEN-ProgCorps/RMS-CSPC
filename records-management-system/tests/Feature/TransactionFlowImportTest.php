@@ -50,7 +50,7 @@ class TransactionFlowImportTest extends TestCase
     public function test_successful_multiple_flows_import_with_last_stop_origin()
     {
         // Flow 1 does not end with [], Flow 2 does
-        $fileContent = "Test Imported Flow One;\nTEST-FLOW-IMP1;\n[]->TEST-OFF1->TEST-OFF2;\nTest Imported Flow Two;\nTEST-FLOW-IMP2;\n[]->TEST-OFF2->[];\n";
+        $fileContent = "=Test Imported Flow One;\nTEST-FLOW-IMP1;\n[]->TEST-OFF1->TEST-OFF2;\n=Test Imported Flow Two;\nTEST-FLOW-IMP2;\n[]->TEST-OFF2->[];\n";
         $file = UploadedFile::fake()->createWithContent('flows.txt', $fileContent);
 
         Volt::test('pages.admin.dts.transaction-flows')
@@ -83,7 +83,7 @@ class TransactionFlowImportTest extends TestCase
 
     public function test_import_fails_on_missing_semicolon()
     {
-        $fileContent = "Test Imported Flow One;\nTEST-FLOW-IMP1;\n[]->TEST-OFF1->TEST-OFF2;\nTest Imported Flow Two;\nTEST-FLOW-IMP2\n[]->TEST-OFF2;\n";
+        $fileContent = "=Test Imported Flow One;\nTEST-FLOW-IMP1;\n[]->TEST-OFF1->TEST-OFF2;\n=Test Imported Flow Two;\nTEST-FLOW-IMP2\n[]->TEST-OFF2;\n";
         $file = UploadedFile::fake()->createWithContent('flows.txt', $fileContent);
 
         Volt::test('pages.admin.dts.transaction-flows')
@@ -93,9 +93,21 @@ class TransactionFlowImportTest extends TestCase
             ->assertSet('errorMessage', 'Extraction failed: Line 5 ("TEST-FLOW-IMP2") must end with a semicolon \';\'.');
     }
 
+    public function test_flow_import_fails_on_missing_equals_prefix()
+    {
+        $fileContent = "Test Flow One;\nTEST-FLOW-IMP1;\n[]->TEST-OFF1;\n";
+        $file = UploadedFile::fake()->createWithContent('flows.txt', $fileContent);
+
+        Volt::test('pages.admin.dts.transaction-flows')
+            ->set('selectedPredefined', 'import')
+            ->set('flowFile', $file)
+            ->call('importFlow')
+            ->assertSet('errorMessage', 'Extraction failed: Line 1 ("Test Flow One;") must start with \'=\' to indicate the start of a flow name.');
+    }
+
     public function test_import_fails_on_invalid_office()
     {
-        $fileContent = "Test Imported Flow One;\nTEST-FLOW-IMP1;\n[]->TEST-OFF1;\nTest Imported Flow Two;\nTEST-FLOW-IMP2;\n[]->TEST-OFF3;\n";
+        $fileContent = "=Test Imported Flow One;\nTEST-FLOW-IMP1;\n[]->TEST-OFF1;\n=Test Imported Flow Two;\nTEST-FLOW-IMP2;\n[]->TEST-OFF3;\n";
         $file = UploadedFile::fake()->createWithContent('flows.txt', $fileContent);
 
         Volt::test('pages.admin.dts.transaction-flows')
@@ -115,7 +127,7 @@ class TransactionFlowImportTest extends TestCase
             'is_active' => true,
         ]);
 
-        $fileContent = "Test Imported Flow One;\nTEST-FLOW-IMP1;\n[]->TEST-OFF1;\nExisting Flow;\nTEST-FLOW-IMP-DUP;\n[]->TEST-OFF2;\n";
+        $fileContent = "=Test Imported Flow One;\nTEST-FLOW-IMP1;\n[]->TEST-OFF1;\n=Existing Flow;\nTEST-FLOW-IMP-DUP;\n[]->TEST-OFF2;\n";
         $file = UploadedFile::fake()->createWithContent('flows.txt', $fileContent);
 
         Volt::test('pages.admin.dts.transaction-flows')
@@ -140,7 +152,7 @@ class TransactionFlowImportTest extends TestCase
             'is_active' => true,
         ]);
 
-        $fileContent = "Test Imported Flow One;\nTEST-FLOW-IMP1;\n[]->TEST-OFF1;\nDifferent Name Flow;\nTEST-FLOW-IMP-DUP;\n[]->TEST-OFF2;\n";
+        $fileContent = "=Test Imported Flow One;\nTEST-FLOW-IMP1;\n[]->TEST-OFF1;\n=Different Name Flow;\nTEST-FLOW-IMP-DUP;\n[]->TEST-OFF2;\n";
         $file = UploadedFile::fake()->createWithContent('flows.txt', $fileContent);
 
         Volt::test('pages.admin.dts.transaction-flows')
@@ -154,7 +166,7 @@ class TransactionFlowImportTest extends TestCase
 
     public function test_import_skips_perfect_file_level_duplicate()
     {
-        $fileContent = "Test Flow One;\nTEST-FLOW-IMP1;\n[]->TEST-OFF1;\nTest Flow One;\nTEST-FLOW-IMP1;\n[]->TEST-OFF1;\n";
+        $fileContent = "=Test Flow One;\nTEST-FLOW-IMP1;\n[]->TEST-OFF1;\n=Test Flow One;\nTEST-FLOW-IMP1;\n[]->TEST-OFF1;\n";
         $file = UploadedFile::fake()->createWithContent('flows.txt', $fileContent);
 
         Volt::test('pages.admin.dts.transaction-flows')
@@ -167,7 +179,7 @@ class TransactionFlowImportTest extends TestCase
 
     public function test_import_fails_on_mismatch_file_level_duplicate()
     {
-        $fileContent = "Test Flow One;\nTEST-FLOW-IMP1;\n[]->TEST-OFF1;\nDifferent Flow;\nTEST-FLOW-IMP1;\n[]->TEST-OFF2;\n";
+        $fileContent = "=Test Flow One;\nTEST-FLOW-IMP1;\n[]->TEST-OFF1;\n=Different Flow;\nTEST-FLOW-IMP1;\n[]->TEST-OFF2;\n";
         $file = UploadedFile::fake()->createWithContent('flows.txt', $fileContent);
 
         Volt::test('pages.admin.dts.transaction-flows')
@@ -179,7 +191,7 @@ class TransactionFlowImportTest extends TestCase
 
     public function test_line_numbers_reported_correctly_with_blank_lines()
     {
-        $fileContent = "\nTest Flow One;\n\nTEST-FLOW-IMP1;\n[]->TEST-OFF3;\n";
+        $fileContent = "\n=Test Flow One;\n\nTEST-FLOW-IMP1;\n[]->TEST-OFF3;\n";
         $file = UploadedFile::fake()->createWithContent('flows.txt', $fileContent);
 
         Volt::test('pages.admin.dts.transaction-flows')
@@ -219,7 +231,7 @@ class TransactionFlowImportTest extends TestCase
     public function test_import_with_optional_copy_furnished()
     {
         // Flow 1 has no copy furnished (3 lines), Flow 2 has copy furnished (4 lines)
-        $fileContent = "Test Flow No CF;\nTEST-FLOW-IMP1;\n[]->TEST-OFF1->TEST-OFF2;\nTest Flow With CF;\nTEST-FLOW-IMP2;\n[]->TEST-OFF2->[];\nTEST-OFF1, TEST-OFF2;\n";
+        $fileContent = "=Test Flow No CF;\nTEST-FLOW-IMP1;\n[]->TEST-OFF1->TEST-OFF2;\n=Test Flow With CF;\nTEST-FLOW-IMP2;\n[]->TEST-OFF2->[];\nTEST-OFF1, TEST-OFF2;\n";
         $file = UploadedFile::fake()->createWithContent('flows.txt', $fileContent);
 
         Volt::test('pages.admin.dts.transaction-flows')
@@ -299,7 +311,7 @@ class TransactionFlowImportTest extends TestCase
     public function test_import_ignores_comment_lines()
     {
         // Incorporate lines starting with # which should be completely skipped
-        $fileContent = "# This is a comment at the top\nTest Flow No CF;\nTEST-FLOW-IMP1;\n[]->TEST-OFF1->TEST-OFF2;\n# Another comment in the middle\n";
+        $fileContent = "# This is a comment at the top\n=Test Flow No CF;\nTEST-FLOW-IMP1;\n[]->TEST-OFF1->TEST-OFF2;\n# Another comment in the middle\n";
         $file = UploadedFile::fake()->createWithContent('flows.txt', $fileContent);
 
         Volt::test('pages.admin.dts.transaction-flows')
@@ -405,8 +417,94 @@ class TransactionFlowImportTest extends TestCase
             DB::table('dts_copy_filled_to_office')->where('control_id', $cfTxNew->assign_offices_id)->delete();
             DB::table('dts_copy_filled_transaction')->where('control_num', 'NEW-PREDEF-CF-FLOW')->delete();
         } finally {
-            // Clean up temporary offices
             DB::table('office')->whereIn('office_code', ['TEST-OFF3', 'TEST-OFF4', 'TEST-OFF5'])->delete();
+        }
+    }
+
+    public function test_predefined_flow_import_and_resolution_with_cluster_head()
+    {
+        // 1. Seed cluster and offices
+        DB::table('office')->insert([
+            ['office_code' => 'TEST-CH1', 'office_name' => 'Test Cluster Head Office', 'is_active' => true],
+            ['office_code' => 'TEST-ORG1', 'office_name' => 'Test Originating Office', 'is_active' => true],
+        ]);
+
+        DB::table('cluster')->insert([
+            'cluster_code' => 'TEST-CLUST1',
+            'cluster_name' => 'Test Cluster One',
+            'cluster_head' => 'TEST-CH1',
+            'is_active' => true,
+        ]);
+
+        DB::table('office')->where('office_code', 'TEST-ORG1')->update(['cluster' => 'TEST-CLUST1']);
+
+        try {
+            // 2. Import flow containing [H]
+            $fileContent = "=Test Cluster Flow;\nTEST-FLOW-CLUST;\n[]->[H]->TEST-OFF1;\n";
+            $file = UploadedFile::fake()->createWithContent('flows.txt', $fileContent);
+
+            Volt::test('pages.admin.dts.transaction-flows')
+                ->set('selectedPredefined', 'import')
+                ->set('flowFile', $file)
+                ->call('importFlow')
+                ->assertHasNoErrors();
+
+            $flow = DB::table('dts_transaction_flow')->where('flow_code', 'TEST-FLOW-CLUST')->first();
+            $this->assertNotNull($flow);
+
+            // Assert it contains [H] in sequence ranking 2
+            $this->assertDatabaseHas('dts_sequence_list', ['control_id' => $flow->id, 'sequence_ranking' => 2, 'office_code' => '[H]']);
+
+            // 3. Create a transaction using pages.dts.create.internal
+            $qrCode = 'QR-TEST-CLUST-' . time();
+            DB::table('dts_qr_code')->insert([
+                'code_id' => $qrCode,
+                'qr_status' => 'not used',
+                'created_at' => now(),
+            ]);
+
+            Volt::test('pages.dts.create.internal')
+                ->set('unit_college', 'TEST-ORG1')
+                ->set('transaction_flow', 'TEST-FLOW-CLUST')
+                ->set('generatedQrCode', $qrCode)
+                ->set('seq_number', '12345')
+                ->set('requestor_name', 'John Doe')
+                ->set('subject', 'Test Subject')
+                ->set('classification', 'simple')
+                ->set('action_needed', 'For approval')
+                ->set('copy_furnished', 'No')
+                ->call('save')
+                ->assertHasNoErrors();
+
+            // Verify the created transaction's custom flow resolves [H] to TEST-CH1
+            $transaction = DB::table('dts_transaction_details')
+                ->where('control_number', 'INT-' . strtoupper(now()->format('Y-M')) . '-12345')
+                ->first();
+            $this->assertNotNull($transaction);
+
+            $customFlow = DB::table('dts_transaction_flow')->where('flow_code', $transaction->transaction_flow)->first();
+            $this->assertNotNull($customFlow);
+
+            $this->assertDatabaseHas('dts_sequence_list', ['control_id' => $customFlow->id, 'sequence_ranking' => 1, 'office_code' => 'TEST-ORG1']);
+            $this->assertDatabaseHas('dts_sequence_list', ['control_id' => $customFlow->id, 'sequence_ranking' => 2, 'office_code' => 'TEST-CH1']);
+            $this->assertDatabaseHas('dts_sequence_list', ['control_id' => $customFlow->id, 'sequence_ranking' => 3, 'office_code' => 'TEST-OFF1']);
+            $this->assertDatabaseHas('dts_sequence_list', ['control_id' => $customFlow->id, 'sequence_ranking' => 4, 'office_code' => 'TEST-ORG1']);
+
+            // Cleanup custom flow records
+            DB::table('dts_sequence_list')->where('control_id', $customFlow->id)->delete();
+            DB::table('dts_transaction_flow')->where('flow_code', $customFlow->flow_code)->delete();
+            DB::table('dts_transaction_details')->where('id', $transaction->id)->delete();
+            DB::table('dts_transactions')->where('transaction_id', $transaction->id)->delete();
+            DB::table('sub_document_tracking_system_logs')->where('transaction_id', $transaction->id)->delete();
+            DB::table('dts_qr_code')->where('code_id', $qrCode)->delete();
+
+            // Cleanup imported predefined flow
+            DB::table('dts_sequence_list')->where('control_id', $flow->id)->delete();
+            DB::table('dts_transaction_flow')->where('flow_code', 'TEST-FLOW-CLUST')->delete();
+
+        } finally {
+            DB::table('office')->whereIn('office_code', ['TEST-CH1', 'TEST-ORG1'])->delete();
+            DB::table('cluster')->where('cluster_code', 'TEST-CLUST1')->delete();
         }
     }
 }

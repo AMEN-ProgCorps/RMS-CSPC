@@ -38,6 +38,7 @@ class office extends Model
         'office_name',
         'office_code',
         'is_active',
+        'cluster',
     ];
 
     /**
@@ -46,5 +47,13 @@ class office extends Model
     protected $casts = [
         'is_active' => 'boolean',
     ];
+
+    /**
+     * Get the cluster associated with this office.
+     */
+    public function clusterRelation()
+    {
+        return $this->belongsTo(Cluster::class, 'cluster', 'cluster_code');
+    }
 }
 

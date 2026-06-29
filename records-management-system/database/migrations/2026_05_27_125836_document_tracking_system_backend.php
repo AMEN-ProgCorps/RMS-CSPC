@@ -80,9 +80,12 @@ return new class extends Migration
             $table->increments('id');
             $table->string('control_num');
             $table->integer('total_office');
+            $table->unsignedInteger('modified_owner')->nullable();
+            $table->boolean('is_modified')->default(false);
             $table->timestamp('data_created')->useCurrent();
             $table->integer('assign_offices_id')->unique();
             $table->timestamp('date_modified')->useCurrent();
+            $table->foreign('modified_owner')->references('id')->on('account')->onDelete('cascade');
         });
 
         Schema::create('dts_copy_filled_to_office', function (Blueprint $table) {

@@ -91,6 +91,29 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create Internal
         $this->isAvailable = null;
     }
 
+    public function updatedTypeOfDocument($value): void
+    {
+        if (empty($value)) {
+            $this->transaction_flow = '';
+            $this->flow_offices = [];
+            $this->cf_selected_offices = [];
+            return;
+        }
+
+        $flow = DB::table('dts_transaction_flow')
+            ->where('flow_name', $value)
+            ->first();
+
+        if ($flow) {
+            $this->transaction_flow = $flow->flow_code;
+            $this->updatedTransactionFlow($flow->flow_code);
+        } else {
+            $this->transaction_flow = '';
+            $this->flow_offices = [];
+            $this->cf_selected_offices = [];
+        }
+    }
+
     public function updatedTransactionFlow($value): void
     {
         $this->selected_gap_index = null;
@@ -611,7 +634,12 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create Internal
 
                         <div class="beta-form-group">
                             <label class="beta-label">Type of Document</label>
-                            <input type="text" wire:model="type_of_document" class="beta-input" placeholder="e.g. Memorandum, Request Letter">
+                            <input type="text" list="document-types" wire:model.live="type_of_document" class="beta-input" placeholder="e.g. Memorandum, Request Letter">
+                            <datalist id="document-types">
+                                @foreach($flows as $flow)
+                                    <option value="{{ $flow['flow_name'] }}">
+                                @endforeach
+                            </datalist>
                             @error('type_of_document') <span class="beta-error">{{ $message }}</span> @enderror
                         </div>
 
@@ -652,12 +680,7 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create Internal
                     
                     <div class="beta-form-group full-width" style="margin-bottom: 20px;">
                         <label class="beta-label">Transaction Flow Path</label>
-                        <select wire:model.live="transaction_flow" class="beta-select">
-                            <option value="">Select Path</option>
-                            @foreach($flows as $flow)
-                                <option value="{{ $flow['flow_code'] }}">{{ $flow['flow_name'] }} ({{ $flow['flow_code'] }})</option>
-                            @endforeach
-                        </select>
+                        <input type="text" class="beta-input" value="{{ $transaction_flow ? $transaction_flow : 'No flow selected' }}" readonly>
                         @error('transaction_flow') <span class="beta-error">{{ $message }}</span> @enderror
                     </div>
 
@@ -896,7 +919,12 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create Internal
             <div class="form-row">
                 <div class="form-col small-input">
                     <label class="input-label">Type of Document</label>
-                    <input type="text" wire:model="type_of_document" class="text-input" placeholder="Type of Document">
+                    <input type="text" list="document-types" wire:model.live="type_of_document" class="text-input" placeholder="Type of Document">
+                    <datalist id="document-types">
+                        @foreach($flows as $flow)
+                            <option value="{{ $flow['flow_name'] }}">
+                        @endforeach
+                    </datalist>
                     @error('type_of_document')
                         <span class="error-msg" style="color: #dc2626; font-size: 12px; margin-top: 4px; display: block;">{{ $message }}</span>
                     @enderror
@@ -952,12 +980,7 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create Internal
                 <div class="form-col viewpath-wrapper">
                     <label class="input-label">Transaction Flow / Path</label>
                     <div style="display: flex; gap: 8px; align-items: center;">
-                        <select wire:model.live="transaction_flow" class="select-input" style="flex: 1;">
-                            <option value="">Select Path</option>
-                            @foreach($flows as $flow)
-                                <option value="{{ $flow['flow_code'] }}">{{ $flow['flow_name'] }} ({{ $flow['flow_code'] }})</option>
-                            @endforeach
-                        </select>
+                        <input type="text" class="text-input" style="flex: 1; background-color: #f1f5f9; color: #475569;" value="{{ $transaction_flow ? $transaction_flow : 'No flow selected' }}" readonly>
                         <button type="button" wire:click="openFlowDiagram" class="btn-primary" style="padding: 0 16px; height: 38px; font-size: 12px; font-weight: 600; background-color: #4b5563; border-radius: 4px;" {{ empty($transaction_flow) ? 'disabled' : '' }}>
                             View Flow Diagram
                         </button>

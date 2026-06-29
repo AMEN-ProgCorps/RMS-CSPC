@@ -273,8 +273,8 @@
 .beta-timeline-scroll {
     display: flex;
     align-items: center;
-    gap: 8px;
-    overflow-x: auto;
+    gap: 12px 8px;
+    flex-wrap: wrap;
     padding: 8px 0;
     margin-bottom: 16px;
 }

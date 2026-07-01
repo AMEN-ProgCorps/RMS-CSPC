@@ -98,10 +98,16 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - List Applicatio
         }
 
         if (!empty($this->searchQuery)) {
-            $query->where(function($q) {
-                $q->where('dtd.control_number', 'like', '%' . $this->searchQuery . '%')
+            $searchVal = trim($this->searchQuery);
+            $decoded = base64_decode($searchVal, true);
+            if ($decoded !== false && preg_match('/^[A-Z0-9-]+$/i', $decoded)) {
+                $searchVal = $decoded;
+            }
+            $query->where(function($q) use ($searchVal) {
+                $q->where('dtd.control_number', 'like', '%' . $searchVal . '%')
                   ->orWhere('dtd.requestor_name', 'like', '%' . $this->searchQuery . '%')
-                  ->orWhere('dtd.subject', 'like', '%' . $this->searchQuery . '%');
+                  ->orWhere('dtd.subject', 'like', '%' . $this->searchQuery . '%')
+                  ->orWhere('dt.qr_code', 'like', '%' . $searchVal . '%');
             });
         }
 

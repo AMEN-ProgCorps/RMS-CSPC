@@ -57,6 +57,12 @@ new #[Layout('layouts.portal')] #[Title('Track Document')] class extends Compone
             'trackingNumber' => ['required', 'string'],
         ]);
 
+        $input = trim($this->trackingNumber);
+        $decoded = base64_decode($input, true);
+        if ($decoded !== false && preg_match('/^[A-Z0-9-]+$/i', $decoded)) {
+            $this->trackingNumber = $decoded;
+        }
+
         $deviceInfo = $this->deviceInfoJson ? json_decode($this->deviceInfoJson, true) : [];
         $deviceId   = $deviceInfo['device_id'] ?? 'unknown';
         $attempts   = (int) ($deviceInfo['document_tracked_within_10_minutes'] ?? 1);

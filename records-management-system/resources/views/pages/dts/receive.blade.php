@@ -69,10 +69,16 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Receive Transac
             ->whereIn('dt.status', ['ongoing', 'revision']);
 
         if (!empty($this->searchQuery)) {
-            $query->where(function($q) {
-                $q->where('dtd.control_number', 'like', '%' . $this->searchQuery . '%')
+            $searchVal = trim($this->searchQuery);
+            $decoded = base64_decode($searchVal, true);
+            if ($decoded !== false && preg_match('/^[A-Z0-9-]+$/i', $decoded)) {
+                $searchVal = $decoded;
+            }
+            $query->where(function($q) use ($searchVal) {
+                $q->where('dtd.control_number', 'like', '%' . $searchVal . '%')
                   ->orWhere('dtd.requestor_name', 'like', '%' . $this->searchQuery . '%')
-                  ->orWhere('dtd.subject', 'like', '%' . $this->searchQuery . '%');
+                  ->orWhere('dtd.subject', 'like', '%' . $this->searchQuery . '%')
+                  ->orWhere('dt.qr_code', 'like', '%' . $searchVal . '%');
             });
         }
 
@@ -101,7 +107,7 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Receive Transac
 
             $dateReceived = $latestLog ? $latestLog->date_in : $t->date_created;
             $t->date_received = $dateReceived;
-            $t->elapsed_days = $dateReceived ? now()->diffInDays(Carbon::parse($dateReceived)) : 0;
+            $t->elapsed_days = $dateReceived ? max(0, now()->diffInDays(Carbon::parse($dateReceived))) : 0;
 
             // Find next office in sequence
             $flow = DB::table('dts_transaction_details')

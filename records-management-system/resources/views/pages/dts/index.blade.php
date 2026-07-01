@@ -47,11 +47,34 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
 
     public function getTransactionsProperty()
     {
+        $userOfficeCode = auth()->user()?->details?->office?->office_code;
+        if (!$userOfficeCode) {
+            return new \Illuminate\Pagination\LengthAwarePaginator([], 0, $this->perPage);
+        }
+
         $query = DB::table('dts_transactions as dt')
             ->join('dts_transaction_details as dtd', 'dtd.id', '=', 'dt.transaction_id')
             ->leftJoin('office as originated_office', 'originated_office.office_code', '=', 'dtd.originated_from')
             ->leftJoin('office as current_office', 'current_office.office_code', '=', 'dt.current_office')
-            ->leftJoin('dts_document_data as doc', 'doc.document_path', '=', 'dt.doc_dir');
+            ->leftJoin('dts_document_data as doc', 'doc.document_path', '=', 'dt.doc_dir')
+            ->where('dtd.is_active', 1)
+            ->where(function($q) use ($userOfficeCode) {
+                $q->where('dt.current_office', $userOfficeCode)
+                  ->orWhere('dtd.originated_from', $userOfficeCode)
+                  ->orWhereExists(function($subQuery) use ($userOfficeCode) {
+                      $subQuery->select(DB::raw(1))
+                          ->from('sub_document_tracking_system_logs')
+                          ->whereColumn('transaction_id', 'dt.transaction_id')
+                          ->where('office_code', $userOfficeCode);
+                  })
+                  ->orWhereExists(function($subQuery) use ($userOfficeCode) {
+                      $subQuery->select(DB::raw(1))
+                          ->from('dts_copy_filled_transaction as cf')
+                          ->join('dts_copy_filled_to_office as cfo', 'cf.assign_offices_id', '=', 'cfo.control_id')
+                          ->whereColumn('cf.id', 'dtd.copy_filled_id')
+                          ->where('cfo.office_code', $userOfficeCode);
+                  });
+            });
 
         // Tab filters
         if ($this->activeTab === 'internal') {
@@ -66,10 +89,16 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
 
         // Search filter
         if (!empty($this->searchQuery)) {
-            $query->where(function($q) {
-                $q->where('dtd.control_number', 'like', '%' . $this->searchQuery . '%')
+            $searchVal = trim($this->searchQuery);
+            $decoded = base64_decode($searchVal, true);
+            if ($decoded !== false && preg_match('/^[A-Z0-9-]+$/i', $decoded)) {
+                $searchVal = $decoded;
+            }
+            $query->where(function($q) use ($searchVal) {
+                $q->where('dtd.control_number', 'like', '%' . $searchVal . '%')
                   ->orWhere('dtd.subject', 'like', '%' . $this->searchQuery . '%')
-                  ->orWhere('dtd.requestor_name', 'like', '%' . $this->searchQuery . '%');
+                  ->orWhere('dtd.requestor_name', 'like', '%' . $this->searchQuery . '%')
+                  ->orWhere('dt.qr_code', 'like', '%' . $searchVal . '%');
             });
         }
 
@@ -587,7 +616,7 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
                         <div style="margin-bottom: 14px;"><strong>Next Receiving Office:</strong> {{ $t->next_office_name }}</div>
 
                         <div style="margin-bottom: 6px;"><strong>Action Needed:</strong> <span style="color: #16a34a; font-weight: 600;">{{ $t->action_needed ?? 'For action' }}</span></div>
-                        <div style="margin-bottom: 6px;"><strong>Elapsed Day:</strong> <span style="color: #ef4444; font-style: italic;">{{ $t->elapsed_days }} day(s) (period that has passed between the received date and the later date)</span></div>
+                        <div style="margin-bottom: 6px;"><strong>Elapsed Day:</strong> <span style="color: #ef4444; font-style: italic;">{{ $t->elapsed_days }} day(s) </span></div>
                     </div>
 
                     <!-- Card Footer view action -->

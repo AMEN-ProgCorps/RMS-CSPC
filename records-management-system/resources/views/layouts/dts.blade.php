@@ -58,5 +58,36 @@
         </div>
     </section>
     @stack('scripts')
+    <script>
+        document.addEventListener('submit', () => {
+            window.submittedForm = true;
+        });
+
+        document.addEventListener('click', (e) => {
+            if (e.target.closest('[wire\\:click="generateQrCode"]')) {
+                window.submittedForm = true;
+            }
+        });
+
+        document.addEventListener('livewire:initialized', () => {
+            Livewire.hook('request', ({ component, commit, respond, succeed, fail }) => {
+                succeed(({ response }) => {
+                    if (window.submittedForm) {
+                        setTimeout(() => {
+                            const firstError = document.querySelector('.error-msg, .beta-error');
+                            if (firstError) {
+                                firstError.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                                const input = firstError.closest('.form-col, .beta-form-group, .beta-form-group-full')?.querySelector('input, select, textarea');
+                                if (input) {
+                                    input.focus();
+                                }
+                            }
+                            window.submittedForm = false;
+                        }, 100);
+                    }
+                });
+            });
+        });
+    </script>
 </body>
 </html>

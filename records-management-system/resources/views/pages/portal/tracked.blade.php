@@ -63,6 +63,12 @@ new #[Layout('layouts.portal')] #[Title('Track Document — Results')] class ext
             return;
         }
 
+        $input = trim($this->trackingNumber);
+        $decoded = base64_decode($input, true);
+        if ($decoded !== false && preg_match('/^[A-Z0-9-]+$/i', $decoded)) {
+            $this->trackingNumber = $decoded;
+        }
+
         try {
             $this->documentFound = DB::table('dts_transactions')
                 ->where('qr_code', $this->trackingNumber)

@@ -29,7 +29,11 @@ return new class extends Migration
             $table->string('flow_code')->notNull()->unique();
             $table->string('flow_name')->notNull()->unique();
             $table->integer('id')->unique()->notNull();
+            $table->unsignedInteger('added_by')->notNull();
+            $table->timestamp('date_added')->index()->notNull();
+            $table->enum('flow_use', ['internal', 'external', 'issuances','application','others','none'])->index()->notNull();
             $table->boolean('is_active')->notNull();
+            $table->foreign('added_by')->references('id')->on('account')->onDelete('cascade');
         });
 
         Schema::create('dts_document_data', function (Blueprint $table) {

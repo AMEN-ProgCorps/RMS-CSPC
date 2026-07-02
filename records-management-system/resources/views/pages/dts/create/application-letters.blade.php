@@ -44,6 +44,11 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create Applicat
 
         $this->flows = DB::table('dts_transaction_flow')
             ->where('is_active', true)
+            ->whereIn('flow_use', ['application', 'none'])
+            ->where(function($query) {
+                $query->where('flow_code', 'not like', 'FLOW-CUSTOM-%')
+                      ->orWhere('added_by', auth()->id());
+            })
             ->orderBy('flow_name')
             ->get()
             ->map(fn($f) => (array)$f)
@@ -68,7 +73,7 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create Applicat
             return;
         }
 
-        $controlNumber = 'APL-' . strtoupper(now()->format('Y-M')) . '-' . $this->seq_number;
+        $controlNumber = 'APL-' . now()->format('Y-m') . '-' . $this->seq_number;
 
         $exists = DB::table('dts_transaction_details')
             ->where('control_number', $controlNumber)
@@ -82,6 +87,29 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create Applicat
             $this->isAvailable = true;
         }
     }
+
+    public function generateRandomSeq(): void
+    {
+        $prefix = 'APL-' . now()->format('Y-m') . '-';
+        
+        $attempts = 0;
+        do {
+            do {
+                $randomStr = Str::random(6);
+            } while (!preg_match('/[0-9]/', $randomStr));
+            
+            $controlNumber = $prefix . $randomStr;
+            $exists = DB::table('dts_transaction_details')
+                ->where('control_number', $controlNumber)
+                ->exists();
+            $attempts++;
+        } while ($exists && $attempts < 100);
+
+        $this->seq_number = $randomStr;
+        $this->availabilityMessage = 'Control number is available!';
+        $this->isAvailable = true;
+    }
+
 
     public function updatedSeqNumber(): void
     {
@@ -230,11 +258,17 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create Applicat
 
     public function selectCfOffice(string $officeCode): void
     {
-        if (!in_array($officeCode, $this->cf_selected_offices)) {
-            $this->cf_selected_offices[] = $officeCode;
+        if ($officeCode === 'ALL') {
+            $this->cf_selected_offices = ['ALL'];
+        } else {
+            $this->cf_selected_offices = array_values(array_filter($this->cf_selected_offices, fn($code) => $code !== 'ALL'));
+            if (!in_array($officeCode, $this->cf_selected_offices)) {
+                $this->cf_selected_offices[] = $officeCode;
+            }
         }
         $this->cf_search = '';
     }
+
 
     public ?string $generatedQrCode = null;
 
@@ -400,7 +434,7 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create Applicat
             'unit_college' => 'required|string|exists:office,office_code',
             'transaction_flow' => 'required|string|exists:dts_transaction_flow,flow_code',
             'copy_furnished' => 'required|string|in:Yes,No',
-            'cf_selected_offices' => 'required_if:copy_furnished,Yes|array',
+            'cf_selected_offices' => 'nullable|array',
         ]);
 
         if (count($this->flow_offices) === 0) {
@@ -413,7 +447,7 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create Applicat
             return;
         }
 
-        $controlNumber = 'APL-' . strtoupper(now()->format('Y-M')) . '-' . $this->seq_number;
+        $controlNumber = 'APL-' . now()->format('Y-m') . '-' . $this->seq_number;
 
         // Check if control number already exists
         $exists = DB::table('dts_transaction_details')
@@ -483,6 +517,9 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create Applicat
                     'flow_name' => 'Modified Flow for ' . $controlNumber,
                     'id' => $newFlowId,
                     'is_active' => 1,
+                    'added_by' => auth()->id() ?? 1,
+                    'date_added' => now(),
+                    'flow_use' => 'application',
                 ]);
 
                 foreach ($this->flow_offices as $rank => $officeCode) {
@@ -625,6 +662,55 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create Applicat
                 }
             }
 
+            // Send notification to copy furnished offices
+            if ($copyFilledId && $subsystemId) {
+                if (in_array('ALL', $this->cf_selected_offices)) {
+                    $cfNotifyOffices = DB::table('office')
+                        ->where('is_active', 1)
+                        ->where('office_code', '!=', $this->unit_college)
+                        ->get();
+                } else {
+                    $cfNotifyOffices = DB::table('office')
+                        ->where('is_active', 1)
+                        ->whereIn('office_code', $this->cf_selected_offices)
+                        ->get();
+                }
+
+                $senderName = auth()->user()?->details ? (auth()->user()->details->first_name . ' ' . auth()->user()->details->last_name) : 'Authorized User';
+                $cfContentId = DB::table('notif_content')->insertGetId([
+                    'system' => $subsystemId,
+                    'content' => "A document has been copy furnished to your office by {$senderName}. Transaction ID: {$controlNumber}",
+                    'redirect_url' => '/dts',
+                    'created_at' => now(),
+                ]);
+
+                foreach ($cfNotifyOffices as $officeRow) {
+                    $usersInCFOffice = DB::table('account')
+                        ->join('account_details', 'account_details.account_id', '=', 'account.id')
+                        ->where('account_details.office_id', $officeRow->id)
+                        ->select('account.id')
+                        ->get();
+
+                    if ($usersInCFOffice->isNotEmpty()) {
+                        $cfNotificationId = DB::table('notifications')->insertGetId([
+                            'office' => $officeRow->office_code,
+                            'contents' => $cfContentId,
+                            'created_at' => now(),
+                        ]);
+
+                        foreach ($usersInCFOffice as $u) {
+                            DB::table('notification_div')->insert([
+                                'id' => $cfNotificationId,
+                                'account_rec' => $u->id,
+                                'status' => 'unread',
+                                'processed_on' => now(),
+                                'is_in_user_list' => true,
+                            ]);
+                        }
+                    }
+                }
+            }
+
             DB::commit();
 
             session()->flash('message', 'Transaction created successfully!');
@@ -671,12 +757,19 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create Applicat
                         <span class="badge-label">Generated Control Number</span>
                         <div style="display: flex; gap: 8px; align-items: center; margin-top: 4px;">
                             <div class="beta-value" style="display: flex; align-items: center;">
-                                <span class="beta-prefix">APL-{{ strtoupper(now()->format('Y-M')) }}-</span>
+                                <span class="beta-prefix">APL-{{ now()->format('Y-m') }}-</span>
                                 <input type="text" wire:model.live="seq_number" class="beta-input badge-input" placeholder="0001">
                             </div>
-                            <button type="button" wire:click="checkAvailability" class="beta-btn-add" style="background: rgba(255, 255, 255, 0.2); border: 1px solid rgba(255, 255, 255, 0.4); color: #ffffff; height: 32px; font-size: 11px; padding: 0 12px; border-radius: 6px;">
-                                Check Availability
-                            </button>
+                            @if(empty($seq_number))
+                                <button type="button" wire:click="generateRandomSeq" class="beta-btn-add" style="background: #3b82f6; border: 1px solid rgba(255, 255, 255, 0.4); color: #ffffff; height: 32px; font-size: 11px; padding: 0 12px; border-radius: 6px;">
+                                    Generate
+                                </button>
+                            @else
+                                <button type="button" wire:click="checkAvailability" class="beta-btn-add" style="background: rgba(255, 255, 255, 0.2); border: 1px solid rgba(255, 255, 255, 0.4); color: #ffffff; height: 32px; font-size: 11px; padding: 0 12px; border-radius: 6px;">
+                                    Check Availability
+                                </button>
+                            @endif
+
                         </div>
                         @if($availabilityMessage)
                             <span style="font-size: 12px; margin-top: 4px; display: block; font-weight: 600; color: {{ $isAvailable ? '#a7f3d0' : '#fca5a5' }};">
@@ -819,15 +912,6 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create Applicat
                     <div class="beta-card">
                         <h3 class="beta-card-title"><i class="fa-solid fa-share-nodes"></i> Distribution & Remarks</h3>
                         
-                        <div class="beta-form-group full-width">
-                            <label class="beta-label">Copy Furnished</label>
-                            <div class="beta-segmented-toggle">
-                                <button type="button" class="toggle-btn {{ $copy_furnished === 'No' ? 'active' : '' }}" wire:click="$set('copy_furnished', 'No')">No</button>
-                                <button type="button" class="toggle-btn {{ $copy_furnished === 'Yes' ? 'active' : '' }}" wire:click="$set('copy_furnished', 'Yes')">Yes</button>
-                            </div>
-                        </div>
-
-                        @if($copy_furnished === 'Yes')
                         <div class="beta-form-group full-width" style="margin-top: 15px;">
                             <label class="beta-label">Search & Add Recipient Offices</label>
                             <div class="beta-search-wrapper" style="position: relative;">
@@ -837,7 +921,11 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create Applicat
                                 @if(!empty($cf_search))
                                     <div class="beta-autocomplete-dropdown">
                                         @php
-                                            $filteredCfOffices = collect($offices)
+                                            $cfList = array_merge([
+                                                ['office_code' => 'ALL', 'office_name' => 'All Office']
+                                            ], $offices);
+
+                                            $filteredCfOffices = collect($cfList)
                                                 ->filter(fn($o) => 
                                                     (stripos($o['office_name'], $cf_search) !== false || 
                                                     stripos($o['office_code'], $cf_search) !== false) &&
@@ -862,16 +950,18 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create Applicat
                             <div class="beta-badges-list" style="margin-top: 12px;">
                                 @foreach($cf_selected_offices as $index => $officeCode)
                                     @php
-                                        $officeName = collect($offices)->firstWhere('office_code', $officeCode)['office_name'] ?? $officeCode;
+                                        $cfList = array_merge([
+                                            ['office_code' => 'ALL', 'office_name' => 'All Office']
+                                        ], $offices);
+                                        $officeName = collect($cfList)->firstWhere('office_code', $officeCode)['office_name'] ?? $officeCode;
                                     @endphp
                                     <span class="beta-badge">
                                         {{ $officeName }}
-                                        <button type="button" class="badge-remove" wire:click="removeCfOffice({{ $index }})">×</button>
+                                        <button type="button" class="remove-btn" wire:click="removeCfOffice({{ $index }})"><i class="fa-solid fa-xmark"></i></button>
                                     </span>
                                 @endforeach
                             </div>
                         </div>
-                        @endif
                     </div>
 
                 </div>
@@ -922,13 +1012,20 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create Applicat
                     <div style="display: flex; gap: 8px; align-items: center;">
                         <div style="display: flex; align-items: center; max-width: 300px; border: 1px solid #ced4da; border-radius: 4px; overflow: hidden; background: #e9ecef; height: 32px; box-sizing: border-box;">
                             <span style="padding: 0 10px; font-family: 'Inter', sans-serif; font-size: 13px; color: #495057; font-weight: 600; border-right: 1px solid #ced4da; user-select: none; line-height: 30px;">
-                                APL-{{ strtoupper(now()->format('Y-M')) }}-
+                                APL-{{ now()->format('Y-m') }}-
                             </span>
                             <input type="text" wire:model.live="seq_number" class="text-input" placeholder="0001" style="flex: 1; border: none; height: 100%; padding: 0 8px; font-size: 13px; background: transparent; outline: none; box-shadow: none;">
                         </div>
-                        <button type="button" wire:click="checkAvailability" class="btn-primary" style="padding: 0 12px; height: 32px; font-size: 12px; background-color: #4b5563; border-radius: 4px;">
-                            Check Availability
-                        </button>
+                        @if(empty($seq_number))
+                            <button type="button" wire:click="generateRandomSeq" class="btn-primary" style="padding: 0 12px; height: 32px; font-size: 12px; background-color: #3b82f6; border-radius: 4px;">
+                                Generate
+                            </button>
+                        @else
+                            <button type="button" wire:click="checkAvailability" class="btn-primary" style="padding: 0 12px; height: 32px; font-size: 12px; background-color: #4b5563; border-radius: 4px;">
+                                Check Availability
+                            </button>
+                        @endif
+
                     </div>
                     @if($availabilityMessage)
                         <span style="font-size: 12px; margin-top: 4px; display: block; font-weight: 600; color: {{ $isAvailable ? '#10b981' : '#dc2626' }};">
@@ -1012,92 +1109,79 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create Applicat
                     </div>
                 </div>
 
-                <!-- Copy Furnished Toggle -->
+                <!-- Copy Furnished Selector Box -->
                 <div class="form-row">
-                    <div class="form-col small-input">
-                        <label class="input-label">Copy Furnished</label>
-                        <div style="display: flex; align-items: center; gap: 15px; margin-bottom: 10px; margin-top: 4px;">
-                            <label style="display: flex; align-items: center; gap: 6px; cursor: pointer; font-size: 13px; color: #333; font-weight: 500;">
-                                <input type="radio" wire:model.live="copy_furnished" value="Yes" style="cursor: pointer; width: 16px; height: 16px;"> Yes
-                            </label>
-                            <label style="display: flex; align-items: center; gap: 6px; cursor: pointer; font-size: 13px; color: #333; font-weight: 500;">
-                                <input type="radio" wire:model.live="copy_furnished" value="No" style="cursor: pointer; width: 16px; height: 16px;"> No
-                            </label>
+                    <div class="form-col" style="max-width: 500px; padding: 16px; border: 1px solid #cbd5e1; border-radius: 6px; background-color: #f8fafc; margin-bottom: 12px;">
+                        <label class="input-label" style="margin-bottom: 8px;">Copy Furnished Offices</label>
+                        
+                        @if(count($cf_selected_offices) > 0)
+                            <div style="display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 12px;">
+                                @foreach($cf_selected_offices as $index => $code)
+                                    @php
+                                        $cfList = array_merge([
+                                            ['office_code' => 'ALL', 'office_name' => 'All Office']
+                                        ], $offices);
+                                        $officeName = collect($cfList)->firstWhere('office_code', $code)['office_name'] ?? $code;
+                                    @endphp
+                                    <span class="badge" style="display: inline-flex; align-items: center; gap: 4px; background-color: #e2e8f0; color: #334155; padding: 4px 8px; border-radius: 4px; font-size: 11px; font-weight: 600;">
+                                        {{ $officeName }}
+                                        <button type="button" wire:click="removeCfOffice({{ $index }})" style="border: none; background: none; color: #64748b; cursor: pointer; font-weight: bold; font-size: 12px; padding: 0 2px;">&times;</button>
+                                    </span>
+                                @endforeach
+                            </div>
+                        @endif
+
+                        <div style="position: relative;">
+                            <input type="text" 
+                                wire:model.live="cf_search" 
+                                class="text-input" 
+                                placeholder="Search office code or name..." 
+                                style="width: 100%; font-size: 12.5px; padding: 6px 10px; border-radius: 4px; border: 1px solid #cbd5e1;"
+                            >
+                            
+                            <!-- Dropdown results list -->
+                            @if(!empty($cf_search))
+                                @php
+                                    $cfList = array_merge([
+                                        ['office_code' => 'ALL', 'office_name' => 'All Office']
+                                    ], $offices);
+
+                                    $filteredOffices = array_filter($cfList, function($office) use ($cf_selected_offices, $unit_college) {
+                                        return !in_array($office['office_code'], $cf_selected_offices) && $office['office_code'] !== $unit_college;
+                                    });
+                                    
+                                    $searchLower = strtolower($cf_search);
+                                    $filteredOffices = array_filter($filteredOffices, function($office) use ($searchLower) {
+                                        return str_contains(strtolower($office['office_code']), $searchLower) ||
+                                               str_contains(strtolower($office['office_name']), $searchLower);
+                                    });
+                                @endphp
+
+                                <div style="position: absolute; top: 38px; left: 0; right: 0; background: #fff; border: 1px solid #cbd5e1; border-radius: 4px; max-height: 200px; overflow-y: auto; z-index: 50; box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1);">
+                                    @if(count($filteredOffices) > 0)
+                                        @foreach($filteredOffices as $office)
+                                            <button type="button" 
+                                                wire:click="selectCfOffice('{{ $office['office_code'] }}')" 
+                                                style="width: 100%; text-align: left; padding: 8px 12px; border: none; background: none; font-size: 12px; cursor: pointer; color: #333; border-bottom: 1px solid #f1f5f9; display: block;"
+                                                onmouseover="this.style.backgroundColor='#f1f5f9'" 
+                                                onmouseout="this.style.backgroundColor='transparent'"
+                                            >
+                                                <strong>{{ $office['office_code'] }}</strong> - {{ $office['office_name'] }}
+                                            </button>
+                                        @endforeach
+                                    @else
+                                        <div style="padding: 8px 12px; font-size: 12px; color: #64748b;">
+                                            No matching offices found.
+                                        </div>
+                                    @endif
+                                </div>
+                            @endif
                         </div>
-                        @error('copy_furnished')
+                        @error('cf_selected_offices')
                             <span class="error-msg" style="color: #dc2626; font-size: 12px; margin-top: 4px; display: block;">{{ $message }}</span>
                         @enderror
                     </div>
                 </div>
-
-                <!-- Copy Furnished Selector Box -->
-                @if($copy_furnished === 'Yes')
-                    <div class="form-row">
-                        <div class="form-col" style="max-width: 500px; padding: 16px; border: 1px solid #cbd5e1; border-radius: 6px; background-color: #f8fafc; margin-bottom: 12px;">
-                            <label class="input-label" style="margin-bottom: 8px;">Copy Furnished Offices</label>
-                            
-                            @if(count($cf_selected_offices) > 0)
-                                <div style="display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 12px;">
-                                    @foreach($cf_selected_offices as $index => $code)
-                                        @php
-                                            $officeName = collect($offices)->firstWhere('office_code', $code)['office_name'] ?? $code;
-                                        @endphp
-                                        <span class="badge" style="display: inline-flex; align-items: center; gap: 4px; background-color: #e2e8f0; color: #334155; padding: 4px 8px; border-radius: 4px; font-size: 11px; font-weight: 600;">
-                                            {{ $officeName }}
-                                            <button type="button" wire:click="removeCfOffice({{ $index }})" style="border: none; background: none; color: #64748b; cursor: pointer; font-weight: bold; font-size: 12px; padding: 0 2px;">&times;</button>
-                                        </span>
-                                    @endforeach
-                                </div>
-                            @endif
-
-                            <div style="position: relative;">
-                                <input type="text" 
-                                    wire:model.live="cf_search" 
-                                    class="text-input" 
-                                    placeholder="Search office code or name..." 
-                                    style="width: 100%; font-size: 12.5px; padding: 6px 10px; border-radius: 4px; border: 1px solid #cbd5e1;"
-                                >
-                                
-                                <!-- Dropdown results list -->
-                                @if(!empty($cf_search))
-                                    @php
-                                        $filteredOffices = array_filter($offices, function($office) use ($cf_selected_offices, $unit_college) {
-                                            return !in_array($office['office_code'], $cf_selected_offices) && $office['office_code'] !== $unit_college;
-                                        });
-                                        
-                                        $searchLower = strtolower($cf_search);
-                                        $filteredOffices = array_filter($filteredOffices, function($office) use ($searchLower) {
-                                            return str_contains(strtolower($office['office_code']), $searchLower) ||
-                                                   str_contains(strtolower($office['office_name']), $searchLower);
-                                        });
-                                    @endphp
-
-                                    <div style="position: absolute; top: 38px; left: 0; right: 0; background: #fff; border: 1px solid #cbd5e1; border-radius: 4px; max-height: 200px; overflow-y: auto; z-index: 50; box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1);">
-                                        @if(count($filteredOffices) > 0)
-                                            @foreach($filteredOffices as $office)
-                                                <button type="button" 
-                                                    wire:click="selectCfOffice('{{ $office['office_code'] }}')" 
-                                                    style="width: 100%; text-align: left; padding: 8px 12px; border: none; background: none; font-size: 12px; cursor: pointer; color: #333; border-bottom: 1px solid #f1f5f9; display: block;"
-                                                    onmouseover="this.style.backgroundColor='#f1f5f9'" 
-                                                    onmouseout="this.style.backgroundColor='transparent'"
-                                                >
-                                                    <strong>{{ $office['office_code'] }}</strong> - {{ $office['office_name'] }}
-                                                </button>
-                                            @endforeach
-                                        @else
-                                            <div style="padding: 8px 12px; font-size: 12px; color: #64748b;">
-                                                No matching offices found.
-                                            </div>
-                                        @endif
-                                    </div>
-                                @endif
-                            </div>
-                            @error('cf_selected_offices')
-                                <span class="error-msg" style="color: #dc2626; font-size: 12px; margin-top: 4px; display: block;">{{ $message }}</span>
-                            @enderror
-                        </div>
-                    </div>
-                @endif
 
             </div>
 

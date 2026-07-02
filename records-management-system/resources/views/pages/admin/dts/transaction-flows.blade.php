@@ -26,6 +26,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - DTS Transaction Flows')]
     public string $flowName = '';
     public string $flowCode = '';
     public bool $isActive = true;
+    public string $flowUse = 'none';
     public array $flowOffices = []; // list of office codes in sequence
     public string $selectedOffice = ''; // selected office from dropdown to add
     public string $officeSearch = ''; // text query for searching offices to add
@@ -150,6 +151,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - DTS Transaction Flows')]
             $this->flowName = '';
             $this->flowCode = '';
             $this->isActive = true;
+            $this->flowUse = 'none';
             $this->flowOffices = ['ORIGIN', 'ORIGIN'];
             $this->flowFile = null;
             $this->officeSearch = '';
@@ -164,6 +166,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - DTS Transaction Flows')]
             $this->flowName = $flow->flow_name;
             $this->flowCode = $flow->flow_code;
             $this->isActive = (bool) $flow->is_active;
+            $this->flowUse = $flow->flow_use ?? 'none';
 
             // Load office sequences
             $offices = \DB::table('dts_sequence_list')
@@ -279,12 +282,14 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - DTS Transaction Flows')]
             $this->validate([
                 'flowName' => 'required|string|max:255|unique:dts_transaction_flow,flow_name',
                 'flowCode' => 'required|string|max:255|unique:dts_transaction_flow,flow_code|regex:/^[A-Z0-9_\-]+$/i',
+                'flowUse' => 'required|string|in:internal,external,issuances,application,others,none',
             ], [
                 'flowCode.regex' => 'Flow code can only contain letters, numbers, dashes, and underscores.',
             ]);
         } else {
             $this->validate([
                 'flowName' => 'required|string|max:255|unique:dts_transaction_flow,flow_name,' . $this->selectedPredefined . ',id',
+                'flowUse' => 'required|string|in:internal,external,issuances,application,others,none',
             ]);
         }
 
@@ -303,6 +308,9 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - DTS Transaction Flows')]
                         'flow_name' => trim($this->flowName),
                         'flow_code' => strtoupper(trim($this->flowCode)),
                         'is_active' => $this->isActive,
+                        'flow_use' => $this->flowUse,
+                        'added_by' => auth()->id() ?? 1,
+                        'date_added' => now(),
                     ]);
 
                     // Insert admin log
@@ -324,6 +332,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - DTS Transaction Flows')]
                     \DB::table('dts_transaction_flow')->where('id', $flowId)->update([
                         'flow_name' => trim($this->flowName),
                         'is_active' => $this->isActive,
+                        'flow_use' => $this->flowUse,
                     ]);
 
                     // Insert admin log
@@ -432,13 +441,22 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - DTS Transaction Flows')]
                     throw new \Exception("Line {$nameLine['num']} (\"{$nameLine['text']}\") must start with '=' to indicate the start of a flow name.");
                 }
 
-                // We expect at least 3 lines for a flow (Name, Code, Sequence)
-                if ($i + 2 >= count($lines)) {
+                // Look ahead to find all lines belonging to the current flow block
+                // (i.e. until the next line starting with '=')
+                $blockLines = [];
+                $j = $i + 1;
+                while ($j < count($lines) && !str_starts_with($lines[$j]['text'], '=')) {
+                    $blockLines[] = $lines[$j];
+                    $j++;
+                }
+
+                // We expect at least 2 lines (Code, Sequence) in blockLines
+                if (count($blockLines) < 2) {
                     throw new \Exception("Incomplete flow definition starting at Line {$lines[$i]['num']}. Each flow must contain at least a name, code, and sequence.");
                 }
 
-                $codeLine = $lines[$i + 1];
-                $seqLine = $lines[$i + 2];
+                $codeLine = $blockLines[0];
+                $seqLine = $blockLines[1];
 
                 // 1. Verify semicolons
                 if (!str_ends_with($nameLine['text'], ';')) {
@@ -455,16 +473,6 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - DTS Transaction Flows')]
                 $flowCode = strtoupper(trim(substr($codeLine['text'], 0, -1)));
                 $seqText = trim(substr($seqLine['text'], 0, -1));
 
-                // Determine advance count and Copy Furnished index early
-                $advanceCount = 3;
-                $nextIdx = $i + 3;
-                if ($nextIdx < count($lines)) {
-                    $fourthLine = $lines[$nextIdx];
-                    if (!str_starts_with($fourthLine['text'], '=')) {
-                        $advanceCount = 4;
-                    }
-                }
-
                 // 2. Validate empty values and code format
                 if (empty($flowName)) {
                     throw new \Exception("Line {$nameLine['num']} (\"{$nameLine['text']}\"): Flow name cannot be empty.");
@@ -476,8 +484,6 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - DTS Transaction Flows')]
                     throw new \Exception("Line {$codeLine['num']} (\"{$codeLine['text']}\"): Flow code can only contain letters, numbers, dashes, and underscores.");
                 }
 
-
-
                 // 3. Check database existence and conflict matching
                 $flowByCode = \DB::table('dts_transaction_flow')->where('flow_code', $flowCode)->first();
                 $flowByName = \DB::table('dts_transaction_flow')->where('flow_name', $flowName)->first();
@@ -486,7 +492,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - DTS Transaction Flows')]
                     // Check if it is a perfect match (both name and code point to the same existing record)
                     if ($flowByCode && $flowByName && $flowByCode->id === $flowByName->id) {
                         // Perfect match: skip importing this flow since it already exists exactly as is
-                        $i += $advanceCount;
+                        $i += 1 + count($blockLines);
                         continue;
                     }
 
@@ -505,7 +511,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - DTS Transaction Flows')]
                         throw new \Exception("Line {$codeLine['num']} (\"{$codeLine['text']}\"): Duplicate flow code '{$flowCode}' found within the uploaded file with a different name.");
                     }
                     // Perfect file duplicate: skip
-                    $i += $advanceCount;
+                    $i += 1 + count($blockLines);
                     continue;
                 }
                 if (isset($tempNames[$flowName])) {
@@ -513,7 +519,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - DTS Transaction Flows')]
                         throw new \Exception("Line {$nameLine['num']} (\"{$nameLine['text']}\"): Duplicate flow name '{$flowName}' found within the uploaded file with a different code.");
                     }
                     // Perfect file duplicate: skip
-                    $i += $advanceCount;
+                    $i += 1 + count($blockLines);
                     continue;
                 }
                 $tempCodes[$flowCode] = $flowName;
@@ -566,15 +572,15 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - DTS Transaction Flows')]
                     }
                 }
 
-                // 6. Handle optional 4th line for Copy Furnished offices
+                // 6. Handle optional 4th line (Copy Furnished)
                 $cfOffices = [];
-                if ($advanceCount === 4) {
-                    $candidateLine = $lines[$nextIdx];
-                    if (!str_ends_with($candidateLine['text'], ';')) {
-                        throw new \Exception("Line {$candidateLine['num']} (\"{$candidateLine['text']}\") must end with a semicolon ';'.");
+                if (count($blockLines) >= 3) {
+                    $cfLine = $blockLines[2];
+                    if (!str_ends_with($cfLine['text'], ';')) {
+                        throw new \Exception("Line {$cfLine['num']} (\"{$cfLine['text']}\") must end with a semicolon ';'.");
                     }
 
-                    $cfText = trim(substr($candidateLine['text'], 0, -1));
+                    $cfText = trim(substr($cfLine['text'], 0, -1));
                     if (!empty($cfText)) {
                         $cfNodes = explode(',', $cfText);
                         $cfNodes = array_filter(array_map('trim', $cfNodes));
@@ -589,7 +595,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - DTS Transaction Flows')]
                                 ->first();
 
                             if (!$office) {
-                                    throw new \Exception("Line {$candidateLine['num']} (\"{$candidateLine['text']}\"): Copy furnished office '{$node}' does not exist in the database or is typoed.");
+                                throw new \Exception("Line {$cfLine['num']} (\"{$cfLine['text']}\"): Copy furnished office '{$node}' does not exist in the database or is typoed.");
                             }
 
                             $cfOffices[] = $office->office_code;
@@ -597,12 +603,33 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - DTS Transaction Flows')]
                     }
                 }
 
+                // 7. Handle optional 5th line (Flow Use)
+                $flowUse = 'none';
+                if (count($blockLines) >= 4) {
+                    $useLine = $blockLines[3];
+                    if (!str_ends_with($useLine['text'], ';')) {
+                        throw new \Exception("Line {$useLine['num']} (\"{$useLine['text']}\") must end with a semicolon ';'.");
+                    }
+
+                    $useText = strtolower(trim(substr($useLine['text'], 0, -1)));
+                    if (!empty($useText)) {
+                        $validUses = ['internal', 'external', 'issuances', 'application', 'others', 'none'];
+                        if (!in_array($useText, $validUses)) {
+                            throw new \Exception("Line {$useLine['num']} (\"{$useLine['text']}\"): Invalid flow use '{$useText}'. Must be one of: " . implode(', ', $validUses) . ".");
+                        }
+                        $flowUse = $useText;
+                    }
+                }
+
                 $extractedFlows[] = [
                     'name' => $flowName,
                     'code' => $flowCode,
                     'offices' => $officesSequence,
-                    'cf_offices' => $cfOffices
+                    'cf_offices' => $cfOffices,
+                    'flow_use' => $flowUse,
                 ];
+
+                $i += 1 + count($blockLines);
             }
 
             // Save all flows to the database in a single transaction
@@ -617,6 +644,9 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - DTS Transaction Flows')]
                         'flow_name' => $flowData['name'],
                         'flow_code' => $flowData['code'],
                         'is_active' => true,
+                        'flow_use' => $flowData['flow_use'],
+                        'added_by' => auth()->id() ?? 1,
+                        'date_added' => now(),
                     ]);
 
                     // Insert sequence list
@@ -707,6 +737,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - DTS Transaction Flows')]
             $customQuery = \DB::table('dts_transaction_flow')
                 ->leftJoin('dts_transaction_details', 'dts_transaction_flow.flow_code', '=', 'dts_transaction_details.transaction_flow')
                 ->where('dts_transaction_flow.flow_code', 'like', 'FLOW-CUSTOM-%')
+                ->where('dts_transaction_flow.added_by', auth()->id())
                 ->select([
                     'dts_transaction_flow.id',
                     'dts_transaction_flow.flow_code',
@@ -1021,6 +1052,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - DTS Transaction Flows')]
                                     <br>• Line 2: <code>&lt;flow code&gt;;</code>
                                     <br>• Line 3: <code>&lt;flow sequence&gt;;</code> (e.g. <code>[]-&gt;[H]-&gt;ICTU;</code> where <code>[]</code> is the Originated Office and <code>[H]</code> is the Cluster Head of that office)
                                     <br>• Line 4 (Optional): <code>&lt;copy furnished offices (comma-separated)&gt;;</code> (e.g. <code>Unit Head, HRMDU, RFOIU;</code>)
+                                    <br>• Line 5 (Optional): <code>&lt;flow purpose/use&gt;;</code> (one of: <code>internal</code>, <code>external</code>, <code>issuances</code>, <code>application</code>, <code>others</code>, <code>none</code>)
                                     <br>• Lines starting with <code>#</code> are classified as comments and will be ignored.
                                 </p>
                             </div>
@@ -1078,6 +1110,20 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - DTS Transaction Flows')]
                                             <span class="slider"></span>
                                         </label>
                                     </div>
+                                </div>
+
+                                <!-- Flow Purpose / Use -->
+                                <div class="form-group">
+                                    <span class="form-label">Flow Purpose / Module Use</span>
+                                    <select class="form-input" wire:model="flowUse" style="background-color: #fff; cursor: pointer; padding: 8px 12px; border: 1px solid #cbd5e1; border-radius: 6px; width: 100%;">
+                                        <option value="none">No Specific Purpose (none)</option>
+                                        <option value="internal">Internal Transactions</option>
+                                        <option value="external">External Transactions</option>
+                                        <option value="issuances">Issuances / Memos</option>
+                                        <option value="application">Application Letters</option>
+                                        <option value="others">Others</option>
+                                    </select>
+                                    @error('flowUse') <span style="color:#ef4444; font-size:11px; margin-top:2px;">{{ $message }}</span> @enderror
                                 </div>
 
                                 <!-- Sequence Builder -->

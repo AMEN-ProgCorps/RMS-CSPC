@@ -125,6 +125,9 @@ class TransactionFlowImportTest extends TestCase
             'flow_name' => 'Existing Flow',
             'flow_code' => 'TEST-FLOW-IMP-DUP',
             'is_active' => true,
+            'added_by' => 1,
+            'date_added' => now(),
+            'flow_use' => 'none',
         ]);
 
         $fileContent = "=Test Imported Flow One;\nTEST-FLOW-IMP1;\n[]->TEST-OFF1;\n=Existing Flow;\nTEST-FLOW-IMP-DUP;\n[]->TEST-OFF2;\n";
@@ -150,6 +153,9 @@ class TransactionFlowImportTest extends TestCase
             'flow_name' => 'Existing Flow',
             'flow_code' => 'TEST-FLOW-IMP-DUP',
             'is_active' => true,
+            'added_by' => 1,
+            'date_added' => now(),
+            'flow_use' => 'none',
         ]);
 
         $fileContent = "=Test Imported Flow One;\nTEST-FLOW-IMP1;\n[]->TEST-OFF1;\n=Different Name Flow;\nTEST-FLOW-IMP-DUP;\n[]->TEST-OFF2;\n";
@@ -289,6 +295,9 @@ class TransactionFlowImportTest extends TestCase
             'flow_name' => 'Load Test Flow',
             'flow_code' => 'TEST-FLOW-CF-LOAD',
             'is_active' => true,
+            'added_by' => 1,
+            'date_added' => now(),
+            'flow_use' => 'none',
         ]);
         DB::table('dts_sequence_list')->insert([
             ['control_id' => 99999, 'sequence_ranking' => 1, 'office_code' => 'ORIGIN'],
@@ -332,6 +341,9 @@ class TransactionFlowImportTest extends TestCase
             'flow_name' => 'Select Path Flow',
             'flow_code' => 'TEST-FLOW-SELECT',
             'is_active' => true,
+            'added_by' => 1,
+            'date_added' => now(),
+            'flow_use' => 'none',
         ]);
         DB::table('dts_sequence_list')->insert([
             ['control_id' => 88888, 'sequence_ranking' => 1, 'office_code' => 'ORIGIN'],
@@ -478,7 +490,7 @@ class TransactionFlowImportTest extends TestCase
 
             // Verify the created transaction's custom flow resolves [H] to TEST-CH1
             $transaction = DB::table('dts_transaction_details')
-                ->where('control_number', 'INT-' . strtoupper(now()->format('Y-M')) . '-12345')
+                ->where('control_number', 'INT-' . now()->format('Y-m') . '-12345')
                 ->first();
             $this->assertNotNull($transaction);
 
@@ -506,5 +518,28 @@ class TransactionFlowImportTest extends TestCase
             DB::table('office')->whereIn('office_code', ['TEST-CH1', 'TEST-ORG1'])->delete();
             DB::table('cluster')->where('cluster_code', 'TEST-CLUST1')->delete();
         }
+    }
+
+    public function test_import_with_flow_use_and_default_behavior()
+    {
+        $fileContent = "=Flow With Use;\nTEST-FLOW-USE-IMP;\n[]->TEST-OFF1;\nTEST-OFF2;\ninternal;\n";
+        $file = UploadedFile::fake()->createWithContent('flows.txt', $fileContent);
+
+        Volt::test('pages.admin.dts.transaction-flows')
+            ->set('selectedPredefined', 'import')
+            ->set('flowFile', $file)
+            ->call('importFlow')
+            ->assertHasNoErrors()
+            ->assertSee("Successfully imported 1 predefined flow(s) from the file!");
+
+        $flow = DB::table('dts_transaction_flow')->where('flow_code', 'TEST-FLOW-USE-IMP')->first();
+        $this->assertNotNull($flow);
+        $this->assertEquals('internal', $flow->flow_use);
+
+        // Clean up
+        DB::table('dts_sequence_list')->where('control_id', $flow->id)->delete();
+        DB::table('dts_copy_filled_to_office')->where('control_id', 1001)->delete();
+        DB::table('dts_copy_filled_transaction')->where('control_num', 'TEST-FLOW-USE-IMP')->delete();
+        DB::table('dts_transaction_flow')->where('id', $flow->id)->delete();
     }
 }

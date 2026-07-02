@@ -72,7 +72,10 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
                           ->from('dts_copy_filled_transaction as cf')
                           ->join('dts_copy_filled_to_office as cfo', 'cf.assign_offices_id', '=', 'cfo.control_id')
                           ->whereColumn('cf.id', 'dtd.copy_filled_id')
-                          ->where('cfo.office_code', $userOfficeCode);
+                          ->where(function($cfq) use ($userOfficeCode) {
+                              $cfq->where('cfo.office_code', $userOfficeCode)
+                                  ->orWhere('cfo.office_code', 'ALL');
+                          });
                   });
             });
 

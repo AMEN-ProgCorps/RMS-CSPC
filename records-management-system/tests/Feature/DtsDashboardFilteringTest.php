@@ -58,6 +58,9 @@ class DtsDashboardFilteringTest extends TestCase
                 'flow_code' => 'TEST',
                 'flow_name' => 'Test Flow',
                 'is_active' => true,
+                'added_by' => 1,
+                'date_added' => now(),
+                'flow_use' => 'none',
             ]);
         }
     }

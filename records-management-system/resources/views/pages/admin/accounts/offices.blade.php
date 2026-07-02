@@ -774,7 +774,9 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Offices & Clusters')] cl
      */
     public function with(): array
     {
-        $officeQuery = \App\Models\office::query()->where('is_active', true);
+        $officeQuery = \App\Models\office::query()
+            ->where('is_active', true)
+            ->whereNotIn('office_code', ['ORIGIN', '[H]']);
         if ($this->search !== '') {
             $searchVal = '%' . $this->search . '%';
             $officeQuery->where(function($q) use ($searchVal) {

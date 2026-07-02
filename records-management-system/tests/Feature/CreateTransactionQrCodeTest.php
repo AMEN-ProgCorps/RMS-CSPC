@@ -40,7 +40,10 @@ class CreateTransactionQrCodeTest extends TestCase
                 'id' => $newFlowId,
                 'flow_code' => 'TEST-FLOW-CREATE',
                 'flow_name' => 'Test Flow Create',
-                'is_active' => true
+                'is_active' => true,
+                'added_by' => 1,
+                'date_added' => now(),
+                'flow_use' => 'none'
             ]);
             $existing = DB::table('dts_transaction_flow')->where('id', $newFlowId)->first();
         }

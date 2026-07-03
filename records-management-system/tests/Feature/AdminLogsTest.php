@@ -217,4 +217,30 @@ class AdminLogsTest extends TestCase
             'what_system' => 3
         ]);
     }
+
+    public function test_transaction_flows_logs_page()
+    {
+        $admin = User::find(1);
+        if (!$admin) {
+            $this->markTestSkipped('Admin user with ID 1 does not exist in database.');
+            return;
+        }
+
+        // Insert a dummy flow log entry
+        $logChange = 'Created predefined transaction flow: TEST FLOW FOR TESTING LOGS (' . uniqid() . ')';
+        DB::table('admin_logs')->insert([
+            'changes' => $logChange,
+            'admin_id' => 1,
+            'what_system' => 3, // Admin Console
+            'when_changes' => now(),
+        ]);
+
+        // Assert log entry is fetched by the flow-logs component
+        Volt::test('pages.admin.dts.flow-logs')
+            ->set('search', 'TEST FLOW FOR TESTING LOGS')
+            ->assertSee($logChange);
+
+        // Cleanup
+        DB::table('admin_logs')->where('changes', $logChange)->delete();
+    }
 }

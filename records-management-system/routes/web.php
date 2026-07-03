@@ -42,6 +42,7 @@ Route::middleware(['auth'])
         Volt::route('/admin/dts/transaction-logs', 'pages.admin.dts.transaction-logs')->name('admin.dts.transaction-logs');
         Volt::route('/admin/dts/update-logs', 'pages.admin.dts.update-logs')->name('admin.dts.update-logs');
         Volt::route('/admin/dts/transaction-flows', 'pages.admin.dts.transaction-flows')->name('admin.dts.transaction-flows');
+        Volt::route('/admin/dts/flow-logs', 'pages.admin.dts.flow-logs')->name('admin.dts.flow-logs');
 
         Volt::route('/admin/rdp/records-logs', 'pages.admin.rdp.records-logs')->name('admin.rdp.records-logs');
         Volt::route('/admin/rdp/update-logs', 'pages.admin.rdp.update-logs')->name('admin.rdp.update-logs');
@@ -50,6 +51,7 @@ Route::middleware(['auth'])
         Volt::route('/admin/subsystems/activate', 'pages.admin.subsystems.activate')->name('admin.subsystems.activate');
         Volt::route('/admin/subsystems/deactivate', 'pages.admin.subsystems.deactivate')->name('admin.subsystems.deactivate');
         Volt::route('/admin/subsystems/changes-logs', 'pages.admin.subsystems.changes-logs')->name('admin.subsystems.changes-logs');
+        Volt::route('/admin/settings', 'pages.admin.settings.index')->name('admin.settings.index');
     });
 
     // RDP — Records Disposition Program (requires can_access_rdp or is_sadm)

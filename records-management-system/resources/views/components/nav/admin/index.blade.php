@@ -122,6 +122,7 @@
         <div class="function-button {{ request()->routeIs('admin.dts.transaction-logs') ? 'force-active' : '' }}" onclick="proccedto('{{ route('admin.dts.transaction-logs') }}')">Transactions Logs</div>
         <div class="function-button {{ request()->routeIs('admin.dts.update-logs') ? 'force-active' : '' }}" onclick="proccedto('{{ route('admin.dts.update-logs') }}')">Update Logs</div>
         <div class="function-button {{ request()->routeIs('admin.dts.transaction-flows') ? 'force-active' : '' }}" onclick="proccedto('{{ route('admin.dts.transaction-flows') }}')">Transaction Flows</div>
+        <div class="function-button {{ request()->routeIs('admin.dts.flow-logs') ? 'force-active' : '' }}" onclick="proccedto('{{ route('admin.dts.flow-logs') }}')">Flows Logs</div>
     </div>
 </div>
 
@@ -149,5 +150,18 @@
     <div class="functions-container">
         <div class="function-button {{ request()->routeIs('admin.rdp.records-logs') ? 'force-active' : '' }}" onclick="proccedto('{{ route('admin.rdp.records-logs') }}')">Records Logs</div>
         <div class="function-button {{ request()->routeIs('admin.rdp.update-logs') ? 'force-active' : '' }}" onclick="proccedto('{{ route('admin.rdp.update-logs') }}')">Update Logs</div>
+    </div>
+</div>
+
+<div id="admin-settings-id" class="button-section-container {{ request()->routeIs('admin.settings.*') ? 'show' : '' }}">
+    <div class="button-container {{ request()->routeIs('admin.settings.*') ? 'force-active' : '' }}" onclick="proccedto('{{ route('admin.settings.index') }}')">
+        <div class="button-icon">
+            <svg xmlns="http://www.w3.org/2000/svg" width="29" height="29" viewBox="0 0 29 29" fill="none">
+                <path d="M23.36 15.68c.05-.38.08-.78.08-1.18s-.03-.8-.08-1.18l2.55-1.99a.59.59 0 0 0 .14-.77l-2.42-4.18a.6.6 0 0 0-.74-.26l-3 1.21c-.63-.48-1.31-.88-2.04-1.18l-.46-3.2A.6.6 0 0 0 16.92 3h-4.84a.6.6 0 0 0-.59.49l-.46 3.2c-.73.3-1.41.7-2.04 1.18l-3-1.21a.6.6 0 0 0-.74.26L2.83 10.56a.6.6 0 0 0 .14.77l2.55 1.99c-.05.38-.08.78-.08 1.18s.03.8.08 1.18l-2.55 1.99a.59.59 0 0 0-.14.77l2.42 4.18c.15.26.47.36.74.26l3-1.21c.63.48 1.31.88 2.04 1.18l.46 3.2c.05.29.3.49.59.49h4.84c.29 0 .54-.2.59-.49l.46-3.2c.73-.3 1.41-.7 2.04-1.18l3 1.21c.27.1.59 0 .74-.26l2.42-4.18a.59.59 0 0 0-.14-.77l-2.55-1.99ZM14.5 18c-1.93 0-3.5-1.57-3.5-3.5s1.57-3.5 3.5-3.5 3.5 1.57 3.5 3.5-1.57 3.5-3.5 3.5Z" fill="#4F4F4F"/>
+            </svg>
+        </div>
+        <div class="button-label">
+            <span>System Settings</span>
+        </div>
     </div>
 </div>

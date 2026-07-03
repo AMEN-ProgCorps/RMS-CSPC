@@ -359,7 +359,7 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create External
         }
 
         // Prepare the Hacore formula variables
-        $transCode = 'D' . preg_replace('/[^0-9]/', '', $this->seq_number);
+        $transCode = 'D' . strtoupper(trim($this->seq_number));
         $month = strtoupper(now()->format('M'));
         $year = now()->format('Y');
         
@@ -450,7 +450,7 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create External
                 }
             }
 
-            // Resolve dynamic ORIGIN and [H] to the creator's office / cluster head for all elements
+            // Resolve dynamic ORIGIN and [H] to the creator's office / cluster head for all elements (used dynamically)
             $resolvedOffices = [];
             foreach ($this->flow_offices as $officeCode) {
                 $resolved = $officeCode;
@@ -460,23 +460,34 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create External
                     $resolved = $clusterHead ?: $originOfficeCode;
                 }
                 
-                // Deduplicate adjacent/consecutive identical offices (e.g. if ORIGIN is followed by same office)
+                // Deduplicate adjacent/consecutive identical offices
                 if (empty($resolvedOffices) || end($resolvedOffices) !== $resolved) {
                     $resolvedOffices[] = $resolved;
                 }
             }
-            $this->flow_offices = $resolvedOffices;
 
-            $defaultOffices = [];
+            $resolvedPredefined = [];
             if ($flow) {
-                $defaultOffices = DB::table('dts_sequence_list')
+                $predefinedOffices = DB::table('dts_sequence_list')
                     ->where('control_id', $flow->id)
                     ->orderBy('sequence_ranking', 'asc')
                     ->pluck('office_code')
                     ->toArray();
+
+                foreach ($predefinedOffices as $officeCode) {
+                    $resolved = $officeCode;
+                    if ($officeCode === 'ORIGIN') {
+                        $resolved = $originOfficeCode;
+                    } elseif ($officeCode === '[H]') {
+                        $resolved = $clusterHead ?: $originOfficeCode;
+                    }
+                    if (empty($resolvedPredefined) || end($resolvedPredefined) !== $resolved) {
+                        $resolvedPredefined[] = $resolved;
+                    }
+                }
             }
 
-            if ($defaultOffices !== $this->flow_offices) {
+            if ($resolvedPredefined !== $this->flow_offices) {
                 // Generate custom flow
                 $flowCode = 'FLOW-CUSTOM-' . strtoupper(Str::random(10));
                 $maxId = DB::table('dts_transaction_flow')->max('id') ?? 0;
@@ -493,15 +504,22 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create External
                 ]);
 
                 foreach ($this->flow_offices as $rank => $officeCode) {
+                    $toSave = $officeCode;
+                    if ($officeCode === $originOfficeCode) {
+                        $toSave = 'ORIGIN';
+                    } elseif ($officeCode === $clusterHead) {
+                        $toSave = '[H]';
+                    }
+
                     DB::table('dts_sequence_list')->insert([
                         'control_id' => $newFlowId,
                         'sequence_ranking' => $rank + 1,
-                        'office_code' => $officeCode,
+                        'office_code' => $toSave,
                     ]);
                 }
             }
 
-            $currentOffice = $this->flow_offices[0] ?? $this->source_office;
+            $currentOffice = $resolvedOffices[0] ?? $this->source_office;
 
             $qrCodeId = $this->generatedQrCode;
 

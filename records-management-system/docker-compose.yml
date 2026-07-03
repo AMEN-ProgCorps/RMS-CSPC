@@ -10,7 +10,7 @@ services:
     env_file:
       - .env.docker
     ports:
-      - "49000:8000"
+      - "48000:8000"
     volumes:
       # Bind-mount source — changes reflect instantly without rebuilding
       - .:/var/www/html
@@ -69,7 +69,7 @@ services:
       PMA_HOST: db
       MYSQL_ROOT_PASSWORD: "MacCloud"
     ports:
-      - "49001:80"
+      - "49180:80"
     networks:
       - rms_net
 

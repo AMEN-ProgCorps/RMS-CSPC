@@ -1,0 +1,191 @@
+<?php
+
+use Livewire\Attributes\Layout;
+use Livewire\Attributes\Title;
+use Livewire\Volt\Component;
+
+new #[Layout('layouts.admin')] #[Title('Admin Console - System Settings')] class extends Component {
+    
+    public bool $pagePrewarmingEnabled = true;
+    public string $successMessage = '';
+    public string $errorMessage = '';
+
+    public function mount(): void
+    {
+        $setting = \DB::table('system_settings')->where('key', 'page_prewarming_enabled')->value('value');
+        $this->pagePrewarmingEnabled = ($setting === 'true');
+    }
+
+    public function saveSettings(): void
+    {
+        $this->successMessage = '';
+        $this->errorMessage = '';
+
+        try {
+            \DB::table('system_settings')->updateOrInsert(
+                ['key' => 'page_prewarming_enabled'],
+                [
+                    'value' => $this->pagePrewarmingEnabled ? 'true' : 'false',
+                    'updated_at' => now(),
+                ]
+            );
+
+            // Log activity
+            \DB::table('admin_logs')->insert([
+                'changes' => "Updated system setting: page_prewarming_enabled to " . ($this->pagePrewarmingEnabled ? 'true' : 'false'),
+                'admin_id' => auth()->id(),
+                'what_system' => 3, // Admin Console
+                'when_changes' => now(),
+            ]);
+
+            $this->successMessage = 'System settings updated successfully!';
+        } catch (\Exception $e) {
+            $this->errorMessage = 'Failed to update system settings: ' . $e->getMessage();
+        }
+    }
+};
+?>
+
+@push('styles')
+    @vite(['resources/css/admin/activity_logs.css', 'resources/css/admin/subsystems.css'])
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css">
+    <style>
+        .settings-card {
+            background: #ffffff;
+            border-radius: 12px;
+            padding: 24px;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+            margin-top: 24px;
+            max-width: 600px;
+        }
+        .setting-item {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 16px 0;
+            border-bottom: 1px solid #f3f4f6;
+        }
+        .setting-item:last-child {
+            border-bottom: none;
+        }
+        .setting-details {
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+            max-width: 75%;
+        }
+        .setting-title {
+            font-size: 16px;
+            font-weight: 600;
+            color: #1f2937;
+        }
+        .setting-desc {
+            font-size: 13px;
+            color: #6b7280;
+        }
+        /* Toggle Switch styling */
+        .switch {
+            position: relative;
+            display: inline-block;
+            width: 50px;
+            height: 26px;
+        }
+        .switch input {
+            opacity: 0;
+            width: 0;
+            height: 0;
+        }
+        .slider {
+            position: absolute;
+            cursor: pointer;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background-color: #d1d5db;
+            transition: .4s;
+            border-radius: 34px;
+        }
+        .slider:before {
+            position: absolute;
+            content: "";
+            height: 18px;
+            width: 18px;
+            left: 4px;
+            bottom: 4px;
+            background-color: white;
+            transition: .4s;
+            border-radius: 50%;
+        }
+        input:checked + .slider {
+            background-color: #3b82f6;
+        }
+        input:checked + .slider:before {
+            transform: translateX(24px);
+        }
+        .save-btn {
+            background-color: #3b82f6;
+            color: #ffffff;
+            font-weight: 600;
+            padding: 10px 20px;
+            border-radius: 6px;
+            border: none;
+            cursor: pointer;
+            transition: background-color 0.2s;
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            margin-top: 20px;
+        }
+        .save-btn:hover {
+            background-color: #2563eb;
+        }
+    </style>
+@endpush
+
+<div class="activity-logs-container">
+    <!-- Header -->
+    <div class="page-header">
+        <h1>System Settings</h1>
+        <p>Manage system-wide behavior, optimizations, and general preferences.</p>
+    </div>
+
+    <!-- Alert Notifications -->
+    @if ($successMessage)
+        <div class="alert alert-success" style="background-color: #ecfdf5; border-left: 4px solid #10b981; color: #065f46; padding: 12px 16px; border-radius: 6px; margin-bottom: 20px;">
+            <i class="fa-solid fa-circle-check" style="margin-right: 8px;"></i>
+            {{ $successMessage }}
+        </div>
+    @endif
+
+    @if ($errorMessage)
+        <div class="alert alert-danger" style="background-color: #fef2f2; border-left: 4px solid #ef4444; color: #991b1b; padding: 12px 16px; border-radius: 6px; margin-bottom: 20px;">
+            <i class="fa-solid fa-circle-xmark" style="margin-right: 8px;"></i>
+            {{ $errorMessage }}
+        </div>
+    @endif
+
+    <div class="settings-card">
+        <form wire:submit.prevent="saveSettings">
+            <!-- Setting: Page Prewarming -->
+            <div class="setting-item">
+                <div class="setting-details">
+                    <span class="setting-title">Page Pre-warming / Health Checkup</span>
+                    <span class="setting-desc">
+                        Asynchronously pre-loads and caches system pages in the background right after a user logs in. 
+                        This eliminates view compilation delay and prevents cold starts when navigating the application inside the Docker environment.
+                    </span>
+                </div>
+                <label class="switch">
+                    <input type="checkbox" wire:model="pagePrewarmingEnabled">
+                    <span class="slider"></span>
+                </label>
+            </div>
+
+            <!-- Action buttons -->
+            <button type="submit" class="save-btn">
+                <i class="fa-solid fa-floppy-disk"></i> Save Settings
+            </button>
+        </form>
+    </div>
+</div>

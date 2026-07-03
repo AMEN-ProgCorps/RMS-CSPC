@@ -27,7 +27,7 @@
             </svg>
         </div>
         <div class="button-label">
-            <span>Receive Transactions</span>
+            <span>Recieve Transactions</span>
         </div>
     </div>
 </div>

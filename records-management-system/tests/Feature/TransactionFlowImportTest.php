@@ -497,10 +497,10 @@ class TransactionFlowImportTest extends TestCase
             $customFlow = DB::table('dts_transaction_flow')->where('flow_code', $transaction->transaction_flow)->first();
             $this->assertNotNull($customFlow);
 
-            $this->assertDatabaseHas('dts_sequence_list', ['control_id' => $customFlow->id, 'sequence_ranking' => 1, 'office_code' => 'TEST-ORG1']);
-            $this->assertDatabaseHas('dts_sequence_list', ['control_id' => $customFlow->id, 'sequence_ranking' => 2, 'office_code' => 'TEST-CH1']);
+            $this->assertDatabaseHas('dts_sequence_list', ['control_id' => $customFlow->id, 'sequence_ranking' => 1, 'office_code' => 'ORIGIN']);
+            $this->assertDatabaseHas('dts_sequence_list', ['control_id' => $customFlow->id, 'sequence_ranking' => 2, 'office_code' => '[H]']);
             $this->assertDatabaseHas('dts_sequence_list', ['control_id' => $customFlow->id, 'sequence_ranking' => 3, 'office_code' => 'TEST-OFF1']);
-            $this->assertDatabaseHas('dts_sequence_list', ['control_id' => $customFlow->id, 'sequence_ranking' => 4, 'office_code' => 'TEST-ORG1']);
+            $this->assertDatabaseHas('dts_sequence_list', ['control_id' => $customFlow->id, 'sequence_ranking' => 4, 'office_code' => 'ORIGIN']);
 
             // Cleanup custom flow records
             DB::table('dts_sequence_list')->where('control_id', $customFlow->id)->delete();

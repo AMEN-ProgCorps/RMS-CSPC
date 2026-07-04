@@ -563,4 +563,53 @@ class TransactionFlowImportTest extends TestCase
         DB::table('dts_sequence_list')->where('control_id', $flow->id)->delete();
         DB::table('dts_transaction_flow')->where('id', $flow->id)->delete();
     }
+
+    public function test_predefined_purpose_filter()
+    {
+        // 1. Insert test flows
+        $maxId = DB::table('dts_transaction_flow')->max('id') ?? 0;
+        $id1 = $maxId + 1;
+        $id2 = $maxId + 2;
+
+        DB::table('dts_transaction_flow')->insert([
+            'id' => $id1,
+            'flow_name' => 'Active Flow Internal',
+            'flow_code' => 'TEST-FLOW-ACT1',
+            'is_active' => true,
+            'flow_use' => 'internal',
+            'added_by' => 1,
+            'date_added' => now(),
+        ]);
+
+        DB::table('dts_transaction_flow')->insert([
+            'id' => $id2,
+            'flow_name' => 'Active Flow Application',
+            'flow_code' => 'TEST-FLOW-ACT2',
+            'is_active' => true,
+            'flow_use' => 'application',
+            'added_by' => 1,
+            'date_added' => now(),
+        ]);
+
+        // 2. Verify filter works inside Volt component
+        Volt::test('pages.admin.dts.transaction-flows')
+            ->set('predefinedPurposeFilter', 'all')
+            ->assertViewHas('predefinedFlows', function ($flows) {
+                $codes = collect($flows)->pluck('flow_code')->toArray();
+                return in_array('TEST-FLOW-ACT1', $codes) && in_array('TEST-FLOW-ACT2', $codes);
+            })
+            ->set('predefinedPurposeFilter', 'internal')
+            ->assertViewHas('predefinedFlows', function ($flows) {
+                $codes = collect($flows)->pluck('flow_code')->toArray();
+                return in_array('TEST-FLOW-ACT1', $codes) && !in_array('TEST-FLOW-ACT2', $codes);
+            })
+            ->set('predefinedPurposeFilter', 'application')
+            ->assertViewHas('predefinedFlows', function ($flows) {
+                $codes = collect($flows)->pluck('flow_code')->toArray();
+                return !in_array('TEST-FLOW-ACT1', $codes) && in_array('TEST-FLOW-ACT2', $codes);
+            });
+
+        // 3. Clean up
+        DB::table('dts_transaction_flow')->whereIn('id', [$id1, $id2])->delete();
+    }
 }

@@ -26,10 +26,21 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Recycle Bin')] class ext
     /** @var array Selected item IDs for bulk restore */
     public array $selectedIds = [];
 
+    /** @var string Flow purpose filter (used on flows tab) */
+    public string $flowPurposeFilter = 'all';
+
     /**
      * Reset selection array on search updates.
      */
     public function updatingSearch(): void
+    {
+        $this->selectedIds = [];
+    }
+
+    /**
+     * Reset selection array on flow purpose filter updates.
+     */
+    public function updatingFlowPurposeFilter(): void
     {
         $this->selectedIds = [];
     }
@@ -136,6 +147,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Recycle Bin')] class ext
         $this->activeTab = $tab;
         $this->selectedIds = [];
         $this->search = '';
+        $this->flowPurposeFilter = 'all';
         $this->clearMessages();
     }
 
@@ -182,6 +194,9 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Recycle Bin')] class ext
             $query = \DB::table('dts_transaction_flow')
                 ->where('is_active', false)
                 ->where('flow_code', 'not like', 'FLOW-CUSTOM-%');
+            if ($this->flowPurposeFilter !== 'all') {
+                $query->where('flow_use', $this->flowPurposeFilter);
+            }
             if ($this->search !== '') {
                 $query->where(function ($q) use ($searchVal) {
                     $q->where('flow_name', 'like', $searchVal)
@@ -298,6 +313,10 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Recycle Bin')] class ext
         $flowsQuery = \DB::table('dts_transaction_flow')
             ->where('is_active', false)
             ->where('flow_code', 'not like', 'FLOW-CUSTOM-%');
+
+        if ($this->flowPurposeFilter !== 'all') {
+            $flowsQuery->where('flow_use', $this->flowPurposeFilter);
+        }
 
         if ($this->search !== '' && $this->activeTab === 'flows') {
             $flowsQuery->where(function ($q) use ($searchVal) {
@@ -631,13 +650,28 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Recycle Bin')] class ext
                     </div>
                 @endif
 
-                {{-- Select All Row --}}
-                @if($deactivatedFlows->count() > 0)
-                    <div style="display: flex; align-items: center; gap: 8px; padding: 6px 12px; border-bottom: 1px solid #e2e8f0; margin-bottom: 12px;">
-                        <input type="checkbox" wire:click="toggleAll" style="width: 16px; height: 16px; cursor: pointer; accent-color: #3b82f6;" {{ count($selectedIds) > 0 && count($selectedIds) === $deactivatedFlows->count() ? 'checked' : '' }}>
-                        <span style="font-size: 12px; color: #64748b; font-weight: 500;">Select All</span>
+                {{-- Select All & Filter Row --}}
+                <div style="display: flex; align-items: center; justify-content: space-between; padding: 6px 12px; border-bottom: 1px solid #e2e8f0; margin-bottom: 12px;">
+                    @if($deactivatedFlows->count() > 0)
+                        <div style="display: flex; align-items: center; gap: 8px;">
+                            <input type="checkbox" wire:click="toggleAll" style="width: 16px; height: 16px; cursor: pointer; accent-color: #3b82f6;" {{ count($selectedIds) > 0 && count($selectedIds) === $deactivatedFlows->count() ? 'checked' : '' }}>
+                            <span style="font-size: 12px; color: #64748b; font-weight: 500;">Select All</span>
+                        </div>
+                    @else
+                        <div></div>
+                    @endif
+                    <div>
+                        <select wire:model.live="flowPurposeFilter" style="padding: 6px 12px; border-radius: 6px; border: 1.5px solid #e2e8f0; outline: none; font-size: 12px; font-family: 'Inter', sans-serif; color: #64748b; cursor: pointer; transition: all 0.2s ease; background: #fff; font-weight: 500;">
+                            <option value="all">All Purposes</option>
+                            <option value="internal">Internal</option>
+                            <option value="external">External</option>
+                            <option value="issuances">Issuances</option>
+                            <option value="application">Application</option>
+                            <option value="others">Others</option>
+                            <option value="none">None</option>
+                        </select>
                     </div>
-                @endif
+                </div>
 
                 {{-- Items List --}}
                 <div class="offices-list">

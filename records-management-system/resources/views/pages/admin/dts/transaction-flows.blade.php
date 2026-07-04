@@ -45,6 +45,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - DTS Transaction Flows')]
 
     // ---- SEARCH FOR PREDEFINED FLOWS ----
     public string $searchPredefined = '';
+    public string $predefinedPurposeFilter = 'all';
 
     // ---- ALERTS ----
     public string $successMessage = '';
@@ -67,6 +68,13 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - DTS Transaction Flows')]
     public function updatingSearchPredefined(): void
     {
         $this->resetPage();
+        $this->selectedFlowIds = [];
+    }
+
+    public function updatingPredefinedPurposeFilter(): void
+    {
+        $this->resetPage();
+        $this->selectedFlowIds = [];
     }
 
     public function clearMessages(): void
@@ -509,6 +517,10 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - DTS Transaction Flows')]
             ->where('flow_code', 'not like', 'FLOW-CUSTOM-%')
             ->where('is_active', true);
 
+        if ($this->predefinedPurposeFilter !== 'all') {
+            $query->where('flow_use', $this->predefinedPurposeFilter);
+        }
+
         if ($this->searchPredefined !== '') {
             $searchVal = '%' . $this->searchPredefined . '%';
             $query->where(function ($q) use ($searchVal) {
@@ -908,6 +920,10 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - DTS Transaction Flows')]
             ->where('flow_code', 'not like', 'FLOW-CUSTOM-%')
             ->where('is_active', true);
 
+        if ($this->predefinedPurposeFilter !== 'all') {
+            $predefinedQuery->where('flow_use', $this->predefinedPurposeFilter);
+        }
+
         if ($this->searchPredefined !== '') {
             $searchVal = '%' . $this->searchPredefined . '%';
             $predefinedQuery->where(function ($q) use ($searchVal) {
@@ -1178,9 +1194,26 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - DTS Transaction Flows')]
                     </div>
                 @endif
 
-                <div style="display: flex; align-items: center; gap: 8px; padding: 6px 12px; border-bottom: 1px solid #e2e8f0;">
-                    <input type="checkbox" wire:click="toggleAllFlows" style="width: 16px; height: 16px; cursor: pointer; accent-color: #3b82f6;" {{ count($selectedFlowIds) > 0 ? 'checked' : '' }}>
-                    <span style="font-size: 12px; color: #64748b; font-weight: 500;">Select All</span>
+                <div style="display: flex; align-items: center; justify-content: space-between; padding: 6px 12px; border-bottom: 1px solid #e2e8f0;">
+                    @if($predefinedFlows->count() > 0)
+                        <div style="display: flex; align-items: center; gap: 8px;">
+                            <input type="checkbox" wire:click="toggleAllFlows" style="width: 16px; height: 16px; cursor: pointer; accent-color: #3b82f6;" {{ count($selectedFlowIds) > 0 && count($selectedFlowIds) === $predefinedFlows->count() ? 'checked' : '' }}>
+                            <span style="font-size: 12px; color: #64748b; font-weight: 500;">Select All</span>
+                        </div>
+                    @else
+                        <div></div>
+                    @endif
+                    <div>
+                        <select wire:model.live="predefinedPurposeFilter" style="padding: 6px 12px; border-radius: 6px; border: 1.5px solid #e2e8f0; outline: none; font-size: 12px; font-family: 'Inter', sans-serif; color: #64748b; cursor: pointer; transition: all 0.2s ease; background: #fff; font-weight: 500;">
+                            <option value="all">All Purposes</option>
+                            <option value="internal">Internal</option>
+                            <option value="external">External</option>
+                            <option value="issuances">Issuances</option>
+                            <option value="application">Application</option>
+                            <option value="others">Others</option>
+                            <option value="none">None</option>
+                        </select>
+                    </div>
                 </div>
 
                 <div class="offices-list">
@@ -1255,7 +1288,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - DTS Transaction Flows')]
                                     <br>• Line 2: <code>&lt;flow code&gt;;</code>
                                     <br>• Line 3: <code>&lt;flow sequence&gt;;</code> (e.g. <code>[]-&gt;[H]-&gt;ICTU;</code> where <code>[]</code> is the Originated Office and <code>[H]</code> is the Cluster Head of that office)
                                     <br>• Line 4 (Optional): <code>&lt;copy furnished offices (comma-separated)&gt;;</code> (e.g. <code>Unit Head, HRMDU, RFOIU;</code>)
-                                    <br>• Line 5 (Optional): <code>&lt;flow purpose/use&gt;;</code> (one of: <code>internal</code>, <code>external</code>, <code>issuances</code>, <code>application</code>, <code>others</code>, <code>none</code>)
+                                    <br>• Line 5 (Optional): <code>&lt;flow purpose/use&gt;;</code> (one of: <code>internal</code>, <code>external</code>, <code>issuances</code>, <code>application</code>, <code>others</code>, <code>none</code>), (use this like this e.g. <code>[ internal ];</code> or <code>[int];</code> for internal transactions)
                                     <br>• Lines starting with <code>#</code> are classified as comments and will be ignored.
                                 </p>
                             </div>

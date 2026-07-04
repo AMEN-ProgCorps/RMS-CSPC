@@ -25,14 +25,14 @@ class RecycleBinTest extends TestCase
         // Clean up
         DB::table('office')->whereIn('office_code', ['TEST-OFF-REC1', 'TEST-OFF-REC2'])->delete();
         DB::table('cluster')->whereIn('cluster_code', ['TEST-CLU-REC1'])->delete();
-        DB::table('dts_transaction_flow')->whereIn('flow_code', ['TEST-FLO-REC1'])->delete();
+        DB::table('dts_transaction_flow')->whereIn('flow_code', ['TEST-FLO-REC1', 'TEST-FLO-REC2'])->delete();
     }
 
     protected function tearDown(): void
     {
         DB::table('office')->whereIn('office_code', ['TEST-OFF-REC1', 'TEST-OFF-REC2'])->delete();
         DB::table('cluster')->whereIn('cluster_code', ['TEST-CLU-REC1'])->delete();
-        DB::table('dts_transaction_flow')->whereIn('flow_code', ['TEST-FLO-REC1'])->delete();
+        DB::table('dts_transaction_flow')->whereIn('flow_code', ['TEST-FLO-REC1', 'TEST-FLO-REC2'])->delete();
         parent::tearDown();
     }
 
@@ -62,13 +62,22 @@ class RecycleBinTest extends TestCase
 
         $maxId = DB::table('dts_transaction_flow')->max('id') ?? 0;
 
-        // Create inactive flow
+        // Create inactive flows
         DB::table('dts_transaction_flow')->insert([
             'id' => $maxId + 1,
-            'flow_name' => 'Deactivated Flow Rec',
+            'flow_name' => 'Deactivated Flow Rec None',
             'flow_code' => 'TEST-FLO-REC1',
             'is_active' => false,
             'flow_use' => 'none',
+            'added_by' => 1,
+            'date_added' => now(),
+        ]);
+        DB::table('dts_transaction_flow')->insert([
+            'id' => $maxId + 2,
+            'flow_name' => 'Deactivated Flow Rec Internal',
+            'flow_code' => 'TEST-FLO-REC2',
+            'is_active' => false,
+            'flow_use' => 'internal',
             'added_by' => 1,
             'date_added' => now(),
         ]);
@@ -89,7 +98,20 @@ class RecycleBinTest extends TestCase
             // Switch tab to flows
             ->set('activeTab', 'flows')
             ->assertViewHas('deactivatedFlows', function ($flows) {
-                return collect($flows)->contains('flow_code', 'TEST-FLO-REC1');
+                $codes = collect($flows)->pluck('flow_code')->toArray();
+                return in_array('TEST-FLO-REC1', $codes) && in_array('TEST-FLO-REC2', $codes);
+            })
+            // Filter by 'internal'
+            ->set('flowPurposeFilter', 'internal')
+            ->assertViewHas('deactivatedFlows', function ($flows) {
+                $codes = collect($flows)->pluck('flow_code')->toArray();
+                return !in_array('TEST-FLO-REC1', $codes) && in_array('TEST-FLO-REC2', $codes);
+            })
+            // Filter by 'none'
+            ->set('flowPurposeFilter', 'none')
+            ->assertViewHas('deactivatedFlows', function ($flows) {
+                $codes = collect($flows)->pluck('flow_code')->toArray();
+                return in_array('TEST-FLO-REC1', $codes) && !in_array('TEST-FLO-REC2', $codes);
             });
     }
 

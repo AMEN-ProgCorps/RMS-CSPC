@@ -32,6 +32,9 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - DTS Transaction Flows')]
     public string $officeSearch = ''; // text query for searching offices to add
     public $flowFile; // file upload property
 
+    // ---- BULK SELECTION ----
+    public array $selectedFlowIds = [];
+
     // ---- COPY FURNISHED EDITOR PROPERTIES ----
     public array $cfOffices = []; // list of office codes for predefined copy furnished
     public string $cfSearch = ''; // text query for searching copy furnished offices to add
@@ -85,6 +88,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - DTS Transaction Flows')]
         $this->cfSearch = '';
         $this->selectedCfOffice = '';
         $this->flowFile = null;
+        $this->selectedFlowIds = [];
         $this->clearMessages();
     }
 
@@ -279,9 +283,32 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - DTS Transaction Flows')]
 
         // 1. Validate inputs
         if ($this->selectedPredefined === 'new') {
+            // Check if a deactivated flow with the same name or code exists
+            $deactivatedByCode = \DB::table('dts_transaction_flow')
+                ->where('flow_code', strtoupper(trim($this->flowCode)))
+                ->where('is_active', false)
+                ->first();
+
+            $deactivatedByName = \DB::table('dts_transaction_flow')
+                ->where('flow_name', trim($this->flowName))
+                ->where('is_active', false)
+                ->first();
+
+            // For uniqueness validation, exclude inactive records
+            $nameExcludeId = $deactivatedByName ? $deactivatedByName->id : null;
+            $codeExcludeId = $deactivatedByCode ? $deactivatedByCode->id : null;
+
+            $nameRule = $nameExcludeId
+                ? 'required|string|max:255|unique:dts_transaction_flow,flow_name,' . $nameExcludeId . ',id'
+                : 'required|string|max:255|unique:dts_transaction_flow,flow_name';
+
+            $codeRule = $codeExcludeId
+                ? 'required|string|max:255|unique:dts_transaction_flow,flow_code,' . $codeExcludeId . ',id|regex:/^[A-Z0-9_\-]+$/i'
+                : 'required|string|max:255|unique:dts_transaction_flow,flow_code|regex:/^[A-Z0-9_\-]+$/i';
+
             $this->validate([
-                'flowName' => 'required|string|max:255|unique:dts_transaction_flow,flow_name',
-                'flowCode' => 'required|string|max:255|unique:dts_transaction_flow,flow_code|regex:/^[A-Z0-9_\-]+$/i',
+                'flowName' => $nameRule,
+                'flowCode' => $codeRule,
                 'flowUse' => 'required|string|in:internal,external,issuances,application,others,none',
             ], [
                 'flowCode.regex' => 'Flow code can only contain letters, numbers, dashes, and underscores.',
@@ -299,29 +326,57 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - DTS Transaction Flows')]
                 $flowId = null;
 
                 if ($this->selectedPredefined === 'new') {
-                    $maxId = \DB::table('dts_transaction_flow')->max('id') ?? 0;
-                    $flowId = $maxId + 1;
+                    // Check if a deactivated flow with the same code exists — reactivate it
+                    $existingFlow = \DB::table('dts_transaction_flow')
+                        ->where('flow_code', strtoupper(trim($this->flowCode)))
+                        ->where('is_active', false)
+                        ->first();
 
-                    // Insert flow
-                    \DB::table('dts_transaction_flow')->insert([
-                        'id' => $flowId,
-                        'flow_name' => trim($this->flowName),
-                        'flow_code' => strtoupper(trim($this->flowCode)),
-                        'is_active' => $this->isActive,
-                        'flow_use' => $this->flowUse,
-                        'added_by' => auth()->id() ?? 1,
-                        'date_added' => now(),
-                    ]);
+                    if ($existingFlow) {
+                        $flowId = $existingFlow->id;
 
-                    // Insert admin log
-                    \DB::table('admin_logs')->insert([
-                        'changes' => "Created predefined transaction flow: " . trim($this->flowName) . " (" . strtoupper(trim($this->flowCode)) . ")",
-                        'admin_id' => auth()->id(),
-                        'what_system' => 3, // Admin Console
-                        'when_changes' => now(),
-                    ]);
+                        // Reactivate and update the deactivated flow
+                        \DB::table('dts_transaction_flow')->where('id', $flowId)->update([
+                            'flow_name' => trim($this->flowName),
+                            'is_active' => true,
+                            'flow_use' => $this->flowUse,
+                            'added_by' => auth()->id() ?? 1,
+                            'date_added' => now(),
+                        ]);
 
-                    $this->successMessage = 'Predefined flow created successfully!';
+                        \DB::table('admin_logs')->insert([
+                            'changes' => "Reactivated previously soft-deleted predefined transaction flow: " . trim($this->flowName) . " (" . strtoupper(trim($this->flowCode)) . ")",
+                            'admin_id' => auth()->id(),
+                            'what_system' => 3,
+                            'when_changes' => now(),
+                        ]);
+
+                        $this->successMessage = 'Previously deactivated flow reactivated and updated successfully!';
+                    } else {
+                        $maxId = \DB::table('dts_transaction_flow')->max('id') ?? 0;
+                        $flowId = $maxId + 1;
+
+                        // Insert flow
+                        \DB::table('dts_transaction_flow')->insert([
+                            'id' => $flowId,
+                            'flow_name' => trim($this->flowName),
+                            'flow_code' => strtoupper(trim($this->flowCode)),
+                            'is_active' => $this->isActive,
+                            'flow_use' => $this->flowUse,
+                            'added_by' => auth()->id() ?? 1,
+                            'date_added' => now(),
+                        ]);
+
+                        // Insert admin log
+                        \DB::table('admin_logs')->insert([
+                            'changes' => "Created predefined transaction flow: " . trim($this->flowName) . " (" . strtoupper(trim($this->flowCode)) . ")",
+                            'admin_id' => auth()->id(),
+                            'what_system' => 3,
+                            'when_changes' => now(),
+                        ]);
+
+                        $this->successMessage = 'Predefined flow created successfully!';
+                    }
                 } else {
                     $flowId = (int) $this->selectedPredefined;
                     $flow = \DB::table('dts_transaction_flow')->where('id', $flowId)->first();
@@ -387,6 +442,131 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - DTS Transaction Flows')]
             $this->successMessage = $msg;
         } catch (\Exception $e) {
             $this->errorMessage = 'Failed to save flow: ' . $e->getMessage();
+        }
+    }
+
+    /**
+     * Soft-delete (deactivate) a predefined transaction flow for transparency.
+     */
+    public function deleteFlow(): void
+    {
+        $this->clearMessages();
+
+        if ($this->selectedPredefined === '' || $this->selectedPredefined === 'new' || $this->selectedPredefined === 'import') {
+            $this->errorMessage = 'Please select an existing flow to delete.';
+            return;
+        }
+
+        $flowId = (int) $this->selectedPredefined;
+
+        try {
+            \DB::transaction(function () use ($flowId) {
+                $flow = \DB::table('dts_transaction_flow')->where('id', $flowId)->first();
+
+                if (!$flow) {
+                    throw new \Exception('Predefined flow not found.');
+                }
+
+                // Soft-delete: deactivate the flow
+                \DB::table('dts_transaction_flow')->where('id', $flowId)->update([
+                    'is_active' => false,
+                ]);
+
+                // Audit log
+                \DB::table('admin_logs')->insert([
+                    'changes' => "Soft-deleted predefined transaction flow (Deactivated for transparency): {$flow->flow_name} ({$flow->flow_code})",
+                    'admin_id' => auth()->id(),
+                    'what_system' => 3, // Admin Console
+                    'when_changes' => now(),
+                ]);
+            });
+
+            $this->resetForm();
+            $this->successMessage = 'Transaction flow soft-deleted (deactivated) successfully!';
+        } catch (\Exception $e) {
+            $this->errorMessage = 'Failed to delete flow: ' . $e->getMessage();
+        }
+    }
+
+    /**
+     * Toggle a flow ID in the bulk selection array.
+     */
+    public function toggleFlowSelection(int $id): void
+    {
+        if (in_array($id, $this->selectedFlowIds)) {
+            $this->selectedFlowIds = array_values(array_diff($this->selectedFlowIds, [$id]));
+        } else {
+            $this->selectedFlowIds[] = $id;
+        }
+    }
+
+    /**
+     * Toggle select/deselect all visible predefined flows.
+     */
+    public function toggleAllFlows(): void
+    {
+        $query = \DB::table('dts_transaction_flow')
+            ->where('flow_code', 'not like', 'FLOW-CUSTOM-%');
+
+        if ($this->searchPredefined !== '') {
+            $searchVal = '%' . $this->searchPredefined . '%';
+            $query->where(function ($q) use ($searchVal) {
+                $q->where('flow_name', 'like', $searchVal)
+                  ->orWhere('flow_code', 'like', $searchVal);
+            });
+        }
+
+        $visibleIds = $query->pluck('id')->toArray();
+
+        if (count($this->selectedFlowIds) === count($visibleIds) && !array_diff($visibleIds, $this->selectedFlowIds)) {
+            $this->selectedFlowIds = [];
+        } else {
+            $this->selectedFlowIds = $visibleIds;
+        }
+    }
+
+    /**
+     * Bulk soft-delete (deactivate) all selected predefined flows.
+     */
+    public function bulkDeleteFlows(): void
+    {
+        $this->clearMessages();
+
+        if (empty($this->selectedFlowIds)) {
+            $this->errorMessage = 'No flows selected for deletion.';
+            return;
+        }
+
+        try {
+            \DB::transaction(function () {
+                $flows = \DB::table('dts_transaction_flow')
+                    ->whereIn('id', $this->selectedFlowIds)
+                    ->get();
+
+                if ($flows->isEmpty()) {
+                    throw new \Exception('No valid flows found to delete.');
+                }
+
+                $names = $flows->pluck('flow_name')->implode(', ');
+
+                \DB::table('dts_transaction_flow')
+                    ->whereIn('id', $this->selectedFlowIds)
+                    ->update(['is_active' => false]);
+
+                \DB::table('admin_logs')->insert([
+                    'changes' => "Bulk soft-deleted " . $flows->count() . " predefined transaction flow(s) (Deactivated for transparency): {$names}",
+                    'admin_id' => auth()->id(),
+                    'what_system' => 3,
+                    'when_changes' => now(),
+                ]);
+            });
+
+            $count = count($this->selectedFlowIds);
+            $this->selectedFlowIds = [];
+            $this->resetForm();
+            $this->successMessage = "{$count} flow(s) soft-deleted (deactivated) successfully!";
+        } catch (\Exception $e) {
+            $this->errorMessage = 'Failed to bulk delete flows: ' . $e->getMessage();
         }
     }
 
@@ -981,6 +1161,20 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - DTS Transaction Flows')]
                     <input type="text" class="search-box" placeholder="Search flows..." wire:model.live="searchPredefined">
                 </div>
 
+                @if(count($selectedFlowIds) > 0)
+                    <div style="display: flex; align-items: center; justify-content: space-between; padding: 8px 12px; background: #fff1f2; border: 1px solid #fecdd3; border-radius: 8px; margin-bottom: 8px;">
+                        <span style="font-size: 12px; font-weight: 600; color: #be123c;">{{ count($selectedFlowIds) }} selected</span>
+                        <button type="button" wire:click="bulkDeleteFlows" wire:confirm="Are you sure you want to deactivate {{ count($selectedFlowIds) }} flow(s)? They will be soft-deleted (hidden) but retained for transparency." style="background: #e11d48; color: #fff; border: none; padding: 5px 12px; border-radius: 6px; font-size: 11px; font-weight: 600; cursor: pointer; font-family: 'Inter', sans-serif;">
+                            <i class="fa-solid fa-trash-can" style="margin-right: 4px;"></i> Delete Selected
+                        </button>
+                    </div>
+                @endif
+
+                <div style="display: flex; align-items: center; gap: 8px; padding: 6px 12px; border-bottom: 1px solid #e2e8f0;">
+                    <input type="checkbox" wire:click="toggleAllFlows" style="width: 16px; height: 16px; cursor: pointer; accent-color: #3b82f6;" {{ count($selectedFlowIds) > 0 ? 'checked' : '' }}>
+                    <span style="font-size: 12px; color: #64748b; font-weight: 500;">Select All</span>
+                </div>
+
                 <div class="offices-list">
                     @forelse($predefinedFlows as $flow)
                         @php
@@ -988,6 +1182,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - DTS Transaction Flows')]
                             $flowInitials = strtoupper(substr($flow->flow_code ?: '?', 0, 3));
                         @endphp
                         <div class="office-item-card {{ $isSelected ? 'active' : '' }}" wire:key="flow-item-{{ $flow->id }}" wire:click="selectFlow({{ $flow->id }})">
+                            <input type="checkbox" wire:click.stop="toggleFlowSelection({{ $flow->id }})" {{ in_array($flow->id, $selectedFlowIds) ? 'checked' : '' }} style="width: 16px; height: 16px; cursor: pointer; accent-color: #3b82f6; flex-shrink: 0;">
                             <div class="office-avatar-small">
                                 <span>{{ $flowInitials }}</span>
                             </div>
@@ -1268,6 +1463,11 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - DTS Transaction Flows')]
 
                         <!-- Footer -->
                         <div class="details-footer">
+                            @if($selectedPredefined !== 'new')
+                                <button type="button" class="btn-delete" wire:click="deleteFlow" wire:confirm="Are you sure you want to deactivate this transaction flow? It will be soft-deleted (hidden) but retained for transparency." style="margin-right: auto;">
+                                    <i class="fa-solid fa-trash-can"></i> Delete Flow
+                                </button>
+                            @endif
                             <button type="button" class="btn-cancel" wire:click="resetForm">Cancel</button>
                             <button type="button" class="btn-save" wire:click="savePredefinedFlow">
                                 <i class="fa-solid fa-floppy-disk"></i> Save Configuration

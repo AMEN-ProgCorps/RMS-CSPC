@@ -19,6 +19,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Offices & Clusters')] cl
     public string $search = '';
     public ?int $selectedOfficeId = null;
     public $officeFile;
+    public array $selectedOfficeIds = [];
 
     // Office Form fields
     public string $officeName = '';
@@ -30,6 +31,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Offices & Clusters')] cl
     public string $clusterSearch = '';
     public ?int $selectedClusterId = null;
     public $clusterFile;
+    public array $selectedClusterIds = [];
 
     // Cluster Form fields
     public string $clusterName = '';
@@ -69,6 +71,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Offices & Clusters')] cl
         $this->officeCluster = '';
         $this->isActive = true;
         $this->officeFile = null;
+        $this->selectedOfficeIds = [];
 
         $this->selectedClusterId = null;
         $this->clusterName = '';
@@ -76,6 +79,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Offices & Clusters')] cl
         $this->clusterHead = '';
         $this->clusterIsActive = true;
         $this->clusterFile = null;
+        $this->selectedClusterIds = [];
 
         $this->clearMessages();
     }
@@ -332,14 +336,34 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Offices & Clusters')] cl
 
         $this->clearMessages();
 
-        // Validation rules: unique check excludes selected record if updating
-        $uniqueNameRule = $this->selectedOfficeId > 0 
-            ? 'unique:office,office_name,' . $this->selectedOfficeId . ',id'
-            : 'unique:office,office_name';
+        // Check for deactivated duplicates when creating
+        $nameExcludeId = null;
+        $codeExcludeId = null;
 
-        $uniqueCodeRule = $this->selectedOfficeId > 0 
+        if ($this->selectedOfficeId === -1) {
+            $deactivatedByName = \App\Models\office::where('office_name', trim($this->officeName))
+                ->where('is_active', false)
+                ->first();
+            $deactivatedByCode = \App\Models\office::where('office_code', trim($this->officeCode))
+                ->where('is_active', false)
+                ->first();
+
+            $nameExcludeId = $deactivatedByName ? $deactivatedByName->id : null;
+            $codeExcludeId = $deactivatedByCode ? $deactivatedByCode->id : null;
+        }
+
+        // Validation rules: unique check excludes selected record if updating, or deactivated record if creating
+        $uniqueNameRule = $this->selectedOfficeId > 0
+            ? 'unique:office,office_name,' . $this->selectedOfficeId . ',id'
+            : ($nameExcludeId
+                ? 'unique:office,office_name,' . $nameExcludeId . ',id'
+                : 'unique:office,office_name');
+
+        $uniqueCodeRule = $this->selectedOfficeId > 0
             ? 'unique:office,office_code,' . $this->selectedOfficeId . ',id'
-            : 'unique:office,office_code';
+            : ($codeExcludeId
+                ? 'unique:office,office_code,' . $codeExcludeId . ',id'
+                : 'unique:office,office_code');
 
         $this->validate([
             'officeName' => 'required|string|max:255|' . $uniqueNameRule,
@@ -351,24 +375,47 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Offices & Clusters')] cl
             \DB::transaction(function () {
                 if ($this->selectedOfficeId === -1) {
                     // --- CREATE MODE ---
-                    $office = new \App\Models\office();
-                    $office->office_name = $this->officeName;
-                    $office->office_code = $this->officeCode;
-                    $office->cluster = $this->officeCluster ?: null;
-                    $office->is_active = true; // Always active on initial creation
-                    $office->save();
+                    // Check if a deactivated office with the same code exists — reactivate it
+                    $existingOffice = \App\Models\office::where('office_code', trim($this->officeCode))
+                        ->where('is_active', false)
+                        ->first();
 
-                    // Audit Log: created office
-                    \DB::table('admin_logs')->insert([
-                        'changes' => "Created office: {$this->officeName} ({$this->officeCode})",
-                        'admin_id' => auth()->id(),
-                        'what_system' => 3, // Admin Console
-                        'when_changes' => now()
-                    ]);
-                    
-                    // Update state to newly created ID
-                    $this->selectedOfficeId = $office->id;
-                    $this->successMessage = 'Office entry created successfully!';
+                    if ($existingOffice) {
+                        // Reactivate and update the deactivated office
+                        $existingOffice->update([
+                            'office_name' => $this->officeName,
+                            'office_code' => $this->officeCode,
+                            'cluster' => $this->officeCluster ?: null,
+                            'is_active' => true,
+                        ]);
+
+                        \DB::table('admin_logs')->insert([
+                            'changes' => "Reactivated previously soft-deleted office: {$this->officeName} ({$this->officeCode})",
+                            'admin_id' => auth()->id(),
+                            'what_system' => 3,
+                            'when_changes' => now(),
+                        ]);
+
+                        $this->selectedOfficeId = $existingOffice->id;
+                        $this->successMessage = 'Previously deactivated office reactivated and updated successfully!';
+                    } else {
+                        $office = new \App\Models\office();
+                        $office->office_name = $this->officeName;
+                        $office->office_code = $this->officeCode;
+                        $office->cluster = $this->officeCluster ?: null;
+                        $office->is_active = true;
+                        $office->save();
+
+                        \DB::table('admin_logs')->insert([
+                            'changes' => "Created office: {$this->officeName} ({$this->officeCode})",
+                            'admin_id' => auth()->id(),
+                            'what_system' => 3,
+                            'when_changes' => now()
+                        ]);
+
+                        $this->selectedOfficeId = $office->id;
+                        $this->successMessage = 'Office entry created successfully!';
+                    }
                 } else {
                     // --- EDIT MODE ---
                     $office = \App\Models\office::findOrFail($this->selectedOfficeId);
@@ -454,6 +501,85 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Offices & Clusters')] cl
         }
     }
 
+    /**
+     * Toggle an office ID in the bulk selection array.
+     */
+    public function toggleOfficeSelection(int $id): void
+    {
+        if (in_array($id, $this->selectedOfficeIds)) {
+            $this->selectedOfficeIds = array_values(array_diff($this->selectedOfficeIds, [$id]));
+        } else {
+            $this->selectedOfficeIds[] = $id;
+        }
+    }
+
+    /**
+     * Toggle select/deselect all visible offices.
+     */
+    public function toggleAllOffices(): void
+    {
+        $visibleIds = \App\Models\office::where('is_active', true)
+            ->whereNotIn('office_code', ['ORIGIN', '[H]'])
+            ->when($this->search !== '', function ($q) {
+                $q->where(function ($sub) {
+                    $sub->where('office_name', 'like', '%' . $this->search . '%')
+                        ->orWhere('office_code', 'like', '%' . $this->search . '%');
+                });
+            })
+            ->pluck('id')
+            ->toArray();
+
+        if (count($this->selectedOfficeIds) === count($visibleIds) && !array_diff($visibleIds, $this->selectedOfficeIds)) {
+            $this->selectedOfficeIds = [];
+        } else {
+            $this->selectedOfficeIds = $visibleIds;
+        }
+    }
+
+    /**
+     * Bulk soft-delete (deactivate) all selected offices.
+     */
+    public function bulkDeleteOffices(): void
+    {
+        $this->clearMessages();
+
+        if (empty($this->selectedOfficeIds)) {
+            $this->errorMessage = 'No offices selected for deletion.';
+            return;
+        }
+
+        try {
+            \DB::transaction(function () {
+                $offices = \App\Models\office::whereIn('id', $this->selectedOfficeIds)
+                    ->whereNotIn('office_code', ['ORIGIN', '[H]'])
+                    ->get();
+
+                if ($offices->isEmpty()) {
+                    throw new \Exception('No valid offices found to delete.');
+                }
+
+                $names = $offices->pluck('office_name')->implode(', ');
+
+                \App\Models\office::whereIn('id', $offices->pluck('id')->toArray())
+                    ->update(['is_active' => false]);
+
+                \DB::table('admin_logs')->insert([
+                    'changes' => "Bulk soft-deleted " . $offices->count() . " office(s) (Deactivated for transparency): {$names}",
+                    'admin_id' => auth()->id(),
+                    'what_system' => 3,
+                    'when_changes' => now(),
+                ]);
+            });
+
+            $count = count($this->selectedOfficeIds);
+            $this->selectedOfficeIds = [];
+            $this->cancelSelection();
+            $this->successMessage = "{$count} office(s) soft-deleted (deactivated) successfully!";
+        } catch (\Exception $e) {
+            $this->errorMessage = 'Failed to bulk delete offices: ' . $e->getMessage();
+        }
+    }
+
     // ==========================================
     // ---- CLUSTERS DIRECTORY ACTIONS ----
     // ==========================================
@@ -492,13 +618,34 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Offices & Clusters')] cl
 
         $this->clearMessages();
 
+        // Check for deactivated duplicates when creating
+        $nameExcludeId = null;
+        $codeExcludeId = null;
+
+        if ($this->selectedClusterId === -1) {
+            $deactivatedByName = \App\Models\Cluster::where('cluster_name', trim($this->clusterName))
+                ->where('is_active', false)
+                ->first();
+            $deactivatedByCode = \App\Models\Cluster::where('cluster_code', trim($this->clusterCode))
+                ->where('is_active', false)
+                ->first();
+
+            $nameExcludeId = $deactivatedByName ? $deactivatedByName->id : null;
+            $codeExcludeId = $deactivatedByCode ? $deactivatedByCode->id : null;
+        }
+
+        // Validation rules: unique check excludes selected record if updating, or deactivated record if creating
         $uniqueNameRule = $this->selectedClusterId > 0 
             ? 'unique:cluster,cluster_name,' . $this->selectedClusterId . ',id'
-            : 'unique:cluster,cluster_name';
+            : ($nameExcludeId
+                ? 'unique:cluster,cluster_name,' . $nameExcludeId . ',id'
+                : 'unique:cluster,cluster_name');
 
         $uniqueCodeRule = $this->selectedClusterId > 0 
             ? 'unique:cluster,cluster_code,' . $this->selectedClusterId . ',id'
-            : 'unique:cluster,cluster_code';
+            : ($codeExcludeId
+                ? 'unique:cluster,cluster_code,' . $codeExcludeId . ',id'
+                : 'unique:cluster,cluster_code');
 
         $this->validate([
             'clusterName' => 'required|string|max:255|' . $uniqueNameRule,
@@ -509,22 +656,47 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Offices & Clusters')] cl
         try {
             \DB::transaction(function () {
                 if ($this->selectedClusterId === -1) {
-                    $cluster = new \App\Models\Cluster();
-                    $cluster->cluster_name = $this->clusterName;
-                    $cluster->cluster_code = $this->clusterCode;
-                    $cluster->cluster_head = $this->clusterHead ?: null;
-                    $cluster->is_active = true;
-                    $cluster->save();
+                    // Check if a deactivated cluster with the same code exists — reactivate it
+                    $existingCluster = \App\Models\Cluster::where('cluster_code', trim($this->clusterCode))
+                        ->where('is_active', false)
+                        ->first();
 
-                    \DB::table('admin_logs')->insert([
-                        'changes' => "Created cluster: {$this->clusterName} ({$this->clusterCode})",
-                        'admin_id' => auth()->id(),
-                        'what_system' => 3,
-                        'when_changes' => now()
-                    ]);
+                    if ($existingCluster) {
+                        // Reactivate and update the deactivated cluster
+                        $existingCluster->update([
+                            'cluster_name' => $this->clusterName,
+                            'cluster_code' => $this->clusterCode,
+                            'cluster_head' => $this->clusterHead ?: null,
+                            'is_active' => true,
+                        ]);
 
-                    $this->selectedClusterId = $cluster->id;
-                    $this->successMessage = 'Cluster created successfully!';
+                        \DB::table('admin_logs')->insert([
+                            'changes' => "Reactivated previously soft-deleted cluster: {$this->clusterName} ({$this->clusterCode})",
+                            'admin_id' => auth()->id(),
+                            'what_system' => 3,
+                            'when_changes' => now(),
+                        ]);
+
+                        $this->selectedClusterId = $existingCluster->id;
+                        $this->successMessage = 'Previously deactivated cluster reactivated and updated successfully!';
+                    } else {
+                        $cluster = new \App\Models\Cluster();
+                        $cluster->cluster_name = $this->clusterName;
+                        $cluster->cluster_code = $this->clusterCode;
+                        $cluster->cluster_head = $this->clusterHead ?: null;
+                        $cluster->is_active = true;
+                        $cluster->save();
+
+                        \DB::table('admin_logs')->insert([
+                            'changes' => "Created cluster: {$this->clusterName} ({$this->clusterCode})",
+                            'admin_id' => auth()->id(),
+                            'what_system' => 3,
+                            'when_changes' => now()
+                        ]);
+
+                        $this->selectedClusterId = $cluster->id;
+                        $this->successMessage = 'Cluster created successfully!';
+                    }
                 } else {
                     $cluster = \App\Models\Cluster::findOrFail($this->selectedClusterId);
                     $oldCode = $cluster->cluster_code;
@@ -573,20 +745,104 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Offices & Clusters')] cl
                     ->where('cluster', $cluster->cluster_code)
                     ->update(['cluster' => null]);
 
+                // Soft-delete the cluster (deactivate)
+                $cluster->update([
+                    'is_active' => false,
+                ]);
+
                 \DB::table('admin_logs')->insert([
-                    'changes' => "Deleted cluster: {$cluster->cluster_name} ({$cluster->cluster_code})",
+                    'changes' => "Soft-deleted cluster (Deactivated for transparency): {$cluster->cluster_name} ({$cluster->cluster_code})",
                     'admin_id' => auth()->id(),
                     'what_system' => 3,
                     'when_changes' => now()
                 ]);
 
-                $cluster->delete();
-
                 $this->cancelSelection();
-                $this->successMessage = 'Cluster deleted successfully!';
+                $this->successMessage = 'Cluster soft-deleted successfully!';
             });
         } catch (\Exception $e) {
             $this->errorMessage = 'Failed to delete cluster: ' . $e->getMessage();
+        }
+    }
+
+    /**
+     * Toggle a cluster ID in the bulk selection array.
+     */
+    public function toggleClusterSelection(int $id): void
+    {
+        if (in_array($id, $this->selectedClusterIds)) {
+            $this->selectedClusterIds = array_values(array_diff($this->selectedClusterIds, [$id]));
+        } else {
+            $this->selectedClusterIds[] = $id;
+        }
+    }
+
+    /**
+     * Toggle select/deselect all visible clusters.
+     */
+    public function toggleAllClusters(): void
+    {
+        $visibleIds = \App\Models\Cluster::where('is_active', true)
+            ->when($this->clusterSearch !== '', function ($q) {
+                $q->where(function ($sub) {
+                    $sub->where('cluster_name', 'like', '%' . $this->clusterSearch . '%')
+                        ->orWhere('cluster_code', 'like', '%' . $this->clusterSearch . '%');
+                });
+            })
+            ->pluck('id')
+            ->toArray();
+
+        if (count($this->selectedClusterIds) === count($visibleIds) && !array_diff($visibleIds, $this->selectedClusterIds)) {
+            $this->selectedClusterIds = [];
+        } else {
+            $this->selectedClusterIds = $visibleIds;
+        }
+    }
+
+    /**
+     * Bulk soft-delete (deactivate) all selected clusters.
+     */
+    public function bulkDeleteClusters(): void
+    {
+        $this->clearMessages();
+
+        if (empty($this->selectedClusterIds)) {
+            $this->errorMessage = 'No clusters selected for deletion.';
+            return;
+        }
+
+        try {
+            \DB::transaction(function () {
+                $clusters = \App\Models\Cluster::whereIn('id', $this->selectedClusterIds)->get();
+
+                if ($clusters->isEmpty()) {
+                    throw new \Exception('No valid clusters found to delete.');
+                }
+
+                $names = $clusters->pluck('cluster_name')->implode(', ');
+
+                // Set associated offices cluster to null
+                \DB::table('office')
+                    ->whereIn('cluster', $clusters->pluck('cluster_code')->toArray())
+                    ->update(['cluster' => null]);
+
+                \App\Models\Cluster::whereIn('id', $clusters->pluck('id')->toArray())
+                    ->update(['is_active' => false]);
+
+                \DB::table('admin_logs')->insert([
+                    'changes' => "Bulk soft-deleted " . $clusters->count() . " cluster(s) (Deactivated for transparency): {$names}",
+                    'admin_id' => auth()->id(),
+                    'what_system' => 3,
+                    'when_changes' => now(),
+                ]);
+            });
+
+            $count = count($this->selectedClusterIds);
+            $this->selectedClusterIds = [];
+            $this->cancelSelection();
+            $this->successMessage = "{$count} cluster(s) soft-deleted (deactivated) successfully!";
+        } catch (\Exception $e) {
+            $this->errorMessage = 'Failed to bulk delete clusters: ' . $e->getMessage();
         }
     }
 
@@ -786,7 +1042,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Offices & Clusters')] cl
         }
         $offices = $officeQuery->orderBy('office_name', 'asc')->get();
 
-        $clusterQuery = \App\Models\Cluster::query();
+        $clusterQuery = \App\Models\Cluster::query()->where('is_active', true);
         if ($this->clusterSearch !== '') {
             $cSearchVal = '%' . $this->clusterSearch . '%';
             $clusterQuery->where(function($q) use ($cSearchVal) {
@@ -895,13 +1151,30 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Offices & Clusters')] cl
                     <i class="fa-solid fa-magnifying-glass search-icon"></i>
                     <input type="text" class="search-box" placeholder="Search offices..." wire:model.live="search">
                 </div>
-                
+
+                @if(count($selectedOfficeIds) > 0)
+                    <div style="display: flex; align-items: center; justify-content: space-between; padding: 8px 12px; background: #fff1f2; border: 1px solid #fecdd3; border-radius: 8px; margin-bottom: 8px;">
+                        <span style="font-size: 12px; font-weight: 600; color: #be123c;">{{ count($selectedOfficeIds) }} selected</span>
+                        <button type="button" wire:click="bulkDeleteOffices" wire:confirm="Are you sure you want to deactivate {{ count($selectedOfficeIds) }} office(s)? They will be soft-deleted (hidden) but retained for transparency." style="background: #e11d48; color: #fff; border: none; padding: 5px 12px; border-radius: 6px; font-size: 11px; font-weight: 600; cursor: pointer; font-family: 'Inter', sans-serif;">
+                            <i class="fa-solid fa-trash-can" style="margin-right: 4px;"></i> Delete Selected
+                        </button>
+                    </div>
+                @endif
+
+                <div style="display: flex; align-items: center; gap: 8px; padding: 6px 12px; border-bottom: 1px solid #e2e8f0;">
+                    <input type="checkbox" wire:click="toggleAllOffices" style="width: 16px; height: 16px; cursor: pointer; accent-color: #3b82f6;" {{ count($selectedOfficeIds) > 0 ? 'checked' : '' }}>
+                    <span style="font-size: 12px; color: #64748b; font-weight: 500;">Select All</span>
+                </div>
+
                 <div class="offices-list">
                     @forelse($offices as $office)
                         @php
                             $officeInitials = strtoupper(substr($office->office_code ?: '?', 0, 3));
                         @endphp
                         <div class="office-item-card {{ $selectedOfficeId === $office->id ? 'active' : '' }}" wire:key="office-{{ $office->id }}" wire:click="selectOffice({{ $office->id }})">
+                            @if(!in_array($office->office_code, ['ORIGIN', '[H]']))
+                                <input type="checkbox" wire:click.stop="toggleOfficeSelection({{ $office->id }})" {{ in_array($office->id, $selectedOfficeIds) ? 'checked' : '' }} style="width: 16px; height: 16px; cursor: pointer; accent-color: #3b82f6; flex-shrink: 0;">
+                            @endif
                             <div class="office-avatar-small">
                                 <span>{{ $officeInitials }}</span>
                             </div>
@@ -1092,6 +1365,20 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Offices & Clusters')] cl
                     <i class="fa-solid fa-magnifying-glass search-icon"></i>
                     <input type="text" class="search-box" placeholder="Search clusters..." wire:model.live="clusterSearch">
                 </div>
+
+                @if(count($selectedClusterIds) > 0)
+                    <div style="display: flex; align-items: center; justify-content: space-between; padding: 8px 12px; background: #fff1f2; border: 1px solid #fecdd3; border-radius: 8px; margin-bottom: 8px;">
+                        <span style="font-size: 12px; font-weight: 600; color: #be123c;">{{ count($selectedClusterIds) }} selected</span>
+                        <button type="button" wire:click="bulkDeleteClusters" wire:confirm="Are you sure you want to deactivate {{ count($selectedClusterIds) }} cluster(s)? They will be soft-deleted (hidden) but retained for transparency." style="background: #e11d48; color: #fff; border: none; padding: 5px 12px; border-radius: 6px; font-size: 11px; font-weight: 600; cursor: pointer; font-family: 'Inter', sans-serif;">
+                            <i class="fa-solid fa-trash-can" style="margin-right: 4px;"></i> Delete Selected
+                        </button>
+                    </div>
+                @endif
+
+                <div style="display: flex; align-items: center; gap: 8px; padding: 6px 12px; border-bottom: 1px solid #e2e8f0;">
+                    <input type="checkbox" wire:click="toggleAllClusters" style="width: 16px; height: 16px; cursor: pointer; accent-color: #3b82f6;" {{ count($selectedClusterIds) > 0 ? 'checked' : '' }}>
+                    <span style="font-size: 12px; color: #64748b; font-weight: 500;">Select All</span>
+                </div>
                 
                 <div class="offices-list">
                     @forelse($clusters as $cluster)
@@ -1099,6 +1386,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Offices & Clusters')] cl
                             $clusterInitials = strtoupper(substr($cluster->cluster_code ?: '?', 0, 3));
                         @endphp
                         <div class="office-item-card {{ $selectedClusterId === $cluster->id ? 'active' : '' }}" wire:key="cluster-{{ $cluster->id }}" wire:click="selectCluster({{ $cluster->id }})">
+                            <input type="checkbox" wire:click.stop="toggleClusterSelection({{ $cluster->id }})" {{ in_array($cluster->id, $selectedClusterIds) ? 'checked' : '' }} style="width: 16px; height: 16px; cursor: pointer; accent-color: #3b82f6; flex-shrink: 0;">
                             <div class="office-avatar-small" style="background-color: #f0fdf4; color: #166534;">
                                 <span>{{ $clusterInitials }}</span>
                             </div>
@@ -1247,7 +1535,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Offices & Clusters')] cl
                         <!-- Footer Actions -->
                         <div class="details-footer">
                             @if($selectedClusterId > 0)
-                                <button type="button" class="btn-delete" wire:click="deleteCluster" style="margin-right: auto;">
+                                <button type="button" class="btn-delete" wire:click="deleteCluster" wire:confirm="Are you sure you want to deactivate this cluster? It will be soft-deleted (hidden) but retained for transparency." style="margin-right: auto;">
                                     <i class="fa-solid fa-trash-can"></i> Delete Cluster
                                 </button>
                             @endif

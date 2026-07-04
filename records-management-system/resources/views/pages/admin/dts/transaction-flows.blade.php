@@ -506,7 +506,8 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - DTS Transaction Flows')]
     public function toggleAllFlows(): void
     {
         $query = \DB::table('dts_transaction_flow')
-            ->where('flow_code', 'not like', 'FLOW-CUSTOM-%');
+            ->where('flow_code', 'not like', 'FLOW-CUSTOM-%')
+            ->where('is_active', true);
 
         if ($this->searchPredefined !== '') {
             $searchVal = '%' . $this->searchPredefined . '%';
@@ -752,52 +753,58 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - DTS Transaction Flows')]
                     }
                 }
 
-                // 6. Handle optional 4th line (Copy Furnished)
+                // 6. Handle optional lines (Copy Furnished and Flow Use/Purpose)
                 $cfOffices = [];
-                if (count($blockLines) >= 3) {
-                    $cfLine = $blockLines[2];
-                    if (!str_ends_with($cfLine['text'], ';')) {
-                        throw new \Exception("Line {$cfLine['num']} (\"{$cfLine['text']}\") must end with a semicolon ';'.");
-                    }
-
-                    $cfText = trim(substr($cfLine['text'], 0, -1));
-                    if (!empty($cfText)) {
-                        $cfNodes = explode(',', $cfText);
-                        $cfNodes = array_filter(array_map('trim', $cfNodes));
-                        
-                        foreach ($cfNodes as $node) {
-                            $office = \DB::table('office')
-                                ->where('is_active', true)
-                                ->where(function($q) use ($node) {
-                                    $q->where('office_code', $node)
-                                      ->orWhere('office_name', $node);
-                                })
-                                ->first();
-
-                            if (!$office) {
-                                throw new \Exception("Line {$cfLine['num']} (\"{$cfLine['text']}\"): Copy furnished office '{$node}' does not exist in the database or is typoed.");
-                            }
-
-                            $cfOffices[] = $office->office_code;
-                        }
-                    }
-                }
-
-                // 7. Handle optional 5th line (Flow Use)
                 $flowUse = 'none';
-                if (count($blockLines) >= 4) {
-                    $useLine = $blockLines[3];
-                    if (!str_ends_with($useLine['text'], ';')) {
-                        throw new \Exception("Line {$useLine['num']} (\"{$useLine['text']}\") must end with a semicolon ';'.");
+
+                for ($k = 2; $k < count($blockLines); $k++) {
+                    $optLine = $blockLines[$k];
+
+                    if (!str_ends_with($optLine['text'], ';')) {
+                        throw new \Exception("Line {$optLine['num']} (\"{$optLine['text']}\") must end with a semicolon ';'.");
                     }
 
-                    $useText = strtolower(trim(substr($useLine['text'], 0, -1)));
-                    if (!empty($useText)) {
-                        $validUses = ['internal', 'external', 'issuances', 'application', 'others', 'none'];
-                        if (!in_array($useText, $validUses)) {
-                            throw new \Exception("Line {$useLine['num']} (\"{$useLine['text']}\"): Invalid flow use '{$useText}'. Must be one of: " . implode(', ', $validUses) . ".");
+                    // Check if it's the Flow Use indicator (surrounded by brackets, case-insensitive, with abbreviation support)
+                    if (preg_match('/^\s*\[\s*([a-zA-Z0-9_\-]+)\s*\]\s*;\s*$/i', $optLine['text'], $matches)) {
+                        $rawUse = strtolower(trim($matches[1]));
+                        if ($rawUse === 'internal' || $rawUse === 'int') {
+                            $flowUse = 'internal';
+                        } elseif ($rawUse === 'external' || $rawUse === 'ext') {
+                            $flowUse = 'external';
+                        } elseif ($rawUse === 'issuances' || $rawUse === 'iss') {
+                            $flowUse = 'issuances';
+                        } elseif ($rawUse === 'application' || $rawUse === 'app') {
+                            $flowUse = 'application';
+                        } elseif ($rawUse === 'others' || $rawUse === 'oth') {
+                            $flowUse = 'others';
+                        } elseif ($rawUse === 'none') {
+                            $flowUse = 'none';
+                        } else {
+                            throw new \Exception("Line {$optLine['num']} (\"{$optLine['text']}\"): Invalid flow use '{$matches[1]}'. Must be one of: internal (int), external (ext), issuances (iss), application (app), others (oth), none.");
                         }
-                        $flowUse = $useText;
+                    } else {
+                        // Otherwise, treat it as the Copy Furnished offices list
+                        $cfText = trim(substr($optLine['text'], 0, -1));
+                        if (!empty($cfText)) {
+                            $cfNodes = explode(',', $cfText);
+                            $cfNodes = array_filter(array_map('trim', $cfNodes));
+                            
+                            foreach ($cfNodes as $node) {
+                                $office = \DB::table('office')
+                                    ->where('is_active', true)
+                                    ->where(function($q) use ($node) {
+                                        $q->where('office_code', $node)
+                                          ->orWhere('office_name', $node);
+                                    })
+                                    ->first();
+
+                                if (!$office) {
+                                    throw new \Exception("Line {$optLine['num']} (\"{$optLine['text']}\"): Copy furnished office '{$node}' does not exist in the database or is typoed.");
+                                }
+
+                                $cfOffices[] = $office->office_code;
+                            }
+                        }
                     }
                 }
 
@@ -898,7 +905,8 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - DTS Transaction Flows')]
 
         // Query predefined flows dropdown/directory
         $predefinedQuery = \DB::table('dts_transaction_flow')
-            ->where('flow_code', 'not like', 'FLOW-CUSTOM-%');
+            ->where('flow_code', 'not like', 'FLOW-CUSTOM-%')
+            ->where('is_active', true);
 
         if ($this->searchPredefined !== '') {
             $searchVal = '%' . $this->searchPredefined . '%';

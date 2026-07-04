@@ -522,7 +522,7 @@ class TransactionFlowImportTest extends TestCase
 
     public function test_import_with_flow_use_and_default_behavior()
     {
-        $fileContent = "=Flow With Use;\nTEST-FLOW-USE-IMP;\n[]->TEST-OFF1;\nTEST-OFF2;\ninternal;\n";
+        $fileContent = "=Flow With Use;\nTEST-FLOW-USE-IMP;\n[]->TEST-OFF1;\nTEST-OFF2;\n[ internal ];\n";
         $file = UploadedFile::fake()->createWithContent('flows.txt', $fileContent);
 
         Volt::test('pages.admin.dts.transaction-flows')
@@ -540,6 +540,27 @@ class TransactionFlowImportTest extends TestCase
         DB::table('dts_sequence_list')->where('control_id', $flow->id)->delete();
         DB::table('dts_copy_filled_to_office')->where('control_id', 1001)->delete();
         DB::table('dts_copy_filled_transaction')->where('control_num', 'TEST-FLOW-USE-IMP')->delete();
+        DB::table('dts_transaction_flow')->where('id', $flow->id)->delete();
+    }
+
+    public function test_import_with_abbreviated_flow_use()
+    {
+        $fileContent = "=Flow With Abbr;\nTEST-FLOW-ABBR-IMP;\n[]->TEST-OFF1;\n[ INT ];\n";
+        $file = UploadedFile::fake()->createWithContent('flows.txt', $fileContent);
+
+        Volt::test('pages.admin.dts.transaction-flows')
+            ->set('selectedPredefined', 'import')
+            ->set('flowFile', $file)
+            ->call('importFlow')
+            ->assertHasNoErrors()
+            ->assertSee("Successfully imported 1 predefined flow(s) from the file!");
+
+        $flow = DB::table('dts_transaction_flow')->where('flow_code', 'TEST-FLOW-ABBR-IMP')->first();
+        $this->assertNotNull($flow);
+        $this->assertEquals('internal', $flow->flow_use);
+
+        // Clean up
+        DB::table('dts_sequence_list')->where('control_id', $flow->id)->delete();
         DB::table('dts_transaction_flow')->where('id', $flow->id)->delete();
     }
 }

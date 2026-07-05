@@ -10,14 +10,18 @@ use Illuminate\Support\Facades\DB;
 
 class CreateTransactionQrCodeTest extends TestCase
 {
+    protected $user;
+    protected $rolePermissionId;
+
     protected function setUp(): void
     {
         parent::setUp();
 
         // Authenticate admin user (ID 1)
-        $admin = User::find(1);
-        if ($admin) {
-            Auth::login($admin);
+        $this->user = User::find(1);
+        if ($this->user) {
+            Auth::login($this->user);
+            $this->rolePermissionId = $this->user->account_role;
         }
 
         // Clean up test records
@@ -29,6 +33,12 @@ class CreateTransactionQrCodeTest extends TestCase
         DB::table('office')->updateOrInsert(
             ['office_code' => 'ORIGIN'],
             ['office_name' => 'Originated Office', 'is_active' => true]
+        );
+
+        // Ensure a second test office exists for custom flow tests
+        DB::table('office')->updateOrInsert(
+            ['office_code' => 'TST-OFF'],
+            ['office_name' => 'Test Office', 'is_active' => true]
         );
 
         // Ensure flow exists
@@ -59,6 +69,16 @@ class CreateTransactionQrCodeTest extends TestCase
         DB::table('dts_transactions')->where('doc_dir', 'like', '%test-doc%')->delete();
         DB::table('dts_transaction_details')->where('subject', 'Test Subject')->delete();
         DB::table('dts_qr_code')->where('code_id', 'like', 'QR-TST-%')->delete();
+        DB::table('dts_transaction_flow')->where('flow_name', 'Custom Test Document')->delete();
+
+        // Restore admin permissions
+        if ($this->rolePermissionId) {
+            DB::table('condition_details')->where('key_id', $this->rolePermissionId)->update([
+                'is_sadm' => true,
+                'can_dts_create_own_flow' => true
+            ]);
+        }
+
         parent::tearDown();
     }
 
@@ -184,6 +204,54 @@ class CreateTransactionQrCodeTest extends TestCase
         $this->assertDatabaseHas('dts_transaction_details', [
             'requestor_name' => 'Test External User',
             'requestor_label' => 'Manager',
+        ]);
+    }
+
+    public function test_custom_flow_creation_and_permissions()
+    {
+        $user = DB::table('account')->where('id', $this->user->id)->first();
+        
+        // Disable permission first
+        DB::table('condition_details')->where('key_id', $this->rolePermissionId)->update([
+            'is_sadm' => false,
+            'can_dts_create_own_flow' => false
+        ]);
+
+        // 1. Without permission, openCustomFlowCreator sets error message and modal remains closed
+        Volt::test('pages.dts.create.internal')
+            ->call('openCustomFlowCreator')
+            ->assertSet('showCustomFlowModal', false)
+            ->assertSet('toastMessage', 'Your account does not have permission to create its own transaction flow.');
+
+        // 2. Grant permission
+        DB::table('condition_details')->where('key_id', $this->rolePermissionId)->update([
+            'can_dts_create_own_flow' => true
+        ]);
+
+        // Refresh the authenticated user so cached permissions are cleared
+        $freshUser = User::find($this->user->id);
+        Auth::setUser($freshUser);
+
+        // 3. With permission, modal opens and can create a custom flow
+        $component = Volt::test('pages.dts.create.internal')
+            ->call('openCustomFlowCreator')
+            ->assertSet('showCustomFlowModal', true)
+            ->assertSet('toastMessage', '')
+            ->set('customFlowDocType', 'Custom Test Document')
+            ->set('customFlowSelectedOffice', 'ORIGIN')
+            ->call('addToCustomFlowSequence')
+            ->assertSet('customFlowSequence', ['ORIGIN'])
+            ->set('customFlowSelectedOffice', 'TST-OFF')
+            ->call('addToCustomFlowSequence')
+            ->assertSet('customFlowSequence', ['ORIGIN', 'TST-OFF'])
+            ->call('saveCustomFlow')
+            ->assertHasNoErrors();
+
+        // 4. Assert flow is registered in dts_transaction_flow and visible to user
+        $this->assertDatabaseHas('dts_transaction_flow', [
+            'flow_name' => 'Custom Test Document',
+            'flow_use' => 'internal',
+            'added_by' => $user->id
         ]);
     }
 }

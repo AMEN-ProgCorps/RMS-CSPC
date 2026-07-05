@@ -47,6 +47,7 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
 
     public function getTransactionsProperty()
     {
+        $userOfficeCode = auth()->user()?->details?->office?->office_code;
         $canViewAll = auth()->user()?->permissions?->is_sadm || auth()->user()?->permissions?->can_dts_view_all_current_trans;
         if (!$userOfficeCode && !$canViewAll) {
             return new \Illuminate\Pagination\LengthAwarePaginator([], 0, $this->perPage);

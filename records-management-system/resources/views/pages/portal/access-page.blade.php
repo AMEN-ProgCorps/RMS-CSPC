@@ -40,7 +40,7 @@ new #[Layout('layouts.portal')] #[Title('RMS CSPC Portal')] class extends Compon
             $perms->is_sadm, $perms->can_access_dts, $perms->can_access_rdp, $perms->can_access_dcs,
             $perms->can_dts_modify_docflow, $perms->can_sadm_modify_accountlist, $perms->can_sadm_modify_pass,
             $perms->can_sadm_modify_account, $perms->can_dts_view_all_list, $perms->can_dts_view_all_archive,
-            $perms->can_dts_view_all_current_trans
+            $perms->can_dts_view_all_current_trans, $perms->can_dts_create_own_flow
         ] : [];
 
         if ($this->currentRoleId === null) {

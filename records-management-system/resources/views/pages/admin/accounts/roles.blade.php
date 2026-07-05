@@ -43,6 +43,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Roles')] class extends C
     public bool $canViewAllList = false;
     public bool $canViewAllArchive = false;
     public bool $canViewAllCurrentTrans = false;
+    public bool $canCreateOwnFlow = false;
 
     // Toast notifications
     public string $successMessage = '';
@@ -87,6 +88,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Roles')] class extends C
         $this->canViewAllList = false;
         $this->canViewAllArchive = false;
         $this->canViewAllCurrentTrans = false;
+        $this->canCreateOwnFlow = false;
         
         $this->clearMessages();
     }
@@ -129,6 +131,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Roles')] class extends C
                 $this->canViewAllList = (bool) $perms->can_dts_view_all_list;
                 $this->canViewAllArchive = (bool) $perms->can_dts_view_all_archive;
                 $this->canViewAllCurrentTrans = (bool) $perms->can_dts_view_all_current_trans;
+                $this->canCreateOwnFlow = (bool) $perms->can_dts_create_own_flow;
             }
         }
     }
@@ -297,6 +300,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Roles')] class extends C
         $perms->can_dts_view_all_list = $this->canViewAllList;
         $perms->can_dts_view_all_archive = $this->canViewAllArchive;
         $perms->can_dts_view_all_current_trans = $this->canViewAllCurrentTrans;
+        $perms->can_dts_create_own_flow = $this->canCreateOwnFlow;
     }
 
     /**
@@ -539,6 +543,17 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Roles')] class extends C
                                         </div>
                                         <label class="switch">
                                             <input type="checkbox" wire:model="canViewAllCurrentTrans">
+                                            <span class="slider"></span>
+                                        </label>
+                                    </div>
+                                    <!-- Create own transaction flow -->
+                                    <div class="permission-toggle-row">
+                                        <div class="permission-toggle-info">
+                                            <span class="permission-toggle-title">Create Own Transaction Flow</span>
+                                            <span class="permission-toggle-desc">Define and construct custom transaction flows.</span>
+                                        </div>
+                                        <label class="switch">
+                                            <input type="checkbox" wire:model="canCreateOwnFlow">
                                             <span class="slider"></span>
                                         </label>
                                     </div>

@@ -30,6 +30,7 @@ class role_permission extends Model
         'can_dts_view_all_list',
         'can_dts_view_all_archive',
         'can_dts_view_all_current_trans',
+        'can_dts_create_own_flow',
     ];
     /*
      * The attributes here will be change in the future if there's more permissions to be added, 
@@ -48,5 +49,6 @@ class role_permission extends Model
         'can_dts_view_all_list' => 'boolean',
         'can_dts_view_all_archive' => 'boolean',
         'can_dts_view_all_current_trans' => 'boolean',
+        'can_dts_create_own_flow' => 'boolean',
     ];
 }

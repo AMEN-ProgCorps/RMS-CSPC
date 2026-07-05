@@ -118,14 +118,14 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Roles')] class extends C
             if ($perms) {
                 $this->isSadm = (bool) $perms->is_sadm;
                 $this->canAccessDts = (bool) $perms->can_access_dts;
-                $this->canAccessArchv = (bool) $perms->can_access_archv;
+                $this->canAccessArchv = (bool) $perms->can_access_rdp;
                 $this->canAccessDcs = (bool) $perms->can_access_dcs;
-                $this->canModifyDocflow = (bool) $perms->can_modify_docflow;
-                $this->canModifyAccountlist = (bool) $perms->can_modify_accountlist;
-                $this->canModifyPass = (bool) $perms->can_modify_pass;
-                $this->canModifyUser = (bool) $perms->can_modify_user;
-                $this->canViewAllList = (bool) $perms->can_view_all_list;
-                $this->canViewAllArchive = (bool) $perms->can_view_all_archive;
+                $this->canModifyDocflow = (bool) $perms->can_dts_modify_docflow;
+                $this->canModifyAccountlist = (bool) $perms->can_sadm_modify_accountlist;
+                $this->canModifyPass = (bool) $perms->can_sadm_modify_pass;
+                $this->canModifyUser = (bool) $perms->can_sadm_modify_account;
+                $this->canViewAllList = (bool) $perms->can_dts_view_all_list;
+                $this->canViewAllArchive = (bool) $perms->can_dts_view_all_archive;
             }
         }
     }
@@ -285,14 +285,14 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Roles')] class extends C
     {
         $perms->is_sadm = $this->isSadm;
         $perms->can_access_dts = $this->canAccessDts;
-        $perms->can_access_archv = $this->canAccessArchv;
+        $perms->can_access_rdp = $this->canAccessArchv;
         $perms->can_access_dcs = $this->canAccessDcs;
-        $perms->can_modify_docflow = $this->canModifyDocflow;
-        $perms->can_modify_accountlist = $this->canModifyAccountlist;
-        $perms->can_modify_pass = $this->canModifyPass;
-        $perms->can_modify_user = $this->canModifyUser;
-        $perms->can_view_all_list = $this->canViewAllList;
-        $perms->can_view_all_archive = $this->canViewAllArchive;
+        $perms->can_dts_modify_docflow = $this->canModifyDocflow;
+        $perms->can_sadm_modify_accountlist = $this->canModifyAccountlist;
+        $perms->can_sadm_modify_pass = $this->canModifyPass;
+        $perms->can_sadm_modify_account = $this->canModifyUser;
+        $perms->can_dts_view_all_list = $this->canViewAllList;
+        $perms->can_dts_view_all_archive = $this->canViewAllArchive;
     }
 
     /**

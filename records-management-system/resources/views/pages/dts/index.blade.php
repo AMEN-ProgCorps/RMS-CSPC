@@ -114,6 +114,7 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
             'dt.trans_type',
             'dtd.control_number',
             'dtd.requestor_name',
+            'dtd.requestor_label',
             'dtd.subject',
             'dtd.classification',
             'dtd.action_needed',
@@ -557,7 +558,12 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
                         <tr>
                             <td style="max-width: 300px; white-space: normal; word-break: break-word;">{{ $t->subject }}</td>
                             <td>{{ $t->originated_office_name }}</td>
-                            <td style="white-space: nowrap;">{{ $t->requestor_name }}</td>
+                             <td style="white-space: nowrap;">
+                                 {{ $t->requestor_name }}
+                                 @if(!empty($t->requestor_label))
+                                     <div style="font-size: 11px; color: #6b7280; font-weight: normal;">({{ $t->requestor_label }})</div>
+                                 @endif
+                             </td>
                             <td style="font-weight: 600; color: #1e40af; text-align: center;">{{ $t->control_number }}</td>
                             <td>{{ $t->document_name ?? ucfirst($t->trans_type) }}</td>
                             <td>{{ $t->from_office }}</td>
@@ -609,7 +615,7 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
                     <div style="font-size: 13px; color: #4b5563; line-height: 1.6; margin-top: 12px; font-family: Roboto, sans-serif;">
                         <div style="margin-bottom: 6px; word-break: break-word; overflow-wrap: break-word; white-space: normal;"><strong>Subject:</strong> {{ $t->subject }}</div>
                         <div style="margin-bottom: 6px;"><strong>Unit/College:</strong> {{ $t->originated_office_name }}</div>
-                        <div style="margin-bottom: 6px;"><strong>Name of Requestor:</strong> {{ $t->requestor_name }}</div>
+                        <div style="margin-bottom: 6px;"><strong>Name of Requestor:</strong> {{ $t->requestor_name }} @if(!empty($t->requestor_label)) <span style="font-size: 12px; color: #6b7280; font-weight: normal;">({{ $t->requestor_label }})</span> @endif</div>
                         <div style="margin-bottom: 6px;"><strong>Control Number:</strong> <span style="font-weight: 600; color: #1e40af;">{{ $t->control_number }}</span></div>
                         <div style="margin-bottom: 14px;"><strong>Type of Document:</strong> {{ $t->document_name ?? ucfirst($t->trans_type) }}</div>
 

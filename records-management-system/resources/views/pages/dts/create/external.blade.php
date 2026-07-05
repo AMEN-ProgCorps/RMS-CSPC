@@ -13,6 +13,7 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create External
     public string $seq_number = '';
     public string $source_office = '';
     public string $requestor_name = '';
+    public string $requestor_label = '';
     public string $subject = '';
     public string $transaction_flow = '';
     public string $copy_furnished = 'Yes';
@@ -401,6 +402,7 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create External
             'seq_number' => 'required|string|max:50',
             'source_office' => 'required|string|exists:office,office_code',
             'requestor_name' => 'required|string|max:255',
+            'requestor_label' => 'required|string|max:255',
             'subject' => 'required|string',
             'transaction_flow' => 'required|string|exists:dts_transaction_flow,flow_code',
             'copy_furnished' => 'required|string|in:Yes,No',
@@ -564,6 +566,7 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create External
                 'created_by' => auth()->id(),
                 'originated_from' => $this->source_office,
                 'requestor_name' => $this->requestor_name,
+                'requestor_label' => $this->requestor_label,
                 'subject' => $this->subject,
                 'classification' => 'Simple',
                 'action_needed' => 'For action',
@@ -768,6 +771,12 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create External
                                 <label class="beta-label">Name of Requestor</label>
                                 <input type="text" wire:model="requestor_name" class="beta-input" placeholder="e.g. John Doe">
                                 @error('requestor_name') <span class="beta-error">{{ $message }}</span> @enderror
+                            </div>
+
+                            <div class="beta-form-group full-width">
+                                <label class="beta-label">Requestor Job Position</label>
+                                <input type="text" wire:model="requestor_label" class="beta-input" placeholder="e.g. Director, Manager, President, etc.">
+                                @error('requestor_label') <span class="beta-error">{{ $message }}</span> @enderror
                             </div>
 
                             <div class="beta-form-group full-width">
@@ -1021,6 +1030,17 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create External
                         <label class="input-label">Name of Requestor</label>
                         <input type="text" wire:model="requestor_name" class="text-input" placeholder="Name of Requestor">
                         @error('requestor_name')
+                            <span class="error-msg" style="color: #dc2626; font-size: 12px; margin-top: 4px; display: block;">{{ $message }}</span>
+                        @enderror
+                    </div>
+                </div>
+
+                <!-- Requestor Job Position field -->
+                <div class="form-row">
+                    <div class="form-col small-input">
+                        <label class="input-label">Requestor Job Position</label>
+                        <input type="text" wire:model="requestor_label" class="text-input" placeholder="Requestor Job Position">
+                        @error('requestor_label')
                             <span class="error-msg" style="color: #dc2626; font-size: 12px; margin-top: 4px; display: block;">{{ $message }}</span>
                         @enderror
                     </div>

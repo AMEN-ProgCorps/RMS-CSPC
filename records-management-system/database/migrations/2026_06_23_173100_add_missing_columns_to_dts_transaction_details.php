@@ -13,8 +13,9 @@ return new class extends Migration
     {
         Schema::table('dts_transaction_details', function (Blueprint $table) {
             $table->string('requestor_name')->nullable()->after('originated_from');
-            $table->text('subject')->nullable()->after('requestor_name');
-            $table->string('classification')->nullable()->after('subject');
+            $table->text('requestor_label')->nullable()->after('requestor_name');
+            $table->text('subject')->nullable()->after('requestor_label');
+            $table->string('classification')->nullable()->after('subject'); 
             $table->string('action_needed')->nullable()->after('classification');
         });
     }

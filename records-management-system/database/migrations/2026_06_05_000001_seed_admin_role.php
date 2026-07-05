@@ -16,14 +16,14 @@ return new class extends Migration
         $detailsId = DB::table('condition_details')->insertGetId([
             'is_sadm'                => true,
             'can_access_dts'         => true,
-            'can_access_archv'       => true,
+            'can_access_rdp'       => true,
             'can_access_dcs'         => true,
-            'can_modify_docflow'     => true,
-            'can_modify_accountlist' => true,
-            'can_modify_pass'        => true,
-            'can_modify_user'        => true,
-            'can_view_all_list'      => true,
-            'can_view_all_archive'   => true,
+            'can_dts_modify_docflow'     => true,
+            'can_sadm_modify_accountlist' => true,
+            'can_sadm_modify_pass'        => true,
+            'can_sadm_modify_account'        => true,
+            'can_dts_view_all_list'      => true,
+            'can_dts_view_all_archive'   => true,
         ]);
 
         // Insert the Super Admin role entry

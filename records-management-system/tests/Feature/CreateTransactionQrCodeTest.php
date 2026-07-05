@@ -117,4 +117,73 @@ class CreateTransactionQrCodeTest extends TestCase
             'qr_code' => $qrCode
         ]);
     }
+
+    public function test_requestor_label_validation()
+    {
+        // 1. In internal, requestor_label is optional
+        $qrCodeInternal = 'QR-TST-INT-LBL';
+        DB::table('dts_qr_code')->insert([
+            'code_id' => $qrCodeInternal,
+            'qr_status' => 'not used',
+            'created_at' => now(),
+        ]);
+
+        Volt::test('pages.dts.create.internal')
+            ->set('seq_number', '9999')
+            ->set('unit_college', 'ORIGIN')
+            ->set('requestor_name', 'Test User')
+            ->set('type_of_document', 'Test Flow Create')
+            ->set('classification', 'simple')
+            ->set('subject', 'Test Subject')
+            ->set('action_needed', 'For approval')
+            ->set('transaction_flow', 'TEST-FLOW-CREATE')
+            ->set('copy_furnished', 'No')
+            ->set('generatedQrCode', $qrCodeInternal)
+            ->set('requestor_label', '')
+            ->call('save')
+            ->assertHasNoErrors();
+
+        $this->assertDatabaseHas('dts_transaction_details', [
+            'requestor_name' => 'Test User',
+            'requestor_label' => '',
+        ]);
+
+        // 2. In external, requestor_label is required
+        $qrCodeExternal = 'QR-TST-EXT-LBL';
+        DB::table('dts_qr_code')->insert([
+            'code_id' => $qrCodeExternal,
+            'qr_status' => 'not used',
+            'created_at' => now(),
+        ]);
+
+        Volt::test('pages.dts.create.external')
+            ->set('seq_number', '9999')
+            ->set('source_office', 'ORIGIN')
+            ->set('requestor_name', 'Test External User')
+            ->set('subject', 'Test Subject')
+            ->set('transaction_flow', 'TEST-FLOW-CREATE')
+            ->set('copy_furnished', 'No')
+            ->set('generatedQrCode', $qrCodeExternal)
+            ->set('requestor_label', '') // empty but required
+            ->call('save')
+            ->assertHasErrors(['requestor_label' => 'required']);
+
+        // Now set requestor_label
+        Volt::test('pages.dts.create.external')
+            ->set('seq_number', '9999')
+            ->set('source_office', 'ORIGIN')
+            ->set('requestor_name', 'Test External User')
+            ->set('subject', 'Test Subject')
+            ->set('transaction_flow', 'TEST-FLOW-CREATE')
+            ->set('copy_furnished', 'No')
+            ->set('generatedQrCode', $qrCodeExternal)
+            ->set('requestor_label', 'Manager')
+            ->call('save')
+            ->assertHasNoErrors();
+
+        $this->assertDatabaseHas('dts_transaction_details', [
+            'requestor_name' => 'Test External User',
+            'requestor_label' => 'Manager',
+        ]);
+    }
 }

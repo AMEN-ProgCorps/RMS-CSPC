@@ -360,18 +360,11 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create Issuance
         }
 
         // Prepare the Hacore formula variables
-        $transCode = 'D' . strtoupper(trim($this->seq_number));
+        $transCode = strtoupper(trim($this->seq_number));
         $month = strtoupper(now()->format('M'));
         $year = now()->format('Y');
         
-        $type = match($this->issuance_type) {
-            'NM' => 'MEMO',
-            'AM' => 'AMEM',
-            'EM' => 'EMEM',
-            'TO' => 'TOFF',
-            'OM' => 'OMEM',
-            default => 'ISSU'
-        };
+        $type = strtoupper($this->issuance_type);
 
         // Run the Hacore formula
         $rawCode = $this->combine($transCode, $this->combine($month, $this->combine($year, $type)));

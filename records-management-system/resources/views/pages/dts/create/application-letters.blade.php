@@ -383,16 +383,11 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create Applicat
         }
 
         // Prepare the Hacore formula variables
-        $transCode = 'D' . strtoupper(trim($this->seq_number));
+        $transCode = strtoupper(trim($this->seq_number));
         $month = strtoupper(now()->format('M'));
         $year = now()->format('Y');
         
-        $type = !empty($this->type_of_document) ? strtoupper(trim($this->type_of_document)) : 'APPL';
-        $type = preg_replace('/[^A-Z0-9]/', '', $type);
-        if (strlen($type) === 0) {
-            $type = 'APPL';
-        }
-        $type = substr($type, 0, 4);
+        $type = 'APL';
 
         // Run the Hacore formula
         $rawCode = $this->combine($transCode, $this->combine($month, $this->combine($year, $type)));

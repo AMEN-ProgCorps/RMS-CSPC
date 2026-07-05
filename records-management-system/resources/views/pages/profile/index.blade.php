@@ -58,14 +58,15 @@ new #[Layout('layouts.profile')] #[Title('Profile Manager - Details')] class ext
             $labels = [
                 'is_sadm'                => 'Super Administrator',
                 'can_access_dts'         => 'Access Document Tracking System',
-                'can_access_archv'       => 'Access Archive',
+                'can_access_rdp'       => 'Access Archive',
                 'can_access_dcs'         => 'Access DCS',
-                'can_modify_docflow'     => 'Modify Document Flow',
-                'can_modify_accountlist' => 'Modify Account List',
-                'can_modify_pass'        => 'Modify Passwords',
-                'can_modify_user'        => 'Modify Users',
-                'can_view_all_list'      => 'View All Lists',
-                'can_view_all_archive'   => 'View All Archives',
+                'can_dts_modify_docflow'     => 'Modify Document Flow',
+                'can_sadm_modify_accountlist' => 'Modify Account List',
+                'can_sadm_modify_pass'        => 'Modify Passwords',
+                'can_sadm_modify_account'        => 'Modify Users',
+                'can_dts_view_all_list'      => 'View All Lists',
+                'can_dts_view_all_archive'   => 'View All Archives',
+                'can_dts_view_all_current_trans' => 'View All Current Transactions',
             ];
 
             foreach ($labels as $key => $label) {

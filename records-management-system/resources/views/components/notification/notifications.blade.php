@@ -65,7 +65,7 @@ new class extends Component {
                 if ($perms->can_access_dts) {
                     $allowedSubsystems[] = 'Document Tracking System';
                 }
-                if ($perms->can_access_archv) {
+                if ($perms->can_access_rdp) {
                     $allowedSubsystems[] = 'Records Disposition Program';
                 }
             }

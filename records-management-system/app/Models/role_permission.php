@@ -21,30 +21,32 @@ class role_permission extends Model
         'key_id',
         'is_sadm',
         'can_access_dts',
-        'can_access_archv',
+        'can_access_rdp',
         'can_access_dcs',
-        'can_modify_docflow',
-        'can_modify_accountlist',
-        'can_modify_pass',
-        'can_modify_user',
-        'can_view_all_list',
-        'can_view_all_archive',
+        'can_dts_modify_docflow',
+        'can_sadm_modify_accountlist',
+        'can_sadm_modify_pass',
+        'can_sadm_modify_account',
+        'can_dts_view_all_list',
+        'can_dts_view_all_archive',
+        'can_dts_view_all_current_trans',
     ];
     /*
      * The attributes here will be change in the future if there's more permissions to be added, 
      * but for now these are the only permissions that we have in the system.
-    */
+     */
     protected $casts = [
         'key_id' => 'integer',
         'is_sadm' => 'boolean',
         'can_access_dts' => 'boolean',
-        'can_access_archv' => 'boolean',
+        'can_access_rdp' => 'boolean',
         'can_access_dcs' => 'boolean',
-        'can_modify_docflow' => 'boolean',
-        'can_modify_accountlist' => 'boolean',
-        'can_modify_pass' => 'boolean',
-        'can_modify_user' => 'boolean',
-        'can_view_all_list' => 'boolean',
-        'can_view_all_archive' => 'boolean',
+        'can_dts_modify_docflow' => 'boolean',
+        'can_sadm_modify_accountlist' => 'boolean',
+        'can_sadm_modify_pass' => 'boolean',
+        'can_sadm_modify_account' => 'boolean',
+        'can_dts_view_all_list' => 'boolean',
+        'can_dts_view_all_archive' => 'boolean',
+        'can_dts_view_all_current_trans' => 'boolean',
     ];
 }

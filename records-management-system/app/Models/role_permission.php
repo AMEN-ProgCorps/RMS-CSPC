@@ -29,11 +29,12 @@ class role_permission extends Model
         'can_sadm_modify_account',
         'can_dts_view_all_list',
         'can_dts_view_all_archive',
+        'can_dts_view_all_current_trans',
     ];
     /*
      * The attributes here will be change in the future if there's more permissions to be added, 
      * but for now these are the only permissions that we have in the system.
-    */
+     */
     protected $casts = [
         'key_id' => 'integer',
         'is_sadm' => 'boolean',
@@ -46,5 +47,6 @@ class role_permission extends Model
         'can_sadm_modify_account' => 'boolean',
         'can_dts_view_all_list' => 'boolean',
         'can_dts_view_all_archive' => 'boolean',
+        'can_dts_view_all_current_trans' => 'boolean',
     ];
 }

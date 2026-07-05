@@ -66,6 +66,7 @@ new #[Layout('layouts.profile')] #[Title('Profile Manager - Details')] class ext
                 'can_sadm_modify_account'        => 'Modify Users',
                 'can_dts_view_all_list'      => 'View All Lists',
                 'can_dts_view_all_archive'   => 'View All Archives',
+                'can_dts_view_all_current_trans' => 'View All Current Transactions',
             ];
 
             foreach ($labels as $key => $label) {

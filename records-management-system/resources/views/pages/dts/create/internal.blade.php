@@ -386,16 +386,11 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create Internal
         }
 
         // Prepare the Hacore formula variables
-        $transCode = 'D' . strtoupper(trim($this->seq_number));
+        $transCode = strtoupper(trim($this->seq_number));
         $month = strtoupper(now()->format('M'));
         $year = now()->format('Y');
         
-        $type = !empty($this->type_of_document) ? strtoupper(trim($this->type_of_document)) : 'MEMO';
-        $type = preg_replace('/[^A-Z0-9]/', '', $type);
-        if (strlen($type) === 0) {
-            $type = 'MEMO';
-        }
-        $type = substr($type, 0, 4);
+        $type = 'INT';
 
         // Run the Hacore formula
         $rawCode = $this->combine($transCode, $this->combine($month, $this->combine($year, $type)));

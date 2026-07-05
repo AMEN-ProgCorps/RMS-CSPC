@@ -47,8 +47,8 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
 
     public function getTransactionsProperty()
     {
-        $userOfficeCode = auth()->user()?->details?->office?->office_code;
-        if (!$userOfficeCode) {
+        $canViewAll = auth()->user()?->permissions?->is_sadm || auth()->user()?->permissions?->can_dts_view_all_current_trans;
+        if (!$userOfficeCode && !$canViewAll) {
             return new \Illuminate\Pagination\LengthAwarePaginator([], 0, $this->perPage);
         }
 
@@ -57,8 +57,10 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
             ->leftJoin('office as originated_office', 'originated_office.office_code', '=', 'dtd.originated_from')
             ->leftJoin('office as current_office', 'current_office.office_code', '=', 'dt.current_office')
             ->leftJoin('dts_document_data as doc', 'doc.document_path', '=', 'dt.doc_dir')
-            ->where('dtd.is_active', 1)
-            ->where(function($q) use ($userOfficeCode) {
+            ->where('dtd.is_active', 1);
+
+        if (!$canViewAll) {
+            $query->where(function($q) use ($userOfficeCode) {
                 $q->where('dt.current_office', $userOfficeCode)
                   ->orWhere('dtd.originated_from', $userOfficeCode)
                   ->orWhereExists(function($subQuery) use ($userOfficeCode) {
@@ -78,6 +80,7 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
                           });
                   });
             });
+        }
 
         // Tab filters
         if ($this->activeTab === 'internal') {

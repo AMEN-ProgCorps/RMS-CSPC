@@ -360,11 +360,11 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create External
         }
 
         // Prepare the Hacore formula variables
-        $transCode = 'D' . strtoupper(trim($this->seq_number));
+        $transCode = strtoupper(trim($this->seq_number));
         $month = strtoupper(now()->format('M'));
         $year = now()->format('Y');
         
-        $type = 'EXTR';
+        $type = 'EXT';
 
         // Run the Hacore formula
         $rawCode = $this->combine($transCode, $this->combine($month, $this->combine($year, $type)));

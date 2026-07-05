@@ -41,7 +41,8 @@ new #[Layout('layouts.profile')] #[Title('Profile Manager - Notification Manager
         $permValues = $perms ? [
             $perms->is_sadm, $perms->can_access_dts, $perms->can_access_rdp, $perms->can_access_dcs,
             $perms->can_dts_modify_docflow, $perms->can_sadm_modify_accountlist, $perms->can_sadm_modify_pass,
-            $perms->can_sadm_modify_account, $perms->can_dts_view_all_list, $perms->can_dts_view_all_archive
+            $perms->can_sadm_modify_account, $perms->can_dts_view_all_list, $perms->can_dts_view_all_archive,
+            $perms->can_dts_view_all_current_trans
         ] : [];
 
         if ($this->currentRoleId === null) {

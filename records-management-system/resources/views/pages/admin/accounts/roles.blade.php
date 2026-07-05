@@ -42,6 +42,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Roles')] class extends C
     public bool $canModifyUser = false;
     public bool $canViewAllList = false;
     public bool $canViewAllArchive = false;
+    public bool $canViewAllCurrentTrans = false;
 
     // Toast notifications
     public string $successMessage = '';
@@ -85,6 +86,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Roles')] class extends C
         $this->canModifyUser = false;
         $this->canViewAllList = false;
         $this->canViewAllArchive = false;
+        $this->canViewAllCurrentTrans = false;
         
         $this->clearMessages();
     }
@@ -126,6 +128,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Roles')] class extends C
                 $this->canModifyUser = (bool) $perms->can_sadm_modify_account;
                 $this->canViewAllList = (bool) $perms->can_dts_view_all_list;
                 $this->canViewAllArchive = (bool) $perms->can_dts_view_all_archive;
+                $this->canViewAllCurrentTrans = (bool) $perms->can_dts_view_all_current_trans;
             }
         }
     }
@@ -293,6 +296,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Roles')] class extends C
         $perms->can_sadm_modify_account = $this->canModifyUser;
         $perms->can_dts_view_all_list = $this->canViewAllList;
         $perms->can_dts_view_all_archive = $this->canViewAllArchive;
+        $perms->can_dts_view_all_current_trans = $this->canViewAllCurrentTrans;
     }
 
     /**
@@ -524,6 +528,17 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Roles')] class extends C
                                         </div>
                                         <label class="switch">
                                             <input type="checkbox" wire:model="canViewAllArchive">
+                                            <span class="slider"></span>
+                                        </label>
+                                    </div>
+                                    <!-- View all current trans -->
+                                    <div class="permission-toggle-row">
+                                        <div class="permission-toggle-info">
+                                            <span class="permission-toggle-title">View All Current Transactions</span>
+                                            <span class="permission-toggle-desc">View all active transactions from all offices.</span>
+                                        </div>
+                                        <label class="switch">
+                                            <input type="checkbox" wire:model="canViewAllCurrentTrans">
                                             <span class="slider"></span>
                                         </label>
                                     </div>

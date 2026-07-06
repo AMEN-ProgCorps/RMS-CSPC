@@ -24,6 +24,23 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create External
     public array $offices = [];
     public array $flows = [];
 
+    // Custom flow creator fields
+    public bool $showCustomFlowModal = false;
+    public string $customFlowDocType = '';
+    public array $customFlowSequence = [];
+    public string $customFlowSelectedOffice = '';
+    public string $toastMessage = '';
+
+    // Email Access & Password management fields
+    public bool $showEmailAccessModal = false;
+    public string $email_access_input = '';
+    public string $document_password_input = '';
+
+    public function toggleEmailAccessModal(): void
+    {
+        $this->showEmailAccessModal = !$this->showEmailAccessModal;
+    }
+
     // Flow Diagram modal states
     public bool $showFlowModal = false;
     public array $flow_offices = [];
@@ -33,6 +50,11 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create External
 
     public function mount(): void
     {
+        $perms = auth()->user()?->permissions;
+        if ($perms && !$perms->is_sadm && !$perms->can_dts_use_external) {
+            abort(403, 'Unauthorized access to External transactions.');
+        }
+
         $this->enableBeta = session('enable_beta', false);
         $this->offices = DB::table('office')
             ->where('is_active', true)
@@ -117,7 +139,7 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create External
         $this->isAvailable = null;
     }
 
-    public function updatedUnitCollege(): void
+    public function updatedSourceOffice(): void
     {
         if (!empty($this->transaction_flow)) {
             $this->updatedTransactionFlow($this->transaction_flow);
@@ -142,7 +164,7 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create External
                 ->pluck('office_code')
                 ->toArray();
 
-            $originOfficeCode = $this->unit_college;
+            $originOfficeCode = $this->source_office;
             $originOffice = DB::table('office')->where('office_code', $originOfficeCode)->first();
             $clusterHead = null;
             if ($originOffice && $originOffice->cluster) {
@@ -390,6 +412,98 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create External
         );
     }
 
+    public function openCustomFlowCreator(): void
+    {
+        $hasPermission = auth()->user()?->permissions?->is_sadm || auth()->user()?->permissions?->can_dts_create_own_flow;
+
+        if (!$hasPermission) {
+            $this->toastMessage = 'Your account does not have permission to create its own transaction flow.';
+            return;
+        }
+
+        $this->customFlowDocType = '';
+        $this->customFlowSequence = [];
+        $this->customFlowSelectedOffice = '';
+        $this->showCustomFlowModal = true;
+    }
+
+    public function addToCustomFlowSequence(): void
+    {
+        if (empty($this->customFlowSelectedOffice)) {
+            return;
+        }
+        
+        $this->customFlowSequence[] = $this->customFlowSelectedOffice;
+        $this->customFlowSelectedOffice = '';
+    }
+
+    public function removeFromCustomFlowSequence(int $index): void
+    {
+        unset($this->customFlowSequence[$index]);
+        $this->customFlowSequence = array_values($this->customFlowSequence);
+    }
+
+    public function saveCustomFlow(): void
+    {
+        $this->validate([
+            'customFlowDocType' => 'required|string|max:255',
+        ]);
+
+        if (count($this->customFlowSequence) === 0) {
+            $this->addError('customFlowSequence', 'You must add at least one office to the sequence.');
+            return;
+        }
+
+        try {
+            DB::transaction(function () {
+                $maxId = DB::table('dts_transaction_flow')->max('id') ?? 0;
+                $flowId = $maxId + 1;
+                $flowCode = 'FLOW-CUSTOM-' . time() . '-' . rand(100, 999);
+
+                // Insert into dts_transaction_flow
+                DB::table('dts_transaction_flow')->insert([
+                    'id' => $flowId,
+                    'flow_name' => trim($this->customFlowDocType),
+                    'flow_code' => $flowCode,
+                    'is_active' => true,
+                    'flow_use' => 'external',
+                    'added_by' => auth()->id() ?? 1,
+                    'date_added' => now(),
+                ]);
+
+                // Insert sequence list
+                foreach ($this->customFlowSequence as $rank => $officeCode) {
+                    DB::table('dts_sequence_list')->insert([
+                        'control_id' => $flowId,
+                        'sequence_ranking' => $rank + 1,
+                        'office_code' => $officeCode,
+                    ]);
+                }
+
+                $this->transaction_flow = $flowCode;
+            });
+
+            // Reload flows list
+            $this->flows = DB::table('dts_transaction_flow')
+                ->where('is_active', true)
+                ->whereIn('flow_use', ['external', 'none'])
+                ->where(function($query) {
+                    $query->where('flow_code', 'not like', 'FLOW-CUSTOM-%')
+                          ->orWhere('added_by', auth()->id());
+                })
+                ->orderBy('flow_name')
+                ->get()
+                ->map(fn($f) => (array)$f)
+                ->toArray();
+
+            $this->showCustomFlowModal = false;
+            $this->updatedTransactionFlow($this->transaction_flow);
+
+        } catch (\Exception $e) {
+            $this->addError('customFlowDocType', 'Failed to save custom flow: ' . $e->getMessage());
+        }
+    }
+
     public function removeCfOffice(int $index): void
     {
         unset($this->cf_selected_offices[$index]);
@@ -398,6 +512,27 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create External
 
     public function save()
     {
+        $isRequired = DB::table('system_settings')->where('key', 'dts_email_access_required_external')->value('value') === 'true';
+        if ($isRequired) {
+            $this->validate([
+                'email_access_input' => 'required|email',
+                'document_password_input' => 'required|string|min:4',
+            ], [
+                'email_access_input.required' => 'The Authorized Email Address is required.',
+                'email_access_input.email' => 'The Authorized Email must be a valid email address.',
+                'document_password_input.required' => 'The Document Password is required.',
+                'document_password_input.min' => 'The Document Password must be at least 4 characters.',
+            ]);
+        } else {
+            $this->validate([
+                'email_access_input' => 'nullable|email',
+                'document_password_input' => 'nullable|string|min:4',
+            ], [
+                'email_access_input.email' => 'The Authorized Email must be a valid email address.',
+                'document_password_input.min' => 'The Document Password must be at least 4 characters.',
+            ]);
+        }
+
         $this->validate([
             'seq_number' => 'required|string|max:50',
             'source_office' => 'required|string|exists:office,office_code',
@@ -559,6 +694,20 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create External
                 }
             }
 
+            $emailAccessId = null;
+            if (!empty($this->email_access_input)) {
+                $existingEmail = DB::table('dts_email_access')->where('email', $this->email_access_input)->first();
+                if ($existingEmail) {
+                    $emailAccessId = $existingEmail->id;
+                } else {
+                    $emailAccessId = DB::table('dts_email_access')->insertGetId([
+                        'email' => $this->email_access_input,
+                        'is_active' => true,
+                        'date_created' => now(),
+                    ]);
+                }
+            }
+
             // Insert into dts_transaction_details
             DB::table('dts_transaction_details')->insert([
                 'id' => $transactionId,
@@ -572,8 +721,8 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create External
                 'action_needed' => 'For action',
                 'current_office_hold' => $currentOffice,
                 'status' => 'ongoing',
-                'document_password' => null,
-                'email_access' => null,
+                'document_password' => $this->document_password_input ?: null,
+                'email_access' => $emailAccessId,
                 'transaction_flow' => $flowCode,
                 'is_active' => 1,
                 'date_created' => now(),
@@ -595,7 +744,7 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create External
             // Send notification to all users of the Origin office
             $subsystemId = DB::table('subsystems')->where('subsystem_name', 'Document Tracking System')->value('subsystem_id');
             if ($subsystemId) {
-                $originOffice = DB::table('office')->where('office_code', $this->unit_college)->first();
+                $originOffice = DB::table('office')->where('office_code', $this->source_office)->first();
                 if ($originOffice) {
                     $usersInOffice = DB::table('account')
                         ->join('account_details', 'account_details.account_id', '=', 'account.id')
@@ -613,7 +762,7 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create External
                         ]);
 
                         $notificationId = DB::table('notifications')->insertGetId([
-                            'office' => $this->unit_college,
+                            'office' => $this->source_office,
                             'contents' => $contentId,
                             'created_at' => now(),
                         ]);
@@ -636,7 +785,7 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create External
                 if (in_array('ALL', $this->cf_selected_offices)) {
                     $cfNotifyOffices = DB::table('office')
                         ->where('is_active', 1)
-                        ->where('office_code', '!=', $this->unit_college)
+                        ->where('office_code', '!=', $this->source_office)
                         ->get();
                 } else {
                     $cfNotifyOffices = DB::table('office')
@@ -800,6 +949,7 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create External
                                 @endforeach
                             </select>
                             @error('transaction_flow') <span class="beta-error">{{ $message }}</span> @enderror
+                            <a href="#" wire:click.prevent="openCustomFlowCreator" style="font-size: 11.5px; color: #3b82f6; text-decoration: none; font-weight: 600; margin-top: 4px; display: inline-block;">Flow Can't be found?</a>
                         </div>
 
                         @if(!empty($transaction_flow))
@@ -899,7 +1049,7 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create External
                                                     (stripos($o['office_name'], $cf_search) !== false || 
                                                     stripos($o['office_code'], $cf_search) !== false) &&
                                                     !in_array($o['office_code'], $cf_selected_offices) &&
-                                                    $o['office_code'] !== $unit_college
+                                                    $o['office_code'] !== $source_office
                                                 )
                                                 ->take(6);
                                         @endphp
@@ -960,6 +1110,17 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create External
                     @endif
                     <button type="button" wire:click="generateQrCode" class="beta-btn-submit" style="background-color: #3b82f6; box-shadow: 0 4px 10px rgba(59, 130, 246, 0.25);" {{ $generatedQrCode ? 'disabled style=background-color:#cbd5e1;cursor:not-allowed;box-shadow:none;' : '' }}>
                         <i class="fa-solid fa-gear"></i> Generate QR Code
+                    </button>
+                    @php
+                        $emailAccessRequired = DB::table('system_settings')->where('key', 'dts_email_access_required_external')->value('value') === 'true';
+                        $isConfigured = !empty($email_access_input) && !empty($document_password_input);
+                        $btnBg = $isConfigured ? '#10b981' : ($emailAccessRequired ? '#ef4444' : '#3b82f6');
+                        $btnHoverBg = $isConfigured ? '#059669' : ($emailAccessRequired ? '#dc2626' : '#2563eb');
+                        $btnShadow = $isConfigured ? 'rgba(16, 185, 129, 0.25)' : ($emailAccessRequired ? 'rgba(239, 68, 68, 0.25)' : 'rgba(59, 130, 246, 0.25)');
+                        $btnIcon = $isConfigured ? 'fa-circle-check' : ($emailAccessRequired ? 'fa-triangle-exclamation' : 'fa-envelope');
+                    @endphp
+                    <button type="button" wire:click="toggleEmailAccessModal" class="beta-btn-submit" style="background-color: {{ $btnBg }}; box-shadow: 0 4px 10px {{ $btnShadow }}; transition: background-color 0.15s;" onmouseover="this.style.backgroundColor='{{ $btnHoverBg }}'" onmouseout="this.style.backgroundColor='{{ $btnBg }}'">
+                        <i class="fa-solid {{ $btnIcon }}"></i> Manage Email Access
                     </button>
                     <button type="submit" class="beta-btn-submit" @if(!$generatedQrCode) disabled style="background: #cbd5e1; color: #94a3b8; cursor: not-allowed; box-shadow: none;" @endif>
                         <i class="fa-solid fa-floppy-disk"></i> Create Transaction
@@ -1075,6 +1236,7 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create External
                         @error('transaction_flow')
                             <span class="error-msg" style="color: #dc2626; font-size: 12px; margin-top: 4px; display: block;">{{ $message }}</span>
                         @enderror
+                        <a href="#" wire:click.prevent="openCustomFlowCreator" style="font-size: 11.5px; color: #2563eb; text-decoration: none; font-weight: 600; margin-top: 4px; display: inline-block;">Flow Can't be found?</a>
                     </div>
                 </div>
 
@@ -1115,8 +1277,8 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create External
                                         ['office_code' => 'ALL', 'office_name' => 'All Office']
                                     ], $offices);
 
-                                    $filteredOffices = array_filter($cfList, function($office) use ($cf_selected_offices, $unit_college) {
-                                        return !in_array($office['office_code'], $cf_selected_offices) && $office['office_code'] !== $unit_college;
+                                    $filteredOffices = array_filter($cfList, function($office) use ($cf_selected_offices, $source_office) {
+                                        return !in_array($office['office_code'], $cf_selected_offices) && $office['office_code'] !== $source_office;
                                     });
                                     
                                     $searchLower = strtolower($cf_search);
@@ -1179,6 +1341,17 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create External
                 @endif
                 <button type="button" wire:click="generateQrCode" class="btn-primary" style="background-color: #3b82f6; border-radius: 4px; padding: 10px 20px; font-size: 13px; font-weight: 600; cursor: pointer; display: flex; align-items: center; gap: 6px; box-shadow: 0 2px 4px rgba(59, 130, 246, 0.2);" {{ $generatedQrCode ? 'disabled style=background-color:#cbd5e1;cursor:not-allowed;box-shadow:none;' : '' }}>
                     <i class="fa-solid fa-gear"></i> Generate QR Code
+                </button>
+                @php
+                    $emailAccessRequired = DB::table('system_settings')->where('key', 'dts_email_access_required_external')->value('value') === 'true';
+                    $isConfigured = !empty($email_access_input) && !empty($document_password_input);
+                    $btnBg = $isConfigured ? '#10b981' : ($emailAccessRequired ? '#ef4444' : '#3b82f6');
+                    $btnHoverBg = $isConfigured ? '#059669' : ($emailAccessRequired ? '#dc2626' : '#2563eb');
+                    $btnShadow = $isConfigured ? 'rgba(16, 185, 129, 0.2)' : ($emailAccessRequired ? 'rgba(239, 68, 68, 0.2)' : 'rgba(59, 130, 246, 0.2)');
+                    $btnIcon = $isConfigured ? 'fa-circle-check' : ($emailAccessRequired ? 'fa-triangle-exclamation' : 'fa-envelope');
+                @endphp
+                <button type="button" wire:click="toggleEmailAccessModal" class="btn-primary" style="background-color: {{ $btnBg }}; border-radius: 4px; padding: 10px 20px; font-size: 13px; font-weight: 600; cursor: pointer; display: flex; align-items: center; gap: 6px; box-shadow: 0 2px 4px {{ $btnShadow }}; transition: background-color 0.15s;" onmouseover="this.style.backgroundColor='{{ $btnHoverBg }}'" onmouseout="this.style.backgroundColor='{{ $btnBg }}'">
+                    <i class="fa-solid {{ $btnIcon }}"></i> Manage Email Access
                 </button>
                 <button type="submit" class="btn-primary" @if(!$generatedQrCode) disabled style="background-color: #cbd5e1; color: #94a3b8; cursor: not-allowed; box-shadow: none;" @endif>CREATE TRANSACTION</button>
             </div>
@@ -1360,6 +1533,169 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create External
 
             </div>
         </div>
+    @endif
+
+    <!-- Custom Flow Creator Modal -->
+    @if($showCustomFlowModal)
+        <div style="position: fixed; inset: 0; background: rgba(15, 23, 42, 0.45); backdrop-filter: blur(8px); display: flex; align-items: center; justify-content: center; z-index: 9999; padding: 16px; font-family: 'Inter', sans-serif;">
+            <div style="background: #ffffff; border-radius: 16px; width: 100%; max-width: 620px; box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04); display: flex; flex-direction: column; overflow: hidden; border: 1px solid #e2e8f0; animation: modalEnter 0.3s ease-out;">
+                <!-- Header -->
+                <div style="padding: 18px 24px; border-bottom: 1px solid #f1f5f9; display: flex; justify-content: space-between; align-items: center; background: #fafafa;">
+                    <div style="display: flex; align-items: center; gap: 8px;">
+                        <div style="width: 32px; height: 32px; border-radius: 8px; background: #e0f2fe; color: #0284c7; display: flex; align-items: center; justify-content: center;">
+                            <i class="fa-solid fa-route" style="font-size: 14px;"></i>
+                        </div>
+                        <div>
+                            <h3 style="margin: 0; font-size: 16px; font-weight: 700; color: #0f172a;">Create Custom Flow</h3>
+                            <span style="font-size: 11.5px; color: #64748b;">Build a custom routing sequence for your documents</span>
+                        </div>
+                    </div>
+                    <button type="button" wire:click="$set('showCustomFlowModal', false)" style="background: none; border: none; color: #94a3b8; font-size: 20px; cursor: pointer; padding: 4px; line-height: 1; outline: none; transition: color 0.15s;" onmouseover="this.style.color='#475569'" onmouseout="this.style.color='#94a3b8'">&times;</button>
+                </div>
+
+                <!-- Body -->
+                <div style="padding: 24px; display: flex; flex-direction: column; gap: 18px; max-height: 480px; overflow-y: auto;">
+                    <!-- Type of Document / Flow Name -->
+                    <div style="display: flex; flex-direction: column; gap: 6px;">
+                        <label style="font-size: 12.5px; font-weight: 600; color: #334155;">Type of Document (Flow Name)</label>
+                        <input type="text" wire:model="customFlowDocType" placeholder="e.g. Clearance Form, Requisition Request" style="width: 100%; height: 38px; padding: 8px 12px; border: 1.5px solid #cbd5e1; border-radius: 8px; font-size: 13.5px; outline: none; transition: border-color 0.15s;" onfocus="this.style.borderColor='#3b82f6'" onblur="this.style.borderColor='#cbd5e1'">
+                        @error('customFlowDocType') <span style="font-size: 11.5px; color: #ef4444; font-weight: 500;">{{ $message }}</span> @enderror
+                    </div>
+
+                    <!-- Flow Sequence Selector -->
+                    <div style="display: flex; flex-direction: column; gap: 8px; padding: 16px; background: #f8fafc; border-radius: 12px; border: 1px solid #e2e8f0;">
+                        <label style="font-size: 12.5px; font-weight: 600; color: #334155; margin-bottom: 2px;">Add Offices to Routing Sequence</label>
+                        <div style="display: flex; gap: 8px; width: 100%;">
+                            <select wire:model="customFlowSelectedOffice" style="flex: 1; min-width: 0; height: 38px; padding: 0 12px; border: 1.5px solid #cbd5e1; border-radius: 8px; font-size: 13px; outline: none; background: #ffffff; overflow: hidden; text-overflow: ellipsis;">
+                                <option value="">Select an Office...</option>
+                                <option value="ORIGIN">ORIGIN (Your Current Office)</option>
+                                <option value="[H]">[H] (Your Cluster Head Office)</option>
+                                @foreach($offices as $off)
+                                    <option value="{{ $off['office_code'] }}">{{ $off['office_name'] }} ({{ $off['office_code'] }})</option>
+                                @endforeach
+                            </select>
+                            <button type="button" wire:click="addToCustomFlowSequence" style="background: #3b82f6; color: #ffffff; border: none; padding: 0 16px; border-radius: 8px; font-size: 13px; font-weight: 600; cursor: pointer; transition: background 0.15s;" onmouseover="this.style.backgroundColor='#2563eb'" onmouseout="this.style.backgroundColor='#3b82f6'">Add</button>
+                        </div>
+                    </div>
+
+                    <!-- Visualized Current Sequence -->
+                    <div style="display: flex; flex-direction: column; gap: 8px;">
+                        <label style="font-size: 12.5px; font-weight: 600; color: #334155;">Routing Sequence Path</label>
+                        @if(count($customFlowSequence) === 0)
+                            <div style="text-align: center; padding: 30px; border: 2px dashed #cbd5e1; border-radius: 12px; color: #94a3b8; font-size: 13px;">
+                                <i class="fa-solid fa-route" style="font-size: 24px; margin-bottom: 8px; display: block; color: #cbd5e1;"></i>
+                                No offices added to the routing sequence yet.
+                            </div>
+                        @else
+                            <div style="display: flex; flex-direction: column; gap: 8px;">
+                                @foreach($customFlowSequence as $idx => $code)
+                                    @php
+                                        $name = $code === 'ORIGIN' ? 'ORIGIN (Your Current Office)' : ($code === '[H]' ? '[H] (Your Cluster Head Office)' : (collect($offices)->firstWhere('office_code', $code)['office_name'] ?? $code));
+                                    @endphp
+                                    <div style="display: flex; align-items: center; justify-content: space-between; padding: 10px 14px; background: #ffffff; border: 1.5px solid #e2e8f0; border-radius: 10px; transition: border-color 0.15s;">
+                                        <div style="display: flex; align-items: center; gap: 10px;">
+                                            <span style="width: 22px; height: 22px; border-radius: 50%; background: #3b82f6; color: #ffffff; font-size: 11px; font-weight: 700; display: flex; align-items: center; justify-content: center;">{{ $idx + 1 }}</span>
+                                            <div>
+                                                <span style="font-size: 13px; font-weight: 600; color: #1e293b; display: block;">{{ $name }}</span>
+                                                <span style="font-size: 11px; color: #64748b; font-weight: 500;">Code: {{ $code }}</span>
+                                            </div>
+                                        </div>
+                                        <button type="button" wire:click="removeFromCustomFlowSequence({{ $idx }})" style="background: none; border: none; color: #ef4444; cursor: pointer; padding: 6px; border-radius: 6px; transition: background 0.15s;" onmouseover="this.style.backgroundColor='#fef2f2'" onmouseout="this.style.backgroundColor='transparent'">
+                                            <i class="fa-solid fa-trash-can" style="font-size: 12px;"></i>
+                                        </button>
+                                    </div>
+                                    @if($idx < count($customFlowSequence) - 1)
+                                        <div style="display: flex; justify-content: center; margin: -4px 0; color: #cbd5e1;">
+                                            <i class="fa-solid fa-arrow-down" style="font-size: 12px;"></i>
+                                        </div>
+                                    @endif
+                                @endforeach
+                            </div>
+                        @endif
+                        @error('customFlowSequence') <span style="font-size: 11.5px; color: #ef4444; font-weight: 500;">{{ $message }}</span> @enderror
+                    </div>
+                </div>
+
+                <!-- Footer -->
+                <div style="padding: 16px 24px; border-top: 1px solid #f1f5f9; display: flex; justify-content: flex-end; gap: 12px; background: #fafafa;">
+                    <button type="button" wire:click="$set('showCustomFlowModal', false)" style="background: #ffffff; border: 1.5px solid #cbd5e1; color: #334155; padding: 8px 16px; border-radius: 8px; font-size: 13px; font-weight: 600; cursor: pointer; transition: background 0.15s;" onmouseover="this.style.background='#f8fafc'" onmouseout="this.style.background='#ffffff'">Cancel</button>
+                    <button type="button" wire:click="saveCustomFlow" style="background: #10b981; border: none; color: #ffffff; padding: 8px 20px; border-radius: 8px; font-size: 13px; font-weight: 600; cursor: pointer; transition: background 0.15s;" onmouseover="this.style.backgroundColor='#059669'" onmouseout="this.style.backgroundColor='#10b981'">Save & Select Flow</button>
+                </div>
+            </div>
+        </div>
+        <style>
+            @keyframes modalEnter {
+                from { transform: scale(0.95); opacity: 0; }
+                to { transform: scale(1); opacity: 1; }
+            }
+        </style>
+    @endif
+
+    <!-- Email Access & Password Modal -->
+    @if($showEmailAccessModal)
+        <div style="position: fixed; inset: 0; background: rgba(15, 23, 42, 0.45); backdrop-filter: blur(4px); display: flex; align-items: center; justify-content: center; z-index: 10000; font-family: 'Inter', sans-serif;">
+            <div style="background: #ffffff; border-radius: 16px; width: 100%; max-width: 440px; box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04); display: flex; flex-direction: column; overflow: hidden; animation: modalEnter 0.25s cubic-bezier(0.16, 1, 0.3, 1);">
+                
+                <!-- Header -->
+                <div style="padding: 20px 24px; border-bottom: 1px solid #f1f5f9; display: flex; align-items: center; justify-content: space-between;">
+                    <div style="display: flex; align-items: center; gap: 10px;">
+                        <div style="width: 36px; height: 36px; border-radius: 8px; background: #e0e7ff; color: #4f46e5; display: flex; align-items: center; justify-content: center; font-size: 16px;">
+                            <i class="fa-solid fa-envelope"></i>
+                        </div>
+                        <div>
+                            <h3 style="font-size: 15px; font-weight: 700; color: #0f172a; margin: 0;">Manage Email Access</h3>
+                            <span style="font-size: 11px; color: #64748b; font-weight: 500;">Restrict document tracking permissions</span>
+                        </div>
+                    </div>
+                    <button type="button" wire:click="toggleEmailAccessModal" style="background: none; border: none; font-size: 20px; color: #94a3b8; cursor: pointer; display: flex; align-items: center; justify-content: center; width: 28px; height: 28px; border-radius: 50%;" onmouseover="this.style.background='#f1f5f9'" onmouseout="this.style.background='transparent'">&times;</button>
+                </div>
+
+                <!-- Body -->
+                <div style="padding: 24px; display: flex; flex-direction: column; gap: 16px;">
+                    <!-- Authorized Email input -->
+                    <div style="display: flex; flex-direction: column; gap: 6px;">
+                        <label style="font-size: 12px; font-weight: 600; color: #334155;">Authorized Email Address</label>
+                        <input type="email" wire:model="email_access_input" placeholder="e.g. user@gmail.com" style="width: 100%; padding: 10px 12px; border: 1.5px solid #cbd5e1; border-radius: 8px; font-size: 13px; outline: none; transition: border-color 0.15s; font-family: 'Inter', sans-serif;" onfocus="this.style.borderColor='#3b82f6'" onblur="this.style.borderColor='#cbd5e1'">
+                        @error('email_access_input') <span style="font-size: 11.5px; color: #ef4444; font-weight: 500;">{{ $message }}</span> @enderror
+                        <p style="margin: 0; font-size: 11px; color: #64748b; line-height: 1.4;">Only this email address will be permitted to verify and track this document's lifecycle on the public portal.</p>
+                    </div>
+
+                    <!-- Password input -->
+                    <div style="display: flex; flex-direction: column; gap: 6px;">
+                        <label style="font-size: 12px; font-weight: 600; color: #334155;">Document Password</label>
+                        <input type="text" wire:model="document_password_input" placeholder="Enter secure password" style="width: 100%; padding: 10px 12px; border: 1.5px solid #cbd5e1; border-radius: 8px; font-size: 13px; outline: none; transition: border-color 0.15s; font-family: 'Inter', sans-serif;" onfocus="this.style.borderColor='#3b82f6'" onblur="this.style.borderColor='#cbd5e1'">
+                        @error('document_password_input') <span style="font-size: 11.5px; color: #ef4444; font-weight: 500;">{{ $message }}</span> @enderror
+                        <p style="margin: 0; font-size: 11px; color: #64748b; line-height: 1.4;">Required for non-CSPC email addresses to view document tracking updates.</p>
+                    </div>
+                </div>
+
+                <!-- Footer -->
+                <div style="padding: 16px 24px; border-top: 1px solid #f1f5f9; display: flex; justify-content: flex-end; gap: 12px; background: #fafafa;">
+                    <button type="button" wire:click="toggleEmailAccessModal" style="background: #ffffff; border: 1.5px solid #cbd5e1; color: #334155; padding: 8px 16px; border-radius: 8px; font-size: 13px; font-weight: 600; cursor: pointer; transition: background 0.15s;" onmouseover="this.style.background='#f8fafc'" onmouseout="this.style.background='#ffffff'">Cancel</button>
+                    <button type="button" wire:click="toggleEmailAccessModal" style="background: #3b82f6; border: none; color: #ffffff; padding: 8px 20px; border-radius: 8px; font-size: 13px; font-weight: 600; cursor: pointer; transition: background 0.15s;" onmouseover="this.style.backgroundColor='#2563eb'" onmouseout="this.style.backgroundColor='#3b82f6'">Save & Close</button>
+                </div>
+            </div>
+        </div>
+    @endif
+
+    <!-- Toast Alert message -->
+    @if(!empty($toastMessage))
+        <div style="position: fixed; bottom: 20px; left: 20px; z-index: 99999; background: #ef4444; color: #fff; padding: 12px 18px; border-radius: 8px; box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05); display: flex; align-items: center; gap: 10px; font-family: 'Inter', sans-serif; font-size: 13px; font-weight: 500; animation: toastSlideIn 0.3s cubic-bezier(0.16, 1, 0.3, 1); max-width: 380px;">
+            <i class="fa-solid fa-triangle-exclamation" style="font-size: 16px; color: #fee2e2;"></i>
+            <span style="line-height: 1.4;">{{ $toastMessage }}</span>
+            <button type="button" wire:click="$set('toastMessage', '')" style="background: none; border: none; color: #fee2e2; font-size: 18px; cursor: pointer; margin-left: auto; outline: none; padding: 0 4px; display: flex; align-items: center; justify-content: center; height: 20px; width: 20px; border-radius: 50%;" onmouseover="this.style.background='rgba(255,255,255,0.1)'" onmouseout="this.style.background='transparent'">&times;</button>
+        </div>
+        <script>
+            setTimeout(() => {
+                @this.set('toastMessage', '');
+            }, 6000);
+        </script>
+        <style>
+            @keyframes toastSlideIn {
+                from { transform: translateX(-100%); opacity: 0; }
+                to { transform: translateX(0); opacity: 1; }
+            }
+        </style>
     @endif
 
 </div>

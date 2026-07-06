@@ -56,8 +56,12 @@ new #[Layout('layouts.portal')] #[Title('Track Document — Results')] class ext
     public string $docStatus = 'Ongoing';
     public string $docStatusColor = '#2563EB';
 
-    public function mount(): void
+    public function mount(string $number = ''): void
     {
+        if (!empty($number)) {
+            $this->trackingNumber = $number;
+        }
+
         if (blank($this->trackingNumber)) {
             $this->redirect(route('track-document'), navigate: true);
             return;
@@ -93,17 +97,42 @@ new #[Layout('layouts.portal')] #[Title('Track Document — Results')] class ext
     {
         $this->validate(['email' => ['required', 'email']]);
 
-        $isCspc = (bool) preg_match('/^[^@]+@(cspc\.edu\.ph|[^@]+\.cspc\.edu\.ph)$/i', $this->email);
+        try {
+            $transactionDetails = DB::table('dts_transactions as dt')
+                ->join('dts_transaction_details as dtd', 'dtd.id', '=', 'dt.transaction_id')
+                ->leftJoin('dts_email_access as dea', 'dea.id', '=', 'dtd.email_access')
+                ->where('dt.qr_code', $this->trackingNumber)
+                ->select('dea.email as allowed_email', 'dea.is_active as is_email_active', 'dtd.document_password')
+                ->first();
 
-        $this->dispatch('update-storage-email', email: $this->email, isCspc: $isCspc);
+            if ($transactionDetails && !empty($transactionDetails->allowed_email)) {
+                if (strtolower(trim($this->email)) !== strtolower(trim($transactionDetails->allowed_email))) {
+                    $this->addError('email', 'This email address is not authorized to track this document.');
+                    return;
+                }
+            }
 
-        if ($isCspc) {
-            $this->emailStatus = 'CSPC email verified.';
-            $this->loadDocumentData();
-            $this->showDocumentData = true;
-        } else {
-            $this->emailStatus = 'Non-CSPC email. Document password is required.';
-            $this->showPasswordStep = true;
+            $isCspc = (bool) preg_match('/^[^@]+@(cspc\.edu\.ph|[^@]+\.cspc\.edu\.ph)$/i', $this->email);
+            $this->dispatch('update-storage-email', email: $this->email, isCspc: $isCspc);
+
+            $hasPassword = $transactionDetails && !empty($transactionDetails->document_password);
+
+            if ($isCspc) {
+                $this->emailStatus = 'CSPC email verified.';
+                $this->loadDocumentData();
+                $this->showDocumentData = true;
+            } else {
+                if ($hasPassword) {
+                    $this->emailStatus = 'Non-CSPC email. Document password is required.';
+                    $this->showPasswordStep = true;
+                } else {
+                    $this->emailStatus = 'Email verified.';
+                    $this->loadDocumentData();
+                    $this->showDocumentData = true;
+                }
+            }
+        } catch (\Exception $e) {
+            $this->addError('email', 'Failed to verify email access: ' . $e->getMessage());
         }
     }
 
@@ -204,6 +233,7 @@ new #[Layout('layouts.portal')] #[Title('Track Document — Results')] class ext
     @vite(['resources/css/td.css'])
 @endpush
 
+<div>
 <header>
     <div class="logo">
         <img src="{{ asset('images/cspc.png') }}" alt="CSPC Logo">
@@ -317,6 +347,7 @@ new #[Layout('layouts.portal')] #[Title('Track Document — Results')] class ext
         </div>
     </div>
 </section>
+</div>
 
 @push('scripts')
 <script src="https://accounts.google.com/gsi/client" async defer></script>

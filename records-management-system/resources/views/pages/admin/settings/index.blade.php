@@ -7,6 +7,9 @@ use Livewire\Volt\Component;
 new #[Layout('layouts.admin')] #[Title('Admin Console - System Settings')] class extends Component {
     
     public bool $pagePrewarmingEnabled = true;
+    public bool $emailAccessRequiredExternal = true;
+    public bool $emailAccessRequiredApplication = true;
+    public bool $emailAccessRequiredInternal = false;
     public string $successMessage = '';
     public string $errorMessage = '';
 
@@ -14,6 +17,15 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - System Settings')] class
     {
         $setting = \DB::table('system_settings')->where('key', 'page_prewarming_enabled')->value('value');
         $this->pagePrewarmingEnabled = ($setting === 'true');
+
+        $ext = \DB::table('system_settings')->where('key', 'dts_email_access_required_external')->value('value');
+        $this->emailAccessRequiredExternal = ($ext !== 'false');
+
+        $app = \DB::table('system_settings')->where('key', 'dts_email_access_required_application')->value('value');
+        $this->emailAccessRequiredApplication = ($app !== 'false');
+
+        $int = \DB::table('system_settings')->where('key', 'dts_email_access_required_internal')->value('value');
+        $this->emailAccessRequiredInternal = ($int === 'true');
     }
 
     public function saveSettings(): void
@@ -22,21 +34,50 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - System Settings')] class
         $this->errorMessage = '';
 
         try {
-            \DB::table('system_settings')->updateOrInsert(
-                ['key' => 'page_prewarming_enabled'],
-                [
-                    'value' => $this->pagePrewarmingEnabled ? 'true' : 'false',
-                    'updated_at' => now(),
-                ]
-            );
+            \DB::transaction(function () {
+                \DB::table('system_settings')->updateOrInsert(
+                    ['key' => 'page_prewarming_enabled'],
+                    [
+                        'value' => $this->pagePrewarmingEnabled ? 'true' : 'false',
+                        'updated_at' => now(),
+                    ]
+                );
 
-            // Log activity
-            \DB::table('admin_logs')->insert([
-                'changes' => "Updated system setting: page_prewarming_enabled to " . ($this->pagePrewarmingEnabled ? 'true' : 'false'),
-                'admin_id' => auth()->id(),
-                'what_system' => 3, // Admin Console
-                'when_changes' => now(),
-            ]);
+                \DB::table('system_settings')->updateOrInsert(
+                    ['key' => 'dts_email_access_required_external'],
+                    [
+                        'value' => $this->emailAccessRequiredExternal ? 'true' : 'false',
+                        'updated_at' => now(),
+                    ]
+                );
+
+                \DB::table('system_settings')->updateOrInsert(
+                    ['key' => 'dts_email_access_required_application'],
+                    [
+                        'value' => $this->emailAccessRequiredApplication ? 'true' : 'false',
+                        'updated_at' => now(),
+                    ]
+                );
+
+                \DB::table('system_settings')->updateOrInsert(
+                    ['key' => 'dts_email_access_required_internal'],
+                    [
+                        'value' => $this->emailAccessRequiredInternal ? 'true' : 'false',
+                        'updated_at' => now(),
+                    ]
+                );
+
+                // Log activity
+                \DB::table('admin_logs')->insert([
+                    'changes' => "Updated system settings. Prewarming: " . ($this->pagePrewarmingEnabled ? 'true' : 'false') . 
+                                 ", Email Access External: " . ($this->emailAccessRequiredExternal ? 'true' : 'false') . 
+                                 ", Email Access Application: " . ($this->emailAccessRequiredApplication ? 'true' : 'false') . 
+                                 ", Email Access Internal: " . ($this->emailAccessRequiredInternal ? 'true' : 'false'),
+                    'admin_id' => auth()->id(),
+                    'what_system' => 3, // Admin Console
+                    'when_changes' => now(),
+                ]);
+            });
 
             $this->successMessage = 'System settings updated successfully!';
         } catch (\Exception $e) {
@@ -178,6 +219,48 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - System Settings')] class
                 </div>
                 <label class="switch">
                     <input type="checkbox" wire:model="pagePrewarmingEnabled">
+                    <span class="slider"></span>
+                </label>
+            </div>
+
+            <!-- Setting: Require Email Access on External Transactions -->
+            <div class="setting-item">
+                <div class="setting-details">
+                    <span class="setting-title">Require Email Access & Password for External Transactions</span>
+                    <span class="setting-desc">
+                        Enforces that users creating external transactions must specify an authorized tracking email and password. Non-CSPC users tracking this document must enter this password.
+                    </span>
+                </div>
+                <label class="switch">
+                    <input type="checkbox" wire:model="emailAccessRequiredExternal">
+                    <span class="slider"></span>
+                </label>
+            </div>
+
+            <!-- Setting: Require Email Access on Application Letters -->
+            <div class="setting-item">
+                <div class="setting-details">
+                    <span class="setting-title">Require Email Access & Password for Application Letters</span>
+                    <span class="setting-desc">
+                        Enforces that users creating application letter transactions must specify an authorized tracking email and password.
+                    </span>
+                </div>
+                <label class="switch">
+                    <input type="checkbox" wire:model="emailAccessRequiredApplication">
+                    <span class="slider"></span>
+                </label>
+            </div>
+
+            <!-- Setting: Require Email Access on Internal Transactions -->
+            <div class="setting-item">
+                <div class="setting-details">
+                    <span class="setting-title">Require Email Access & Password for Internal Transactions</span>
+                    <span class="setting-desc">
+                        Enforces that users creating internal transactions must specify an authorized tracking email and password. When disabled, this feature remains optional.
+                    </span>
+                </div>
+                <label class="switch">
+                    <input type="checkbox" wire:model="emailAccessRequiredInternal">
                     <span class="slider"></span>
                 </label>
             </div>

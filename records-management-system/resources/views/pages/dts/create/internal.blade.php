@@ -42,6 +42,16 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create Internal
     public string $customFlowSelectedOffice = '';
     public string $toastMessage = '';
 
+    // Email Access & Password management fields
+    public bool $showEmailAccessModal = false;
+    public string $email_access_input = '';
+    public string $document_password_input = '';
+
+    public function toggleEmailAccessModal(): void
+    {
+        $this->showEmailAccessModal = !$this->showEmailAccessModal;
+    }
+
     public function mount(): void
     {
         $this->enableBeta = session('enable_beta', false);
@@ -531,6 +541,27 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create Internal
 
     public function save()
     {
+        $isRequired = DB::table('system_settings')->where('key', 'dts_email_access_required_internal')->value('value') === 'true';
+        if ($isRequired) {
+            $this->validate([
+                'email_access_input' => 'required|email',
+                'document_password_input' => 'required|string|min:4',
+            ], [
+                'email_access_input.required' => 'The Authorized Email Address is required.',
+                'email_access_input.email' => 'The Authorized Email must be a valid email address.',
+                'document_password_input.required' => 'The Document Password is required.',
+                'document_password_input.min' => 'The Document Password must be at least 4 characters.',
+            ]);
+        } else {
+            $this->validate([
+                'email_access_input' => 'nullable|email',
+                'document_password_input' => 'nullable|string|min:4',
+            ], [
+                'email_access_input.email' => 'The Authorized Email must be a valid email address.',
+                'document_password_input.min' => 'The Document Password must be at least 4 characters.',
+            ]);
+        }
+
         $this->validate([
             'unit_college' => 'required|string|exists:office,office_code',
             'seq_number' => 'required|string|max:50',
@@ -717,6 +748,20 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create Internal
                 }
             }
 
+            $emailAccessId = null;
+            if (!empty($this->email_access_input)) {
+                $existingEmail = DB::table('dts_email_access')->where('email', $this->email_access_input)->first();
+                if ($existingEmail) {
+                    $emailAccessId = $existingEmail->id;
+                } else {
+                    $emailAccessId = DB::table('dts_email_access')->insertGetId([
+                        'email' => $this->email_access_input,
+                        'is_active' => true,
+                        'date_created' => now(),
+                    ]);
+                }
+            }
+
             // Insert into dts_transaction_details
             DB::table('dts_transaction_details')->insert([
                 'id' => $transactionId,
@@ -730,8 +775,8 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create Internal
                 'action_needed' => $this->action_needed,
                 'current_office_hold' => $currentOffice,
                 'status' => 'ongoing',
-                'document_password' => null,
-                'email_access' => null,
+                'document_password' => $this->document_password_input ?: null,
+                'email_access' => $emailAccessId,
                 'transaction_flow' => $flowCode,
                 'is_active' => 1,
                 'date_created' => now(),
@@ -1179,6 +1224,17 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create Internal
                     <button type="button" wire:click="generateQrCode" class="beta-btn-submit" style="background-color: #3b82f6; box-shadow: 0 4px 10px rgba(59, 130, 246, 0.25);" {{ $generatedQrCode ? 'disabled style=background-color:#cbd5e1;cursor:not-allowed;box-shadow:none;' : '' }}>
                         <i class="fa-solid fa-gear"></i> Generate QR Code
                     </button>
+                    @php
+                        $emailAccessRequired = DB::table('system_settings')->where('key', 'dts_email_access_required_internal')->value('value') === 'true';
+                        $isConfigured = !empty($email_access_input) && !empty($document_password_input);
+                        $btnBg = $isConfigured ? '#10b981' : ($emailAccessRequired ? '#ef4444' : '#3b82f6');
+                        $btnHoverBg = $isConfigured ? '#059669' : ($emailAccessRequired ? '#dc2626' : '#2563eb');
+                        $btnShadow = $isConfigured ? 'rgba(16, 185, 129, 0.25)' : ($emailAccessRequired ? 'rgba(239, 68, 68, 0.25)' : 'rgba(59, 130, 246, 0.25)');
+                        $btnIcon = $isConfigured ? 'fa-circle-check' : ($emailAccessRequired ? 'fa-triangle-exclamation' : 'fa-envelope');
+                    @endphp
+                    <button type="button" wire:click="toggleEmailAccessModal" class="beta-btn-submit" style="background-color: {{ $btnBg }}; box-shadow: 0 4px 10px {{ $btnShadow }}; transition: background-color 0.15s;" onmouseover="this.style.backgroundColor='{{ $btnHoverBg }}'" onmouseout="this.style.backgroundColor='{{ $btnBg }}'">
+                        <i class="fa-solid {{ $btnIcon }}"></i> Manage Email Access
+                    </button>
                     <button type="submit" class="beta-btn-submit" @if(!$generatedQrCode) disabled style="background: #cbd5e1; color: #94a3b8; cursor: not-allowed; box-shadow: none;" @endif>
                         <i class="fa-solid fa-floppy-disk"></i> Create Transaction
                     </button>
@@ -1473,6 +1529,17 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create Internal
                 <button type="button" wire:click="generateQrCode" class="btn-primary" style="background-color: #3b82f6; border-radius: 4px; padding: 10px 20px; font-size: 13px; font-weight: 600; cursor: pointer; display: flex; align-items: center; gap: 6px; box-shadow: 0 2px 4px rgba(59, 130, 246, 0.2);" {{ $generatedQrCode ? 'disabled style=background-color:#cbd5e1;cursor:not-allowed;box-shadow:none;' : '' }}>
                     <i class="fa-solid fa-gear"></i> Generate QR Code
                 </button>
+                @php
+                    $emailAccessRequired = DB::table('system_settings')->where('key', 'dts_email_access_required_internal')->value('value') === 'true';
+                    $isConfigured = !empty($email_access_input) && !empty($document_password_input);
+                    $btnBg = $isConfigured ? '#10b981' : ($emailAccessRequired ? '#ef4444' : '#3b82f6');
+                    $btnHoverBg = $isConfigured ? '#059669' : ($emailAccessRequired ? '#dc2626' : '#2563eb');
+                    $btnShadow = $isConfigured ? 'rgba(16, 185, 129, 0.2)' : ($emailAccessRequired ? 'rgba(239, 68, 68, 0.2)' : 'rgba(59, 130, 246, 0.2)');
+                    $btnIcon = $isConfigured ? 'fa-circle-check' : ($emailAccessRequired ? 'fa-triangle-exclamation' : 'fa-envelope');
+                @endphp
+                <button type="button" wire:click="toggleEmailAccessModal" class="btn-primary" style="background-color: {{ $btnBg }}; border-radius: 4px; padding: 10px 20px; font-size: 13px; font-weight: 600; cursor: pointer; display: flex; align-items: center; gap: 6px; box-shadow: 0 2px 4px {{ $btnShadow }}; transition: background-color 0.15s;" onmouseover="this.style.backgroundColor='{{ $btnHoverBg }}'" onmouseout="this.style.backgroundColor='{{ $btnBg }}'">
+                    <i class="fa-solid {{ $btnIcon }}"></i> Manage Email Access
+                </button>
                 <button type="submit" class="btn-primary" @if(!$generatedQrCode) disabled style="background-color: #cbd5e1; color: #94a3b8; cursor: not-allowed; box-shadow: none;" @endif>CREATE TRANSACTION</button>
             </div>
         </form>
@@ -1749,6 +1816,52 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create Internal
                 to { transform: scale(1); opacity: 1; }
             }
         </style>
+    @endif
+    <!-- Email Access & Password Modal -->
+    @if($showEmailAccessModal)
+        <div style="position: fixed; inset: 0; background: rgba(15, 23, 42, 0.45); backdrop-filter: blur(4px); display: flex; align-items: center; justify-content: center; z-index: 10000; font-family: 'Inter', sans-serif;">
+            <div style="background: #ffffff; border-radius: 16px; width: 100%; max-width: 440px; box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04); display: flex; flex-direction: column; overflow: hidden; animation: modalEnter 0.25s cubic-bezier(0.16, 1, 0.3, 1);">
+                
+                <!-- Header -->
+                <div style="padding: 20px 24px; border-bottom: 1px solid #f1f5f9; display: flex; align-items: center; justify-content: space-between;">
+                    <div style="display: flex; align-items: center; gap: 10px;">
+                        <div style="width: 36px; height: 36px; border-radius: 8px; background: #e0e7ff; color: #4f46e5; display: flex; align-items: center; justify-content: center; font-size: 16px;">
+                            <i class="fa-solid fa-envelope"></i>
+                        </div>
+                        <div>
+                            <h3 style="font-size: 15px; font-weight: 700; color: #0f172a; margin: 0;">Manage Email Access</h3>
+                            <span style="font-size: 11px; color: #64748b; font-weight: 500;">Restrict document tracking permissions</span>
+                        </div>
+                    </div>
+                    <button type="button" wire:click="toggleEmailAccessModal" style="background: none; border: none; font-size: 20px; color: #94a3b8; cursor: pointer; display: flex; align-items: center; justify-content: center; width: 28px; height: 28px; border-radius: 50%;" onmouseover="this.style.background='#f1f5f9'" onmouseout="this.style.background='transparent'">&times;</button>
+                </div>
+
+                <!-- Body -->
+                <div style="padding: 24px; display: flex; flex-direction: column; gap: 16px;">
+                    <!-- Authorized Email input -->
+                    <div style="display: flex; flex-direction: column; gap: 6px;">
+                        <label style="font-size: 12px; font-weight: 600; color: #334155;">Authorized Email Address</label>
+                        <input type="email" wire:model="email_access_input" placeholder="e.g. user@gmail.com" style="width: 100%; padding: 10px 12px; border: 1.5px solid #cbd5e1; border-radius: 8px; font-size: 13px; outline: none; transition: border-color 0.15s; font-family: 'Inter', sans-serif;" onfocus="this.style.borderColor='#3b82f6'" onblur="this.style.borderColor='#cbd5e1'">
+                        @error('email_access_input') <span style="font-size: 11.5px; color: #ef4444; font-weight: 500;">{{ $message }}</span> @enderror
+                        <p style="margin: 0; font-size: 11px; color: #64748b; line-height: 1.4;">Only this email address will be permitted to verify and track this document's lifecycle on the public portal.</p>
+                    </div>
+
+                    <!-- Password input -->
+                    <div style="display: flex; flex-direction: column; gap: 6px;">
+                        <label style="font-size: 12px; font-weight: 600; color: #334155;">Document Password</label>
+                        <input type="text" wire:model="document_password_input" placeholder="Enter secure password" style="width: 100%; padding: 10px 12px; border: 1.5px solid #cbd5e1; border-radius: 8px; font-size: 13px; outline: none; transition: border-color 0.15s; font-family: 'Inter', sans-serif;" onfocus="this.style.borderColor='#3b82f6'" onblur="this.style.borderColor='#cbd5e1'">
+                        @error('document_password_input') <span style="font-size: 11.5px; color: #ef4444; font-weight: 500;">{{ $message }}</span> @enderror
+                        <p style="margin: 0; font-size: 11px; color: #64748b; line-height: 1.4;">Required for non-CSPC email addresses to view document tracking updates.</p>
+                    </div>
+                </div>
+
+                <!-- Footer -->
+                <div style="padding: 16px 24px; border-top: 1px solid #f1f5f9; display: flex; justify-content: flex-end; gap: 12px; background: #fafafa;">
+                    <button type="button" wire:click="toggleEmailAccessModal" style="background: #ffffff; border: 1.5px solid #cbd5e1; color: #334155; padding: 8px 16px; border-radius: 8px; font-size: 13px; font-weight: 600; cursor: pointer; transition: background 0.15s;" onmouseover="this.style.background='#f8fafc'" onmouseout="this.style.background='#ffffff'">Cancel</button>
+                    <button type="button" wire:click="toggleEmailAccessModal" style="background: #3b82f6; border: none; color: #ffffff; padding: 8px 20px; border-radius: 8px; font-size: 13px; font-weight: 600; cursor: pointer; transition: background 0.15s;" onmouseover="this.style.backgroundColor='#2563eb'" onmouseout="this.style.backgroundColor='#3b82f6'">Save & Close</button>
+                </div>
+            </div>
+        </div>
     @endif
 
     <!-- Toast Alert message -->

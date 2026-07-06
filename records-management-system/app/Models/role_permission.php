@@ -31,6 +31,11 @@ class role_permission extends Model
         'can_dts_view_all_archive',
         'can_dts_view_all_current_trans',
         'can_dts_create_own_flow',
+        'can_dts_use_internal',
+        'can_dts_use_external',
+        'can_dts_use_application',
+        'can_dts_use_issuance',
+        'can_dts_user_received',
     ];
     /*
      * The attributes here will be change in the future if there's more permissions to be added, 
@@ -50,5 +55,10 @@ class role_permission extends Model
         'can_dts_view_all_archive' => 'boolean',
         'can_dts_view_all_current_trans' => 'boolean',
         'can_dts_create_own_flow' => 'boolean',
+        'can_dts_use_internal' => 'boolean',
+        'can_dts_use_external' => 'boolean',
+        'can_dts_use_application' => 'boolean',
+        'can_dts_use_issuance' => 'boolean',
+        'can_dts_user_received' => 'boolean',
     ];
 }

@@ -18,6 +18,18 @@
     </div>
 </div>
 
+@php
+    $perms = auth()->user()?->permissions;
+    $isSadm = $perms?->is_sadm ?? false;
+    $canInternal = $isSadm || ($perms?->can_dts_use_internal ?? false);
+    $canExternal = $isSadm || ($perms?->can_dts_use_external ?? false);
+    $canApplication = $isSadm || ($perms?->can_dts_use_application ?? false);
+    $canIssuance = $isSadm || ($perms?->can_dts_use_issuance ?? false);
+    $canReceive = $isSadm || ($perms?->can_dts_user_received ?? false);
+    $canAnyCreate = $canInternal || $canExternal || $canApplication || $canIssuance;
+@endphp
+
+@if($canReceive)
 <div id="dts-receive-id" class="button-section-container">
     <div class="button-container {{ request()->routeIs('dts.receive') ? 'force-active' : '' }}" onclick="proccedto('{{ route('dts.receive') }}')">
         <div class="button-icon">
@@ -31,7 +43,9 @@
         </div>
     </div>
 </div>
+@endif
 
+@if($canAnyCreate)
 <div id="dts-create-id" class="button-section-container {{ request()->routeIs('dts.create.*') ? 'show' : '' }}">
     <div class="button-container {{ request()->routeIs('dts.create.*') ? 'force-active' : '' }}" onclick="showButtonSection('dts-create-id')">
         <div class="button-icon">
@@ -53,13 +67,23 @@
         </div>
     </div>
     <div class="functions-container">
-        <div class="function-button {{ request()->routeIs('dts.create.internal') ? 'force-active' : '' }}" onclick="proccedto('{{ route('dts.create.internal') }}')">Internal Transaction</div>
-        <div class="function-button {{ request()->routeIs('dts.create.external') ? 'force-active' : '' }}" onclick="proccedto('{{ route('dts.create.external') }}')">External Transaction</div>
-        <div class="function-button {{ request()->routeIs('dts.create.application-letters') ? 'force-active' : '' }}" onclick="proccedto('{{ route('dts.create.application-letters') }}')">Application Letters</div>
-        <div class="function-button {{ request()->routeIs('dts.create.issuances') ? 'force-active' : '' }}" onclick="proccedto('{{ route('dts.create.issuances') }}')">Issuances</div>
+        @if($canInternal)
+            <div class="function-button {{ request()->routeIs('dts.create.internal') ? 'force-active' : '' }}" onclick="proccedto('{{ route('dts.create.internal') }}')">Internal Transaction</div>
+        @endif
+        @if($canExternal)
+            <div class="function-button {{ request()->routeIs('dts.create.external') ? 'force-active' : '' }}" onclick="proccedto('{{ route('dts.create.external') }}')">External Transaction</div>
+        @endif
+        @if($canApplication)
+            <div class="function-button {{ request()->routeIs('dts.create.application-letters') ? 'force-active' : '' }}" onclick="proccedto('{{ route('dts.create.application-letters') }}')">Application Letters</div>
+        @endif
+        @if($canIssuance)
+            <div class="function-button {{ request()->routeIs('dts.create.issuances') ? 'force-active' : '' }}" onclick="proccedto('{{ route('dts.create.issuances') }}')">Issuances</div>
+        @endif
     </div>
 </div>
+@endif
 
+@if($canAnyCreate)
 <div id="dts-list-id" class="button-section-container {{ request()->routeIs('dts.list.*') ? 'show' : '' }}">
     <div class="button-container {{ request()->routeIs('dts.list.*') ? 'force-active' : '' }}" onclick="showButtonSection('dts-list-id')">
         <div class="button-icon">
@@ -81,9 +105,18 @@
         </div>
     </div>
     <div class="functions-container">
-        <div class="function-button {{ request()->routeIs('dts.list.internal') ? 'force-active' : '' }}" onclick="proccedto('{{ route('dts.list.internal') }}')">Internal Transaction</div>
-        <div class="function-button {{ request()->routeIs('dts.list.external') ? 'force-active' : '' }}" onclick="proccedto('{{ route('dts.list.external') }}')">External Transaction</div>
-        <div class="function-button {{ request()->routeIs('dts.list.application-letters') ? 'force-active' : '' }}" onclick="proccedto('{{ route('dts.list.application-letters') }}')">Application Letters</div>
-        <div class="function-button {{ request()->routeIs('dts.list.issuances') ? 'force-active' : '' }}" onclick="proccedto('{{ route('dts.list.issuances') }}')">Issuances</div>
+        @if($canInternal)
+            <div class="function-button {{ request()->routeIs('dts.list.internal') ? 'force-active' : '' }}" onclick="proccedto('{{ route('dts.list.internal') }}')">Internal Transaction</div>
+        @endif
+        @if($canExternal)
+            <div class="function-button {{ request()->routeIs('dts.list.external') ? 'force-active' : '' }}" onclick="proccedto('{{ route('dts.list.external') }}')">External Transaction</div>
+        @endif
+        @if($canApplication)
+            <div class="function-button {{ request()->routeIs('dts.list.application-letters') ? 'force-active' : '' }}" onclick="proccedto('{{ route('dts.list.application-letters') }}')">Application Letters</div>
+        @endif
+        @if($canIssuance)
+            <div class="function-button {{ request()->routeIs('dts.list.issuances') ? 'force-active' : '' }}" onclick="proccedto('{{ route('dts.list.issuances') }}')">Issuances</div>
+        @endif
     </div>
 </div>
+@endif

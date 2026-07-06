@@ -50,6 +50,11 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create External
 
     public function mount(): void
     {
+        $perms = auth()->user()?->permissions;
+        if ($perms && !$perms->is_sadm && !$perms->can_dts_use_external) {
+            abort(403, 'Unauthorized access to External transactions.');
+        }
+
         $this->enableBeta = session('enable_beta', false);
         $this->offices = DB::table('office')
             ->where('is_active', true)

@@ -39,6 +39,11 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create Issuance
 
     public function mount(): void
     {
+        $perms = auth()->user()?->permissions;
+        if ($perms && !$perms->is_sadm && !$perms->can_dts_use_issuance) {
+            abort(403, 'Unauthorized access to Issuance transactions.');
+        }
+
         $this->enableBeta = session('enable_beta', false);
         $this->offices = DB::table('office')
             ->where('is_active', true)

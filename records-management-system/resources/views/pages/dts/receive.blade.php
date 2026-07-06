@@ -46,6 +46,11 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Receive Transac
      */
     public function mount()
     {
+        $perms = auth()->user()?->permissions;
+        if ($perms && !$perms->is_sadm && !$perms->can_dts_user_received) {
+            abort(403, 'Unauthorized. You do not have permission to receive transactions.');
+        }
+
         $id = request()->query('id');
         if ($id) {
             $this->openTransaction($id);

@@ -57,6 +57,14 @@ class User extends Authenticatable
         'date_updated' => 'datetime',
     ];
 
+    /**
+     * Accessor for account_id alias (maps to the primary key id).
+     */
+    public function getAccountIdAttribute()
+    {
+        return $this->id;
+    }
+
     public function details(): HasOne
     {
         return $this->hasOne(AccountDetail::class, 'account_id');

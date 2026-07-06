@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Controllers\ChatController;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Route;
 use Livewire\Volt\Volt;
@@ -18,6 +19,8 @@ Volt::route('/tracked', 'pages.portal.tracked')
 // Secured routes (behind auth middleware)
 Route::middleware(['auth'])
     ->group(function () {
+
+    Route::get('/open-chat', [ChatController::class, 'openChat'])->name('open-chat');
 
     Volt::route('/portal', 'pages.portal.access-page')
         ->name('portal');
@@ -109,6 +112,16 @@ Route::get('/logout', function () {
                 'is_currently_online' => false,
                 'last_online_time'    => now(),
             ]);
+
+        // Invalidate the user's chat session in the XAMPP chat system
+        try {
+            \Illuminate\Support\Facades\Http::timeout(3)->post('http://localhost/twitter/invalidate_chat_session.php', [
+                'account_id' => $user->id,
+                'secret'     => env('CHAT_SHARED_SECRET', ''),
+            ]);
+        } catch (\Exception $e) {
+            // Non-fatal — chat session will expire naturally
+        }
     }
 
     Auth::logout();
@@ -117,3 +130,4 @@ Route::get('/logout', function () {
 
     return redirect()->route('login');
 })->name('logout');
+

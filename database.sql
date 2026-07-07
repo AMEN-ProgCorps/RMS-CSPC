@@ -9,17 +9,17 @@ create table condition_details (
     is_sadm boolean default false,
     --rms platform access persmission
     can_access_dts boolean default false,
-    can_access_archv boolean default false,
+    can_access_rdp boolean default false,
     can_access_dcs boolean default false,
     --dts modifier permission
-    can_modify_docflow boolean default false,
-    can_modify_accountlist boolean default false,
+    can_dts_modify_docflow boolean default false,
+    can_sadm_modify_accountlist boolean default false,
     --account modifier permission
-    can_modify_pass boolean default false,
-    can_modify_user boolean default false,
+    can_sadm_modify_pass boolean default false,
+    can_sadm_modify_account boolean default false,
     --archv modifier permission
-    can_view_all_list boolean default false,
-    can_view_all_archive boolean default false,
+    can_dts_view_all_list boolean default false,
+    can_dts_view_all_archive boolean default false,
     -- others permission will be added here
 );
 create table condition_key (

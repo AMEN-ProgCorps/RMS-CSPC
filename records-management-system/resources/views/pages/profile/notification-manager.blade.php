@@ -39,9 +39,10 @@ new #[Layout('layouts.profile')] #[Title('Profile Manager - Notification Manager
         
         $perms = $user->permissions;
         $permValues = $perms ? [
-            $perms->is_sadm, $perms->can_access_dts, $perms->can_access_archv, $perms->can_access_dcs,
-            $perms->can_modify_docflow, $perms->can_modify_accountlist, $perms->can_modify_pass,
-            $perms->can_modify_user, $perms->can_view_all_list, $perms->can_view_all_archive
+            $perms->is_sadm, $perms->can_access_dts, $perms->can_access_rdp, $perms->can_access_dcs,
+            $perms->can_dts_modify_docflow, $perms->can_sadm_modify_accountlist, $perms->can_sadm_modify_pass,
+            $perms->can_sadm_modify_account, $perms->can_dts_view_all_list, $perms->can_dts_view_all_archive,
+            $perms->can_dts_view_all_current_trans, $perms->can_dts_create_own_flow
         ] : [];
 
         if ($this->currentRoleId === null) {
@@ -96,7 +97,7 @@ new #[Layout('layouts.profile')] #[Title('Profile Manager - Notification Manager
                 if ($perms->can_access_dts) {
                     $allowedSubsystems[] = 'Document Tracking System';
                 }
-                if ($perms->can_access_archv) {
+                if ($perms->can_access_rdp) {
                     $allowedSubsystems[] = 'Records Disposition Program';
                 }
             }

@@ -14,6 +14,14 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - List Applicatio
     public string $searchQuery = '';
     public string $layoutMode = 'table'; // table or box
 
+    public function mount(): void
+    {
+        $perms = auth()->user()?->permissions;
+        if ($perms && !$perms->is_sadm && !$perms->can_dts_use_application) {
+            abort(403, 'Unauthorized access to Application Letter transactions list.');
+        }
+    }
+
     // Modal state properties
     public string $selectedTransactionId = '';
     public $selectedTransaction = null;
@@ -86,8 +94,12 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - List Applicatio
             ->leftJoin('office as originated_office', 'originated_office.office_code', '=', 'dtd.originated_from')
             ->leftJoin('office as current_office', 'current_office.office_code', '=', 'dt.current_office')
             ->leftJoin('dts_document_data as doc', 'doc.document_path', '=', 'dt.doc_dir')
-            ->where('dtd.created_by', $userId)
-            ->where('dt.trans_type', 'others'); // 'others' trans_type maps to Application Letters
+            ->where('dt.trans_type', 'others');
+
+        $canViewAll = auth()->user()?->permissions?->is_sadm || auth()->user()?->permissions?->can_dts_view_all_list;
+        if (!$canViewAll) {
+            $query->where('dtd.created_by', $userId);
+        } // 'others' trans_type maps to Application Letters
 
         if ($this->selectedPriority !== 'all') {
             $query->where('dtd.classification', $this->selectedPriority);

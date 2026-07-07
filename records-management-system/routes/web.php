@@ -55,6 +55,7 @@ Route::middleware(['auth'])
         Volt::route('/admin/subsystems/deactivate', 'pages.admin.subsystems.deactivate')->name('admin.subsystems.deactivate');
         Volt::route('/admin/subsystems/changes-logs', 'pages.admin.subsystems.changes-logs')->name('admin.subsystems.changes-logs');
         Volt::route('/admin/settings', 'pages.admin.settings.index')->name('admin.settings.index');
+        Volt::route('/admin/recycle-bin', 'pages.admin.recycle-bin')->name('admin.recycle-bin');
     });
 
     // RDP — Records Disposition Program (requires can_access_rdp or is_sadm)

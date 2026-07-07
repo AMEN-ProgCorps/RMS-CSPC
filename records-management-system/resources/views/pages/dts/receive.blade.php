@@ -46,6 +46,11 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Receive Transac
      */
     public function mount()
     {
+        $perms = auth()->user()?->permissions;
+        if ($perms && !$perms->is_sadm && !$perms->can_dts_user_received) {
+            abort(403, 'Unauthorized. You do not have permission to receive transactions.');
+        }
+
         $id = request()->query('id');
         if ($id) {
             $this->openTransaction($id);
@@ -90,6 +95,7 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Receive Transac
             'dt.qr_code',
             'dtd.control_number',
             'dtd.requestor_name',
+            'dtd.requestor_label',
             'dtd.subject',
             'dtd.classification',
             'dtd.action_needed',
@@ -534,7 +540,7 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Receive Transac
             <div class="receive-card-item">
                 <div class="receive-card-title">{{ $t->control_number }}</div>
                 <div class="receive-card-line"><strong>Unit/College:</strong> {{ $t->originated_office_name ?? 'N/A' }}</div>
-                <div class="receive-card-line"><strong>Name of Requestor:</strong> {{ $t->requestor_name ?? 'N/A' }}</div>
+                <div class="receive-card-line"><strong>Name of Requestor:</strong> {{ $t->requestor_name ?? 'N/A' }} @if(!empty($t->requestor_label)) <span style="font-size: 12px; color: #6b7280; font-weight: normal;">({{ $t->requestor_label }})</span> @endif</div>
                 <div class="receive-card-line"><strong>Type of Document:</strong> {{ ucfirst($t->type) }}</div>
                 <div class="receive-card-line" style="word-break: break-word; overflow-wrap: break-word; white-space: normal;"><strong>Subject:</strong> {{ $t->subject ?? 'No Subject Provided' }}</div>
                 

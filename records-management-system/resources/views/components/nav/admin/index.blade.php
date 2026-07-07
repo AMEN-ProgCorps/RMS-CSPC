@@ -178,3 +178,16 @@
         </div>
     </div>
 </div>
+
+<div id="admin-recycle-bin-id" class="button-section-container {{ request()->routeIs('admin.recycle-bin') ? 'show' : '' }}">
+    <div class="button-container {{ request()->routeIs('admin.recycle-bin') ? 'force-active' : '' }}" onclick="proccedto('{{ route('admin.recycle-bin') }}')">
+        <div class="button-icon">
+            <svg xmlns="http://www.w3.org/2000/svg" width="29" height="29" viewBox="0 0 29 29" fill="none">
+                <path d="M7.25 23.17c0 1.33 1.08 2.42 2.42 2.42h9.66c1.34 0 2.42-1.09 2.42-2.42V9.08H7.25v14.09ZM22.96 5.46h-3.93l-1.21-1.21h-6.64l-1.21 1.21H6.04v2.42h16.92V5.46Z" fill="#4F4F4F"/>
+            </svg>
+        </div>
+        <div class="button-label">
+            <span>Recycle Bin</span>
+        </div>
+    </div>
+</div>

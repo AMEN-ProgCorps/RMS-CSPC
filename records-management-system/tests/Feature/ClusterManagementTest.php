@@ -100,10 +100,13 @@ class ClusterManagementTest extends TestCase
             ->call('selectCluster', $cluster->id)
             ->call('deleteCluster')
             ->assertHasNoErrors()
-            ->assertSet('successMessage', 'Cluster deleted successfully!');
+            ->assertSet('successMessage', 'Cluster soft-deleted successfully!');
 
-        // Verify cluster is gone
-        $this->assertDatabaseMissing('cluster', ['id' => $cluster->id]);
+        // Verify cluster is soft-deleted
+        $this->assertDatabaseHas('cluster', [
+            'id' => $cluster->id,
+            'is_active' => false
+        ]);
 
         // Verify office cluster field was nullified (set to null) instead of deleting the office record
         $this->assertDatabaseHas('office', [
@@ -202,5 +205,88 @@ class ClusterManagementTest extends TestCase
             'office_code' => 'TEST-OFF2',
             'cluster' => 'TEST-CLUST1'
         ]);
+    }
+
+    public function test_cluster_soft_delete()
+    {
+        // Insert a cluster
+        $clusterId = DB::table('cluster')->insertGetId([
+            'cluster_name' => 'Delete Test Cluster',
+            'cluster_code' => 'DEL-CLUST',
+            'is_active' => true
+        ]);
+
+        // Soft-delete it
+        Volt::test('pages.admin.accounts.offices')
+            ->set('selectedClusterId', $clusterId)
+            ->call('deleteCluster')
+            ->assertHasNoErrors()
+            ->assertSet('successMessage', 'Cluster soft-deleted successfully!');
+
+        // Assert it is deactivated
+        $this->assertDatabaseHas('cluster', [
+            'id' => $clusterId,
+            'is_active' => false
+        ]);
+
+        // Cleanup
+        DB::table('cluster')->where('id', $clusterId)->delete();
+    }
+
+    public function test_cluster_bulk_soft_delete()
+    {
+        // Insert two clusters
+        $id1 = DB::table('cluster')->insertGetId([
+            'cluster_name' => 'Bulk 1',
+            'cluster_code' => 'BULK1',
+            'is_active' => true
+        ]);
+        $id2 = DB::table('cluster')->insertGetId([
+            'cluster_name' => 'Bulk 2',
+            'cluster_code' => 'BULK2',
+            'is_active' => true
+        ]);
+
+        Volt::test('pages.admin.accounts.offices')
+            ->set('selectedClusterIds', [$id1, $id2])
+            ->call('bulkDeleteClusters')
+            ->assertHasNoErrors()
+            ->assertSet('successMessage', '2 cluster(s) soft-deleted (deactivated) successfully!');
+
+        $this->assertDatabaseHas('cluster', ['id' => $id1, 'is_active' => false]);
+        $this->assertDatabaseHas('cluster', ['id' => $id2, 'is_active' => false]);
+
+        // Cleanup
+        DB::table('cluster')->whereIn('id', [$id1, $id2])->delete();
+    }
+
+    public function test_cluster_reactivation()
+    {
+        // Insert a deactivated cluster
+        $clusterId = DB::table('cluster')->insertGetId([
+            'cluster_name' => 'Old Cluster Name',
+            'cluster_code' => 'REACT-CODE',
+            'is_active' => false
+        ]);
+
+        // Attempt to create a new cluster with the same code
+        Volt::test('pages.admin.accounts.offices')
+            ->set('selectedClusterId', -1)
+            ->set('clusterName', 'New Cluster Name')
+            ->set('clusterCode', 'REACT-CODE')
+            ->call('saveClusterChanges')
+            ->assertHasNoErrors()
+            ->assertSet('successMessage', 'Previously deactivated cluster reactivated and updated successfully!');
+
+        // Assert reactivation and name update
+        $this->assertDatabaseHas('cluster', [
+            'id' => $clusterId,
+            'cluster_name' => 'New Cluster Name',
+            'cluster_code' => 'REACT-CODE',
+            'is_active' => true
+        ]);
+
+        // Cleanup
+        DB::table('cluster')->where('id', $clusterId)->delete();
     }
 }

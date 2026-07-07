@@ -522,7 +522,7 @@ class TransactionFlowImportTest extends TestCase
 
     public function test_import_with_flow_use_and_default_behavior()
     {
-        $fileContent = "=Flow With Use;\nTEST-FLOW-USE-IMP;\n[]->TEST-OFF1;\nTEST-OFF2;\ninternal;\n";
+        $fileContent = "=Flow With Use;\nTEST-FLOW-USE-IMP;\n[]->TEST-OFF1;\nTEST-OFF2;\n[ internal ];\n";
         $file = UploadedFile::fake()->createWithContent('flows.txt', $fileContent);
 
         Volt::test('pages.admin.dts.transaction-flows')
@@ -541,5 +541,75 @@ class TransactionFlowImportTest extends TestCase
         DB::table('dts_copy_filled_to_office')->where('control_id', 1001)->delete();
         DB::table('dts_copy_filled_transaction')->where('control_num', 'TEST-FLOW-USE-IMP')->delete();
         DB::table('dts_transaction_flow')->where('id', $flow->id)->delete();
+    }
+
+    public function test_import_with_abbreviated_flow_use()
+    {
+        $fileContent = "=Flow With Abbr;\nTEST-FLOW-ABBR-IMP;\n[]->TEST-OFF1;\n[ INT ];\n";
+        $file = UploadedFile::fake()->createWithContent('flows.txt', $fileContent);
+
+        Volt::test('pages.admin.dts.transaction-flows')
+            ->set('selectedPredefined', 'import')
+            ->set('flowFile', $file)
+            ->call('importFlow')
+            ->assertHasNoErrors()
+            ->assertSee("Successfully imported 1 predefined flow(s) from the file!");
+
+        $flow = DB::table('dts_transaction_flow')->where('flow_code', 'TEST-FLOW-ABBR-IMP')->first();
+        $this->assertNotNull($flow);
+        $this->assertEquals('internal', $flow->flow_use);
+
+        // Clean up
+        DB::table('dts_sequence_list')->where('control_id', $flow->id)->delete();
+        DB::table('dts_transaction_flow')->where('id', $flow->id)->delete();
+    }
+
+    public function test_predefined_purpose_filter()
+    {
+        // 1. Insert test flows
+        $maxId = DB::table('dts_transaction_flow')->max('id') ?? 0;
+        $id1 = $maxId + 1;
+        $id2 = $maxId + 2;
+
+        DB::table('dts_transaction_flow')->insert([
+            'id' => $id1,
+            'flow_name' => 'Active Flow Internal',
+            'flow_code' => 'TEST-FLOW-ACT1',
+            'is_active' => true,
+            'flow_use' => 'internal',
+            'added_by' => 1,
+            'date_added' => now(),
+        ]);
+
+        DB::table('dts_transaction_flow')->insert([
+            'id' => $id2,
+            'flow_name' => 'Active Flow Application',
+            'flow_code' => 'TEST-FLOW-ACT2',
+            'is_active' => true,
+            'flow_use' => 'application',
+            'added_by' => 1,
+            'date_added' => now(),
+        ]);
+
+        // 2. Verify filter works inside Volt component
+        Volt::test('pages.admin.dts.transaction-flows')
+            ->set('predefinedPurposeFilter', 'all')
+            ->assertViewHas('predefinedFlows', function ($flows) {
+                $codes = collect($flows)->pluck('flow_code')->toArray();
+                return in_array('TEST-FLOW-ACT1', $codes) && in_array('TEST-FLOW-ACT2', $codes);
+            })
+            ->set('predefinedPurposeFilter', 'internal')
+            ->assertViewHas('predefinedFlows', function ($flows) {
+                $codes = collect($flows)->pluck('flow_code')->toArray();
+                return in_array('TEST-FLOW-ACT1', $codes) && !in_array('TEST-FLOW-ACT2', $codes);
+            })
+            ->set('predefinedPurposeFilter', 'application')
+            ->assertViewHas('predefinedFlows', function ($flows) {
+                $codes = collect($flows)->pluck('flow_code')->toArray();
+                return !in_array('TEST-FLOW-ACT1', $codes) && in_array('TEST-FLOW-ACT2', $codes);
+            });
+
+        // 3. Clean up
+        DB::table('dts_transaction_flow')->whereIn('id', [$id1, $id2])->delete();
     }
 }

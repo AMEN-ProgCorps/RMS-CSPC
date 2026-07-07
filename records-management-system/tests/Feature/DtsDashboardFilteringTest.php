@@ -18,6 +18,7 @@ class DtsDashboardFilteringTest extends TestCase
     private $otherOfficeCode = 'OTHER_OFFICE';
     private $qrCodes = [];
     private $flowId;
+    private $rolePermissionId;
 
     protected function setUp(): void
     {
@@ -30,6 +31,17 @@ class DtsDashboardFilteringTest extends TestCase
             return;
         }
         Auth::login($user);
+        $this->rolePermissionId = $user->account_role;
+
+        // Disable view-all permissions first
+        if ($this->rolePermissionId) {
+            DB::table('condition_details')->where('key_id', $this->rolePermissionId)->update([
+                'is_sadm' => false,
+                'can_dts_view_all_current_trans' => false
+            ]);
+            // Refresh the authenticated user so cached permissions are cleared
+            Auth::setUser(User::find($this->testUserId));
+        }
 
         // 2. Set up test offices
         $this->myOfficeId = DB::table('office')->insertGetId([
@@ -71,6 +83,14 @@ class DtsDashboardFilteringTest extends TestCase
         DB::table('account_details')
             ->where('account_id', $this->testUserId)
             ->update(['office_id' => null]);
+
+        // Restore admin permissions
+        if ($this->rolePermissionId) {
+            DB::table('condition_details')->where('key_id', $this->rolePermissionId)->update([
+                'is_sadm' => true,
+                'can_dts_view_all_current_trans' => true
+            ]);
+        }
 
         // Cleanup test transactions and offices
         $transIds = DB::table('dts_transaction_details')

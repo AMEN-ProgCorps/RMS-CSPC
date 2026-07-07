@@ -18,14 +18,14 @@ return new class extends Migration
             $table->increments('key_id');
             $table->boolean('is_sadm')->default(false);
             $table->boolean('can_access_dts')->default(false);
-            $table->boolean('can_access_archv')->default(false);
+            $table->boolean('can_access_rdp')->default(false);
             $table->boolean('can_access_dcs')->default(false);
-            $table->boolean('can_modify_docflow')->default(false);
-            $table->boolean('can_modify_accountlist')->default(false);
-            $table->boolean('can_modify_pass')->default(false);
-            $table->boolean('can_modify_user')->default(false);
-            $table->boolean('can_view_all_list')->default(false);
-            $table->boolean('can_view_all_archive')->default(false);
+            $table->boolean('can_dts_modify_docflow')->default(false);
+            $table->boolean('can_sadm_modify_accountlist')->default(false);
+            $table->boolean('can_sadm_modify_pass')->default(false);
+            $table->boolean('can_sadm_modify_account')->default(false);
+            $table->boolean('can_dts_view_all_list')->default(false);
+            $table->boolean('can_dts_view_all_archive')->default(false);
         });
 
         Schema::create('condition_key', function (Blueprint $table) {
@@ -81,14 +81,14 @@ return new class extends Migration
         DB::table('condition_details')->insert([
             'is_sadm' => false,
             'can_access_dts' => false,
-            'can_access_archv' => false,
+            'can_access_rdp' => false,
             'can_access_dcs' => false,
-            'can_modify_docflow' => false,
-            'can_modify_accountlist' => false,
-            'can_modify_pass' => false,
-            'can_modify_user' => false,
-            'can_view_all_list' => false,
-            'can_view_all_archive' => false,
+            'can_sadm_modify_accountlist' => false,
+            'can_sadm_modify_pass' => false,
+            'can_sadm_modify_account' => false,
+            'can_dts_modify_docflow' => false,
+            'can_dts_view_all_list' => false,
+            'can_dts_view_all_archive' => false,
         ]);
 
         DB::table('condition_key')->insert([

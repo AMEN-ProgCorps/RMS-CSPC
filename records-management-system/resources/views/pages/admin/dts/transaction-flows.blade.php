@@ -32,6 +32,9 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - DTS Transaction Flows')]
     public string $officeSearch = ''; // text query for searching offices to add
     public $flowFile; // file upload property
 
+    // ---- BULK SELECTION ----
+    public array $selectedFlowIds = [];
+
     // ---- COPY FURNISHED EDITOR PROPERTIES ----
     public array $cfOffices = []; // list of office codes for predefined copy furnished
     public string $cfSearch = ''; // text query for searching copy furnished offices to add
@@ -42,6 +45,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - DTS Transaction Flows')]
 
     // ---- SEARCH FOR PREDEFINED FLOWS ----
     public string $searchPredefined = '';
+    public string $predefinedPurposeFilter = 'all';
 
     // ---- ALERTS ----
     public string $successMessage = '';
@@ -64,6 +68,13 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - DTS Transaction Flows')]
     public function updatingSearchPredefined(): void
     {
         $this->resetPage();
+        $this->selectedFlowIds = [];
+    }
+
+    public function updatingPredefinedPurposeFilter(): void
+    {
+        $this->resetPage();
+        $this->selectedFlowIds = [];
     }
 
     public function clearMessages(): void
@@ -85,6 +96,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - DTS Transaction Flows')]
         $this->cfSearch = '';
         $this->selectedCfOffice = '';
         $this->flowFile = null;
+        $this->selectedFlowIds = [];
         $this->clearMessages();
     }
 
@@ -279,9 +291,32 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - DTS Transaction Flows')]
 
         // 1. Validate inputs
         if ($this->selectedPredefined === 'new') {
+            // Check if a deactivated flow with the same name or code exists
+            $deactivatedByCode = \DB::table('dts_transaction_flow')
+                ->where('flow_code', strtoupper(trim($this->flowCode)))
+                ->where('is_active', false)
+                ->first();
+
+            $deactivatedByName = \DB::table('dts_transaction_flow')
+                ->where('flow_name', trim($this->flowName))
+                ->where('is_active', false)
+                ->first();
+
+            // For uniqueness validation, exclude inactive records
+            $nameExcludeId = $deactivatedByName ? $deactivatedByName->id : null;
+            $codeExcludeId = $deactivatedByCode ? $deactivatedByCode->id : null;
+
+            $nameRule = $nameExcludeId
+                ? 'required|string|max:255|unique:dts_transaction_flow,flow_name,' . $nameExcludeId . ',id'
+                : 'required|string|max:255|unique:dts_transaction_flow,flow_name';
+
+            $codeRule = $codeExcludeId
+                ? 'required|string|max:255|unique:dts_transaction_flow,flow_code,' . $codeExcludeId . ',id|regex:/^[A-Z0-9_\-]+$/i'
+                : 'required|string|max:255|unique:dts_transaction_flow,flow_code|regex:/^[A-Z0-9_\-]+$/i';
+
             $this->validate([
-                'flowName' => 'required|string|max:255|unique:dts_transaction_flow,flow_name',
-                'flowCode' => 'required|string|max:255|unique:dts_transaction_flow,flow_code|regex:/^[A-Z0-9_\-]+$/i',
+                'flowName' => $nameRule,
+                'flowCode' => $codeRule,
                 'flowUse' => 'required|string|in:internal,external,issuances,application,others,none',
             ], [
                 'flowCode.regex' => 'Flow code can only contain letters, numbers, dashes, and underscores.',
@@ -299,29 +334,57 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - DTS Transaction Flows')]
                 $flowId = null;
 
                 if ($this->selectedPredefined === 'new') {
-                    $maxId = \DB::table('dts_transaction_flow')->max('id') ?? 0;
-                    $flowId = $maxId + 1;
+                    // Check if a deactivated flow with the same code exists — reactivate it
+                    $existingFlow = \DB::table('dts_transaction_flow')
+                        ->where('flow_code', strtoupper(trim($this->flowCode)))
+                        ->where('is_active', false)
+                        ->first();
 
-                    // Insert flow
-                    \DB::table('dts_transaction_flow')->insert([
-                        'id' => $flowId,
-                        'flow_name' => trim($this->flowName),
-                        'flow_code' => strtoupper(trim($this->flowCode)),
-                        'is_active' => $this->isActive,
-                        'flow_use' => $this->flowUse,
-                        'added_by' => auth()->id() ?? 1,
-                        'date_added' => now(),
-                    ]);
+                    if ($existingFlow) {
+                        $flowId = $existingFlow->id;
 
-                    // Insert admin log
-                    \DB::table('admin_logs')->insert([
-                        'changes' => "Created predefined transaction flow: " . trim($this->flowName) . " (" . strtoupper(trim($this->flowCode)) . ")",
-                        'admin_id' => auth()->id(),
-                        'what_system' => 3, // Admin Console
-                        'when_changes' => now(),
-                    ]);
+                        // Reactivate and update the deactivated flow
+                        \DB::table('dts_transaction_flow')->where('id', $flowId)->update([
+                            'flow_name' => trim($this->flowName),
+                            'is_active' => true,
+                            'flow_use' => $this->flowUse,
+                            'added_by' => auth()->id() ?? 1,
+                            'date_added' => now(),
+                        ]);
 
-                    $this->successMessage = 'Predefined flow created successfully!';
+                        \DB::table('admin_logs')->insert([
+                            'changes' => "Reactivated previously soft-deleted predefined transaction flow: " . trim($this->flowName) . " (" . strtoupper(trim($this->flowCode)) . ")",
+                            'admin_id' => auth()->id(),
+                            'what_system' => 3,
+                            'when_changes' => now(),
+                        ]);
+
+                        $this->successMessage = 'Previously deactivated flow reactivated and updated successfully!';
+                    } else {
+                        $maxId = \DB::table('dts_transaction_flow')->max('id') ?? 0;
+                        $flowId = $maxId + 1;
+
+                        // Insert flow
+                        \DB::table('dts_transaction_flow')->insert([
+                            'id' => $flowId,
+                            'flow_name' => trim($this->flowName),
+                            'flow_code' => strtoupper(trim($this->flowCode)),
+                            'is_active' => $this->isActive,
+                            'flow_use' => $this->flowUse,
+                            'added_by' => auth()->id() ?? 1,
+                            'date_added' => now(),
+                        ]);
+
+                        // Insert admin log
+                        \DB::table('admin_logs')->insert([
+                            'changes' => "Created predefined transaction flow: " . trim($this->flowName) . " (" . strtoupper(trim($this->flowCode)) . ")",
+                            'admin_id' => auth()->id(),
+                            'what_system' => 3,
+                            'when_changes' => now(),
+                        ]);
+
+                        $this->successMessage = 'Predefined flow created successfully!';
+                    }
                 } else {
                     $flowId = (int) $this->selectedPredefined;
                     $flow = \DB::table('dts_transaction_flow')->where('id', $flowId)->first();
@@ -387,6 +450,136 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - DTS Transaction Flows')]
             $this->successMessage = $msg;
         } catch (\Exception $e) {
             $this->errorMessage = 'Failed to save flow: ' . $e->getMessage();
+        }
+    }
+
+    /**
+     * Soft-delete (deactivate) a predefined transaction flow for transparency.
+     */
+    public function deleteFlow(): void
+    {
+        $this->clearMessages();
+
+        if ($this->selectedPredefined === '' || $this->selectedPredefined === 'new' || $this->selectedPredefined === 'import') {
+            $this->errorMessage = 'Please select an existing flow to delete.';
+            return;
+        }
+
+        $flowId = (int) $this->selectedPredefined;
+
+        try {
+            \DB::transaction(function () use ($flowId) {
+                $flow = \DB::table('dts_transaction_flow')->where('id', $flowId)->first();
+
+                if (!$flow) {
+                    throw new \Exception('Predefined flow not found.');
+                }
+
+                // Soft-delete: deactivate the flow
+                \DB::table('dts_transaction_flow')->where('id', $flowId)->update([
+                    'is_active' => false,
+                ]);
+
+                // Audit log
+                \DB::table('admin_logs')->insert([
+                    'changes' => "Soft-deleted predefined transaction flow (Deactivated for transparency): {$flow->flow_name} ({$flow->flow_code})",
+                    'admin_id' => auth()->id(),
+                    'what_system' => 3, // Admin Console
+                    'when_changes' => now(),
+                ]);
+            });
+
+            $this->resetForm();
+            $this->successMessage = 'Transaction flow soft-deleted (deactivated) successfully!';
+        } catch (\Exception $e) {
+            $this->errorMessage = 'Failed to delete flow: ' . $e->getMessage();
+        }
+    }
+
+    /**
+     * Toggle a flow ID in the bulk selection array.
+     */
+    public function toggleFlowSelection(int $id): void
+    {
+        if (in_array($id, $this->selectedFlowIds)) {
+            $this->selectedFlowIds = array_values(array_diff($this->selectedFlowIds, [$id]));
+        } else {
+            $this->selectedFlowIds[] = $id;
+        }
+    }
+
+    /**
+     * Toggle select/deselect all visible predefined flows.
+     */
+    public function toggleAllFlows(): void
+    {
+        $query = \DB::table('dts_transaction_flow')
+            ->where('flow_code', 'not like', 'FLOW-CUSTOM-%')
+            ->where('is_active', true);
+
+        if ($this->predefinedPurposeFilter !== 'all') {
+            $query->where('flow_use', $this->predefinedPurposeFilter);
+        }
+
+        if ($this->searchPredefined !== '') {
+            $searchVal = '%' . $this->searchPredefined . '%';
+            $query->where(function ($q) use ($searchVal) {
+                $q->where('flow_name', 'like', $searchVal)
+                  ->orWhere('flow_code', 'like', $searchVal);
+            });
+        }
+
+        $visibleIds = $query->pluck('id')->toArray();
+
+        if (count($this->selectedFlowIds) === count($visibleIds) && !array_diff($visibleIds, $this->selectedFlowIds)) {
+            $this->selectedFlowIds = [];
+        } else {
+            $this->selectedFlowIds = $visibleIds;
+        }
+    }
+
+    /**
+     * Bulk soft-delete (deactivate) all selected predefined flows.
+     */
+    public function bulkDeleteFlows(): void
+    {
+        $this->clearMessages();
+
+        if (empty($this->selectedFlowIds)) {
+            $this->errorMessage = 'No flows selected for deletion.';
+            return;
+        }
+
+        try {
+            \DB::transaction(function () {
+                $flows = \DB::table('dts_transaction_flow')
+                    ->whereIn('id', $this->selectedFlowIds)
+                    ->get();
+
+                if ($flows->isEmpty()) {
+                    throw new \Exception('No valid flows found to delete.');
+                }
+
+                $names = $flows->pluck('flow_name')->implode(', ');
+
+                \DB::table('dts_transaction_flow')
+                    ->whereIn('id', $this->selectedFlowIds)
+                    ->update(['is_active' => false]);
+
+                \DB::table('admin_logs')->insert([
+                    'changes' => "Bulk soft-deleted " . $flows->count() . " predefined transaction flow(s) (Deactivated for transparency): {$names}",
+                    'admin_id' => auth()->id(),
+                    'what_system' => 3,
+                    'when_changes' => now(),
+                ]);
+            });
+
+            $count = count($this->selectedFlowIds);
+            $this->selectedFlowIds = [];
+            $this->resetForm();
+            $this->successMessage = "{$count} flow(s) soft-deleted (deactivated) successfully!";
+        } catch (\Exception $e) {
+            $this->errorMessage = 'Failed to bulk delete flows: ' . $e->getMessage();
         }
     }
 
@@ -572,52 +765,58 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - DTS Transaction Flows')]
                     }
                 }
 
-                // 6. Handle optional 4th line (Copy Furnished)
+                // 6. Handle optional lines (Copy Furnished and Flow Use/Purpose)
                 $cfOffices = [];
-                if (count($blockLines) >= 3) {
-                    $cfLine = $blockLines[2];
-                    if (!str_ends_with($cfLine['text'], ';')) {
-                        throw new \Exception("Line {$cfLine['num']} (\"{$cfLine['text']}\") must end with a semicolon ';'.");
-                    }
-
-                    $cfText = trim(substr($cfLine['text'], 0, -1));
-                    if (!empty($cfText)) {
-                        $cfNodes = explode(',', $cfText);
-                        $cfNodes = array_filter(array_map('trim', $cfNodes));
-                        
-                        foreach ($cfNodes as $node) {
-                            $office = \DB::table('office')
-                                ->where('is_active', true)
-                                ->where(function($q) use ($node) {
-                                    $q->where('office_code', $node)
-                                      ->orWhere('office_name', $node);
-                                })
-                                ->first();
-
-                            if (!$office) {
-                                throw new \Exception("Line {$cfLine['num']} (\"{$cfLine['text']}\"): Copy furnished office '{$node}' does not exist in the database or is typoed.");
-                            }
-
-                            $cfOffices[] = $office->office_code;
-                        }
-                    }
-                }
-
-                // 7. Handle optional 5th line (Flow Use)
                 $flowUse = 'none';
-                if (count($blockLines) >= 4) {
-                    $useLine = $blockLines[3];
-                    if (!str_ends_with($useLine['text'], ';')) {
-                        throw new \Exception("Line {$useLine['num']} (\"{$useLine['text']}\") must end with a semicolon ';'.");
+
+                for ($k = 2; $k < count($blockLines); $k++) {
+                    $optLine = $blockLines[$k];
+
+                    if (!str_ends_with($optLine['text'], ';')) {
+                        throw new \Exception("Line {$optLine['num']} (\"{$optLine['text']}\") must end with a semicolon ';'.");
                     }
 
-                    $useText = strtolower(trim(substr($useLine['text'], 0, -1)));
-                    if (!empty($useText)) {
-                        $validUses = ['internal', 'external', 'issuances', 'application', 'others', 'none'];
-                        if (!in_array($useText, $validUses)) {
-                            throw new \Exception("Line {$useLine['num']} (\"{$useLine['text']}\"): Invalid flow use '{$useText}'. Must be one of: " . implode(', ', $validUses) . ".");
+                    // Check if it's the Flow Use indicator (surrounded by brackets, case-insensitive, with abbreviation support)
+                    if (preg_match('/^\s*\[\s*([a-zA-Z0-9_\-]+)\s*\]\s*;\s*$/i', $optLine['text'], $matches)) {
+                        $rawUse = strtolower(trim($matches[1]));
+                        if ($rawUse === 'internal' || $rawUse === 'int') {
+                            $flowUse = 'internal';
+                        } elseif ($rawUse === 'external' || $rawUse === 'ext') {
+                            $flowUse = 'external';
+                        } elseif ($rawUse === 'issuances' || $rawUse === 'iss') {
+                            $flowUse = 'issuances';
+                        } elseif ($rawUse === 'application' || $rawUse === 'app') {
+                            $flowUse = 'application';
+                        } elseif ($rawUse === 'others' || $rawUse === 'oth') {
+                            $flowUse = 'others';
+                        } elseif ($rawUse === 'none') {
+                            $flowUse = 'none';
+                        } else {
+                            throw new \Exception("Line {$optLine['num']} (\"{$optLine['text']}\"): Invalid flow use '{$matches[1]}'. Must be one of: internal (int), external (ext), issuances (iss), application (app), others (oth), none.");
                         }
-                        $flowUse = $useText;
+                    } else {
+                        // Otherwise, treat it as the Copy Furnished offices list
+                        $cfText = trim(substr($optLine['text'], 0, -1));
+                        if (!empty($cfText)) {
+                            $cfNodes = explode(',', $cfText);
+                            $cfNodes = array_filter(array_map('trim', $cfNodes));
+                            
+                            foreach ($cfNodes as $node) {
+                                $office = \DB::table('office')
+                                    ->where('is_active', true)
+                                    ->where(function($q) use ($node) {
+                                        $q->where('office_code', $node)
+                                          ->orWhere('office_name', $node);
+                                    })
+                                    ->first();
+
+                                if (!$office) {
+                                    throw new \Exception("Line {$optLine['num']} (\"{$optLine['text']}\"): Copy furnished office '{$node}' does not exist in the database or is typoed.");
+                                }
+
+                                $cfOffices[] = $office->office_code;
+                            }
+                        }
                     }
                 }
 
@@ -718,7 +917,12 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - DTS Transaction Flows')]
 
         // Query predefined flows dropdown/directory
         $predefinedQuery = \DB::table('dts_transaction_flow')
-            ->where('flow_code', 'not like', 'FLOW-CUSTOM-%');
+            ->where('flow_code', 'not like', 'FLOW-CUSTOM-%')
+            ->where('is_active', true);
+
+        if ($this->predefinedPurposeFilter !== 'all') {
+            $predefinedQuery->where('flow_use', $this->predefinedPurposeFilter);
+        }
 
         if ($this->searchPredefined !== '') {
             $searchVal = '%' . $this->searchPredefined . '%';
@@ -981,6 +1185,37 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - DTS Transaction Flows')]
                     <input type="text" class="search-box" placeholder="Search flows..." wire:model.live="searchPredefined">
                 </div>
 
+                @if(count($selectedFlowIds) > 0)
+                    <div style="display: flex; align-items: center; justify-content: space-between; padding: 8px 12px; background: #fff1f2; border: 1px solid #fecdd3; border-radius: 8px; margin-bottom: 8px;">
+                        <span style="font-size: 12px; font-weight: 600; color: #be123c;">{{ count($selectedFlowIds) }} selected</span>
+                        <button type="button" wire:click="bulkDeleteFlows" wire:confirm="Are you sure you want to deactivate {{ count($selectedFlowIds) }} flow(s)? They will be soft-deleted (hidden) but retained for transparency." style="background: #e11d48; color: #fff; border: none; padding: 5px 12px; border-radius: 6px; font-size: 11px; font-weight: 600; cursor: pointer; font-family: 'Inter', sans-serif;">
+                            <i class="fa-solid fa-trash-can" style="margin-right: 4px;"></i> Delete Selected
+                        </button>
+                    </div>
+                @endif
+
+                <div style="display: flex; align-items: center; justify-content: space-between; padding: 6px 12px; border-bottom: 1px solid #e2e8f0;">
+                    @if($predefinedFlows->count() > 0)
+                        <div style="display: flex; align-items: center; gap: 8px;">
+                            <input type="checkbox" wire:click="toggleAllFlows" style="width: 16px; height: 16px; cursor: pointer; accent-color: #3b82f6;" {{ count($selectedFlowIds) > 0 && count($selectedFlowIds) === $predefinedFlows->count() ? 'checked' : '' }}>
+                            <span style="font-size: 12px; color: #64748b; font-weight: 500;">Select All</span>
+                        </div>
+                    @else
+                        <div></div>
+                    @endif
+                    <div>
+                        <select wire:model.live="predefinedPurposeFilter" style="padding: 6px 12px; border-radius: 6px; border: 1.5px solid #e2e8f0; outline: none; font-size: 12px; font-family: 'Inter', sans-serif; color: #64748b; cursor: pointer; transition: all 0.2s ease; background: #fff; font-weight: 500;">
+                            <option value="all">All Purposes</option>
+                            <option value="internal">Internal</option>
+                            <option value="external">External</option>
+                            <option value="issuances">Issuances</option>
+                            <option value="application">Application</option>
+                            <option value="others">Others</option>
+                            <option value="none">None</option>
+                        </select>
+                    </div>
+                </div>
+
                 <div class="offices-list">
                     @forelse($predefinedFlows as $flow)
                         @php
@@ -988,6 +1223,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - DTS Transaction Flows')]
                             $flowInitials = strtoupper(substr($flow->flow_code ?: '?', 0, 3));
                         @endphp
                         <div class="office-item-card {{ $isSelected ? 'active' : '' }}" wire:key="flow-item-{{ $flow->id }}" wire:click="selectFlow({{ $flow->id }})">
+                            <input type="checkbox" wire:click.stop="toggleFlowSelection({{ $flow->id }})" {{ in_array($flow->id, $selectedFlowIds) ? 'checked' : '' }} style="width: 16px; height: 16px; cursor: pointer; accent-color: #3b82f6; flex-shrink: 0;">
                             <div class="office-avatar-small">
                                 <span>{{ $flowInitials }}</span>
                             </div>
@@ -1052,7 +1288,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - DTS Transaction Flows')]
                                     <br>• Line 2: <code>&lt;flow code&gt;;</code>
                                     <br>• Line 3: <code>&lt;flow sequence&gt;;</code> (e.g. <code>[]-&gt;[H]-&gt;ICTU;</code> where <code>[]</code> is the Originated Office and <code>[H]</code> is the Cluster Head of that office)
                                     <br>• Line 4 (Optional): <code>&lt;copy furnished offices (comma-separated)&gt;;</code> (e.g. <code>Unit Head, HRMDU, RFOIU;</code>)
-                                    <br>• Line 5 (Optional): <code>&lt;flow purpose/use&gt;;</code> (one of: <code>internal</code>, <code>external</code>, <code>issuances</code>, <code>application</code>, <code>others</code>, <code>none</code>)
+                                    <br>• Line 5 (Optional): <code>&lt;flow purpose/use&gt;;</code> (one of: <code>internal</code>, <code>external</code>, <code>issuances</code>, <code>application</code>, <code>others</code>, <code>none</code>), (use this like this e.g. <code>[ internal ];</code> or <code>[int];</code> for internal transactions)
                                     <br>• Lines starting with <code>#</code> are classified as comments and will be ignored.
                                 </p>
                             </div>
@@ -1268,6 +1504,11 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - DTS Transaction Flows')]
 
                         <!-- Footer -->
                         <div class="details-footer">
+                            @if($selectedPredefined !== 'new')
+                                <button type="button" class="btn-delete" wire:click="deleteFlow" wire:confirm="Are you sure you want to deactivate this transaction flow? It will be soft-deleted (hidden) but retained for transparency." style="margin-right: auto;">
+                                    <i class="fa-solid fa-trash-can"></i> Delete Flow
+                                </button>
+                            @endif
                             <button type="button" class="btn-cancel" wire:click="resetForm">Cancel</button>
                             <button type="button" class="btn-save" wire:click="savePredefinedFlow">
                                 <i class="fa-solid fa-floppy-disk"></i> Save Configuration

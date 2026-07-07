@@ -42,6 +42,12 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Roles')] class extends C
     public bool $canModifyUser = false;
     public bool $canViewAllList = false;
     public bool $canViewAllArchive = false;
+    public bool $canCreateOwnFlow = false;
+    public bool $canDtsUseInternal = false;
+    public bool $canDtsUseExternal = false;
+    public bool $canDtsUseApplication = false;
+    public bool $canDtsUseIssuance = false;
+    public bool $canDtsUserReceived = false;
 
     // Toast notifications
     public string $successMessage = '';
@@ -85,6 +91,12 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Roles')] class extends C
         $this->canModifyUser = false;
         $this->canViewAllList = false;
         $this->canViewAllArchive = false;
+        $this->canCreateOwnFlow = false;
+        $this->canDtsUseInternal = false;
+        $this->canDtsUseExternal = false;
+        $this->canDtsUseApplication = false;
+        $this->canDtsUseIssuance = false;
+        $this->canDtsUserReceived = false;
         
         $this->clearMessages();
     }
@@ -118,14 +130,20 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Roles')] class extends C
             if ($perms) {
                 $this->isSadm = (bool) $perms->is_sadm;
                 $this->canAccessDts = (bool) $perms->can_access_dts;
-                $this->canAccessArchv = (bool) $perms->can_access_archv;
+                $this->canAccessArchv = (bool) $perms->can_access_rdp;
                 $this->canAccessDcs = (bool) $perms->can_access_dcs;
-                $this->canModifyDocflow = (bool) $perms->can_modify_docflow;
-                $this->canModifyAccountlist = (bool) $perms->can_modify_accountlist;
-                $this->canModifyPass = (bool) $perms->can_modify_pass;
-                $this->canModifyUser = (bool) $perms->can_modify_user;
-                $this->canViewAllList = (bool) $perms->can_view_all_list;
-                $this->canViewAllArchive = (bool) $perms->can_view_all_archive;
+                $this->canModifyDocflow = (bool) $perms->can_dts_modify_docflow;
+                $this->canModifyAccountlist = (bool) $perms->can_sadm_modify_accountlist;
+                $this->canModifyPass = (bool) $perms->can_sadm_modify_pass;
+                $this->canModifyUser = (bool) $perms->can_sadm_modify_account;
+                $this->canViewAllList = (bool) $perms->can_dts_view_all_list;
+                $this->canViewAllArchive = (bool) $perms->can_dts_view_all_archive;
+                $this->canCreateOwnFlow = (bool) $perms->can_dts_create_own_flow;
+                $this->canDtsUseInternal = (bool) $perms->can_dts_use_internal;
+                $this->canDtsUseExternal = (bool) $perms->can_dts_use_external;
+                $this->canDtsUseApplication = (bool) $perms->can_dts_use_application;
+                $this->canDtsUseIssuance = (bool) $perms->can_dts_use_issuance;
+                $this->canDtsUserReceived = (bool) $perms->can_dts_user_received;
             }
         }
     }
@@ -285,14 +303,20 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Roles')] class extends C
     {
         $perms->is_sadm = $this->isSadm;
         $perms->can_access_dts = $this->canAccessDts;
-        $perms->can_access_archv = $this->canAccessArchv;
+        $perms->can_access_rdp = $this->canAccessArchv;
         $perms->can_access_dcs = $this->canAccessDcs;
-        $perms->can_modify_docflow = $this->canModifyDocflow;
-        $perms->can_modify_accountlist = $this->canModifyAccountlist;
-        $perms->can_modify_pass = $this->canModifyPass;
-        $perms->can_modify_user = $this->canModifyUser;
-        $perms->can_view_all_list = $this->canViewAllList;
-        $perms->can_view_all_archive = $this->canViewAllArchive;
+        $perms->can_dts_modify_docflow = $this->canModifyDocflow;
+        $perms->can_sadm_modify_accountlist = $this->canModifyAccountlist;
+        $perms->can_sadm_modify_pass = $this->canModifyPass;
+        $perms->can_sadm_modify_account = $this->canModifyUser;
+        $perms->can_dts_view_all_list = $this->canViewAllList;
+        $perms->can_dts_view_all_archive = $this->canViewAllArchive;
+        $perms->can_dts_create_own_flow = $this->canCreateOwnFlow;
+        $perms->can_dts_use_internal = $this->canDtsUseInternal;
+        $perms->can_dts_use_external = $this->canDtsUseExternal;
+        $perms->can_dts_use_application = $this->canDtsUseApplication;
+        $perms->can_dts_use_issuance = $this->canDtsUseIssuance;
+        $perms->can_dts_user_received = $this->canDtsUserReceived;
     }
 
     /**
@@ -524,6 +548,83 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Roles')] class extends C
                                         </div>
                                         <label class="switch">
                                             <input type="checkbox" wire:model="canViewAllArchive">
+                                            <span class="slider"></span>
+                                        </label>
+                                    </div>
+                                    <!-- View all current trans -->
+                                    <div class="permission-toggle-row">
+                                        <div class="permission-toggle-info">
+                                            <span class="permission-toggle-title">View All Current Transactions</span>
+                                            <span class="permission-toggle-desc">View all active transactions from all offices.</span>
+                                        </div>
+                                        <label class="switch">
+                                            <input type="checkbox" wire:model="canViewAllCurrentTrans">
+                                            <span class="slider"></span>
+                                        </label>
+                                    </div>
+                                    <!-- Create own transaction flow -->
+                                    <div class="permission-toggle-row">
+                                        <div class="permission-toggle-info">
+                                            <span class="permission-toggle-title">Create Own Transaction Flow</span>
+                                            <span class="permission-toggle-desc">Define and construct custom transaction flows.</span>
+                                        </div>
+                                        <label class="switch">
+                                            <input type="checkbox" wire:model="canCreateOwnFlow">
+                                            <span class="slider"></span>
+                                        </label>
+                                    </div>
+                                    <!-- Use Internal Transactions -->
+                                    <div class="permission-toggle-row">
+                                        <div class="permission-toggle-info">
+                                            <span class="permission-toggle-title">Use Internal Transactions</span>
+                                            <span class="permission-toggle-desc">Clearance to create, list, and filter Internal Transactions.</span>
+                                        </div>
+                                        <label class="switch">
+                                            <input type="checkbox" wire:model="canDtsUseInternal">
+                                            <span class="slider"></span>
+                                        </label>
+                                    </div>
+                                    <!-- Use External Transactions -->
+                                    <div class="permission-toggle-row">
+                                        <div class="permission-toggle-info">
+                                            <span class="permission-toggle-title">Use External Transactions</span>
+                                            <span class="permission-toggle-desc">Clearance to create, list, and filter External Transactions.</span>
+                                        </div>
+                                        <label class="switch">
+                                            <input type="checkbox" wire:model="canDtsUseExternal">
+                                            <span class="slider"></span>
+                                        </label>
+                                    </div>
+                                    <!-- Use Application Letter Transactions -->
+                                    <div class="permission-toggle-row">
+                                        <div class="permission-toggle-info">
+                                            <span class="permission-toggle-title">Use Application Letter Transactions</span>
+                                            <span class="permission-toggle-desc">Clearance to create, list, and filter Application Letter Transactions.</span>
+                                        </div>
+                                        <label class="switch">
+                                            <input type="checkbox" wire:model="canDtsUseApplication">
+                                            <span class="slider"></span>
+                                        </label>
+                                    </div>
+                                    <!-- Use Issuance Transactions -->
+                                    <div class="permission-toggle-row">
+                                        <div class="permission-toggle-info">
+                                            <span class="permission-toggle-title">Use Issuance Transactions</span>
+                                            <span class="permission-toggle-desc">Clearance to create, list, and filter Issuance Transactions.</span>
+                                        </div>
+                                        <label class="switch">
+                                            <input type="checkbox" wire:model="canDtsUseIssuance">
+                                            <span class="slider"></span>
+                                        </label>
+                                    </div>
+                                    <!-- Receive Transactions -->
+                                    <div class="permission-toggle-row">
+                                        <div class="permission-toggle-info">
+                                            <span class="permission-toggle-title">Receive & Forward Transactions</span>
+                                            <span class="permission-toggle-desc">Clearance to receive, forward, update, or complete transactions. If disabled, actions will be read-only.</span>
+                                        </div>
+                                        <label class="switch">
+                                            <input type="checkbox" wire:model="canDtsUserReceived">
                                             <span class="slider"></span>
                                         </label>
                                     </div>

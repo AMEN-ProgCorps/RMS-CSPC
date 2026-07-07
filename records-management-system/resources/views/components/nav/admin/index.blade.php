@@ -166,6 +166,19 @@
     </div>
 </div>
 
+<div id="nav-chat-id" class="button-section-container">
+    <div class="button-container" onclick="proccedto('/open-chat')">
+        <div class="button-icon">
+            <svg xmlns="http://www.w3.org/2000/svg" width="29" height="29" viewBox="0 0 29 29" fill="none">
+                <path d="M24.1667 4.83331H4.83333C3.4925 4.83331 2.41667 5.90915 2.41667 7.24998V24.1666L7.25 19.3333H24.1667C25.5075 19.3333 26.5833 18.2575 26.5833 16.9166V7.24998C26.5833 5.90915 25.5075 4.83331 24.1667 4.83331ZM24.1667 16.9166H6.24167L4.83333 18.325V7.24998H24.1667V16.9166Z" fill="#4F4F4F"/>
+            </svg>
+        </div>
+        <div class="button-label">
+            <span>Chat</span>
+        </div>
+    </div>
+</div>
+
 <div id="admin-recycle-bin-id" class="button-section-container {{ request()->routeIs('admin.recycle-bin') ? 'show' : '' }}">
     <div class="button-container {{ request()->routeIs('admin.recycle-bin') ? 'force-active' : '' }}" onclick="proccedto('{{ route('admin.recycle-bin') }}')">
         <div class="button-icon">

@@ -68,7 +68,7 @@ class DtsDashboardFilteringTest extends TestCase
             $this->flowId = DB::table('dts_transaction_flow')->insertGetId([
                 'id' => $maxId + 1,
                 'flow_code' => 'TEST',
-                'flow_name' => 'Test Flow Unique Dashboard',
+                'flow_name' => 'Test Flow',
                 'is_active' => true,
                 'added_by' => 1,
                 'date_added' => now(),

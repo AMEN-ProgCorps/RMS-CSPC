@@ -925,16 +925,67 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
                             </button>
                         @endif
 
-                        <!-- BARCODE (Alert control number info) -->
-                        <button type="button" class="receive-action-btn" onclick="alert('Barcode scan ID: ' + '{{ $selectedTransaction->qr_code ?? '' }}')">
+                        <!-- VIEW QRCODE (Modal control number info) -->
+                        <button type="button" class="receive-action-btn" onclick="openQrViewModal('{{ $selectedTransaction->qr_code ?? '' }}')">
                             <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-                                <path d="M3 5h2v14H3zM7 5h2v14H7zM11 5h2v14h-2zM15 5h2v14h-2zM19 5h2v14h-2z"/>
+                                <rect x="3" y="3" width="7" height="7"></rect>
+                                <rect x="14" y="3" width="7" height="7"></rect>
+                                <rect x="14" y="14" width="7" height="7"></rect>
+                                <rect x="3" y="14" width="7" height="7"></rect>
                             </svg>
-                            BARCODE
+                            VIEW QRCODE
                         </button>
                     </div>
                 </form>
             </div>
         </div>
     @endif
+
+    <!-- View QR Code Modal -->
+    <div id="dts-qr-view-modal" class="modal-backdrop" style="display: none; z-index: 10000; align-items: center; justify-content: center;" onclick="closeQrViewModal()">
+        <div class="modal-content" style="max-width: 320px; padding: 24px; text-align: center; position: relative; border-radius: 12px; display: flex; flex-direction: column; align-items: center; gap: 16px;" onclick="event.stopPropagation()">
+            <button type="button" class="modal-close-btn" style="position: absolute; top: 12px; right: 16px; font-size: 20px; border: none; background: transparent; cursor: pointer; color: #94a3b8;" onclick="closeQrViewModal()">&times;</button>
+            <h3 style="margin: 0; font-family: Roboto, sans-serif; font-size: 16px; font-weight: 700; color: #043899; text-transform: uppercase;">QR Code Scan</h3>
+            
+            <div style="background: #f8fafc; padding: 16px; border-radius: 8px; border: 1.5px solid #cbd5e1; display: flex; align-items: center; justify-content: center; width: 182px; height: 182px; box-sizing: border-box; margin: 0 auto;">
+                <img id="dts-qr-image" src="" alt="QR Code" style="width: 150px; height: 150px; display: none;">
+                <div id="dts-qr-loading" style="font-family: Roboto, sans-serif; font-size: 13px; color: #64748b;">Generating...</div>
+            </div>
+
+            <div style="font-family: monospace; font-weight: 700; font-size: 14px; color: #1e293b; word-break: break-all; background: #f1f5f9; padding: 6px 12px; border-radius: 6px; border: 1px solid #e2e8f0; width: 100%; box-sizing: border-box;" id="dts-qr-code-text"></div>
+        </div>
+    </div>
+
+    <script>
+        function openQrViewModal(qrCode) {
+            const modal = document.getElementById('dts-qr-view-modal');
+            const img = document.getElementById('dts-qr-image');
+            const loading = document.getElementById('dts-qr-loading');
+            const text = document.getElementById('dts-qr-code-text');
+
+            if (!modal || !img || !loading || !text) return;
+
+            text.innerText = qrCode;
+            img.style.display = 'none';
+            loading.style.display = 'block';
+            modal.style.display = 'flex';
+
+            // Base64 encode the QR Code string
+            const qrData = btoa(qrCode);
+            const qrUrl = 'https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=' + encodeURIComponent(qrData);
+
+            img.src = qrUrl;
+            img.onload = function() {
+                loading.style.display = 'none';
+                img.style.display = 'block';
+            };
+        }
+
+        function closeQrViewModal() {
+            const modal = document.getElementById('dts-qr-view-modal');
+            if (modal) {
+                modal.style.display = 'none';
+            }
+        }
+    </script>
 </div>

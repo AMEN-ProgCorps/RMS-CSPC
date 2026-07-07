@@ -410,4 +410,134 @@ class DtsAccountControlTest extends TestCase
             ->call('removeFromCustomFlowSequence', 1)
             ->assertSet('customFlowSequence', ['ORIGIN', 'VPAA']);
     }
+
+    /**
+     * Test custom flow sharing and visibility (user vs office vs system).
+     */
+    public function test_custom_flow_sharing_visibility()
+    {
+        // 1. Setup accounts
+        $officeVpaaId = DB::table('office')->where('office_code', 'VPAA')->value('id') ?: 1;
+        $officeCashId = DB::table('office')->where('office_code', 'CASHIER')->value('id') ?: 2;
+
+        $otherUserId = null;
+        $officePeerUserId = null;
+        
+        DB::transaction(function() use (&$otherUserId, &$officePeerUserId, $officeVpaaId, $officeCashId) {
+            $otherUserId = DB::table('account')->insertGetId([
+                'username' => 'other_office_user',
+                'password' => bcrypt('password'),
+                'account_status' => 1,
+                'account_role' => $this->standardRoleId,
+                'account_active' => true,
+                'date_created' => now(),
+            ]);
+            DB::table('account_details')->insert([
+                'account_id' => $otherUserId,
+                'first_name' => 'Other',
+                'last_name' => 'User',
+                'email' => 'other@example.com',
+                'office_id' => $officeCashId,
+            ]);
+
+            $officePeerUserId = DB::table('account')->insertGetId([
+                'username' => 'peer_office_user',
+                'password' => bcrypt('password'),
+                'account_status' => 1,
+                'account_role' => $this->standardRoleId,
+                'account_active' => true,
+                'date_created' => now(),
+            ]);
+            DB::table('account_details')->insert([
+                'account_id' => $officePeerUserId,
+                'first_name' => 'Peer',
+                'last_name' => 'User',
+                'email' => 'peer@example.com',
+                'office_id' => $officeVpaaId,
+            ]);
+        });
+
+        // Grant can_dts_create_own_flow and can_dts_use_internal permission to standard user
+        $role = role_list::find($this->standardRoleId);
+        $role->permissions->update([
+            'can_dts_use_internal' => true,
+            'can_dts_create_own_flow' => true,
+        ]);
+
+        try {
+            // 2. Log in as standard user and create private flow ('user')
+            Auth::login(User::find($this->standardUserId));
+            $maxId = DB::table('dts_transaction_flow')->max('id') ?? 0;
+            $userFlowId = $maxId + 1;
+            $userFlowCode = 'FLOW-CUSTOM-TEST-USER-' . time();
+            DB::table('dts_transaction_flow')->insert([
+                'id' => $userFlowId,
+                'flow_name' => 'Private User Flow',
+                'flow_code' => $userFlowCode,
+                'is_active' => true,
+                'flow_use' => 'internal',
+                'flow_for' => 'user',
+                'added_by' => $this->standardUserId,
+                'date_added' => now(),
+            ]);
+
+            $officeFlowId = $userFlowId + 1;
+            $officeFlowCode = 'FLOW-CUSTOM-TEST-OFFICE-' . time();
+            DB::table('dts_transaction_flow')->insert([
+                'id' => $officeFlowId,
+                'flow_name' => 'Shared Office Flow',
+                'flow_code' => $officeFlowCode,
+                'is_active' => true,
+                'flow_use' => 'internal',
+                'flow_for' => 'office',
+                'added_by' => $this->standardUserId,
+                'date_added' => now(),
+            ]);
+
+            // 4. Verify standard user (creator) sees both
+            Auth::setUser(User::find($this->standardUserId));
+            $component = Volt::test('pages.dts.create.internal');
+            $flows = $component->get('flows');
+            $flowCodes = collect($flows)->pluck('flow_code')->toArray();
+            $this->assertContains($userFlowCode, $flowCodes);
+            $this->assertContains($officeFlowCode, $flowCodes);
+
+            // 5. Verify peer user (same office VPAA) sees office shared flow but NOT private flow
+            Auth::login(User::find($officePeerUserId));
+            Auth::setUser(User::find($officePeerUserId));
+            $componentPeer = Volt::test('pages.dts.create.internal');
+            $flowsPeer = $componentPeer->get('flows');
+            $flowCodesPeer = collect($flowsPeer)->pluck('flow_code')->toArray();
+            $this->assertNotContains($userFlowCode, $flowCodesPeer);
+            $this->assertContains($officeFlowCode, $flowCodesPeer);
+
+            // 6. Verify other user (different office CASHIER) sees NEITHER
+            Auth::login(User::find($otherUserId));
+            Auth::setUser(User::find($otherUserId));
+            $componentOther = Volt::test('pages.dts.create.internal');
+            $flowsOther = $componentOther->get('flows');
+            $flowCodesOther = collect($flowsOther)->pluck('flow_code')->toArray();
+            $this->assertNotContains($userFlowCode, $flowCodesOther);
+            $this->assertNotContains($officeFlowCode, $flowCodesOther);
+
+        } finally {
+            // Clean up flows
+            if (isset($userFlowId)) {
+                DB::table('dts_transaction_flow')->where('id', $userFlowId)->delete();
+            }
+            if (isset($officeFlowId)) {
+                DB::table('dts_transaction_flow')->where('id', $officeFlowId)->delete();
+            }
+
+            // Clean up users
+            if ($otherUserId) {
+                DB::table('account_details')->where('account_id', $otherUserId)->delete();
+                DB::table('account')->where('id', $otherUserId)->delete();
+            }
+            if ($officePeerUserId) {
+                DB::table('account_details')->where('account_id', $officePeerUserId)->delete();
+                DB::table('account')->where('id', $officePeerUserId)->delete();
+            }
+        }
+    }
 }

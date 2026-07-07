@@ -371,6 +371,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - DTS Transaction Flows')]
                             'flow_code' => strtoupper(trim($this->flowCode)),
                             'is_active' => $this->isActive,
                             'flow_use' => $this->flowUse,
+                            'flow_for' => 'system',
                             'added_by' => auth()->id() ?? 1,
                             'date_added' => now(),
                         ]);
@@ -844,6 +845,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - DTS Transaction Flows')]
                         'flow_code' => $flowData['code'],
                         'is_active' => true,
                         'flow_use' => $flowData['flow_use'],
+                        'flow_for' => 'system',
                         'added_by' => auth()->id() ?? 1,
                         'date_added' => now(),
                     ]);

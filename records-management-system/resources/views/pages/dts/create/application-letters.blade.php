@@ -30,6 +30,7 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create Applicat
     public string $customFlowDocType = '';
     public array $customFlowSequence = [];
     public string $customFlowSelectedOffice = '';
+    public string $customFlowFor = 'user';
     public string $toastMessage = '';
 
     // Email Access & Password management fields
@@ -65,12 +66,27 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create Applicat
             ->map(fn($o) => (array)$o)
             ->toArray();
 
+        $userOfficeId = auth()->user()?->details?->office_id;
         $this->flows = DB::table('dts_transaction_flow')
             ->where('is_active', true)
             ->whereIn('flow_use', ['application', 'none'])
-            ->where(function($query) {
-                $query->where('flow_code', 'not like', 'FLOW-CUSTOM-%')
-                      ->orWhere('added_by', auth()->id());
+            ->where(function($query) use ($userOfficeId) {
+                $query->where('flow_for', 'system')
+                      ->orWhere(function($q) {
+                          $q->where('flow_for', 'user')
+                            ->where('added_by', auth()->id());
+                      });
+                if ($userOfficeId) {
+                    $query->orWhere(function($q) use ($userOfficeId) {
+                        $q->where('flow_for', 'office')
+                          ->whereExists(function($sub) use ($userOfficeId) {
+                              $sub->select(DB::raw(1))
+                                  ->from('account_details')
+                                  ->whereColumn('account_id', 'dts_transaction_flow.added_by')
+                                  ->where('office_id', $userOfficeId);
+                          });
+                    });
+                }
             })
             ->orderBy('flow_name')
             ->get()
@@ -455,6 +471,7 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create Applicat
         $this->customFlowDocType = '';
         $this->customFlowSequence = [];
         $this->customFlowSelectedOffice = '';
+        $this->customFlowFor = 'user';
         $this->showCustomFlowModal = true;
     }
 
@@ -516,6 +533,7 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create Applicat
                     'flow_code' => $flowCode,
                     'is_active' => true,
                     'flow_use' => 'application',
+                    'flow_for' => $this->customFlowFor,
                     'added_by' => auth()->id() ?? 1,
                     'date_added' => now(),
                 ]);
@@ -533,12 +551,27 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create Applicat
             });
 
             // Reload flows list
+            $userOfficeId = auth()->user()?->details?->office_id;
             $this->flows = DB::table('dts_transaction_flow')
                 ->where('is_active', true)
                 ->whereIn('flow_use', ['application', 'none'])
-                ->where(function($query) {
-                    $query->where('flow_code', 'not like', 'FLOW-CUSTOM-%')
-                          ->orWhere('added_by', auth()->id());
+                ->where(function($query) use ($userOfficeId) {
+                    $query->where('flow_for', 'system')
+                          ->orWhere(function($q) {
+                              $q->where('flow_for', 'user')
+                                ->where('added_by', auth()->id());
+                          });
+                    if ($userOfficeId) {
+                        $query->orWhere(function($q) use ($userOfficeId) {
+                            $q->where('flow_for', 'office')
+                              ->whereExists(function($sub) use ($userOfficeId) {
+                                  $sub->select(DB::raw(1))
+                                      ->from('account_details')
+                                      ->whereColumn('account_id', 'dts_transaction_flow.added_by')
+                                      ->where('office_id', $userOfficeId);
+                              });
+                        });
+                    }
                 })
                 ->orderBy('flow_name')
                 ->get()
@@ -1691,6 +1724,16 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create Applicat
                         <label style="font-size: 12.5px; font-weight: 600; color: #334155;">Type of Document (Flow Name)</label>
                         <input type="text" wire:model="customFlowDocType" placeholder="e.g. Clearance Form, Requisition Request" style="width: 100%; height: 38px; padding: 8px 12px; border: 1.5px solid #cbd5e1; border-radius: 8px; font-size: 13.5px; outline: none; transition: border-color 0.15s;" onfocus="this.style.borderColor='#3b82f6'" onblur="this.style.borderColor='#cbd5e1'">
                         @error('customFlowDocType') <span style="font-size: 11.5px; color: #ef4444; font-weight: 500;">{{ $message }}</span> @enderror
+                    </div>
+
+                    <!-- Who can use this flow (Visibility) -->
+                    <div style="display: flex; flex-direction: column; gap: 6px;">
+                        <label style="font-size: 12.5px; font-weight: 600; color: #334155;">Who can use this flow?</label>
+                        <select wire:model="customFlowFor" style="width: 100%; height: 38px; padding: 0 12px; border: 1.5px solid #cbd5e1; border-radius: 8px; font-size: 13px; outline: none; background: #ffffff;">
+                            <option value="user">Only Me</option>
+                            <option value="office">My Office</option>
+                        </select>
+                        @error('customFlowFor') <span style="font-size: 11.5px; color: #ef4444; font-weight: 500;">{{ $message }}</span> @enderror
                     </div>
 
                     <!-- Flow Sequence Selector -->

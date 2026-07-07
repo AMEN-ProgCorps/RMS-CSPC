@@ -70,6 +70,7 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Receive Transac
         $query = DB::table('dts_transactions as dt')
             ->join('dts_transaction_details as dtd', 'dtd.id', '=', 'dt.transaction_id')
             ->leftJoin('office as originated_office', 'originated_office.office_code', '=', 'dtd.originated_from')
+            ->leftJoin('dts_document_data as doc', 'doc.document_path', '=', 'dt.doc_dir')
             ->where('dt.current_office', $userOfficeCode)
             ->whereIn('dt.status', ['ongoing', 'revision']);
 
@@ -100,7 +101,8 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Receive Transac
             'dtd.classification',
             'dtd.action_needed',
             'dtd.date_created',
-            'originated_office.office_name as originated_office_name'
+            'originated_office.office_name as originated_office_name',
+            'doc.document_name'
         )
         ->get()
         ->map(function ($t) {
@@ -114,6 +116,15 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Receive Transac
             $dateReceived = $latestLog ? $latestLog->date_in : $t->date_created;
             $t->date_received = $dateReceived;
             $t->elapsed_days = $dateReceived ? max(0, now()->diffInDays(Carbon::parse($dateReceived))) : 0;
+
+            // Previous office (from office)
+            $prevLog = DB::table('sub_document_tracking_system_logs as log')
+                ->leftJoin('office', 'office.office_code', '=', 'log.office_code')
+                ->where('log.transaction_id', $t->transaction_id)
+                ->whereNotNull('log.date_out')
+                ->orderBy('log.id', 'desc')
+                ->first();
+            $t->from_office = $prevLog ? $prevLog->office_name : 'Originated';
 
             // Find next office in sequence
             $flow = DB::table('dts_transaction_details')
@@ -537,22 +548,44 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Receive Transac
     <!-- Cards Grid -->
     <div class="receive-grid">
         @forelse($this->transactions as $t)
-            <div class="receive-card-item">
-                <div class="receive-card-title">{{ $t->control_number }}</div>
-                <div class="receive-card-line"><strong>Unit/College:</strong> {{ $t->originated_office_name ?? 'N/A' }}</div>
-                <div class="receive-card-line"><strong>Name of Requestor:</strong> {{ $t->requestor_name ?? 'N/A' }} @if(!empty($t->requestor_label)) <span style="font-size: 12px; color: #6b7280; font-weight: normal;">({{ $t->requestor_label }})</span> @endif</div>
-                <div class="receive-card-line"><strong>Type of Document:</strong> {{ ucfirst($t->type) }}</div>
-                <div class="receive-card-line" style="word-break: break-word; overflow-wrap: break-word; white-space: normal;"><strong>Subject:</strong> {{ $t->subject ?? 'No Subject Provided' }}</div>
-                
-                <div class="receive-card-row">
-                    <div><strong>Received Date:</strong><br>{{ $t->date_received ? \Carbon\Carbon::parse($t->date_received)->format('Y-m-d H:i') : 'N/A' }}</div>
-                    <div style="text-align: right;"><strong>Elapsed Days:</strong><br><span class="text-red font-bold">{{ $t->elapsed_days }} day(s)</span></div>
+            <div style="background: white; border: 1.5px solid #e2e8f0; border-radius: 12px; padding: 24px; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.05); display: flex; flex-direction: column; justify-content: space-between; position: relative;">
+                <!-- Top Right Info & Icon -->
+                <div style="position: absolute; top: 16px; right: 16px; display: flex; align-items: center; gap: 8px; font-size: 11px; color: #6b7280;">
+                    <span>{{ $t->date_received ? \Carbon\Carbon::parse($t->date_received)->diffForHumans(null, true) . ' ago' : 'N/A' }}</span>
+                    @if ($t->status === 'completed')
+                        <span style="display: inline-block; width: 14px; height: 14px; background-color: #10b981; transform: rotate(45deg); display: flex; align-items: center; justify-content: center; border-radius: 2px;" title="Completed">
+                            <span style="transform: rotate(-45deg); color: white; font-size: 9px; font-weight: bold;">✔</span>
+                        </span>
+                    @elseif ($t->classification === 'highly_technical')
+                        <span style="display: inline-block; width: 14px; height: 14px; background-color: #ef4444; transform: rotate(45deg); display: flex; align-items: center; justify-content: center; border-radius: 2px;" title="Highly Technical">
+                            <span style="transform: rotate(-45deg); color: white; font-size: 9px; font-weight: bold;">!</span>
+                        </span>
+                    @else
+                        <span style="display: inline-block; width: 14px; height: 14px; background-color: #f59e0b; transform: rotate(45deg); display: flex; align-items: center; justify-content: center; border-radius: 2px;" title="Pending Action">
+                            <span style="transform: rotate(-45deg); color: white; font-size: 9px; font-weight: bold;">!</span>
+                        </span>
+                    @endif
                 </div>
 
-                <div class="receive-card-line"><strong>Next Office:</strong> {{ $t->next_office_name ?? 'N/A' }}</div>
-                <div class="receive-card-line"><strong>Action Needed:</strong> <span class="text-green font-semibold">{{ $t->action_needed ?? 'For action' }}</span></div>
+                <!-- Card Body contents -->
+                <div style="font-size: 13px; color: #4b5563; line-height: 1.6; margin-top: 12px; font-family: Roboto, sans-serif;">
+                    <div style="margin-bottom: 6px; word-break: break-word; overflow-wrap: break-word; white-space: normal;"><strong>Subject:</strong> {{ $t->subject }}</div>
+                    <div style="margin-bottom: 6px;"><strong>Unit/College:</strong> {{ $t->originated_office_name }}</div>
+                    <div style="margin-bottom: 6px;"><strong>Name of Requestor:</strong> {{ $t->requestor_name }} @if(!empty($t->requestor_label)) <span style="font-size: 12px; color: #6b7280; font-weight: normal;">({{ $t->requestor_label }})</span> @endif</div>
+                    <div style="margin-bottom: 6px;"><strong>Control Number:</strong> <span style="font-weight: 600; color: #1e40af;">{{ $t->control_number }}</span></div>
+                    <div style="margin-bottom: 14px;"><strong>Type of Document:</strong> {{ $t->document_name ?? ucfirst($t->type) }}</div>
 
-                <div class="receive-card-footer">
+                    <div style="margin-bottom: 6px;"><strong>Receive From:</strong> <span style="color: #ef4444; font-weight: 500;">{{ $t->from_office }}</span></div>
+                    <div style="margin-bottom: 14px;"><strong>Receive Date:</strong> {{ $t->date_received ? \Carbon\Carbon::parse($t->date_received)->format('Y-m-d H:i') : 'N/A' }}</div>
+
+                    <div style="margin-bottom: 14px;"><strong>Next Receiving Office:</strong> {{ $t->next_office_name }}</div>
+
+                    <div style="margin-bottom: 6px;"><strong>Action Needed:</strong> <span style="color: #16a34a; font-weight: 600;">{{ $t->action_needed ?? 'For action' }}</span></div>
+                    <div style="margin-bottom: 6px;"><strong>Elapsed Day:</strong> <span style="color: #ef4444; font-style: italic;">{{ $t->elapsed_days }} day(s) </span></div>
+                </div>
+
+                <!-- Card Footer receive view action -->
+                <div style="display: flex; justify-content: flex-end; margin-top: 16px;">
                     <button type="button" wire:click="openTransaction('{{ $t->transaction_id }}')" class="receive-view-btn">
                         <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
                             <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>

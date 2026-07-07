@@ -26,7 +26,7 @@ Route::middleware(['auth'])
     Volt::route('/profile', 'pages.profile.index')->name('profile');
     Volt::route('/profile/security-logs', 'pages.profile.security-logs')->name('profile.security-logs');
     Volt::route('/profile/notification-manager', 'pages.profile.notification-manager')->name('profile.notification-manager');
-
+    
     // Admin Console (requires is_sadm)
     Route::middleware(['can.access.admin'])->group(function () {
         Volt::route('/admin/console', 'pages.admin.console.index')->name('admin.console');

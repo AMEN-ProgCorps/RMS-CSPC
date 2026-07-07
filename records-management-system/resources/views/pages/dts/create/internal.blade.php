@@ -477,6 +477,24 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create Internal
         $this->customFlowSequence = array_values($this->customFlowSequence);
     }
 
+    public function moveUpCustomFlowSequence(int $index): void
+    {
+        if ($index > 0) {
+            $temp = $this->customFlowSequence[$index];
+            $this->customFlowSequence[$index] = $this->customFlowSequence[$index - 1];
+            $this->customFlowSequence[$index - 1] = $temp;
+        }
+    }
+
+    public function moveDownCustomFlowSequence(int $index): void
+    {
+        if ($index < count($this->customFlowSequence) - 1) {
+            $temp = $this->customFlowSequence[$index];
+            $this->customFlowSequence[$index] = $this->customFlowSequence[$index + 1];
+            $this->customFlowSequence[$index + 1] = $temp;
+        }
+    }
+
     public function saveCustomFlow(): void
     {
         $this->validate([
@@ -903,6 +921,7 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create Internal
 
 @push('styles')
     @vite(['resources/css/dts/create.css'])
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css">
 @endpush
 
 <div class="rms-container">
@@ -1792,9 +1811,17 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create Internal
                                                 <span style="font-size: 11px; color: #64748b; font-weight: 500;">Code: {{ $code }}</span>
                                             </div>
                                         </div>
-                                        <button type="button" wire:click="removeFromCustomFlowSequence({{ $idx }})" style="background: none; border: none; color: #ef4444; cursor: pointer; padding: 6px; border-radius: 6px; transition: background 0.15s;" onmouseover="this.style.backgroundColor='#fef2f2'" onmouseout="this.style.backgroundColor='transparent'">
-                                            <i class="fa-solid fa-trash-can" style="font-size: 12px;"></i>
-                                        </button>
+                                        <div style="display: flex; align-items: center; gap: 4px;">
+                                            <button type="button" wire:click="moveUpCustomFlowSequence({{ $idx }})" {{ $idx === 0 ? 'disabled' : '' }} style="background: none; border: none; color: {{ $idx === 0 ? '#cbd5e1' : '#64748b' }}; cursor: {{ $idx === 0 ? 'not-allowed' : 'pointer' }}; padding: 6px; border-radius: 6px; transition: background 0.15s;" onmouseover="if({{ $idx !== 0 ? 'true' : 'false' }}) this.style.backgroundColor='#f1f5f9'" onmouseout="this.style.backgroundColor='transparent'">
+                                                <i class="fa-solid fa-arrow-up" style="font-size: 11px;"></i>
+                                            </button>
+                                            <button type="button" wire:click="moveDownCustomFlowSequence({{ $idx }})" {{ $idx === count($customFlowSequence) - 1 ? 'disabled' : '' }} style="background: none; border: none; color: {{ $idx === count($customFlowSequence) - 1 ? '#cbd5e1' : '#64748b' }}; cursor: {{ $idx === count($customFlowSequence) - 1 ? 'not-allowed' : 'pointer' }}; padding: 6px; border-radius: 6px; transition: background 0.15s;" onmouseover="if({{ $idx !== count($customFlowSequence) - 1 ? 'true' : 'false' }}) this.style.backgroundColor='#f1f5f9'" onmouseout="this.style.backgroundColor='transparent'">
+                                                <i class="fa-solid fa-arrow-down" style="font-size: 11px;"></i>
+                                            </button>
+                                            <button type="button" wire:click="removeFromCustomFlowSequence({{ $idx }})" style="background: none; border: none; color: #ef4444; cursor: pointer; padding: 6px; border-radius: 6px; transition: background 0.15s;" onmouseover="this.style.backgroundColor='#fef2f2'" onmouseout="this.style.backgroundColor='transparent'">
+                                                <i class="fa-solid fa-trash-can" style="font-size: 11px;"></i>
+                                            </button>
+                                        </div>
                                     </div>
                                     @if($idx < count($customFlowSequence) - 1)
                                         <div style="display: flex; justify-content: center; margin: -4px 0; color: #cbd5e1;">

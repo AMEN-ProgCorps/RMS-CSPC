@@ -373,4 +373,41 @@ class DtsAccountControlTest extends TestCase
         DB::table('dts_transaction_details')->where('id', $txDetailsId)->delete();
         DB::table('dts_qr_code')->where('code_id', $qrCode)->delete();
     }
+
+    /**
+     * Test custom flow sequence reordering and removal functionality.
+     */
+    public function test_user_can_reorder_and_remove_offices_in_custom_flow()
+    {
+        Auth::login(User::find($this->standardUserId));
+
+        // Grant can_dts_create_own_flow and can_dts_use_internal permission to standard user
+        $role = role_list::find($this->standardRoleId);
+        $role->permissions->update([
+            'can_dts_use_internal' => true,
+            'can_dts_create_own_flow' => true,
+        ]);
+        Auth::setUser(User::find($this->standardUserId));
+
+        Volt::test('pages.dts.create.internal')
+            ->set('customFlowSelectedOffice', 'VPAA')
+            ->call('addToCustomFlowSequence')
+            ->set('customFlowSelectedOffice', 'ORIGIN')
+            ->call('addToCustomFlowSequence')
+            ->set('customFlowSelectedOffice', '[H]')
+            ->call('addToCustomFlowSequence')
+            ->assertSet('customFlowSequence', ['VPAA', 'ORIGIN', '[H]'])
+            
+            // Reorder: Move 'VPAA' down (index 0 down to index 1)
+            ->call('moveDownCustomFlowSequence', 0)
+            ->assertSet('customFlowSequence', ['ORIGIN', 'VPAA', '[H]'])
+
+            // Reorder: Move '[H]' up (index 2 up to index 1)
+            ->call('moveUpCustomFlowSequence', 2)
+            ->assertSet('customFlowSequence', ['ORIGIN', '[H]', 'VPAA'])
+
+            // Remove: Remove item at index 1 ('[H]')
+            ->call('removeFromCustomFlowSequence', 1)
+            ->assertSet('customFlowSequence', ['ORIGIN', 'VPAA']);
+    }
 }

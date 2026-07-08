@@ -1,0 +1,28 @@
+[
+    {
+        "session_id": "3eb8d1859fdec56b28c28ca1e64c6717",
+        "remember_token": "577a1f96e2a74028ffef415f23e325057944c6584224932084db6a8df351953d",
+        "username": "testuser@gmail.com",
+        "name": "John Lagriada",
+        "is_admin": false,
+        "expires_at": 1786038451,
+        "created_at": "2026-07-07 17:47:31",
+        "account_id": 6,
+        "first_name": "John",
+        "last_name": "Lagriada",
+        "office_id": null
+    },
+    {
+        "session_id": "488e518f57e4fb4f515cb3705f2998d6",
+        "remember_token": "970131e85983a7b0ccfdf8d0990ca8399c080d813fce6a8a2b84839914d5eba3",
+        "username": "admin@my.admin",
+        "name": "admin Administrator",
+        "is_admin": false,
+        "expires_at": 1786110443,
+        "created_at": "2026-07-08 13:47:23",
+        "account_id": 1,
+        "first_name": "admin",
+        "last_name": "Administrator",
+        "office_id": null
+    }
+]

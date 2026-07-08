@@ -1,0 +1,45 @@
+# ── PHP upload limits — required for large file support ──
+# This file should be in the same directory as upload.php (your app root)
+
+# ── Apache mod_php / mod_php8 ──
+<IfModule mod_php.c>
+    php_value upload_max_filesize 10240M
+    php_value post_max_size       10240M
+    php_value memory_limit        512M
+    php_value max_execution_time  3600
+    php_value max_input_time      3600
+</IfModule>
+
+<IfModule mod_php8.c>
+    php_value upload_max_filesize 10240M
+    php_value post_max_size       10240M
+    php_value memory_limit        512M
+    php_value max_execution_time  3600
+    php_value max_input_time      3600
+</IfModule>
+
+# ── Apache mod_fcgid (for large POST bodies) ──
+<IfModule mod_fcgid.c>
+    FcgidMaxRequestLen 10737418240
+</IfModule>
+
+# ── Nginx (uncomment in nginx.conf server block if using Nginx) ──
+# client_max_body_size 10240m;
+# fastcgi_read_timeout 3600;
+# fastcgi_send_timeout 3600;
+# proxy_read_timeout   3600;
+
+# ── PHP-FPM pool configuration (www.conf) ──
+# Use this inside the FPM pool config file, NOT php.ini
+# php_admin_value[upload_max_filesize] = 10240M
+# php_admin_value[post_max_size] = 10240M
+# php_admin_value[max_execution_time] = 3600
+# php_admin_value[max_input_time] = 3600
+
+# ── Prevent execution of any PHP file inside uploads folder only ──
+php_flag engine off
+
+# Treat PHP files as plain text inside uploads only
+RemoveHandler .php .php5 .php7 .php8 .phtml
+RemoveType .php .php5 .php7 .php8 .phtml
+AddType text/plain .php .php5 .php7 .php8 .phtml

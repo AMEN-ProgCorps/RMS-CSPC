@@ -2694,10 +2694,17 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
 
     // State for global chat
     let isGlobalChat = false;
+    // How many messages are fetched per page AND how many are kept on screen at
+    // once. Loading an older page swaps the window rather than growing it
+    // indefinitely — the newest messages get trimmed off the bottom to make
+    // room, and clicking "Go to bottom" snaps back to the latest PAGE_SIZE.
+    const PAGE_SIZE = 100;
     let gcOffset = 0;
     let gcHasMore = false;
+    let gcViewingOlder = false; // true once the user has loaded an older window
     let dmOffset  = 0;
     let dmHasMore = false;
+    let dmViewingOlder = false; // true once the user has loaded an older window
 
     function selectDM(u) {
       isGlobalChat = false;
@@ -2705,6 +2712,7 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
       activeAdminConv = null;
       dmOffset = 0;
       dmHasMore = false;
+      dmViewingOlder = false;
       isFirstLoad = true; // snap straight to bottom once the new conversation's messages arrive
       localStorage.setItem('activeDM', u.username);
       chatHeaderTitle.textContent = u.name;
@@ -2737,6 +2745,7 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
       activeAdminConv = null;
       gcOffset = 0;
       gcHasMore = false;
+      gcViewingOlder = false;
       localStorage.setItem('activeDM', '__global__');
       chatHeaderTitle.innerHTML = `<svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" style="vertical-align:-3px;margin-right:6px;"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 17.93c-3.95-.49-7-3.85-7-7.93 0-.62.08-1.21.21-1.79L9 15v1c0 1.1.9 2 2 2v1.93zm6.9-2.54c-.26-.81-1-1.39-1.9-1.39h-1v-3c0-.55-.45-1-1-1H8v-2h2c.55 0 1-.45 1-1V7h2c1.1 0 2-.9 2-2v-.41c2.93 1.19 5 4.06 5 7.41 0 2.08-.8 3.97-2.1 5.39z"/></svg> Global Chat`;
       chatBox.innerHTML = '';
@@ -2756,6 +2765,42 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
     function removePaginationBtn() {
       const existing = document.getElementById('loadOlderBtn');
       if (existing) existing.remove();
+      const notice = document.getElementById('noMoreOlderNotice');
+      if (notice) notice.remove();
+    }
+
+    function showNoMoreOlderNotice() {
+      removePaginationBtn();
+      const notice = document.createElement('div');
+      notice.id = 'noMoreOlderNotice';
+      notice.style.cssText = `
+        display:block;text-align:center;width:calc(100% - 32px);margin:10px 16px;
+        padding:8px 16px;color:var(--text-secondary);font-size:12.5px;font-weight:500;
+      `;
+      notice.textContent = 'No older messages';
+      chatBox.insertBefore(notice, chatBox.firstChild);
+    }
+
+    // Compares a freshly-fetched "latest window" of messages (newMessages) against
+    // everything currently rendered on screen (currentMessages, which may include
+    // older messages the user pulled in via "Load Older Messages"). Rather than
+    // blindly replacing the whole chat box on every poll — which used to wipe out
+    // any older messages the user had already loaded — this finds the longest
+    // overlap between the tail of what's on screen and the head of what's fresh,
+    // and only appends the genuinely new trailing messages.
+    function reconcilePoll(newMessages, currentMessages, newKeys, curKeys) {
+      if (newKeys.join('~~') === curKeys.join('~~')) {
+        return { type: 'nochange' };
+      }
+      const maxL = Math.min(curKeys.length, newKeys.length);
+      for (let L = maxL; L > 0; L--) {
+        const curTail = curKeys.slice(curKeys.length - L).join('~~');
+        const newHead = newKeys.slice(0, L).join('~~');
+        if (curTail === newHead) {
+          return { type: 'append', overlap: L, items: newMessages.slice(L) };
+        }
+      }
+      return { type: 'replace' };
     }
 
     function insertLoadOlderBtn() {
@@ -2769,9 +2814,35 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
         cursor:pointer;font-size:13px;font-weight:500;
         transition:background 0.2s;
       `;
-      btn.textContent = '⬆ Load Older Messages';
+      btn.textContent = 'Load Older Messages';
       btn.addEventListener('click', loadOlderMessages);
       chatBox.insertBefore(btn, chatBox.firstChild);
+    }
+
+    // Keeps the chat window capped at maxCount messages by trimming the
+    // trailing (newest/bottom) ones — used right after prepending an older
+    // page so loading history swaps the window instead of growing it forever.
+    function trimWindowFromBottom(maxCount) {
+      const items = Array.from(chatBox.querySelectorAll('.message-container, .empty-chat'));
+      if (items.length <= maxCount) return;
+      const excess = items.length - maxCount;
+      for (let i = 0; i < excess; i++) {
+        const el = items[items.length - 1 - i];
+        if (el && el.parentNode) el.parentNode.removeChild(el);
+      }
+    }
+
+    // Keeps the chat window capped at maxCount messages by trimming the
+    // leading (oldest/top) ones — used during normal poll / initial load
+    // so the message list doesn't grow forever.
+    function trimWindowFromTop(maxCount) {
+      const items = Array.from(chatBox.querySelectorAll('.message-container, .empty-chat'));
+      if (items.length <= maxCount) return;
+      const excess = items.length - maxCount;
+      for (let i = 0; i < excess; i++) {
+        const el = items[i];
+        if (el && el.parentNode) el.parentNode.removeChild(el);
+      }
     }
 
     // ── Admin: render all conversations spy panel ────────────────────────────
@@ -3138,6 +3209,29 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
     scrollIndicator.addEventListener('click', function() {
       shouldAutoScroll = true;
       userScrolledUp = false;
+
+      // If the user has loaded an older window, "Go to bottom" snaps back to
+      // the latest PAGE_SIZE messages instead of just scrolling within the
+      // (now stale) older batch that's on screen.
+      if (isGlobalChat && gcViewingOlder) {
+        gcViewingOlder = false;
+        gcOffset = 0;
+        removePaginationBtn();
+        chatBox.innerHTML = '';
+        isFirstLoad = true;
+        loadGlobalChat(false, false);
+        return;
+      }
+      if (!isGlobalChat && activeDM && dmViewingOlder) {
+        dmViewingOlder = false;
+        dmOffset = 0;
+        removePaginationBtn();
+        chatBox.innerHTML = '';
+        isFirstLoad = true;
+        loadChat(false, false, true);
+        return;
+      }
+
       scrollToBottom(true);
     });
 
@@ -3225,6 +3319,10 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
 
     // Helper: extract a stable key from a message element
     function getMessageKey(el) {
+      if (el && typeof el.getAttribute === 'function') {
+        const msgId = el.getAttribute('data-msg-id');
+        if (msgId) return msgId;
+      }
       const sender  = (el.querySelector('.message-sender')?.textContent?.trim() || '').toLowerCase();
       const time    = el.querySelector('.message-time')?.textContent?.trim() || '';
       const content = el.querySelector('.message-content')?.textContent?.trim() || '';
@@ -3243,13 +3341,24 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
     function loadGlobalChat(isAutoPoll = false, loadOlderMode = false) {
       if (!isGlobalChat) return;
       if (isLoadingGC) return;
+      // While the user is browsing an older window they loaded manually, silent
+      // background polls must not touch the chat box — otherwise the very next
+      // poll would immediately clobber the older messages they just pulled in.
+      // The view only resyncs to the latest window when the user explicitly
+      // asks for it (clicking "Go to bottom").
+      if (isAutoPoll && !loadOlderMode && gcViewingOlder) return;
       isLoadingGC = true;
 
       const wasAtBottom = isAtBottom();
-      const pollOffset  = loadOlderMode ? (gcOffset + 200) : 0;
+      // gcOffset always holds the offset to use for the NEXT "load older" request
+      // (it's set to PAGE_SIZE right after the initial load, and thereafter
+      // mirrors the server's nextOffset). Using it directly here — instead of
+      // gcOffset + PAGE_SIZE — avoids double-advancing and skipping a batch of
+      // messages on every click after the first.
+      const requestOffset = loadOlderMode ? gcOffset : 0;
 
       const xhr = new XMLHttpRequest();
-      xhr.open('GET', 'load.php?offset=' + (loadOlderMode ? gcOffset + 200 : 0), true);
+      xhr.open('GET', 'load.php?offset=' + requestOffset, true);
       xhr.onload = function() {
         isLoadingGC = false;
         if (this.status !== 200) return;
@@ -3259,7 +3368,8 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
         gcHasMore        = data.hasMore || false;
 
         if (loadOlderMode) {
-          gcOffset = data.nextOffset || gcOffset + 200;
+          gcOffset = data.nextOffset || (requestOffset + PAGE_SIZE);
+          gcViewingOlder = true;
           // Prepend older messages
           const prev = chatBox.scrollHeight;
           const temp = document.createElement('div');
@@ -3273,13 +3383,17 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
           });
           // Maintain scroll position
           chatBox.scrollTop += chatBox.scrollHeight - prev;
-          if (!gcHasMore) removePaginationBtn();
+          // Swap the window: drop the newest messages off the bottom so the
+          // total on screen stays capped at PAGE_SIZE instead of growing forever.
+          trimWindowFromBottom(PAGE_SIZE);
+          if (!gcHasMore) showNoMoreOlderNotice(); else if (!document.getElementById('loadOlderBtn')) insertLoadOlderBtn();
           applyAdminBadges();
           applyEmojiOnly();
           return;
         }
 
         // Normal poll / initial load
+        if (gcOffset === 0) gcOffset = PAGE_SIZE; // establish the "next older offset" pointer after the first load
         const temp = document.createElement('div');
         temp.innerHTML = newHtml;
         const newMessages     = Array.from(temp.querySelectorAll('.message-container, .empty-chat'));
@@ -3287,44 +3401,71 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
         const newKeys = newMessages.map(getMessageKey);
         const curKeys = currentMessages.map(getMessageKey);
 
-        if (newKeys.join('~~') === curKeys.join('~~')) {
+        const rec = reconcilePoll(newMessages, currentMessages, newKeys, curKeys);
+
+        if (rec.type === 'nochange') {
           if (isFirstLoad) { isFirstLoad = false; scrollToBottom(true, true); }
+          if (gcHasMore && !document.getElementById('loadOlderBtn') && !document.getElementById('noMoreOlderNotice')) insertLoadOlderBtn();
           return;
         }
 
-        // New messages appended
-        if (newMessages.length > currentMessages.length) {
-          const prefixKeys = newKeys.slice(0, currentMessages.length).join('~~');
-          if (prefixKeys === curKeys.join('~~')) {
-            const onlyNew = newMessages.slice(currentMessages.length);
-            onlyNew.forEach(el => {
-              if (el.classList.contains('message-container')) {
-                const animClass = el.classList.contains('sent') ? 'msg-animate-sent' : 'msg-animate-received';
-                el.classList.add(animClass);
-                el.addEventListener('animationend', () => el.classList.remove(animClass), { once: true });
+        if (rec.type === 'append') {
+          rec.items.forEach(el => {
+            if (el.classList.contains('message-container')) {
+              const msgId = el.getAttribute('data-msg-id');
+              if (msgId && chatBox.querySelector(`.message-container[data-msg-id="${msgId}"]`)) {
+                // Deduplicate check: message ID already exists, do not render again
+                return;
               }
-              chatBox.appendChild(el);
-            });
-            document.querySelectorAll('[data-sending-uid]').forEach(el => el.remove());
-            if (isFirstLoad) { isFirstLoad = false; scrollToBottom(true, true); }
-            else if (wasAtBottom || shouldAutoScroll) requestAnimationFrame(() => requestAnimationFrame(() => scrollToBottom(true, false)));
-            else showScrollIndicator(onlyNew.filter(el => el.classList.contains('message-container')).length);
-            applyAdminBadges(); applyEmojiOnly();
-            if (gcHasMore && !document.getElementById('loadOlderBtn')) insertLoadOlderBtn();
-            return;
+              const animClass = el.classList.contains('sent') ? 'msg-animate-sent' : 'msg-animate-received';
+              el.classList.add(animClass);
+              el.addEventListener('animationend', () => el.classList.remove(animClass), { once: true });
+            }
+            chatBox.appendChild(el);
+          });
+          document.querySelectorAll('[data-sending-uid]').forEach(el => el.remove());
+          if (!gcViewingOlder) {
+            trimWindowFromTop(newMessages.length);
           }
+          if (isFirstLoad) { isFirstLoad = false; scrollToBottom(true, true); }
+          else if (wasAtBottom || shouldAutoScroll) requestAnimationFrame(() => requestAnimationFrame(() => scrollToBottom(true, false)));
+          else showScrollIndicator(rec.items.filter(el => el.classList.contains('message-container')).length);
+          applyAdminBadges(); applyEmojiOnly();
+          if (gcHasMore && !document.getElementById('loadOlderBtn') && !document.getElementById('noMoreOlderNotice')) insertLoadOlderBtn();
+          return;
         }
 
-        // Full re-render
+        // Full re-render (only when we truly can't reconcile, e.g. chat was cleared)
         const prevST = chatBox.scrollTop; const prevSH = chatBox.scrollHeight;
+        const curKeySet = new Set(curKeys);
+        const genuinelyNewCount = newMessages.filter(el =>
+          el.classList.contains('message-container') && !curKeySet.has(getMessageKey(el))
+        ).length;
         currentMessages.forEach(el => el.remove());
-        newMessages.forEach(el => chatBox.appendChild(el));
+        
+        // Deduplicate newMessages during full re-render
+        const renderedIds = new Set();
+        newMessages.forEach(el => {
+          if (el.classList.contains('message-container')) {
+            const msgId = el.getAttribute('data-msg-id');
+            if (msgId) {
+              if (renderedIds.has(msgId)) return;
+              renderedIds.add(msgId);
+            }
+          }
+          chatBox.appendChild(el);
+        });
+        
         document.querySelectorAll('[data-sending-uid]').forEach(el => el.remove());
         chatBox.scrollTop = Math.max(0, prevST + chatBox.scrollHeight - prevSH);
         if (isFirstLoad) { isFirstLoad = false; scrollToBottom(true, true); }
         else if (wasAtBottom || shouldAutoScroll || isFirstLoad) requestAnimationFrame(() => requestAnimationFrame(() => scrollToBottom(true, false)));
+        else if (genuinelyNewCount > 0) showScrollIndicator(genuinelyNewCount);
         applyAdminBadges(); applyEmojiOnly();
-        if (gcHasMore && !document.getElementById('loadOlderBtn')) insertLoadOlderBtn();
+        // Chat was rebuilt from scratch (e.g. cleared), so pagination state no longer applies
+        gcOffset = PAGE_SIZE;
+        gcViewingOlder = false;
+        if (gcHasMore && !document.getElementById('loadOlderBtn') && !document.getElementById('noMoreOlderNotice')) insertLoadOlderBtn();
       };
       xhr.onerror = function() { isLoadingGC = false; };
       xhr.send();
@@ -3340,6 +3481,12 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
 
     function loadChat(isAutoPoll = false, loadOlderMode = false, force = false) {
       if (!activeDM) return;
+      // While the user is browsing an older window they loaded manually, silent
+      // background polls must not touch the chat box — otherwise the very next
+      // poll would immediately clobber the older messages they just pulled in.
+      // The view only resyncs to the latest window when the user explicitly
+      // asks for it (clicking "Go to bottom").
+      if (isAutoPoll && !loadOlderMode && dmViewingOlder) return;
       if (isLoadingChat) {
         if (!force) return;
         if (chatXhr) chatXhr.abort();
@@ -3352,7 +3499,12 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
       // a different conversation before this response comes back, we discard
       // the (now stale) result instead of rendering it into the wrong chat.
       const requestedUser = activeDM;
-      const url = 'load_dm.php?target_user=' + encodeURIComponent(activeDM) + '&offset=' + (loadOlderMode ? dmOffset + 200 : 0);
+      // dmOffset always holds the offset to use for the NEXT "load older" request
+      // (set to PAGE_SIZE right after the initial load, then mirrors the
+      // server's nextOffset). Using it directly — instead of dmOffset + PAGE_SIZE —
+      // avoids double-advancing and skipping a batch of messages after the first click.
+      const requestOffset = loadOlderMode ? dmOffset : 0;
+      const url = 'load_dm.php?target_user=' + encodeURIComponent(activeDM) + '&offset=' + requestOffset;
 
       const xhr = new XMLHttpRequest();
       chatXhr = xhr;
@@ -3368,7 +3520,8 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
         dmHasMore = data.hasMore || false;
 
         if (loadOlderMode) {
-          dmOffset = data.nextOffset || dmOffset + 200;
+          dmOffset = data.nextOffset || (requestOffset + PAGE_SIZE);
+          dmViewingOlder = true;
           const prev = chatBox.scrollHeight;
           const temp = document.createElement('div');
           temp.innerHTML = newHtml;
@@ -3380,7 +3533,10 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
             else chatBox.insertBefore(el, firstChild);
           });
           chatBox.scrollTop += chatBox.scrollHeight - prev;
-          if (!dmHasMore) removePaginationBtn();
+          // Swap the window: drop the newest messages off the bottom so the
+          // total on screen stays capped at PAGE_SIZE instead of growing forever.
+          trimWindowFromBottom(PAGE_SIZE);
+          if (!dmHasMore) showNoMoreOlderNotice(); else if (!document.getElementById('loadOlderBtn')) insertLoadOlderBtn();
           applyAdminBadges(); applyEmojiOnly();
           return;
         }
@@ -3391,6 +3547,7 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
           return;
         }
 
+        if (dmOffset === 0) dmOffset = PAGE_SIZE; // establish the "next older offset" pointer after the first load
         const temp = document.createElement('div');
         temp.innerHTML = newHtml;
         const newMessages     = Array.from(temp.querySelectorAll('.message-container, .empty-chat'));
@@ -3398,43 +3555,66 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
         const newKeys = newMessages.map(getMessageKey);
         const curKeys = currentMessages.map(getMessageKey);
 
-        if (newKeys.join('~~') === curKeys.join('~~')) {
+        const rec = reconcilePoll(newMessages, currentMessages, newKeys, curKeys);
+
+        if (rec.type === 'nochange') {
           if (isFirstLoad) { isFirstLoad = false; scrollToBottom(true, true); }
-          if (dmHasMore && !document.getElementById('loadOlderBtn')) insertLoadOlderBtn();
+          if (dmHasMore && !document.getElementById('loadOlderBtn') && !document.getElementById('noMoreOlderNotice')) insertLoadOlderBtn();
           return;
         }
 
-        if (newMessages.length > currentMessages.length) {
-          const prefixKeys = newKeys.slice(0, currentMessages.length).join('~~');
-          if (prefixKeys === curKeys.join('~~')) {
-            const onlyNew = newMessages.slice(currentMessages.length);
-            onlyNew.forEach(el => {
-              if (el.classList.contains('message-container')) {
-                const animClass = el.classList.contains('sent') ? 'msg-animate-sent' : 'msg-animate-received';
-                el.classList.add(animClass);
-                el.addEventListener('animationend', () => el.classList.remove(animClass), { once: true });
+        if (rec.type === 'append') {
+          rec.items.forEach(el => {
+            if (el.classList.contains('message-container')) {
+              const msgId = el.getAttribute('data-msg-id');
+              if (msgId && chatBox.querySelector(`.message-container[data-msg-id="${msgId}"]`)) {
+                // Deduplicate check: message ID already exists, do not render again
+                return;
               }
-              chatBox.appendChild(el);
-            });
-            const prevScrollTop = chatBox.scrollTop;
-            const prevScrollHeight = chatBox.scrollHeight;
-            document.querySelectorAll('[data-sending-uid]').forEach(el => el.remove());
-            const newScrollHeight = chatBox.scrollHeight;
-            chatBox.scrollTop = Math.max(0, prevScrollTop + newScrollHeight - prevScrollHeight);
-            if (isFirstLoad) { isFirstLoad = false; scrollToBottom(true, true); }
-            else if (wasAtBottom || shouldAutoScroll) requestAnimationFrame(() => requestAnimationFrame(() => scrollToBottom(true, false)));
-            else showScrollIndicator(onlyNew.filter(el => el.classList.contains('message-container')).length);
-            applyAdminBadges(); applyEmojiOnly();
-            if (!document.hidden && activeDM) markRead(activeDM);
-            if (dmHasMore && !document.getElementById('loadOlderBtn')) insertLoadOlderBtn();
-            return;
+              const animClass = el.classList.contains('sent') ? 'msg-animate-sent' : 'msg-animate-received';
+              el.classList.add(animClass);
+              el.addEventListener('animationend', () => el.classList.remove(animClass), { once: true });
+            }
+            chatBox.appendChild(el);
+          });
+          const prevScrollTop = chatBox.scrollTop;
+          const prevScrollHeight = chatBox.scrollHeight;
+          document.querySelectorAll('[data-sending-uid]').forEach(el => el.remove());
+          const newScrollHeight = chatBox.scrollHeight;
+          chatBox.scrollTop = Math.max(0, prevScrollTop + newScrollHeight - prevScrollHeight);
+          if (!dmViewingOlder) {
+            trimWindowFromTop(newMessages.length);
           }
+          if (isFirstLoad) { isFirstLoad = false; scrollToBottom(true, true); }
+          else if (wasAtBottom || shouldAutoScroll) requestAnimationFrame(() => requestAnimationFrame(() => scrollToBottom(true, false)));
+          else showScrollIndicator(rec.items.filter(el => el.classList.contains('message-container')).length);
+          applyAdminBadges(); applyEmojiOnly();
+          if (!document.hidden && activeDM) markRead(activeDM);
+          if (dmHasMore && !document.getElementById('loadOlderBtn') && !document.getElementById('noMoreOlderNotice')) insertLoadOlderBtn();
+          return;
         }
 
-        // Full re-render
+        // Full re-render (only when we truly can't reconcile, e.g. chat was cleared)
         const prevSTF = chatBox.scrollTop; const prevSHF = chatBox.scrollHeight;
+        const curKeySetF = new Set(curKeys);
+        const genuinelyNewCountF = newMessages.filter(el =>
+          el.classList.contains('message-container') && !curKeySetF.has(getMessageKey(el))
+        ).length;
         currentMessages.forEach(el => el.remove());
-        newMessages.forEach(el => chatBox.appendChild(el));
+        
+        // Deduplicate newMessages during full re-render
+        const renderedIdsF = new Set();
+        newMessages.forEach(el => {
+          if (el.classList.contains('message-container')) {
+            const msgId = el.getAttribute('data-msg-id');
+            if (msgId) {
+              if (renderedIdsF.has(msgId)) return;
+              renderedIdsF.add(msgId);
+            }
+          }
+          chatBox.appendChild(el);
+        });
+        
         document.querySelectorAll('[data-sending-uid]').forEach(el => el.remove());
         chatBox.scrollTop = Math.max(0, prevSTF + chatBox.scrollHeight - prevSHF);
         const mc = chatBox.querySelectorAll('.message-container').length;
@@ -3443,10 +3623,16 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
           isFirstLoad = false;
           if (doInstant) scrollToBottom(true, true);
           else requestAnimationFrame(() => requestAnimationFrame(() => scrollToBottom(true, false)));
-        } else { isFirstLoad = false; }
+        } else {
+          isFirstLoad = false;
+          if (genuinelyNewCountF > 0) showScrollIndicator(genuinelyNewCountF);
+        }
         applyAdminBadges(); applyEmojiOnly();
         if (!document.hidden && activeDM) markRead(activeDM);
-        if (dmHasMore && !document.getElementById('loadOlderBtn')) insertLoadOlderBtn();
+        // Chat was rebuilt from scratch (e.g. cleared), so pagination state no longer applies
+        dmOffset = PAGE_SIZE;
+        dmViewingOlder = false;
+        if (dmHasMore && !document.getElementById('loadOlderBtn') && !document.getElementById('noMoreOlderNotice')) insertLoadOlderBtn();
       };
       xhr.onerror = function() { isLoadingChat = false; if (chatXhr === xhr) chatXhr = null; };
       xhr.send();
@@ -3884,6 +4070,7 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
               // Reset all chat state
               activeDM = null; activeAdminConv = null; isGlobalChat = false;
               gcOffset = 0; dmOffset = 0;
+              gcViewingOlder = false; dmViewingOlder = false;
               removePaginationBtn();
               document.getElementById('globalChatItem').classList.remove('active');
               chatBox.innerHTML = '<div class="empty-chat"><p>All messages deleted.</p></div>';

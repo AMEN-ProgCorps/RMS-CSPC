@@ -13,13 +13,13 @@
         "office_id": null
     },
     {
-        "session_id": "488e518f57e4fb4f515cb3705f2998d6",
-        "remember_token": "970131e85983a7b0ccfdf8d0990ca8399c080d813fce6a8a2b84839914d5eba3",
+        "session_id": "f2d6845b9eb22b7beece4ed6024aa28c",
+        "remember_token": "636bbf47ce1aa1bc720924db96ab69c251f4b9fe419df4dcecc354a63c7a48f2",
         "username": "admin@my.admin",
         "name": "admin Administrator",
         "is_admin": false,
-        "expires_at": 1786110443,
-        "created_at": "2026-07-08 13:47:23",
+        "expires_at": 1786187105,
+        "created_at": "2026-07-09 11:05:05",
         "account_id": 1,
         "first_name": "admin",
         "last_name": "Administrator",

@@ -256,9 +256,10 @@ class GlobalChatManager
         // Sort by timestamp (microsecond precision)
         usort($messages, fn($a, $b) => strcmp($a['timestamp'], $b['timestamp']));
 
-        // Trim to 1000 messages max — delete physical upload files for pruned entries
-        if (count($messages) > 1000) {
-            $trimmed  = array_slice($messages, 0, count($messages) - 1000);
+        // Trim to 100 messages max — delete physical upload files for pruned entries
+        $maxMessages = 200;
+        if (count($messages) > $maxMessages) {
+            $trimmed  = array_slice($messages, 0, count($messages) - $maxMessages);
             $uploadsDir = UPLOADS_DIR;
             foreach ($trimmed as $old) {
                 if (($old['type'] ?? '') === 'upload' && !empty($old['message'])) {
@@ -271,7 +272,7 @@ class GlobalChatManager
                     }
                 }
             }
-            $messages = array_slice($messages, -1000);
+            $messages = array_slice($messages, -$maxMessages);
         }
 
         ftruncate($fp, 0);

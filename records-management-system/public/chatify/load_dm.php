@@ -5,8 +5,8 @@
 // GET params:
 //   target_id   (int, required — account_id of the other participant)
 //   target_user (string, fallback — email of the other participant)
-//   offset      (int, optional) — 0 = latest 200. offset=200 = prior 200, etc.
-//   limit       (int, optional) — messages per page, default/max 200
+//   offset      (int, optional) — 0 = latest 100. offset=100 = prior 100, etc.
+//   limit       (int, optional) — messages per page, default/max 100
 //
 // Returns JSON:
 //   { html: string, hasMore: bool, totalCount: int, offset: int }
@@ -57,7 +57,7 @@ if ($targetInfo === null) {
 }
 
 // ── Pagination ────────────────────────────────────────────────────────────────
-$limit  = 200;
+$limit  = 100;
 $offset = max(0, (int) ($_GET['offset'] ?? 0));
 
 // ── Load data ─────────────────────────────────────────────────────────────────

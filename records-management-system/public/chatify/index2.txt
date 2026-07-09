@@ -95,7 +95,7 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
 <!DOCTYPE html>
 <html>
 <head>
-  <title>Chatlify</title>
+  <title>Chatify - CSPC</title>
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover, interactive-widget=resizes-content">
   <meta charset="UTF-8">
   <link rel="icon" href="cspc.png" type="image/png" />
@@ -252,6 +252,12 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
       transition: background-color 0.3s ease, border-color 0.3s ease, transform 0.3s ease;
       z-index: 150;
     }
+
+    /* Suppress the open/close slide transition on initial page load so the
+       sidebar doesn't visibly slide/jump into place on refresh (mobile). */
+    .sidebar.no-anim {
+      transition: none !important;
+    }
     
     .sidebar-header {
       padding: 12px 16px;
@@ -297,6 +303,13 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
       flex: 1;
       overflow-y: auto;
       background-color: var(--bg-secondary);
+      /* Hide scrollbar but keep scroll functionality */
+      scrollbar-width: none; /* Firefox */
+      -ms-overflow-style: none; /* IE/Edge */
+    }
+
+    .sidebar-users::-webkit-scrollbar {
+      display: none; /* Chrome/Safari/Opera */
     }
 
     /* Admin conversations panel: independent, capped-height scroll area
@@ -311,6 +324,13 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
       flex: none;
       max-height: 200px;
       overflow-y: auto;
+      /* Hide scrollbar but keep scroll functionality */
+      scrollbar-width: none; /* Firefox */
+      -ms-overflow-style: none; /* IE/Edge */
+    }
+    
+    #adminConvsList::-webkit-scrollbar {
+      display: none; /* Chrome/Safari/Opera */
     }
     
     .user-item {
@@ -409,6 +429,129 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
     .user-item.has-unread .user-last-msg {
       color: var(--text-primary);
       font-weight: 500;
+    }
+
+    /* Notify button shown on each user-item (hidden until hover, always visible on touch/mobile) */
+    .notify-btn {
+      flex-shrink: 0;
+      width: 32px;
+      height: 32px;
+      border-radius: 50%;
+      border: none;
+      background: transparent;
+      color: var(--icon-color);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      margin-left: 4px;
+      opacity: 0;
+      transition: opacity 0.15s ease, background-color 0.15s ease, color 0.15s ease;
+    }
+    .user-item:hover .notify-btn {
+      opacity: 1;
+    }
+    @media (hover: none) {
+      /* Touch devices have no hover — keep the button reachable */
+      .notify-btn { opacity: 0.55; }
+    }
+    .notify-btn:hover {
+      background-color: var(--button-hover);
+      color: #1b74e4;
+    }
+    .notify-btn svg { width: 17px; height: 17px; display: block; }
+
+    /* Notify modal specifics */
+    .notify-target {
+      font-weight: 600;
+      color: var(--text-primary);
+    }
+    .notify-textarea {
+      width: 100%;
+      margin-top: 10px;
+      resize: none;
+      border: 1px solid var(--border-input);
+      background: var(--bg-input);
+      color: var(--text-primary);
+      border-radius: 8px;
+      padding: 10px 12px;
+      font-family: 'Inter', sans-serif;
+      font-size: 14px;
+      line-height: 1.4;
+    }
+    .notify-textarea:focus { outline: none; border-color: #1b74e4; }
+    .notify-char-count {
+      text-align: right;
+      font-size: 11px;
+      color: var(--text-secondary);
+      margin-top: 4px;
+    }
+    .notify-char-count.limit-reached { color: #c0392b; }
+
+    /* Incoming notification toasts */
+    .notify-toast-container {
+      position: fixed;
+      top: 16px;
+      right: 16px;
+      left: auto;
+      z-index: 3000;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      width: 320px;
+      max-width: calc(100vw - 32px);
+      pointer-events: none;
+    }
+    .notify-toast {
+      background: var(--bg-modal);
+      color: var(--text-primary);
+      border-radius: 10px;
+      box-shadow: 0 4px 16px var(--shadow-color);
+      padding: 12px 14px;
+      font-size: 13px;
+      line-height: 1.4;
+      animation: notifyToastIn 0.25s ease;
+      cursor: pointer;
+      pointer-events: auto;
+      max-width: 100%;
+      box-sizing: border-box;
+      overflow-wrap: anywhere;
+      word-break: break-word;
+      overflow: hidden;
+      display: -webkit-box;
+      -webkit-line-clamp: 3;
+      -webkit-box-orient: vertical;
+    }
+    .notify-toast.hide {
+      animation: notifyToastOut 0.2s ease forwards;
+    }
+    @keyframes notifyToastIn {
+      from { transform: translateX(30px); opacity: 0; }
+      to   { transform: translateX(0); opacity: 1; }
+    }
+    @keyframes notifyToastOut {
+      from { transform: translateX(0); opacity: 1; }
+      to   { transform: translateX(30px); opacity: 0; }
+    }
+    .notify-toast strong { color: var(--text-primary); }
+
+    @media (max-width: 480px) {
+      .notify-toast-container {
+        top: 10px;
+        right: 10px;
+        left: 10px;
+        width: auto;
+        max-width: none;
+      }
+    }
+
+    /* Modal shown when a notification toast is clicked */
+    #notifyContentModal .modal-body {
+      white-space: pre-wrap;
+      overflow-wrap: anywhere;
+      word-break: break-word;
+      max-height: 50vh;
+      overflow-y: auto;
     }
 
     .app-container {
@@ -1040,36 +1183,6 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
 
     #sendButton:active:not(:disabled) {
       transform: scale(0.97);
-    }
-
-    /* Upload button styles */
-    #uploadButton {
-      background: transparent;
-      border: none;
-      cursor: pointer;
-      padding: 0 12px;
-      outline: none;
-      opacity: 1;
-      height: 40px;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-    }
-
-    #uploadButton svg {
-      width: 20px;
-      height: 20px;
-      stroke: var(--icon-color);
-      transition: all 0.2s ease;
-    }
-
-    #uploadButton:hover svg {
-      stroke: var(--icon-hover);
-      transform: scale(1.1);
-    }
-
-    #uploadButton:disabled svg {
-      stroke: var(--text-secondary);
     }
 
     /* Modal Styles */
@@ -1770,7 +1883,7 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
     }
     .admin-input-badge {
       position: absolute;
-      right: 40px; /* leave room for upload button */
+      right: 12px;
       top: 50%;
       transform: translateY(-50%);
       display: none;
@@ -1794,6 +1907,10 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
       letter-spacing: 0.4px;
       text-transform: uppercase;
     }
+    /* Dark mode: keep badge text color consistent */
+    html[data-theme="dark"] .admin-input-badge span {
+      color: #5ea8ff;
+    }
 
     /* ── Verified (admin) badge on sender name ── */
     .verified-badge {
@@ -1814,7 +1931,7 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
       cursor: default;
     }
     .verified-badge::after {
-      content: 'Admin';
+      content: 'Super Admin';
       position: absolute;
       bottom: calc(100% + 4px);
       left: 50%;
@@ -1905,9 +2022,9 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
     <div class="sidebar-backdrop" id="sidebarBackdrop"></div>
 
     <!-- Sidebar -->
-    <div class="sidebar" id="sidebar">
+    <div class="sidebar no-anim" id="sidebar">
       <div class="sidebar-header">
-        <span style="flex-grow:1;">Chats</span>
+        <span style="flex-grow:1;">Chatify</span>
         <button id="closeSidebarBtn" class="clear-button" style="display:none;padding:0 8px;min-width:auto;">
           <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
         </button>
@@ -1950,7 +2067,7 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="19" y1="12" x2="5" y2="12"></line><polyline points="12 19 5 12 12 5"></polyline></svg>
           </button>
           <img src="cspc.png" alt="GhostLAN ghost logo" class="header-logo">
-          <h1 id="chatHeaderTitle">Chatlify</h1>
+          <h1 id="chatHeaderTitle"></h1>
         </div>
       
       <div class="header-buttons">
@@ -1993,21 +2110,14 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
           </svg>
           <input type="text" id="nameInput" placeholder="" required readonly value="<?php echo htmlspecialchars($user_name); ?>">
           <?php if ($is_admin): ?>
-          <span class="admin-input-badge" title="You are a verified admin">
+          <span class="admin-input-badge" title="You are the Super Admin">
             <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
               <circle cx="12" cy="12" r="12" fill="#1b74e4"/>
               <path d="M7 12.5l3.5 3.5 6.5-7" stroke="#fff" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
             </svg>
-            <span>Admin</span>
+            <span>Super Admin</span>
           </span>
           <?php endif; ?>
-          <!-- Upload button at the far right -->
-          <form id="uploadForm" enctype="multipart/form-data" style="position: absolute; right: 0; top: 50%; transform: translateY(-50%); display: flex; align-items: center; gap: 0;">
-            <input type="file" id="fileInput" name="files[]" multiple style="display:none;" />
-            <button type="button" id="uploadButton" style="background:transparent;border:none;cursor:pointer;padding:0 8px;outline:none;opacity:1;">
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#007700" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
-            </button>
-          </form>
         </div>
       </div>
 
@@ -2058,6 +2168,42 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
     </div>
   </div>
 
+  <!-- Notify Modal - available to every logged in user, including the admin -->
+  <div class="modal" id="notifyModal" aria-hidden="true">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h3>Notify User</h3>
+      </div>
+      <div class="modal-body">
+        <p>This will mention <span class="notify-target" id="notifyTargetName"></span> and send them a notification.</p>
+        <textarea id="notifyMessageInput" class="notify-textarea" rows="3" maxlength="250" placeholder="Add a message (optional)..."></textarea>
+        <div class="notify-char-count" id="notifyCharCount">0/250</div>
+      </div>
+      <div class="modal-footer">
+        <button class="modal-button cancel-button" id="notifyCancel">Cancel</button>
+        <button class="modal-button confirm-button" id="notifySend">Send</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Container where incoming "someone notified you" toasts appear -->
+  <div class="notify-toast-container" id="notifyToastContainer"></div>
+
+  <!-- Modal shown when a notification toast is clicked, shows full (up to 250 char) content -->
+  <div class="modal" id="notifyContentModal" aria-hidden="true">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h3 id="notifyContentTitle">Notification</h3>
+      </div>
+      <div class="modal-body">
+        <p id="notifyContentBody"></p>
+      </div>
+      <div class="modal-footer">
+        <button class="modal-button confirm-button" id="notifyContentClose" style="border-right:none;">Close</button>
+      </div>
+    </div>
+  </div>
+
   <?php if ($is_admin): ?>
   <!-- Delete All Messages Modal (Admin only) -->
   <div class="modal" id="deleteAllModal" aria-hidden="true">
@@ -2066,8 +2212,7 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
         <h3 style="color:#c0392b;">Delete all messages</h3>
       </div>
       <div class="modal-body">
-        <p>This will <strong>permanently delete</strong> every message in the entire system — all DMs, Global Chat, reactions, and read markers.</p>
-        <p>This operation <strong>cannot be undone</strong>.</p>
+        <p>This will <strong>permanently delete</strong> every message in the entire system — all DMs, and Global Chat will be remove.</p>
         <label for="deleteAllSecretInput" style="display:block;margin-top:10px;">Enter secret key to confirm:</label>
         <input type="password" id="deleteAllSecretInput" autocomplete="off" class="secret-key-input" />
         <div id="deleteAllSecretError" style="font-size:12px;display:none;margin-top:5px;text-align:center;"></div>
@@ -2102,6 +2247,17 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
     const backButton      = document.getElementById('backButton');
     const burgerButton    = document.getElementById('burgerButton');
     const closeSidebarBtn = document.getElementById('closeSidebarBtn');
+    const notifyModal        = document.getElementById('notifyModal');
+    const notifyTargetName   = document.getElementById('notifyTargetName');
+    const notifyMessageInput = document.getElementById('notifyMessageInput');
+    const notifyCharCount    = document.getElementById('notifyCharCount');
+    const notifyCancel       = document.getElementById('notifyCancel');
+    const notifySend         = document.getElementById('notifySend');
+    const notifyToastContainer = document.getElementById('notifyToastContainer');
+    const notifyContentModal   = document.getElementById('notifyContentModal');
+    const notifyContentTitle   = document.getElementById('notifyContentTitle');
+    const notifyContentBody    = document.getElementById('notifyContentBody');
+    const notifyContentClose   = document.getElementById('notifyContentClose');
 
     // Eye icon used to mark admin "spy" conversations (avoid emoji rendering
     // inconsistently across OS/browsers — use a proper inline SVG instead).
@@ -2255,12 +2411,152 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
         
         info.appendChild(nameRow);
         info.appendChild(msgEl);
-        
+
+        const notifyBtn = document.createElement('button');
+        notifyBtn.type = 'button';
+        notifyBtn.className = 'notify-btn';
+        notifyBtn.title = 'Notify ' + u.name;
+        notifyBtn.setAttribute('aria-label', 'Notify ' + u.name);
+        notifyBtn.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"></path><path d="M13.73 21a2 2 0 0 1-3.46 0"></path></svg>';
+        notifyBtn.onclick = function(e) {
+          e.stopPropagation();
+          openNotifyModal(u);
+        };
+
         item.appendChild(avatar);
         item.appendChild(info);
+        item.appendChild(notifyBtn);
         
         sidebarUsers.appendChild(item);
       });
+    }
+
+    // ── Notify feature: mention + notify any user from the sidebar list ──
+    let notifyTargetUser = null; // { account_id, username, name, ... } — same shape as fetch_users_dm.php's user objects
+
+    function openNotifyModal(user) {
+      notifyTargetUser = user;
+      notifyTargetName.textContent = '@' + user.username;
+      notifyMessageInput.value = '';
+      notifyCharCount.textContent = '0/250';
+      notifyCharCount.classList.remove('limit-reached');
+      notifyModal.classList.add('active');
+      notifyModal.setAttribute('aria-hidden', 'false');
+      setTimeout(() => notifyMessageInput.focus(), 50);
+    }
+
+    function closeNotifyModal() {
+      notifyModal.classList.remove('active');
+      notifyModal.setAttribute('aria-hidden', 'true');
+      notifyTargetUser = null;
+    }
+
+    notifyMessageInput.addEventListener('input', function() {
+      const len = notifyMessageInput.value.length;
+      notifyCharCount.textContent = len + '/250';
+      notifyCharCount.classList.toggle('limit-reached', len >= 250);
+    });
+
+    notifyCancel.addEventListener('click', closeNotifyModal);
+    notifyModal.addEventListener('click', function(e) {
+      if (e.target === notifyModal) closeNotifyModal();
+    });
+
+    notifySend.addEventListener('click', function() {
+      if (!notifyTargetUser) return;
+      const message = notifyMessageInput.value.slice(0, 250).trim();
+
+      notifySend.disabled = true;
+      const xhr = new XMLHttpRequest();
+      xhr.open('POST', 'notify.php', true);
+      xhr.setRequestHeader('Content-Type', 'application/x-www-form-urlencoded');
+      xhr.onload = function() {
+        notifySend.disabled = false;
+        // Whether it succeeds or fails, don't trap the user in the modal —
+        // just close it. Errors are logged for debugging.
+        if (this.status !== 200) {
+          console.error('Notify failed', this.status, this.responseText);
+        }
+        closeNotifyModal();
+      };
+      xhr.onerror = function() {
+        notifySend.disabled = false;
+        console.error('Notify request error');
+        closeNotifyModal();
+      };
+      xhr.send('recipient_id=' + encodeURIComponent(notifyTargetUser.account_id) + '&message=' + encodeURIComponent(message));
+    });
+
+    // ── Poll for incoming "someone notified you" toasts ──
+    function fetchNotifications() {
+      const xhr = new XMLHttpRequest();
+      xhr.open('GET', 'fetch_notifications.php', true);
+      xhr.onload = function() {
+        if (this.status !== 200) return;
+        try {
+          const data = JSON.parse(this.responseText);
+          (data.notifications || []).forEach(showNotifyToast);
+        } catch (e) { console.error('fetchNotifications parse error', e); }
+      };
+      xhr.send();
+    }
+
+    // Max characters to show in the toast preview before truncating with "..."
+    const TOAST_PREVIEW_LIMIT = 80;
+
+    function showNotifyToast(n) {
+      const toast = document.createElement('div');
+      toast.className = 'notify-toast';
+      if (n.message) {
+        const isLong = n.message.length > TOAST_PREVIEW_LIMIT;
+        const preview = isLong ? n.message.slice(0, TOAST_PREVIEW_LIMIT).trim() + '...' : n.message;
+        toast.innerHTML = '<strong>' + escapeHtml(n.sender) + '</strong> mentioned you: ' + escapeHtml(preview);
+      } else {
+        toast.innerHTML = '<strong>' + escapeHtml(n.sender) + '</strong> notified you';
+      }
+      const dismiss = () => {
+        toast.classList.add('hide');
+        setTimeout(() => toast.remove(), 200);
+      };
+      toast.onclick = () => {
+        showNotifyContentModal(n);
+        dismiss();
+      };
+      notifyToastContainer.appendChild(toast);
+      setTimeout(dismiss, 6000);
+    }
+
+    // ── Modal shown when a notification toast is clicked ──
+    function showNotifyContentModal(n) {
+      if (!notifyContentModal) return;
+      notifyContentTitle.textContent = n.sender ? (n.sender + ' notified you') : 'Notification';
+      const content = (n.message || '').slice(0, 250);
+      notifyContentBody.textContent = content || 'No message content.';
+      notifyContentModal.classList.add('active');
+      notifyContentModal.setAttribute('aria-hidden', 'false');
+      document.body.style.overflow = 'hidden';
+    }
+
+    function closeNotifyContentModal() {
+      if (!notifyContentModal) return;
+      notifyContentModal.classList.remove('active');
+      notifyContentModal.setAttribute('aria-hidden', 'true');
+      document.body.style.overflow = '';
+    }
+
+    if (notifyContentClose) {
+      notifyContentClose.addEventListener('click', closeNotifyContentModal);
+    }
+    if (notifyContentModal) {
+      notifyContentModal.addEventListener('click', function(e) {
+        if (e.target === notifyContentModal) closeNotifyContentModal();
+      });
+    }
+
+    function escapeHtml(str) {
+      const div = document.createElement('div');
+      div.textContent = String(str == null ? '' : str);
+      return div.innerHTML;
     }
 
     // Tab title notification system
@@ -2274,7 +2570,7 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
         if (document.hidden && !titleFlashInterval) {
           let toggled = false;
           titleFlashInterval = setInterval(() => {
-            document.title = toggled ? '(' + totalUnread + ') ' + originalTitle : '🔵 New message!';
+            document.title = toggled ? '(' + totalUnread + ') ' + originalTitle : 'New message!';
             toggled = !toggled;
           }, 1200);
         }
@@ -2499,7 +2795,6 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
         backButton.style.display = 'none';
         burgerButton.style.display = 'inline-flex';
       }
-      chatHeaderTitle.textContent = 'Chatlify';
       chatBox.innerHTML = '<div class="empty-chat"><p>Select a chat</p></div>';
       document.getElementById('globalChatItem').classList.remove('active');
       renderSidebarUsers();
@@ -2540,7 +2835,7 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
     function injectBadge(el) {
       const badge = document.createElement('span');
       badge.className = 'verified-badge';
-      badge.title = 'Admin';
+      badge.title = 'Super Admin';
       badge.innerHTML = `<svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
         <circle cx="12" cy="12" r="12" fill="#1b74e4"/>
         <path d="M7 12.5l3.5 3.5 6.5-7" stroke="#fff" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
@@ -2882,7 +3177,6 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
               chatBox.appendChild(el);
             });
             document.querySelectorAll('[data-sending-uid]').forEach(el => el.remove());
-            if (!isUploading()) document.querySelectorAll('[data-upload-uid]').forEach(el => el.remove());
             if (isFirstLoad) { isFirstLoad = false; scrollToBottom(true, true); }
             else if (wasAtBottom || shouldAutoScroll) requestAnimationFrame(() => requestAnimationFrame(() => scrollToBottom(true, false)));
             else showScrollIndicator(onlyNew.filter(el => el.classList.contains('message-container')).length);
@@ -2897,7 +3191,6 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
         currentMessages.forEach(el => el.remove());
         newMessages.forEach(el => chatBox.appendChild(el));
         document.querySelectorAll('[data-sending-uid]').forEach(el => el.remove());
-        if (!isUploading()) document.querySelectorAll('[data-upload-uid]').forEach(el => el.remove());
         chatBox.scrollTop = Math.max(0, prevST + chatBox.scrollHeight - prevSH);
         if (isFirstLoad) { isFirstLoad = false; scrollToBottom(true, true); }
         else if (wasAtBottom || shouldAutoScroll || isFirstLoad) requestAnimationFrame(() => requestAnimationFrame(() => scrollToBottom(true, false)));
@@ -2979,7 +3272,6 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
             const prevScrollTop = chatBox.scrollTop;
             const prevScrollHeight = chatBox.scrollHeight;
             document.querySelectorAll('[data-sending-uid]').forEach(el => el.remove());
-            if (!isUploading()) document.querySelectorAll('[data-upload-uid]').forEach(el => el.remove());
             const newScrollHeight = chatBox.scrollHeight;
             chatBox.scrollTop = Math.max(0, prevScrollTop + newScrollHeight - prevScrollHeight);
             if (isFirstLoad) { isFirstLoad = false; scrollToBottom(true, true); }
@@ -2997,7 +3289,6 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
         currentMessages.forEach(el => el.remove());
         newMessages.forEach(el => chatBox.appendChild(el));
         document.querySelectorAll('[data-sending-uid]').forEach(el => el.remove());
-        if (!isUploading()) document.querySelectorAll('[data-upload-uid]').forEach(el => el.remove());
         chatBox.scrollTop = Math.max(0, prevSTF + chatBox.scrollHeight - prevSHF);
         const mc = chatBox.querySelectorAll('.message-container').length;
         if (mc > 0 && (wasAtBottom || shouldAutoScroll || isFirstLoad)) {
@@ -3098,272 +3389,6 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
         document.body.style.overflow = '';
       }
     }
-
-    // Upload button logic
-    const uploadButton = document.getElementById('uploadButton');
-    const fileInput = document.getElementById('fileInput');
-    const uploadForm = document.getElementById('uploadForm');
-
-    // New: drop overlay element
-    const dropOverlay = document.getElementById('dropOverlay');
-
-    // ── Upload tracking: use a counter so multiple concurrent uploads work correctly ──
-    // isUploading = true only when at least one XHR is still in flight
-    let uploadingCount = 0;
-    function isUploading() { return uploadingCount > 0; }
-
-    // Each active upload gets a unique DOM id: upload-indicator-{uid}
-    // so multiple simultaneous uploads each have their own pinned bubble.
-    let uploadUidCounter = 0;
-
-    // ── Restore upload indicators after a page refresh ──
-    (function restoreUploadIndicators() {
-      let saved;
-      try { saved = JSON.parse(sessionStorage.getItem('chatlify_uploads') || 'null'); } catch(e) {}
-      if (!Array.isArray(saved) || saved.length === 0) return;
-
-      saved.forEach(function({ uid, label, initials }) {
-        const emptyChat = chatBox.querySelector('.empty-chat');
-        if (emptyChat) emptyChat.remove();
-        const ind = document.createElement('div');
-        ind.id = 'upload-indicator-' + uid;
-        ind.className = 'message-container sent';
-        ind.setAttribute('data-upload-uid', uid);
-        ind.innerHTML = `
-          <div class="message-bubble" style="opacity:0.55;min-width:160px;">
-            <div class="message-content" style="font-style:italic;font-size:13px;">
-              <span id="upload-label-${uid}">Uploading ${label}… (reconnecting…)</span>
-            </div>
-            <div style="margin-top:6px;height:3px;border-radius:2px;background:rgba(255,255,255,0.25);overflow:hidden;">
-              <div id="upload-bar-${uid}" style="height:100%;width:60%;background:rgba(255,255,255,0.8);border-radius:2px;"></div>
-            </div>
-          </div>
-          <div class="message-avatar">${initials}</div>
-        `;
-        // Append restored upload indicator to floating overlay so it doesn't reflow chat
-        const overlay1 = getSendingOverlay();
-        if (overlay1) overlay1.appendChild(ind);
-        else chatBox.appendChild(ind);
-        uploadingCount++;
-        shouldAutoScroll = true;
-        scrollToBottom(true);
-      });
-
-      // Poll until all restored indicators are replaced by real messages
-      let polls = 0;
-      const stalledInterval = setInterval(function() {
-        loadChat();
-        polls++;
-        // If no more upload indicators in DOM, all done
-        if (!document.querySelector('[data-upload-uid]')) {
-          sessionStorage.removeItem('chatlify_uploads');
-          uploadingCount = 0;
-          clearInterval(stalledInterval);
-          return;
-        }
-        if (polls > 60) { // ~2 min timeout
-          document.querySelectorAll('[data-upload-uid]').forEach(el => el.remove());
-          sessionStorage.removeItem('chatlify_uploads');
-          uploadingCount = 0;
-          clearInterval(stalledInterval);
-        }
-      }, 2000);
-    })();
-
-    // ── Helper: save active uploads to sessionStorage ──
-    function saveUploadSession(uid, label, initials) {
-      let saved = [];
-      try { saved = JSON.parse(sessionStorage.getItem('chatlify_uploads') || '[]'); } catch(e) {}
-      saved.push({ uid, label, initials });
-      sessionStorage.setItem('chatlify_uploads', JSON.stringify(saved));
-    }
-    function clearUploadSession(uid) {
-      let saved = [];
-      try { saved = JSON.parse(sessionStorage.getItem('chatlify_uploads') || '[]'); } catch(e) {}
-      saved = saved.filter(s => s.uid !== uid);
-      if (saved.length === 0) sessionStorage.removeItem('chatlify_uploads');
-      else sessionStorage.setItem('chatlify_uploads', JSON.stringify(saved));
-    }
-
-    // Helper: upload FileList or File[] to upload.php
-    function uploadFiles(fileList) {
-      if (!fileList || fileList.length === 0) return;
-
-      if (!activeDM && !isGlobalChat) {
-        alert("Please select a chat before uploading files.");
-        nameInput.focus();
-        return;
-      }
-
-      const formData = new FormData();
-      for (let i = 0; i < fileList.length; i++) {
-        formData.append('files[]', fileList[i]);
-      }
-      const savedName = userName || "Unknown";
-      formData.append('uploader', savedName.trim());
-      if (activeDM) formData.append('target_user', activeDM);
-
-      const fileNames = Array.from(fileList).map(f => f.name);
-      const label = fileNames.length === 1 ? fileNames[0] : fileNames.length + ' files';
-      const initials = getInitials(savedName.trim());
-
-      // Each upload gets a unique id so multiple uploads don't clash
-      const uid = ++uploadUidCounter;
-      const indId  = 'upload-indicator-' + uid;
-      const barId  = 'upload-bar-' + uid;
-      const lblId  = 'upload-label-' + uid;
-
-      // Remove empty-chat placeholder if present
-      const emptyChat = chatBox.querySelector('.empty-chat');
-      if (emptyChat) emptyChat.remove();
-
-      // Persist so a refresh can restore this indicator
-      saveUploadSession(uid, label, initials);
-
-      // Create pinned indicator bubble — stays at the position it was created
-      uploadingCount++;
-      const uploadIndicator = document.createElement('div');
-      uploadIndicator.id = indId;
-      uploadIndicator.className = 'message-container sent msg-animate-sent';
-      uploadIndicator.setAttribute('data-upload-uid', uid);
-      uploadIndicator.addEventListener('animationend', () => uploadIndicator.classList.remove('msg-animate-sent'), { once: true });
-      uploadIndicator.innerHTML = `
-        <div class="message-bubble" style="opacity:0.55;min-width:160px;">
-          <div class="message-content" style="font-style:italic;font-size:13px;">
-            <span id="${lblId}">Uploading ${label}…</span>
-          </div>
-          <div style="margin-top:6px;height:3px;border-radius:2px;background:rgba(255,255,255,0.25);overflow:hidden;">
-            <div id="${barId}" style="height:100%;width:0%;background:rgba(255,255,255,0.8);border-radius:2px;transition:width 0.3s ease;"></div>
-          </div>
-        </div>
-        <div class="message-avatar">${initials}</div>
-      `;
-      // Append upload indicator into the floating overlay so it doesn't disrupt chat flow
-      const overlay2 = getSendingOverlay();
-      if (overlay2) overlay2.appendChild(uploadIndicator);
-      else chatBox.appendChild(uploadIndicator);
-      shouldAutoScroll = true;
-      userScrolledUp = false;
-      if (isAtBottom()) scrollToBottom(true);
-
-      const xhr = new XMLHttpRequest();
-      xhr.open('POST', isGlobalChat ? 'upload.php' : 'upload_dm.php', true);
-
-      // Progress: cap at 95% — 100% only shows after server responds (xhr.onload)
-      xhr.upload.addEventListener('progress', function(e) {
-        if (!e.lengthComputable) return;
-        // Cap at 95 so "100%" only appears when the server is truly done
-        const pct = Math.min(95, Math.round((e.loaded / e.total) * 100));
-        const bar = document.getElementById(barId);
-        const lbl = document.getElementById(lblId);
-        if (bar) bar.style.width = pct + '%';
-        if (lbl) lbl.textContent = 'Uploading ' + label + '… ' + pct + '%';
-      });
-
-      xhr.onload = function () {
-        // Show 100% briefly before handing off to loadChat
-        const bar = document.getElementById(barId);
-        const lbl = document.getElementById(lblId);
-        if (bar) bar.style.width = '100%';
-        if (lbl) lbl.textContent = 'Uploading ' + label + '… 100%';
-
-        uploadingCount = Math.max(0, uploadingCount - 1);
-        clearUploadSession(uid);
-        try { fileInput.value = ''; } catch(e) {}
-        // Wait a moment so the 100% is visible, then let load fn remove this indicator
-        if (isGlobalChat) setTimeout(() => loadGlobalChat(false), 400);
-        else setTimeout(loadChat, 400);
-      };
-
-      xhr.onerror = function() {
-        uploadingCount = Math.max(0, uploadingCount - 1);
-        clearUploadSession(uid);
-        const ind = document.getElementById(indId);
-        if (ind) ind.remove();
-        setTimeout(loadChat, 300);
-      };
-
-      xhr.send(formData);
-    }
-
-    // Existing upload button logic
-    uploadButton.addEventListener('click', function(e) {
-      if (!isUploadAllowed()) {
-        alert("Please enter a username before uploading files.");
-        nameInput.focus();
-        return;
-      }
-      fileInput.click();
-    });
-
-    fileInput.addEventListener('change', function(e) {
-      if (fileInput.files.length > 0) {
-        uploadFiles(fileInput.files);
-      }
-    });
-
-    // Prevent default behavior for drag events on window so files don't open
-    window.addEventListener('dragover', function (e) { e.preventDefault(); }, false);
-    window.addEventListener('drop', function (e) { e.preventDefault(); }, false);
-
-    // Drag & drop handlers on the chat box
-    chatBox.addEventListener('dragenter', function (e) {
-      e.preventDefault();
-      e.stopPropagation();
-      
-      // Check if upload is allowed before showing drop overlay
-      if (!activeDM) {
-        return;
-      }
-      
-      chatBox.classList.add('drag-over');
-      dropOverlay.classList.add('visible');
-    }, false);
-
-    chatBox.addEventListener('dragover', function (e) {
-      e.preventDefault();
-      
-      // Check if upload is allowed
-      if (!isUploadAllowed()) {
-        e.dataTransfer.dropEffect = 'none';
-        return;
-      }
-      
-      e.dataTransfer.dropEffect = 'copy';
-      // keep overlay visible
-      chatBox.classList.add('drag-over');
-      dropOverlay.classList.add('visible');
-    }, false);
-
-    chatBox.addEventListener('dragleave', function (e) {
-      // Only hide if leaving the chat-box bounds
-      const rect = chatBox.getBoundingClientRect();
-      const x = e.clientX, y = e.clientY;
-      if (x < rect.left || x > rect.right || y < rect.top || y > rect.bottom) {
-        chatBox.classList.remove('drag-over');
-        dropOverlay.classList.remove('visible');
-      }
-    }, false);
-
-    chatBox.addEventListener('drop', function (e) {
-      e.preventDefault();
-      e.stopPropagation();
-      chatBox.classList.remove('drag-over');
-      dropOverlay.classList.remove('visible');
-
-      // Check if upload is allowed
-      if (!activeDM) {
-        alert("Please select a chat before uploading files.");
-        nameInput.focus();
-        return;
-      }
-
-      const items = e.dataTransfer.files;
-      if (items && items.length > 0) {
-        // Upload dropped files
-        uploadFiles(items);
-      }
-    }, false);
 
     // Counter for unique sending-indicator IDs (supports rapid-fire sends)
     let sendingUidCounter = 0;
@@ -3714,7 +3739,6 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
               gcOffset = 0; dmOffset = 0;
               removePaginationBtn();
               document.getElementById('globalChatItem').classList.remove('active');
-              chatHeaderTitle.textContent = 'Chatlify';
               chatBox.innerHTML = '<div class="empty-chat"><p>All messages deleted.</p></div>';
               renderSidebarUsers();
               if (serverIsAdmin) renderAdminConvs();
@@ -3739,6 +3763,9 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
         }
         if (logoutModal && logoutModal.classList.contains('active')) {
           closeLogoutModal();
+        }
+        if (notifyContentModal && notifyContentModal.classList.contains('active')) {
+          closeNotifyContentModal();
         }
       }
       
@@ -3899,11 +3926,25 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
     // iOS Safari: handled above via visualViewport API.
     //
 
+    // Set up mobile layout immediately (synchronously), instead of waiting for
+    // window 'load' — 'load' only fires after ALL images/resources finish
+    // downloading, which can take a noticeable moment on mobile. Waiting that
+    // long meant the sidebar sat in its default (closed) state and then
+    // visibly slid open once 'load' finally fired. The sidebar already starts
+    // with the "no-anim" class in its HTML markup, so this initial pass never
+    // animates, no matter how early or late it runs.
+    setupMobileLayout();
+    // Re-enable the slide transition for subsequent user-triggered toggles
+    // (burger button, back button, etc.) once this initial state is committed.
+    void sidebar.offsetHeight;
+    requestAnimationFrame(function() {
+      requestAnimationFrame(function() {
+        sidebar.classList.remove('no-anim');
+      });
+    });
+
     // Initialize app
     window.addEventListener('load', function() {
-      // Setup mobile layout now that all DOM refs exist
-      setupMobileLayout();
-
       // Set the name input as readonly
       nameInput.readOnly = true;
       
@@ -3928,6 +3969,10 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
       // Poll sidebar users every 3 seconds
       setInterval(fetchUsers, 3000);
       fetchUsers();
+
+      // Poll for incoming notify/mention toasts every 4 seconds
+      setInterval(fetchNotifications, 4000);
+      fetchNotifications();
     });
     
     // Handle page visibility change
@@ -4086,4 +4131,6 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
     // Emoji Reaction System Completely Removed
   </script>
 </body>
-</html>
+</html> 
+
+(WITH NOTIFICATION)

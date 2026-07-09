@@ -431,6 +431,129 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
       font-weight: 500;
     }
 
+    /* Notify button shown on each user-item (hidden until hover, always visible on touch/mobile) */
+    .notify-btn {
+      flex-shrink: 0;
+      width: 32px;
+      height: 32px;
+      border-radius: 50%;
+      border: none;
+      background: transparent;
+      color: var(--icon-color);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      margin-left: 4px;
+      opacity: 0;
+      transition: opacity 0.15s ease, background-color 0.15s ease, color 0.15s ease;
+    }
+    .user-item:hover .notify-btn {
+      opacity: 1;
+    }
+    @media (hover: none) {
+      /* Touch devices have no hover — keep the button reachable */
+      .notify-btn { opacity: 0.55; }
+    }
+    .notify-btn:hover {
+      background-color: var(--button-hover);
+      color: #1b74e4;
+    }
+    .notify-btn svg { width: 17px; height: 17px; display: block; }
+
+    /* Notify modal specifics */
+    .notify-target {
+      font-weight: 600;
+      color: var(--text-primary);
+    }
+    .notify-textarea {
+      width: 100%;
+      margin-top: 10px;
+      resize: none;
+      border: 1px solid var(--border-input);
+      background: var(--bg-input);
+      color: var(--text-primary);
+      border-radius: 8px;
+      padding: 10px 12px;
+      font-family: 'Inter', sans-serif;
+      font-size: 14px;
+      line-height: 1.4;
+    }
+    .notify-textarea:focus { outline: none; border-color: #1b74e4; }
+    .notify-char-count {
+      text-align: right;
+      font-size: 11px;
+      color: var(--text-secondary);
+      margin-top: 4px;
+    }
+    .notify-char-count.limit-reached { color: #c0392b; }
+
+    /* Incoming notification toasts */
+    .notify-toast-container {
+      position: fixed;
+      top: 16px;
+      right: 16px;
+      left: auto;
+      z-index: 3000;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      width: 320px;
+      max-width: calc(100vw - 32px);
+      pointer-events: none;
+    }
+    .notify-toast {
+      background: var(--bg-modal);
+      color: var(--text-primary);
+      border-radius: 10px;
+      box-shadow: 0 4px 16px var(--shadow-color);
+      padding: 12px 14px;
+      font-size: 13px;
+      line-height: 1.4;
+      animation: notifyToastIn 0.25s ease;
+      cursor: pointer;
+      pointer-events: auto;
+      max-width: 100%;
+      box-sizing: border-box;
+      overflow-wrap: anywhere;
+      word-break: break-word;
+      overflow: hidden;
+      display: -webkit-box;
+      -webkit-line-clamp: 3;
+      -webkit-box-orient: vertical;
+    }
+    .notify-toast.hide {
+      animation: notifyToastOut 0.2s ease forwards;
+    }
+    @keyframes notifyToastIn {
+      from { transform: translateX(30px); opacity: 0; }
+      to   { transform: translateX(0); opacity: 1; }
+    }
+    @keyframes notifyToastOut {
+      from { transform: translateX(0); opacity: 1; }
+      to   { transform: translateX(30px); opacity: 0; }
+    }
+    .notify-toast strong { color: var(--text-primary); }
+
+    @media (max-width: 480px) {
+      .notify-toast-container {
+        top: 10px;
+        right: 10px;
+        left: 10px;
+        width: auto;
+        max-width: none;
+      }
+    }
+
+    /* Modal shown when a notification toast is clicked */
+    #notifyContentModal .modal-body {
+      white-space: pre-wrap;
+      overflow-wrap: anywhere;
+      word-break: break-word;
+      max-height: 50vh;
+      overflow-y: auto;
+    }
+
     .app-container {
       display: flex;
       flex-direction: column;
@@ -1808,7 +1931,7 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
       cursor: default;
     }
     .verified-badge::after {
-      content: 'Admin';
+      content: 'Super Admin';
       position: absolute;
       bottom: calc(100% + 4px);
       left: 50%;
@@ -1987,12 +2110,12 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
           </svg>
           <input type="text" id="nameInput" placeholder="" required readonly value="<?php echo htmlspecialchars($user_name); ?>">
           <?php if ($is_admin): ?>
-          <span class="admin-input-badge" title="You are a verified admin">
+          <span class="admin-input-badge" title="You are the Super Admin">
             <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
               <circle cx="12" cy="12" r="12" fill="#1b74e4"/>
               <path d="M7 12.5l3.5 3.5 6.5-7" stroke="#fff" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
             </svg>
-            <span>Admin</span>
+            <span>Super Admin</span>
           </span>
           <?php endif; ?>
         </div>
@@ -2045,6 +2168,42 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
     </div>
   </div>
 
+  <!-- Notify Modal - available to every logged in user, including the admin -->
+  <div class="modal" id="notifyModal" aria-hidden="true">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h3>Notify User</h3>
+      </div>
+      <div class="modal-body">
+        <p>This will mention <span class="notify-target" id="notifyTargetName"></span> and send them a notification.</p>
+        <textarea id="notifyMessageInput" class="notify-textarea" rows="3" maxlength="250" placeholder="Add a message (optional)..."></textarea>
+        <div class="notify-char-count" id="notifyCharCount">0/250</div>
+      </div>
+      <div class="modal-footer">
+        <button class="modal-button cancel-button" id="notifyCancel">Cancel</button>
+        <button class="modal-button confirm-button" id="notifySend">Send</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Container where incoming "someone notified you" toasts appear -->
+  <div class="notify-toast-container" id="notifyToastContainer"></div>
+
+  <!-- Modal shown when a notification toast is clicked, shows full (up to 250 char) content -->
+  <div class="modal" id="notifyContentModal" aria-hidden="true">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h3 id="notifyContentTitle">Notification</h3>
+      </div>
+      <div class="modal-body">
+        <p id="notifyContentBody"></p>
+      </div>
+      <div class="modal-footer">
+        <button class="modal-button confirm-button" id="notifyContentClose" style="border-right:none;">Close</button>
+      </div>
+    </div>
+  </div>
+
   <?php if ($is_admin): ?>
   <!-- Delete All Messages Modal (Admin only) -->
   <div class="modal" id="deleteAllModal" aria-hidden="true">
@@ -2088,6 +2247,17 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
     const backButton      = document.getElementById('backButton');
     const burgerButton    = document.getElementById('burgerButton');
     const closeSidebarBtn = document.getElementById('closeSidebarBtn');
+    const notifyModal        = document.getElementById('notifyModal');
+    const notifyTargetName   = document.getElementById('notifyTargetName');
+    const notifyMessageInput = document.getElementById('notifyMessageInput');
+    const notifyCharCount    = document.getElementById('notifyCharCount');
+    const notifyCancel       = document.getElementById('notifyCancel');
+    const notifySend         = document.getElementById('notifySend');
+    const notifyToastContainer = document.getElementById('notifyToastContainer');
+    const notifyContentModal   = document.getElementById('notifyContentModal');
+    const notifyContentTitle   = document.getElementById('notifyContentTitle');
+    const notifyContentBody    = document.getElementById('notifyContentBody');
+    const notifyContentClose   = document.getElementById('notifyContentClose');
 
     // Eye icon used to mark admin "spy" conversations (avoid emoji rendering
     // inconsistently across OS/browsers — use a proper inline SVG instead).
@@ -2241,12 +2411,152 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
         
         info.appendChild(nameRow);
         info.appendChild(msgEl);
-        
+
+        const notifyBtn = document.createElement('button');
+        notifyBtn.type = 'button';
+        notifyBtn.className = 'notify-btn';
+        notifyBtn.title = 'Notify ' + u.name;
+        notifyBtn.setAttribute('aria-label', 'Notify ' + u.name);
+        notifyBtn.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"></path><path d="M13.73 21a2 2 0 0 1-3.46 0"></path></svg>';
+        notifyBtn.onclick = function(e) {
+          e.stopPropagation();
+          openNotifyModal(u);
+        };
+
         item.appendChild(avatar);
         item.appendChild(info);
+        item.appendChild(notifyBtn);
         
         sidebarUsers.appendChild(item);
       });
+    }
+
+    // ── Notify feature: mention + notify any user from the sidebar list ──
+    let notifyTargetUser = null; // { account_id, username, name, ... } — same shape as fetch_users_dm.php's user objects
+
+    function openNotifyModal(user) {
+      notifyTargetUser = user;
+      notifyTargetName.textContent = '@' + user.username;
+      notifyMessageInput.value = '';
+      notifyCharCount.textContent = '0/250';
+      notifyCharCount.classList.remove('limit-reached');
+      notifyModal.classList.add('active');
+      notifyModal.setAttribute('aria-hidden', 'false');
+      setTimeout(() => notifyMessageInput.focus(), 50);
+    }
+
+    function closeNotifyModal() {
+      notifyModal.classList.remove('active');
+      notifyModal.setAttribute('aria-hidden', 'true');
+      notifyTargetUser = null;
+    }
+
+    notifyMessageInput.addEventListener('input', function() {
+      const len = notifyMessageInput.value.length;
+      notifyCharCount.textContent = len + '/250';
+      notifyCharCount.classList.toggle('limit-reached', len >= 250);
+    });
+
+    notifyCancel.addEventListener('click', closeNotifyModal);
+    notifyModal.addEventListener('click', function(e) {
+      if (e.target === notifyModal) closeNotifyModal();
+    });
+
+    notifySend.addEventListener('click', function() {
+      if (!notifyTargetUser) return;
+      const message = notifyMessageInput.value.slice(0, 250).trim();
+
+      notifySend.disabled = true;
+      const xhr = new XMLHttpRequest();
+      xhr.open('POST', 'notify.php', true);
+      xhr.setRequestHeader('Content-Type', 'application/x-www-form-urlencoded');
+      xhr.onload = function() {
+        notifySend.disabled = false;
+        // Whether it succeeds or fails, don't trap the user in the modal —
+        // just close it. Errors are logged for debugging.
+        if (this.status !== 200) {
+          console.error('Notify failed', this.status, this.responseText);
+        }
+        closeNotifyModal();
+      };
+      xhr.onerror = function() {
+        notifySend.disabled = false;
+        console.error('Notify request error');
+        closeNotifyModal();
+      };
+      xhr.send('recipient_id=' + encodeURIComponent(notifyTargetUser.account_id) + '&message=' + encodeURIComponent(message));
+    });
+
+    // ── Poll for incoming "someone notified you" toasts ──
+    function fetchNotifications() {
+      const xhr = new XMLHttpRequest();
+      xhr.open('GET', 'fetch_notifications.php', true);
+      xhr.onload = function() {
+        if (this.status !== 200) return;
+        try {
+          const data = JSON.parse(this.responseText);
+          (data.notifications || []).forEach(showNotifyToast);
+        } catch (e) { console.error('fetchNotifications parse error', e); }
+      };
+      xhr.send();
+    }
+
+    // Max characters to show in the toast preview before truncating with "..."
+    const TOAST_PREVIEW_LIMIT = 80;
+
+    function showNotifyToast(n) {
+      const toast = document.createElement('div');
+      toast.className = 'notify-toast';
+      if (n.message) {
+        const isLong = n.message.length > TOAST_PREVIEW_LIMIT;
+        const preview = isLong ? n.message.slice(0, TOAST_PREVIEW_LIMIT).trim() + '...' : n.message;
+        toast.innerHTML = '<strong>' + escapeHtml(n.sender) + '</strong> mentioned you: ' + escapeHtml(preview);
+      } else {
+        toast.innerHTML = '<strong>' + escapeHtml(n.sender) + '</strong> notified you';
+      }
+      const dismiss = () => {
+        toast.classList.add('hide');
+        setTimeout(() => toast.remove(), 200);
+      };
+      toast.onclick = () => {
+        showNotifyContentModal(n);
+        dismiss();
+      };
+      notifyToastContainer.appendChild(toast);
+      setTimeout(dismiss, 6000);
+    }
+
+    // ── Modal shown when a notification toast is clicked ──
+    function showNotifyContentModal(n) {
+      if (!notifyContentModal) return;
+      notifyContentTitle.textContent = n.sender ? (n.sender + ' notified you') : 'Notification';
+      const content = (n.message || '').slice(0, 250);
+      notifyContentBody.textContent = content || 'No message content.';
+      notifyContentModal.classList.add('active');
+      notifyContentModal.setAttribute('aria-hidden', 'false');
+      document.body.style.overflow = 'hidden';
+    }
+
+    function closeNotifyContentModal() {
+      if (!notifyContentModal) return;
+      notifyContentModal.classList.remove('active');
+      notifyContentModal.setAttribute('aria-hidden', 'true');
+      document.body.style.overflow = '';
+    }
+
+    if (notifyContentClose) {
+      notifyContentClose.addEventListener('click', closeNotifyContentModal);
+    }
+    if (notifyContentModal) {
+      notifyContentModal.addEventListener('click', function(e) {
+        if (e.target === notifyContentModal) closeNotifyContentModal();
+      });
+    }
+
+    function escapeHtml(str) {
+      const div = document.createElement('div');
+      div.textContent = String(str == null ? '' : str);
+      return div.innerHTML;
     }
 
     // Tab title notification system
@@ -2525,7 +2835,7 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
     function injectBadge(el) {
       const badge = document.createElement('span');
       badge.className = 'verified-badge';
-      badge.title = 'Admin';
+      badge.title = 'Super Admin';
       badge.innerHTML = `<svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
         <circle cx="12" cy="12" r="12" fill="#1b74e4"/>
         <path d="M7 12.5l3.5 3.5 6.5-7" stroke="#fff" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
@@ -3454,6 +3764,9 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
         if (logoutModal && logoutModal.classList.contains('active')) {
           closeLogoutModal();
         }
+        if (notifyContentModal && notifyContentModal.classList.contains('active')) {
+          closeNotifyContentModal();
+        }
       }
       
       // Press Space or Enter when scroll indicator is visible to scroll to bottom
@@ -3656,6 +3969,10 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
       // Poll sidebar users every 3 seconds
       setInterval(fetchUsers, 3000);
       fetchUsers();
+
+      // Poll for incoming notify/mention toasts every 4 seconds
+      setInterval(fetchNotifications, 4000);
+      fetchNotifications();
     });
     
     // Handle page visibility change

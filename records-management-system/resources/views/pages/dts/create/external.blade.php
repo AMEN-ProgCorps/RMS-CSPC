@@ -675,37 +675,43 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create External
                 }
             }
 
-            if ($resolvedPredefined !== $this->flow_offices) {
-                // Generate custom flow
-                $flowCode = 'FLOW-CUSTOM-' . strtoupper(Str::random(10));
-                $maxId = DB::table('dts_transaction_flow')->max('id') ?? 0;
-                $newFlowId = $maxId + 1;
-
-                DB::table('dts_transaction_flow')->insert([
-                    'flow_code' => $flowCode,
-                    'flow_name' => 'Modified Flow for ' . $controlNumber,
-                    'id' => $newFlowId,
-                    'is_active' => 1,
-                    'added_by' => auth()->id() ?? 1,
-                    'date_added' => now(),
-                    'flow_use' => 'external',
-                ]);
-
-                foreach ($this->flow_offices as $rank => $officeCode) {
-                    $toSave = $officeCode;
-                    if ($officeCode === $originOfficeCode) {
-                        $toSave = 'ORIGIN';
-                    } elseif ($officeCode === $clusterHead) {
-                        $toSave = '[H]';
-                    }
-
-                    DB::table('dts_sequence_list')->insert([
-                        'control_id' => $newFlowId,
-                        'sequence_ranking' => $rank + 1,
-                        'office_code' => $toSave,
-                    ]);
-                }
-            }
+            // Always copy the flow to dts_sequence_list to make it unique per transaction
+            if (true) {
+                 // Generate custom flow
+                 $flowCode = 'FLOW-CUSTOM-' . strtoupper(Str::random(10));
+                 $maxId = DB::table('dts_transaction_flow')->max('id') ?? 0;
+                 $newFlowId = $maxId + 1;
+ 
+                 DB::table('dts_transaction_flow')->insert([
+                     'flow_code' => $flowCode,
+                     'flow_name' => 'Flow for ' . $controlNumber . ' (' . $flowCode . ')',
+                     'id' => $newFlowId,
+                     'is_active' => 1,
+                     'added_by' => auth()->id() ?? 1,
+                     'date_added' => now(),
+                     'flow_use' => 'external',
+                 ]);
+ 
+                 foreach ($this->flow_offices as $rank => $officeCode) {
+                     $toSave = $officeCode;
+                     if ($officeCode === $originOfficeCode) {
+                         $toSave = 'ORIGIN';
+                     } elseif ($officeCode === $clusterHead) {
+                         $toSave = '[H]';
+                     }
+ 
+                     DB::table('dts_sequence_list')->insert([
+                         'control_id' => $newFlowId,
+                         'sequence_ranking' => $rank + 1,
+                         'office_code' => $toSave,
+                         'date_in' => ($rank === 0) ? now() : null,
+                         'date_out' => null,
+                         'action_needed' => ($rank === 0) ? 'Created' : null,
+                         'note' => ($rank === 0) ? 'Created external transaction' : null,
+                         'total_time_completed' => null,
+                     ]);
+                 }
+             }
 
             $currentOffice = $resolvedOffices[0] ?? $this->source_office;
 

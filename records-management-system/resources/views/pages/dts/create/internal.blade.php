@@ -712,7 +712,8 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create Internal
                 }
             }
 
-            if ($resolvedPredefined !== $this->flow_offices) {
+            // Always copy the flow to dts_sequence_list to make it unique per transaction
+            if (true) {
                 // Generate a custom/modified flow
                 $flowCode = 'FLOW-CUSTOM-' . strtoupper(Str::random(10));
                 $maxId = DB::table('dts_transaction_flow')->max('id') ?? 0;
@@ -720,7 +721,7 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create Internal
 
                 DB::table('dts_transaction_flow')->insert([
                     'flow_code' => $flowCode,
-                    'flow_name' => 'Modified Flow for ' . $controlNumber,
+                    'flow_name' => 'Flow for ' . $controlNumber . ' (' . $flowCode . ')',
                     'id' => $newFlowId,
                     'is_active' => 1,
                     'added_by' => auth()->id() ?? 1,
@@ -740,6 +741,11 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create Internal
                         'control_id' => $newFlowId,
                         'sequence_ranking' => $rank + 1,
                         'office_code' => $toSave,
+                        'date_in' => ($rank === 0) ? now() : null,
+                        'date_out' => null,
+                        'action_needed' => ($rank === 0) ? 'Created' : null,
+                        'note' => ($rank === 0) ? 'Created internal transaction' : null,
+                        'total_time_completed' => null,
                     ]);
                 }
             }

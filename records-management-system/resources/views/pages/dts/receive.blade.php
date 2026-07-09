@@ -199,31 +199,37 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Receive Transac
         if (!$flow) {
             return collect();
         }
+
+        $originOfficeCode = $this->selectedTransaction->originated_from;
+        $originOffice = DB::table('office')->where('office_code', $originOfficeCode)->first();
+        $originOfficeName = $originOffice ? $originOffice->office_name : 'Originated Office';
+        
+        $clusterHeadCode = $originOfficeCode;
+        $clusterHeadName = $originOfficeName;
+        if ($originOffice && $originOffice->cluster) {
+            $cluster = DB::table('cluster')->where('cluster_code', $originOffice->cluster)->first();
+            if ($cluster && $cluster->cluster_head) {
+                $clusterHeadCode = $cluster->cluster_head;
+                $headOffice = DB::table('office')->where('office_code', $cluster->cluster_head)->first();
+                if ($headOffice) {
+                    $clusterHeadName = $headOffice->office_name;
+                }
+            }
+        }
+
         return DB::table('dts_sequence_list as seq')
             ->join('office', 'office.office_code', '=', 'seq.office_code')
             ->where('seq.control_id', $flow->id)
-            ->select('seq.sequence_ranking', 'office.office_name', 'seq.office_code')
+            ->select('seq.sequence_ranking', 'office.office_name', 'seq.office_code', 'seq.date_in', 'seq.date_out', 'seq.action_needed', 'seq.note', 'seq.total_time_completed')
             ->orderBy('seq.sequence_ranking', 'asc')
             ->get()
-            ->map(function ($step) {
-                $log = DB::table('sub_document_tracking_system_logs')
-                    ->where('transaction_id', $this->selectedTransactionId)
-                    ->where('office_code', $step->office_code)
-                    ->orderBy('id', 'desc')
-                    ->first();
-
-                $step->date_in = $log ? $log->date_in : null;
-                $step->date_out = $log ? $log->date_out : null;
-                $step->type = $log ? $log->type : 'pending';
-                $step->notes = $log ? $log->notes : '';
-
-                if ($log) {
-                    $typeRow = DB::table('sub_document_tracking_system_logs_types')
-                        ->where('type_id', $log->type)
-                        ->first();
-                    $step->description = $typeRow ? $typeRow->description : '';
-                } else {
-                    $step->description = 'Pending office flow step.';
+            ->map(function ($step) use ($originOfficeCode, $originOfficeName, $clusterHeadCode, $clusterHeadName) {
+                if ($step->office_code === 'ORIGIN') {
+                    $step->office_code = $originOfficeCode;
+                    $step->office_name = $originOfficeName;
+                } elseif ($step->office_code === '[H]') {
+                    $step->office_code = $clusterHeadCode;
+                    $step->office_name = $clusterHeadName;
                 }
 
                 $step->is_active_step = (
@@ -233,13 +239,16 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Receive Transac
                     && in_array($this->selectedTransaction->status, ['ongoing', 'revision'])
                     && !is_null($step->date_in)
                 );
+                $step->description = $step->note ?: 'Pending office flow step.';
+                $step->type = $step->action_needed ?: 'pending';
+                $step->notes = $step->note ?: '';
                 return $step;
             });
     }
 
     public function getVisiblePathProperty()
     {
-        return $this->showFullConfiguredPath ? $this->fullFlowPath : $this->transactionPath;
+        return $this->fullFlowPath;
     }
 
     /**
@@ -340,10 +349,10 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Receive Transac
                 ->first();
             
             if ($activeLog) {
-                $this->activeAction = 'forwarded';
+                $this->activeAction = DB::table('dts_action_options')->orderBy('option_name', 'asc')->value('option_name') ?: 'For Approval';
                 $this->activeNotes = $activeLog->notes ?? '';
             } else {
-                $this->activeAction = 'forwarded';
+                $this->activeAction = DB::table('dts_action_options')->orderBy('option_name', 'asc')->value('option_name') ?: 'For Approval';
                 $this->activeNotes = '';
             }
         }
@@ -363,37 +372,115 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Receive Transac
             return;
         }
 
-        // 1. Close current step logs
-        $activeLog = DB::table('sub_document_tracking_system_logs')
-            ->where('transaction_id', $this->selectedTransactionId)
-            ->where('office_code', $userOfficeCode)
-            ->whereNull('date_out')
+        $flow = DB::table('dts_transaction_flow')
+            ->where('flow_code', $this->selectedTransaction->transaction_flow)
             ->first();
 
-        if ($activeLog) {
-            DB::table('sub_document_tracking_system_logs')
-                ->where('id', $activeLog->id)
-                ->update([
-                    'type' => $this->activeAction,
-                    'date_out' => now(),
-                    'notes' => $this->activeNotes,
-                    'performed_by' => auth()->id(),
-                ]);
+        if (!$flow) {
+            return;
         }
 
-        // 2. Perform step-forward routing or step-back revision
-        if ($this->activeAction === 'forwarded') {
-            $flowCode = $this->selectedTransaction->transaction_flow;
-            $flow = DB::table('dts_transaction_flow')
-                ->where('flow_code', $flowCode)
+        // Calculate time duration
+        $duration = null;
+        $currentStep = DB::table('dts_sequence_list')
+            ->where('control_id', $flow->id)
+            ->where('sequence_ranking', $this->selectedTransaction->sequence)
+            ->first();
+        if ($currentStep && $currentStep->date_in) {
+            $dateIn = \Carbon\Carbon::parse($currentStep->date_in);
+            $dateOut = now();
+            $diff = $dateIn->diff($dateOut);
+            $parts = [];
+            if ($diff->d > 0) {
+                $parts[] = $diff->d . ' ' . \Illuminate\Support\Str::plural('day', $diff->d);
+            }
+            if ($diff->h > 0) {
+                $parts[] = $diff->h . ' ' . \Illuminate\Support\Str::plural('hour', $diff->h);
+            }
+            if ($diff->i > 0) {
+                $parts[] = $diff->i . ' ' . \Illuminate\Support\Str::plural('minute', $diff->i);
+            }
+            if (empty($parts)) {
+                $parts[] = 'less than a minute';
+            }
+            $duration = implode(' ', $parts);
+        }
+
+        // Update current step in sequence list
+        DB::table('dts_sequence_list')
+            ->where('control_id', $flow->id)
+            ->where('sequence_ranking', $this->selectedTransaction->sequence)
+            ->update([
+                'date_out' => now(),
+                'action_needed' => $this->activeAction,
+                'note' => $this->activeNotes,
+                'total_time_completed' => $duration,
+            ]);
+
+        if ($this->activeAction === 'For Revision') {
+            // Returned for Revision
+            DB::table('dts_transactions')
+                ->where('transaction_id', $this->selectedTransactionId)
+                ->update([
+                    'current_office' => $this->selectedTransaction->originated_from,
+                    'sequence' => 1,
+                    'status' => 'revision',
+                ]);
+
+            // Reset subsequent steps and set first step as active again
+            DB::table('dts_sequence_list')
+                ->where('control_id', $flow->id)
+                ->where('sequence_ranking', '>', 1)
+                ->update([
+                    'date_in' => null,
+                    'date_out' => null,
+                    'action_needed' => null,
+                    'note' => null,
+                    'total_time_completed' => null,
+                ]);
+            DB::table('dts_sequence_list')
+                ->where('control_id', $flow->id)
+                ->where('sequence_ranking', 1)
+                ->update([
+                    'date_in' => now(),
+                    'date_out' => null,
+                    'action_needed' => 'Returned for Revision',
+                    'note' => $this->activeNotes,
+                    'total_time_completed' => null,
+                ]);
+
+            DB::table('sub_document_tracking_system_logs')->insert([
+                'transaction_id' => $this->selectedTransactionId,
+                'office_code' => $this->selectedTransaction->originated_from,
+                'type' => 'returned',
+                'date_in' => now(),
+                'date_out' => null,
+                'notes' => 'Returned for revision: ' . $this->activeNotes,
+                'performed_by' => auth()->id(),
+            ]);
+
+        } else {
+            // Forwarded/Completed logic
+            $nextSequence = DB::table('dts_sequence_list')
+                ->where('control_id', $flow->id)
+                ->where('sequence_ranking', $this->selectedTransaction->sequence + 1)
                 ->first();
 
-            $nextSequence = null;
-            if ($flow) {
-                $nextSequence = DB::table('dts_sequence_list')
-                    ->where('control_id', $flow->id)
-                    ->where('sequence_ranking', $this->selectedTransaction->sequence + 1)
-                    ->first();
+            // Also update the sub_document_tracking_system_logs completion of current step
+            $activeLog = DB::table('sub_document_tracking_system_logs')
+                ->where('transaction_id', $this->selectedTransactionId)
+                ->where('office_code', $userOfficeCode)
+                ->whereNull('date_out')
+                ->first();
+            if ($activeLog) {
+                DB::table('sub_document_tracking_system_logs')
+                    ->where('id', $activeLog->id)
+                    ->update([
+                        'type' => 'received',
+                        'date_out' => now(),
+                        'notes' => $this->activeNotes,
+                        'performed_by' => auth()->id(),
+                    ]);
             }
 
             if ($nextSequence) {
@@ -406,7 +493,19 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Receive Transac
                         'status' => 'ongoing',
                     ]);
 
-                // Create next step
+                // Update next step in sequence list
+                DB::table('dts_sequence_list')
+                    ->where('control_id', $flow->id)
+                    ->where('sequence_ranking', $this->selectedTransaction->sequence + 1)
+                    ->update([
+                        'date_in' => now(),
+                        'date_out' => null,
+                        'action_needed' => null,
+                        'note' => null,
+                        'total_time_completed' => null,
+                    ]);
+
+                // Create next pending log
                 DB::table('sub_document_tracking_system_logs')->insert([
                     'transaction_id' => $this->selectedTransactionId,
                     'office_code' => $nextSequence->office_code,
@@ -435,28 +534,8 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Receive Transac
                     'performed_by' => auth()->id(),
                 ]);
             }
-        } elseif ($this->activeAction === 'returned') {
-            // Revise and route back to originating office
-            DB::table('dts_transactions')
-                ->where('transaction_id', $this->selectedTransactionId)
-                ->update([
-                    'current_office' => $this->selectedTransaction->originated_from,
-                    'sequence' => 1,
-                    'status' => 'revision',
-                ]);
-
-            DB::table('sub_document_tracking_system_logs')->insert([
-                'transaction_id' => $this->selectedTransactionId,
-                'office_code' => $this->selectedTransaction->originated_from,
-                'type' => 'returned',
-                'date_in' => now(),
-                'date_out' => null,
-                'notes' => 'Returned for revision: ' . $this->activeNotes,
-                'performed_by' => auth()->id(),
-            ]);
         }
 
-        // 3. Save any manual field adjustments (Admin only)
         if (auth()->user()?->permissions?->is_sadm) {
             DB::table('dts_transaction_details')
                 ->where('id', $this->selectedTransactionId)
@@ -689,7 +768,6 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Receive Transac
                     <!-- Transaction Path Section -->
                     <h2 class="receive-title" style="font-size: 16px; margin-top: 10px;">Transaction Path</h2>
 
-                    <!-- Path Table -->
                     <div class="receive-table-wrap">
                         <table class="receive-table">
                             <thead>
@@ -698,10 +776,10 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Receive Transac
                                     <th>Office</th>
                                     <th>Date In</th>
                                     <th>Date Out</th>
+                                    <th>Total Time</th>
                                     <th>Action Need</th>
                                     <th>Notes</th>
                                     <th>Info</th>
-                                    <th>Actions</th>
                                 </tr>
                             </thead>
                             <tbody>
@@ -709,24 +787,29 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Receive Transac
                                     <tr>
                                         <td>{{ $step->sequence_ranking ?? ($index + 1) }}</td>
                                         <td class="office-cell">{{ $step->office_name }}</td>
-                                        <td>{{ $step->date_in ? \Carbon\Carbon::parse($step->date_in)->format('Y-m-d H:i') : 'N/A' }}</td>
-                                        <td>{{ $step->date_out ? \Carbon\Carbon::parse($step->date_out)->format('Y-m-d H:i') : 'Pending' }}</td>
+                                        <td>{{ $step->date_in ? \Carbon\Carbon::parse($step->date_in)->format('Y-m-d') : 'N/A' }}</td>
+                                        <td>{{ $step->date_out ? \Carbon\Carbon::parse($step->date_out)->format('Y-m-d') : ($step->date_in ? 'Pending' : 'N/A') }}</td>
+                                        <td>{{ $step->total_time_completed ?: '-' }}</td>
                                         <td>
                                             @if ($step->is_active_step)
-                                                <span class="text-green font-semibold" style="text-transform: uppercase;">Active</span>
+                                                <select wire:model="activeAction" class="receive-row-action-select" style="padding: 4px 8px; border: 1px solid #cbd5e1; border-radius: 6px; font-size: 12.5px; font-weight: 500;">
+                                                    @foreach(DB::table('dts_action_options')->orderBy('option_name', 'asc')->pluck('option_name') as $opt)
+                                                        <option value="{{ $opt }}">{{ $opt }}</option>
+                                                    @endforeach
+                                                </select>
                                             @else
-                                                {{ ucfirst($step->type) }}
+                                                {{ $step->action_needed ?: ($step->date_in ? 'Ongoing' : 'Pending') }}
                                             @endif
                                         </td>
                                         <td>
                                             @if ($step->is_active_step)
                                                 <input type="text" wire:model="activeNotes" class="active-notes-input" placeholder="Type notes here...">
                                             @else
-                                                {{ $step->notes ?: '-' }}
+                                                {{ $step->note ?: '-' }}
                                             @endif
                                         </td>
                                         <td>
-                                            <button type="button" class="receive-info-btn" title="{{ $step->description ?? '' }}">
+                                            <button type="button" class="receive-info-btn" title="{{ $step->note ?? ($step->date_in ? 'Active flow step.' : 'Pending office flow step.') }}">
                                                 <svg class="table-icon" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" style="width: 14px; height: 14px; stroke: currentColor;">
                                                     <circle cx="12" cy="12" r="10" stroke-width="1.5" fill="none"/>
                                                     <circle cx="12" cy="12" r="2" fill="currentColor"/>
@@ -734,16 +817,6 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Receive Transac
                                                     <circle cx="7" cy="12" r="2" fill="currentColor"/>
                                                 </svg>
                                             </button>
-                                        </td>
-                                        <td class="action-cell">
-                                            @if ($step->is_active_step)
-                                                <select wire:model="activeAction" class="receive-row-action-select">
-                                                    <option value="forwarded">Forward</option>
-                                                    <option value="returned">Revise</option>
-                                                </select>
-                                            @else
-                                                <span style="color: #9ca3af; font-size: 11px; font-style: italic;">Processed</span>
-                                            @endif
                                         </td>
                                     </tr>
                                 @empty
@@ -814,16 +887,67 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Receive Transac
                             </button>
                         @endif
 
-                        <!-- BARCODE (Alert control number info) -->
-                        <button type="button" class="receive-action-btn" onclick="alert('Barcode scan ID: ' + '{{ $selectedTransaction->qr_code ?? '' }}')">
+                        <!-- VIEW QRCODE (Modal control number info) -->
+                        <button type="button" class="receive-action-btn" onclick="openQrViewModal('{{ $selectedTransaction->qr_code ?? '' }}')">
                             <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-                                <path d="M3 5h2v14H3zM7 5h2v14H7zM11 5h2v14h-2zM15 5h2v14h-2zM19 5h2v14h-2z"/>
+                                <rect x="3" y="3" width="7" height="7"></rect>
+                                <rect x="14" y="3" width="7" height="7"></rect>
+                                <rect x="14" y="14" width="7" height="7"></rect>
+                                <rect x="3" y="14" width="7" height="7"></rect>
                             </svg>
-                            BARCODE
+                            VIEW QRCODE
                         </button>
                     </div>
                 </form>
             </div>
         </div>
     @endif
+
+    <!-- View QR Code Modal -->
+    <div id="dts-qr-view-modal" class="modal-backdrop" style="display: none; z-index: 10000; align-items: center; justify-content: center;" onclick="closeQrViewModal()">
+        <div class="modal-content" style="max-width: 320px; padding: 24px; text-align: center; position: relative; border-radius: 12px; display: flex; flex-direction: column; align-items: center; gap: 16px;" onclick="event.stopPropagation()">
+            <button type="button" class="modal-close-btn" style="position: absolute; top: 12px; right: 16px; font-size: 20px; border: none; background: transparent; cursor: pointer; color: #94a3b8;" onclick="closeQrViewModal()">&times;</button>
+            <h3 style="margin: 0; font-family: Roboto, sans-serif; font-size: 16px; font-weight: 700; color: #043899; text-transform: uppercase;">QR Code Scan</h3>
+            
+            <div style="background: #f8fafc; padding: 16px; border-radius: 8px; border: 1.5px solid #cbd5e1; display: flex; align-items: center; justify-content: center; width: 182px; height: 182px; box-sizing: border-box; margin: 0 auto;">
+                <img id="dts-qr-image" src="" alt="QR Code" style="width: 150px; height: 150px; display: none;">
+                <div id="dts-qr-loading" style="font-family: Roboto, sans-serif; font-size: 13px; color: #64748b;">Generating...</div>
+            </div>
+
+            <div style="font-family: monospace; font-weight: 700; font-size: 14px; color: #1e293b; word-break: break-all; background: #f1f5f9; padding: 6px 12px; border-radius: 6px; border: 1px solid #e2e8f0; width: 100%; box-sizing: border-box;" id="dts-qr-code-text"></div>
+        </div>
+    </div>
+
+    <script>
+        function openQrViewModal(qrCode) {
+            const modal = document.getElementById('dts-qr-view-modal');
+            const img = document.getElementById('dts-qr-image');
+            const loading = document.getElementById('dts-qr-loading');
+            const text = document.getElementById('dts-qr-code-text');
+
+            if (!modal || !img || !loading || !text) return;
+
+            text.innerText = qrCode;
+            img.style.display = 'none';
+            loading.style.display = 'block';
+            modal.style.display = 'flex';
+
+            // Base64 encode the QR Code string
+            const qrData = btoa(qrCode);
+            const qrUrl = 'https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=' + encodeURIComponent(qrData);
+
+            img.src = qrUrl;
+            img.onload = function() {
+                loading.style.display = 'none';
+                img.style.display = 'block';
+            };
+        }
+
+        function closeQrViewModal() {
+            const modal = document.getElementById('dts-qr-view-modal');
+            if (modal) {
+                modal.style.display = 'none';
+            }
+        }
+    </script>
 </div>

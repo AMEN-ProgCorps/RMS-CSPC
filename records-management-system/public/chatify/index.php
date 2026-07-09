@@ -54,7 +54,11 @@ if (!Auth::check()) {
 }
 
 // Get the user's name from session
-$user_name = $_SESSION["name"];
+// Collapse any repeated whitespace (e.g. accidental double spaces from how
+// first/last name were combined at signup/login) and trim the ends, so the
+// name field and every other place this value is echoed never shows things
+// like "Test  User" with a double space.
+$user_name = trim(preg_replace('/\s+/', ' ', (string) $_SESSION["name"]));
 $username  = $_SESSION["username"] ?? '';
 
 // Admin is strictly determined by account_id = 1
@@ -80,7 +84,7 @@ try {
     $stmt->execute();
     $adminRow = $stmt->fetch();
     if ($adminRow) {
-        $adminFullName = strtolower(trim($adminRow['first_name'] . ' ' . $adminRow['last_name']));
+        $adminFullName = strtolower(trim(preg_replace('/\s+/', ' ', $adminRow['first_name'] . ' ' . $adminRow['last_name'])));
         if (!in_array($adminFullName, $admin_names)) {
             $admin_names[] = $adminFullName;
         }
@@ -2361,10 +2365,19 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
       xhr.send();
     }
 
+    // Reuse existing .user-item DOM nodes across re-renders (keyed by username).
+    // We used to do sidebarUsers.innerHTML = '' and rebuild every user-item from
+    // scratch on every 3s poll, even when nothing changed. That destroyed and
+    // recreated the DOM node sitting under the mouse cursor, which reset its
+    // :hover state and restarted CSS transitions (opacity, background-color) —
+    // visible as the notify bell icon and the active/selected highlight
+    // "blinking" every few seconds, even while the mouse was perfectly still.
+    // Keeping the same node identity per user avoids that entirely.
+    const sidebarUserItems = new Map(); // username -> item element
+
     function renderSidebarUsers() {
       const query = searchInput.value.toLowerCase();
-      sidebarUsers.innerHTML = '';
-      
+
       const filtered = allUsersData.filter(u => 
         u.name.toLowerCase().includes(query) || u.username.toLowerCase().includes(query)
       );
@@ -2373,68 +2386,140 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
       const totalUnread = allUsersData.reduce((sum, u) => sum + (u.unreadCount || 0), 0);
       updateTabTitle(totalUnread);
 
+      const seen = new Set();
+
       filtered.forEach(u => {
         const hasUnread = u.unreadCount > 0 && activeDM !== u.username;
-        const item = document.createElement('div');
-        item.className = 'user-item' + (activeDM === u.username ? ' active' : '') + (hasUnread ? ' has-unread' : '');
-        item.onclick = () => selectDM(u);
-        
-        const avatar = document.createElement('div');
-        avatar.className = 'user-avatar';
-        avatar.textContent = getInitials(u.name);
-        
-        const dot = document.createElement('div');
-        dot.className = 'status-dot ' + (u.status || 'offline');
-        avatar.appendChild(dot);
-        
-        const info = document.createElement('div');
-        info.className = 'user-info';
-        
-        const nameRow = document.createElement('div');
-        nameRow.style.cssText = 'display:flex;align-items:center;justify-content:space-between;gap:4px;';
+        seen.add(u.username);
 
-        const nameEl = document.createElement('div');
-        nameEl.className = 'user-name';
-        nameEl.textContent = u.name;
-        nameRow.appendChild(nameEl);
+        let item = sidebarUserItems.get(u.username);
+        let avatar, dot, info, nameRow, nameEl, msgEl;
 
-        if (hasUnread) {
-          const badge = document.createElement('span');
-          badge.className = 'user-unread-badge';
-          badge.textContent = u.unreadCount > 99 ? '99+' : u.unreadCount;
-          nameRow.appendChild(badge);
+        if (!item) {
+          // First time we've seen this user — build the DOM node once.
+          item = document.createElement('div');
+          item.dataset.username = u.username;
+
+          avatar = document.createElement('div');
+          avatar.className = 'user-avatar';
+          dot = document.createElement('div');
+          avatar.appendChild(dot);
+
+          info = document.createElement('div');
+          info.className = 'user-info';
+
+          nameRow = document.createElement('div');
+          nameRow.style.cssText = 'display:flex;align-items:center;justify-content:space-between;gap:4px;';
+          nameEl = document.createElement('div');
+          nameEl.className = 'user-name';
+          nameRow.appendChild(nameEl);
+          info.appendChild(nameRow);
+
+          msgEl = document.createElement('div');
+          msgEl.className = 'user-last-msg';
+          info.appendChild(msgEl);
+
+          item.appendChild(avatar);
+          item.appendChild(info);
+
+          item.onclick = () => selectDM(u);
+
+          sidebarUserItems.set(u.username, item);
+        } else {
+          avatar = item.querySelector('.user-avatar');
+          dot = item.querySelector('.status-dot');
+          info = item.querySelector('.user-info');
+          nameRow = info.querySelector('div');
+          nameEl = item.querySelector('.user-name');
+          msgEl = item.querySelector('.user-last-msg');
+          // Keep the closure's user object current for clicks/notify.
+          item.onclick = () => selectDM(u);
         }
-        
-        const msgEl = document.createElement('div');
-        msgEl.className = 'user-last-msg';
-        msgEl.textContent = u.lastMessage || 'No messages yet';
-        
-        info.appendChild(nameRow);
-        info.appendChild(msgEl);
 
-        const notifyBtn = document.createElement('button');
-        notifyBtn.type = 'button';
-        notifyBtn.className = 'notify-btn';
-        notifyBtn.title = 'Notify ' + u.name;
-        notifyBtn.setAttribute('aria-label', 'Notify ' + u.name);
-        notifyBtn.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"></path><path d="M13.73 21a2 2 0 0 1-3.46 0"></path></svg>';
-        notifyBtn.onclick = function(e) {
-          e.stopPropagation();
-          openNotifyModal(u);
-        };
+        // Update only what actually changed instead of recreating nodes.
+        const newClassName = 'user-item' + (activeDM === u.username ? ' active' : '') + (hasUnread ? ' has-unread' : '');
+        if (item.className !== newClassName) item.className = newClassName;
 
-        item.appendChild(avatar);
-        item.appendChild(info);
-        item.appendChild(notifyBtn);
-        
+        if (avatar.dataset.initials !== u.name) {
+          const initials = getInitials(u.name);
+          avatar.textContent = initials;
+          avatar.appendChild(dot); // textContent write above wiped the dot; re-attach
+          avatar.dataset.initials = u.name;
+        }
+        const newDotClass = 'status-dot ' + (u.status || 'offline');
+        if (dot.className !== newDotClass) dot.className = newDotClass;
+
+        if (nameEl.textContent !== u.name) nameEl.textContent = u.name;
+
+        // Unread badge: add/remove/update only as needed so it doesn't
+        // needlessly re-trigger its pop-in animation on every poll.
+        let badge = nameRow.querySelector('.user-unread-badge');
+        if (hasUnread) {
+          const badgeText = u.unreadCount > 99 ? '99+' : String(u.unreadCount);
+          if (!badge) {
+            badge = document.createElement('span');
+            badge.className = 'user-unread-badge';
+            nameRow.appendChild(badge);
+            badge.textContent = badgeText;
+          } else if (badge.textContent !== badgeText) {
+            badge.textContent = badgeText;
+          }
+        } else if (badge) {
+          badge.remove();
+        }
+
+        const newMsg = u.lastMessage || 'No messages yet';
+        if (msgEl.textContent !== newMsg) msgEl.textContent = newMsg;
+
+        // Admin (account_id === 1) can never be @mentioned/notified by regular users.
+        // Only render the notify button for non-admin targets.
+        const targetIsAdmin = Number(u.account_id) === 1;
+        let notifyBtn = item.querySelector('.notify-btn');
+        if (!targetIsAdmin) {
+          if (!notifyBtn) {
+            notifyBtn = document.createElement('button');
+            notifyBtn.type = 'button';
+            notifyBtn.className = 'notify-btn';
+            notifyBtn.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"></path><path d="M13.73 21a2 2 0 0 1-3.46 0"></path></svg>';
+            item.appendChild(notifyBtn);
+          }
+          notifyBtn.title = 'Notify ' + u.name;
+          notifyBtn.setAttribute('aria-label', 'Notify ' + u.name);
+          notifyBtn.onclick = function(e) {
+            e.stopPropagation();
+            openNotifyModal(u);
+          };
+        } else if (notifyBtn) {
+          notifyBtn.remove();
+        }
+
+        // appendChild on a node already in the DOM just moves it to the end
+        // (correct ordering) without destroying/recreating it, so hover and
+        // any in-flight CSS transitions are left completely undisturbed.
         sidebarUsers.appendChild(item);
       });
+
+      // Remove nodes for users that dropped out of the filtered list
+      // (e.g. search narrowed the results, or a user was removed).
+      for (const [username, item] of sidebarUserItems) {
+        if (!seen.has(username)) {
+          item.remove();
+          sidebarUserItems.delete(username);
+        }
+      }
     }
 
     // ── Notify feature: mention + notify any user from the sidebar list ──
     let notifyTargetUser = null; // { account_id, username, name, ... } — same shape as fetch_users_dm.php's user objects
 
     function openNotifyModal(user) {
+      // Defense in depth: never allow the admin (account_id === 1) to be
+      // @mentioned/notified by a regular user, even if this gets called
+      // some other way besides the sidebar's notify button.
+      if (Number(user.account_id) === 1 && !serverIsAdmin) {
+        console.warn('Blocked attempt to notify/mention the admin.');
+        return;
+      }
       notifyTargetUser = user;
       notifyTargetName.textContent = '@' + user.username;
       notifyMessageInput.value = '';
@@ -2562,15 +2647,21 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
     // Tab title notification system
     let originalTitle = document.title;
     let titleFlashInterval = null;
+    let currentUnreadCount = 0; // live count the flash interval reads, so it never goes stale
 
     function updateTabTitle(totalUnread) {
+      currentUnreadCount = totalUnread;
+
       if (totalUnread > 0) {
         document.title = '(' + totalUnread + ') ' + originalTitle;
         // Flash title if tab is hidden
         if (document.hidden && !titleFlashInterval) {
           let toggled = false;
           titleFlashInterval = setInterval(() => {
-            document.title = toggled ? '(' + totalUnread + ') ' + originalTitle : 'New message!';
+            // Read currentUnreadCount live instead of the totalUnread closure
+            // argument, so the count stays accurate as new messages arrive
+            // while the tab remains hidden.
+            document.title = toggled ? '(' + currentUnreadCount + ') ' + originalTitle : 'New message!';
             toggled = !toggled;
           }, 1200);
         }
@@ -2614,13 +2705,19 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
       activeAdminConv = null;
       dmOffset = 0;
       dmHasMore = false;
+      isFirstLoad = true; // snap straight to bottom once the new conversation's messages arrive
       localStorage.setItem('activeDM', u.username);
       chatHeaderTitle.textContent = u.name;
-      chatBox.innerHTML = '';
+      // Note: we deliberately don't blank chatBox here. The previous chat's
+      // messages stay on screen (harmlessly) until loadChat's diff logic swaps
+      // them out the instant the new conversation's data arrives. Clearing it
+      // immediately, combined with loadChat's old guard silently dropping the
+      // request if one was already in flight, is what caused the chat pane to
+      // flash blank repeatedly when clicking between conversations quickly.
       removePaginationBtn();
       markRead(u.username);
       renderSidebarUsers();
-      loadChat();
+      loadChat(false, false, true); // force: abort any in-flight request rather than drop this one
       // Global Chat item deactivate
       document.getElementById('globalChatItem').classList.remove('active');
       
@@ -2678,6 +2775,11 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
     }
 
     // ── Admin: render all conversations spy panel ────────────────────────────
+    // Same DOM-node-reuse approach as sidebarUserItems above, and for the same
+    // reason: rebuilding every row from scratch on every poll reset :hover /
+    // .active transitions, making the selected conversation row blink.
+    const adminConvItems = new Map(); // convId -> item element
+
     function renderAdminConvs() {
       const section = document.getElementById('adminConvsSection');
       const list    = document.getElementById('adminConvsList');
@@ -2698,37 +2800,64 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
         return;
       }
       section.style.display = 'block';
-      list.innerHTML = '';
+
+      const seen = new Set();
 
       filteredConvs.forEach(c => {
-        const item = document.createElement('div');
-        item.className = 'user-item' + (activeAdminConv === c.convId ? ' active' : '');
-        item.style.cssText = 'background: rgba(255,180,0,0.05);';
+        seen.add(c.convId);
+        let item = adminConvItems.get(c.convId);
+        let nameEl, msgEl;
+
+        if (!item) {
+          item = document.createElement('div');
+          item.style.cssText = 'background: rgba(255,180,0,0.05);';
+
+          const avatar = document.createElement('div');
+          avatar.className = 'user-avatar';
+          avatar.style.cssText = 'background:#f0a500;font-size:12px;width:40px;height:40px;';
+          avatar.innerHTML = EYE_ICON_SVG;
+
+          const info = document.createElement('div');
+          info.className = 'user-info';
+
+          nameEl = document.createElement('div');
+          nameEl.className = 'user-name';
+          nameEl.style.fontSize = '13px';
+          info.appendChild(nameEl);
+
+          msgEl = document.createElement('div');
+          msgEl.className = 'user-last-msg';
+          info.appendChild(msgEl);
+
+          item.appendChild(avatar);
+          item.appendChild(info);
+
+          adminConvItems.set(c.convId, item);
+        } else {
+          nameEl = item.querySelector('.user-name');
+          msgEl = item.querySelector('.user-last-msg');
+        }
+
         item.onclick = () => openAdminConv(c);
 
-        const avatar = document.createElement('div');
-        avatar.className = 'user-avatar';
-        avatar.style.cssText = 'background:#f0a500;font-size:12px;width:40px;height:40px;';
-        avatar.innerHTML = EYE_ICON_SVG;
+        const newClassName = 'user-item' + (activeAdminConv === c.convId ? ' active' : '');
+        if (item.className !== newClassName) item.className = newClassName;
 
-        const info = document.createElement('div');
-        info.className = 'user-info';
+        const newName = c.name1 + ' & ' + c.name2;
+        if (nameEl.textContent !== newName) nameEl.textContent = newName;
 
-        const nameEl = document.createElement('div');
-        nameEl.className = 'user-name';
-        nameEl.style.fontSize = '13px';
-        nameEl.textContent = c.name1 + ' & ' + c.name2;
+        const newMsg = c.msgCount + ' msg' + (c.msgCount !== 1 ? 's' : '') + (c.lastMessage ? ' · ' + c.lastMessage : '');
+        if (msgEl.textContent !== newMsg) msgEl.textContent = newMsg;
 
-        const msgEl = document.createElement('div');
-        msgEl.className = 'user-last-msg';
-        msgEl.textContent = c.msgCount + ' msg' + (c.msgCount !== 1 ? 's' : '') + (c.lastMessage ? ' · ' + c.lastMessage : '');
-
-        info.appendChild(nameEl);
-        info.appendChild(msgEl);
-        item.appendChild(avatar);
-        item.appendChild(info);
         list.appendChild(item);
       });
+
+      for (const [convId, item] of adminConvItems) {
+        if (!seen.has(convId)) {
+          item.remove();
+          adminConvItems.delete(convId);
+        }
+      }
     }
 
     if (adminSearchInput) {
@@ -3202,19 +3331,37 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
     }
 
     // ── loadChat: fetches from load_dm.php with pagination ────────────────────
-    function loadChat(isAutoPoll = false, loadOlderMode = false) {
+    // Tracks the in-flight request so a manual conversation switch (force=true)
+    // can abort it instead of being silently dropped by the isLoadingChat guard
+    // — that drop is what used to leave the chat pane blank (a visible "blink")
+    // when the user clicked between conversations quickly, since nothing would
+    // fill it back in until the next 2s auto-poll.
+    let chatXhr = null;
+
+    function loadChat(isAutoPoll = false, loadOlderMode = false, force = false) {
       if (!activeDM) return;
-      if (isLoadingChat) return;
+      if (isLoadingChat) {
+        if (!force) return;
+        if (chatXhr) chatXhr.abort();
+        isLoadingChat = false;
+      }
       isLoadingChat = true;
 
       const wasAtBottom = isAtBottom();
+      // Capture which conversation this request is for. If the user clicks to
+      // a different conversation before this response comes back, we discard
+      // the (now stale) result instead of rendering it into the wrong chat.
+      const requestedUser = activeDM;
       const url = 'load_dm.php?target_user=' + encodeURIComponent(activeDM) + '&offset=' + (loadOlderMode ? dmOffset + 200 : 0);
 
       const xhr = new XMLHttpRequest();
+      chatXhr = xhr;
       xhr.open('GET', url, true);
       xhr.onload = function () {
         isLoadingChat = false;
+        if (chatXhr === xhr) chatXhr = null;
         if (this.status !== 200) return;
+        if (requestedUser !== activeDM) return; // stale response for a conversation we've since left
         let data;
         try { data = JSON.parse(this.responseText); } catch(e) { return; }
         const newHtml = data.html || '';
@@ -3301,7 +3448,7 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
         if (!document.hidden && activeDM) markRead(activeDM);
         if (dmHasMore && !document.getElementById('loadOlderBtn')) insertLoadOlderBtn();
       };
-      xhr.onerror = function() { isLoadingChat = false; };
+      xhr.onerror = function() { isLoadingChat = false; if (chatXhr === xhr) chatXhr = null; };
       xhr.send();
     }
 

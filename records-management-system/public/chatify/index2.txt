@@ -346,8 +346,12 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
       transition: background-color 0.2s ease;
     }
     
-    .user-item:hover, .user-item.active {
+    .user-item:hover {
       background-color: var(--bg-drop-overlay);
+    }
+
+    .user-item.active {
+      background-color: rgba(27, 116, 228, 0.13) !important;
     }
     
     .user-avatar {
@@ -435,7 +439,7 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
       font-weight: 500;
     }
 
-    /* Notify button shown on each user-item (hidden until hover, always visible on touch/mobile) */
+    /* Notify button shown on each user-item (always visible/steady) */
     .notify-btn {
       flex-shrink: 0;
       width: 32px;
@@ -449,15 +453,15 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
       justify-content: center;
       cursor: pointer;
       margin-left: 4px;
-      opacity: 0;
-      transition: opacity 0.15s ease, background-color 0.15s ease, color 0.15s ease;
+      opacity: 0.75;
+      transition: background-color 0.15s ease, color 0.15s ease, opacity 0.15s ease;
     }
     .user-item:hover .notify-btn {
       opacity: 1;
     }
     @media (hover: none) {
       /* Touch devices have no hover — keep the button reachable */
-      .notify-btn { opacity: 0.55; }
+      .notify-btn { opacity: 0.75; }
     }
     .notify-btn:hover {
       background-color: var(--button-hover);
@@ -1359,6 +1363,48 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
       transform: scale(0.96);
     }
 
+    /* Floating Load Older Messages button at top of chat container */
+    .load-older-floating-btn {
+      position: absolute;
+      top: 80px; /* Floating below header with breathing room */
+      left: 50%;
+      transform: translateX(-50%);
+      background: #1b74e4;
+      color: white;
+      padding: 8px 14px;
+      border-radius: 24px;
+      font-size: 13px;
+      font-weight: 500;
+      border: none;
+      cursor: pointer;
+      opacity: 0;
+      visibility: hidden;
+      transition: opacity 0.3s ease, visibility 0.3s ease, transform 0.2s ease, background 0.2s ease;
+      z-index: 200;
+      box-shadow: 0 2px 10px rgba(0,0,0,0.25);
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      user-select: none;
+      white-space: nowrap;
+      will-change: opacity, transform;
+    }
+
+    .load-older-floating-btn.visible {
+      opacity: 1;
+      visibility: visible;
+    }
+
+    .load-older-floating-btn:hover {
+      background: #1669c1;
+      transform: translateX(-50%) translateY(-2px);
+      box-shadow: 0 4px 14px rgba(0,0,0,0.3);
+    }
+
+    .load-older-floating-btn:active {
+      transform: translateX(-50%) scale(0.96);
+    }
+
     .unread-badge {
       background: #ff3b30;
       color: white;
@@ -2062,6 +2108,11 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
 
     <!-- Main Chat Area -->
     <div class="app-container">
+      <!-- Floating button for loading older messages -->
+      <button class="load-older-floating-btn" id="loadOlderFloatingBtn">
+        <span>Load Older Messages</span>
+      </button>
+
       <div class="header">
         <div class="header-left">
           <button id="burgerButton" class="clear-button" style="display:none;margin-right:10px;padding:0 8px;min-width:auto;">
@@ -2240,6 +2291,7 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
     const cancelClear     = document.getElementById("cancelClear");
     const confirmClear    = document.getElementById("confirmClear");
     const scrollIndicator = document.getElementById("scrollIndicator");
+    const loadOlderFloatingBtn = document.getElementById("loadOlderFloatingBtn");
     const secretInput     = document.getElementById("secretInput");
     const secretError     = document.getElementById("secretError");
     const darkModeToggle  = document.getElementById("darkModeToggle");
@@ -2762,7 +2814,22 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
       }
     }
 
+    // Track whether older messages are available for the current chat
+    let hasOlderMessages = false;
+
+    // Show/hide the floating load-older button based on scroll position + availability
+    function syncLoadOlderBtn() {
+      if (!loadOlderFloatingBtn) return;
+      if (hasOlderMessages && userScrolledUp) {
+        loadOlderFloatingBtn.classList.add('visible');
+      } else {
+        loadOlderFloatingBtn.classList.remove('visible');
+      }
+    }
+
     function removePaginationBtn() {
+      hasOlderMessages = false;
+      syncLoadOlderBtn();
       const existing = document.getElementById('loadOlderBtn');
       if (existing) existing.remove();
       const notice = document.getElementById('noMoreOlderNotice');
@@ -2803,20 +2870,10 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
       return { type: 'replace' };
     }
 
+    // Mark that older messages exist — visibility is driven by syncLoadOlderBtn()
     function insertLoadOlderBtn() {
-      removePaginationBtn();
-      const btn = document.createElement('button');
-      btn.id = 'loadOlderBtn';
-      btn.style.cssText = `
-        display:block;width:calc(100% - 32px);margin:10px 16px;
-        padding:8px 16px;border-radius:8px;border:1px solid var(--border-color);
-        background:var(--bg-secondary);color:var(--text-secondary);
-        cursor:pointer;font-size:13px;font-weight:500;
-        transition:background 0.2s;
-      `;
-      btn.textContent = 'Load Older Messages';
-      btn.addEventListener('click', loadOlderMessages);
-      chatBox.insertBefore(btn, chatBox.firstChild);
+      hasOlderMessages = true;
+      syncLoadOlderBtn();
     }
 
     // Keeps the chat window capped at maxCount messages by trimming the
@@ -3195,6 +3252,8 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
         shouldAutoScroll = true;
         userScrolledUp = false;
         hideScrollIndicator();
+        // Hide load-older button when user returns to bottom
+        syncLoadOlderBtn();
       } else {
         shouldAutoScroll = false;
         userScrolledUp = true;
@@ -3202,6 +3261,8 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
         if (hasMessages && !scrollIndicator.classList.contains('visible')) {
           showScrollIndicator(0);
         }
+        // Show load-older button when user scrolls up and older messages exist
+        syncLoadOlderBtn();
       }
     });
 
@@ -3234,6 +3295,11 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
 
       scrollToBottom(true);
     });
+
+    // Click floating load older button to load older messages
+    if (loadOlderFloatingBtn) {
+      loadOlderFloatingBtn.addEventListener('click', loadOlderMessages);
+    }
 
     // Generate initials from name
     function getInitials(name) {

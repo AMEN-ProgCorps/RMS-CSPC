@@ -25,7 +25,7 @@ $myAccountId = Auth::accountId();
 $adminId     = Auth::adminAccountId(); // 1
 
 // ── Pagination params ─────────────────────────────────────────────────────────
-$limit  = 200;
+$limit  = 100;
 $offset = max(0, (int) ($_GET['offset'] ?? 0));
 
 // ── Load data ────────────────────────────────────────────────────────────────

@@ -757,6 +757,12 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
       animation: msgPopReceived 0.28s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
     }
 
+    /* Global Chat staggered incoming — element is hidden until setTimeout fires */
+    .message-container.gc-msg-pending {
+      opacity: 0;
+      pointer-events: none;
+    }
+
     @keyframes msgPopSent {
       from {
         opacity: 0;
@@ -3476,28 +3482,65 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
         }
 
         if (rec.type === 'append') {
+          // --- YouTube Live Chat–style staggered reveal ---
+          // Filter out dupes first, collecting only genuinely new elements.
+          const toInsert = [];
           rec.items.forEach(el => {
             if (el.classList.contains('message-container')) {
               const msgId = el.getAttribute('data-msg-id');
               if (msgId && chatBox.querySelector(`.message-container[data-msg-id="${msgId}"]`)) {
-                // Deduplicate check: message ID already exists, do not render again
-                return;
+                return; // Deduplicate: already in DOM
               }
-              const animClass = el.classList.contains('sent') ? 'msg-animate-sent' : 'msg-animate-received';
-              el.classList.add(animClass);
-              el.addEventListener('animationend', () => el.classList.remove(animClass), { once: true });
+            }
+            toInsert.push(el);
+          });
+
+          if (toInsert.length === 0) {
+            document.querySelectorAll('[data-sending-uid]').forEach(el => el.remove());
+            if (!gcViewingOlder) trimWindowFromTop(newMessages.length);
+            applyAdminBadges(); applyEmojiOnly();
+            if (gcHasMore && !document.getElementById('loadOlderBtn') && !document.getElementById('noMoreOlderNotice')) insertLoadOlderBtn();
+            return;
+          }
+
+          // If this is the very first load OR there's only 1 new message, skip
+          // staggering and just render immediately for a snappy experience.
+          const STAGGER_MS = 90;      // gap between each message appearing
+          const MAX_STAGGER = 8;      // cap: beyond this many messages, no extra delay
+          const useStagger = !isFirstLoad && toInsert.length > 1;
+
+          // Append all elements to DOM immediately but keep them invisible
+          // (gc-msg-pending) so they don't cause layout jank while waiting.
+          toInsert.forEach(el => {
+            if (useStagger && el.classList.contains('message-container')) {
+              el.classList.add('gc-msg-pending');
             }
             chatBox.appendChild(el);
           });
           document.querySelectorAll('[data-sending-uid]').forEach(el => el.remove());
-          if (!gcViewingOlder) {
-            trimWindowFromTop(newMessages.length);
-          }
-          if (isFirstLoad) { isFirstLoad = false; scrollToBottom(true, true); }
-          else if (wasAtBottom || shouldAutoScroll) requestAnimationFrame(() => requestAnimationFrame(() => scrollToBottom(true, false)));
-          else showScrollIndicator(rec.items.filter(el => el.classList.contains('message-container')).length);
-          applyAdminBadges(); applyEmojiOnly();
-          if (gcHasMore && !document.getElementById('loadOlderBtn') && !document.getElementById('noMoreOlderNotice')) insertLoadOlderBtn();
+          if (!gcViewingOlder) trimWindowFromTop(newMessages.length);
+
+          // Reveal each message one-by-one with a staggered delay.
+          toInsert.forEach((el, i) => {
+            const delay = useStagger ? Math.min(i, MAX_STAGGER) * STAGGER_MS : 0;
+            setTimeout(() => {
+              if (!el.isConnected) return; // guard: element removed before reveal
+              el.classList.remove('gc-msg-pending');
+              if (el.classList.contains('message-container')) {
+                const animClass = el.classList.contains('sent') ? 'msg-animate-sent' : 'msg-animate-received';
+                el.classList.add(animClass);
+                el.addEventListener('animationend', () => el.classList.remove(animClass), { once: true });
+              }
+              // Auto-scroll after the last message is revealed
+              if (i === toInsert.length - 1) {
+                if (isFirstLoad) { isFirstLoad = false; scrollToBottom(true, true); }
+                else if (wasAtBottom || shouldAutoScroll) requestAnimationFrame(() => requestAnimationFrame(() => scrollToBottom(true, false)));
+                else showScrollIndicator(toInsert.filter(el => el.classList.contains('message-container')).length);
+                applyAdminBadges(); applyEmojiOnly();
+                if (gcHasMore && !document.getElementById('loadOlderBtn') && !document.getElementById('noMoreOlderNotice')) insertLoadOlderBtn();
+              }
+            }, delay);
+          });
           return;
         }
 

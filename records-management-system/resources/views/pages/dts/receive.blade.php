@@ -248,7 +248,13 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Receive Transac
 
     public function getVisiblePathProperty()
     {
-        return $this->fullFlowPath;
+        if ($this->showFullConfiguredPath) {
+            return $this->fullFlowPath;
+        }
+
+        return $this->fullFlowPath->filter(function ($step) {
+            return !is_null($step->date_in);
+        });
     }
 
     /**
@@ -610,17 +616,27 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Receive Transac
     <!-- Header Section -->
     <div class="receive-header">
         <h1 class="receive-main-title">Receive Transactions</h1>
-        <div class="dts-search-wrap" style="max-width: 320px; margin-bottom: 0;">
-            <input
-                type="text"
-                wire:model.live="searchQuery"
-                placeholder="Search control number, requestor..."
-                class="dts-search-input"
-                style="margin-left: 0; padding-left: 40px;"
-            />
-            <svg class="dts-search-icon" style="left: 12px;" xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 25 25" fill="none">
-                <path d="M17.1088 17.1091L21.1345 21.1347M3.01904 11.0706C3.01904 13.2059 3.8673 15.2538 5.37722 16.7637C6.88713 18.2736 8.93501 19.1219 11.0703 19.1219C13.2057 19.1219 15.2536 18.2736 16.7635 16.7637C18.2734 15.2538 19.1217 13.2059 19.1217 11.0706C19.1217 8.93525 18.2734 6.88737 16.7635 5.37746C15.2536 3.86755 13.2057 3.01929 11.0703 3.01929C8.93501 3.01929 6.88713 3.86755 5.37722 5.37746C3.8673 6.88737 3.01904 8.93525 3.01904 11.0706Z" stroke="#9CA3AF" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
-            </svg>
+        <div style="display: flex; align-items: center; gap: 8px;">
+            <div class="dts-search-wrap" style="max-width: 320px; margin-bottom: 0;">
+                <input
+                    type="text"
+                    wire:model.live="searchQuery"
+                    placeholder="Search control number, requestor..."
+                    class="dts-search-input"
+                    style="margin-left: 0; padding-left: 40px;"
+                />
+                <svg class="dts-search-icon" style="left: 12px;" xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 25 25" fill="none">
+                    <path d="M17.1088 17.1091L21.1345 21.1347M3.01904 11.0706C3.01904 13.2059 3.8673 15.2538 5.37722 16.7637C6.88713 18.2736 8.93501 19.1219 11.0703 19.1219C13.2057 19.1219 15.2536 18.2736 16.7635 16.7637C18.2734 15.2538 19.1217 13.2059 19.1217 11.0706C19.1217 8.93525 18.2734 6.88737 16.7635 5.37746C15.2536 3.86755 13.2057 3.01929 11.0703 3.01929C8.93501 3.01929 6.88713 3.86755 5.37722 5.37746C3.8673 6.88737 3.01904 8.93525 3.01904 11.0706Z" stroke="#9CA3AF" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+                </svg>
+            </div>
+            <a href="{{ route('dts.scanner') }}" style="display: flex; align-items: center; justify-content: center; width: 38px; height: 38px; background: #003699; color: white; border-radius: 8px; border: none; cursor: pointer; transition: all 0.2s; text-decoration: none;" title="Open QR Scanner">
+                <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <rect x="3" y="3" width="7" height="7" rx="1"/>
+                    <rect x="14" y="3" width="7" height="7" rx="1"/>
+                    <rect x="14" y="14" width="7" height="7" rx="1"/>
+                    <rect x="3" y="14" width="7" height="7" rx="1"/>
+                </svg>
+            </a>
         </div>
     </div>
 
@@ -779,7 +795,6 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Receive Transac
                                     <th>Total Time</th>
                                     <th>Action Need</th>
                                     <th>Notes</th>
-                                    <th>Info</th>
                                 </tr>
                             </thead>
                             <tbody>
@@ -808,20 +823,10 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Receive Transac
                                                 {{ $step->note ?: '-' }}
                                             @endif
                                         </td>
-                                        <td>
-                                            <button type="button" class="receive-info-btn" title="{{ $step->note ?? ($step->date_in ? 'Active flow step.' : 'Pending office flow step.') }}">
-                                                <svg class="table-icon" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" style="width: 14px; height: 14px; stroke: currentColor;">
-                                                    <circle cx="12" cy="12" r="10" stroke-width="1.5" fill="none"/>
-                                                    <circle cx="12" cy="12" r="2" fill="currentColor"/>
-                                                    <circle cx="17" cy="12" r="2" fill="currentColor"/>
-                                                    <circle cx="7" cy="12" r="2" fill="currentColor"/>
-                                                </svg>
-                                            </button>
-                                        </td>
                                     </tr>
                                 @empty
                                     <tr>
-                                        <td colspan="8" style="padding: 24px; color: #888; font-style: italic;">No transaction paths listed.</td>
+                                        <td colspan="7" style="padding: 24px; color: #888; font-style: italic;">No transaction paths listed.</td>
                                     </tr>
                                 @endforelse
                             </tbody>

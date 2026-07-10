@@ -17,6 +17,7 @@ return new class extends Migration
             $table->string('action_needed')->nullable()->after('date_out');
             $table->string('note')->nullable()->after('action_needed');
             $table->string('total_time_completed')->nullable()->after('note');
+            $table->boolean('scanned_id')->default(false)->after('total_time_completed');
         });
     }
 
@@ -31,6 +32,7 @@ return new class extends Migration
             $table->dropColumn('action_needed');
             $table->dropColumn('note');
             $table->dropColumn('total_time_completed');
+            $table->dropColumn('scanned_id');
         });
     }
 };

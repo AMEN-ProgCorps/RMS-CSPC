@@ -130,6 +130,13 @@ new #[Layout('layouts.portal')] #[Title('RMS CSPC Portal')] class extends Compon
                 <span>Document Tracking System</span>
             </div>
         </a>
+        @if(auth()->user()?->permissions?->is_sadm || auth()->user()?->permissions?->can_dts_user_received)
+        <a href="{{ route('dts.scanner') }}" class="system-con" id="dts-scanner">
+            <div class="display-box">
+                <span>DTS QR Scanner</span>
+            </div>
+        </a>
+        @endif
         @endif
         @if(auth()->user()?->permissions?->is_sadm && $adminActive)
         <a href="/admin/console/" class="system-con" id="admin">

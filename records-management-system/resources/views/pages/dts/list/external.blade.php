@@ -275,7 +275,13 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - List External T
 
     public function getVisiblePathProperty()
     {
-        return $this->fullFlowPath;
+        if ($this->showFullConfiguredPath) {
+            return $this->fullFlowPath;
+        }
+
+        return $this->fullFlowPath->filter(function ($step) {
+            return !is_null($step->date_in);
+        });
     }
 
     public function openTransaction(string $id): void
@@ -814,7 +820,6 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - List External T
                                     <th>Total Time</th>
                                     <th>Action Need</th>
                                     <th>Notes</th>
-                                    <th>Info</th>
                                 </tr>
                             </thead>
                             <tbody>
@@ -843,20 +848,10 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - List External T
                                                 {{ $step->note ?: '-' }}
                                             @endif
                                         </td>
-                                        <td>
-                                            <button type="button" class="receive-info-btn" title="{{ $step->note ?? ($step->date_in ? 'Active flow step.' : 'Pending office flow step.') }}">
-                                                <svg class="table-icon" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" style="width: 14px; height: 14px; stroke: currentColor;">
-                                                    <circle cx="12" cy="12" r="10" stroke-width="1.5" fill="none"/>
-                                                    <circle cx="12" cy="12" r="2" fill="currentColor"/>
-                                                    <circle cx="17" cy="12" r="2" fill="currentColor"/>
-                                                    <circle cx="7" cy="12" r="2" fill="currentColor"/>
-                                                </svg>
-                                            </button>
-                                        </td>
                                     </tr>
                                 @empty
                                     <tr>
-                                        <td colspan="8" style="padding: 24px; color: #888; font-style: italic;">No transaction paths listed.</td>
+                                        <td colspan="7" style="padding: 24px; color: #888; font-style: italic;">No transaction paths listed.</td>
                                     </tr>
                                 @endforelse
                             </tbody>

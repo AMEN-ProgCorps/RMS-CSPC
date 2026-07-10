@@ -2948,7 +2948,6 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
 
           const avatar = document.createElement('div');
           avatar.className = 'user-avatar';
-          avatar.style.cssText = 'background:#f0a500;font-size:12px;width:40px;height:40px;';
           avatar.innerHTML = EYE_ICON_SVG;
 
           const info = document.createElement('div');

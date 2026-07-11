@@ -2001,6 +2001,7 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
       margin-left: 8px;
       margin-bottom: 2px;
       transition: opacity 0.15s ease-in-out;
+      
     }
 
     .typing-indicator-container.active {
@@ -2014,6 +2015,7 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
       text-overflow: ellipsis;
       min-width: 0;
       flex: 0 1 auto;
+      margin-bottom: 8px;
     }
 
     .typing-dots {
@@ -2030,6 +2032,7 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
       border-radius: 50%;
       animation: typingBounce 1.4s infinite both;
       opacity: 0.7;
+      margin-bottom: 3px;
     }
     
     .typing-dots span:nth-child(2) {

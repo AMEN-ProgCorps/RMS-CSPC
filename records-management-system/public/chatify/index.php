@@ -78,7 +78,6 @@ if (!empty($_SESSION['full_name'])) {
 }
 // Resolve admin full name from DB for non-admin users to show badge on admin messages
 try {
-    require_once __DIR__ . '/bootstrap.php';
     $pdo  = Database::getConnection();
     $stmt = $pdo->prepare('SELECT first_name, last_name FROM account_details WHERE account_id = 1 LIMIT 1');
     $stmt->execute();
@@ -890,95 +889,6 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
     .message-media audio {
       border-radius: 8px;
     }
-
-    /* Custom Audio Player */
-    .audio-player {
-      display: flex;
-      align-items: center;
-      gap: 10px;
-      width: 240px;
-      max-width: 100%;
-    }
-
-    .audio-controls {
-      display: flex;
-      align-items: center;
-      gap: 4px;
-      flex-shrink: 0;
-    }
-
-    .audio-btn {
-      background: rgba(255,255,255,0.2);
-      border: none;
-      border-radius: 50%;
-      width: 30px;
-      height: 30px;
-      cursor: pointer;
-      font-size: 12px;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      color: inherit;
-      transition: background 0.15s;
-      padding: 0;
-      flex-shrink: 0;
-    }
-
-    .audio-play-btn {
-      width: 34px;
-      height: 34px;
-      font-size: 13px;
-      background: rgba(255,255,255,0.3);
-    }
-
-    .received .audio-btn {
-      background: rgba(0,0,0,0.08);
-      color: #050505;
-    }
-
-    [data-theme="dark"] .received .audio-btn {
-      background: rgba(255,255,255,0.12);
-      color: var(--text-primary);
-    }
-
-    .audio-btn:hover { background: rgba(255,255,255,0.4); }
-    .received .audio-btn:hover { background: rgba(0,0,0,0.15); }
-
-    .audio-progress-wrap {
-      flex: 1;
-      min-width: 0;
-    }
-
-    .audio-time-row {
-      display: flex;
-      justify-content: space-between;
-      font-size: 10px;
-      opacity: 0.75;
-      margin-bottom: 3px;
-    }
-
-    .audio-seekbar {
-      width: 100%;
-      height: 4px;
-      background: rgba(255,255,255,0.3);
-      border-radius: 2px;
-      cursor: pointer;
-      position: relative;
-    }
-
-    .received .audio-seekbar { background: rgba(0,0,0,0.15); }
-    [data-theme="dark"] .received .audio-seekbar { background: rgba(255,255,255,0.15); }
-
-    .audio-seekbar-fill {
-      height: 100%;
-      background: white;
-      border-radius: 2px;
-      width: 0%;
-      pointer-events: none;
-      transition: width 0.1s linear;
-    }
-
-    .received .audio-seekbar-fill { background: #1b74e4; }
 
     /* Message Content */
     .message-content {
@@ -3348,48 +3258,6 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
       return now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
     }
 
-    // Create message element
-    function createMessageElement(name, message, timestamp, isSent = false) {
-      const messageContainer = document.createElement('div');
-      messageContainer.className = `message-container ${isSent ? 'sent' : 'received'}`;
-
-      const avatar = document.createElement('div');
-      avatar.className = 'message-avatar';
-      avatar.textContent = getInitials(name);
-
-      const bubble = document.createElement('div');
-      bubble.className = 'message-bubble';
-
-      const content = document.createElement('div');
-      content.className = 'message-content';
-      content.textContent = message;
-
-      bubble.appendChild(content);
-
-      // Emoji-only messages skip the sender/time info row
-      if (!isEmojiOnly(message)) {
-        const info = document.createElement('div');
-        info.className = 'message-info';
-
-        const sender = document.createElement('span');
-        sender.className = 'message-sender';
-        sender.textContent = isSent ? 'you' : name.toLowerCase();
-
-        const time = document.createElement('span');
-        time.className = 'message-time';
-        time.textContent = timestamp || getCurrentTime();
-
-        info.appendChild(sender);
-        info.appendChild(time);
-        bubble.appendChild(info);
-      }
-
-      messageContainer.appendChild(avatar);
-      messageContainer.appendChild(bubble);
-
-      return messageContainer;
-    }
-
     // Helper: extract a stable key from a message element
     function getMessageKey(el) {
       if (el && typeof el.getAttribute === 'function') {
@@ -3751,11 +3619,6 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
     function loadOlderMessages() {
       if (isGlobalChat) loadGlobalChat(false, true);
       else if (activeDM) loadChat(false, true);
-    }
-
-    // Function to check if uploading is allowed
-    function isUploadAllowed() {
-      return !!activeDM || isGlobalChat;
     }
 
     function deleteChat() {
@@ -4501,78 +4364,6 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
     // Poll every 5 seconds so kicked sessions are detected quickly
     setInterval(checkSession, 5000);
 
-    // ── Custom Audio Player ──
-    function formatAudioTime(s) {
-      if (isNaN(s) || !isFinite(s)) return '0:00';
-      const m = Math.floor(s / 60);
-      const sec = Math.floor(s % 60);
-      return m + ':' + (sec < 10 ? '0' : '') + sec;
-    }
-
-    function togglePlay(id) {
-      const audio = document.getElementById(id);
-      if (!audio) return;
-      const btn = document.querySelector('#player_' + id + ' .audio-play-btn');
-      if (audio.paused) {
-        document.querySelectorAll('.audio-player audio').forEach(a => {
-          if (a.id !== id && !a.paused) {
-            a.pause();
-            const b = document.querySelector('#player_' + a.id + ' .audio-play-btn');
-            if (b) b.textContent = '▶';
-          }
-        });
-        audio.play();
-        if (btn) btn.textContent = '⏸';
-      } else {
-        audio.pause();
-        if (btn) btn.textContent = '▶';
-      }
-    }
-
-    function skipAudio(id, secs) {
-      const audio = document.getElementById(id);
-      if (!audio) return;
-      audio.currentTime = Math.max(0, Math.min(audio.duration || 0, audio.currentTime + secs));
-    }
-
-    function seekAudio(e, id) {
-      const audio = document.getElementById(id);
-      if (!audio || !audio.duration) return;
-      const rect = e.currentTarget.getBoundingClientRect();
-      audio.currentTime = ((e.clientX - rect.left) / rect.width) * audio.duration;
-    }
-
-    function initAudioPlayers() {
-      document.querySelectorAll('.audio-player audio').forEach(audio => {
-        if (audio.dataset.hooked) return;
-        audio.dataset.hooked = '1';
-        const id = audio.id;
-
-        audio.addEventListener('loadedmetadata', () => {
-          const dur = document.getElementById('dur_' + id);
-          if (dur) dur.textContent = formatAudioTime(audio.duration);
-        });
-
-        audio.addEventListener('timeupdate', () => {
-          const cur = document.getElementById('cur_' + id);
-          const fill = document.getElementById('fill_' + id);
-          if (cur) cur.textContent = formatAudioTime(audio.currentTime);
-          if (fill && audio.duration) fill.style.width = (audio.currentTime / audio.duration * 100) + '%';
-        });
-
-        audio.addEventListener('ended', () => {
-          const btn = document.querySelector('#player_' + id + ' .audio-play-btn');
-          if (btn) btn.textContent = '▶';
-          const fill = document.getElementById('fill_' + id);
-          if (fill) fill.style.width = '0%';  
-        });
-      });
-    }
-
-    // Auto-init audio players whenever new messages are added to the chat
-    new MutationObserver(() => initAudioPlayers()).observe(chatBox, { childList: true, subtree: true });
-
-    // Emoji Reaction System Completely Removed
   </script>
 </body>
 </html>

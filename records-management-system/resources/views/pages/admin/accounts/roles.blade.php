@@ -42,6 +42,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Roles')] class extends C
     public bool $canModifyUser = false;
     public bool $canViewAllList = false;
     public bool $canViewAllArchive = false;
+    public bool $canViewAllCurrentTrans = false;
     public bool $canCreateOwnFlow = false;
     public bool $canDtsUseInternal = false;
     public bool $canDtsUseExternal = false;
@@ -91,6 +92,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Roles')] class extends C
         $this->canModifyUser = false;
         $this->canViewAllList = false;
         $this->canViewAllArchive = false;
+        $this->canViewAllCurrentTrans = false;
         $this->canCreateOwnFlow = false;
         $this->canDtsUseInternal = false;
         $this->canDtsUseExternal = false;
@@ -138,6 +140,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Roles')] class extends C
                 $this->canModifyUser = (bool) $perms->can_sadm_modify_account;
                 $this->canViewAllList = (bool) $perms->can_dts_view_all_list;
                 $this->canViewAllArchive = (bool) $perms->can_dts_view_all_archive;
+                $this->canViewAllCurrentTrans = (bool) $perms->can_dts_view_all_current_trans;
                 $this->canCreateOwnFlow = (bool) $perms->can_dts_create_own_flow;
                 $this->canDtsUseInternal = (bool) $perms->can_dts_use_internal;
                 $this->canDtsUseExternal = (bool) $perms->can_dts_use_external;
@@ -311,6 +314,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Roles')] class extends C
         $perms->can_sadm_modify_account = $this->canModifyUser;
         $perms->can_dts_view_all_list = $this->canViewAllList;
         $perms->can_dts_view_all_archive = $this->canViewAllArchive;
+        $perms->can_dts_view_all_current_trans = $this->canViewAllCurrentTrans;
         $perms->can_dts_create_own_flow = $this->canCreateOwnFlow;
         $perms->can_dts_use_internal = $this->canDtsUseInternal;
         $perms->can_dts_use_external = $this->canDtsUseExternal;

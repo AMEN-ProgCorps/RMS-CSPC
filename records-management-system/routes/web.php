@@ -28,7 +28,7 @@ Route::middleware(['auth'])
     Volt::route('/profile', 'pages.profile.index')->name('profile');
     Volt::route('/profile/security-logs', 'pages.profile.security-logs')->name('profile.security-logs');
     Volt::route('/profile/notification-manager', 'pages.profile.notification-manager')->name('profile.notification-manager');
-
+    
     // Admin Console (requires is_sadm)
     Route::middleware(['can.access.admin'])->group(function () {
         Volt::route('/admin/console', 'pages.admin.console.index')->name('admin.console');
@@ -45,6 +45,7 @@ Route::middleware(['auth'])
         Volt::route('/admin/dts/update-logs', 'pages.admin.dts.update-logs')->name('admin.dts.update-logs');
         Volt::route('/admin/dts/transaction-flows', 'pages.admin.dts.transaction-flows')->name('admin.dts.transaction-flows');
         Volt::route('/admin/dts/flow-logs', 'pages.admin.dts.flow-logs')->name('admin.dts.flow-logs');
+        Volt::route('/admin/dts/addon', 'pages.admin.dts.addon')->name('admin.dts.addon');
 
         Volt::route('/admin/rdp/records-logs', 'pages.admin.rdp.records-logs')->name('admin.rdp.records-logs');
         Volt::route('/admin/rdp/update-logs', 'pages.admin.rdp.update-logs')->name('admin.rdp.update-logs');
@@ -73,6 +74,7 @@ Route::middleware(['auth'])
     Route::middleware(['can.access.dts'])->group(function () {
         Volt::route('/dts', 'pages.dts.index')->name('dts');
         Volt::route('/dts/receive', 'pages.dts.receive')->name('dts.receive');
+        Volt::route('/dts/scanner', 'pages.dts.scanner')->name('dts.scanner');
         // Sub-filter pages merged into index; these redirect to keep old links working
         Route::get('/dts/internal', fn () => redirect()->route('dts'))->name('dts.internal');
         Route::get('/dts/external', fn () => redirect()->route('dts'))->name('dts.external');

@@ -123,6 +123,7 @@
         <div class="function-button {{ request()->routeIs('admin.dts.update-logs') ? 'force-active' : '' }}" onclick="proccedto('{{ route('admin.dts.update-logs') }}')">Update Logs</div>
         <div class="function-button {{ request()->routeIs('admin.dts.transaction-flows') ? 'force-active' : '' }}" onclick="proccedto('{{ route('admin.dts.transaction-flows') }}')">Transaction Flows</div>
         <div class="function-button {{ request()->routeIs('admin.dts.flow-logs') ? 'force-active' : '' }}" onclick="proccedto('{{ route('admin.dts.flow-logs') }}')">Flows Logs</div>
+        <div class="function-button {{ request()->routeIs('admin.dts.addon') ? 'force-active' : '' }}" onclick="proccedto('{{ route('admin.dts.addon') }}')">DTS Addon</div>
     </div>
 </div>
 

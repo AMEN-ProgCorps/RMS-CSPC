@@ -21,6 +21,60 @@
 
     @auth
     @if(\DB::table('system_settings')->where('key', 'page_prewarming_enabled')->value('value') === 'true')
+        @php
+            $prewarmUrls = ['/portal', '/profile', '/profile/security-logs', '/profile/notification-manager'];
+            $perms = auth()->user()?->permissions;
+            if ($perms) {
+                if ($perms->is_sadm || $perms->can_access_dts) {
+                    $prewarmUrls[] = '/dts';
+                    if ($perms->is_sadm || $perms->can_dts_user_received) {
+                        $prewarmUrls[] = '/dts/receive';
+                    }
+                    if ($perms->is_sadm || $perms->can_dts_use_internal) {
+                        $prewarmUrls[] = '/dts/create/internal';
+                        $prewarmUrls[] = '/dts/list/internal';
+                    }
+                    if ($perms->is_sadm || $perms->can_dts_use_external) {
+                        $prewarmUrls[] = '/dts/create/external';
+                        $prewarmUrls[] = '/dts/list/external';
+                    }
+                    if ($perms->is_sadm || $perms->can_dts_use_application) {
+                        $prewarmUrls[] = '/dts/create/application-letters';
+                        $prewarmUrls[] = '/dts/list/application-letters';
+                    }
+                    if ($perms->is_sadm || $perms->can_dts_use_issuance) {
+                        $prewarmUrls[] = '/dts/create/issuances';
+                        $prewarmUrls[] = '/dts/list/issuances';
+                    }
+                }
+                if ($perms->is_sadm || $perms->can_access_rdp) {
+                    $prewarmUrls[] = '/rdp';
+                    $prewarmUrls[] = '/rdp/add-records/inventory-and-appraisal';
+                    $prewarmUrls[] = '/rdp/add-records/records-and-disposition-schedule';
+                    $prewarmUrls[] = '/rdp/reports/nap-form-1';
+                    $prewarmUrls[] = '/rdp/reports/nap-form-2';
+                    $prewarmUrls[] = '/rdp/reports/nap-form-3';
+                }
+                if ($perms->is_sadm) {
+                    $prewarmUrls[] = '/admin/console';
+                    $prewarmUrls[] = '/admin/accounts/users';
+                    $prewarmUrls[] = '/admin/accounts/roles';
+                    $prewarmUrls[] = '/admin/accounts/offices';
+                    $prewarmUrls[] = '/admin/activity/logins';
+                    $prewarmUrls[] = '/admin/activity/account-changes';
+                    $prewarmUrls[] = '/admin/activity/notifications';
+                    $prewarmUrls[] = '/admin/dts/transaction-logs';
+                    $prewarmUrls[] = '/admin/dts/update-logs';
+                    $prewarmUrls[] = '/admin/dts/transaction-flows';
+                    $prewarmUrls[] = '/admin/rdp/records-logs';
+                    $prewarmUrls[] = '/admin/rdp/update-logs';
+                    $prewarmUrls[] = '/admin/subsystems/add';
+                    $prewarmUrls[] = '/admin/subsystems/activate';
+                    $prewarmUrls[] = '/admin/subsystems/deactivate';
+                    $prewarmUrls[] = '/admin/subsystems/changes-logs';
+                }
+            }
+        @endphp
     <script>
         document.addEventListener("DOMContentLoaded", () => {
             const userId = "{{ auth()->id() }}";
@@ -29,44 +83,7 @@
                 return;
             }
 
-            const urls = [
-                '/portal',
-                '/profile',
-                '/profile/security-logs',
-                '/profile/notification-manager',
-                '/dts',
-                '/dts/receive',
-                '/dts/create/internal',
-                '/dts/create/external',
-                '/dts/create/application-letters',
-                '/dts/create/issuances',
-                '/dts/list/internal',
-                '/dts/list/external',
-                '/dts/list/application-letters',
-                '/dts/list/issuances',
-                '/rdp',
-                '/rdp/add-records/inventory-and-appraisal',
-                '/rdp/add-records/records-and-disposition-schedule',
-                '/rdp/reports/nap-form-1',
-                '/rdp/reports/nap-form-2',
-                '/rdp/reports/nap-form-3',
-                '/admin/console',
-                '/admin/accounts/users',
-                '/admin/accounts/roles',
-                '/admin/accounts/offices',
-                '/admin/activity/logins',
-                '/admin/activity/account-changes',
-                '/admin/activity/notifications',
-                '/admin/dts/transaction-logs',
-                '/admin/dts/update-logs',
-                '/admin/dts/transaction-flows',
-                '/admin/rdp/records-logs',
-                '/admin/rdp/update-logs',
-                '/admin/subsystems/add',
-                '/admin/subsystems/activate',
-                '/admin/subsystems/deactivate',
-                '/admin/subsystems/changes-logs'
-            ];
+            const urls = {!! json_encode($prewarmUrls) !!};
 
             let index = 0;
             const prewarmNext = () => {

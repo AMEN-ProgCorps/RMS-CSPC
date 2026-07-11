@@ -1,0 +1,10 @@
+{
+  "name": "chatify-ws-server",
+  "version": "1.0.0",
+  "description": "WebSocket Server for Chatify real-time messaging",
+  "main": "server.js",
+  "private": true,
+  "dependencies": {
+    "ws": "^8.16.0"
+  }
+}

@@ -23,3 +23,7 @@ docker-compose.override.yml
 Homestead.json
 Homestead.yaml
 Thumbs.db
+
+# WebSocket server packages
+/public/chatify/ws-server/node_modules
+

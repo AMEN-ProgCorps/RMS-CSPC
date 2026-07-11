@@ -1,0 +1,103 @@
+# -------------------------------
+# Disable directory listing
+# -------------------------------
+Options -Indexes
+
+DirectoryIndex index.php index.html
+
+# -------------------------------
+# Force 403 Forbidden for ALL JSON files
+# -------------------------------
+<FilesMatch "\.(json)$">
+    Require all denied
+    ErrorDocument 403 "Access forbidden: JSON files are not accessible"
+</FilesMatch>
+
+# -------------------------------
+# Security: Deny sensitive files
+# -------------------------------
+<FilesMatch "\.(sql|bak|env|tar|gz|txt|log|ini|conf|config|yml|yaml|md)$">
+    Require all denied
+</FilesMatch>
+
+# -------------------------------
+# Compatibility (old Apache 2.2 and below)
+# -------------------------------
+<IfModule !mod_authz_core.c>
+    <FilesMatch "\.(sql|bak|env|tar|gz|json|txt|log|ini|conf|config|yml|yaml|md)$">
+        Order allow,deny
+        Deny from all
+    </FilesMatch>
+</IfModule>
+
+# -------------------------------
+# Protect .htaccess itself
+# -------------------------------
+<Files ".htaccess">
+    Require all denied
+</Files>
+
+# -------------------------------
+# Protect specific file names (explicit)
+# -------------------------------
+<Files "users.json">
+    Require all denied
+</Files>
+
+<Files "config.json">
+    Require all denied
+</Files>
+
+<Files "database.json">
+    Require all denied
+</Files>
+
+# -------------------------------
+# Block access to any .json file anywhere
+# -------------------------------
+<FilesMatch "\.json$">
+    Require all denied
+    <IfModule mod_headers.c>
+        Header set X-Robots-Tag "noindex, nofollow"
+    </IfModule>
+</FilesMatch>
+
+# -------------------------------
+# Optional: Redirect to 403 error page
+# -------------------------------
+# ErrorDocument 403 /403.html
+
+# -------------------------------
+# Optional HTTPS redirect (uncomment to enable)
+# -------------------------------
+# RewriteEngine On
+# RewriteCond %{HTTPS} off
+# RewriteRule ^ https://%{HTTP_HOST}%{REQUEST_URI} [L,R=301]
+
+# -------------------------------
+# Hide .htaccess in directory listing
+# -------------------------------
+<IfModule mod_autoindex.c>
+    IndexIgnore .htaccess
+</IfModule>
+
+# -------------------------------
+# Disable access to all directories without index
+# -------------------------------
+<IfModule mod_autoindex.c>
+    Options -Indexes
+</IfModule>
+
+# -------------------------------
+# Block access to hidden files (starting with dot)
+# -------------------------------
+<FilesMatch "^\.">
+    Require all denied
+</FilesMatch>
+
+# -------------------------------
+# Debug: Check if .htaccess is being read
+# -------------------------------
+# Uncomment the line below to test if .htaccess works
+# (It will break your site - use temporarily only)
+# DENY FROM ALL

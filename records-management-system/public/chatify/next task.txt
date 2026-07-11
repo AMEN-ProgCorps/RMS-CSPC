@@ -1,0 +1,1 @@
+tanggalin mo yung shadowing ng sidebar sa mobile. ang panget kasi. then yung modal ng delete chat dyan is fix mo rin, dapat pag nag shrink test, naka same size lang din sila, hindi gagalaw katulad ng mga buttons dyan. tapos yung red sa Delete Everything alisin mo sa modal ng Delete All Messages. dapat white lang din yan katulad sa cancel.

@@ -2337,6 +2337,7 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
     let wsPollInterval = null;
     let localIsTyping = false;
     let localTypingTimeout = null;
+    let localTypingHeartbeat = null;
     let typingTimer = null;
 
 
@@ -2933,6 +2934,10 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
         clearTimeout(localTypingTimeout);
         localTypingTimeout = null;
       }
+      if (localTypingHeartbeat) {
+        clearInterval(localTypingHeartbeat);
+        localTypingHeartbeat = null;
+      }
       if (localIsTyping) {
         localIsTyping = false;
         sendTypingStatus(false);
@@ -2978,6 +2983,10 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
       if (localTypingTimeout) {
         clearTimeout(localTypingTimeout);
         localTypingTimeout = null;
+      }
+      if (localTypingHeartbeat) {
+        clearInterval(localTypingHeartbeat);
+        localTypingHeartbeat = null;
       }
       if (localIsTyping) {
         localIsTyping = false;
@@ -3215,6 +3224,10 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
         clearTimeout(localTypingTimeout);
         localTypingTimeout = null;
       }
+      if (localTypingHeartbeat) {
+        clearInterval(localTypingHeartbeat);
+        localTypingHeartbeat = null;
+      }
       if (localIsTyping) {
         localIsTyping = false;
         sendTypingStatus(false);
@@ -3250,6 +3263,10 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
       if (localTypingTimeout) {
         clearTimeout(localTypingTimeout);
         localTypingTimeout = null;
+      }
+      if (localTypingHeartbeat) {
+        clearInterval(localTypingHeartbeat);
+        localTypingHeartbeat = null;
       }
       if (localIsTyping) {
         localIsTyping = false;
@@ -4106,6 +4123,10 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
             clearTimeout(localTypingTimeout);
             localTypingTimeout = null;
           }
+          if (localTypingHeartbeat) {
+            clearInterval(localTypingHeartbeat);
+            localTypingHeartbeat = null;
+          }
           if (localIsTyping) {
             localIsTyping = false;
             sendTypingStatus(false);
@@ -4178,12 +4199,24 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
         if (!localIsTyping) {
           localIsTyping = true;
           sendTypingStatus(true);
+          // Heartbeat: keep re-sending "true" every 2s while user keeps typing,
+          // so the receiver's 4s auto-expire timer keeps getting refreshed.
+          if (localTypingHeartbeat) clearInterval(localTypingHeartbeat);
+          localTypingHeartbeat = setInterval(function() {
+            if (localIsTyping) {
+              sendTypingStatus(true);
+            }
+          }, 2000);
         }
         // Restart the idle timeout – if user stops typing for 3s, cancel indicator
         if (localTypingTimeout) clearTimeout(localTypingTimeout);
         localTypingTimeout = setTimeout(function() {
           localIsTyping = false;
           localTypingTimeout = null;
+          if (localTypingHeartbeat) {
+            clearInterval(localTypingHeartbeat);
+            localTypingHeartbeat = null;
+          }
           sendTypingStatus(false);
         }, 3000);
       }

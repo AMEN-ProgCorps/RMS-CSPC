@@ -303,6 +303,7 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
     
     .sidebar-users {
       min-height: 292px;
+      max-height: 292px;
       flex: 1;
       overflow-y: auto;
       background-color: var(--bg-secondary);

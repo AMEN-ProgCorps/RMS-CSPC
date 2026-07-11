@@ -359,9 +359,13 @@ class DtsScannerTest extends TestCase
         $user = User::find(1);
         Auth::login($user);
 
-        // Ensure Document Tracking System is active in subsystems
+        // Ensure subsystems are active
         DB::table('subsystems')->updateOrInsert(
             ['subsystem_name' => 'Document Tracking System'],
+            ['is_active' => true]
+        );
+        DB::table('subsystems')->updateOrInsert(
+            ['subsystem_name' => 'Chatify'],
             ['is_active' => true]
         );
 
@@ -377,7 +381,10 @@ class DtsScannerTest extends TestCase
         Auth::setUser($user->fresh());
 
         Volt::test('pages.portal.access-page')
-            ->assertSee('DTS QR Scanner');
+            ->assertSee('DTS QR Scanner')
+            ->assertSee('mobile-only')
+            ->assertSee('desktop-only')
+            ->assertSee('Chatify');
 
         // Scenario 2: User does not have receive permission
         DB::table('condition_details')
@@ -391,6 +398,8 @@ class DtsScannerTest extends TestCase
         Auth::setUser($user->fresh());
 
         Volt::test('pages.portal.access-page')
-            ->assertDontSee('DTS QR Scanner');
+            ->assertDontSee('DTS QR Scanner')
+            ->assertSee('desktop-only')
+            ->assertSee('Chatify');
     }
 }

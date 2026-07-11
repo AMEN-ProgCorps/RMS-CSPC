@@ -86,6 +86,7 @@ new #[Layout('layouts.portal')] #[Title('RMS CSPC Portal')] class extends Compon
             'dtsActive' => in_array('Document Tracking System', $activeSubsystems),
             'rdpActive' => in_array('Records Disposition Program', $activeSubsystems),
             'adminActive' => in_array('Admin Console', $activeSubsystems),
+            'chatifyActive' => in_array('Chatify', $activeSubsystems),
         ];
     }
 };
@@ -94,7 +95,26 @@ new #[Layout('layouts.portal')] #[Title('RMS CSPC Portal')] class extends Compon
 @push('styles')
     @vite(['resources/css/accesspoint.css'])
     <style data-navigate-track>
-        body { background-image: url('{{ asset('images/1cw2k34d.webp') }}'); }
+        body {
+            background-image: url('{{ asset('images/1cw2k34d.webp') }}');
+            background-repeat: no-repeat !important;
+            background-size: cover !important;
+            background-attachment: fixed !important;
+            background-position: center !important;
+            min-height: 100vh !important;
+        }
+        
+        /* Device Segregation Classes */
+        @media (max-width: 768px) {
+            .desktop-only {
+                display: none !important;
+            }
+        }
+        @media (min-width: 769px) {
+            .mobile-only {
+                display: none !important;
+            }
+        }
     </style>
 @endpush
 
@@ -119,19 +139,19 @@ new #[Layout('layouts.portal')] #[Title('RMS CSPC Portal')] class extends Compon
         <span>Welcome, {{ $userNameDisplay }}</span>
     </div>
     <div class="systems-container">
-        <a href="{{ route('profile') }}" class="system-con" id="profile">
+        <a href="{{ route('profile') }}" class="system-con desktop-only" id="profile">
             <div class="display-box">
                 <span>Profile</span>
             </div>
         </a>
         @if((auth()->user()?->permissions?->is_sadm || auth()->user()?->permissions?->can_access_dts) && $dtsActive)
-        <a href="{{ route('dts') }}" class="system-con" id="dts">
+        <a href="{{ route('dts') }}" class="system-con desktop-only" id="dts">
             <div class="display-box">
                 <span>Document Tracking System</span>
             </div>
         </a>
         @if(auth()->user()?->permissions?->is_sadm || auth()->user()?->permissions?->can_dts_user_received)
-        <a href="{{ route('dts.scanner') }}" class="system-con" id="dts-scanner">
+        <a href="{{ route('dts.scanner') }}" class="system-con mobile-only" id="dts-scanner">
             <div class="display-box">
                 <span>DTS QR Scanner</span>
             </div>
@@ -139,16 +159,23 @@ new #[Layout('layouts.portal')] #[Title('RMS CSPC Portal')] class extends Compon
         @endif
         @endif
         @if(auth()->user()?->permissions?->is_sadm && $adminActive)
-        <a href="/admin/console/" class="system-con" id="admin">
+        <a href="/admin/console/" class="system-con desktop-only" id="admin">
             <div class="display-box">
                 <span>Admin Console</span>
             </div>
         </a>
         @endif
         @if((auth()->user()?->permissions?->is_sadm || auth()->user()?->permissions?->can_access_rdp) && $rdpActive)
-        <a href="{{ route('rdp') }}" class="system-con" id="rdp">
+        <a href="{{ route('rdp') }}" class="system-con desktop-only" id="rdp">
             <div class="display-box">
                 <span>Records Disposition Program</span>
+            </div>
+        </a>
+        @endif
+        @if($chatifyActive)
+        <a href="/open-chat" target="_blank" rel="noopener noreferrer" class="system-con" id="chatify">
+            <div class="display-box">
+                <span>Chatify</span>
             </div>
         </a>
         @endif

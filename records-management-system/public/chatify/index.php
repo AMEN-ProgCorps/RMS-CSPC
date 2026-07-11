@@ -304,6 +304,7 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
     }
     
     .sidebar-users {
+      min-height: 292px;
       flex: 1;
       overflow-y: auto;
       background-color: var(--bg-secondary);
@@ -325,8 +326,9 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
     }
 
     #adminConvsList {
+      min-height: 292px;
+      max-height: 292px;
       flex: none;
-      max-height: 200px;
       overflow-y: auto;
       /* Hide scrollbar but keep scroll functionality */
       scrollbar-width: none; /* Firefox */
@@ -2104,7 +2106,7 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
       </div>
       <!-- Admin: View all users chats view -->
       <div id="adminConvsSection" style="display:none;">
-        <div style="padding:8px 16px 4px;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.8px;color:var(--text-secondary);border-top:1px solid var(--border-color);margin-top:4px;">View All Users Chats</div>
+        <div style="padding:8px 16px 4px;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.8px;color:var(--text-secondary);border-top:1px solid var(--border-color);margin-top:4px;text-align:center;">View of all user conversations</div>
         <div class="admin-search" style="padding: 6px 16px;">
           <input type="text" id="adminSearchInput" placeholder="Search conversations..." autocomplete="off">
         </div>

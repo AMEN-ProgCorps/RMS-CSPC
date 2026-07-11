@@ -304,6 +304,7 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
     }
     
     .sidebar-users {
+      min-height: 292px;
       flex: 1;
       overflow-y: auto;
       background-color: var(--bg-secondary);
@@ -325,8 +326,9 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
     }
 
     #adminConvsList {
+      min-height: 292px;
+      max-height: 292px;
       flex: none;
-      max-height: 200px;
       overflow-y: auto;
       /* Hide scrollbar but keep scroll functionality */
       scrollbar-width: none; /* Firefox */
@@ -2104,7 +2106,7 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
       </div>
       <!-- Admin: View all users chats view -->
       <div id="adminConvsSection" style="display:none;">
-        <div style="padding:8px 16px 4px;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.8px;color:var(--text-secondary);border-top:1px solid var(--border-color);margin-top:4px;">View All Users Chats</div>
+        <div style="padding:8px 16px 4px;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.8px;color:var(--text-secondary);border-top:1px solid var(--border-color);margin-top:4px;text-align:center;">View of all user conversations</div>
         <div class="admin-search" style="padding: 6px 16px;">
           <input type="text" id="adminSearchInput" placeholder="Search conversations..." autocomplete="off">
         </div>
@@ -2805,7 +2807,7 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
       gcHasMore = false;
       gcViewingOlder = false;
       localStorage.setItem('activeDM', '__global__');
-      chatHeaderTitle.innerHTML = `<svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" style="vertical-align:-3px;margin-right:6px;"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 17.93c-3.95-.49-7-3.85-7-7.93 0-.62.08-1.21.21-1.79L9 15v1c0 1.1.9 2 2 2v1.93zm6.9-2.54c-.26-.81-1-1.39-1.9-1.39h-1v-3c0-.55-.45-1-1-1H8v-2h2c.55 0 1-.45 1-1V7h2c1.1 0 2-.9 2-2v-.41c2.93 1.19 5 4.06 5 7.41 0 2.08-.8 3.97-2.1 5.39z"/></svg> Global Chat`;
+      chatHeaderTitle.innerHTML = `Global Chat`;
       chatBox.innerHTML = '';
       removePaginationBtn();
       renderSidebarUsers();
@@ -2948,7 +2950,6 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
 
           const avatar = document.createElement('div');
           avatar.className = 'user-avatar';
-          avatar.style.cssText = 'background:#f0a500;font-size:12px;width:40px;height:40px;';
           avatar.innerHTML = EYE_ICON_SVG;
 
           const info = document.createElement('div');

@@ -29,6 +29,7 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create External
     public string $customFlowDocType = '';
     public array $customFlowSequence = [];
     public string $customFlowSelectedOffice = '';
+    public string $customFlowFor = 'user';
     public string $toastMessage = '';
 
     // Email Access & Password management fields
@@ -64,12 +65,27 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create External
             ->map(fn($o) => (array)$o)
             ->toArray();
 
+        $userOfficeId = auth()->user()?->details?->office_id;
         $this->flows = DB::table('dts_transaction_flow')
             ->where('is_active', true)
             ->whereIn('flow_use', ['external', 'none'])
-            ->where(function($query) {
-                $query->where('flow_code', 'not like', 'FLOW-CUSTOM-%')
-                      ->orWhere('added_by', auth()->id());
+            ->where(function($query) use ($userOfficeId) {
+                $query->where('flow_for', 'system')
+                      ->orWhere(function($q) {
+                          $q->where('flow_for', 'user')
+                            ->where('added_by', auth()->id());
+                      });
+                if ($userOfficeId) {
+                    $query->orWhere(function($q) use ($userOfficeId) {
+                        $q->where('flow_for', 'office')
+                          ->whereExists(function($sub) use ($userOfficeId) {
+                              $sub->select(DB::raw(1))
+                                  ->from('account_details')
+                                  ->whereColumn('account_id', 'dts_transaction_flow.added_by')
+                                  ->where('office_id', $userOfficeId);
+                          });
+                    });
+                }
             })
             ->orderBy('flow_name')
             ->get()
@@ -424,6 +440,7 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create External
         $this->customFlowDocType = '';
         $this->customFlowSequence = [];
         $this->customFlowSelectedOffice = '';
+        $this->customFlowFor = 'user';
         $this->showCustomFlowModal = true;
     }
 
@@ -441,6 +458,24 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create External
     {
         unset($this->customFlowSequence[$index]);
         $this->customFlowSequence = array_values($this->customFlowSequence);
+    }
+
+    public function moveUpCustomFlowSequence(int $index): void
+    {
+        if ($index > 0) {
+            $temp = $this->customFlowSequence[$index];
+            $this->customFlowSequence[$index] = $this->customFlowSequence[$index - 1];
+            $this->customFlowSequence[$index - 1] = $temp;
+        }
+    }
+
+    public function moveDownCustomFlowSequence(int $index): void
+    {
+        if ($index < count($this->customFlowSequence) - 1) {
+            $temp = $this->customFlowSequence[$index];
+            $this->customFlowSequence[$index] = $this->customFlowSequence[$index + 1];
+            $this->customFlowSequence[$index + 1] = $temp;
+        }
     }
 
     public function saveCustomFlow(): void
@@ -467,6 +502,7 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create External
                     'flow_code' => $flowCode,
                     'is_active' => true,
                     'flow_use' => 'external',
+                    'flow_for' => $this->customFlowFor,
                     'added_by' => auth()->id() ?? 1,
                     'date_added' => now(),
                 ]);
@@ -484,12 +520,27 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create External
             });
 
             // Reload flows list
+            $userOfficeId = auth()->user()?->details?->office_id;
             $this->flows = DB::table('dts_transaction_flow')
                 ->where('is_active', true)
                 ->whereIn('flow_use', ['external', 'none'])
-                ->where(function($query) {
-                    $query->where('flow_code', 'not like', 'FLOW-CUSTOM-%')
-                          ->orWhere('added_by', auth()->id());
+                ->where(function($query) use ($userOfficeId) {
+                    $query->where('flow_for', 'system')
+                          ->orWhere(function($q) {
+                              $q->where('flow_for', 'user')
+                                ->where('added_by', auth()->id());
+                          });
+                    if ($userOfficeId) {
+                        $query->orWhere(function($q) use ($userOfficeId) {
+                            $q->where('flow_for', 'office')
+                              ->whereExists(function($sub) use ($userOfficeId) {
+                                  $sub->select(DB::raw(1))
+                                      ->from('account_details')
+                                      ->whereColumn('account_id', 'dts_transaction_flow.added_by')
+                                      ->where('office_id', $userOfficeId);
+                              });
+                        });
+                    }
                 })
                 ->orderBy('flow_name')
                 ->get()
@@ -624,37 +675,43 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create External
                 }
             }
 
-            if ($resolvedPredefined !== $this->flow_offices) {
-                // Generate custom flow
-                $flowCode = 'FLOW-CUSTOM-' . strtoupper(Str::random(10));
-                $maxId = DB::table('dts_transaction_flow')->max('id') ?? 0;
-                $newFlowId = $maxId + 1;
-
-                DB::table('dts_transaction_flow')->insert([
-                    'flow_code' => $flowCode,
-                    'flow_name' => 'Modified Flow for ' . $controlNumber,
-                    'id' => $newFlowId,
-                    'is_active' => 1,
-                    'added_by' => auth()->id() ?? 1,
-                    'date_added' => now(),
-                    'flow_use' => 'external',
-                ]);
-
-                foreach ($this->flow_offices as $rank => $officeCode) {
-                    $toSave = $officeCode;
-                    if ($officeCode === $originOfficeCode) {
-                        $toSave = 'ORIGIN';
-                    } elseif ($officeCode === $clusterHead) {
-                        $toSave = '[H]';
-                    }
-
-                    DB::table('dts_sequence_list')->insert([
-                        'control_id' => $newFlowId,
-                        'sequence_ranking' => $rank + 1,
-                        'office_code' => $toSave,
-                    ]);
-                }
-            }
+            // Always copy the flow to dts_sequence_list to make it unique per transaction
+            if (true) {
+                 // Generate custom flow
+                 $flowCode = 'FLOW-CUSTOM-' . strtoupper(Str::random(10));
+                 $maxId = DB::table('dts_transaction_flow')->max('id') ?? 0;
+                 $newFlowId = $maxId + 1;
+ 
+                 DB::table('dts_transaction_flow')->insert([
+                     'flow_code' => $flowCode,
+                     'flow_name' => 'Flow for ' . $controlNumber . ' (' . $flowCode . ')',
+                     'id' => $newFlowId,
+                     'is_active' => 1,
+                     'added_by' => auth()->id() ?? 1,
+                     'date_added' => now(),
+                     'flow_use' => 'external',
+                 ]);
+ 
+                 foreach ($this->flow_offices as $rank => $officeCode) {
+                     $toSave = $officeCode;
+                     if ($officeCode === $originOfficeCode) {
+                         $toSave = 'ORIGIN';
+                     } elseif ($officeCode === $clusterHead) {
+                         $toSave = '[H]';
+                     }
+ 
+                     DB::table('dts_sequence_list')->insert([
+                         'control_id' => $newFlowId,
+                         'sequence_ranking' => $rank + 1,
+                         'office_code' => $toSave,
+                         'date_in' => ($rank === 0) ? now() : null,
+                         'date_out' => null,
+                         'action_needed' => ($rank === 0) ? 'Created' : null,
+                         'note' => ($rank === 0) ? 'Created external transaction' : null,
+                         'total_time_completed' => null,
+                     ]);
+                 }
+             }
 
             $currentOffice = $resolvedOffices[0] ?? $this->source_office;
 
@@ -844,6 +901,7 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create External
 
 @push('styles')
     @vite(['resources/css/dts/create.css'])
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css">
 @endpush
 
 <div class="rms-container">
@@ -1562,6 +1620,16 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create External
                         @error('customFlowDocType') <span style="font-size: 11.5px; color: #ef4444; font-weight: 500;">{{ $message }}</span> @enderror
                     </div>
 
+                    <!-- Who can use this flow (Visibility) -->
+                    <div style="display: flex; flex-direction: column; gap: 6px;">
+                        <label style="font-size: 12.5px; font-weight: 600; color: #334155;">Who can use this flow?</label>
+                        <select wire:model="customFlowFor" style="width: 100%; height: 38px; padding: 0 12px; border: 1.5px solid #cbd5e1; border-radius: 8px; font-size: 13px; outline: none; background: #ffffff;">
+                            <option value="user">Only Me</option>
+                            <option value="office">My Office</option>
+                        </select>
+                        @error('customFlowFor') <span style="font-size: 11.5px; color: #ef4444; font-weight: 500;">{{ $message }}</span> @enderror
+                    </div>
+
                     <!-- Flow Sequence Selector -->
                     <div style="display: flex; flex-direction: column; gap: 8px; padding: 16px; background: #f8fafc; border-radius: 12px; border: 1px solid #e2e8f0;">
                         <label style="font-size: 12.5px; font-weight: 600; color: #334155; margin-bottom: 2px;">Add Offices to Routing Sequence</label>
@@ -1600,9 +1668,17 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create External
                                                 <span style="font-size: 11px; color: #64748b; font-weight: 500;">Code: {{ $code }}</span>
                                             </div>
                                         </div>
-                                        <button type="button" wire:click="removeFromCustomFlowSequence({{ $idx }})" style="background: none; border: none; color: #ef4444; cursor: pointer; padding: 6px; border-radius: 6px; transition: background 0.15s;" onmouseover="this.style.backgroundColor='#fef2f2'" onmouseout="this.style.backgroundColor='transparent'">
-                                            <i class="fa-solid fa-trash-can" style="font-size: 12px;"></i>
-                                        </button>
+                                        <div style="display: flex; align-items: center; gap: 4px;">
+                                            <button type="button" wire:click="moveUpCustomFlowSequence({{ $idx }})" {{ $idx === 0 ? 'disabled' : '' }} style="background: none; border: none; color: {{ $idx === 0 ? '#cbd5e1' : '#64748b' }}; cursor: {{ $idx === 0 ? 'not-allowed' : 'pointer' }}; padding: 6px; border-radius: 6px; transition: background 0.15s;" onmouseover="if({{ $idx !== 0 ? 'true' : 'false' }}) this.style.backgroundColor='#f1f5f9'" onmouseout="this.style.backgroundColor='transparent'">
+                                                <i class="fa-solid fa-arrow-up" style="font-size: 11px;"></i>
+                                            </button>
+                                            <button type="button" wire:click="moveDownCustomFlowSequence({{ $idx }})" {{ $idx === count($customFlowSequence) - 1 ? 'disabled' : '' }} style="background: none; border: none; color: {{ $idx === count($customFlowSequence) - 1 ? '#cbd5e1' : '#64748b' }}; cursor: {{ $idx === count($customFlowSequence) - 1 ? 'not-allowed' : 'pointer' }}; padding: 6px; border-radius: 6px; transition: background 0.15s;" onmouseover="if({{ $idx !== count($customFlowSequence) - 1 ? 'true' : 'false' }}) this.style.backgroundColor='#f1f5f9'" onmouseout="this.style.backgroundColor='transparent'">
+                                                <i class="fa-solid fa-arrow-down" style="font-size: 11px;"></i>
+                                            </button>
+                                            <button type="button" wire:click="removeFromCustomFlowSequence({{ $idx }})" style="background: none; border: none; color: #ef4444; cursor: pointer; padding: 6px; border-radius: 6px; transition: background 0.15s;" onmouseover="this.style.backgroundColor='#fef2f2'" onmouseout="this.style.backgroundColor='transparent'">
+                                                <i class="fa-solid fa-trash-can" style="font-size: 11px;"></i>
+                                            </button>
+                                        </div>
                                     </div>
                                     @if($idx < count($customFlowSequence) - 1)
                                         <div style="display: flex; justify-content: center; margin: -4px 0; color: #cbd5e1;">

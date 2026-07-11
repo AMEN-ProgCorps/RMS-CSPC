@@ -211,7 +211,6 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - List External T
                 return $step;
             });
     }
-
     public function toggleFullConfiguredPath(): void
     {
         $this->showFullConfiguredPath = !$this->showFullConfiguredPath;
@@ -227,31 +226,37 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - List External T
         if (!$flow) {
             return collect();
         }
+
+        $originOfficeCode = $this->selectedTransaction->originated_from;
+        $originOffice = DB::table('office')->where('office_code', $originOfficeCode)->first();
+        $originOfficeName = $originOffice ? $originOffice->office_name : 'Originated Office';
+        
+        $clusterHeadCode = $originOfficeCode;
+        $clusterHeadName = $originOfficeName;
+        if ($originOffice && $originOffice->cluster) {
+            $cluster = DB::table('cluster')->where('cluster_code', $originOffice->cluster)->first();
+            if ($cluster && $cluster->cluster_head) {
+                $clusterHeadCode = $cluster->cluster_head;
+                $headOffice = DB::table('office')->where('office_code', $cluster->cluster_head)->first();
+                if ($headOffice) {
+                    $clusterHeadName = $headOffice->office_name;
+                }
+            }
+        }
+
         return DB::table('dts_sequence_list as seq')
             ->join('office', 'office.office_code', '=', 'seq.office_code')
             ->where('seq.control_id', $flow->id)
-            ->select('seq.sequence_ranking', 'office.office_name', 'seq.office_code')
+            ->select('seq.sequence_ranking', 'office.office_name', 'seq.office_code', 'seq.date_in', 'seq.date_out', 'seq.action_needed', 'seq.note', 'seq.total_time_completed')
             ->orderBy('seq.sequence_ranking', 'asc')
             ->get()
-            ->map(function ($step) {
-                $log = DB::table('sub_document_tracking_system_logs')
-                    ->where('transaction_id', $this->selectedTransactionId)
-                    ->where('office_code', $step->office_code)
-                    ->orderBy('id', 'desc')
-                    ->first();
-
-                $step->date_in = $log ? $log->date_in : null;
-                $step->date_out = $log ? $log->date_out : null;
-                $step->type = $log ? $log->type : 'pending';
-                $step->notes = $log ? $log->notes : '';
-
-                if ($log) {
-                    $typeRow = DB::table('sub_document_tracking_system_logs_types')
-                        ->where('type_id', $log->type)
-                        ->first();
-                    $step->description = $typeRow ? $typeRow->description : '';
-                } else {
-                    $step->description = 'Pending office flow step.';
+            ->map(function ($step) use ($originOfficeCode, $originOfficeName, $clusterHeadCode, $clusterHeadName) {
+                if ($step->office_code === 'ORIGIN') {
+                    $step->office_code = $originOfficeCode;
+                    $step->office_name = $originOfficeName;
+                } elseif ($step->office_code === '[H]') {
+                    $step->office_code = $clusterHeadCode;
+                    $step->office_name = $clusterHeadName;
                 }
 
                 $step->is_active_step = (
@@ -261,13 +266,22 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - List External T
                     && in_array($this->selectedTransaction->status, ['ongoing', 'revision'])
                     && !is_null($step->date_in)
                 );
+                $step->description = $step->note ?: 'Pending office flow step.';
+                $step->type = $step->action_needed ?: 'pending';
+                $step->notes = $step->note ?: '';
                 return $step;
             });
     }
 
     public function getVisiblePathProperty()
     {
-        return $this->showFullConfiguredPath ? $this->fullFlowPath : $this->transactionPath;
+        if ($this->showFullConfiguredPath) {
+            return $this->fullFlowPath;
+        }
+
+        return $this->fullFlowPath->filter(function ($step) {
+            return !is_null($step->date_in);
+        });
     }
 
     public function openTransaction(string $id): void
@@ -299,6 +313,7 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - List External T
             $this->particulars = $this->selectedTransaction->subject ?: '';
             $this->classification = $this->selectedTransaction->classification ?: '';
             $this->actionNeeded = $this->selectedTransaction->action_needed ?: '';
+            $this->activeAction = DB::table('dts_action_options')->orderBy('option_name', 'asc')->value('option_name') ?: 'For Approval';
         }
     }
 
@@ -313,21 +328,101 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - List External T
             return;
         }
 
-        if ($this->activeAction === 'forwarded') {
-            $flow = DB::table('dts_transaction_flow')
-                ->where('flow_code', $this->selectedTransaction->transaction_flow)
-                ->first();
+        $flow = DB::table('dts_transaction_flow')
+            ->where('flow_code', $this->selectedTransaction->transaction_flow)
+            ->first();
 
-            if (!$flow) {
-                return;
+        if (!$flow) {
+            return;
+        }
+
+        // Calculate time duration
+        $duration = null;
+        $currentStep = DB::table('dts_sequence_list')
+            ->where('control_id', $flow->id)
+            ->where('sequence_ranking', $this->selectedTransaction->sequence)
+            ->first();
+        if ($currentStep && $currentStep->date_in) {
+            $dateIn = \Carbon\Carbon::parse($currentStep->date_in);
+            $dateOut = now();
+            $diff = $dateIn->diff($dateOut);
+            $parts = [];
+            if ($diff->d > 0) {
+                $parts[] = $diff->d . ' ' . \Illuminate\Support\Str::plural('day', $diff->d);
             }
+            if ($diff->h > 0) {
+                $parts[] = $diff->h . ' ' . \Illuminate\Support\Str::plural('hour', $diff->h);
+            }
+            if ($diff->i > 0) {
+                $parts[] = $diff->i . ' ' . \Illuminate\Support\Str::plural('minute', $diff->i);
+            }
+            if (empty($parts)) {
+                $parts[] = 'less than a minute';
+            }
+            $duration = implode(' ', $parts);
+        }
 
+        // Update current step in sequence list
+        DB::table('dts_sequence_list')
+            ->where('control_id', $flow->id)
+            ->where('sequence_ranking', $this->selectedTransaction->sequence)
+            ->update([
+                'date_out' => now(),
+                'action_needed' => $this->activeAction,
+                'note' => $this->activeNotes,
+                'total_time_completed' => $duration,
+            ]);
+
+        if ($this->activeAction === 'For Revision') {
+            // Returned for Revision
+            DB::table('dts_transactions')
+                ->where('transaction_id', $this->selectedTransactionId)
+                ->update([
+                    'current_office' => $this->selectedTransaction->originated_from,
+                    'sequence' => 1,
+                    'status' => 'revision',
+                ]);
+
+            // Reset subsequent steps and set first step as active again
+            DB::table('dts_sequence_list')
+                ->where('control_id', $flow->id)
+                ->where('sequence_ranking', '>', 1)
+                ->update([
+                    'date_in' => null,
+                    'date_out' => null,
+                    'action_needed' => null,
+                    'note' => null,
+                    'total_time_completed' => null,
+                ]);
+            DB::table('dts_sequence_list')
+                ->where('control_id', $flow->id)
+                ->where('sequence_ranking', 1)
+                ->update([
+                    'date_in' => now(),
+                    'date_out' => null,
+                    'action_needed' => 'Returned for Revision',
+                    'note' => $this->activeNotes,
+                    'total_time_completed' => null,
+                ]);
+
+            DB::table('sub_document_tracking_system_logs')->insert([
+                'transaction_id' => $this->selectedTransactionId,
+                'office_code' => $this->selectedTransaction->originated_from,
+                'type' => 'returned',
+                'date_in' => now(),
+                'date_out' => null,
+                'notes' => 'Returned for revision: ' . $this->activeNotes,
+                'performed_by' => auth()->id(),
+            ]);
+
+        } else {
+            // Forwarded/Completed logic
             $nextSequence = DB::table('dts_sequence_list')
                 ->where('control_id', $flow->id)
                 ->where('sequence_ranking', $this->selectedTransaction->sequence + 1)
                 ->first();
 
-            // Insert completion of current step
+            // Also update the sub_document_tracking_system_logs completion of current step
             DB::table('sub_document_tracking_system_logs')
                 ->where('transaction_id', $this->selectedTransactionId)
                 ->where('office_code', $userOfficeCode)
@@ -347,6 +442,18 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - List External T
                         'current_office' => $nextSequence->office_code,
                         'sequence' => $this->selectedTransaction->sequence + 1,
                         'status' => 'ongoing',
+                    ]);
+
+                // Update next step in sequence list
+                DB::table('dts_sequence_list')
+                    ->where('control_id', $flow->id)
+                    ->where('sequence_ranking', $this->selectedTransaction->sequence + 1)
+                    ->update([
+                        'date_in' => now(),
+                        'date_out' => null,
+                        'action_needed' => null,
+                        'note' => null,
+                        'total_time_completed' => null,
                     ]);
 
                 // Create next pending log
@@ -377,24 +484,6 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - List External T
                     'performed_by' => auth()->id(),
                 ]);
             }
-        } elseif ($this->activeAction === 'returned') {
-            DB::table('dts_transactions')
-                ->where('transaction_id', $this->selectedTransactionId)
-                ->update([
-                    'current_office' => $this->selectedTransaction->originated_from,
-                    'sequence' => 1,
-                    'status' => 'revision',
-                ]);
-
-            DB::table('sub_document_tracking_system_logs')->insert([
-                'transaction_id' => $this->selectedTransactionId,
-                'office_code' => $this->selectedTransaction->originated_from,
-                'type' => 'returned',
-                'date_in' => now(),
-                'date_out' => null,
-                'notes' => 'Returned for revision: ' . $this->activeNotes,
-                'performed_by' => auth()->id(),
-            ]);
         }
 
         if (auth()->user()?->permissions?->is_sadm) {
@@ -720,7 +809,6 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - List External T
                     <!-- Transaction Path Section -->
                     <h2 class="receive-title" style="font-size: 16px; margin-top: 10px;">Transaction Path</h2>
 
-                    <!-- Path Table -->
                     <div class="receive-table-wrap">
                         <table class="receive-table">
                             <thead>
@@ -729,10 +817,9 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - List External T
                                     <th>Office</th>
                                     <th>Date In</th>
                                     <th>Date Out</th>
+                                    <th>Total Time</th>
                                     <th>Action Need</th>
                                     <th>Notes</th>
-                                    <th>Info</th>
-                                    <th>Actions</th>
                                 </tr>
                             </thead>
                             <tbody>
@@ -740,46 +827,31 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - List External T
                                     <tr>
                                         <td>{{ $step->sequence_ranking ?? ($index + 1) }}</td>
                                         <td class="office-cell">{{ $step->office_name }}</td>
-                                        <td>{{ $step->date_in ? \Carbon\Carbon::parse($step->date_in)->format('Y-m-d H:i') : 'N/A' }}</td>
-                                        <td>{{ $step->date_out ? \Carbon\Carbon::parse($step->date_out)->format('Y-m-d H:i') : 'Pending' }}</td>
+                                        <td>{{ $step->date_in ? \Carbon\Carbon::parse($step->date_in)->format('Y-m-d') : 'N/A' }}</td>
+                                        <td>{{ $step->date_out ? \Carbon\Carbon::parse($step->date_out)->format('Y-m-d') : ($step->date_in ? 'Pending' : 'N/A') }}</td>
+                                        <td>{{ $step->total_time_completed ?: '-' }}</td>
                                         <td>
                                             @if ($step->is_active_step)
-                                                <span class="text-green font-semibold" style="text-transform: uppercase;">Active</span>
+                                                <select wire:model="activeAction" class="receive-row-action-select" style="padding: 4px 8px; border: 1px solid #cbd5e1; border-radius: 6px; font-size: 12.5px; font-weight: 500;">
+                                                    @foreach(DB::table('dts_action_options')->orderBy('option_name', 'asc')->pluck('option_name') as $opt)
+                                                        <option value="{{ $opt }}">{{ $opt }}</option>
+                                                    @endforeach
+                                                </select>
                                             @else
-                                                {{ ucfirst($step->type) }}
+                                                {{ $step->action_needed ?: ($step->date_in ? 'Ongoing' : 'Pending') }}
                                             @endif
                                         </td>
                                         <td>
                                             @if ($step->is_active_step)
                                                 <input type="text" wire:model="activeNotes" class="active-notes-input" placeholder="Type notes here...">
                                             @else
-                                                {{ $step->notes ?: '-' }}
-                                            @endif
-                                        </td>
-                                        <td>
-                                            <button type="button" class="receive-info-btn" title="{{ $step->description ?? '' }}">
-                                                <svg class="table-icon" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" style="width: 14px; height: 14px; stroke: currentColor;">
-                                                    <circle cx="12" cy="12" r="10" stroke-width="1.5" fill="none"/>
-                                                    <circle cx="12" cy="12" r="2" fill="currentColor"/>
-                                                    <circle cx="17" cy="12" r="2" fill="currentColor"/>
-                                                    <circle cx="7" cy="12" r="2" fill="currentColor"/>
-                                                </svg>
-                                            </button>
-                                        </td>
-                                        <td class="action-cell">
-                                            @if ($step->is_active_step)
-                                                <select wire:model="activeAction" class="receive-row-action-select">
-                                                    <option value="forwarded">Forward</option>
-                                                    <option value="returned">Revise</option>
-                                                </select>
-                                            @else
-                                                <span style="color: #9ca3af; font-size: 11px; font-style: italic;">Processed</span>
+                                                {{ $step->note ?: '-' }}
                                             @endif
                                         </td>
                                     </tr>
                                 @empty
                                     <tr>
-                                        <td colspan="8" style="padding: 24px; color: #888; font-style: italic;">No transaction paths listed.</td>
+                                        <td colspan="7" style="padding: 24px; color: #888; font-style: italic;">No transaction paths listed.</td>
                                     </tr>
                                 @endforelse
                             </tbody>

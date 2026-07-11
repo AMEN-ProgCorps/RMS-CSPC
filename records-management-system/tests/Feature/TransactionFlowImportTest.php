@@ -459,7 +459,8 @@ class TransactionFlowImportTest extends TestCase
                 ->set('selectedPredefined', 'import')
                 ->set('flowFile', $file)
                 ->call('importFlow')
-                ->assertHasNoErrors();
+                ->assertHasNoErrors()
+                ->assertSet('errorMessage', '');
 
             $flow = DB::table('dts_transaction_flow')->where('flow_code', 'TEST-FLOW-CLUST')->first();
             $this->assertNotNull($flow);

@@ -29,6 +29,11 @@ class CreateTransactionQrCodeTest extends TestCase
         DB::table('dts_transaction_details')->where('subject', 'Test Subject')->delete();
         DB::table('dts_qr_code')->where('code_id', 'like', 'QR-TST-%')->delete();
 
+        // Ensure email access is NOT required during this test unless explicitly testing it
+        DB::table('system_settings')->updateOrInsert(['key' => 'dts_email_access_required_external'], ['value' => 'false']);
+        DB::table('system_settings')->updateOrInsert(['key' => 'dts_email_access_required_application'], ['value' => 'false']);
+        DB::table('system_settings')->updateOrInsert(['key' => 'dts_email_access_required_internal'], ['value' => 'false']);
+
         // Ensure ORIGIN exists
         DB::table('office')->updateOrInsert(
             ['office_code' => 'ORIGIN'],

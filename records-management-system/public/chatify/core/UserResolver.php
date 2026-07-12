@@ -62,6 +62,8 @@ class UserResolver
             'first_name'          => $row['first_name'],
             'last_name'           => $row['last_name'],
             'office_id'           => isset($row['office_id']) ? (int) $row['office_id'] : null,
+            'office_name'         => $row['office_name'] ?? null,
+            'office_code'         => $row['office_code'] ?? null,
             'is_currently_online' => (bool) ($row['is_currently_online'] ?? false),
             'last_online_time'    => $row['last_online_time'] ?? null,
         ];
@@ -90,6 +92,8 @@ class UserResolver
                 'first_name'          => $row['first_name'],
                 'last_name'           => $row['last_name'],
                 'office_id'           => isset($row['office_id']) ? (int) $row['office_id'] : null,
+                'office_name'         => $row['office_name'] ?? null,
+                'office_code'         => $row['office_code'] ?? null,
                 'is_currently_online' => (bool) ($row['is_currently_online'] ?? false),
                 'last_online_time'    => $row['last_online_time'] ?? null,
             ];
@@ -154,10 +158,11 @@ class UserResolver
         try {
             $pdo  = Database::getConnection();
             $stmt = $pdo->prepare(
-                'SELECT account_id, first_name, last_name, middle_name,
-                        office_id, email, is_currently_online, last_online_time
-                 FROM account_details
-                 WHERE account_id = :id
+                'SELECT ad.account_id, ad.first_name, ad.last_name, ad.middle_name,
+                        ad.office_id, o.office_name, o.office_code, ad.email, ad.is_currently_online, ad.last_online_time
+                 FROM account_details ad
+                 LEFT JOIN office o ON o.id = ad.office_id
+                 WHERE ad.account_id = :id
                  LIMIT 1'
             );
             $stmt->execute([':id' => $accountId]);
@@ -183,10 +188,11 @@ class UserResolver
         try {
             $pdo  = Database::getConnection();
             $stmt = $pdo->query(
-                'SELECT account_id, first_name, last_name, middle_name,
-                        office_id, email, is_currently_online, last_online_time
-                 FROM account_details
-                 ORDER BY last_name, first_name'
+                'SELECT ad.account_id, ad.first_name, ad.last_name, ad.middle_name,
+                        ad.office_id, o.office_name, o.office_code, ad.email, ad.is_currently_online, ad.last_online_time
+                 FROM account_details ad
+                 LEFT JOIN office o ON o.id = ad.office_id
+                 ORDER BY ad.last_name, ad.first_name'
             );
             while ($row = $stmt->fetch()) {
                 self::$cache[(int) $row['account_id']] = $row;

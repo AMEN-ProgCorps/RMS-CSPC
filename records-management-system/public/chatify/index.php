@@ -399,6 +399,16 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
       text-overflow: ellipsis;
     }
     
+    .user-office {
+      font-size: 11px;
+      color: #1b74e4;
+      font-weight: 500;
+      margin-bottom: 2px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    
     .user-last-msg {
       font-size: 13px;
       color: var(--text-secondary);
@@ -2610,7 +2620,7 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
         seen.add(u.username);
 
         let item = sidebarUserItems.get(u.username);
-        let avatar, dot, info, nameRow, nameEl, msgEl;
+        let avatar, dot, info, nameRow, nameEl, officeEl, msgEl;
 
         if (!item) {
           // First time we've seen this user — build the DOM node once.
@@ -2632,6 +2642,10 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
           nameRow.appendChild(nameEl);
           info.appendChild(nameRow);
 
+          officeEl = document.createElement('div');
+          officeEl.className = 'user-office';
+          info.appendChild(officeEl);
+
           msgEl = document.createElement('div');
           msgEl.className = 'user-last-msg';
           info.appendChild(msgEl);
@@ -2648,6 +2662,7 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
           info = item.querySelector('.user-info');
           nameRow = info.querySelector('div');
           nameEl = item.querySelector('.user-name');
+          officeEl = item.querySelector('.user-office');
           msgEl = item.querySelector('.user-last-msg');
           // Keep the closure's user object current for clicks/notify.
           item.onclick = () => selectDM(u);
@@ -2687,6 +2702,21 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
 
         const newMsg = u.lastMessage || 'No messages yet';
         if (msgEl.textContent !== newMsg) msgEl.textContent = newMsg;
+
+        if (officeEl) {
+          const newOffice = u.office_name ? u.office_name : 'No office assigned';
+          if (officeEl.textContent !== newOffice) {
+            officeEl.textContent = newOffice;
+          }
+          if (u.office_name) {
+            officeEl.style.color = '#1b74e4';
+            officeEl.style.fontStyle = 'normal';
+          } else {
+            officeEl.style.color = 'var(--text-secondary)';
+            officeEl.style.fontStyle = 'italic';
+          }
+          officeEl.style.display = 'block';
+        }
 
         // Admin (account_id === 1) can never be @mentioned/notified by regular users.
         // Only render the notify button for non-admin targets.

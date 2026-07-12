@@ -79,6 +79,26 @@ class DtsAccountControlTest extends TestCase
                 'date_updated' => now(),
             ]);
 
+            // Ensure VPAA office exists
+            $vpaa = DB::table('office')->where('office_code', 'VPAA')->first();
+            if (!$vpaa) {
+                DB::table('office')->insert([
+                    'office_code' => 'VPAA',
+                    'office_name' => 'Vice President for Academic Affairs',
+                    'is_active' => true,
+                ]);
+            }
+
+            // Ensure CASHIER office exists
+            $cashier = DB::table('office')->where('office_code', 'CASHIER')->first();
+            if (!$cashier) {
+                DB::table('office')->insert([
+                    'office_code' => 'CASHIER',
+                    'office_name' => 'Cashier Office',
+                    'is_active' => true,
+                ]);
+            }
+
             // Create account details pointing to an office (e.g. VPAA)
             DB::table('account_details')->insert([
                 'account_id' => $this->standardUserId,
@@ -186,8 +206,9 @@ class DtsAccountControlTest extends TestCase
             ->assertSet('activeTab', 'all'); // Should remain 'all'
 
         // 2. Grant only 'internal' permission and verify behavior
-        $role = role_list::find($this->standardRoleId);
-        $role->permissions->update(['can_dts_use_internal' => true]);
+        DB::table('condition_details')
+            ->where('key_id', $this->standardRoleId)
+            ->update(['can_dts_use_internal' => true]);
 
         // Refresh Auth user to clear cached permissions relation
         Auth::setUser(User::find($this->standardUserId));
@@ -297,11 +318,12 @@ class DtsAccountControlTest extends TestCase
     public function test_list_pages_respect_view_all_list_permission()
     {
         // 1. Grant internal use permission so they can access the page
-        $role = role_list::find($this->standardRoleId);
-        $role->permissions->update([
-            'can_dts_use_internal' => true,
-            'can_dts_view_all_list' => false,
-        ]);
+        DB::table('condition_details')
+            ->where('key_id', $this->standardRoleId)
+            ->update([
+                'can_dts_use_internal' => true,
+                'can_dts_view_all_list' => false,
+            ]);
         Auth::setUser(User::find($this->standardUserId));
 
         // Create dummy transaction created by another user (e.g. adminId)
@@ -326,7 +348,7 @@ class DtsAccountControlTest extends TestCase
 
         DB::table('dts_transactions')->insert([
             'transaction_id' => $txDetailsId,
-            'current_office' => 'VPAA',
+            'current_office' => 'CASHIER',
             'status' => 'ongoing',
             'trans_type' => 'internal',
             'sequence' => $sequence,
@@ -338,8 +360,8 @@ class DtsAccountControlTest extends TestCase
             'id' => $txDetailsId,
             'type' => 'internal',
             'control_number' => 'CTRL-TEST-RESTRICTED',
-            'originated_from' => 'VPAA',
-            'current_office_hold' => 'VPAA',
+            'originated_from' => 'CASHIER',
+            'current_office_hold' => 'CASHIER',
             'status' => 'ongoing',
             'subject' => 'Other User Subject',
             'classification' => 'Normal',
@@ -359,7 +381,9 @@ class DtsAccountControlTest extends TestCase
         $this->assertFalse($hasTx);
 
         // Enable view all list permission
-        $role->permissions->update(['can_dts_view_all_list' => true]);
+        DB::table('condition_details')
+            ->where('key_id', $this->standardRoleId)
+            ->update(['can_dts_view_all_list' => true]);
         Auth::setUser(User::find($this->standardUserId));
 
         // Now the list SHOULD contain the transaction

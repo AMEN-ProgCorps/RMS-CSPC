@@ -95,3 +95,40 @@ window.resetNavProperties = resetNavProperties;
 window.showButtonSection = showButtonSection;
 window.proccedto = proccedto;
 window.closeActionsDropdown = closeActionsDropdown;
+
+function initializeSidebarState() {
+    const navigation = document.getElementById('navigation');
+    const navMainIcon = document.getElementById('nav-main-icon');
+    const articleContainer = document.getElementById('article-container');
+    if (!navigation || !articleContainer || !navMainIcon) return;
+
+    const toggleNavSection = window.assetPaths?.toggleNavSection ?? '/icons/toggle-nav-section.svg';
+    const toggleNavDefault = window.assetPaths?.toggleNavDefault ?? '/icons/toggle-nav-default.svg';
+
+    if (window.innerWidth < 1024) {
+        // Default closed for tablet/mobile
+        navigation.classList.remove('imup');
+        navigation.classList.add('imdown');
+        articleContainer.classList.remove('imdown');
+        articleContainer.classList.add('imup');
+        navMainIcon.src = toggleNavSection;
+    } else {
+        // Default open for PC
+        navigation.classList.remove('imdown');
+        navigation.classList.add('imup');
+        articleContainer.classList.remove('imup');
+        articleContainer.classList.add('imdown');
+        navMainIcon.src = toggleNavDefault;
+    }
+}
+
+document.addEventListener('DOMContentLoaded', initializeSidebarState);
+document.addEventListener('livewire:navigated', initializeSidebarState);
+window.addEventListener('resize', () => {
+    const navigation = document.getElementById('navigation');
+    if (navigation && window.innerWidth < 1024 && navigation.classList.contains('imup')) {
+        initializeSidebarState();
+    }
+});
+
+window.initializeSidebarState = initializeSidebarState;

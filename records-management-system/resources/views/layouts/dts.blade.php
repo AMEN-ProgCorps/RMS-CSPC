@@ -13,6 +13,8 @@
     @vite(['resources/css/dashboard.css', 'resources/css/notifications.css', 'resources/js/dashboard.js'])
     <title>CSPC - Document Tracking System</title>
     @stack('styles')
+    <!-- Dynamic QR Code Print Modal Script -->
+    <script src="{{ asset('js/qr-print-modal.js') }}"></script>
 </head>
 <body>
     <header>

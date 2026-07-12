@@ -70,7 +70,14 @@ new #[Layout('layouts.portal')] #[Title('Login')] class extends Component
 @push('styles')
     @vite(['resources/css/login.css'])
     <style data-navigate-track>
-        body { background-image: url('{{ asset('images/1cw2k34d.webp') }}'); }
+        body {
+            background-image: url('{{ asset('images/1cw2k34d.webp') }}');
+            background-repeat: no-repeat !important;
+            background-size: cover !important;
+            background-attachment: fixed !important;
+            background-position: center !important;
+            min-height: 100vh !important;
+        }
     </style>
 @endpush
 

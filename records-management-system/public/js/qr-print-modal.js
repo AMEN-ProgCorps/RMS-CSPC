@@ -206,11 +206,33 @@ window.executeDynamicPrint = function() {
         + '.qr-wrapper { position:absolute; top:' + topPx + 'px; left:' + leftPx + 'px; width:' + config.containerW + 'px; display:flex; flex-direction:column; align-items:center; gap:' + config.gap + '; padding:' + config.padding + '; }'
         + '.qr-wrapper img { width:' + config.imgW + 'px; height:' + config.imgH + 'px; }'
         + '.qr-wrapper span { font-family:monospace; font-weight:bold; font-size:' + _calculatedFontSize + '; color:#000; text-align:center; white-space:nowrap; overflow:hidden; }';
-    var html = '<html><head><style>' + css + '<\/style><\/head><body>'
-        + '<div class="qr-wrapper"><img src="' + qrImageSrc + '" alt="QR"><span>' + qrTextVal + '<\/span><\/div>'
-        + '<\/body><\/html>';
-    printWindow.document.write(html);
-    printWindow.document.close();
+    printWindow.document.open();
+    var doc = printWindow.document;
+    var htmlEl = doc.createElement('html');
+    var headEl = doc.createElement('head');
+    var styleEl = doc.createElement('style');
+    styleEl.textContent = css;
+    headEl.appendChild(styleEl);
+
+    var bodyEl = doc.createElement('body');
+    var wrapperEl = doc.createElement('div');
+    wrapperEl.className = 'qr-wrapper';
+
+    var imgEl = doc.createElement('img');
+    imgEl.setAttribute('src', qrImageSrc);
+    imgEl.setAttribute('alt', 'QR');
+
+    var spanEl = doc.createElement('span');
+    spanEl.textContent = qrTextVal;
+
+    wrapperEl.appendChild(imgEl);
+    wrapperEl.appendChild(spanEl);
+    bodyEl.appendChild(wrapperEl);
+
+    htmlEl.appendChild(headEl);
+    htmlEl.appendChild(bodyEl);
+    doc.appendChild(htmlEl);
+    doc.close();
     printWindow.focus();
     setTimeout(function() { printWindow.print(); printWindow.close(); }, 500);
 };

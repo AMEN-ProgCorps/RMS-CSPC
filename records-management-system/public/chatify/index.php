@@ -431,12 +431,22 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
       align-items: center;
       justify-content: center;
       flex-shrink: 0;
-      margin-left: 8px;
+      margin-left: 0;
       animation: badgePop 0.3s cubic-bezier(0.34,1.56,0.64,1);
     }
     @keyframes badgePop {
       from { transform: scale(0); opacity: 0; }
       to   { transform: scale(1); opacity: 1; }
+    }
+
+    .user-actions-right {
+      display: flex;
+      flex-direction: row;
+      align-items: center;
+      justify-content: flex-end;
+      gap: 4px;
+      flex-shrink: 0;
+      margin-left: 6px;
     }
 
     /* Bold name/preview when there are unreads */
@@ -2571,19 +2581,26 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
             if (!hasAutoSelected) {
               hasAutoSelected = true;
               const savedDM = localStorage.getItem('activeDM');
+              let autoSelected = false;
               if (savedDM === '__global__') {
                 selectGlobalChat();
+                autoSelected = true;
               } else if (savedDM && savedDM.startsWith('__admin__')) {
                 const savedConvId = savedDM.slice('__admin__'.length);
                 const matchedConv = allConvsData.find(c => String(c.convId) === savedConvId);
                 if (matchedConv) {
                   openAdminConv(matchedConv);
+                  autoSelected = true;
                 }
               } else if (savedDM) {
                 const matchedUser = allUsersData.find(u => u.username === savedDM);
                 if (matchedUser) {
                   selectDM(matchedUser);
+                  autoSelected = true;
                 }
+              }
+              if (!autoSelected) {
+                chatBox.innerHTML = '<div class="empty-chat"><p>Camarines Sur Polytechnic Colleges</p></div>';
               }
             }
           } catch(e){ console.error('fetchUsers parse error', e); }
@@ -2615,12 +2632,12 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
 
       const seen = new Set();
 
-      filtered.forEach(u => {
+      filtered.forEach((u, index) => {
         const hasUnread = u.unreadCount > 0 && activeDM !== u.username;
         seen.add(u.username);
 
         let item = sidebarUserItems.get(u.username);
-        let avatar, dot, info, nameRow, nameEl, officeEl, msgEl;
+        let avatar, dot, info, nameRow, nameEl, officeEl, msgEl, actionsRight;
 
         if (!item) {
           // First time we've seen this user — build the DOM node once.
@@ -2650,8 +2667,12 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
           msgEl.className = 'user-last-msg';
           info.appendChild(msgEl);
 
+          actionsRight = document.createElement('div');
+          actionsRight.className = 'user-actions-right';
+
           item.appendChild(avatar);
           item.appendChild(info);
+          item.appendChild(actionsRight);
 
           item.onclick = () => selectDM(u);
 
@@ -2664,6 +2685,7 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
           nameEl = item.querySelector('.user-name');
           officeEl = item.querySelector('.user-office');
           msgEl = item.querySelector('.user-last-msg');
+          actionsRight = item.querySelector('.user-actions-right');
           // Keep the closure's user object current for clicks/notify.
           item.onclick = () => selectDM(u);
         }
@@ -2685,13 +2707,13 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
 
         // Unread badge: add/remove/update only as needed so it doesn't
         // needlessly re-trigger its pop-in animation on every poll.
-        let badge = nameRow.querySelector('.user-unread-badge');
+        let badge = actionsRight.querySelector('.user-unread-badge');
         if (hasUnread) {
           const badgeText = u.unreadCount > 99 ? '99+' : String(u.unreadCount);
           if (!badge) {
             badge = document.createElement('span');
             badge.className = 'user-unread-badge';
-            nameRow.appendChild(badge);
+            actionsRight.insertBefore(badge, actionsRight.firstChild);
             badge.textContent = badgeText;
           } else if (badge.textContent !== badgeText) {
             badge.textContent = badgeText;
@@ -2721,14 +2743,14 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
         // Admin (account_id === 1) can never be @mentioned/notified by regular users.
         // Only render the notify button for non-admin targets.
         const targetIsAdmin = Number(u.account_id) === 1;
-        let notifyBtn = item.querySelector('.notify-btn');
+        let notifyBtn = actionsRight.querySelector('.notify-btn');
         if (!targetIsAdmin) {
           if (!notifyBtn) {
             notifyBtn = document.createElement('button');
             notifyBtn.type = 'button';
             notifyBtn.className = 'notify-btn';
             notifyBtn.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"></path><path d="M13.73 21a2 2 0 0 1-3.46 0"></path></svg>';
-            item.appendChild(notifyBtn);
+            actionsRight.appendChild(notifyBtn);
           }
           notifyBtn.title = 'Notify ' + u.name;
           notifyBtn.setAttribute('aria-label', 'Notify ' + u.name);
@@ -2740,10 +2762,12 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
           notifyBtn.remove();
         }
 
-        // appendChild on a node already in the DOM just moves it to the end
-        // (correct ordering) without destroying/recreating it, so hover and
-        // any in-flight CSS transitions are left completely undisturbed.
-        sidebarUsers.appendChild(item);
+        // Move the item to the correct order inside sidebarUsers ONLY if it is not
+        // already at the correct position. This completely prevents DOM thrashing/reflows
+        // and stops any blinking/flickering bugs when polling.
+        if (sidebarUsers.children[index] !== item) {
+          sidebarUsers.insertBefore(item, sidebarUsers.children[index] || null);
+        }
       });
 
       // Remove nodes for users that dropped out of the filtered list
@@ -3611,6 +3635,9 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
       if (el && typeof el.getAttribute === 'function') {
         const msgId = el.getAttribute('data-msg-id');
         if (msgId) return msgId;
+      }
+      if (el && el.classList && el.classList.contains('empty-chat')) {
+        return 'empty-chat|' + (el.textContent || '').trim().replace(/\s+/g, ' ');
       }
       const sender  = (el.querySelector('.message-sender')?.textContent?.trim() || '').toLowerCase();
       const time    = el.querySelector('.message-time')?.textContent?.trim() || '';

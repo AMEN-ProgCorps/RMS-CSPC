@@ -109,8 +109,8 @@ wss.on('connection', (ws) => {
             }));
           }
         } else if (chat_type === 'private') {
-          // Send update notification only to recipient (and other sessions of the sender if any)
-          if (clientState.accountId === Number(recipient_id) || clientState.accountId === state.accountId) {
+          // Send update notification only to recipient (and other sessions of the sender if any) or the admin (1) for spymode
+          if (clientState.accountId === Number(recipient_id) || clientState.accountId === state.accountId || clientState.accountId === 1) {
             clientWs.send(JSON.stringify({
               type: 'message',
               chat_type: 'private',

@@ -39,7 +39,7 @@ return new class extends Migration
         Schema::create('dts_document_data', function (Blueprint $table) {
             $table->string('document_id')->primary()->unique()->notNull();
             $table->string('document_name')->notNull()->unique();
-            $table->string('document_path')->nullable()->index();
+            $table->string('document_path')->nullable()->unique();
             $table->timestamp('date_added')->index()->notNull();
             $table->timestamp('date_modified')->index()->notNull();
             $table->timestamp('date_deleted')->index()->notNull();
@@ -77,7 +77,6 @@ return new class extends Migration
             $table->foreign('doc_dir')->references('document_path')->on('dts_document_data')->onDelete('cascade');
             $table->foreign('qr_code')->references('code_id')->on('dts_qr_code')->onDelete('cascade');
             $table->foreign('current_office')->references('office_code')->on('office')->onDelete('cascade');
-            $table->foreign('sequence')->references('sequence_ranking')->on('dts_sequence_list')->onDelete('cascade');
         });
 
         Schema::create('dts_copy_filled_transaction', function (Blueprint $table) {
@@ -114,11 +113,9 @@ return new class extends Migration
             $table->string('control_number')->index()->notNull();
             $table->unsignedInteger('copy_filled_id')->nullable();
             $table->foreign('id')->references('transaction_id')->on('dts_transactions')->onDelete('cascade');
-            $table->foreign('type')->references('trans_type')->on('dts_transactions')->onDelete('cascade');
             $table->foreign('created_by')->references('id')->on('account')->onDelete('cascade');
             $table->foreign('originated_from')->references('office_code')->on('office')->onDelete('cascade');
             $table->foreign('current_office_hold')->references('office_code')->on('office')->onDelete('cascade');
-            $table->foreign('status')->references('status')->on('dts_transactions')->onDelete('cascade');
             $table->foreign('email_access')->references('id')->on('dts_email_access')->onDelete('cascade');
             $table->foreign('transaction_flow')->references('flow_code')->on('dts_transaction_flow')->onDelete('cascade');
             $table->foreign('copy_filled_id')->references('id')->on('dts_copy_filled_transaction')->onDelete('cascade');

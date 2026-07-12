@@ -35,7 +35,7 @@ return new class extends Migration
                 'subsystem_version' => $subsystem['version'],
                 'created_at' => now(),
                 'update_at' => now(),
-            ]);
+            ], 'subsystem_id');
 
             DB::table('subsystem_versions_log')->insert([
                 'subsystem_key' => $id,

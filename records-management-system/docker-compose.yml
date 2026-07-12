@@ -38,38 +38,34 @@ services:
     networks:
       - rms_net
 
-  # ── MySQL 8 ─────────────────────────────────────────────────────────────────
+  # ── PostgreSQL ──────────────────────────────────────────────────────────────
   db:
-    image: mysql:8.0
+    image: postgres:15-alpine
     container_name: rms_db
     restart: unless-stopped
-    env_file:
-      - .env.docker
+    environment:
+      POSTGRES_DB: rms
+      POSTGRES_USER: adminrms
+      POSTGRES_PASSWORD: admin
     ports:
-      # 3307 on host so it doesn't clash with a local MySQL install
-      - "3307:3306"
+      - "5432:5432"
     volumes:
-      - db_data:/var/lib/mysql
+      - pg_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -uroot -p$$MYSQL_ROOT_PASSWORD --silent"]
+      test: ["CMD-SHELL", "pg_isready -U adminrms -d rms"]
       interval: 5s
       timeout: 5s
       retries: 12
     networks:
       - rms_net
 
-  # ── phpMyAdmin ─────────────────────────────────────────────────────────────
-  phpmyadmin:
-    image: phpmyadmin/phpmyadmin:latest
-    container_name: rms_phpmyadmin
+  # ── Adminer ─────────────────────────────────────────────────────────────────
+  adminer:
+    image: adminer:latest
+    container_name: rms_adminer
     restart: unless-stopped
-    depends_on:
-      - db
-    environment:
-      PMA_HOST: db
-      MYSQL_ROOT_PASSWORD: "MacCloud"
     ports:
-      - "49180:80"
+      - "49180:8080"
     networks:
       - rms_net
 
@@ -91,7 +87,7 @@ services:
 
 
 volumes:
-  db_data:
+  pg_data:
   vendor:
   node_modules:
 

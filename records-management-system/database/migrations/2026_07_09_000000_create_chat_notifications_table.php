@@ -39,7 +39,7 @@ return new class extends Migration
         // Register Chatify subsystem
         DB::statement("
             INSERT INTO subsystems (subsystem_name, subsystem_version, is_active, created_at, update_at)
-            SELECT 'Chatify', '1.0.0', 1, NOW(), NOW()
+            SELECT 'Chatify', '1.0.0', true, NOW(), NOW()
             WHERE NOT EXISTS (SELECT 1 FROM subsystems WHERE subsystem_name = 'Chatify')
         ");
     }

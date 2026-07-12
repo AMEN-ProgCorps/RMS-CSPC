@@ -12,7 +12,9 @@ return new class extends Migration
      */
     public function up(): void
     {
-        DB::statement("CREATE DATABASE IF NOT EXISTS rms");
+        if (DB::getDriverName() === 'mysql') {
+            DB::statement("CREATE DATABASE IF NOT EXISTS rms");
+        }
         
         Schema::create('condition_details', function (Blueprint $table) {
             $table->increments('key_id');
@@ -34,7 +36,11 @@ return new class extends Migration
             $table->text('key_description')->nullable();
             $table->unsignedInteger('modifier_key');
             $table->dateTime('date_created')->useCurrent();
-            $table->dateTime('date_updated')->useCurrentOnUpdate()->useCurrent();
+            if (DB::getDriverName() === 'mysql') {
+                $table->dateTime('date_updated')->useCurrentOnUpdate()->useCurrent();
+            } else {
+                $table->dateTime('date_updated')->useCurrent();
+            }
             $table->foreign('modifier_key')->references('key_id')->on('condition_details');
         });
 
@@ -58,7 +64,11 @@ return new class extends Migration
             $table->unsignedInteger('account_status')->default(1);
             $table->boolean('account_active')->default(true);
             $table->dateTime('date_created')->useCurrent();
-            $table->dateTime('date_updated')->useCurrentOnUpdate()->useCurrent();
+            if (DB::getDriverName() === 'mysql') {
+                $table->dateTime('date_updated')->useCurrentOnUpdate()->useCurrent();
+            } else {
+                $table->dateTime('date_updated')->useCurrent();
+            }
             $table->foreign('account_status')->references('id')->on('condition_key');
         });
 

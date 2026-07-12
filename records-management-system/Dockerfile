@@ -9,9 +9,11 @@ RUN apk add --no-cache \
         oniguruma-dev \
         zip \
         unzip \
-        mysql-client \
+        postgresql-client \
+        postgresql-dev \
     && docker-php-ext-install \
-        pdo_mysql \
+        pdo_pgsql \
+        pgsql \
         mbstring \
         exif \
         pcntl \

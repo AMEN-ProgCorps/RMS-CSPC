@@ -24,7 +24,7 @@ return new class extends Migration
             'can_sadm_modify_account'        => true,
             'can_dts_view_all_list'      => true,
             'can_dts_view_all_archive'   => true,
-        ]);
+        ], 'key_id');
 
         // Insert the Super Admin role entry
         $roleId = DB::table('condition_key')->insertGetId([

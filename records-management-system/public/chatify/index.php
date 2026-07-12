@@ -2705,22 +2705,7 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
 
         if (nameEl.textContent !== u.name) nameEl.textContent = u.name;
 
-        // Unread badge: add/remove/update only as needed so it doesn't
-        // needlessly re-trigger its pop-in animation on every poll.
-        let badge = actionsRight.querySelector('.user-unread-badge');
-        if (hasUnread) {
-          const badgeText = u.unreadCount > 99 ? '99+' : String(u.unreadCount);
-          if (!badge) {
-            badge = document.createElement('span');
-            badge.className = 'user-unread-badge';
-            actionsRight.insertBefore(badge, actionsRight.firstChild);
-            badge.textContent = badgeText;
-          } else if (badge.textContent !== badgeText) {
-            badge.textContent = badgeText;
-          }
-        } else if (badge) {
-          badge.remove();
-        }
+        const targetIsAdmin = Number(u.account_id) === 1;
 
         const newMsg = u.lastMessage || 'No messages yet';
         if (msgEl.textContent !== newMsg) msgEl.textContent = newMsg;
@@ -2740,11 +2725,73 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
           officeEl.style.display = 'block';
         }
 
-        // Admin (account_id === 1) can never be @mentioned/notified by regular users.
-        // Only render the notify button for non-admin targets.
-        const targetIsAdmin = Number(u.account_id) === 1;
+        // Unread badge and notify button rendering
+        let badge = actionsRight.querySelector('.user-unread-badge');
+        let adminBadgeWrapper = actionsRight.querySelector('.admin-badge-wrapper');
         let notifyBtn = actionsRight.querySelector('.notify-btn');
-        if (!targetIsAdmin) {
+
+        if (targetIsAdmin) {
+          // Remove normal notify button if exists
+          if (notifyBtn) {
+            notifyBtn.remove();
+            notifyBtn = null;
+          }
+
+          if (hasUnread) {
+            if (!adminBadgeWrapper) {
+              adminBadgeWrapper = document.createElement('div');
+              adminBadgeWrapper.className = 'admin-badge-wrapper';
+              adminBadgeWrapper.style.cssText = 'width: 32px; height: 32px; display: flex; align-items: center; justify-content: center; flex-shrink: 0; margin-left: 4px;';
+              actionsRight.appendChild(adminBadgeWrapper);
+            }
+            
+            badge = adminBadgeWrapper.querySelector('.user-unread-badge');
+            const badgeText = u.unreadCount > 99 ? '99+' : String(u.unreadCount);
+            if (!badge) {
+              badge = document.createElement('span');
+              badge.className = 'user-unread-badge';
+              badge.style.marginLeft = '0';
+              adminBadgeWrapper.appendChild(badge);
+              badge.textContent = badgeText;
+            } else if (badge.textContent !== badgeText) {
+              badge.textContent = badgeText;
+            }
+            
+            // Remove standalone badge if exists
+            let standaloneBadge = actionsRight.querySelector(':scope > .user-unread-badge');
+            if (standaloneBadge) {
+              standaloneBadge.remove();
+            }
+          } else {
+            if (adminBadgeWrapper) {
+              adminBadgeWrapper.remove();
+              adminBadgeWrapper = null;
+            }
+          }
+        } else {
+          // Normal user: remove admin wrapper if exists
+          if (adminBadgeWrapper) {
+            adminBadgeWrapper.remove();
+            adminBadgeWrapper = null;
+          }
+
+          // Unread badge: insert as first child in actionsRight
+          if (hasUnread) {
+            const badgeText = u.unreadCount > 99 ? '99+' : String(u.unreadCount);
+            if (!badge) {
+              badge = document.createElement('span');
+              badge.className = 'user-unread-badge';
+              actionsRight.insertBefore(badge, actionsRight.firstChild);
+              badge.textContent = badgeText;
+            } else if (badge.textContent !== badgeText) {
+              badge.textContent = badgeText;
+            }
+          } else if (badge) {
+            badge.remove();
+            badge = null;
+          }
+
+          // Notify button
           if (!notifyBtn) {
             notifyBtn = document.createElement('button');
             notifyBtn.type = 'button';
@@ -2758,8 +2805,6 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
             e.stopPropagation();
             openNotifyModal(u);
           };
-        } else if (notifyBtn) {
-          notifyBtn.remove();
         }
 
         // Move the item to the correct order inside sidebarUsers ONLY if it is not

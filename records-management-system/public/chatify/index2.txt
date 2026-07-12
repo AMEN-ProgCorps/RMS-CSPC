@@ -9,7 +9,6 @@ if (!Auth::check()) {
 <html lang="en">
   <head>
     <title>Access Denied</title>
-    <meta name="description" content="flag{h3y_st4wp_r1ght_h3r3}">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <link rel="icon" type="image/png" href="cspc.png">
     <style>
@@ -78,7 +77,6 @@ if (!empty($_SESSION['full_name'])) {
 }
 // Resolve admin full name from DB for non-admin users to show badge on admin messages
 try {
-    require_once __DIR__ . '/bootstrap.php';
     $pdo  = Database::getConnection();
     $stmt = $pdo->prepare('SELECT first_name, last_name FROM account_details WHERE account_id = 1 LIMIT 1');
     $stmt->execute();
@@ -891,95 +889,6 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
       border-radius: 8px;
     }
 
-    /* Custom Audio Player */
-    .audio-player {
-      display: flex;
-      align-items: center;
-      gap: 10px;
-      width: 240px;
-      max-width: 100%;
-    }
-
-    .audio-controls {
-      display: flex;
-      align-items: center;
-      gap: 4px;
-      flex-shrink: 0;
-    }
-
-    .audio-btn {
-      background: rgba(255,255,255,0.2);
-      border: none;
-      border-radius: 50%;
-      width: 30px;
-      height: 30px;
-      cursor: pointer;
-      font-size: 12px;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      color: inherit;
-      transition: background 0.15s;
-      padding: 0;
-      flex-shrink: 0;
-    }
-
-    .audio-play-btn {
-      width: 34px;
-      height: 34px;
-      font-size: 13px;
-      background: rgba(255,255,255,0.3);
-    }
-
-    .received .audio-btn {
-      background: rgba(0,0,0,0.08);
-      color: #050505;
-    }
-
-    [data-theme="dark"] .received .audio-btn {
-      background: rgba(255,255,255,0.12);
-      color: var(--text-primary);
-    }
-
-    .audio-btn:hover { background: rgba(255,255,255,0.4); }
-    .received .audio-btn:hover { background: rgba(0,0,0,0.15); }
-
-    .audio-progress-wrap {
-      flex: 1;
-      min-width: 0;
-    }
-
-    .audio-time-row {
-      display: flex;
-      justify-content: space-between;
-      font-size: 10px;
-      opacity: 0.75;
-      margin-bottom: 3px;
-    }
-
-    .audio-seekbar {
-      width: 100%;
-      height: 4px;
-      background: rgba(255,255,255,0.3);
-      border-radius: 2px;
-      cursor: pointer;
-      position: relative;
-    }
-
-    .received .audio-seekbar { background: rgba(0,0,0,0.15); }
-    [data-theme="dark"] .received .audio-seekbar { background: rgba(255,255,255,0.15); }
-
-    .audio-seekbar-fill {
-      height: 100%;
-      background: white;
-      border-radius: 2px;
-      width: 0%;
-      pointer-events: none;
-      transition: width 0.1s linear;
-    }
-
-    .received .audio-seekbar-fill { background: #1b74e4; }
-
     /* Message Content */
     .message-content {
       font-size: 14px;
@@ -1086,6 +995,10 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
       /* Critical: never shrink, never grow — fixed height at bottom of flex column */
       flex-shrink: 0;
       flex-grow: 0;
+      min-height: 70px;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
     }
 
     .input-section {
@@ -2072,7 +1985,70 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
       display: flex;
       flex-direction: column;
     }
+
+    /* Typing Indicator Styles */
+    /* Reserves its own space via a fixed height + visibility toggle
+       (not display:none/flex), so it never shoves the input below it. */
+    .typing-indicator-container {
+      visibility: hidden;
+      opacity: 0;
+      height: 14px;
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      font-size: 11px;
+      color: var(--text-secondary);
+      margin-left: 8px;
+      margin-bottom: 2px;
+      transition: opacity 0.15s ease-in-out;
+      
+    }
+
+    .typing-indicator-container.active {
+      visibility: visible;
+      opacity: 1;
+    }
+
+    #typingIndicatorText {
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      min-width: 0;
+      flex: 0 1 auto;
+      margin-bottom: 8px;
+    }
+
+    .typing-dots {
+      display: inline-flex;
+      align-items: center;
+      gap: 3px;
+      flex-shrink: 0;
+    }
+    
+    .typing-dots span {
+      width: 5px;
+      height: 5px;
+      background-color: var(--text-secondary);
+      border-radius: 50%;
+      animation: typingBounce 1.4s infinite both;
+      opacity: 0.7;
+      margin-bottom: 3px;
+    }
+    
+    .typing-dots span:nth-child(2) {
+      animation-delay: .2s;
+    }
+    
+    .typing-dots span:nth-child(3) {
+      animation-delay: .4s;
+    }
+    
+    @keyframes typingBounce {
+      0%, 80%, 100% { transform: translateY(0); }
+      40% { transform: translateY(-4px); }
+    }
   </style>
+
 </head>
 <body tabindex="-1">
   <div class="app-wrapper">
@@ -2165,6 +2141,17 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
         <span id="scrollIndicatorText">Go to bottom</span>
         <span class="unread-badge" id="unreadBadge"></span>
       </div>
+
+      <!-- Typing Indicator -->
+      <div id="typingIndicator" class="typing-indicator-container">
+        <span id="typingIndicatorText"></span>
+        <div class="typing-dots">
+          <span></span>
+          <span></span>
+          <span></span>
+        </div>
+      </div>
+
 
       <div class="input-section">
         <div class="name-input-wrapper<?php echo $is_admin ? ' is-admin-user' : ''; ?>" style="position: relative;">
@@ -2288,8 +2275,24 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
   </div>
   <?php endif; ?>
 
+  <?php
+  // Generate HMAC SHA256 token for WebSocket authentication
+  $ws_expires = time() + 86400; // 24 hours
+  $ws_payload = $_current_account_id . '|' . $ws_expires;
+  $ws_token = hash_hmac('sha256', $ws_payload, CHAT_SHARED_SECRET);
+  ?>
+  <script>
+    const wsConfig = {
+      accountId: <?php echo $_current_account_id; ?>,
+      name: <?php echo json_encode($user_name); ?>,
+      expires: <?php echo $ws_expires; ?>,
+      token: <?php echo json_encode($ws_token); ?>
+    };
+  </script>
+
   <script>
     // ── All DOM element references first ──────────────────────────────────────
+
     const chatBox         = document.getElementById("chat-box");
     const nameInput       = document.getElementById("nameInput");
     const messageInput    = document.getElementById("messageInput");
@@ -2329,6 +2332,160 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
 
     // DM Sidebar state
     let activeDM = null;
+    let activeDMAccountId = null; // Track recipient's account ID
+
+    // WebSocket state variables
+    let ws = null;
+    let wsReconnectTimer = null;
+    let wsPollInterval = null;
+    let localIsTyping = false;
+    let localTypingTimeout = null;
+    let localTypingHeartbeat = null;
+    let typingTimer = null;
+
+
+    function connectWebSocket() {
+      if (ws) {
+        try { ws.close(); } catch(e) {}
+      }
+
+      const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+      const wsHost = window.location.hostname;
+      const wsPort = '48080';
+      const wsUrl = `${wsProtocol}//${wsHost}:${wsPort}`;
+
+      console.log('Connecting to WebSocket server:', wsUrl);
+      ws = new WebSocket(wsUrl);
+
+      ws.onopen = function() {
+        console.log('WebSocket connection established.');
+        if (wsReconnectTimer) {
+          clearTimeout(wsReconnectTimer);
+          wsReconnectTimer = null;
+        }
+
+        // Stop fallback polling on successful connection
+        stopPollingFallback();
+
+        // Authenticate connection
+        ws.send(JSON.stringify({
+          type: 'auth',
+          account_id: wsConfig.accountId,
+          name: wsConfig.name,
+          expires: wsConfig.expires,
+          token: wsConfig.token
+        }));
+      };
+
+      ws.onmessage = function(event) {
+        let data;
+        try {
+          data = JSON.parse(event.data);
+        } catch (e) {
+          return;
+        }
+
+        if (data.type === 'message') {
+          console.log('Received WebSocket real-time update notice:', data);
+          if (data.chat_type === 'global') {
+            if (isGlobalChat) {
+              loadGlobalChat(true);
+            }
+            fetchNotifications();
+            fetchUsers();
+          } else if (data.chat_type === 'private') {
+            if (activeDM && activeDMAccountId === Number(data.sender_id)) {
+              loadChat(true);
+            } else if (activeAdminConv) {
+              const parts = activeAdminConv.split('_').map(Number);
+              const s = Number(data.sender_id);
+              const r = Number(data.recipient_id);
+              if ((s === parts[0] && r === parts[1]) || (s === parts[1] && r === parts[0])) {
+                loadAdminConv(activeAdminConv, true);
+              }
+            }
+            fetchNotifications();
+            fetchUsers();
+          }
+        } else if (data.type === 'typing') {
+          if (activeDM && activeDMAccountId === Number(data.sender_id)) {
+            showTypingIndicator(data.sender_name, data.is_typing);
+          }
+        }
+      };
+
+      ws.onclose = function() {
+        console.warn('WebSocket connection lost.');
+        showTypingIndicator('', false);
+        
+        // Start polling fallback immediately when connection is lost
+        startPollingFallback();
+
+        if (!wsReconnectTimer) {
+          wsReconnectTimer = setTimeout(connectWebSocket, 3000);
+        }
+      };
+
+      ws.onerror = function(err) {
+        console.error('WebSocket connection error:', err);
+      };
+    }
+
+    function sendTypingStatus(isTyping) {
+      if (ws && ws.readyState === WebSocket.OPEN && activeDM && activeDMAccountId) {
+        ws.send(JSON.stringify({
+          type: 'typing',
+          recipient_id: activeDMAccountId,
+          is_typing: isTyping
+        }));
+      }
+    }
+
+    function showTypingIndicator(senderName, isTyping) {
+      const indicator = document.getElementById('typingIndicator');
+      const textEl = document.getElementById('typingIndicatorText');
+
+      if (typingTimer) {
+        clearTimeout(typingTimer);
+        typingTimer = null;
+      }
+
+      if (isTyping && activeDM) {
+        textEl.textContent = `${senderName} is typing`;
+        indicator.classList.add('active');
+
+        // Auto-expire after 4 seconds as a safety cleanup
+        typingTimer = setTimeout(() => {
+          indicator.classList.remove('active');
+        }, 4000);
+      } else {
+        indicator.classList.remove('active');
+      }
+    }
+
+    function startPollingFallback() {
+      if (wsPollInterval) return;
+      console.log('Starting backup message polling...');
+      wsPollInterval = setInterval(function() {
+        if (isGlobalChat) {
+          loadGlobalChat(true);
+        } else if (activeDM) {
+          loadChat(true);
+        } else if (activeAdminConv) {
+          loadAdminConv(activeAdminConv, true);
+        }
+      }, 3000);
+    }
+
+    function stopPollingFallback() {
+      if (wsPollInterval) {
+        console.log('Stopping backup message polling.');
+        clearInterval(wsPollInterval);
+        wsPollInterval = null;
+      }
+    }
+
+
 
     // Mobile layout setup - defined here but called AFTER chatBox is declared
     function setupMobileLayout() {
@@ -2769,10 +2926,27 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
     function selectDM(u) {
       isGlobalChat = false;
       activeDM = u.username;
+      activeDMAccountId = Number(u.account_id);
       activeAdminConv = null;
       dmOffset = 0;
       dmHasMore = false;
       dmViewingOlder = false;
+      
+      // Reset local typing indicator state
+      if (localTypingTimeout) {
+        clearTimeout(localTypingTimeout);
+        localTypingTimeout = null;
+      }
+      if (localTypingHeartbeat) {
+        clearInterval(localTypingHeartbeat);
+        localTypingHeartbeat = null;
+      }
+      if (localIsTyping) {
+        localIsTyping = false;
+        sendTypingStatus(false);
+      }
+      showTypingIndicator('', false);
+
       isFirstLoad = true; // snap straight to bottom once the new conversation's messages arrive
       localStorage.setItem('activeDM', u.username);
       chatHeaderTitle.textContent = u.name;
@@ -2802,13 +2976,31 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
     function selectGlobalChat() {
       isGlobalChat = true;
       activeDM = null;
+      activeDMAccountId = null;
       activeAdminConv = null;
       gcOffset = 0;
       gcHasMore = false;
       gcViewingOlder = false;
+      
+      // Reset local typing indicator state
+      if (localTypingTimeout) {
+        clearTimeout(localTypingTimeout);
+        localTypingTimeout = null;
+      }
+      if (localTypingHeartbeat) {
+        clearInterval(localTypingHeartbeat);
+        localTypingHeartbeat = null;
+      }
+      if (localIsTyping) {
+        localIsTyping = false;
+        sendTypingStatus(false);
+      }
+      showTypingIndicator('', false);
+
       localStorage.setItem('activeDM', '__global__');
       chatHeaderTitle.innerHTML = `Global Chat`;
       chatBox.innerHTML = '';
+
       removePaginationBtn();
       renderSidebarUsers();
       document.getElementById('globalChatItem').classList.add('active');
@@ -3027,8 +3219,26 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
     function openAdminConv(c) {
       activeAdminConv = c.convId;
       activeDM = null; // not a regular DM
+      activeDMAccountId = null;
       isGlobalChat = false; // must reset — otherwise polling/visibilitychange keep re-loading Global Chat over the spy view
+      
+      // Reset local typing indicator state
+      if (localTypingTimeout) {
+        clearTimeout(localTypingTimeout);
+        localTypingTimeout = null;
+      }
+      if (localTypingHeartbeat) {
+        clearInterval(localTypingHeartbeat);
+        localTypingHeartbeat = null;
+      }
+      if (localIsTyping) {
+        localIsTyping = false;
+        sendTypingStatus(false);
+      }
+      showTypingIndicator('', false);
+
       localStorage.setItem('activeDM', '__admin__' + c.convId); // persist so refresh reopens this spy conv
+
       chatHeaderTitle.innerHTML = EYE_ICON_SVG;
       chatHeaderTitle.appendChild(document.createTextNode(' ' + c.name1 + ' & ' + c.name2));
       chatBox.innerHTML = '<div class="empty-chat"><p>Loading...</p></div>';
@@ -3048,9 +3258,27 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
 
     backButton.addEventListener('click', () => {
       activeDM = null;
+      activeDMAccountId = null;
       activeAdminConv = null;
       isGlobalChat = false;
+      
+      // Reset local typing indicator state
+      if (localTypingTimeout) {
+        clearTimeout(localTypingTimeout);
+        localTypingTimeout = null;
+      }
+      if (localTypingHeartbeat) {
+        clearInterval(localTypingHeartbeat);
+        localTypingHeartbeat = null;
+      }
+      if (localIsTyping) {
+        localIsTyping = false;
+        sendTypingStatus(false);
+      }
+      showTypingIndicator('', false);
+
       localStorage.removeItem('activeDM');
+
       removePaginationBtn();
       if (window.innerWidth <= 991) {
         sidebar.classList.add('open');
@@ -3346,48 +3574,6 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
     function getCurrentTime() {
       const now = new Date();
       return now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-    }
-
-    // Create message element
-    function createMessageElement(name, message, timestamp, isSent = false) {
-      const messageContainer = document.createElement('div');
-      messageContainer.className = `message-container ${isSent ? 'sent' : 'received'}`;
-
-      const avatar = document.createElement('div');
-      avatar.className = 'message-avatar';
-      avatar.textContent = getInitials(name);
-
-      const bubble = document.createElement('div');
-      bubble.className = 'message-bubble';
-
-      const content = document.createElement('div');
-      content.className = 'message-content';
-      content.textContent = message;
-
-      bubble.appendChild(content);
-
-      // Emoji-only messages skip the sender/time info row
-      if (!isEmojiOnly(message)) {
-        const info = document.createElement('div');
-        info.className = 'message-info';
-
-        const sender = document.createElement('span');
-        sender.className = 'message-sender';
-        sender.textContent = isSent ? 'you' : name.toLowerCase();
-
-        const time = document.createElement('span');
-        time.className = 'message-time';
-        time.textContent = timestamp || getCurrentTime();
-
-        info.appendChild(sender);
-        info.appendChild(time);
-        bubble.appendChild(info);
-      }
-
-      messageContainer.appendChild(avatar);
-      messageContainer.appendChild(bubble);
-
-      return messageContainer;
     }
 
     // Helper: extract a stable key from a message element
@@ -3753,11 +3939,6 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
       else if (activeDM) loadChat(false, true);
     }
 
-    // Function to check if uploading is allowed
-    function isUploadAllowed() {
-      return !!activeDM || isGlobalChat;
-    }
-
     function deleteChat() {
       const secret = secretInput.value.trim();
       
@@ -3940,6 +4121,34 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
 
       xhr.onload = function () {
         if (this.status === 200) {
+          // Stop typing indicator immediately on successful send
+          if (localTypingTimeout) {
+            clearTimeout(localTypingTimeout);
+            localTypingTimeout = null;
+          }
+          if (localTypingHeartbeat) {
+            clearInterval(localTypingHeartbeat);
+            localTypingHeartbeat = null;
+          }
+          if (localIsTyping) {
+            localIsTyping = false;
+            sendTypingStatus(false);
+          }
+
+          // Broadcast message notification via WebSocket so other connected
+          // clients get an instant refresh without waiting for polling.
+          if (ws && ws.readyState === WebSocket.OPEN) {
+            if (isGlobalChat) {
+              ws.send(JSON.stringify({ type: 'message', chat_type: 'global' }));
+            } else if (activeDM && activeDMAccountId) {
+              ws.send(JSON.stringify({
+                type: 'message',
+                chat_type: 'private',
+                recipient_id: activeDMAccountId
+              }));
+            }
+          }
+
           // Ensure chat is refreshed to pick up the confirmed message
           if (isGlobalChat) { isLoadingGC = false; loadGlobalChat(false); }
           else loadChatForced();
@@ -3949,6 +4158,7 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
           if (indicator) indicator.remove();
         }
       };
+
       xhr.onerror = function() {
         const indicator = document.getElementById(sendIndId);
         if (indicator) indicator.remove();
@@ -3971,7 +4181,7 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
       setTimeout(() => { touchFired = false; }, 500);
     }, {passive: false});
 
-    // Auto-expand textarea
+    // Auto-expand textarea + typing indicator dispatch
     messageInput.addEventListener('input', function() {
       this.style.height = 'auto';
       const newHeight = Math.min(this.scrollHeight, 120);
@@ -3986,7 +4196,35 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
           requestAnimationFrame(applyIOSViewport);
         });
       }
+
+      // Typing indicator: only fire for private DMs (not global, not admin spy)
+      if (activeDM && activeDMAccountId && !isGlobalChat && !activeAdminConv) {
+        if (!localIsTyping) {
+          localIsTyping = true;
+          sendTypingStatus(true);
+          // Heartbeat: keep re-sending "true" every 2s while user keeps typing,
+          // so the receiver's 4s auto-expire timer keeps getting refreshed.
+          if (localTypingHeartbeat) clearInterval(localTypingHeartbeat);
+          localTypingHeartbeat = setInterval(function() {
+            if (localIsTyping) {
+              sendTypingStatus(true);
+            }
+          }, 2000);
+        }
+        // Restart the idle timeout – if user stops typing for 3s, cancel indicator
+        if (localTypingTimeout) clearTimeout(localTypingTimeout);
+        localTypingTimeout = setTimeout(function() {
+          localIsTyping = false;
+          localTypingTimeout = null;
+          if (localTypingHeartbeat) {
+            clearInterval(localTypingHeartbeat);
+            localTypingHeartbeat = null;
+          }
+          sendTypingStatus(false);
+        }, 3000);
+      }
     });
+
 
     // Enter to send, Shift+Enter for new line
     messageInput.addEventListener('keydown', function(e) {
@@ -4399,16 +4637,9 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
         }, 300);
       }
       
-      // Polling for new messages - polls regular DMs, global chat, or admin spy chats
-      setInterval(function() {
-        if (isGlobalChat) {
-          loadGlobalChat(true);
-        } else if (activeDM) {
-          loadChat(true);
-        } else if (activeAdminConv) {
-          loadAdminConv(activeAdminConv, true);
-        }
-      }, 2000);
+      // Start WebSocket client connection
+      connectWebSocket();
+
 
       // Poll sidebar users every 3 seconds
       setInterval(fetchUsers, 3000);
@@ -4422,6 +4653,15 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
     // Handle page visibility change
     document.addEventListener('visibilitychange', function() {
       if (!document.hidden) {
+        // Reconnect WebSocket if it disconnected while the tab was hidden
+        if (!ws || ws.readyState === WebSocket.CLOSED || ws.readyState === WebSocket.CLOSING) {
+          if (wsReconnectTimer) {
+            clearTimeout(wsReconnectTimer);
+            wsReconnectTimer = null;
+          }
+          connectWebSocket();
+        }
+
         if (isGlobalChat) {
           loadGlobalChat(false);
         } else if (activeDM) {
@@ -4431,6 +4671,17 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
         }
       }
     });
+
+    // Clean up WebSocket on page unload
+    window.addEventListener('beforeunload', function() {
+      if (localIsTyping && activeDMAccountId) {
+        sendTypingStatus(false);
+      }
+      if (ws) {
+        try { ws.close(1000, 'Page unload'); } catch(e) {}
+      }
+    });
+
 
     // Check session validity every 5 seconds.
     // If another device logs in on the same account, reason = 'kicked' → show overlay then redirect.
@@ -4501,78 +4752,6 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
     // Poll every 5 seconds so kicked sessions are detected quickly
     setInterval(checkSession, 5000);
 
-    // ── Custom Audio Player ──
-    function formatAudioTime(s) {
-      if (isNaN(s) || !isFinite(s)) return '0:00';
-      const m = Math.floor(s / 60);
-      const sec = Math.floor(s % 60);
-      return m + ':' + (sec < 10 ? '0' : '') + sec;
-    }
-
-    function togglePlay(id) {
-      const audio = document.getElementById(id);
-      if (!audio) return;
-      const btn = document.querySelector('#player_' + id + ' .audio-play-btn');
-      if (audio.paused) {
-        document.querySelectorAll('.audio-player audio').forEach(a => {
-          if (a.id !== id && !a.paused) {
-            a.pause();
-            const b = document.querySelector('#player_' + a.id + ' .audio-play-btn');
-            if (b) b.textContent = '▶';
-          }
-        });
-        audio.play();
-        if (btn) btn.textContent = '⏸';
-      } else {
-        audio.pause();
-        if (btn) btn.textContent = '▶';
-      }
-    }
-
-    function skipAudio(id, secs) {
-      const audio = document.getElementById(id);
-      if (!audio) return;
-      audio.currentTime = Math.max(0, Math.min(audio.duration || 0, audio.currentTime + secs));
-    }
-
-    function seekAudio(e, id) {
-      const audio = document.getElementById(id);
-      if (!audio || !audio.duration) return;
-      const rect = e.currentTarget.getBoundingClientRect();
-      audio.currentTime = ((e.clientX - rect.left) / rect.width) * audio.duration;
-    }
-
-    function initAudioPlayers() {
-      document.querySelectorAll('.audio-player audio').forEach(audio => {
-        if (audio.dataset.hooked) return;
-        audio.dataset.hooked = '1';
-        const id = audio.id;
-
-        audio.addEventListener('loadedmetadata', () => {
-          const dur = document.getElementById('dur_' + id);
-          if (dur) dur.textContent = formatAudioTime(audio.duration);
-        });
-
-        audio.addEventListener('timeupdate', () => {
-          const cur = document.getElementById('cur_' + id);
-          const fill = document.getElementById('fill_' + id);
-          if (cur) cur.textContent = formatAudioTime(audio.currentTime);
-          if (fill && audio.duration) fill.style.width = (audio.currentTime / audio.duration * 100) + '%';
-        });
-
-        audio.addEventListener('ended', () => {
-          const btn = document.querySelector('#player_' + id + ' .audio-play-btn');
-          if (btn) btn.textContent = '▶';
-          const fill = document.getElementById('fill_' + id);
-          if (fill) fill.style.width = '0%';  
-        });
-      });
-    }
-
-    // Auto-init audio players whenever new messages are added to the chat
-    new MutationObserver(() => initAudioPlayers()).observe(chatBox, { childList: true, subtree: true });
-
-    // Emoji Reaction System Completely Removed
   </script>
 </body>
 </html>

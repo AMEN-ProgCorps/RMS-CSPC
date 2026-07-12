@@ -73,6 +73,23 @@ services:
     networks:
       - rms_net
 
+  # ── WebSocket Server (Node) ──────────────────────────────────────────────────
+  websocket:
+    image: node:20-alpine
+    container_name: rms_websocket
+    working_dir: /app/public/chatify/ws-server
+    restart: unless-stopped
+    ports:
+      - "48080:8080"
+    volumes:
+      - .:/app
+    env_file:
+      - .env.docker
+    command: sh -c "npm install && node server.js"
+    networks:
+      - rms_net
+
+
 volumes:
   db_data:
   vendor:

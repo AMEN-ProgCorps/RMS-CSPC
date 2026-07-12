@@ -243,14 +243,14 @@ section{
                 }
                 .subsystem-indicator .subsystem-name{
                     position: relative;
-                    width: 270px;
-                    overflow: show;
-                    position: relative;
+                    width: 100%;
+                    word-break: break-word;
+                    white-space: normal;
                     font-family: Roboto;
                     font-weight: 600;
                     font-style: SemiBold;
-                    font-size: 20px;
-                    line-height: 117%;
+                    font-size: 18px; /* Slightly reduced to fit better */
+                    line-height: 1.2;
                     letter-spacing: 0%;
                     color: #043899;
                 }

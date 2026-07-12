@@ -492,8 +492,22 @@
     .personal-details-container .profile-hero-banner {
         flex-direction: column;
         align-items: flex-start;
-        gap: 20px;
-        padding: 24px;
+        gap: 16px;
+        padding: 20px;
+    }
+    
+    .personal-details-container .hero-left {
+        gap: 16px;
+    }
+    
+    .personal-details-container .avatar-circle {
+        width: 60px;
+        height: 60px;
+        font-size: 20px;
+    }
+    
+    .personal-details-container .hero-name {
+        font-size: 22px;
     }
     
     .personal-details-container .hero-right {
@@ -505,6 +519,32 @@
     
     .personal-details-container .hero-clock {
         align-items: flex-start;
+    }
+    
+    .personal-details-container .clock-time {
+        font-size: 24px;
+    }
+    
+    .personal-details-container .detail-row {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 8px;
+        padding: 12px 0;
+    }
+    
+    .personal-details-container .detail-value {
+        text-align: left;
+        width: 100%;
+        word-break: break-word;
+    }
+    
+    .personal-details-container .masked-field {
+        justify-content: flex-start;
+        width: 100%;
+    }
+    
+    .personal-details-container .profile-card {
+        padding: 20px 24px;
     }
 }
 

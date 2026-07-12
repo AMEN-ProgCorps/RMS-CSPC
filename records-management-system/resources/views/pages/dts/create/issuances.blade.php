@@ -1096,7 +1096,7 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create Issuance
                             <img src="https://api.qrserver.com/v1/create-qr-code/?size=150x150&data={{ urlencode(base64_encode($generatedQrCode)) }}" alt="QR Code" style="width: 148px; height: 148px;">
                             <span style="font-family: monospace; font-weight: bold; font-size: 13px; color: #1e293b; text-align: center; word-break: break-all;">{{ $generatedQrCode }}</span>
                         </div>
-                        <button type="button" onclick="printQrCodeIss()" style="background: #10b981; color: white; border: none; border-radius: 6px; padding: 8px 16px; font-weight: bold; font-size: 13px; cursor: pointer; display: flex; align-items: center; gap: 6px; width: 100%; justify-content: center; box-shadow: 0 2px 4px rgba(16, 185, 129, 0.2);">
+                        <button type="button" onclick="openDynamicPrintModal('{{ $generatedQrCode }}')" style="background: #10b981; color: white; border: none; border-radius: 6px; padding: 8px 16px; font-weight: bold; font-size: 13px; cursor: pointer; display: flex; align-items: center; gap: 6px; width: 100%; justify-content: center; box-shadow: 0 2px 4px rgba(16, 185, 129, 0.2);">
                             <i class="fa-solid fa-print"></i> Print QR Code
                         </button>
                     @else
@@ -1301,7 +1301,7 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create Issuance
                         <img src="https://api.qrserver.com/v1/create-qr-code/?size=150x150&data={{ urlencode(base64_encode($generatedQrCode)) }}" alt="QR Code" style="width: 148px; height: 148px;">
                         <span style="font-family: monospace; font-weight: bold; font-size: 13px; color: #1e293b; text-align: center; word-break: break-all;">{{ $generatedQrCode }}</span>
                     </div>
-                    <button type="button" onclick="printQrCodeIss()" style="background: #10b981; color: white; border: none; border-radius: 6px; padding: 8px 16px; font-weight: bold; font-size: 13px; cursor: pointer; display: flex; align-items: center; gap: 6px; width: 100%; justify-content: center; box-shadow: 0 2px 4px rgba(16, 185, 129, 0.2);">
+                    <button type="button" onclick="openDynamicPrintModal('{{ $generatedQrCode }}')" style="background: #10b981; color: white; border: none; border-radius: 6px; padding: 8px 16px; font-weight: bold; font-size: 13px; cursor: pointer; display: flex; align-items: center; gap: 6px; width: 100%; justify-content: center; box-shadow: 0 2px 4px rgba(16, 185, 129, 0.2);">
                         <i class="fa-solid fa-print"></i> Print QR Code
                     </button>
                 @else
@@ -1323,33 +1323,7 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create Issuance
                 <button type="submit" class="btn-primary" @if(!$generatedQrCode) disabled style="background-color: #cbd5e1; color: #94a3b8; cursor: not-allowed; box-shadow: none;" @endif>CREATE TRANSACTION</button>
             </div>
         </form>
-        <script>
-            function printQrCodeIss() {
-                var printContents = document.getElementById('printable-qr-area-iss').innerHTML;
-                var printWindow = window.open('', '_blank', 'width=350,height=350');
-                printWindow.document.body.innerHTML = printContents;
-                
-                var style = printWindow.document.createElement('style');
-                @php
-                    $cssPath = resource_path('views/pages/dts/create/modification-qrcode.css');
-                    $cssContent = file_exists($cssPath) ? file_get_contents($cssPath) : '';
-                    $escapedCss = json_encode($cssContent);
-                @endphp
-                var customCss = {!! $escapedCss !!};
-                if (!customCss.trim()) {
-                    customCss = 'body { margin: 0; padding: 0; position: absolute; top: 0; right: 0; width: 1in; display: flex; flex-direction: column; align-items: center; } img { width: 1in !important; height: 1in !important; display: block; margin: 0 0 4px 0; } span { display: block; text-align: center; width: 1in; font-size: 10pt; font-family: monospace; font-weight: bold; color: #000000; }';
-                }
-                style.innerHTML = customCss;
-                printWindow.document.head.appendChild(style);
-                
-                printWindow.document.close();
-                printWindow.focus();
-                setTimeout(function() {
-                    printWindow.print();
-                    printWindow.close();
-                }, 500);
-            }
-        </script>
+        <!-- Dynamic QR Code Print Modal moved to root -->
     @endif
 
     <!-- Flow Diagram Modal -->
@@ -1635,4 +1609,6 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create Issuance
         </style>
     @endif
 
+    <!-- Dynamic QR Code Print Modal -->
+    @include('components.dts.qr-print-modal')
 </div>

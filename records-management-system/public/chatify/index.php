@@ -3341,7 +3341,7 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
         backButton.style.display = 'none';
         burgerButton.style.display = 'inline-flex';
       }
-      chatBox.innerHTML = '<div class="empty-chat"><p>Select a chat</p></div>';
+      chatBox.innerHTML = '<div class="empty-chat"><p>Camarines Sur Polytechnic Colleges</p></div>';
       document.getElementById('globalChatItem').classList.remove('active');
       renderSidebarUsers();
       if (serverIsAdmin) renderAdminConvs();

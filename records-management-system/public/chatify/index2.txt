@@ -4498,6 +4498,21 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
         xhr.send('secretKey=' + encodeURIComponent(this.value));
       });
 
+      // Allow Enter key to trigger delete all if secret is correct
+      deleteAllSecretIn && deleteAllSecretIn.addEventListener('keydown', function(e) {
+        if (e.key === 'Enter') {
+          e.preventDefault();
+          if (confirmDeleteAll && !confirmDeleteAll.disabled) {
+            confirmDeleteAll.click();
+          } else if (deleteAllSecretErr) {
+            deleteAllSecretErr.style.display = 'block';
+            deleteAllSecretErr.textContent = 'Invalid secret key';
+            deleteAllSecretErr.style.color = 'red';
+            deleteAllSecretIn.focus();
+          }
+        }
+      });
+
       // Confirm Delete All
       confirmDeleteAll && confirmDeleteAll.addEventListener('click', function() {
         if (this.disabled) return;

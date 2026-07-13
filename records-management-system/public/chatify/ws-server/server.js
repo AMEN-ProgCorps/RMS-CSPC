@@ -123,7 +123,17 @@ wss.on('connection', (ws) => {
       return;
     }
 
-    // 3. Handle Typing Indicator Event
+    // 3. Handle Name Update Event
+    if (data.type === 'update_name') {
+      const newName = (data.name || '').trim();
+      if (newName) {
+        console.log(`Name updated: account_id=${state.accountId}, "${state.name}" → "${newName}"`);
+        state.name = newName;
+      }
+      return;
+    }
+
+    // 4. Handle Typing Indicator Event
     if (data.type === 'typing') {
       const { recipient_id, is_typing } = data;
       console.log(`Routing typing status: from=${state.accountId}, to=${recipient_id}, typing=${is_typing}`);

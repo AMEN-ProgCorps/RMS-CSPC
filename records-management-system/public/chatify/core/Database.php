@@ -1,6 +1,6 @@
 <?php
 // =============================================================================
-// core/Database.php — PDO Singleton: Connects to Laravel's MySQL DB
+// core/Database.php — PDO Singleton: Connects to Laravel's PostgreSQL DB
 // =============================================================================
 // Reads from the `account_details` table of the Laravel application database.
 // This class does NOT manage chat storage — that stays on the filesystem.
@@ -22,11 +22,10 @@ class Database
 
         // Config constants are defined in config/db.php
         $dsn = sprintf(
-            'mysql:host=%s;port=%s;dbname=%s;charset=%s',
+            'pgsql:host=%s;port=%s;dbname=%s',
             LARAVEL_DB_HOST,
             LARAVEL_DB_PORT,
-            LARAVEL_DB_NAME,
-            LARAVEL_DB_CHARSET
+            LARAVEL_DB_NAME
         );
 
         try {

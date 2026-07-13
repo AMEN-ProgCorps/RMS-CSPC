@@ -56,6 +56,8 @@ foreach ($filteredUsers as $user) {
         'name'                => $user['full_name'],
         'full_name'           => $user['full_name'],
         'office_id'           => $user['office_id'],
+        'office_name'         => $user['office_name'],
+        'office_code'         => $user['office_code'],
         'is_currently_online' => $user['is_currently_online'],
         'last_online_time'    => $user['last_online_time'],
         'status'              => ((bool) $user['is_currently_online']) ? 'online' : 'offline',

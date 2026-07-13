@@ -1,0 +1,43 @@
+# -------------------------------
+# Disable directory listing
+# -------------------------------
+Options -Indexes
+
+DirectoryIndex index.php index.html
+
+# -------------------------------
+# Force 403 Forbidden for ALL JSON files
+# -------------------------------
+<FilesMatch "\.(json)$">
+    Require all denied
+    ErrorDocument 403 "Access forbidden: JSON files are not accessible"
+</FilesMatch>
+
+# -------------------------------
+# Security: Deny sensitive files
+# -------------------------------
+<FilesMatch "\.(sql|bak|env|tar|gz|txt|log|ini|conf|config|yml|yaml|md)$">
+    Require all denied
+</FilesMatch>
+
+# -------------------------------
+# Protect .htaccess itself
+# -------------------------------
+<Files ".htaccess">
+    Require all denied
+</Files>
+
+# -------------------------------
+# Block access to hidden files (starting with dot)
+# -------------------------------
+<FilesMatch "^\.">
+    Require all denied
+</FilesMatch>
+
+# -------------------------------
+# Block access to internal folders
+# -------------------------------
+<IfModule mod_rewrite.c>
+    RewriteEngine On
+    RewriteRule ^(config|core|storage|ws-server)(/|$) - [F,L]
+</IfModule>

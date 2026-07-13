@@ -207,62 +207,6 @@ class Auth
         $_SESSION['is_admin']           = false;
         $_SESSION['login_time']         = time();
 
-        // Save session to session.json for checkSessionFromJSON() compatibility
-        $session_file = __DIR__ . '/../session.json';
-        $session_lock_file = __DIR__ . '/../session.json.lock';
-        $session_id = session_id();
-
-        $session_lock_handle = fopen($session_lock_file, 'w');
-        if ($session_lock_handle && flock($session_lock_handle, LOCK_EX)) {
-            try {
-                $sessions = [];
-                if (file_exists($session_file)) {
-                    $json_content = file_get_contents($session_file);
-                    $sessions = json_decode($json_content, true);
-                    if (json_last_error() !== JSON_ERROR_NONE || !is_array($sessions)) {
-                        $sessions = [];
-                    }
-                }
-
-                // Remove any existing session for this session_id or username
-                $sessions = array_filter($sessions, function($session) use ($session_id, $email) {
-                    return (isset($session['session_id']) && $session['session_id'] !== $session_id)
-                        && (isset($session['username']) && $session['username'] !== $email);
-                });
-                $sessions = array_values($sessions);
-
-                $remember_token = bin2hex(random_bytes(32));
-                $expires_at = time() + (30 * 24 * 60 * 60); // 30 days
-
-                $new_session = [
-                    'session_id'     => $session_id,
-                    'remember_token' => $remember_token,
-                    'username'       => $email,
-                    'name'           => $fullName,
-                    'is_admin'       => false,
-                    'expires_at'     => $expires_at,
-                    'created_at'     => date('Y-m-d H:i:s'),
-                    'account_id'     => (int) $userRow['account_id'],
-                    'first_name'     => $userRow['first_name'] ?? '',
-                    'last_name'      => $userRow['last_name'] ?? '',
-                    'office_id'      => isset($userRow['office_id']) ? (int) $userRow['office_id'] : null
-                ];
-
-                $sessions[] = $new_session;
-                file_put_contents($session_file, json_encode($sessions, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE), LOCK_EX);
-
-                // Set persistent remember_token cookie
-                setcookie('remember_token', $remember_token, [
-                    'expires'  => $expires_at,
-                    'path'     => '/',
-                    'httponly' => true,
-                    'samesite' => 'Lax',
-                ]);
-            } finally {
-                flock($session_lock_handle, LOCK_UN);
-                fclose($session_lock_handle);
-            }
-        }
     }
 
     /**

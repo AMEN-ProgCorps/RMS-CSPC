@@ -77,11 +77,21 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Users')] class extends C
     /** @var string Holds failure transaction alert messages */
     public string $errorMessage = '';
 
+    // Searchable dropdown properties
+    public string $roleSearch = '';
+    public bool $showRoleDropdown = false;
+    public string $officeSearch = '';
+    public bool $showOfficeDropdown = false;
+
     /**
      * Initializes "Create Mode" for configuring a new user profile.
      */
     public function startCreate(): void
     {
+        $currentUserPerms = auth()->user() ? auth()->user()->permissions : null;
+        if (! $currentUserPerms || (! $currentUserPerms->is_sadm && ! $currentUserPerms->can_sadm_modify_account)) {
+            return;
+        }
         $this->cancelSelection();
         $this->selectedUserId = -1; // -1 denotes "Create Mode"
     }
@@ -101,6 +111,12 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Users')] class extends C
         if ($user) {
             $this->username = $user->username;
             $this->roleId = $user->account_role;
+            if ($this->roleId) {
+                $role = \App\Models\role_list::find($this->roleId);
+                $this->roleSearch = $role ? $role->key_name : '';
+            } else {
+                $this->roleSearch = '';
+            }
             $this->isActive = (bool) $user->account_active;
             
             $details = $user->details;
@@ -111,6 +127,12 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Users')] class extends C
                 $this->email = $details->email ?? '';
                 $this->contactNumber = $details->contact_number ?? '';
                 $this->officeId = $details->office_id;
+                if ($this->officeId) {
+                    $office = \App\Models\office::find($this->officeId);
+                    $this->officeSearch = $office ? $office->office_name : '';
+                } else {
+                    $this->officeSearch = '';
+                }
             }
         }
     }
@@ -141,7 +163,25 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Users')] class extends C
         $this->roleId = null;
         $this->officeId = null;
         $this->isActive = true;
+        $this->roleSearch = '';
+        $this->showRoleDropdown = false;
+        $this->officeSearch = '';
+        $this->showOfficeDropdown = false;
         $this->clearMessages();
+    }
+
+    public function selectRole(?int $id, string $name): void
+    {
+        $this->roleId = $id;
+        $this->roleSearch = $name;
+        $this->showRoleDropdown = false;
+    }
+
+    public function selectOffice(?int $id, string $name): void
+    {
+        $this->officeId = $id;
+        $this->officeSearch = $name;
+        $this->showOfficeDropdown = false;
     }
 
     /**
@@ -155,6 +195,13 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Users')] class extends C
         }
 
         $this->clearMessages();
+
+        // Authorization check: User must be is_sadm or have can_sadm_modify_account clearance
+        $currentUserPerms = auth()->user() ? auth()->user()->permissions : null;
+        if (! $currentUserPerms || (! $currentUserPerms->is_sadm && ! $currentUserPerms->can_sadm_modify_account)) {
+            $this->errorMessage = 'Unauthorized: You do not have permission to modify user accounts.';
+            return;
+        }
 
         // 1. Validation Rules
         if ($this->selectedUserId === -1) {
@@ -294,6 +341,13 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Users')] class extends C
 
         $this->clearMessages();
 
+        // Authorization check: User must be is_sadm or have can_sadm_modify_account clearance
+        $currentUserPerms = auth()->user() ? auth()->user()->permissions : null;
+        if (! $currentUserPerms || (! $currentUserPerms->is_sadm && ! $currentUserPerms->can_sadm_modify_account)) {
+            $this->errorMessage = 'Unauthorized: You do not have permission to delete user accounts.';
+            return;
+        }
+
         if ($this->selectedUserId === auth()->id()) {
             $this->errorMessage = 'You cannot delete your own logged-in account!';
             return;
@@ -406,9 +460,14 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Users')] class extends C
     <div class="directory-panel">
         <div class="directory-header-row">
             <span class="form-label" style="margin: 0; font-size: 13px; color: #334155;">Users Directory</span>
+            @php
+                $canModify = auth()->user()?->permissions?->is_sadm || auth()->user()?->permissions?->can_sadm_modify_account;
+            @endphp
+            @if($canModify)
             <button type="button" class="btn-create-new" wire:click="startCreate">
                 <i class="fa-solid fa-plus"></i> New User
             </button>
+            @endif
         </div>
 
         <div class="search-box-wrapper">
@@ -586,26 +645,78 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Users')] class extends C
                     </div>
 
                     <!-- Role -->
-                    <div class="form-group">
+                    <div class="form-group" wire:click.outside="$set('showRoleDropdown', false)">
                         <span class="form-label">Assigned Role</span>
-                        <select class="form-select" wire:model="roleId">
-                            <option value="">Select Role</option>
-                            @foreach($roles as $role)
-                                <option value="{{ $role->id }}">{{ $role->key_name }}</option>
-                            @endforeach
-                        </select>
+                        <div style="position: relative;">
+                            <input type="text" 
+                                   class="form-input" 
+                                   placeholder="Search and select role..." 
+                                   wire:model.live="roleSearch" 
+                                   wire:focus="$set('showRoleDropdown', true)" 
+                                   autocomplete="off" 
+                                   style="padding-right: 32px; background-color: white;">
+                            <span style="position: absolute; right: 12px; top: 50%; transform: translateY(-50%); pointer-events: none; color: #94a3b8; font-size: 10px;">▼</span>
+                            
+                            @if($showRoleDropdown)
+                                <div style="position: absolute; top: 100%; left: 0; right: 0; margin-top: 4px; background: #ffffff; border: 1.5px solid #cbd5e1; border-radius: 8px; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1), 0 2px 4px -1px rgba(0,0,0,0.06); max-height: 160px; overflow-y: auto; z-index: 50;">
+                                    <div wire:click="selectRole(null, '')" style="padding: 9px 14px; font-size: 13px; color: #64748b; cursor: pointer; border-bottom: 1px solid #f1f5f9; font-style: italic;" onmouseover="this.style.backgroundColor='#f1f5f9'" onmouseout="this.style.backgroundColor='transparent'">
+                                        Select Role
+                                    </div>
+                                    @php
+                                        $rSearchLower = strtolower($roleSearch);
+                                        $filteredRoles = $roles->filter(function($r) use ($rSearchLower) {
+                                            return empty($rSearchLower) || str_contains(strtolower($r->key_name), $rSearchLower);
+                                        });
+                                    @endphp
+                                    @forelse($filteredRoles as $role)
+                                        <div wire:click="selectRole({{ $role->id }}, '{{ addslashes($role->key_name) }}')" style="padding: 9px 14px; font-size: 13px; color: #334155; cursor: pointer; border-bottom: 1px solid #f1f5f9;" onmouseover="this.style.backgroundColor='#f1f5f9'" onmouseout="this.style.backgroundColor='transparent'">
+                                            {{ $role->key_name }}
+                                        </div>
+                                    @empty
+                                        <div style="padding: 12px 14px; font-size: 13px; color: #94a3b8; text-align: center;">No matching roles found</div>
+                                    @endforelse
+                                </div>
+                            @endif
+                        </div>
                         @error('roleId') <span style="color:#ef4444; font-size:11px; margin-top:2px;">{{ $message }}</span> @enderror
                     </div>
 
                     <!-- Office -->
-                    <div class="form-group">
+                    <div class="form-group" wire:click.outside="$set('showOfficeDropdown', false)">
                         <span class="form-label">Assigned Office</span>
-                        <select class="form-select" wire:model="officeId">
-                            <option value="">No Office Assigned</option>
-                            @foreach($offices as $office)
-                                <option value="{{ $office->id }}">{{ $office->office_name }}</option>
-                            @endforeach
-                        </select>
+                        <div style="position: relative;">
+                            <input type="text" 
+                                   class="form-input" 
+                                   placeholder="Search and select office..." 
+                                   wire:model.live="officeSearch" 
+                                   wire:focus="$set('showOfficeDropdown', true)" 
+                                   autocomplete="off" 
+                                   style="padding-right: 32px; background-color: white;">
+                            <span style="position: absolute; right: 12px; top: 50%; transform: translateY(-50%); pointer-events: none; color: #94a3b8; font-size: 10px;">▼</span>
+                            
+                            @if($showOfficeDropdown)
+                                <div style="position: absolute; top: 100%; left: 0; right: 0; margin-top: 4px; background: #ffffff; border: 1.5px solid #cbd5e1; border-radius: 8px; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1), 0 2px 4px -1px rgba(0,0,0,0.06); max-height: 160px; overflow-y: auto; z-index: 50;">
+                                    <div wire:click="selectOffice(null, '')" style="padding: 9px 14px; font-size: 13px; color: #64748b; cursor: pointer; border-bottom: 1px solid #f1f5f9; font-style: italic;" onmouseover="this.style.backgroundColor='#f1f5f9'" onmouseout="this.style.backgroundColor='transparent'">
+                                        No Office Assigned
+                                    </div>
+                                    @php
+                                        $oSearchLower = strtolower($officeSearch);
+                                        $filteredOffices = $offices->filter(function($o) use ($oSearchLower) {
+                                            return empty($oSearchLower) 
+                                                || str_contains(strtolower($o->office_name), $oSearchLower)
+                                                || str_contains(strtolower($o->office_code), $oSearchLower);
+                                        });
+                                    @endphp
+                                    @forelse($filteredOffices as $office)
+                                        <div wire:click="selectOffice({{ $office->id }}, '{{ addslashes($office->office_name) }}')" style="padding: 9px 14px; font-size: 13px; color: #334155; cursor: pointer; border-bottom: 1px solid #f1f5f9;" onmouseover="this.style.backgroundColor='#f1f5f9'" onmouseout="this.style.backgroundColor='transparent'">
+                                            {{ $office->office_name }} ({{ $office->office_code }})
+                                        </div>
+                                    @empty
+                                        <div style="padding: 12px 14px; font-size: 13px; color: #94a3b8; text-align: center;">No matching offices found</div>
+                                    @endforelse
+                                </div>
+                            @endif
+                        </div>
                         @error('officeId') <span style="color:#ef4444; font-size:11px; margin-top:2px;">{{ $message }}</span> @enderror
                     </div>
 
@@ -627,13 +738,16 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Users')] class extends C
 
             <!-- Footer -->
             <div class="details-footer">
+                @php
+                    $canModify = auth()->user()?->permissions?->is_sadm || auth()->user()?->permissions?->can_sadm_modify_account;
+                @endphp
                 @if($selectedUserId > 0)
-                    <button type="button" class="btn-delete" wire:click="deleteUser" style="margin-right: auto;">
+                    <button type="button" class="btn-delete" wire:click="deleteUser" style="margin-right: auto;" {{ !$canModify ? 'disabled style=opacity:0.6;cursor:not-allowed;' : '' }}>
                         <i class="fa-solid fa-trash-can"></i> Delete Account
                     </button>
                 @endif
                 <button type="button" class="btn-cancel" wire:click="cancelSelection">Cancel</button>
-                <button type="button" class="btn-save" wire:click="saveUserChanges">
+                <button type="button" class="btn-save" wire:click="saveUserChanges" {{ !$canModify ? 'disabled style=opacity:0.6;cursor:not-allowed;' : '' }}>
                     <i class="fa-solid fa-floppy-disk"></i> {{ $selectedUserId === -1 ? 'Create User' : 'Save Changes' }}
                 </button>
             </div>

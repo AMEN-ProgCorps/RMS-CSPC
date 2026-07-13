@@ -19,6 +19,7 @@ return new class extends Migration
         Schema::create('condition_details', function (Blueprint $table) {
             $table->increments('key_id');
             $table->boolean('is_sadm')->default(false);
+            $table->boolean('is_admin')->default(false);
             $table->boolean('can_access_dts')->default(false);
             $table->boolean('can_access_rdp')->default(false);
             $table->boolean('can_access_dcs')->default(false);

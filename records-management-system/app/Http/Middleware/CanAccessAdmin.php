@@ -12,7 +12,7 @@ class CanAccessAdmin
     {
         $perms = auth()->user()?->permissions;
 
-        if (! $perms || ! $perms->is_sadm) {
+        if (! $perms || (! $perms->is_sadm && ! $perms->is_admin)) {
             abort(403);
         }
 

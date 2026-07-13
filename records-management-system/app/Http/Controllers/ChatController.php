@@ -27,8 +27,9 @@ class ChatController extends Controller
         // Generate HMAC SHA256 token
         $token = hash_hmac('sha256', $payload, env('CHAT_SHARED_SECRET'));
 
-        // Redirect user to standalone chat system
-        $url = 'http://localhost:48000/chatify/auth_entry.php?' . http_build_query([
+        // Redirect user to standalone chat system using dynamic host
+        $host = request()->getSchemeAndHttpHost();
+        $url = $host . '/chatify/auth_entry.php?' . http_build_query([
             'account_id' => $user->account_id,
             'expires'    => $expires,
             'token'      => $token,

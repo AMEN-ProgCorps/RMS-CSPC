@@ -20,6 +20,7 @@ class role_permission extends Model
     protected $fillable = [
         'key_id',
         'is_sadm',
+        'is_admin',
         'can_access_dts',
         'can_access_rdp',
         'can_access_dcs',
@@ -44,6 +45,7 @@ class role_permission extends Model
     protected $casts = [
         'key_id' => 'integer',
         'is_sadm' => 'boolean',
+        'is_admin' => 'boolean',
         'can_access_dts' => 'boolean',
         'can_access_rdp' => 'boolean',
         'can_access_dcs' => 'boolean',

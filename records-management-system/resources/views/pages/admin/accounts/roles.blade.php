@@ -50,6 +50,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Roles')] class extends C
     public bool $canDtsUseApplication = false;
     public bool $canDtsUseIssuance = false;
     public bool $canDtsUserReceived = false;
+    public bool $canDtsModifyTransaction = false;
 
     // Toast notifications
     public string $successMessage = '';
@@ -107,6 +108,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Roles')] class extends C
         $this->canDtsUseApplication = false;
         $this->canDtsUseIssuance = false;
         $this->canDtsUserReceived = false;
+        $this->canDtsModifyTransaction = false;
         
         $this->showVerificationModal = false;
         $this->verifyUsername = '';
@@ -161,6 +163,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Roles')] class extends C
                 $this->canDtsUseApplication = (bool) $perms->can_dts_use_application;
                 $this->canDtsUseIssuance = (bool) $perms->can_dts_use_issuance;
                 $this->canDtsUserReceived = (bool) $perms->can_dts_user_received;
+                $this->canDtsModifyTransaction = (bool) $perms->can_dts_modify_transaction;
             }
         }
     }
@@ -350,6 +353,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Roles')] class extends C
         $perms->can_dts_use_application = $this->canDtsUseApplication;
         $perms->can_dts_use_issuance = $this->canDtsUseIssuance;
         $perms->can_dts_user_received = $this->canDtsUserReceived;
+        $perms->can_dts_modify_transaction = $this->canDtsModifyTransaction;
     }
 
     /**
@@ -365,6 +369,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Roles')] class extends C
             $this->canModifyUser = false;
             $this->canModifyAccountlist = false;
             $this->canModifyPass = false;
+            $this->canDtsModifyTransaction = false;
         }
     }
 
@@ -445,6 +450,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Roles')] class extends C
         $this->canDtsUseApplication = true;
         $this->canDtsUseIssuance = true;
         $this->canDtsUserReceived = true;
+        $this->canDtsModifyTransaction = true;
     }
 
     /**
@@ -471,6 +477,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Roles')] class extends C
             'canDtsUseApplication',
             'canDtsUseIssuance',
             'canDtsUserReceived',
+            'canDtsModifyTransaction',
         ];
 
         if (in_array($name, $permissionProperties) && !$value && $this->isSadm) {
@@ -796,6 +803,17 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Roles')] class extends C
                                         </div>
                                         <label class="switch">
                                             <input type="checkbox" wire:model="canDtsUserReceived">
+                                            <span class="slider"></span>
+                                        </label>
+                                    </div>
+                                    <!-- Modify Transactions -->
+                                    <div class="permission-toggle-row" style="{{ (!$isSadm && !$isAdmin) ? 'opacity: 0.5; transition: opacity 0.2s ease;' : '' }}">
+                                        <div class="permission-toggle-info">
+                                            <span class="permission-toggle-title">Modify Transactions Details</span>
+                                            <span class="permission-toggle-desc">Clearance to modify metadata details (Control #, Subject/Particulars, CF, etc.) on active transactions.</span>
+                                        </div>
+                                        <label class="switch">
+                                            <input type="checkbox" wire:model="canDtsModifyTransaction" {{ (!$isSadm && !$isAdmin) ? 'disabled' : '' }}>
                                             <span class="slider"></span>
                                         </label>
                                     </div>

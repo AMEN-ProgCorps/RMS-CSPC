@@ -42,7 +42,6 @@ new #[Layout('layouts.portal')] #[Title('Track Document — Results')] class ext
     public bool $documentFound = false;
 
     public string $email = '';
-    public bool $emailReadonly = false;
     public string $emailStatus = '';
 
     public bool $showPasswordStep = false;
@@ -81,6 +80,7 @@ new #[Layout('layouts.portal')] #[Title('Track Document — Results')] class ext
                     $q->where('dt.qr_code', $code)
                       ->orWhere('dtd.control_number', $code);
                 })
+                ->whereNotNull('dtd.email_access')
                 ->exists();
         } catch (\Illuminate\Database\QueryException) {
             $this->documentFound = false;
@@ -91,12 +91,7 @@ new #[Layout('layouts.portal')] #[Title('Track Document — Results')] class ext
         }
     }
 
-    // Called from JS after Google Sign-in resolves the email
-    public function setEmailFromGoogle(string $email): void
-    {
-        $this->email = $email;
-        $this->emailReadonly = true;
-    }
+
 
     public function verifyEmail(): void
     {
@@ -284,31 +279,16 @@ new #[Layout('layouts.portal')] #[Title('Track Document — Results')] class ext
             </div>
             @if ($documentFound)
                 @if (! $showPasswordStep && ! $showDocumentData)
-                    <div id="doc-verification" class="data-containers" wire:ignore.self>
-                        {{-- Google Sign-In button — on credential, email field is auto-filled --}}
-                        <div id="g_id_onload"
-                            data-client_id="{{ config('services.google.client_id') }}"
-                            data-callback="handleGoogleCredential"
-                            data-auto_prompt="false">
-                        </div>
-                        <div class="g_id_signin"
-                            data-type="standard"
-                            data-size="large"
-                            data-theme="outline"
-                            data-text="sign_in_with"
-                            data-shape="rectangular"
-                            data-logo_alignment="left">
-                        </div>
+                    <div id="doc-verification" class="data-containers">
                         <form wire:submit="verifyEmail" class="doc-verification">
-                            <span class="subtitle">Email</span>
+                            <span class="subtitle">Email Address</span>
                             <input
                                 wire:model="email"
                                 type="email"
                                 autocomplete="email"
                                 name="email"
                                 id="email-input"
-                                @if ($emailReadonly) readonly @endif
-                                placeholder="Waiting for Google sign-in..."
+                                placeholder="Enter your email address"
                                 required
                             >
                             <div id="email-status" class="email-status">{{ $emailStatus }}</div>
@@ -367,7 +347,6 @@ new #[Layout('layouts.portal')] #[Title('Track Document — Results')] class ext
 </div>
 
 @push('scripts')
-<script src="https://accounts.google.com/gsi/client" async defer></script>
 <script>
 (function () {
     const STORAGE_KEY = 'rms_tracking_device';
@@ -378,20 +357,6 @@ new #[Layout('layouts.portal')] #[Title('Track Document — Results')] class ext
     function saveDevice(d) { localStorage.setItem(STORAGE_KEY, JSON.stringify(d)); }
 
     let cleanupListeners = null;
-
-    // Must be on window — required by the Google Identity Services library
-    window.handleGoogleCredential = function (response) {
-        try {
-            const parts   = response.credential.split('.');
-            const payload = JSON.parse(atob(parts[1].replace(/-/g, '+').replace(/_/g, '/')));
-            const email   = payload.email || '';
-            if (email) {
-                @this.call('setEmailFromGoogle', email);
-            }
-        } catch (err) {
-            console.error('Google credential parse failed:', err);
-        }
-    };
 
     function setup() {
         if (cleanupListeners) { cleanupListeners(); cleanupListeners = null; }

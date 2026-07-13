@@ -95,9 +95,13 @@ new #[Layout('layouts.portal')] #[Title('Track Document')] class extends Compone
             return;
         }
 
-        // Second level validation: check if the QR code is associated with a transaction
+        // Second level validation: check if the QR code is associated with a transaction that has email access
         if ($qrExists) {
-            $hasTransaction = DB::table('dts_transactions')->where('qr_code', $code)->exists();
+            $hasTransaction = DB::table('dts_transactions as dt')
+                ->join('dts_transaction_details as dtd', 'dtd.id', '=', 'dt.transaction_id')
+                ->where('dt.qr_code', $code)
+                ->whereNotNull('dtd.email_access')
+                ->exists();
             if (!$hasTransaction) {
                 $this->dispatch('track-result', status: 'not-found');
                 return;
@@ -105,13 +109,14 @@ new #[Layout('layouts.portal')] #[Title('Track Document')] class extends Compone
         }
 
         try {
-            // Phase 2: Check if tracking number exists in dts_transactions or transaction details
+            // Phase 2: Check if tracking number exists in dts_transactions or transaction details and has email access
             $exists = DB::table('dts_transactions as dt')
                 ->join('dts_transaction_details as dtd', 'dtd.id', '=', 'dt.transaction_id')
                 ->where(function($q) use ($code) {
                     $q->where('dt.qr_code', $code)
                       ->orWhere('dtd.control_number', $code);
                 })
+                ->whereNotNull('dtd.email_access')
                 ->exists();
 
             if (! $exists) {

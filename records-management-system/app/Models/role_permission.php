@@ -37,6 +37,7 @@ class role_permission extends Model
         'can_dts_use_application',
         'can_dts_use_issuance',
         'can_dts_user_received',
+        'can_dts_modify_transaction',
     ];
     /*
      * The attributes here will be change in the future if there's more permissions to be added, 
@@ -62,5 +63,6 @@ class role_permission extends Model
         'can_dts_use_application' => 'boolean',
         'can_dts_use_issuance' => 'boolean',
         'can_dts_user_received' => 'boolean',
+        'can_dts_modify_transaction' => 'boolean',
     ];
 }

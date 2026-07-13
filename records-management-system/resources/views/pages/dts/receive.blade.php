@@ -70,6 +70,7 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Receive Transac
         $query = DB::table('dts_transactions as dt')
             ->join('dts_transaction_details as dtd', 'dtd.id', '=', 'dt.transaction_id')
             ->leftJoin('office as originated_office', 'originated_office.office_code', '=', 'dtd.originated_from')
+            ->leftJoin('office as current_office', 'current_office.office_code', '=', 'dt.current_office')
             ->leftJoin('dts_document_data as doc', 'doc.document_path', '=', 'dt.doc_dir')
             ->where('dt.current_office', $userOfficeCode)
             ->whereIn('dt.status', ['ongoing', 'revision']);
@@ -94,6 +95,7 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Receive Transac
             'dt.status',
             'dt.sequence',
             'dt.qr_code',
+            'dt.current_office',
             'dtd.control_number',
             'dtd.requestor_name',
             'dtd.requestor_label',
@@ -102,6 +104,7 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Receive Transac
             'dtd.action_needed',
             'dtd.date_created',
             'originated_office.office_name as originated_office_name',
+            'current_office.office_name as current_office_name',
             'doc.document_name'
         )
         ->get()
@@ -115,7 +118,19 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Receive Transac
 
             $dateReceived = $latestLog ? $latestLog->date_in : $t->date_created;
             $t->date_received = $dateReceived;
-            $t->elapsed_days = $dateReceived ? max(0, now()->diffInDays(Carbon::parse($dateReceived))) : 0;
+            $hasBeenForwarded = DB::table('sub_document_tracking_system_logs')
+                ->where('transaction_id', $t->transaction_id)
+                ->where('type', 'forwarded')
+                ->exists();
+
+            if ($hasBeenForwarded) {
+                $t->elapsed_days = $dateReceived ? (now()->diffInDays(Carbon::parse($dateReceived)) + 1) : 1;
+            } else {
+                $t->elapsed_days = 0;
+            }
+
+            // Duration in minutes for warning icon and sorting priority
+            $t->diff_in_minutes = $dateReceived ? abs(now()->diffInMinutes(Carbon::parse($dateReceived))) : 0;
 
             // Previous office (from office)
             $prevLog = DB::table('sub_document_tracking_system_logs as log')
@@ -159,7 +174,9 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Receive Transac
             }
 
             return $t;
-        });
+        })
+        ->sortByDesc('diff_in_minutes')
+        ->values();
     }
 
     /**
@@ -648,16 +665,16 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Receive Transac
                 <!-- Top Right Info & Icon -->
                 <div style="position: absolute; top: 16px; right: 16px; display: flex; align-items: center; gap: 8px; font-size: 11px; color: #6b7280;">
                     <span>{{ $t->date_received ? \Carbon\Carbon::parse($t->date_received)->diffForHumans(null, true) . ' ago' : 'N/A' }}</span>
-                    @if ($t->status === 'completed')
-                        <span style="display: inline-block; width: 14px; height: 14px; background-color: #10b981; transform: rotate(45deg); display: flex; align-items: center; justify-content: center; border-radius: 2px;" title="Completed">
-                            <span style="transform: rotate(-45deg); color: white; font-size: 9px; font-weight: bold;">✔</span>
+                    @if ($t->diff_in_minutes < 10)
+                        <span style="display: inline-block; width: 14px; height: 14px; background-color: #10b981; transform: rotate(45deg); display: flex; align-items: center; justify-content: center; border-radius: 2px;" title="New (Less than 10 mins)">
+                            <span style="transform: rotate(-45deg); color: white; font-size: 9px; font-weight: bold;">!</span>
                         </span>
-                    @elseif ($t->classification === 'highly_technical')
-                        <span style="display: inline-block; width: 14px; height: 14px; background-color: #ef4444; transform: rotate(45deg); display: flex; align-items: center; justify-content: center; border-radius: 2px;" title="Highly Technical">
+                    @elseif ($t->diff_in_minutes <= 60)
+                        <span style="display: inline-block; width: 14px; height: 14px; background-color: #f59e0b; transform: rotate(45deg); display: flex; align-items: center; justify-content: center; border-radius: 2px;" title="Pending (Over 10 mins)">
                             <span style="transform: rotate(-45deg); color: white; font-size: 9px; font-weight: bold;">!</span>
                         </span>
                     @else
-                        <span style="display: inline-block; width: 14px; height: 14px; background-color: #f59e0b; transform: rotate(45deg); display: flex; align-items: center; justify-content: center; border-radius: 2px;" title="Pending Action">
+                        <span style="display: inline-block; width: 14px; height: 14px; background-color: #ef4444; transform: rotate(45deg); display: flex; align-items: center; justify-content: center; border-radius: 2px;" title="Urgent (Over an hour)">
                             <span style="transform: rotate(-45deg); color: white; font-size: 9px; font-weight: bold;">!</span>
                         </span>
                     @endif
@@ -674,7 +691,7 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Receive Transac
                     <div style="margin-bottom: 6px;"><strong>Receive From:</strong> <span style="color: #ef4444; font-weight: 500;">{{ $t->from_office }}</span></div>
                     <div style="margin-bottom: 14px;"><strong>Receive Date:</strong> {{ $t->date_received ? \Carbon\Carbon::parse($t->date_received)->format('Y-m-d H:i') : 'N/A' }}</div>
 
-                    <div style="margin-bottom: 14px;"><strong>Next Receiving Office:</strong> {{ $t->next_office_name }}</div>
+                    <div style="margin-bottom: 14px;"><strong>Current Office:</strong> {{ $t->current_office_name }}</div>
 
                     <div style="margin-bottom: 6px;"><strong>Action Needed:</strong> <span style="color: #16a34a; font-weight: 600;">{{ $t->action_needed ?? 'For action' }}</span></div>
                     <div style="margin-bottom: 6px;"><strong>Elapsed Day:</strong> <span style="color: #ef4444; font-style: italic;">{{ $t->elapsed_days }} day(s) </span></div>

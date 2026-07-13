@@ -358,6 +358,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Roles')] class extends C
     public function updatedIsAdmin($value): void
     {
         if (! $value) {
+            $this->isSadm = false;
             $this->canViewAllList = false;
             $this->canViewAllArchive = false;
             $this->canViewAllCurrentTrans = false;
@@ -377,6 +378,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Roles')] class extends C
             if ($currentUserPerms && $currentUserPerms->is_sadm) {
                 // Current user is already Super Admin, allow immediately
                 $this->isSadm = true;
+                $this->enableAllPermissions();
             } else {
                 // Intercept and require credentials
                 $this->isSadm = false;
@@ -403,6 +405,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Roles')] class extends C
         $superAdmin = \App\Models\User::where('username', $this->verifyUsername)->first();
         if ($superAdmin && $superAdmin->permissions && $superAdmin->permissions->is_sadm && \Hash::check($this->verifyPassword, $superAdmin->password)) {
             $this->isSadm = true;
+            $this->enableAllPermissions();
             $this->showVerificationModal = false;
             $this->verifyUsername = '';
             $this->verifyPassword = '';
@@ -418,6 +421,62 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Roles')] class extends C
     {
         $this->showVerificationModal = false;
         $this->isSadm = false;
+    }
+
+    /**
+     * Enable all permissions/clearances when Super Admin is turned on.
+     */
+    private function enableAllPermissions(): void
+    {
+        $this->isAdmin = true;
+        $this->canAccessDts = true;
+        $this->canAccessArchv = true;
+        $this->canAccessDcs = true;
+        $this->canModifyDocflow = true;
+        $this->canModifyAccountlist = true;
+        $this->canModifyPass = true;
+        $this->canModifyUser = true;
+        $this->canViewAllList = true;
+        $this->canViewAllArchive = true;
+        $this->canViewAllCurrentTrans = true;
+        $this->canCreateOwnFlow = true;
+        $this->canDtsUseInternal = true;
+        $this->canDtsUseExternal = true;
+        $this->canDtsUseApplication = true;
+        $this->canDtsUseIssuance = true;
+        $this->canDtsUserReceived = true;
+    }
+
+    /**
+     * Hook called whenever any model property is updated.
+     * If a permission toggle is turned off while isSadm is true, isSadm turns off and isAdmin remains true.
+     */
+    public function updated($name, $value): void
+    {
+        $permissionProperties = [
+            'isAdmin',
+            'canAccessDts',
+            'canAccessArchv',
+            'canAccessDcs',
+            'canModifyDocflow',
+            'canModifyAccountlist',
+            'canModifyPass',
+            'canModifyUser',
+            'canViewAllList',
+            'canViewAllArchive',
+            'canViewAllCurrentTrans',
+            'canCreateOwnFlow',
+            'canDtsUseInternal',
+            'canDtsUseExternal',
+            'canDtsUseApplication',
+            'canDtsUseIssuance',
+            'canDtsUserReceived',
+        ];
+
+        if (in_array($name, $permissionProperties) && !$value && $this->isSadm) {
+            $this->isSadm = false;
+            $this->isAdmin = true;
+        }
     }
 
     /**
@@ -582,7 +641,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Roles')] class extends C
                                     <!-- Normal Admin -->
                                     <div class="permission-toggle-row">
                                         <div class="permission-toggle-info">
-                                            <span class="permission-toggle-title">Normal Administrator</span>
+                                            <span class="permission-toggle-title">Administrator Access</span>
                                             <span class="permission-toggle-desc">Access Admin Console with restricted permissions.</span>
                                         </div>
                                         <label class="switch">
@@ -642,7 +701,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Roles')] class extends C
                                         </label>
                                     </div>
                                     <!-- View all list -->
-                                    <div class="permission-toggle-row">
+                                    <div class="permission-toggle-row" style="{{ (!$isSadm && !$isAdmin) ? 'opacity: 0.5; transition: opacity 0.2s ease;' : '' }}">
                                         <div class="permission-toggle-info">
                                             <span class="permission-toggle-title">View All Lists</span>
                                             <span class="permission-toggle-desc">View documents registered across all offices.</span>
@@ -653,7 +712,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Roles')] class extends C
                                         </label>
                                     </div>
                                     <!-- View all archive -->
-                                    <div class="permission-toggle-row">
+                                    <div class="permission-toggle-row" style="{{ (!$isSadm && !$isAdmin) ? 'opacity: 0.5; transition: opacity 0.2s ease;' : '' }}">
                                         <div class="permission-toggle-info">
                                             <span class="permission-toggle-title">View All Archives</span>
                                             <span class="permission-toggle-desc">Query and search historical files.</span>
@@ -664,7 +723,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Roles')] class extends C
                                         </label>
                                     </div>
                                     <!-- View all current trans -->
-                                    <div class="permission-toggle-row">
+                                    <div class="permission-toggle-row" style="{{ (!$isSadm && !$isAdmin) ? 'opacity: 0.5; transition: opacity 0.2s ease;' : '' }}">
                                         <div class="permission-toggle-info">
                                             <span class="permission-toggle-title">View All Current Transactions</span>
                                             <span class="permission-toggle-desc">View all active transactions from all offices.</span>
@@ -748,7 +807,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Roles')] class extends C
                                 <span class="permissions-section-title"><i class="fa-solid fa-user-lock"></i> Administration Clearances</span>
                                 <div class="permissions-grid-layout">
                                     <!-- Modify Users -->
-                                    <div class="permission-toggle-row">
+                                    <div class="permission-toggle-row" style="{{ (!$isSadm && !$isAdmin) ? 'opacity: 0.5; transition: opacity 0.2s ease;' : '' }}">
                                         <div class="permission-toggle-info">
                                             <span class="permission-toggle-title">Modify Accounts Directory</span>
                                             <span class="permission-toggle-desc">Clearance to alter personal user data.</span>
@@ -759,7 +818,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Roles')] class extends C
                                         </label>
                                     </div>
                                     <!-- Modify Role lists -->
-                                    <div class="permission-toggle-row">
+                                    <div class="permission-toggle-row" style="{{ (!$isSadm && !$isAdmin) ? 'opacity: 0.5; transition: opacity 0.2s ease;' : '' }}">
                                         <div class="permission-toggle-info">
                                             <span class="permission-toggle-title">Modify Subsystem Roles</span>
                                             <span class="permission-toggle-desc">Clearance to manage roles and access matrices.</span>
@@ -770,7 +829,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Roles')] class extends C
                                         </label>
                                     </div>
                                     <!-- Modify Passwords -->
-                                    <div class="permission-toggle-row">
+                                    <div class="permission-toggle-row" style="{{ (!$isSadm && !$isAdmin) ? 'opacity: 0.5; transition: opacity 0.2s ease;' : '' }}">
                                         <div class="permission-toggle-info">
                                             <span class="permission-toggle-title">Modify Passwords</span>
                                             <span class="permission-toggle-desc">Override and reset user passwords.</span>

@@ -180,10 +180,13 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
                 ->exists();
 
             if ($hasBeenForwarded) {
-                $t->elapsed_days = $dateReceived ? now()->diffInDays(\Carbon\Carbon::parse($dateReceived)) : 0;
+                $t->elapsed_days = $dateReceived ? (now()->diffInDays(\Carbon\Carbon::parse($dateReceived)) + 1) : 1;
             } else {
                 $t->elapsed_days = 0;
             }
+
+            // Duration in minutes for warning icon
+            $t->diff_in_minutes = $dateReceived ? abs(now()->diffInMinutes(\Carbon\Carbon::parse($dateReceived))) : 0;
 
             // Previous office (from office)
             $prevLog = DB::table('sub_document_tracking_system_logs as log')
@@ -738,18 +741,20 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
                     <!-- Top Right Info & Icon -->
                     <div style="position: absolute; top: 16px; right: 16px; display: flex; align-items: center; gap: 8px; font-size: 11px; color: #6b7280;">
                         <span>{{ \Carbon\Carbon::parse($t->date_received)->diffForHumans(null, true) }} ago</span>
-                        @if ($t->status === 'completed')
-                            <span style="display: inline-block; width: 14px; height: 14px; background-color: #10b981; transform: rotate(45deg); display: flex; align-items: center; justify-content: center; border-radius: 2px;" title="Completed">
-                                <span style="transform: rotate(-45deg); color: white; font-size: 9px; font-weight: bold;">✔</span>
-                            </span>
-                        @elseif ($t->classification === 'highly_technical')
-                            <span style="display: inline-block; width: 14px; height: 14px; background-color: #ef4444; transform: rotate(45deg); display: flex; align-items: center; justify-content: center; border-radius: 2px;" title="Highly Technical">
-                                <span style="transform: rotate(-45deg); color: white; font-size: 9px; font-weight: bold;">!</span>
-                            </span>
-                        @else
-                            <span style="display: inline-block; width: 14px; height: 14px; background-color: #f59e0b; transform: rotate(45deg); display: flex; align-items: center; justify-content: center; border-radius: 2px;" title="Pending Action">
-                                <span style="transform: rotate(-45deg); color: white; font-size: 9px; font-weight: bold;">!</span>
-                            </span>
+                        @if ($t->current_office === auth()->user()?->details?->office?->office_code)
+                            @if ($t->diff_in_minutes < 10)
+                                <span style="display: inline-block; width: 14px; height: 14px; background-color: #10b981; transform: rotate(45deg); display: flex; align-items: center; justify-content: center; border-radius: 2px;" title="New (Less than 10 mins)">
+                                    <span style="transform: rotate(-45deg); color: white; font-size: 9px; font-weight: bold;">!</span>
+                                </span>
+                            @elseif ($t->diff_in_minutes <= 60)
+                                <span style="display: inline-block; width: 14px; height: 14px; background-color: #f59e0b; transform: rotate(45deg); display: flex; align-items: center; justify-content: center; border-radius: 2px;" title="Pending (Over 10 mins)">
+                                    <span style="transform: rotate(-45deg); color: white; font-size: 9px; font-weight: bold;">!</span>
+                                </span>
+                            @else
+                                <span style="display: inline-block; width: 14px; height: 14px; background-color: #ef4444; transform: rotate(45deg); display: flex; align-items: center; justify-content: center; border-radius: 2px;" title="Urgent (Over an hour)">
+                                    <span style="transform: rotate(-45deg); color: white; font-size: 9px; font-weight: bold;">!</span>
+                                </span>
+                            @endif
                         @endif
                     </div>
 
@@ -764,7 +769,7 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
                         <div style="margin-bottom: 6px;"><strong>Receive From:</strong> <span style="color: #ef4444; font-weight: 500;">{{ $t->from_office }}</span></div>
                         <div style="margin-bottom: 14px;"><strong>Receive Date:</strong> {{ $t->date_received ? \Carbon\Carbon::parse($t->date_received)->format('Y-m-d H:i') : 'N/A' }}</div>
 
-                        <div style="margin-bottom: 14px;"><strong>Next Receiving Office:</strong> {{ $t->next_office_name }}</div>
+                        <div style="margin-bottom: 14px;"><strong>Current Office:</strong> {{ $t->current_office_name }}</div>
 
                         <div style="margin-bottom: 6px;"><strong>Action Needed:</strong> <span style="color: #16a34a; font-weight: 600;">{{ $t->action_needed ?? 'For action' }}</span></div>
                         <div style="margin-bottom: 6px;"><strong>Elapsed Day:</strong> <span style="color: #ef4444; font-style: italic;">{{ $t->elapsed_days }} day(s) </span></div>

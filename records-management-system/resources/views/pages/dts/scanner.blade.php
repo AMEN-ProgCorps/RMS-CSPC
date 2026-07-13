@@ -65,9 +65,16 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - QR Code Scanner
         $this->clearMessages();
         $this->activeTransaction = null;
 
-        $code = trim($this->scannedCode);
-        if (empty($code)) {
+        $rawCode = trim($this->scannedCode);
+        if (empty($rawCode)) {
             return;
+        }
+
+        // Decode base64 if it is a valid base64 string
+        $code = $rawCode;
+        $decoded = base64_decode($rawCode, true);
+        if ($decoded !== false && ctype_print($decoded)) {
+            $code = trim($decoded);
         }
 
         // Write scan data log to storage/logs/dts_scans.log
@@ -80,7 +87,8 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - QR Code Scanner
 
             $logLine = json_encode([
                 'scan_id' => $scanId,
-                'scanned_data' => $code,
+                'scanned_data' => $rawCode,
+                'decoded_data' => $code,
                 'user' => $username,
                 'office' => $officeName,
                 'timestamp' => $time,
@@ -89,6 +97,25 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - QR Code Scanner
             File::append($logPath, $logLine);
         } catch (\Exception $e) {
             // Silently ignore log write failures to not block UI
+        }
+
+        // Check if the QR code exists in the dts_qr_code directory
+        // or matches a valid transaction control number.
+        $qrExists = DB::table('dts_qr_code')->where('code_id', $code)->exists();
+        $cnExists = DB::table('dts_transaction_details')->where('control_number', $code)->exists();
+
+        if (!$qrExists && !$cnExists) {
+            $this->errorMessage = 'Invalid Code: The scanned code is neither a registered QR Code nor a valid Control Number.';
+            return;
+        }
+
+        // If it is a registered QR code, check if it's assigned to a transaction
+        if ($qrExists) {
+            $hasTransaction = DB::table('dts_transactions')->where('qr_code', $code)->exists();
+            if (!$hasTransaction) {
+                $this->errorMessage = 'Inactive QR Code: This QR Code is registered in the system but has not been associated with any transaction yet.';
+                return;
+            }
         }
 
         // Match either raw QR code sequence ID or control number

@@ -69,13 +69,18 @@ new #[Layout('layouts.portal')] #[Title('Track Document — Results')] class ext
 
         $input = trim($this->trackingNumber);
         $decoded = base64_decode($input, true);
-        if ($decoded !== false && preg_match('/^[A-Z0-9-]+$/i', $decoded)) {
-            $this->trackingNumber = $decoded;
+        if ($decoded !== false && ctype_print($decoded)) {
+            $this->trackingNumber = trim($decoded);
         }
 
+        $code = $this->trackingNumber;
         try {
-            $this->documentFound = DB::table('dts_transactions')
-                ->where('qr_code', $this->trackingNumber)
+            $this->documentFound = DB::table('dts_transactions as dt')
+                ->join('dts_transaction_details as dtd', 'dtd.id', '=', 'dt.transaction_id')
+                ->where(function($q) use ($code) {
+                    $q->where('dt.qr_code', $code)
+                      ->orWhere('dtd.control_number', $code);
+                })
                 ->exists();
         } catch (\Illuminate\Database\QueryException) {
             $this->documentFound = false;
@@ -98,10 +103,14 @@ new #[Layout('layouts.portal')] #[Title('Track Document — Results')] class ext
         $this->validate(['email' => ['required', 'email']]);
 
         try {
+            $code = $this->trackingNumber;
             $transactionDetails = DB::table('dts_transactions as dt')
                 ->join('dts_transaction_details as dtd', 'dtd.id', '=', 'dt.transaction_id')
                 ->leftJoin('dts_email_access as dea', 'dea.id', '=', 'dtd.email_access')
-                ->where('dt.qr_code', $this->trackingNumber)
+                ->where(function($q) use ($code) {
+                    $q->where('dt.qr_code', $code)
+                      ->orWhere('dtd.control_number', $code);
+                })
                 ->select('dea.email as allowed_email', 'dea.is_active as is_email_active', 'dtd.document_password')
                 ->first();
 
@@ -141,9 +150,13 @@ new #[Layout('layouts.portal')] #[Title('Track Document — Results')] class ext
         $this->validate(['documentPassword' => ['required', 'string']]);
 
         try {
+            $code = $this->trackingNumber;
             $detail = DB::table('dts_transaction_details as dtd')
                 ->join('dts_transactions as dt', 'dtd.id', '=', 'dt.transaction_id')
-                ->where('dt.qr_code', $this->trackingNumber)
+                ->where(function($q) use ($code) {
+                    $q->where('dt.qr_code', $code)
+                      ->orWhere('dtd.control_number', $code);
+                })
                 ->select('dtd.document_password')
                 ->first();
 
@@ -191,9 +204,13 @@ new #[Layout('layouts.portal')] #[Title('Track Document — Results')] class ext
     private function loadDocumentData(): void
     {
         try {
+            $code = $this->trackingNumber;
             $data = DB::table('dts_transactions as dt')
                 ->join('dts_transaction_details as dtd', 'dtd.id', '=', 'dt.transaction_id')
-                ->where('dt.qr_code', $this->trackingNumber)
+                ->where(function($q) use ($code) {
+                    $q->where('dt.qr_code', $code)
+                      ->orWhere('dtd.control_number', $code);
+                })
                 ->select(
                     'dtd.type as doc_type',
                     'dtd.date_created',

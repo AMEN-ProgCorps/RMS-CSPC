@@ -39,6 +39,12 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Offices & Clusters')] cl
     public string $clusterHead = '';
     public bool $clusterIsActive = true;
 
+    // Searchable dropdown properties
+    public string $clusterHeadSearch = '';
+    public bool $showClusterHeadDropdown = false;
+    public string $officeClusterSearch = '';
+    public bool $showOfficeClusterDropdown = false;
+
     // Toast notifications
     public string $successMessage = '';
     public string $errorMessage = '';
@@ -72,6 +78,10 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Offices & Clusters')] cl
         $this->isActive = true;
         $this->officeFile = null;
         $this->selectedOfficeIds = [];
+        $this->officeClusterSearch = '';
+        $this->showOfficeClusterDropdown = false;
+        $this->clusterHeadSearch = '';
+        $this->showClusterHeadDropdown = false;
 
         $this->selectedClusterId = null;
         $this->clusterName = '';
@@ -322,6 +332,12 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Offices & Clusters')] cl
             $this->officeCode = $office->office_code;
             $this->isActive = (bool) $office->is_active;
             $this->officeCluster = $office->cluster ?? '';
+            if ($this->officeCluster) {
+                $cluster = \App\Models\Cluster::where('cluster_code', $this->officeCluster)->first();
+                $this->officeClusterSearch = $cluster ? $cluster->cluster_name . ' (' . $cluster->cluster_code . ')' : $this->officeCluster;
+            } else {
+                $this->officeClusterSearch = '';
+            }
         }
     }
 
@@ -607,7 +623,27 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Offices & Clusters')] cl
             $this->clusterCode = $cluster->cluster_code;
             $this->clusterHead = $cluster->cluster_head ?? '';
             $this->clusterIsActive = (bool) $cluster->is_active;
+            if ($this->clusterHead) {
+                $headOffice = \App\Models\office::where('office_code', $this->clusterHead)->first();
+                $this->clusterHeadSearch = $headOffice ? $headOffice->office_name . ' (' . $headOffice->office_code . ')' : $this->clusterHead;
+            } else {
+                $this->clusterHeadSearch = '';
+            }
         }
+    }
+
+    public function selectClusterHead(string $code, string $name): void
+    {
+        $this->clusterHead = $code;
+        $this->clusterHeadSearch = $code ? "$name ($code)" : '';
+        $this->showClusterHeadDropdown = false;
+    }
+
+    public function selectOfficeCluster(string $code, string $name): void
+    {
+        $this->officeCluster = $code;
+        $this->officeClusterSearch = $code ? "$name ($code)" : '';
+        $this->showOfficeClusterDropdown = false;
     }
 
     public function saveClusterChanges(): void
@@ -1052,9 +1088,22 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Offices & Clusters')] cl
         }
         $clusters = $clusterQuery->orderBy('cluster_name', 'asc')->get();
 
+        // Get offices assigned to the currently selected cluster
+        $clusterOffices = collect();
+        if ($this->selectedClusterId > 0) {
+            $currentCluster = \App\Models\Cluster::find($this->selectedClusterId);
+            if ($currentCluster) {
+                $clusterOffices = \App\Models\office::where('cluster', $currentCluster->cluster_code)
+                    ->where('is_active', true)
+                    ->orderBy('office_name', 'asc')
+                    ->get();
+            }
+        }
+
         return [
             'offices' => $offices,
             'clusters' => $clusters,
+            'clusterOffices' => $clusterOffices,
         ];
     }
 };
@@ -1293,14 +1342,42 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Offices & Clusters')] cl
                                 </div>
 
                                 <!-- Cluster Dropdown -->
-                                <div class="form-group">
+                                <div class="form-group" wire:click.outside="$set('showOfficeClusterDropdown', false)">
                                     <span class="form-label">Cluster</span>
-                                    <select class="form-input" wire:model="officeCluster" style="background-color: white;">
-                                        <option value="">None (No Cluster)</option>
-                                        @foreach(\App\Models\Cluster::where('is_active', true)->orderBy('cluster_name')->get() as $clusterObj)
-                                            <option value="{{ $clusterObj->cluster_code }}">{{ $clusterObj->cluster_name }} ({{ $clusterObj->cluster_code }})</option>
-                                        @endforeach
-                                    </select>
+                                    <div style="position: relative;">
+                                        <input type="text" 
+                                               class="form-input" 
+                                               placeholder="Search and select cluster..." 
+                                               wire:model.live="officeClusterSearch" 
+                                               wire:focus="$set('showOfficeClusterDropdown', true)" 
+                                               autocomplete="off" 
+                                               style="padding-right: 32px; background-color: white;">
+                                        <span style="position: absolute; right: 12px; top: 50%; transform: translateY(-50%); pointer-events: none; color: #94a3b8; font-size: 10px;">▼</span>
+                                        
+                                        @if($showOfficeClusterDropdown)
+                                            <div style="position: absolute; top: 100%; left: 0; right: 0; margin-top: 4px; background: #ffffff; border: 1.5px solid #cbd5e1; border-radius: 8px; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1), 0 2px 4px -1px rgba(0,0,0,0.06); max-height: 160px; overflow-y: auto; z-index: 50;">
+                                                <div wire:click="selectOfficeCluster('', '')" style="padding: 9px 14px; font-size: 13px; color: #64748b; cursor: pointer; border-bottom: 1px solid #f1f5f9; font-style: italic;" onmouseover="this.style.backgroundColor='#f1f5f9'" onmouseout="this.style.backgroundColor='transparent'">
+                                                    None (No Cluster)
+                                                </div>
+                                                @php
+                                                    $oClusterSearchLower = strtolower($officeClusterSearch);
+                                                    $allClusters = \App\Models\Cluster::where('is_active', true)->orderBy('cluster_name')->get();
+                                                    $filteredClusters = $allClusters->filter(function($c) use ($oClusterSearchLower) {
+                                                        return empty($oClusterSearchLower) 
+                                                            || str_contains(strtolower($c->cluster_name), $oClusterSearchLower) 
+                                                            || str_contains(strtolower($c->cluster_code), $oClusterSearchLower);
+                                                    });
+                                                @endphp
+                                                @forelse($filteredClusters as $clusterObj)
+                                                    <div wire:click="selectOfficeCluster('{{ $clusterObj->cluster_code }}', '{{ addslashes($clusterObj->cluster_name) }}')" style="padding: 9px 14px; font-size: 13px; color: #334155; cursor: pointer; border-bottom: 1px solid #f1f5f9;" onmouseover="this.style.backgroundColor='#f1f5f9'" onmouseout="this.style.backgroundColor='transparent'">
+                                                        {{ $clusterObj->cluster_name }} ({{ $clusterObj->cluster_code }})
+                                                    </div>
+                                                @empty
+                                                    <div style="padding: 12px 14px; font-size: 13px; color: #94a3b8; text-align: center;">No matching clusters found</div>
+                                                @endforelse
+                                            </div>
+                                        @endif
+                                    </div>
                                     @error('officeCluster') <span style="color:#ef4444; font-size:11px; margin-top:2px;">{{ $message }}</span> @enderror
                                 </div>
 
@@ -1503,14 +1580,41 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Offices & Clusters')] cl
                                 </div>
 
                                 <!-- Cluster Head (Office dropdown) -->
-                                <div class="form-group">
+                                <div class="form-group" wire:click.outside="$set('showClusterHeadDropdown', false)">
                                     <span class="form-label">Cluster Head (Office)</span>
-                                    <select class="form-input" wire:model="clusterHead" style="background-color: white;">
-                                        <option value="">None (No Head)</option>
-                                        @foreach($offices as $headOfficeOption)
-                                            <option value="{{ $headOfficeOption->office_code }}">{{ $headOfficeOption->office_name }} ({{ $headOfficeOption->office_code }})</option>
-                                        @endforeach
-                                    </select>
+                                    <div style="position: relative;">
+                                        <input type="text" 
+                                               class="form-input" 
+                                               placeholder="Search and select office..." 
+                                               wire:model.live="clusterHeadSearch" 
+                                               wire:focus="$set('showClusterHeadDropdown', true)" 
+                                               autocomplete="off" 
+                                               style="padding-right: 32px; background-color: white;">
+                                        <span style="position: absolute; right: 12px; top: 50%; transform: translateY(-50%); pointer-events: none; color: #94a3b8; font-size: 10px;">▼</span>
+                                        
+                                        @if($showClusterHeadDropdown)
+                                            <div style="position: absolute; top: 100%; left: 0; right: 0; margin-top: 4px; background: #ffffff; border: 1.5px solid #cbd5e1; border-radius: 8px; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1), 0 2px 4px -1px rgba(0,0,0,0.06); max-height: 160px; overflow-y: auto; z-index: 50;">
+                                                <div wire:click="selectClusterHead('', '')" style="padding: 9px 14px; font-size: 13px; color: #64748b; cursor: pointer; border-bottom: 1px solid #f1f5f9; font-style: italic;" onmouseover="this.style.backgroundColor='#f1f5f9'" onmouseout="this.style.backgroundColor='transparent'">
+                                                    None (No Head)
+                                                </div>
+                                                @php
+                                                    $cHeadSearchLower = strtolower($clusterHeadSearch);
+                                                    $filteredClusterOffices = $clusterOffices->filter(function($o) use ($cHeadSearchLower) {
+                                                        return empty($cHeadSearchLower) 
+                                                            || str_contains(strtolower($o->office_name), $cHeadSearchLower) 
+                                                            || str_contains(strtolower($o->office_code), $cHeadSearchLower);
+                                                    });
+                                                @endphp
+                                                @forelse($filteredClusterOffices as $headOfficeOption)
+                                                    <div wire:click="selectClusterHead('{{ $headOfficeOption->office_code }}', '{{ addslashes($headOfficeOption->office_name) }}')" style="padding: 9px 14px; font-size: 13px; color: #334155; cursor: pointer; border-bottom: 1px solid #f1f5f9;" onmouseover="this.style.backgroundColor='#f1f5f9'" onmouseout="this.style.backgroundColor='transparent'">
+                                                        {{ $headOfficeOption->office_name }} ({{ $headOfficeOption->office_code }})
+                                                    </div>
+                                                @empty
+                                                    <div style="padding: 12px 14px; font-size: 13px; color: #94a3b8; text-align: center;">No matching offices found in this cluster</div>
+                                                @endforelse
+                                            </div>
+                                        @endif
+                                    </div>
                                     @error('clusterHead') <span style="color:#ef4444; font-size:11px; margin-top:2px;">{{ $message }}</span> @enderror
                                 </div>
 

@@ -105,7 +105,7 @@
             </button>
             <div class="drop_down-container" id="dropdown">
                 <span>Move To</span>
-                @if(auth()->user()?->permissions?->is_sadm)
+                @if(auth()->user()?->permissions?->is_sadm || auth()->user()?->permissions?->is_admin)
                 <button class="subSystem" onclick="window.location.href='/admin/console/'">
                     <img src="{{ asset('icons/user-admin.svg') }}" alt="Admin Console Icon">
                     <span>Admin Console</span>

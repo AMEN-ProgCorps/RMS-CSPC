@@ -55,7 +55,7 @@
                     $prewarmUrls[] = '/rdp/reports/nap-form-2';
                     $prewarmUrls[] = '/rdp/reports/nap-form-3';
                 }
-                if ($perms->is_sadm) {
+                if ($perms->is_sadm || $perms->is_admin) {
                     $prewarmUrls[] = '/admin/console';
                     $prewarmUrls[] = '/admin/accounts/users';
                     $prewarmUrls[] = '/admin/accounts/roles';

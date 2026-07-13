@@ -33,6 +33,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Roles')] class extends C
 
     // Permissions check flags (mapped to condition_details table columns)
     public bool $isSadm = false;
+    public bool $isAdmin = false;
     public bool $canAccessDts = false;
     public bool $canAccessArchv = false;
     public bool $canAccessDcs = false;
@@ -53,6 +54,12 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Roles')] class extends C
     // Toast notifications
     public string $successMessage = '';
     public string $errorMessage = '';
+
+    // Super Admin Verification Modal
+    public bool $showVerificationModal = false;
+    public string $verifyUsername = '';
+    public string $verifyPassword = '';
+    public string $verificationError = '';
 
     /**
      * Component mount hook - initializes the default view.
@@ -83,6 +90,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Roles')] class extends C
         
         // Reset all permission flags
         $this->isSadm = false;
+        $this->isAdmin = false;
         $this->canAccessDts = false;
         $this->canAccessArchv = false;
         $this->canAccessDcs = false;
@@ -99,6 +107,11 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Roles')] class extends C
         $this->canDtsUseApplication = false;
         $this->canDtsUseIssuance = false;
         $this->canDtsUserReceived = false;
+        
+        $this->showVerificationModal = false;
+        $this->verifyUsername = '';
+        $this->verifyPassword = '';
+        $this->verificationError = '';
         
         $this->clearMessages();
     }
@@ -131,6 +144,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Roles')] class extends C
             $perms = $role->permissions;
             if ($perms) {
                 $this->isSadm = (bool) $perms->is_sadm;
+                $this->isAdmin = (bool) $perms->is_admin;
                 $this->canAccessDts = (bool) $perms->can_access_dts;
                 $this->canAccessArchv = (bool) $perms->can_access_rdp;
                 $this->canAccessDcs = (bool) $perms->can_access_dcs;
@@ -162,6 +176,13 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Roles')] class extends C
         }
 
         $this->clearMessages();
+
+        // Authorization check: User must be is_sadm or have can_sadm_modify_accountlist clearance
+        $currentUserPerms = auth()->user() ? auth()->user()->permissions : null;
+        if (! $currentUserPerms || (! $currentUserPerms->is_sadm && ! $currentUserPerms->can_sadm_modify_accountlist)) {
+            $this->errorMessage = 'Unauthorized: You do not have permission to modify subsystem roles.';
+            return;
+        }
 
         // Validation rules: unique check excludes selected record if updating
         $uniqueRule = $this->selectedRoleId > 0 
@@ -263,6 +284,13 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Roles')] class extends C
 
         $this->clearMessages();
 
+        // Authorization check: User must be is_sadm or have can_sadm_modify_accountlist clearance
+        $currentUserPerms = auth()->user() ? auth()->user()->permissions : null;
+        if (! $currentUserPerms || (! $currentUserPerms->is_sadm && ! $currentUserPerms->can_sadm_modify_accountlist)) {
+            $this->errorMessage = 'Unauthorized: You do not have permission to delete subsystem roles.';
+            return;
+        }
+
         try {
             \DB::transaction(function () {
                 $role = \App\Models\role_list::findOrFail($this->selectedRoleId);
@@ -305,6 +333,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Roles')] class extends C
     private function setPermissionModelAttributes(\App\Models\role_permission $perms): void
     {
         $perms->is_sadm = $this->isSadm;
+        $perms->is_admin = $this->isAdmin;
         $perms->can_access_dts = $this->canAccessDts;
         $perms->can_access_rdp = $this->canAccessArchv;
         $perms->can_access_dcs = $this->canAccessDcs;
@@ -321,6 +350,74 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Roles')] class extends C
         $perms->can_dts_use_application = $this->canDtsUseApplication;
         $perms->can_dts_use_issuance = $this->canDtsUseIssuance;
         $perms->can_dts_user_received = $this->canDtsUserReceived;
+    }
+
+    /**
+     * Hook to reset dependent permissions if is_admin is toggled off.
+     */
+    public function updatedIsAdmin($value): void
+    {
+        if (! $value) {
+            $this->canViewAllList = false;
+            $this->canViewAllArchive = false;
+            $this->canViewAllCurrentTrans = false;
+            $this->canModifyUser = false;
+            $this->canModifyAccountlist = false;
+            $this->canModifyPass = false;
+        }
+    }
+
+    /**
+     * Hook to intercept Super Admin toggle and request credentials if needed.
+     */
+    public function updatedIsSadm($value): void
+    {
+        if ($value) {
+            $currentUserPerms = auth()->user() ? auth()->user()->permissions : null;
+            if ($currentUserPerms && $currentUserPerms->is_sadm) {
+                // Current user is already Super Admin, allow immediately
+                $this->isSadm = true;
+            } else {
+                // Intercept and require credentials
+                $this->isSadm = false;
+                $this->showVerificationModal = true;
+                $this->verifyUsername = '';
+                $this->verifyPassword = '';
+                $this->verificationError = '';
+            }
+        }
+    }
+
+    /**
+     * Submit Super Admin verification credentials.
+     */
+    public function submitVerification(): void
+    {
+        $this->verificationError = '';
+
+        if (empty($this->verifyUsername) || empty($this->verifyPassword)) {
+            $this->verificationError = 'Please enter both username and password.';
+            return;
+        }
+
+        $superAdmin = \App\Models\User::where('username', $this->verifyUsername)->first();
+        if ($superAdmin && $superAdmin->permissions && $superAdmin->permissions->is_sadm && \Hash::check($this->verifyPassword, $superAdmin->password)) {
+            $this->isSadm = true;
+            $this->showVerificationModal = false;
+            $this->verifyUsername = '';
+            $this->verifyPassword = '';
+        } else {
+            $this->verificationError = 'Invalid Super Admin credentials.';
+        }
+    }
+
+    /**
+     * Cancel Super Admin verification modal.
+     */
+    public function cancelVerification(): void
+    {
+        $this->showVerificationModal = false;
+        $this->isSadm = false;
     }
 
     /**
@@ -478,7 +575,18 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Roles')] class extends C
                                             <span class="permission-toggle-desc">Unrestricted platform-wide control.</span>
                                         </div>
                                         <label class="switch">
-                                            <input type="checkbox" wire:model="isSadm">
+                                            <input type="checkbox" wire:model.live="isSadm">
+                                            <span class="slider"></span>
+                                        </label>
+                                    </div>
+                                    <!-- Normal Admin -->
+                                    <div class="permission-toggle-row">
+                                        <div class="permission-toggle-info">
+                                            <span class="permission-toggle-title">Normal Administrator</span>
+                                            <span class="permission-toggle-desc">Access Admin Console with restricted permissions.</span>
+                                        </div>
+                                        <label class="switch">
+                                            <input type="checkbox" wire:model.live="isAdmin">
                                             <span class="slider"></span>
                                         </label>
                                     </div>
@@ -540,7 +648,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Roles')] class extends C
                                             <span class="permission-toggle-desc">View documents registered across all offices.</span>
                                         </div>
                                         <label class="switch">
-                                            <input type="checkbox" wire:model="canViewAllList">
+                                            <input type="checkbox" wire:model="canViewAllList" {{ (!$isSadm && !$isAdmin) ? 'disabled' : '' }}>
                                             <span class="slider"></span>
                                         </label>
                                     </div>
@@ -551,7 +659,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Roles')] class extends C
                                             <span class="permission-toggle-desc">Query and search historical files.</span>
                                         </div>
                                         <label class="switch">
-                                            <input type="checkbox" wire:model="canViewAllArchive">
+                                            <input type="checkbox" wire:model="canViewAllArchive" {{ (!$isSadm && !$isAdmin) ? 'disabled' : '' }}>
                                             <span class="slider"></span>
                                         </label>
                                     </div>
@@ -562,7 +670,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Roles')] class extends C
                                             <span class="permission-toggle-desc">View all active transactions from all offices.</span>
                                         </div>
                                         <label class="switch">
-                                            <input type="checkbox" wire:model="canViewAllCurrentTrans">
+                                            <input type="checkbox" wire:model="canViewAllCurrentTrans" {{ (!$isSadm && !$isAdmin) ? 'disabled' : '' }}>
                                             <span class="slider"></span>
                                         </label>
                                     </div>
@@ -646,7 +754,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Roles')] class extends C
                                             <span class="permission-toggle-desc">Clearance to alter personal user data.</span>
                                         </div>
                                         <label class="switch">
-                                            <input type="checkbox" wire:model="canModifyUser">
+                                            <input type="checkbox" wire:model="canModifyUser" {{ (!$isSadm && !$isAdmin) ? 'disabled' : '' }}>
                                             <span class="slider"></span>
                                         </label>
                                     </div>
@@ -657,7 +765,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Roles')] class extends C
                                             <span class="permission-toggle-desc">Clearance to manage roles and access matrices.</span>
                                         </div>
                                         <label class="switch">
-                                            <input type="checkbox" wire:model="canModifyAccountlist">
+                                            <input type="checkbox" wire:model="canModifyAccountlist" {{ (!$isSadm && !$isAdmin) ? 'disabled' : '' }}>
                                             <span class="slider"></span>
                                         </label>
                                     </div>
@@ -668,7 +776,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Roles')] class extends C
                                             <span class="permission-toggle-desc">Override and reset user passwords.</span>
                                         </div>
                                         <label class="switch">
-                                            <input type="checkbox" wire:model="canModifyPass">
+                                            <input type="checkbox" wire:model="canModifyPass" {{ (!$isSadm && !$isAdmin) ? 'disabled' : '' }}>
                                             <span class="slider"></span>
                                         </label>
                                     </div>
@@ -699,5 +807,45 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Roles')] class extends C
                 <p>Click on any role in the directory list to edit its access matrix. Click the <strong>New Role</strong> button above to construct a new role from scratch.</p>
             </div>
         @endif
-    </div>
+        @if($showVerificationModal)
+        <!-- Modal Backdrop -->
+        <div style="position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(15, 23, 42, 0.4); backdrop-filter: blur(4px); z-index: 9999; display: flex; align-items: center; justify-content: center;">
+            <div style="background: white; border-radius: 12px; padding: 28px; width: 420px; box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04); display: flex; flex-direction: column; gap: 20px; border: 1px solid #e2e8f0;">
+                <div style="display: flex; align-items: center; gap: 12px;">
+                    <div style="width: 40px; height: 40px; border-radius: 50%; background: #eff6ff; display: flex; align-items: center; justify-content: center; color: #1d4ed8;">
+                        <i class="fa-solid fa-shield-halved" style="font-size: 18px;"></i>
+                    </div>
+                    <div>
+                        <h3 style="font-size: 16px; font-weight: 700; color: #0f172a; margin: 0; font-family: 'Inter', sans-serif;">Super Admin Verification</h3>
+                        <p style="font-size: 12px; color: #64748b; margin: 0; margin-top: 2px; font-family: 'Inter', sans-serif;">Authorization required to toggle Super Admin clearance.</p>
+                    </div>
+                </div>
+                
+                @if($verificationError)
+                    <div style="background: #fef2f2; border: 1px solid #fee2e2; color: #991b1b; padding: 10px 14px; border-radius: 8px; font-size: 12.5px; font-weight: 500; font-family: 'Inter', sans-serif; display: flex; align-items: center; gap: 8px;">
+                        <i class="fa-solid fa-triangle-exclamation"></i>
+                        <span>{{ $verificationError }}</span>
+                    </div>
+                @endif
+
+                <div style="display: flex; flex-direction: column; gap: 14px;">
+                    <div style="display: flex; flex-direction: column; gap: 6px;">
+                        <label style="font-size: 11px; font-weight: 700; color: #64748b; text-transform: uppercase; letter-spacing: 0.5px; font-family: 'Inter', sans-serif;">Super Admin Username</label>
+                        <input type="text" placeholder="Enter username..." wire:model="verifyUsername" style="height: 38px; border: 1.5px solid #cbd5e1; border-radius: 6px; padding: 0 12px; font-size: 13.5px; outline: none; font-family: 'Inter', sans-serif; width: 100%; box-sizing: border-box;" required>
+                    </div>
+
+                    <div style="display: flex; flex-direction: column; gap: 6px;">
+                        <label style="font-size: 11px; font-weight: 700; color: #64748b; text-transform: uppercase; letter-spacing: 0.5px; font-family: 'Inter', sans-serif;">Super Admin Password</label>
+                        <input type="password" placeholder="Enter password..." wire:model="verifyPassword" style="height: 38px; border: 1.5px solid #cbd5e1; border-radius: 6px; padding: 0 12px; font-size: 13.5px; outline: none; font-family: 'Inter', sans-serif; width: 100%; box-sizing: border-box;" required>
+                    </div>
+                </div>
+
+                <div style="display: flex; justify-content: flex-end; gap: 10px; margin-top: 4px; border-top: 1px solid #f1f5f9; padding-top: 16px;">
+                    <button type="button" wire:click="cancelVerification" style="background: #f1f5f9; color: #475569; border: none; padding: 8px 16px; border-radius: 6px; font-size: 13px; font-weight: 600; cursor: pointer; font-family: 'Inter', sans-serif; transition: all 0.2s;" onmouseover="this.style.backgroundColor='#e2e8f0'" onmouseout="this.style.backgroundColor='#f1f5f9'">Cancel</button>
+                    <button type="button" wire:click="submitVerification" style="background: #003699; color: white; border: none; padding: 8px 16px; border-radius: 6px; font-size: 13px; font-weight: 600; cursor: pointer; font-family: 'Inter', sans-serif; transition: all 0.2s;" onmouseover="this.style.backgroundColor='#002d80'" onmouseout="this.style.backgroundColor='#003699'">Verify & Enable</button>
+                </div>
+            </div>
+        </div>
+    @endif
+</div>
 </div>

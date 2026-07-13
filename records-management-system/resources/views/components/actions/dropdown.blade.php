@@ -20,7 +20,7 @@
             <span>Portal</span>
         </button>
         @endunless
-        @if(auth()->user()?->permissions?->is_sadm && !request()->is('admin*') && $adminActive)
+        @if((auth()->user()?->permissions?->is_sadm || auth()->user()?->permissions?->is_admin) && !request()->is('admin*') && $adminActive)
         <button class="subSystem" onclick="window.location.href='/admin/console/'">
             <img src="{{ asset('icons/user-admin.svg') }}" alt="Admin Console Icon">
             <span>Admin Console</span>

@@ -10,6 +10,8 @@
   - `[x]` Update database transactions in `importFlow` to save predefined Copy Furnished configurations to `dts_copy_filled_transaction` and `dts_copy_filled_to_office`.
 - `[x]` Update Document Creation views to auto-load Predefined Copy Furnished offices
   - `[x]` Update `updatedTransactionFlow` in `internal.blade.php`.
+  - `[x]` Update database model `role_permission.php` to support `is_admin` column
+- `[/]` Update route middleware `CanAccessAdmin.php` to authorize normal administrators.
   - `[x]` Update `updatedTransactionFlow` in `external.blade.php`.
   - `[x]` Update `updatedTransactionFlow` in `issuances.blade.php`.
   - `[x]` Update `updatedTransactionFlow` in `application-letters.blade.php`.

@@ -129,10 +129,10 @@ try {
     $upd = $pdo->prepare(
         'UPDATE account_details
             SET is_currently_online = 1,
-                last_online_time    = NOW()
+                last_online_time    = :now
           WHERE account_id = :id'
     );
-    $upd->execute([':id' => $accountId]);
+    $upd->execute([':now' => gmdate('Y-m-d H:i:s'), ':id' => $accountId]);
 } catch (PDOException $e) {
     // Non-fatal — continue
 }

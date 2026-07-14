@@ -38,7 +38,7 @@ try {
     $pdo = Database::getConnection();
     $stmt = $pdo->prepare('UPDATE account_details SET is_currently_online = 0, last_online_time = :now WHERE account_id = :id');
     $stmt->execute([
-        ':now' => date('Y-m-d H:i:s'),
+        ':now' => gmdate('Y-m-d H:i:s'),
         ':id'  => $accountId
     ]);
 } catch (Throwable $e) {

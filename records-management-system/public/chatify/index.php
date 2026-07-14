@@ -75,14 +75,17 @@ if (!empty($_SESSION['full_name'])) {
         // We'll inject admin name when we know it via JS
     }
 }
-// Resolve admin full name from DB for non-admin users to show badge on admin messages
+// Resolve the admin's full name from DB fresh on every load (not from
+// session) so a name change made in the main system shows up immediately on
+// the badge shown on the admin's messages to other users.
 try {
     $pdo  = Database::getConnection();
     $stmt = $pdo->prepare('SELECT first_name, last_name FROM account_details WHERE account_id = 1 LIMIT 1');
     $stmt->execute();
     $adminRow = $stmt->fetch();
     if ($adminRow) {
-        $adminFullName = strtolower(trim(preg_replace('/\s+/', ' ', $adminRow['first_name'] . ' ' . $adminRow['last_name'])));
+        $adminFullNameDisplay = trim(preg_replace('/\s+/', ' ', $adminRow['first_name'] . ' ' . $adminRow['last_name']));
+        $adminFullName = strtolower($adminFullNameDisplay);
         if (!in_array($adminFullName, $admin_names)) {
             $admin_names[] = $adminFullName;
         }
@@ -90,6 +93,31 @@ try {
 } catch (Throwable $e) {
     // Non-fatal
 }
+
+// Resolve the CURRENT user's own full name from DB fresh on every load, so
+// a name change made in the main system shows up immediately in their own
+// name field here — for every user, not just the Super Admin. Their session
+// value can otherwise go stale until they log out and log back in.
+try {
+    $pdo  = Database::getConnection();
+    $stmt = $pdo->prepare('SELECT first_name, last_name FROM account_details WHERE account_id = ? LIMIT 1');
+    $stmt->execute([$_current_account_id]);
+    $ownRow = $stmt->fetch();
+    if ($ownRow) {
+        $ownFullNameDisplay = trim(preg_replace('/\s+/', ' ', $ownRow['first_name'] . ' ' . $ownRow['last_name']));
+        if ($ownFullNameDisplay !== '') {
+            $user_name = $ownFullNameDisplay;
+            $_SESSION['name'] = $ownFullNameDisplay;
+            $_SESSION['full_name'] = $ownFullNameDisplay;
+            if ($is_admin) {
+                $admin_names[0] = strtolower($ownFullNameDisplay); // keep 'you' badge match in sync too
+            }
+        }
+    }
+} catch (Throwable $e) {
+    // Non-fatal
+}
+
 
 // Check for dark mode preference in cookie
 $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled';
@@ -315,18 +343,20 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
       display: none; /* Chrome/Safari/Opera */
     }
 
-    /* Admin conversations panel: independent, capped-height scroll area
-       so it doesn't share the main user list's scrollbar. */
+    /* Admin conversations panel: takes up the same remaining space as the
+       main user list (.sidebar-users), instead of being capped to a fixed
+       height. It has its own scrollbar so it doesn't share the main user
+       list's scroll position. */
     #adminConvsSection {
-      flex-shrink: 0;
+      flex: 1;
+      min-height: 0;
       display: flex;
       flex-direction: column;
     }
 
     #adminConvsList {
-      min-height: 292px;
-      max-height: 292px;
-      flex: none;
+      flex: 1;
+      min-height: 0;
       overflow-y: auto;
       /* Hide scrollbar but keep scroll functionality */
       scrollbar-width: none; /* Firefox */
@@ -605,6 +635,7 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
       display: flex;
       align-items: center;
       justify-content: space-between;
+      gap: 16px;
       position: sticky;
       top: 0;
       z-index: 100;
@@ -655,6 +686,7 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
       display: flex;
       gap: 8px;
       align-items: center;
+      flex-shrink: 0;
     }
 
     .clear-button, .darkmode-button {
@@ -676,6 +708,8 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
       align-items: center;
       justify-content: center;
       user-select: none;
+      flex-shrink: 0;
+      white-space: nowrap;
     }
 
     .darkmode-button {
@@ -718,6 +752,28 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
 
     .clear-button:active, .darkmode-button:active {
       transform: scale(0.97);
+    }
+
+    /* Burger menu button: plain black lines, no circle/pill container */
+    #burgerButton {
+      background: transparent;
+      color: #000000;
+      border-radius: 0;
+      min-width: auto;
+      padding: 0;
+    }
+
+    #burgerButton:hover {
+      background: transparent;
+    }
+
+    #burgerButton:active {
+      background: transparent;
+      transform: scale(0.92);
+    }
+
+    #adminEyeToggleBtn.active {
+      background: #ff0000;
     }
 
     /* Chat Container */
@@ -1448,6 +1504,10 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
         }
       }
 
+      #adminEyeToggleBtn {
+        margin-right: 10px;
+      }
+
       .sidebar.open {
         transform: translateX(0);
       }
@@ -1471,7 +1531,7 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
         z-index: 100;
         padding: 10px 10px;
         padding-top: max(10px, env(safe-area-inset-top, 0px));
-        gap: 8px;
+        gap: 12px;
       }
 
       .header-logo {
@@ -2079,11 +2139,14 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
     <div class="sidebar no-anim" id="sidebar">
       <div class="sidebar-header">
         <span style="flex-grow:1;">Chatify</span>
+        <button id="adminEyeToggleBtn" class="clear-button" style="display:none;padding:0 8px;min-width:auto;" title="View all user conversations">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path><circle cx="12" cy="12" r="3"></circle></svg>
+        </button>
         <button id="closeSidebarBtn" class="clear-button" style="display:none;padding:0 8px;min-width:auto;">
           <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
         </button>
       </div>
-      <div class="sidebar-search">
+      <div class="sidebar-search" id="ownSidebarSearch">
         <input type="text" id="searchInput" placeholder="Search users..." autocomplete="off">
       </div>
       <!-- Pinned Global Chat entry -->
@@ -2102,7 +2165,7 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
       </div>
       <!-- Admin: View all users chats view -->
       <div id="adminConvsSection" style="display:none;">
-        <div style="padding:8px 16px 4px;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.8px;color:var(--text-secondary);border-top:1px solid var(--border-color);margin-top:4px;text-align:center;">View of all user conversations</div>
+        <div style="padding:8px 16px 4px;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.8px;color:var(--text-secondary);margin-top:4px;text-align:center;">View of all user conversations</div>
         <div class="admin-search" style="padding: 6px 16px;">
           <input type="text" id="adminSearchInput" placeholder="Search conversations..." autocomplete="off">
         </div>
@@ -2119,7 +2182,7 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
 
       <div class="header">
         <div class="header-left">
-          <button id="burgerButton" class="clear-button" style="display:none;margin-right:10px;padding:0 8px;min-width:auto;">
+          <button id="burgerButton" class="clear-button" style="display:none;margin-right:10px;min-width:auto;">
             <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="3" y1="12" x2="21" y2="12"></line><line x1="3" y1="6" x2="21" y2="6"></line><line x1="3" y1="18" x2="21" y2="18"></line></svg>
           </button>
           <button id="backButton" class="clear-button" style="display:none;margin-right:10px;padding:0 10px;min-width:auto;">
@@ -2142,7 +2205,7 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
 
         <?php if ($is_admin): ?>
           <button class="clear-button" id="clearButton" title="Clear specific chat">Clear Chat</button>
-          <button class="clear-button" id="deleteAllButton" title="Delete ALL messages in entire system" style="background:#c0392b;color:#fff;border-color:#c0392b;">Delete All</button>
+          <button class="clear-button" id="deleteAllButton" title="Delete ALL messages in entire system" style="background:#1b74e4;color:#fff;border-color:#c0392b;">Delete All</button>
         <?php endif; ?>
       </div>
     </div>
@@ -2705,6 +2768,12 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
 
         if (nameEl.textContent !== u.name) nameEl.textContent = u.name;
 
+        // Keep the chat header title in sync when the active DM user's name
+        // changes (e.g. admin edits the user's name in the main RMS).
+        if (activeDM === u.username && chatHeaderTitle.textContent !== u.name) {
+          chatHeaderTitle.textContent = u.name;
+        }
+
         const targetIsAdmin = Number(u.account_id) === 1;
 
         const newMsg = u.lastMessage || 'No messages yet';
@@ -3222,11 +3291,11 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
         c.name1.toLowerCase().includes(query) || c.name2.toLowerCase().includes(query) || (c.lastMessage && c.lastMessage.toLowerCase().includes(query))
       );
 
-      if (activeConvs.length === 0) {
+      if (!isAdminAllChatsView || activeConvs.length === 0) {
         section.style.display = 'none';
         return;
       }
-      section.style.display = 'block';
+      section.style.display = 'flex';
 
       const seen = new Set();
 
@@ -3237,7 +3306,6 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
 
         if (!item) {
           item = document.createElement('div');
-          item.style.cssText = 'background: rgba(255,180,0,0.05);';
 
           const avatar = document.createElement('div');
           avatar.className = 'user-avatar';
@@ -3338,8 +3406,7 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
 
       localStorage.setItem('activeDM', '__admin__' + c.convId); // persist so refresh reopens this spy conv
 
-      chatHeaderTitle.innerHTML = EYE_ICON_SVG;
-      chatHeaderTitle.appendChild(document.createTextNode(' ' + c.name1 + ' & ' + c.name2));
+      chatHeaderTitle.textContent = c.name1 + ' & ' + c.name2;
       chatBox.innerHTML = '<div class="empty-chat"><p>Loading...</p></div>';
       renderAdminConvs();
       loadAdminConv(c.convId, false);
@@ -3408,6 +3475,34 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
     // Get the user's name and admin status from PHP
     const userName = "<?php echo addslashes($user_name); ?>";
     const isAdmin = <?php echo $is_admin ? 'true' : 'false'; ?>;
+
+    // ── Admin: eye-button toggle for "all users chatting" view ──────────────
+    const adminEyeToggleBtn = document.getElementById('adminEyeToggleBtn');
+    const ownSidebarSearch = document.getElementById('ownSidebarSearch');
+    let isAdminAllChatsView = (localStorage.getItem('__adminAllChatsView__') === '1');
+
+    function applyAdminAllChatsView() {
+      if (adminEyeToggleBtn) {
+        adminEyeToggleBtn.classList.toggle('active', isAdminAllChatsView);
+      }
+      // Hide the admin's own conversation list/search while browsing all users' chats
+      const globalChatItemEl = document.getElementById('globalChatItem');
+      if (ownSidebarSearch) ownSidebarSearch.style.display = isAdminAllChatsView ? 'none' : '';
+      if (globalChatItemEl) globalChatItemEl.style.display = isAdminAllChatsView ? 'none' : '';
+      if (sidebarUsers) sidebarUsers.style.display = isAdminAllChatsView ? 'none' : '';
+      renderAdminConvs();
+    }
+
+    if (adminEyeToggleBtn) {
+      if (isAdmin) adminEyeToggleBtn.style.display = 'inline-flex';
+      adminEyeToggleBtn.addEventListener('click', () => {
+        isAdminAllChatsView = !isAdminAllChatsView;
+        localStorage.setItem('__adminAllChatsView__', isAdminAllChatsView ? '1' : '0');
+        applyAdminAllChatsView();
+      });
+    }
+    if (!isAdmin) isAdminAllChatsView = false; // non-admins never get this view, regardless of stale localStorage
+    applyAdminAllChatsView();
     // Admin display names for verified badge (lowercased)
     const adminNames = <?php echo json_encode($admin_names); ?>;
 
@@ -4868,6 +4963,31 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
 
     // Poll every 5 seconds so kicked sessions are detected quickly
     setInterval(checkSession, 5000);
+
+    // ── Live-refresh the logged-in user's own name (no page reload needed) ───
+    // If a user's name is changed in the main system while this tab stays
+    // open, poll a small endpoint and push the fresh name into the UI/WS
+    // config as soon as it changes, instead of waiting for the next reload.
+    // Applies to every user, not just the Super Admin.
+    function refreshOwnName() {
+      fetch('get_current_name.php', { credentials: 'same-origin' })
+        .then(function (res) { return res.ok ? res.json() : null; })
+        .then(function (data) {
+          if (!data || !data.name) return;
+          if (data.name === wsConfig.name) return; // unchanged
+
+          wsConfig.name = data.name;
+          if (nameInput) nameInput.value = data.name;
+
+          // Push the updated name to the WS server so the typing indicator
+          // (which reads from the server-side cached name) stays current.
+          if (ws && ws.readyState === WebSocket.OPEN) {
+            ws.send(JSON.stringify({ type: 'update_name', name: data.name }));
+          }
+        })
+        .catch(function () { /* silent — keep last known name */ });
+    }
+    setInterval(refreshOwnName, 5000);
 
   </script>
 </body>

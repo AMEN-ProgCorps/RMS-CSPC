@@ -3149,6 +3149,7 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
       gcOffset = 0;
       gcHasMore = false;
       gcViewingOlder = false;
+      isFirstLoad = true;
       
       // Reset local typing indicator state
       if (localTypingTimeout) {
@@ -3359,25 +3360,148 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
     }
 
     let activeAdminConv = null; // convId string when admin is spying
+    let adminConvOffset = 0;
+    let adminConvHasMore = false;
+    let adminConvViewingOlder = false; // true once the user has loaded an older window
 
-    function loadAdminConv(convId, isAutoPoll = false) {
+    function loadAdminConv(convId, isAutoPoll = false, loadOlderMode = false) {
+      if (isAutoPoll && !loadOlderMode && adminConvViewingOlder) return;
       if (isLoadingChat) return;
       isLoadingChat = true;
+
       const wasAtBottom = isAtBottom();
+      const requestedConv = activeAdminConv;
+      const requestOffset = loadOlderMode ? adminConvOffset : 0;
+      const url = 'load_dm_admin.php?conv_id=' + encodeURIComponent(convId) + '&offset=' + requestOffset;
+
       const xhr = new XMLHttpRequest();
-      xhr.open('GET', 'load_dm_admin.php?conv_id=' + encodeURIComponent(convId), true);
+      xhr.open('GET', url, true);
       xhr.onload = function() {
-        if (this.status === 200) {
-          const newHtml = this.responseText || '<div class="empty-chat"><p>No messages yet.</p></div>';
-          if (chatBox.innerHTML !== newHtml) {
-            chatBox.innerHTML = newHtml;
-            applyAdminBadges();
-            if (!isAutoPoll || wasAtBottom) {
-              chatBox.scrollTop = chatBox.scrollHeight;
+        isLoadingChat = false;
+        if (this.status !== 200) return;
+        if (requestedConv !== activeAdminConv) return; // stale response
+        
+        let data;
+        try {
+          data = JSON.parse(this.responseText);
+        } catch(e) {
+          return;
+        }
+        
+        const newHtml = data.html || '';
+        adminConvHasMore = data.hasMore || false;
+        
+        if (loadOlderMode) {
+          adminConvOffset = data.nextOffset || (requestOffset + PAGE_SIZE);
+          adminConvViewingOlder = true;
+          const prev = chatBox.scrollHeight;
+          const temp = document.createElement('div');
+          temp.innerHTML = newHtml;
+          const oldItems = Array.from(temp.querySelectorAll('.message-container, .empty-chat'));
+          const btn = document.getElementById('loadOlderBtn');
+          const firstChild = chatBox.firstChild;
+          oldItems.reverse().forEach(el => {
+            if (btn) chatBox.insertBefore(el, btn.nextSibling);
+            else chatBox.insertBefore(el, firstChild);
+          });
+          chatBox.scrollTop += chatBox.scrollHeight - prev;
+          trimWindowFromBottom(PAGE_SIZE);
+          if (!adminConvHasMore) showNoMoreOlderNotice(); else if (!document.getElementById('loadOlderBtn')) insertLoadOlderBtn();
+          applyAdminBadges();
+          applyEmojiOnly();
+          return;
+        }
+
+        if (!newHtml.trim()) {
+          chatBox.innerHTML = '';
+          isFirstLoad = false;
+          return;
+        }
+
+        if (adminConvOffset === 0) adminConvOffset = PAGE_SIZE; // establish the "next older offset" pointer
+        const temp = document.createElement('div');
+        temp.innerHTML = newHtml;
+        const newMessages = Array.from(temp.querySelectorAll('.message-container, .empty-chat'));
+        const currentMessages = Array.from(chatBox.querySelectorAll('.message-container:not([data-sending-uid]):not([data-upload-uid]), .empty-chat'));
+        const newKeys = newMessages.map(getMessageKey);
+        const curKeys = currentMessages.map(getMessageKey);
+
+        const rec = reconcilePoll(newMessages, currentMessages, newKeys, curKeys);
+
+        if (rec.type === 'nochange') {
+          if (isFirstLoad) { isFirstLoad = false; scrollToBottom(true, true); }
+          if (adminConvHasMore && !document.getElementById('loadOlderBtn') && !document.getElementById('noMoreOlderNotice')) insertLoadOlderBtn();
+          return;
+        }
+
+        if (rec.type === 'append') {
+          rec.items.forEach(el => {
+            if (el.classList.contains('message-container')) {
+              const msgId = el.getAttribute('data-msg-id');
+              if (msgId && chatBox.querySelector(`.message-container[data-msg-id="${msgId}"]`)) {
+                return;
+              }
+              const animClass = el.classList.contains('sent') ? 'msg-animate-sent' : 'msg-animate-received';
+              el.classList.add(animClass);
+              el.addEventListener('animationend', () => el.classList.remove(animClass), { once: true });
+            }
+            chatBox.appendChild(el);
+          });
+          const prevScrollTop = chatBox.scrollTop;
+          const prevScrollHeight = chatBox.scrollHeight;
+          document.querySelectorAll('[data-sending-uid]').forEach(el => el.remove());
+          const newScrollHeight = chatBox.scrollHeight;
+          chatBox.scrollTop = Math.max(0, prevScrollTop + newScrollHeight - prevScrollHeight);
+          if (!adminConvViewingOlder) {
+            trimWindowFromTop(newMessages.length);
+          }
+          if (isFirstLoad) { isFirstLoad = false; scrollToBottom(true, true); }
+          else if (wasAtBottom || shouldAutoScroll) requestAnimationFrame(() => requestAnimationFrame(() => scrollToBottom(true, false)));
+          else showScrollIndicator(rec.items.filter(el => el.classList.contains('message-container')).length);
+          applyAdminBadges();
+          applyEmojiOnly();
+          if (adminConvHasMore && !document.getElementById('loadOlderBtn') && !document.getElementById('noMoreOlderNotice')) insertLoadOlderBtn();
+          return;
+        }
+
+        // Full re-render
+        const prevSTF = chatBox.scrollTop; const prevSHF = chatBox.scrollHeight;
+        const curKeySetF = new Set(curKeys);
+        const genuinelyNewCountF = newMessages.filter(el =>
+          el.classList.contains('message-container') && !curKeySetF.has(getMessageKey(el))
+        ).length;
+        currentMessages.forEach(el => el.remove());
+
+        // Deduplicate newMessages during full re-render
+        const renderedIdsF = new Set();
+        newMessages.forEach(el => {
+          if (el.classList.contains('message-container')) {
+            const msgId = el.getAttribute('data-msg-id');
+            if (msgId) {
+              if (renderedIdsF.has(msgId)) return;
+              renderedIdsF.add(msgId);
             }
           }
+          chatBox.appendChild(el);
+        });
+
+        document.querySelectorAll('[data-sending-uid]').forEach(el => el.remove());
+        chatBox.scrollTop = Math.max(0, prevSTF + chatBox.scrollHeight - prevSHF);
+        const mc = chatBox.querySelectorAll('.message-container').length;
+        if (mc > 0 && (wasAtBottom || shouldAutoScroll || isFirstLoad)) {
+          const doInstant = isFirstLoad;
+          isFirstLoad = false;
+          if (doInstant) scrollToBottom(true, true);
+          else requestAnimationFrame(() => requestAnimationFrame(() => scrollToBottom(true, false)));
+        } else {
+          isFirstLoad = false;
+          if (genuinelyNewCountF > 0) showScrollIndicator(genuinelyNewCountF);
         }
-        isLoadingChat = false;
+        applyAdminBadges();
+        applyEmojiOnly();
+        adminConvOffset = PAGE_SIZE;
+        adminConvViewingOlder = false;
+        if (adminConvHasMore && !document.getElementById('loadOlderBtn') && !document.getElementById('noMoreOlderNotice')) insertLoadOlderBtn();
       };
       xhr.onerror = function() { isLoadingChat = false; };
       xhr.send();
@@ -3389,6 +3513,11 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
       activeDMAccountId = null;
       isGlobalChat = false; // must reset — otherwise polling/visibilitychange keep re-loading Global Chat over the spy view
       
+      adminConvOffset = 0;
+      adminConvHasMore = false;
+      adminConvViewingOlder = false;
+      isFirstLoad = true;
+
       // Reset local typing indicator state
       if (localTypingTimeout) {
         clearTimeout(localTypingTimeout);
@@ -3408,6 +3537,8 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
 
       chatHeaderTitle.textContent = c.name1 + ' & ' + c.name2;
       chatBox.innerHTML = '<div class="empty-chat"><p>Loading...</p></div>';
+      
+      removePaginationBtn();
       renderAdminConvs();
       loadAdminConv(c.convId, false);
 
@@ -3719,6 +3850,15 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
         chatBox.innerHTML = '';
         isFirstLoad = true;
         loadChat(false, false, true);
+        return;
+      }
+      if (!isGlobalChat && activeAdminConv && adminConvViewingOlder) {
+        adminConvViewingOlder = false;
+        adminConvOffset = 0;
+        removePaginationBtn();
+        chatBox.innerHTML = '';
+        isFirstLoad = true;
+        loadAdminConv(activeAdminConv, false, false);
         return;
       }
 
@@ -4134,6 +4274,7 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
     function loadOlderMessages() {
       if (isGlobalChat) loadGlobalChat(false, true);
       else if (activeDM) loadChat(false, true);
+      else if (activeAdminConv) loadAdminConv(activeAdminConv, false, true);
     }
 
     function deleteChat() {

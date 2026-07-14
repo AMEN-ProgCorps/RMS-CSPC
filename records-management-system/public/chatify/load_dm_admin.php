@@ -17,6 +17,10 @@ if (empty($convId) || !preg_match('/^\d+_\d+$/', $convId)) {
     die('Invalid conv_id');
 }
 
+// ── Pagination ────────────────────────────────────────────────────────────────
+$limit  = 100;
+$offset = max(0, (int) ($_GET['offset'] ?? 0));
+
 // Load messages using ConversationManager
 $msgs = ConversationManager::loadRaw($convId);
 usort($msgs, function($a, $b) {
@@ -32,6 +36,13 @@ usort($msgs, function($a, $b) {
     }
     return $tsA <=> $tsB;
 });
+
+$totalCount = count($msgs);
+
+// Slice from end
+$start       = max(0, $totalCount - $limit - $offset);
+$rawMessages = array_slice($msgs, $start, $limit);
+$hasMore     = $start > 0;
 
 $nameMap = UserResolver::buildNameMap();
 
@@ -60,7 +71,7 @@ function adminGetInitials(string $name): string
 }
 
 $html = '';
-foreach ($msgs as $msg) {
+foreach ($rawMessages as $msg) {
     if (!isset($msg['sender_id'], $msg['timestamp'])) {
         continue;
     }
@@ -125,4 +136,18 @@ foreach ($msgs as $msg) {
     $html .= "</div>"; // .message-container
 }
 
-echo $html;
+// ── Empty state ───────────────────────────────────────────────────────────────
+if ($html === '') {
+    $html = "<div class='empty-chat'>
+                <p>No messages yet.</p>
+            </div>";
+}
+
+header('Content-Type: application/json');
+echo json_encode([
+    'html'       => $html,
+    'hasMore'    => $hasMore,
+    'totalCount' => $totalCount,
+    'offset'     => $offset,
+    'nextOffset' => $offset + $limit,
+]);

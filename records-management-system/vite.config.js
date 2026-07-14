@@ -32,7 +32,7 @@ export default defineConfig({
         host: process.env.DOCKER ? '0.0.0.0' : '192.168.1.100',
         port: 5173,
         hmr: {
-            host: '192.168.1.100',
+            host: 'localhost',
         },
         watch: {
             usePolling: true,

@@ -4,6 +4,7 @@ use Livewire\Attributes\Title;
 use Livewire\Volt\Component;
 use Livewire\WithPagination;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Str;
 
 new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends Component {
     use WithPagination;
@@ -17,6 +18,7 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
     public string $selectedTransactionId = '';
     public $selectedTransaction = null;
     public string $controlNumber = '';
+    public string $transactionFlow = '';
     public string $fileCode = '';
     public string $particulars = '';
     public string $classification = '';
@@ -33,6 +35,8 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
     public string $requestorPosition = '';
     public string $emailAccess = '';
     public string $docPassword = '';
+    public array $flowOffices = [];
+    public string $selectedFlowOfficeToAdd = '';
 
     // Copy Furnished state properties
     public bool $showCopyFurnished = false;
@@ -269,7 +273,60 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
         if (!$this->selectedTransactionId || !$this->selectedTransaction) {
             return collect();
         }
-        $flowCode = $this->selectedTransaction->transaction_flow;
+
+        if ($this->editingAll) {
+            $originOfficeCode = $this->selectedTransaction->originated_from;
+            $originOffice = DB::table('office')->where('office_code', $originOfficeCode)->first();
+            $originOfficeName = $originOffice ? $originOffice->office_name : 'Originated Office';
+            
+            $clusterHeadCode = $originOfficeCode;
+            $clusterHeadName = $originOfficeName;
+            if ($originOffice && $originOffice->cluster) {
+                $cluster = DB::table('cluster')->where('cluster_code', $originOffice->cluster)->first();
+                if ($cluster && $cluster->cluster_head) {
+                    $clusterHeadCode = $cluster->cluster_head;
+                    $headOffice = DB::table('office')->where('office_code', $cluster->cluster_head)->first();
+                    if ($headOffice) {
+                        $clusterHeadName = $headOffice->office_name;
+                    }
+                }
+            }
+
+            return collect($this->flowOffices)->map(function ($stepData, $index) use ($originOfficeCode, $originOfficeName, $clusterHeadCode, $clusterHeadName) {
+                $officeCode = $stepData['office_code'];
+                $resolvedCode = $officeCode;
+                $resolvedName = $officeCode;
+                if ($officeCode === 'ORIGIN') {
+                    $resolvedCode = $originOfficeCode;
+                    $resolvedName = $originOfficeName;
+                } elseif ($officeCode === '[H]') {
+                    $resolvedCode = $clusterHeadCode;
+                    $resolvedName = $clusterHeadName;
+                } else {
+                    $office = DB::table('office')->where('office_code', $officeCode)->first();
+                    if ($office) {
+                        $resolvedName = $office->office_name;
+                    }
+                }
+
+                $step = new \stdClass();
+                $step->sequence_ranking = $index + 1;
+                $step->office_code = $resolvedCode;
+                $step->office_name = $resolvedName;
+                $step->date_in = ($index === 0) ? now() : null;
+                $step->date_out = null;
+                $step->action_needed = ($index === 0) ? 'Created' : null;
+                $step->note = ($index === 0) ? 'Created transaction' : null;
+                $step->total_time_completed = null;
+                $step->is_active_step = false;
+                $step->description = $step->note;
+                $step->type = $step->action_needed;
+                $step->notes = $step->note;
+                $step->is_locked = $stepData['is_locked'];
+                return $step;
+            });
+        }
+        $flowCode = ($this->editingAll && $this->transactionFlow) ? $this->transactionFlow : $this->selectedTransaction->transaction_flow;
         $flow = DB::table('dts_transaction_flow')->where('flow_code', $flowCode)->first();
         if (!$flow) {
             return collect();
@@ -323,7 +380,7 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
 
     public function getVisiblePathProperty()
     {
-        if ($this->showFullConfiguredPath) {
+        if ($this->showFullConfiguredPath || $this->editingAll) {
             return $this->fullFlowPath;
         }
 
@@ -358,11 +415,79 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
         $this->requestorPosition = '';
         $this->emailAccess = '';
         $this->docPassword = '';
+        $this->flowOffices = [];
+        $this->selectedFlowOfficeToAdd = '';
+        $this->transactionFlow = '';
     }
 
     public function toggleMoreDetails(): void
     {
         $this->showMoreDetails = !$this->showMoreDetails;
+    }
+
+    public function updatedTransactionFlow($value): void
+    {
+        $currentSequenceNum = $this->selectedTransaction->sequence ?? 1;
+        // Keep the locked steps
+        $lockedSteps = array_filter($this->flowOffices, fn($step) => $step['is_locked']);
+        $lockedSteps = array_values($lockedSteps);
+
+        // Fetch the new flow's sequence
+        $flow = DB::table('dts_transaction_flow')->where('flow_code', $value)->first();
+        $newSteps = [];
+        if ($flow) {
+            $newSteps = DB::table('dts_sequence_list')
+                ->where('control_id', $flow->id)
+                ->orderBy('sequence_ranking', 'asc')
+                ->get()
+                ->map(function ($seq) {
+                    return [
+                        'office_code' => $seq->office_code,
+                        'is_locked' => false,
+                    ];
+                })
+                ->toArray();
+        }
+
+        // Merge them
+        $this->flowOffices = array_merge($lockedSteps, $newSteps);
+    }
+
+    public function addFlowOffice(): void
+    {
+        if ($this->selectedFlowOfficeToAdd) {
+            $this->flowOffices[] = [
+                'office_code' => $this->selectedFlowOfficeToAdd,
+                'is_locked' => false,
+            ];
+            $this->selectedFlowOfficeToAdd = '';
+        }
+    }
+
+    public function removeFlowOffice(int $index): void
+    {
+        if (isset($this->flowOffices[$index]) && !$this->flowOffices[$index]['is_locked']) {
+            unset($this->flowOffices[$index]);
+            $this->flowOffices = array_values($this->flowOffices);
+        }
+    }
+
+    public function moveFlowOfficeUp(int $index): void
+    {
+        if ($index > 0 && !$this->flowOffices[$index]['is_locked'] && !$this->flowOffices[$index - 1]['is_locked']) {
+            $temp = $this->flowOffices[$index];
+            $this->flowOffices[$index] = $this->flowOffices[$index - 1];
+            $this->flowOffices[$index - 1] = $temp;
+        }
+    }
+
+    public function moveFlowOfficeDown(int $index): void
+    {
+        if ($index < count($this->flowOffices) - 1 && !$this->flowOffices[$index]['is_locked'] && !$this->flowOffices[$index + 1]['is_locked']) {
+            $temp = $this->flowOffices[$index];
+            $this->flowOffices[$index] = $this->flowOffices[$index + 1];
+            $this->flowOffices[$index + 1] = $temp;
+        }
     }
 
     public function loadSelectedTransaction(): void
@@ -386,6 +511,24 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
             $this->requestorPosition = $this->selectedTransaction->requestor_label ?: '';
             $this->emailAccess = $this->selectedTransaction->access_email ?: '';
             $this->docPassword = $this->selectedTransaction->document_password ?: '';
+            $this->transactionFlow = $this->selectedTransaction->transaction_flow ?: '';
+            // Load Transaction Path offices for editing
+            $this->flowOffices = [];
+            $flow = DB::table('dts_transaction_flow')->where('flow_code', $this->transactionFlow)->first();
+            if ($flow) {
+                $currentSequenceNum = $this->selectedTransaction->sequence ?? 1;
+                $this->flowOffices = DB::table('dts_sequence_list')
+                    ->where('control_id', $flow->id)
+                    ->orderBy('sequence_ranking', 'asc')
+                    ->get()
+                    ->map(function ($seq) use ($currentSequenceNum) {
+                        return [
+                            'office_code' => $seq->office_code,
+                            'is_locked' => ($seq->sequence_ranking <= $currentSequenceNum) || !is_null($seq->date_in),
+                        ];
+                    })
+                    ->toArray();
+            }
             
             // Load Copy Furnished offices
             $this->cfSelectedOffices = [];
@@ -720,7 +863,110 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
                     'requestor_label' => $this->requestorPosition ?: null,
                     'email_access' => $emailAccessId,
                     'document_password' => $this->docPassword ?: null,
+                    'transaction_flow' => $this->transactionFlow,
                 ]);
+
+            $flow = DB::table('dts_transaction_flow')->where('flow_code', $this->transactionFlow)->first();
+            if ($flow) {
+                $originalSequence = DB::table('dts_sequence_list')
+                    ->where('control_id', $flow->id)
+                    ->orderBy('sequence_ranking', 'asc')
+                    ->get()
+                    ->keyBy('sequence_ranking')
+                    ->toArray();
+
+                if (str_starts_with($flow->flow_code, 'FLOW-CUSTOM-')) {
+                    DB::table('dts_sequence_list')->where('control_id', $flow->id)->delete();
+                    foreach ($this->flowOffices as $rank => $officeData) {
+                        $rank1 = $rank + 1;
+                        $officeCode = $officeData['office_code'];
+                        
+                        if ($officeData['is_locked'] && isset($originalSequence[$rank1])) {
+                            $orig = $originalSequence[$rank1];
+                            DB::table('dts_sequence_list')->insert([
+                                'control_id' => $flow->id,
+                                'sequence_ranking' => $rank1,
+                                'office_code' => $officeCode,
+                                'date_in' => $orig->date_in,
+                                'date_out' => $orig->date_out,
+                                'action_needed' => $orig->action_needed,
+                                'note' => $orig->note,
+                                'total_time_completed' => $orig->total_time_completed,
+                            ]);
+                        } else {
+                            DB::table('dts_sequence_list')->insert([
+                                'control_id' => $flow->id,
+                                'sequence_ranking' => $rank1,
+                                'office_code' => $officeCode,
+                                'date_in' => null,
+                                'date_out' => null,
+                                'action_needed' => null,
+                                'note' => null,
+                                'total_time_completed' => null,
+                            ]);
+                        }
+                    }
+                } else {
+                    $predefinedOffices = DB::table('dts_sequence_list')
+                        ->where('control_id', $flow->id)
+                        ->orderBy('sequence_ranking', 'asc')
+                        ->pluck('office_code')
+                        ->toArray();
+                    
+                    $currentOfficeCodes = array_map(fn($o) => $o['office_code'], $this->flowOffices);
+                    
+                    if ($predefinedOffices !== $currentOfficeCodes) {
+                        $newFlowCode = 'FLOW-CUSTOM-' . strtoupper(Str::random(10));
+                        $maxId = DB::table('dts_transaction_flow')->max('id') ?? 0;
+                        $newFlowId = $maxId + 1;
+                        
+                        DB::table('dts_transaction_flow')->insert([
+                            'flow_code' => $newFlowCode,
+                            'flow_name' => 'Flow for ' . $this->controlNumber . ' (' . $newFlowCode . ')',
+                            'id' => $newFlowId,
+                            'is_active' => 1,
+                            'added_by' => auth()->id() ?? 1,
+                            'date_added' => now(),
+                            'flow_use' => 'none',
+                        ]);
+
+                        foreach ($this->flowOffices as $rank => $officeData) {
+                            $rank1 = $rank + 1;
+                            $officeCode = $officeData['office_code'];
+                            
+                            if ($officeData['is_locked'] && isset($originalSequence[$rank1])) {
+                                $orig = $originalSequence[$rank1];
+                                DB::table('dts_sequence_list')->insert([
+                                    'control_id' => $newFlowId,
+                                    'sequence_ranking' => $rank1,
+                                    'office_code' => $officeCode,
+                                    'date_in' => $orig->date_in,
+                                    'date_out' => $orig->date_out,
+                                    'action_needed' => $orig->action_needed,
+                                    'note' => $orig->note,
+                                    'total_time_completed' => $orig->total_time_completed,
+                                ]);
+                            } else {
+                                DB::table('dts_sequence_list')->insert([
+                                    'control_id' => $newFlowId,
+                                    'sequence_ranking' => $rank1,
+                                    'office_code' => $officeCode,
+                                    'date_in' => null,
+                                    'date_out' => null,
+                                    'action_needed' => null,
+                                    'note' => null,
+                                    'total_time_completed' => null,
+                                ]);
+                            }
+                        }
+                        $this->transactionFlow = $newFlowCode;
+                        
+                        DB::table('dts_transaction_details')
+                            ->where('id', $this->selectedTransactionId)
+                            ->update(['transaction_flow' => $newFlowCode]);
+                    }
+                }
+            }
             $this->loadSelectedTransaction();
         }
         $this->editingAll = false;
@@ -729,6 +975,7 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
 ?>
 
 @push('styles')
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css">
     @vite(['resources/css/dts/internal.css', 'resources/css/dts/receive.css', 'resources/css/dts/list_transaction.css'])
 @endpush
 
@@ -982,6 +1229,30 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
                             @endif
                         </div>
 
+                        <!-- Transaction Flow field -->
+                        <div class="receive-field-row" style="align-items: center;">
+                            <span class="receive-field-label">Flow:</span>
+                            @if ($editingAll)
+                                @php
+                                    $availableFlows = DB::table('dts_transaction_flow')
+                                        ->where('is_active', true)
+                                        ->orWhere('flow_code', $transactionFlow)
+                                        ->orderBy('flow_name', 'asc')
+                                        ->get();
+                                @endphp
+                                <select class="receive-field-input" wire:model.live="transactionFlow" style="height: 38px; padding: 0 10px; border-radius: 6px; border: 1px solid #cbd5e1; outline: none; background: #fff;">
+                                    @foreach ($availableFlows as $f)
+                                        <option value="{{ $f->flow_code }}">{{ $f->flow_name }}</option>
+                                    @endforeach
+                                </select>
+                            @else
+                                @php
+                                    $flowName = DB::table('dts_transaction_flow')->where('flow_code', $transactionFlow)->value('flow_name') ?? $transactionFlow;
+                                @endphp
+                                <input type="text" class="receive-field-input" value="{{ $flowName }}" readonly style="background-color: #f8fafc; color: #64748b;">
+                            @endif
+                        </div>
+
                         <!-- Particulars / Subject field -->
                         <div class="receive-field-row receive-field-row--particulars">
                             <span class="receive-field-label">Particulars:</span>
@@ -1116,6 +1387,27 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
                         <!-- Transaction Path Section -->
                         <h2 class="receive-title" style="font-size: 16px; margin-top: 10px;">Transaction Path</h2>
 
+                        @if ($editingAll)
+                            <div style="display: flex; gap: 8px; align-items: center; margin-bottom: 12px; max-width: 500px;">
+                                @php
+                                    $allSystemOffices = DB::table('office')
+                                        ->where('is_active', true)
+                                        ->whereNotIn('office_code', ['ORIGIN', '[H]'])
+                                        ->orderBy('office_name', 'asc')
+                                        ->get();
+                                @endphp
+                                <select class="receive-field-input" wire:model="selectedFlowOfficeToAdd" style="flex: 1; height: 38px; padding: 0 10px; border-radius: 6px; border: 1px solid #cbd5e1; outline: none; background: #fff;">
+                                    <option value="">Select Office to Add...</option>
+                                    <option value="ORIGIN">ORIGIN (Creator Office)</option>
+                                    <option value="[H]"> [H] (Cluster Head Office)</option>
+                                    @foreach ($allSystemOffices as $o)
+                                        <option value="{{ $o->office_code }}">{{ $o->office_name }} ({{ $o->office_code }})</option>
+                                    @endforeach
+                                </select>
+                                <button type="button" wire:click="addFlowOffice" style="background: #2563eb; color: #fff; border: none; padding: 8px 16px; border-radius: 6px; font-weight: 600; cursor: pointer; font-size: 13px;">Add Office</button>
+                            </div>
+                        @endif
+
                         <div class="receive-table-wrap">
                             <table class="receive-table">
                                 <thead>
@@ -1127,13 +1419,18 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
                                         <th>Total Time</th>
                                         <th>Action Need</th>
                                         <th>Notes</th>
+                                        @if ($editingAll)
+                                            <th>Actions</th>
+                                        @endif
                                     </tr>
                                 </thead>
                                 <tbody>
                                     @forelse ($this->visiblePath as $index => $step)
                                         <tr>
-                                            <td>{{ $step->sequence_ranking ?? ($index + 1) }}</td>
-                                            <td class="office-cell">{{ $step->office_name }}</td>
+                                            <td>{{ $index + 1 }}</td>
+                                            <td class="office-cell">
+                                                <strong>{{ $step->office_code }}</strong> - {{ $step->office_name }}
+                                            </td>
                                             <td>{{ $step->date_in ? \Carbon\Carbon::parse($step->date_in)->format('Y-m-d') : 'N/A' }}</td>
                                             <td>{{ $step->date_out ? \Carbon\Carbon::parse($step->date_out)->format('Y-m-d') : ($step->date_in ? 'Pending' : 'N/A') }}</td>
                                             <td>{{ $step->total_time_completed ?: '-' }}</td>
@@ -1155,6 +1452,25 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
                                                     {{ $step->note ?: '-' }}
                                                 @endif
                                             </td>
+                                            @if ($editingAll)
+                                                <td style="text-align: center; white-space: nowrap;">
+                                                    @if (!$step->is_locked)
+                                                        <div style="display: inline-flex; gap: 4px;">
+                                                            <button type="button" wire:click="moveFlowOfficeUp({{ $index }})" {{ $index === 0 || $flowOffices[$index - 1]['is_locked'] ? 'disabled' : '' }} style="border: none; background: #f1f5f9; color: {{ $index === 0 || $flowOffices[$index - 1]['is_locked'] ? '#cbd5e1' : '#475569' }}; padding: 6px 10px; border-radius: 4px; font-size: 11px; cursor: {{ $index === 0 || $flowOffices[$index - 1]['is_locked'] ? 'not-allowed' : 'pointer' }}; font-weight: bold;">
+                                                                <i class="fa-solid fa-arrow-up"></i>
+                                                            </button>
+                                                            <button type="button" wire:click="moveFlowOfficeDown({{ $index }})" {{ $index === count($flowOffices) - 1 ? 'disabled' : '' }} style="border: none; background: #f1f5f9; color: {{ $index === count($flowOffices) - 1 ? '#cbd5e1' : '#475569' }}; padding: 6px 10px; border-radius: 4px; font-size: 11px; cursor: {{ $index === count($flowOffices) - 1 ? 'not-allowed' : 'pointer' }}; font-weight: bold;">
+                                                                <i class="fa-solid fa-arrow-down"></i>
+                                                            </button>
+                                                            <button type="button" wire:click="removeFlowOffice({{ $index }})" style="border: none; background: #fee2e2; color: #dc2626; padding: 6px 10px; border-radius: 4px; font-size: 11px; cursor: pointer; font-weight: bold;">
+                                                                <i class="fa-solid fa-trash-can"></i>
+                                                            </button>
+                                                        </div>
+                                                    @else
+                                                        <span style="font-size: 11px; color: #94a3b8; font-style: italic;"><i class="fa-solid fa-lock" style="margin-right: 4px;"></i> Locked</span>
+                                                    @endif
+                                                </td>
+                                            @endif
                                         </tr>
                                     @empty
                                         <tr>

@@ -51,6 +51,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Roles')] class extends C
     public bool $canDtsUseIssuance = false;
     public bool $canDtsUserReceived = false;
     public bool $canDtsModifyTransaction = false;
+    public bool $canDtsModifyControlNo = false;
 
     // Toast notifications
     public string $successMessage = '';
@@ -164,6 +165,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Roles')] class extends C
                 $this->canDtsUseIssuance = (bool) $perms->can_dts_use_issuance;
                 $this->canDtsUserReceived = (bool) $perms->can_dts_user_received;
                 $this->canDtsModifyTransaction = (bool) $perms->can_dts_modify_transaction;
+                $this->canDtsModifyControlNo = (bool) ($perms->can_dts_modify_control_no ?? false);
             }
         }
     }
@@ -354,6 +356,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Roles')] class extends C
         $perms->can_dts_use_issuance = $this->canDtsUseIssuance;
         $perms->can_dts_user_received = $this->canDtsUserReceived;
         $perms->can_dts_modify_transaction = $this->canDtsModifyTransaction;
+        $perms->can_dts_modify_control_no = $this->canDtsModifyControlNo;
     }
 
     /**
@@ -814,6 +817,17 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Roles')] class extends C
                                         </div>
                                         <label class="switch">
                                             <input type="checkbox" wire:model="canDtsModifyTransaction" {{ (!$isSadm && !$isAdmin) ? 'disabled' : '' }}>
+                                            <span class="slider"></span>
+                                        </label>
+                                    </div>
+                                    <!-- Modify Control Number on Create -->
+                                    <div class="permission-toggle-row">
+                                        <div class="permission-toggle-info">
+                                            <span class="permission-toggle-title">Modify Control Number</span>
+                                            <span class="permission-toggle-desc">Allows user to see and manually edit the control number on the create transaction form. When disabled, control numbers are auto-generated.</span>
+                                        </div>
+                                        <label class="switch">
+                                            <input type="checkbox" wire:model="canDtsModifyControlNo">
                                             <span class="slider"></span>
                                         </label>
                                     </div>

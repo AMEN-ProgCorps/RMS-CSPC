@@ -1714,7 +1714,9 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create Applicat
                         <label style="font-size: 12.5px; font-weight: 600; color: #334155;">Who can use this flow?</label>
                         <select wire:model="customFlowFor" style="width: 100%; height: 38px; padding: 0 12px; border: 1.5px solid #cbd5e1; border-radius: 8px; font-size: 13px; outline: none; background: #ffffff;">
                             <option value="user">Only Me</option>
-                            <option value="office">My Office</option>
+                            @if(auth()->user()?->details?->office_id)
+                                <option value="office">My Office</option>
+                            @endif
                         </select>
                         @error('customFlowFor') <span style="font-size: 11.5px; color: #ef4444; font-weight: 500;">{{ $message }}</span> @enderror
                     </div>

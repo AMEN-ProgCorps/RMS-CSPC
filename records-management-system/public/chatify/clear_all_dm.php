@@ -1,6 +1,6 @@
 <?php
 // =============================================================================
-// clear_all_dm.php — Admin-only: wipe ALL private conversations
+// clear_all_dm.php — Admin-only: wipe ALL private conversations and global chat
 // =============================================================================
 // POST params: (none required — authorization is via session account_id = 1)
 // =============================================================================
@@ -25,33 +25,27 @@ if (!Auth::isAdmin()) {
     exit;
 }
 
-$deletedFiles = 0;
+try {
+    $pdo = Database::getConnection();
 
-// Delete all private conversation files
-$privateDir = CHAT_PRIVATE_DIR;
-if (is_dir($privateDir)) {
-    foreach (glob($privateDir . '/*.json') ?: [] as $f) {
-        if (is_file($f) && @unlink($f)) $deletedFiles++;
-    }
+    // Count distinct private conversations before deletion (for the response)
+    $countStmt = $pdo->query(
+        "SELECT COUNT(DISTINCT conv_id) FROM chat_messages WHERE conv_id != 'global'"
+    );
+    $deletedConversations = (int) $countStmt->fetchColumn();
+
+    // Delete all private DM messages (cascade removes their reactions)
+    $pdo->exec("DELETE FROM chat_messages WHERE conv_id != 'global'");
+
+    // Delete all private read markers
+    $pdo->exec("DELETE FROM chat_read_markers WHERE conv_id != 'global'");
+
+    // Wipe global chat (also deletes upload files from disk)
+    GlobalChatManager::clearChat(defined('UPLOADS_DIR') ? UPLOADS_DIR : '');
+
+    echo json_encode(['ok' => true, 'deleted_conversations' => $deletedConversations]);
+} catch (Throwable $e) {
+    error_log('clear_all_dm.php — ' . $e->getMessage());
+    http_response_code(500);
+    echo json_encode(['ok' => false, 'error' => 'Server error']);
 }
-
-// Delete all DM reaction files
-$reactionsDir = CHAT_REACTIONS_DIR;
-if (is_dir($reactionsDir)) {
-    foreach (glob($reactionsDir . '/private_*.json') ?: [] as $f) {
-        if (is_file($f)) @unlink($f);
-    }
-}
-
-// Delete all read markers
-$markersDir = CHAT_READ_MARKERS_DIR;
-if (is_dir($markersDir)) {
-    foreach (glob($markersDir . '/*.json') ?: [] as $f) {
-        if (is_file($f)) @unlink($f);
-    }
-}
-
-// Also wipe global chat (pass uploads dir to also remove file artifacts)
-GlobalChatManager::clearChat(UPLOADS_DIR);
-
-echo json_encode(['ok' => true, 'deleted_conversations' => $deletedFiles]);

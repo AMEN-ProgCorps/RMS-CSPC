@@ -41,15 +41,14 @@ if (!function_exists('getEnvValue')) {
 }
 
 // -----------------------------------------------------------------------------
-// Laravel MySQL Connection (reads account_details)
-// Match these values to your Laravel .env DB_* settings
+// PostgreSQL Connection (shared with the Laravel RMS application)
+// Chat messages are now stored in this database — matches Laravel DB_* settings.
 // -----------------------------------------------------------------------------
 define('LARAVEL_DB_HOST',    getEnvValue('DB_HOST', '127.0.0.1'));
-define('LARAVEL_DB_PORT',    getEnvValue('DB_PORT', '3306'));
+define('LARAVEL_DB_PORT',    getEnvValue('DB_PORT', '5432'));
 define('LARAVEL_DB_NAME',    getEnvValue('DB_DATABASE', 'rms'));
 define('LARAVEL_DB_USER',    getEnvValue('DB_USERNAME', 'adminrms'));
 define('LARAVEL_DB_PASS',    getEnvValue('DB_PASSWORD', 'admin'));
-define('LARAVEL_DB_CHARSET', 'utf8mb4');
 
 // -----------------------------------------------------------------------------
 // SSO Shared Secret
@@ -70,26 +69,14 @@ define('CHAT_TOKEN_TTL',        60);        // seconds
 define('CHAT_SESSION_LIFETIME', 28800);     // 8 hours in seconds
 
 // -----------------------------------------------------------------------------
-// Storage roots (relative to project root)
+// File upload storage root (still filesystem — messages are in PostgreSQL now,
+// but uploaded files remain on disk under public/chatify/uploads/).
 // -----------------------------------------------------------------------------
-define('STORAGE_ROOT',          __DIR__ . '/../storage');
-define('CHAT_GLOBAL_DIR',       STORAGE_ROOT . '/chat/global');
-define('CHAT_PRIVATE_DIR',      STORAGE_ROOT . '/chat/private');
-define('CHAT_REACTIONS_DIR',    STORAGE_ROOT . '/chat/reactions');
-define('CHAT_READ_MARKERS_DIR', STORAGE_ROOT . '/chat/read_markers');
-define('UPLOADS_DIR',           __DIR__ . '/../uploads');
-define('LARAVEL_PATH',          realpath(__DIR__ . '/../../..'));
+define('STORAGE_ROOT', __DIR__ . '/../storage');
+define('UPLOADS_DIR',  __DIR__ . '/../uploads');
+define('LARAVEL_PATH', realpath(__DIR__ . '/../../..'));
 
-// Ensure storage directories exist on first load
-$_dirs = [
-    CHAT_GLOBAL_DIR,
-    CHAT_PRIVATE_DIR,
-    CHAT_REACTIONS_DIR,
-    CHAT_READ_MARKERS_DIR,
-];
-foreach ($_dirs as $_d) {
-    if (!is_dir($_d)) {
-        mkdir($_d, 0755, true);
-    }
+// Ensure the uploads directory exists (all that is still needed on disk)
+if (!is_dir(UPLOADS_DIR)) {
+    mkdir(UPLOADS_DIR, 0755, true);
 }
-unset($_dirs, $_d);

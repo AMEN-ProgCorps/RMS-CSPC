@@ -21,21 +21,8 @@ if (empty($convId) || !preg_match('/^\d+_\d+$/', $convId)) {
 $limit  = 100;
 $offset = max(0, (int) ($_GET['offset'] ?? 0));
 
-// Load messages using ConversationManager
+// Load messages using ConversationManager (already ordered oldest-first by DB)
 $msgs = ConversationManager::loadRaw($convId);
-usort($msgs, function($a, $b) {
-    $tsA = 0;
-    $tsB = 0;
-    if (!empty($a['timestamp'])) {
-        $dt = DateTime::createFromFormat('Y-m-d H:i:s.u', $a['timestamp']);
-        $tsA = $dt !== false ? (float) $dt->format('U.u') : (float) strtotime($a['timestamp']);
-    }
-    if (!empty($b['timestamp'])) {
-        $dt = DateTime::createFromFormat('Y-m-d H:i:s.u', $b['timestamp']);
-        $tsB = $dt !== false ? (float) $dt->format('U.u') : (float) strtotime($b['timestamp']);
-    }
-    return $tsA <=> $tsB;
-});
 
 $totalCount = count($msgs);
 

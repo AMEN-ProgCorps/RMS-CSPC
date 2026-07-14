@@ -1,14 +1,12 @@
 <?php
 // =============================================================================
-// core/ConversationManager.php — Private Chat (DM) Storage Manager
+// core/ConversationManager.php — Private Chat (DM) Storage: PostgreSQL backend
 // =============================================================================
-// Storage layout:
-//   storage/chat/private/{min_id}_{max_id}.json     — encrypted messages
-//   storage/chat/reactions/private_{convId}_reactions.json
-//   storage/chat/read_markers/{convId}_{accountId}.json
+// Replaces the old per-pair JSON files (storage/chat/private/{min}_{max}.json)
+// with SQL queries against the shared RMS PostgreSQL database.
 //
-// Conversation ID is always:  min(a,b) . "_" . max(a,b)
-// This guarantees a single canonical file per user pair, no duplicates.
+// Conversation ID convention is preserved:  min(a,b) . '_' . max(a,b)
+// All message content remains AES-256-GCM encrypted (unchanged from before).
 // =============================================================================
 
 class ConversationManager
@@ -19,7 +17,7 @@ class ConversationManager
 
     /**
      * Compute the canonical conversation ID for two account IDs.
-     * Always returns:  "{smaller}_{larger}"
+     * Always returns: "{smaller}_{larger}"
      */
     public static function convId(int $userA, int $userB): string
     {
@@ -31,19 +29,33 @@ class ConversationManager
     // -------------------------------------------------------------------------
 
     /**
-     * Load all messages for a conversation (raw — still encrypted).
+     * Load all messages for a private conversation (raw — still encrypted).
+     * Ordered oldest-first, matching the old JSON layout.
      *
      * @param string $convId  Result of self::convId()
      * @return array<int, array>
      */
     public static function loadRaw(string $convId): array
     {
-        $file = self::chatFile($convId);
-        if (!file_exists($file)) {
+        try {
+            $pdo  = Database::getConnection();
+            $stmt = $pdo->prepare(
+                'SELECT msg_uuid AS id,
+                        sender_id,
+                        receiver_id,
+                        message,
+                        msg_type AS type,
+                        to_char(created_at AT TIME ZONE \'Asia/Manila\', \'YYYY-MM-DD HH24:MI:SS.US\') AS timestamp
+                 FROM chat_messages
+                 WHERE conv_id = :conv_id
+                 ORDER BY created_at ASC, id ASC'
+            );
+            $stmt->execute([':conv_id' => $convId]);
+            return $stmt->fetchAll() ?: [];
+        } catch (PDOException $e) {
+            error_log('ConversationManager::loadRaw() — ' . $e->getMessage());
             return [];
         }
-        $data = json_decode(file_get_contents($file), true);
-        return (json_last_error() === JSON_ERROR_NONE && is_array($data)) ? $data : [];
     }
 
     /**
@@ -52,14 +64,14 @@ class ConversationManager
      * @param  int    $senderId    Sender account_id
      * @param  int    $receiverId  Receiver account_id
      * @param  string $plaintext   Plaintext message
-     * @return array|false         Saved message (with encrypted content), or false
+     * @return array|false  Saved message (with encrypted content), or false
      */
     public static function addTextMessage(
-        int $senderId,
-        int $receiverId,
+        int    $senderId,
+        int    $receiverId,
         string $plaintext
     ): array|false {
-        return self::appendMessage($senderId, $receiverId, $plaintext, 'text');
+        return self::insertMessage($senderId, $receiverId, $plaintext, 'text');
     }
 
     /**
@@ -71,19 +83,17 @@ class ConversationManager
      * @return array|false
      */
     public static function addUploadMessage(
-        int $senderId,
-        int $receiverId,
+        int    $senderId,
+        int    $receiverId,
         string $filename
     ): array|false {
-        return self::appendMessage($senderId, $receiverId, $filename, 'upload');
+        return self::insertMessage($senderId, $receiverId, $filename, 'upload');
     }
 
     /**
      * Delete a conversation for a specific user.
-     * - Regular user: clears all messages they sent, preserving the other user's messages.
-     *   (We keep a single file now, so "delete for me" soft-deletes the whole file
-     *    only if both parties have deleted; otherwise we remove their messages only.)
-     * - Admin: deletes the entire conversation file.
+     * - Regular user: removes only messages they sent.
+     * - Admin: deletes the entire conversation (all messages, reactions, markers).
      *
      * @param  string $convId
      * @param  int    $accountId  The user requesting deletion
@@ -92,137 +102,128 @@ class ConversationManager
      */
     public static function deleteConversation(
         string $convId,
-        int $accountId,
-        bool $isAdmin = false
+        int    $accountId,
+        bool   $isAdmin = false
     ): bool {
-        $file = self::chatFile($convId);
+        try {
+            $pdo = Database::getConnection();
 
-        if (!file_exists($file)) {
-            return false;
-        }
-
-        if ($isAdmin) {
-            // Full wipe
-            @unlink($file);
-            @unlink(self::reactionsFile($convId));
-            // Clean read markers for this conversation
-            $pattern = CHAT_READ_MARKERS_DIR . '/' . $convId . '_*.json';
-            foreach (glob($pattern) ?: [] as $marker) {
-                @unlink($marker);
+            // Check conversation exists
+            $check = $pdo->prepare(
+                'SELECT 1 FROM chat_messages WHERE conv_id = :conv_id LIMIT 1'
+            );
+            $check->execute([':conv_id' => $convId]);
+            if (!$check->fetch()) {
+                return false;
             }
-            return true;
-        }
 
-        // Soft-delete: filter out this user's messages
-        $fp = fopen($file, 'r+');
-        if (!$fp) {
+            if ($isAdmin) {
+                // Full wipe — FK cascade removes reactions & read markers
+                $stmt = $pdo->prepare(
+                    'DELETE FROM chat_messages WHERE conv_id = :conv_id'
+                );
+                $stmt->execute([':conv_id' => $convId]);
+
+                // Also clean up read markers (not FK-cascaded from messages)
+                $mrk = $pdo->prepare(
+                    'DELETE FROM chat_read_markers WHERE conv_id = :conv_id'
+                );
+                $mrk->execute([':conv_id' => $convId]);
+            } else {
+                // Soft-delete: remove only messages sent by this user
+                $stmt = $pdo->prepare(
+                    'DELETE FROM chat_messages WHERE conv_id = :conv_id AND sender_id = :sender_id'
+                );
+                $stmt->execute([':conv_id' => $convId, ':sender_id' => $accountId]);
+
+                // Remove this user's read marker for the conversation
+                $mrk = $pdo->prepare(
+                    'DELETE FROM chat_read_markers WHERE conv_id = :conv_id AND account_id = :account_id'
+                );
+                $mrk->execute([':conv_id' => $convId, ':account_id' => $accountId]);
+            }
+
+            return true;
+        } catch (PDOException $e) {
+            error_log('ConversationManager::deleteConversation() — ' . $e->getMessage());
             return false;
         }
-
-        flock($fp, LOCK_EX);
-        $raw      = stream_get_contents($fp);
-        $messages = json_decode($raw, true) ?: [];
-
-        // Remove messages sent by this user
-        $messages = array_values(
-            array_filter($messages, fn($m) => (int) ($m['sender_id'] ?? -1) !== $accountId)
-        );
-
-        ftruncate($fp, 0);
-        rewind($fp);
-        fwrite($fp, json_encode($messages, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE));
-        fflush($fp);
-        flock($fp, LOCK_UN);
-        fclose($fp);
-
-        // Remove the read marker for this user
-        @unlink(self::readMarkerFile($convId, $accountId));
-
-        return true;
     }
 
     // -------------------------------------------------------------------------
     // Reactions (per conversation)
     // -------------------------------------------------------------------------
 
+    /**
+     * Load all reactions for a private conversation.
+     * Returns:  array<msgUuid, array<emoji, list<int accountId>>>
+     *
+     * @param string $convId
+     * @return array
+     */
     public static function loadReactions(string $convId): array
     {
-        $file = self::reactionsFile($convId);
-        if (!file_exists($file)) {
+        try {
+            $pdo  = Database::getConnection();
+            $stmt = $pdo->prepare(
+                'SELECT r.msg_uuid, r.emoji, r.account_id
+                 FROM chat_reactions r
+                 JOIN chat_messages  m ON m.msg_uuid = r.msg_uuid
+                 WHERE m.conv_id = :conv_id
+                 ORDER BY r.reacted_at ASC'
+            );
+            $stmt->execute([':conv_id' => $convId]);
+
+            $reactions = [];
+            foreach ($stmt->fetchAll() as $row) {
+                $reactions[$row['msg_uuid']][$row['emoji']][] = (int) $row['account_id'];
+            }
+            return $reactions;
+        } catch (PDOException $e) {
+            error_log('ConversationManager::loadReactions() — ' . $e->getMessage());
             return [];
         }
-        $data = json_decode(file_get_contents($file), true);
-        return (json_last_error() === JSON_ERROR_NONE && is_array($data)) ? $data : [];
     }
 
+    /**
+     * Toggle a reaction on a private message.
+     * One emoji per user per message. Same emoji = remove; different = replace.
+     *
+     * @param  string $convId
+     * @param  string $msgId      Message UUID
+     * @param  string $emoji
+     * @param  int    $accountId  Reactor's account_id
+     * @param  array  $allowed    Whitelist of allowed emojis
+     * @return array{ok: bool, action: string}
+     */
     public static function toggleReaction(
         string $convId,
         string $msgId,
         string $emoji,
-        int $accountId,
-        array $allowed
+        int    $accountId,
+        array  $allowed
     ): array {
         if (!in_array($emoji, $allowed, true)) {
             return ['ok' => false, 'action' => 'invalid_emoji'];
         }
 
-        $file = self::reactionsFile($convId);
-        $fp   = fopen($file, file_exists($file) ? 'r+' : 'w+');
-        if (!$fp) {
-            return ['ok' => false, 'action' => 'file_error'];
-        }
+        try {
+            $pdo = Database::getConnection();
 
-        flock($fp, LOCK_EX);
-
-        $content   = stream_get_contents($fp);
-        $reactions = [];
-        if ($content) {
-            $decoded = json_decode($content, true);
-            if (json_last_error() === JSON_ERROR_NONE && is_array($decoded)) {
-                $reactions = $decoded;
-            }
-        }
-
-        $prevEmoji = null;
-        foreach ($allowed as $em) {
-            if (isset($reactions[$msgId][$em]) && in_array($accountId, $reactions[$msgId][$em], true)) {
-                $prevEmoji = $em;
-                break;
-            }
-        }
-
-        if ($prevEmoji !== null) {
-            $reactions[$msgId][$prevEmoji] = array_values(
-                array_filter($reactions[$msgId][$prevEmoji], fn($id) => $id !== $accountId)
+            // Verify message belongs to this conversation
+            $check = $pdo->prepare(
+                'SELECT msg_uuid FROM chat_messages WHERE msg_uuid = :uuid AND conv_id = :conv_id LIMIT 1'
             );
-            if (empty($reactions[$msgId][$prevEmoji])) {
-                unset($reactions[$msgId][$prevEmoji]);
+            $check->execute([':uuid' => $msgId, ':conv_id' => $convId]);
+            if (!$check->fetch()) {
+                return ['ok' => false, 'action' => 'message_not_found'];
             }
+
+            return GlobalChatManager::upsertReaction($pdo, $msgId, $emoji, $accountId, $allowed);
+        } catch (PDOException $e) {
+            error_log('ConversationManager::toggleReaction() — ' . $e->getMessage());
+            return ['ok' => false, 'action' => 'db_error'];
         }
-
-        $action = 'removed';
-        if ($prevEmoji !== $emoji) {
-            if (!isset($reactions[$msgId][$emoji])) {
-                $reactions[$msgId][$emoji] = [];
-            }
-            if (!in_array($accountId, $reactions[$msgId][$emoji], true)) {
-                $reactions[$msgId][$emoji][] = $accountId;
-            }
-            $action = $prevEmoji ? 'replaced' : 'added';
-        }
-
-        if (isset($reactions[$msgId]) && empty($reactions[$msgId])) {
-            unset($reactions[$msgId]);
-        }
-
-        ftruncate($fp, 0);
-        rewind($fp);
-        fwrite($fp, json_encode($reactions, JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT));
-        fflush($fp);
-        flock($fp, LOCK_UN);
-        fclose($fp);
-
-        return ['ok' => true, 'action' => $action];
     }
 
     // -------------------------------------------------------------------------
@@ -230,7 +231,7 @@ class ConversationManager
     // -------------------------------------------------------------------------
 
     /**
-     * Mark a conversation as read up to its current last message.
+     * Mark a conversation as read up to the current last message.
      *
      * @param  string $convId
      * @param  int    $accountId  The user marking as read
@@ -238,21 +239,35 @@ class ConversationManager
      */
     public static function markRead(string $convId, int $accountId): void
     {
-        $messages = self::loadRaw($convId);
-        $lastMsgId = null;
-        if (!empty($messages)) {
-            $last = end($messages);
-            $lastMsgId = $last['id'] ?? null;
-        }
+        try {
+            $pdo = Database::getConnection();
 
-        file_put_contents(
-            self::readMarkerFile($convId, $accountId),
-            json_encode([
-                'last_msg_id' => $lastMsgId,
-                'msg_count'   => count($messages),
-                'updated'     => date('Y-m-d H:i:s'),
-            ])
-        );
+            // Find the most recent message UUID in this conversation
+            $latest = $pdo->prepare(
+                'SELECT msg_uuid FROM chat_messages
+                 WHERE conv_id = :conv_id
+                 ORDER BY created_at DESC, id DESC
+                 LIMIT 1'
+            );
+            $latest->execute([':conv_id' => $convId]);
+            $row = $latest->fetch();
+            $lastUuid = $row ? $row['msg_uuid'] : null;
+
+            // UPSERT: PostgreSQL ON CONFLICT
+            $pdo->prepare(
+                'INSERT INTO chat_read_markers (conv_id, account_id, last_msg_uuid, updated_at)
+                 VALUES (:conv_id, :account_id, :last_uuid, NOW())
+                 ON CONFLICT (conv_id, account_id)
+                 DO UPDATE SET last_msg_uuid = EXCLUDED.last_msg_uuid,
+                               updated_at    = NOW()'
+            )->execute([
+                ':conv_id'    => $convId,
+                ':account_id' => $accountId,
+                ':last_uuid'  => $lastUuid,
+            ]);
+        } catch (PDOException $e) {
+            error_log('ConversationManager::markRead() — ' . $e->getMessage());
+        }
     }
 
     /**
@@ -265,45 +280,54 @@ class ConversationManager
      */
     public static function unreadCount(string $convId, int $accountId): int
     {
-        $messages = self::loadRaw($convId);
-        if (empty($messages)) {
+        try {
+            $pdo = Database::getConnection();
+
+            // Fetch the last-read message UUID for this user
+            $markerStmt = $pdo->prepare(
+                'SELECT last_msg_uuid FROM chat_read_markers
+                 WHERE conv_id = :conv_id AND account_id = :account_id
+                 LIMIT 1'
+            );
+            $markerStmt->execute([':conv_id' => $convId, ':account_id' => $accountId]);
+            $marker = $markerStmt->fetch();
+
+            if (!$marker) {
+                // No marker = count all messages from others
+                $stmt = $pdo->prepare(
+                    'SELECT COUNT(*) FROM chat_messages
+                     WHERE conv_id = :conv_id AND sender_id != :account_id'
+                );
+                $stmt->execute([':conv_id' => $convId, ':account_id' => $accountId]);
+                return (int) $stmt->fetchColumn();
+            }
+
+            $lastUuid = $marker['last_msg_uuid'];
+            if ($lastUuid === null) {
+                return 0; // Marker exists but no UUID = treated as all read
+            }
+
+            // Count messages from others that were inserted AFTER the last-read row
+            $stmt = $pdo->prepare(
+                'SELECT COUNT(*) FROM chat_messages
+                 WHERE conv_id  = :conv_id
+                   AND sender_id != :account_id
+                   AND id > (
+                       SELECT id FROM chat_messages
+                       WHERE msg_uuid = :last_uuid
+                       LIMIT 1
+                   )'
+            );
+            $stmt->execute([
+                ':conv_id'    => $convId,
+                ':account_id' => $accountId,
+                ':last_uuid'  => $lastUuid,
+            ]);
+            return (int) $stmt->fetchColumn();
+        } catch (PDOException $e) {
+            error_log('ConversationManager::unreadCount() — ' . $e->getMessage());
             return 0;
         }
-
-        $markerFile = self::readMarkerFile($convId, $accountId);
-        if (!file_exists($markerFile)) {
-            // No marker = everything from others is unread
-            return count(array_filter($messages, fn($m) => (int)($m['sender_id'] ?? -1) !== $accountId));
-        }
-
-        $marker    = json_decode(file_get_contents($markerFile), true) ?: [];
-        $lastMsgId = $marker['last_msg_id'] ?? null;
-
-        if ($lastMsgId === null) {
-            return 0; // File exists but no ID = treated as all read
-        }
-
-        // Find the last-read position
-        $seenIdx = -1;
-        foreach ($messages as $i => $msg) {
-            if (($msg['id'] ?? null) === $lastMsgId) {
-                $seenIdx = $i;
-                break;
-            }
-        }
-
-        if ($seenIdx === -1) {
-            // Message was pruned — treat remaining others' messages as unread
-            return count(array_filter($messages, fn($m) => (int)($m['sender_id'] ?? -1) !== $accountId));
-        }
-
-        $unread = 0;
-        for ($i = $seenIdx + 1; $i < count($messages); $i++) {
-            if ((int)($messages[$i]['sender_id'] ?? -1) !== $accountId) {
-                $unread++;
-            }
-        }
-        return $unread;
     }
 
     /**
@@ -313,106 +337,39 @@ class ConversationManager
      */
     public static function lastMessagePreview(string $convId): array
     {
-        $messages = self::loadRaw($convId);
-        if (empty($messages)) {
+        try {
+            $pdo  = Database::getConnection();
+            $stmt = $pdo->prepare(
+                'SELECT message, msg_type AS type, created_at AS timestamp
+                 FROM chat_messages
+                 WHERE conv_id = :conv_id
+                 ORDER BY created_at DESC, id DESC
+                 LIMIT 1'
+            );
+            $stmt->execute([':conv_id' => $convId]);
+            $last = $stmt->fetch();
+
+            if (!$last) {
+                return ['text' => '', 'timestamp' => 0, 'type' => ''];
+            }
+
+            $type = $last['type'] ?? 'text';
+            if ($type === 'upload') {
+                $text = '📎 Sent a file';
+            } else {
+                $decrypted = safeDecrypt($last['message'] ?? '');
+                $text      = mb_strimwidth($decrypted, 0, 60, '…');
+            }
+
+            return [
+                'text'      => $text,
+                'timestamp' => strtotime($last['timestamp'] ?? '') ?: 0,
+                'type'      => $type,
+            ];
+        } catch (PDOException $e) {
+            error_log('ConversationManager::lastMessagePreview() — ' . $e->getMessage());
             return ['text' => '', 'timestamp' => 0, 'type' => ''];
         }
-        $last = end($messages);
-        $type = $last['type'] ?? 'text';
-
-        if ($type === 'upload') {
-            $text = '📎 Sent a file';
-        } else {
-            $decrypted = safeDecrypt($last['message'] ?? '');
-            $text = mb_strimwidth($decrypted, 0, 60, '…');
-        }
-
-        return [
-            'text'      => $text,
-            'timestamp' => strtotime($last['timestamp'] ?? '') ?: 0,
-            'type'      => $type,
-        ];
-    }
-
-    // -------------------------------------------------------------------------
-    // Path helpers
-    // -------------------------------------------------------------------------
-
-    public static function chatFile(string $convId): string
-    {
-        return CHAT_PRIVATE_DIR . '/' . $convId . '.json';
-    }
-
-    public static function reactionsFile(string $convId): string
-    {
-        return CHAT_REACTIONS_DIR . '/private_' . $convId . '_reactions.json';
-    }
-
-    public static function readMarkerFile(string $convId, int $accountId): string
-    {
-        return CHAT_READ_MARKERS_DIR . '/' . $convId . '_' . $accountId . '.json';
-    }
-
-    // -------------------------------------------------------------------------
-    // Private helpers
-    // -------------------------------------------------------------------------
-
-    private static function appendMessage(
-        int $senderId,
-        int $receiverId,
-        string $content,
-        string $type
-    ): array|false {
-        $convId = self::convId($senderId, $receiverId);
-        $file   = self::chatFile($convId);
-
-        $encrypted = encryptMessage($content);
-        if ($encrypted === false) {
-            return false;
-        }
-
-        $dt = new DateTime('now', new DateTimeZone('Asia/Manila'));
-        $msg = [
-            'id'          => 'msg_' . bin2hex(random_bytes(8)),
-            'sender_id'   => $senderId,
-            'receiver_id' => $receiverId,
-            'message'     => $encrypted,
-            'timestamp'   => $dt->format('Y-m-d H:i:s.u'),
-            'type'        => $type,
-        ];
-
-        $fp = fopen($file, file_exists($file) ? 'r+' : 'w+');
-        if (!$fp) {
-            return false;
-        }
-
-        flock($fp, LOCK_EX);
-
-        $raw      = stream_get_contents($fp);
-        $messages = [];
-        if ($raw) {
-            $decoded = json_decode($raw, true);
-            if (json_last_error() === JSON_ERROR_NONE && is_array($decoded)) {
-                $messages = $decoded;
-            }
-        }
-
-        $messages[] = $msg;
-        usort($messages, fn($a, $b) => strcmp($a['timestamp'], $b['timestamp']));
-
-        // Trim to 1000 messages
-        if (count($messages) > 1000) {
-            $messages = array_slice($messages, -1000);
-        }
-
-        ftruncate($fp, 0);
-        rewind($fp);
-        fwrite($fp, json_encode($messages, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE));
-        fflush($fp);
-        flock($fp, LOCK_UN);
-        fclose($fp);
-
-        return $msg;
     }
 
     // -------------------------------------------------------------------------
@@ -420,67 +377,155 @@ class ConversationManager
     // -------------------------------------------------------------------------
 
     /**
-     * Return an array of all conversation summaries (for the admin spy panel).
+     * Return an array of all private conversation summaries (admin spy panel).
      * Each entry: { convId, userA, userB, msgCount, lastMessage, lastTimestamp }
      *
      * @return array
      */
     public static function getAllConversations(): array
     {
-        $dir    = CHAT_PRIVATE_DIR;
-        $result = [];
+        try {
+            $pdo  = Database::getConnection();
 
-        if (!is_dir($dir)) {
+            // One row per distinct private conversation with aggregate data
+            $stmt = $pdo->query(
+                "SELECT conv_id,
+                        COUNT(*) AS msg_count,
+                        MAX(created_at) AS last_ts
+                 FROM chat_messages
+                 WHERE conv_id != 'global'
+                 GROUP BY conv_id
+                 ORDER BY last_ts DESC"
+            );
+            $rows = $stmt->fetchAll();
+
+            $result = [];
+            foreach ($rows as $row) {
+                $convId = $row['conv_id'];
+                $parts  = explode('_', $convId);
+                if (count($parts) !== 2) {
+                    continue;
+                }
+
+                $userA = (int) $parts[0];
+                $userB = (int) $parts[1];
+
+                // Fetch last message for preview
+                $lastStmt = $pdo->prepare(
+                    'SELECT message, msg_type FROM chat_messages
+                     WHERE conv_id = :conv_id
+                     ORDER BY created_at DESC, id DESC
+                     LIMIT 1'
+                );
+                $lastStmt->execute([':conv_id' => $convId]);
+                $last = $lastStmt->fetch();
+
+                $lastMessage   = '';
+                $lastTimestamp = strtotime($row['last_ts'] ?? '') ?: 0;
+
+                if ($last) {
+                    if ($last['msg_type'] === 'upload') {
+                        $lastMessage = '📎 Sent a file';
+                    } else {
+                        $decrypted   = safeDecrypt($last['message'] ?? '');
+                        $lastMessage = mb_strimwidth($decrypted, 0, 60, '…');
+                    }
+                }
+
+                $result[] = [
+                    'convId'        => $convId,
+                    'userA'         => $userA,
+                    'userB'         => $userB,
+                    'msgCount'      => (int) $row['msg_count'],
+                    'lastMessage'   => $lastMessage,
+                    'lastTimestamp' => $lastTimestamp,
+                ];
+            }
+
             return $result;
+        } catch (PDOException $e) {
+            error_log('ConversationManager::getAllConversations() — ' . $e->getMessage());
+            return [];
         }
-
-        foreach (glob($dir . '/*.json') ?: [] as $file) {
-            $base  = basename($file, '.json');
-            $parts = explode('_', $base);
-            if (count($parts) !== 2) continue;
-
-            $userA  = (int) $parts[0];
-            $userB  = (int) $parts[1];
-            $convId = $base;
-
-            $messages = [];
-            $content  = @file_get_contents($file);
-            if ($content) {
-                $decoded = json_decode($content, true);
-                if (json_last_error() === JSON_ERROR_NONE && is_array($decoded)) {
-                    $messages = $decoded;
-                }
-            }
-
-            $msgCount = count($messages);
-            $last     = !empty($messages) ? end($messages) : null;
-
-            $lastMessage   = '';
-            $lastTimestamp = 0;
-            if ($last) {
-                $type = $last['type'] ?? 'text';
-                if ($type === 'upload') {
-                    $lastMessage = '📎 Sent a file';
-                } else {
-                    $decrypted   = safeDecrypt($last['message'] ?? '');
-                    $lastMessage = mb_strimwidth($decrypted, 0, 60, '…');
-                }
-                $lastTimestamp = strtotime($last['timestamp'] ?? '') ?: 0;
-            }
-
-            $result[] = [
-                'convId'        => $convId,
-                'userA'         => $userA,
-                'userB'         => $userB,
-                'msgCount'      => $msgCount,
-                'lastMessage'   => $lastMessage,
-                'lastTimestamp' => $lastTimestamp,
-            ];
-        }
-
-        // Sort by most recent first
-        usort($result, fn($a, $b) => $b['lastTimestamp'] <=> $a['lastTimestamp']);
-
-        return $result;
     }
+
+    /**
+     * Check whether any messages exist for a given conversation ID.
+     * Replaces the old file_exists() check on the JSON file.
+     *
+     * @param  string $convId
+     * @return bool
+     */
+    public static function conversationExists(string $convId): bool
+    {
+        try {
+            $pdo  = Database::getConnection();
+            $stmt = $pdo->prepare(
+                'SELECT 1 FROM chat_messages WHERE conv_id = :conv_id LIMIT 1'
+            );
+            $stmt->execute([':conv_id' => $convId]);
+            return (bool) $stmt->fetch();
+        } catch (PDOException $e) {
+            error_log('ConversationManager::conversationExists() — ' . $e->getMessage());
+            return false;
+        }
+    }
+
+    // -------------------------------------------------------------------------
+    // Private helpers
+    // -------------------------------------------------------------------------
+
+    private static function insertMessage(
+        int    $senderId,
+        int    $receiverId,
+        string $content,
+        string $type
+    ): array|false {
+        $convId = self::convId($senderId, $receiverId);
+
+        $encrypted = encryptMessage($content);
+        if ($encrypted === false) {
+            return false;
+        }
+
+        $uuid = 'msg_' . bin2hex(random_bytes(8));
+        $dt   = new DateTime('now', new DateTimeZone('Asia/Manila'));
+        $ts   = $dt->format('Y-m-d H:i:s.u');
+
+        try {
+            $pdo  = Database::getConnection();
+            $stmt = $pdo->prepare(
+                'INSERT INTO chat_messages (conv_id, sender_id, receiver_id, message, msg_type, created_at, updated_at, msg_uuid)
+                 VALUES (:conv_id, :sender_id, :receiver_id, :message, :msg_type, :created_at, :created_at, :msg_uuid)'
+            );
+            $stmt->execute([
+                ':conv_id'     => $convId,
+                ':sender_id'   => $senderId,
+                ':receiver_id' => $receiverId,
+                ':message'     => $encrypted,
+                ':msg_type'    => $type,
+                ':created_at'  => $ts,
+                ':msg_uuid'    => $uuid,
+            ]);
+
+            // Private DMs are not trimmed (no arbitrary size cap like global chat).
+            // Add trimming here if desired in the future.
+
+            return [
+                'id'          => $uuid,
+                'sender_id'   => $senderId,
+                'receiver_id' => $receiverId,
+                'message'     => $encrypted,
+                'timestamp'   => $ts,
+                'type'        => $type,
+            ];
+        } catch (PDOException $e) {
+            error_log('ConversationManager::insertMessage() — ' . $e->getMessage());
+            return false;
+        }
+    }
+
+    // Prevent instantiation / cloning
+    private function __construct() {}
+    private function __clone() {}
 }

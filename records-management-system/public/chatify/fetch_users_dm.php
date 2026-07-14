@@ -34,8 +34,7 @@ $filteredUsers = array_filter($allUsers, function ($user) use ($myAccountId) {
     $uid = (int) $user['account_id'];
     if ($uid === 1) {
         $convId = ConversationManager::convId(1, $myAccountId);
-        $file = CHAT_PRIVATE_DIR . '/' . $convId . '.json';
-        return file_exists($file);
+        return ConversationManager::conversationExists($convId);
     }
     return true;
 });

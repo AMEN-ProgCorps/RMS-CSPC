@@ -383,8 +383,7 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create Issuance
         }
 
         if (empty($this->seq_number)) {
-            $this->addError('seq_number', 'Please enter the Sequence Number first before generating the QR Code.');
-            return;
+            $this->generateRandomSeq();
         }
 
         // Prepare the Hacore formula variables
@@ -883,6 +882,7 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create Issuance
                 <div style="margin-right: 220px; display: flex; flex-direction: column; gap: 24px;">
                     
                     <!-- Generated Control Number Identity Badge -->
+                    @if(auth()->user()?->permissions?->can_dts_modify_control_no)
                     <div class="beta-control-badge">
                         <span class="badge-label">Generated Control Number</span>
                         <div style="display: flex; gap: 8px; align-items: center; margin-top: 4px;">
@@ -915,6 +915,7 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create Issuance
                             <span class="beta-error" style="color: #fca5a5; font-size: 12px; margin-top: 4px; display: block;">{{ $message }}</span>
                         @enderror
                     </div>
+                    @endif
 
                     <!-- Card 1: Document Details -->
                     <div class="beta-card">
@@ -1129,44 +1130,46 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create Issuance
             <!-- Left Side Form Fields -->
             <div style="margin-right: 220px;">
                 
-                <!-- Control Number Selection Dropdown and Input -->
-                <div class="control-wrapper" style="margin-bottom: 20px;">
-                    <label class="control-label">Control Number:</label>
-                    <div style="display: flex; gap: 8px; flex-wrap: wrap; align-items: center;">
-                        <select wire:model.live="issuance_type" class="select-input" style="max-width: 200px; height: 32px; padding: 2px 6px;">
-                            <option value="NM">Numbered Memo (NM)</option>
-                            <option value="AM">Admin Memo (AM)</option>
-                            <option value="EM">Executive Memo (EM)</option>
-                            <option value="TO">Travel Order (TO)</option>
-                            <option value="OM">Office Memo (OM)</option>
-                        </select>
-                        
-                        <div style="display: flex; align-items: center; max-width: 300px; border: 1px solid #ced4da; border-radius: 4px; overflow: hidden; background: #e9ecef; height: 32px; box-sizing: border-box;">
-                            <span style="padding: 0 10px; font-family: 'Inter', sans-serif; font-size: 13px; color: #495057; font-weight: 600; border-right: 1px solid #ced4da; user-select: none; line-height: 30px;">
-                                {{ $issuance_type }}-{{ now()->format('Y-m') }}-
-                            </span>
-                            <input type="text" wire:model.live="seq_number" class="text-input" placeholder="0001" style="flex: 1; border: none; height: 100%; padding: 0 8px; font-size: 13px; background: transparent; outline: none; box-shadow: none;">
-                        </div>
-                        @if(empty($seq_number))
-                            <button type="button" wire:click="generateRandomSeq" class="btn-primary" style="padding: 0 12px; height: 32px; font-size: 12px; background-color: #3b82f6; border-radius: 4px;">
-                                Generate
-                            </button>
-                        @else
-                            <button type="button" wire:click="checkAvailability" class="btn-primary" style="padding: 0 12px; height: 32px; font-size: 12px; background-color: #4b5563; border-radius: 4px;">
-                                Check Availability
-                            </button>
-                        @endif
+                @if(auth()->user()?->permissions?->can_dts_modify_control_no)
+                    <!-- Control Number Selection Dropdown and Input -->
+                    <div class="control-wrapper" style="margin-bottom: 20px;">
+                        <label class="control-label">Control Number:</label>
+                        <div style="display: flex; gap: 8px; flex-wrap: wrap; align-items: center;">
+                            <select wire:model.live="issuance_type" class="select-input" style="max-width: 200px; height: 32px; padding: 2px 6px;">
+                                <option value="NM">Numbered Memo (NM)</option>
+                                <option value="AM">Admin Memo (AM)</option>
+                                <option value="EM">Executive Memo (EM)</option>
+                                <option value="TO">Travel Order (TO)</option>
+                                <option value="OM">Office Memo (OM)</option>
+                            </select>
+                            
+                            <div style="display: flex; align-items: center; max-width: 300px; border: 1px solid #ced4da; border-radius: 4px; overflow: hidden; background: #e9ecef; height: 32px; box-sizing: border-box;">
+                                <span style="padding: 0 10px; font-family: 'Inter', sans-serif; font-size: 13px; color: #495057; font-weight: 600; border-right: 1px solid #ced4da; user-select: none; line-height: 30px;">
+                                    {{ $issuance_type }}-{{ now()->format('Y-m') }}-
+                                </span>
+                                <input type="text" wire:model.live="seq_number" class="text-input" placeholder="0001" style="flex: 1; border: none; height: 100%; padding: 0 8px; font-size: 13px; background: transparent; outline: none; box-shadow: none;">
+                            </div>
+                            @if(empty($seq_number))
+                                <button type="button" wire:click="generateRandomSeq" class="btn-primary" style="padding: 0 12px; height: 32px; font-size: 12px; background-color: #3b82f6; border-radius: 4px;">
+                                    Generate
+                                </button>
+                            @else
+                                <button type="button" wire:click="checkAvailability" class="btn-primary" style="padding: 0 12px; height: 32px; font-size: 12px; background-color: #4b5563; border-radius: 4px;">
+                                    Check Availability
+                                </button>
+                            @endif
 
+                        </div>
+                        @if($availabilityMessage)
+                            <span style="font-size: 12px; margin-top: 4px; display: block; font-weight: 600; color: {{ $isAvailable ? '#10b981' : '#dc2626' }};">
+                                {{ $availabilityMessage }}
+                            </span>
+                        @endif
+                        @error('seq_number')
+                            <span class="error-msg" style="color: #dc2626; font-size: 12px; margin-top: 4px; display: block;">{{ $message }}</span>
+                        @enderror
                     </div>
-                    @if($availabilityMessage)
-                        <span style="font-size: 12px; margin-top: 4px; display: block; font-weight: 600; color: {{ $isAvailable ? '#10b981' : '#dc2626' }};">
-                            {{ $availabilityMessage }}
-                        </span>
-                    @endif
-                    @error('seq_number')
-                        <span class="error-msg" style="color: #dc2626; font-size: 12px; margin-top: 4px; display: block;">{{ $message }}</span>
-                    @enderror
-                </div>
+                @endif
 
                 <!-- Subject field with label and textarea -->
                 <div class="form-row">

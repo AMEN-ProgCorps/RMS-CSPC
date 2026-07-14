@@ -9,6 +9,16 @@
             toggleNavSection: "{{ asset('icons/toggle-nav-section.svg') }}",
             toggleNavDefault: "{{ asset('icons/toggle-nav-default.svg') }}",
         };
+        window.proccedto = window.proccedto || function(url) {
+            window.location.href = url;
+        };
+        window.showButtonSection = window.showButtonSection || function(button_target) {
+            const navigation = document.getElementById('navigation');
+            const pla = document.getElementById(button_target);
+            if (navigation && pla && navigation.classList.contains('imup')) {
+                pla.classList.toggle('show');
+            }
+        };
     </script>
     @vite(['resources/css/dashboard.css', 'resources/css/notifications.css', 'resources/js/dashboard.js'])
     <title>CSPC - Profile Manager</title>

@@ -59,10 +59,11 @@ new #[Layout('layouts.portal')] #[Title('Track Document')] class extends Compone
 
         $input = trim($this->trackingNumber);
         $decoded = base64_decode($input, true);
-        if ($decoded !== false && preg_match('/^[A-Z0-9-]+$/i', $decoded)) {
-            $this->trackingNumber = $decoded;
+        if ($decoded !== false && ctype_print($decoded)) {
+            $this->trackingNumber = trim($decoded);
         }
 
+        $code = $this->trackingNumber;
         $deviceInfo = $this->deviceInfoJson ? json_decode($this->deviceInfoJson, true) : [];
         $deviceId   = $deviceInfo['device_id'] ?? 'unknown';
         $attempts   = (int) ($deviceInfo['document_tracked_within_10_minutes'] ?? 1);
@@ -73,10 +74,49 @@ new #[Layout('layouts.portal')] #[Title('Track Document')] class extends Compone
             default        => 'warning',
         };
 
+        // First level validation: check if QR exists or matches a control number
+        $qrExists = DB::table('dts_qr_code')->where('code_id', $code)->exists();
+        $cnExists = DB::table('dts_transaction_details')->where('control_number', $code)->exists();
+
+        if (!$qrExists && !$cnExists) {
+            try {
+                DB::table('tracking_devices_log')->insert([
+                    'tracked_id'        => null,
+                    'device_id'         => $deviceId,
+                    'email'             => null,
+                    'current_timestamp' => now(),
+                    'status'            => $status,
+                    'created_at'        => now(),
+                    'updated_at'        => now(),
+                ]);
+            } catch (\Exception $e) {}
+
+            $this->dispatch('track-result', status: 'not-found');
+            return;
+        }
+
+        // Second level validation: check if the QR code is associated with a transaction that has email access
+        if ($qrExists) {
+            $hasTransaction = DB::table('dts_transactions as dt')
+                ->join('dts_transaction_details as dtd', 'dtd.id', '=', 'dt.transaction_id')
+                ->where('dt.qr_code', $code)
+                ->whereNotNull('dtd.email_access')
+                ->exists();
+            if (!$hasTransaction) {
+                $this->dispatch('track-result', status: 'not-found');
+                return;
+            }
+        }
+
         try {
-            // Phase 2: Check if tracking number exists in dts_transactions
-            $exists = DB::table('dts_transactions')
-                ->where('qr_code', $this->trackingNumber)
+            // Phase 2: Check if tracking number exists in dts_transactions or transaction details and has email access
+            $exists = DB::table('dts_transactions as dt')
+                ->join('dts_transaction_details as dtd', 'dtd.id', '=', 'dt.transaction_id')
+                ->where(function($q) use ($code) {
+                    $q->where('dt.qr_code', $code)
+                      ->orWhere('dtd.control_number', $code);
+                })
+                ->whereNotNull('dtd.email_access')
                 ->exists();
 
             if (! $exists) {
@@ -96,7 +136,7 @@ new #[Layout('layouts.portal')] #[Title('Track Document')] class extends Compone
 
             // Phase 3: Redirect to tracked results page
             $this->dispatch('track-result', status: 'found');
-            $this->redirect(route('tracked') . '?number=' . urlencode($this->trackingNumber), navigate: true);
+            $this->redirect(route('tracked') . '?number=' . urlencode($code), navigate: true);
 
         } catch (\Illuminate\Database\QueryException $e) {
             $this->dispatch('track-result', status: 'db-error');

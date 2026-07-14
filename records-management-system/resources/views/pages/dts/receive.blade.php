@@ -33,13 +33,24 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Receive Transac
     /** @var string Search query for filtering grid list */
     public string $searchQuery = '';
 
-    /** @var bool Flags for individual field editing toggles */
-    public bool $editingControl = false;
-    public bool $editingFileCode = false;
-    public bool $editingParticulars = false;
+    /** @var bool Flag for edit mode toggle */
+    public bool $editingAll = false;
 
     /** @var bool Toggle state for full configured path sequence */
     public bool $showFullConfiguredPath = false;
+    public bool $showMoreDetails = false;
+    public bool $showPassword = false;
+
+    // Show More Details edit properties
+    public string $requestorName = '';
+    public string $requestorPosition = '';
+    public string $emailAccess = '';
+    public string $docPassword = '';
+
+    // Copy Furnished state properties
+    public bool $showCopyFurnished = false;
+    public array $cfSelectedOffices = [];
+    public string $selectedCfOfficeToAdd = '';
 
     /**
      * Component mount hook.
@@ -70,6 +81,7 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Receive Transac
         $query = DB::table('dts_transactions as dt')
             ->join('dts_transaction_details as dtd', 'dtd.id', '=', 'dt.transaction_id')
             ->leftJoin('office as originated_office', 'originated_office.office_code', '=', 'dtd.originated_from')
+            ->leftJoin('office as current_office', 'current_office.office_code', '=', 'dt.current_office')
             ->leftJoin('dts_document_data as doc', 'doc.document_path', '=', 'dt.doc_dir')
             ->where('dt.current_office', $userOfficeCode)
             ->whereIn('dt.status', ['ongoing', 'revision']);
@@ -94,6 +106,7 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Receive Transac
             'dt.status',
             'dt.sequence',
             'dt.qr_code',
+            'dt.current_office',
             'dtd.control_number',
             'dtd.requestor_name',
             'dtd.requestor_label',
@@ -102,6 +115,7 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Receive Transac
             'dtd.action_needed',
             'dtd.date_created',
             'originated_office.office_name as originated_office_name',
+            'current_office.office_name as current_office_name',
             'doc.document_name'
         )
         ->get()
@@ -115,7 +129,19 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Receive Transac
 
             $dateReceived = $latestLog ? $latestLog->date_in : $t->date_created;
             $t->date_received = $dateReceived;
-            $t->elapsed_days = $dateReceived ? max(0, now()->diffInDays(Carbon::parse($dateReceived))) : 0;
+            $hasBeenForwarded = DB::table('sub_document_tracking_system_logs')
+                ->where('transaction_id', $t->transaction_id)
+                ->where('type', 'forwarded')
+                ->exists();
+
+            if ($hasBeenForwarded) {
+                $t->elapsed_days = $dateReceived ? (now()->diffInDays(Carbon::parse($dateReceived)) + 1) : 1;
+            } else {
+                $t->elapsed_days = 0;
+            }
+
+            // Duration in minutes for warning icon and sorting priority
+            $t->diff_in_minutes = $dateReceived ? abs(now()->diffInMinutes(Carbon::parse($dateReceived))) : 0;
 
             // Previous office (from office)
             $prevLog = DB::table('sub_document_tracking_system_logs as log')
@@ -159,7 +185,9 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Receive Transac
             }
 
             return $t;
-        });
+        })
+        ->sortByDesc('diff_in_minutes')
+        ->values();
     }
 
     /**
@@ -271,12 +299,29 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Receive Transac
      */
     public function closeTransaction(): void
     {
+        if ($this->editingAll) {
+            $this->editingAll = false;
+            $this->loadSelectedTransaction();
+            return;
+        }
+
         $this->selectedTransactionId = '';
         $this->selectedTransaction = null;
-        $this->editingControl = false;
-        $this->editingFileCode = false;
-        $this->editingParticulars = false;
         $this->showFullConfiguredPath = false;
+        $this->showMoreDetails = false;
+        $this->showPassword = false;
+        $this->showCopyFurnished = false;
+        $this->cfSelectedOffices = [];
+        $this->selectedCfOfficeToAdd = '';
+        $this->requestorName = '';
+        $this->requestorPosition = '';
+        $this->emailAccess = '';
+        $this->docPassword = '';
+    }
+
+    public function toggleMoreDetails(): void
+    {
+        $this->showMoreDetails = !$this->showMoreDetails;
     }
 
     /**
@@ -286,8 +331,9 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Receive Transac
     {
         $this->selectedTransaction = DB::table('dts_transactions as dt')
             ->join('dts_transaction_details as dtd', 'dtd.id', '=', 'dt.transaction_id')
+            ->leftJoin('dts_email_access as dea', 'dea.id', '=', 'dtd.email_access')
             ->where('dt.transaction_id', $this->selectedTransactionId)
-            ->select('dt.*', 'dtd.*')
+            ->select('dt.*', 'dtd.*', 'dea.email as access_email')
             ->first();
         
         if ($this->selectedTransaction) {
@@ -296,6 +342,23 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Receive Transac
             $this->particulars = $this->selectedTransaction->subject ?? '';
             $this->classification = $this->selectedTransaction->classification ?? '';
             $this->actionNeeded = $this->selectedTransaction->action_needed ?? '';
+
+            $this->requestorName = $this->selectedTransaction->requestor_name ?: '';
+            $this->requestorPosition = $this->selectedTransaction->requestor_label ?: '';
+            $this->emailAccess = $this->selectedTransaction->access_email ?: '';
+            $this->docPassword = $this->selectedTransaction->document_password ?: '';
+            
+            // Load Copy Furnished offices
+            $this->cfSelectedOffices = [];
+            if ($this->selectedTransaction->copy_filled_id) {
+                $cfRecord = DB::table('dts_copy_filled_transaction')->where('id', $this->selectedTransaction->copy_filled_id)->first();
+                if ($cfRecord) {
+                    $this->cfSelectedOffices = DB::table('dts_copy_filled_to_office')
+                        ->where('control_id', $cfRecord->assign_offices_id)
+                        ->pluck('office_code')
+                        ->toArray();
+                }
+            }
             
             // Ensure proper logs sequence exists
             $logsCount = DB::table('sub_document_tracking_system_logs')
@@ -542,7 +605,8 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Receive Transac
             }
         }
 
-        if (auth()->user()?->permissions?->is_sadm) {
+        $perms = auth()->user()?->permissions;
+        if ($perms && ($perms->is_sadm || $perms->can_dts_modify_transaction)) {
             DB::table('dts_transaction_details')
                 ->where('id', $this->selectedTransactionId)
                 ->update([
@@ -581,29 +645,121 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Receive Transac
     }
 
     /**
-     * Switch details attributes into edit modes.
+     * Toggle all fields into edit mode.
      */
-    public function startEdit(string $field): void
+    public function toggleEditAll(): void
     {
-        if (!auth()->user()?->permissions?->is_sadm) {
+        $perms = auth()->user()?->permissions;
+        if (!($perms?->is_sadm || $perms?->can_dts_modify_transaction)) {
             return;
         }
-        $this->editingControl = $field === 'control';
-        $this->editingFileCode = $field === 'file_code';
-        $this->editingParticulars = $field === 'particulars';
+        $this->editingAll = !$this->editingAll;
     }
 
-    /**
-     * Commit individual field modification states.
-     */
-    public function saveField(string $field): void
+    public function addCfOffice(): void
     {
-        match ($field) {
-            'control' => $this->editingControl = false,
-            'file_code' => $this->editingFileCode = false,
-            'particulars' => $this->editingParticulars = false,
-            default => null,
-        };
+        if (empty($this->selectedCfOfficeToAdd)) {
+            return;
+        }
+        if (!in_array($this->selectedCfOfficeToAdd, $this->cfSelectedOffices)) {
+            $this->cfSelectedOffices[] = $this->selectedCfOfficeToAdd;
+        }
+        $this->selectedCfOfficeToAdd = '';
+    }
+
+    public function removeCfOffice(string $officeCode): void
+    {
+        $this->cfSelectedOffices = array_values(array_diff($this->cfSelectedOffices, [$officeCode]));
+    }
+
+    public function saveMetadataOnly(): void
+    {
+        $perms = auth()->user()?->permissions;
+        if ($perms && ($perms->is_sadm || $perms->can_dts_modify_transaction)) {
+            // Find/create email access ID if provided
+            $emailAccessId = null;
+            if ($this->emailAccess) {
+                $existingEmail = DB::table('dts_email_access')->where('email', $this->emailAccess)->first();
+                if (!$existingEmail) {
+                    $emailAccessId = DB::table('dts_email_access')->insertGetId([
+                        'email' => $this->emailAccess,
+                        'created_at' => now(),
+                        'updated_at' => now(),
+                    ]);
+                } else {
+                    $emailAccessId = $existingEmail->id;
+                }
+            }
+
+            // Sync copy furnished records
+            $copyFilledId = $this->selectedTransaction->copy_filled_id;
+            if (count($this->cfSelectedOffices) > 0) {
+                if ($copyFilledId) {
+                    $cfRecord = DB::table('dts_copy_filled_transaction')->where('id', $copyFilledId)->first();
+                    if ($cfRecord) {
+                        // update transaction
+                        DB::table('dts_copy_filled_transaction')
+                            ->where('id', $copyFilledId)
+                            ->update([
+                                'total_office' => count($this->cfSelectedOffices),
+                                'date_modified' => now(),
+                            ]);
+                        // delete and re-insert offices
+                        DB::table('dts_copy_filled_to_office')
+                            ->where('control_id', $cfRecord->assign_offices_id)
+                            ->delete();
+                        foreach ($this->cfSelectedOffices as $cfOffice) {
+                            DB::table('dts_copy_filled_to_office')->insert([
+                                'control_id' => $cfRecord->assign_offices_id,
+                                'office_code' => $cfOffice,
+                            ]);
+                        }
+                    }
+                } else {
+                    // insert new
+                    $assignOfficesId = (DB::table('dts_copy_filled_transaction')->max('assign_offices_id') ?? 1000) + 1;
+                    $copyFilledId = DB::table('dts_copy_filled_transaction')->insertGetId([
+                        'control_num' => $this->controlNumber,
+                        'total_office' => count($this->cfSelectedOffices),
+                        'assign_offices_id' => $assignOfficesId,
+                        'data_created' => now(),
+                        'date_modified' => now(),
+                    ]);
+                    foreach ($this->cfSelectedOffices as $cfOffice) {
+                        DB::table('dts_copy_filled_to_office')->insert([
+                            'control_id' => $assignOfficesId,
+                            'office_code' => $cfOffice,
+                        ]);
+                    }
+                }
+            } else {
+                // if empty but had cf record, remove it
+                if ($copyFilledId) {
+                    $cfRecord = DB::table('dts_copy_filled_transaction')->where('id', $copyFilledId)->first();
+                    if ($cfRecord) {
+                        DB::table('dts_copy_filled_to_office')->where('control_id', $cfRecord->assign_offices_id)->delete();
+                        DB::table('dts_copy_filled_transaction')->where('id', $copyFilledId)->delete();
+                    }
+                    $copyFilledId = null;
+                }
+            }
+
+            DB::table('dts_transaction_details')
+                ->where('id', $this->selectedTransactionId)
+                ->update([
+                    'control_number' => $this->controlNumber,
+                    'copy_filled_id' => $copyFilledId ?: null,
+                    'subject' => $this->particulars,
+                    'classification' => $this->classification ?: null,
+                    'action_needed' => $this->actionNeeded ?: null,
+                    'requestor_name' => $this->requestorName ?: null,
+                    'requestor_label' => $this->requestorPosition ?: null,
+                    'email_access' => $emailAccessId,
+                    'document_password' => $this->docPassword ?: null,
+                ]);
+            $this->loadSelectedTransaction();
+        }
+        $this->editingAll = false;
     }
 };
 ?>
@@ -613,6 +769,12 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Receive Transac
 @endpush
 
 <div class="receive-container" wire:poll.15s>
+    @php
+        $perms = auth()->user()?->permissions;
+        $isSadm = $perms?->is_sadm ?? false;
+        $canProcess = $isSadm || ($perms?->can_dts_user_received ?? false);
+        $canModifyTrans = $isSadm || ($perms?->can_dts_modify_transaction ?? false);
+    @endphp
     <!-- Header Section -->
     <div class="receive-header">
         <h1 class="receive-main-title">Receive Transactions</h1>
@@ -648,16 +810,16 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Receive Transac
                 <!-- Top Right Info & Icon -->
                 <div style="position: absolute; top: 16px; right: 16px; display: flex; align-items: center; gap: 8px; font-size: 11px; color: #6b7280;">
                     <span>{{ $t->date_received ? \Carbon\Carbon::parse($t->date_received)->diffForHumans(null, true) . ' ago' : 'N/A' }}</span>
-                    @if ($t->status === 'completed')
-                        <span style="display: inline-block; width: 14px; height: 14px; background-color: #10b981; transform: rotate(45deg); display: flex; align-items: center; justify-content: center; border-radius: 2px;" title="Completed">
-                            <span style="transform: rotate(-45deg); color: white; font-size: 9px; font-weight: bold;">✔</span>
+                    @if ($t->diff_in_minutes < 10)
+                        <span style="display: inline-block; width: 14px; height: 14px; background-color: #10b981; transform: rotate(45deg); display: flex; align-items: center; justify-content: center; border-radius: 2px;" title="New (Less than 10 mins)">
+                            <span style="transform: rotate(-45deg); color: white; font-size: 9px; font-weight: bold;">!</span>
                         </span>
-                    @elseif ($t->classification === 'highly_technical')
-                        <span style="display: inline-block; width: 14px; height: 14px; background-color: #ef4444; transform: rotate(45deg); display: flex; align-items: center; justify-content: center; border-radius: 2px;" title="Highly Technical">
+                    @elseif ($t->diff_in_minutes <= 60)
+                        <span style="display: inline-block; width: 14px; height: 14px; background-color: #f59e0b; transform: rotate(45deg); display: flex; align-items: center; justify-content: center; border-radius: 2px;" title="Pending (Over 10 mins)">
                             <span style="transform: rotate(-45deg); color: white; font-size: 9px; font-weight: bold;">!</span>
                         </span>
                     @else
-                        <span style="display: inline-block; width: 14px; height: 14px; background-color: #f59e0b; transform: rotate(45deg); display: flex; align-items: center; justify-content: center; border-radius: 2px;" title="Pending Action">
+                        <span style="display: inline-block; width: 14px; height: 14px; background-color: #ef4444; transform: rotate(45deg); display: flex; align-items: center; justify-content: center; border-radius: 2px;" title="Urgent (Over an hour)">
                             <span style="transform: rotate(-45deg); color: white; font-size: 9px; font-weight: bold;">!</span>
                         </span>
                     @endif
@@ -674,7 +836,7 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Receive Transac
                     <div style="margin-bottom: 6px;"><strong>Receive From:</strong> <span style="color: #ef4444; font-weight: 500;">{{ $t->from_office }}</span></div>
                     <div style="margin-bottom: 14px;"><strong>Receive Date:</strong> {{ $t->date_received ? \Carbon\Carbon::parse($t->date_received)->format('Y-m-d H:i') : 'N/A' }}</div>
 
-                    <div style="margin-bottom: 14px;"><strong>Next Receiving Office:</strong> {{ $t->next_office_name }}</div>
+                    <div style="margin-bottom: 14px;"><strong>Current Office:</strong> {{ $t->current_office_name }}</div>
 
                     <div style="margin-bottom: 6px;"><strong>Action Needed:</strong> <span style="color: #16a34a; font-weight: 600;">{{ $t->action_needed ?? 'For action' }}</span></div>
                     <div style="margin-bottom: 6px;"><strong>Elapsed Day:</strong> <span style="color: #ef4444; font-style: italic;">{{ $t->elapsed_days }} day(s) </span></div>
@@ -715,135 +877,236 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Receive Transac
                         <!-- Control Number field -->
                         <div class="receive-field-row">
                             <span class="receive-field-label">Control #:</span>
-                            @if ($editingControl)
-                                <div style="display: flex; gap: 8px; width: 100%;">
-                                    <input type="text" class="receive-field-input" wire:model="controlNumber">
-                                    <div class="receive-field-actions">
-                                        <button type="button" wire:click="saveField('control')">Save</button>
-                                    </div>
-                                </div>
+                            @if ($editingAll)
+                                <input type="text" class="receive-field-input" wire:model="controlNumber">
                             @else
                                 <input type="text" class="receive-field-input" value="{{ $controlNumber }}" readonly>
-                                @if (auth()->user()?->permissions?->is_sadm && $selectedTransaction->current_office === auth()->user()?->details?->office?->office_code)
-                                    <div class="receive-field-actions">
-                                        <button type="button" wire:click="startEdit('control')">Update</button>
-                                        <span>|</span>
-                                        <button type="button" wire:click="startEdit('control')">Edit</button>
-                                    </div>
-                                @endif
                             @endif
                         </div>
 
                         <!-- File Code / Copy Furnished field -->
                         <div class="receive-field-row">
                             <span class="receive-field-label">File Code:</span>
-                            @if ($editingFileCode)
-                                <div style="display: flex; gap: 8px; width: 100%;">
-                                    <input type="text" class="receive-field-input" wire:model="fileCode">
-                                    <div class="receive-field-actions">
-                                        <button type="button" wire:click="saveField('file_code')">Save</button>
-                                    </div>
-                                </div>
+                            @if ($editingAll)
+                                <input type="text" class="receive-field-input" wire:model="fileCode">
                             @else
                                 <input type="text" class="receive-field-input" value="{{ $fileCode ?: 'N/A' }}" readonly>
-                                @if (auth()->user()?->permissions?->is_sadm && $selectedTransaction->current_office === auth()->user()?->details?->office?->office_code)
-                                    <div class="receive-field-actions">
-                                        <button type="button" wire:click="startEdit('file_code')">Update</button>
-                                        <span>|</span>
-                                        <button type="button" wire:click="startEdit('file_code')">Edit</button>
-                                    </div>
-                                @endif
                             @endif
                         </div>
 
                         <!-- Particulars / Subject field -->
                         <div class="receive-field-row receive-field-row--particulars">
                             <span class="receive-field-label">Particulars:</span>
-                            @if ($editingParticulars)
-                                <div style="display: flex; flex-direction: column; gap: 8px; width: 100%;">
-                                    <textarea class="receive-field-input" wire:model="particulars" style="min-height: 72px; resize: vertical;"></textarea>
-                                    <div class="receive-field-actions" style="justify-content: flex-end;">
-                                        <button type="button" wire:click="saveField('particulars')">Save</button>
-                                    </div>
-                                </div>
+                            @if ($editingAll)
+                                <textarea class="receive-field-input" wire:model="particulars" style="min-height: 72px; resize: vertical;"></textarea>
                             @else
-                                @if (auth()->user()?->permissions?->is_sadm && $selectedTransaction->current_office === auth()->user()?->details?->office?->office_code)
-                                    <div class="receive-particulars-display" wire:click="startEdit('particulars')" style="cursor: pointer; width: 100%;">
-                                        {{ $particulars ?: 'Click to add particulars...' }}
-                                    </div>
-                                @else
-                                    <div class="receive-particulars-display" style="width: 100%;">
-                                        {{ $particulars ?: 'No particulars provided.' }}
-                                    </div>
-                                @endif
+                                <div class="receive-particulars-display" style="width: 100%;">
+                                    {{ $particulars ?: 'No particulars provided.' }}
+                                </div>
                             @endif
                         </div>
+
+                        <!-- Show More Details Button -->
+                        <div style="margin: 14px 0 6px; display: flex; justify-content: flex-start; padding: 0 4px;">
+                            <button type="button" wire:click="toggleMoreDetails" style="background: none; border: none; color: #2563eb; font-weight: 600; font-size: 13px; cursor: pointer; padding: 0; outline: none; font-family: 'Inter', sans-serif;">
+                                {{ $showMoreDetails ? '▲ Hide Details' : '▼ Show More Details' }}
+                            </button>
+                        </div>
+
+                        @if ($showMoreDetails)
+                            <div style="border-top: 1.5px dashed #e2e8f0; padding-top: 12px; margin-top: 6px;">
+                                <div class="receive-field-row" style="grid-template-columns: 180px 1fr; margin-bottom: 12px; align-items: center;">
+                                    <span class="receive-field-label" style="font-weight: 600; color: #475569; white-space: nowrap;">Requestor Name:</span>
+                                    @if ($editingAll)
+                                        <input type="text" class="receive-field-input" wire:model="requestorName">
+                                    @else
+                                        <input type="text" class="receive-field-input" value="{{ $requestorName ?: 'N/A' }}" readonly style="background-color: #f8fafc; color: #64748b;">
+                                    @endif
+                                </div>
+                                <div class="receive-field-row" style="grid-template-columns: 180px 1fr; margin-bottom: 12px; align-items: center;">
+                                    <span class="receive-field-label" style="font-weight: 600; color: #475569; white-space: nowrap;">Requestor Position:</span>
+                                    @if ($editingAll)
+                                        <input type="text" class="receive-field-input" wire:model="requestorPosition">
+                                    @else
+                                        <input type="text" class="receive-field-input" value="{{ $requestorPosition ?: 'N/A' }}" readonly style="background-color: #f8fafc; color: #64748b;">
+                                    @endif
+                                </div>
+                                <div class="receive-field-row" style="grid-template-columns: 180px 1fr; margin-bottom: 12px; align-items: center;">
+                                    <span class="receive-field-label" style="font-weight: 600; color: #475569; white-space: nowrap;">Copy Furnished (CF) ID:</span>
+                                    <input type="text" class="receive-field-input" value="{{ $fileCode ?: 'N/A' }}" readonly style="background-color: #f8fafc; color: #64748b;">
+                                </div>
+                                <div class="receive-field-row" style="grid-template-columns: 180px 1fr; margin-bottom: 12px; align-items: center;">
+                                    <span class="receive-field-label" style="font-weight: 600; color: #475569; white-space: nowrap;">Email Access:</span>
+                                    @if ($editingAll)
+                                        <input type="email" class="receive-field-input" wire:model="emailAccess">
+                                    @else
+                                        <input type="text" class="receive-field-input" value="{{ $emailAccess ?: 'N/A' }}" readonly style="background-color: #f8fafc; color: #64748b;">
+                                    @endif
+                                </div>
+                                <div class="receive-field-row" style="grid-template-columns: 180px 1fr; margin-bottom: 4px; align-items: center;">
+                                    <span class="receive-field-label" style="font-weight: 600; color: #475569; white-space: nowrap;">Document Password:</span>
+                                    <div style="display: flex; gap: 8px; width: 100%; align-items: center;">
+                                        @if ($editingAll)
+                                            <input type="text" class="receive-field-input" wire:model="docPassword" style="flex: 1;">
+                                        @else
+                                            <input type="{{ $showPassword ? 'text' : 'password' }}" class="receive-field-input" value="{{ $docPassword ?: 'N/A' }}" readonly style="background-color: #f8fafc; color: #64748b; flex: 1;">
+                                            <button type="button" wire:click="$toggle('showPassword')" style="background: #e2e8f0; border: 1px solid #cbd5e1; color: #475569; border-radius: 6px; padding: 8px 12px; font-size: 13px; font-weight: 600; cursor: pointer; display: inline-flex; align-items: center; gap: 6px; outline: none; transition: all 0.2s ease; height: 38px;">
+                                                <i class="fa-solid {{ $showPassword ? 'fa-eye-slash' : 'fa-eye' }}"></i>
+                                                {{ $showPassword ? 'Hide' : 'Show' }}
+                                            </button>
+                                        @endif
+                                    </div>
+                                </div>
+                            </div>
+                        @endif
                     </div>
 
                     <hr class="receive-divider">
 
-                    <!-- Transaction Path Section -->
-                    <h2 class="receive-title" style="font-size: 16px; margin-top: 10px;">Transaction Path</h2>
+                    @if ($showCopyFurnished)
+                        <!-- Copy Furnished Section -->
+                        <h2 class="receive-title" style="font-size: 16px; margin-top: 10px;">Copy Furnished Offices</h2>
+                        
+                        @if ($editingAll)
+                            <div style="display: flex; gap: 8px; margin-bottom: 12px; align-items: center; max-width: 500px;">
+                                <select class="receive-field-input" style="flex: 1; height: 38px; border: 1px solid #cbd5e1; border-radius: 6px; padding: 0 10px;" wire:model="selectedCfOfficeToAdd">
+                                    <option value="">-- Select Office to Add --</option>
+                                    @foreach(DB::table('office')->where('is_active', true)->whereNotIn('office_code', ['ORIGIN', '[H]'])->orderBy('office_name', 'asc')->get() as $off)
+                                        <option value="{{ $off->office_code }}">{{ $off->office_name }} ({{ $off->office_code }})</option>
+                                    @endforeach
+                                </select>
+                                <button type="button" class="receive-action-btn" wire:click="addCfOffice" style="padding: 8px 16px; height: 38px; white-space: nowrap; background-color: #2563eb; color: #fff;">
+                                    + Add Office
+                                </button>
+                            </div>
+                        @endif
 
-                    <div class="receive-table-wrap">
-                        <table class="receive-table">
-                            <thead>
-                                <tr>
-                                    <th>#</th>
-                                    <th>Office</th>
-                                    <th>Date In</th>
-                                    <th>Date Out</th>
-                                    <th>Total Time</th>
-                                    <th>Action Need</th>
-                                    <th>Notes</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                @forelse ($this->visiblePath as $index => $step)
+                        <div class="receive-table-wrap">
+                            <table class="receive-table">
+                                <thead>
                                     <tr>
-                                        <td>{{ $step->sequence_ranking ?? ($index + 1) }}</td>
-                                        <td class="office-cell">{{ $step->office_name }}</td>
-                                        <td>{{ $step->date_in ? \Carbon\Carbon::parse($step->date_in)->format('Y-m-d') : 'N/A' }}</td>
-                                        <td>{{ $step->date_out ? \Carbon\Carbon::parse($step->date_out)->format('Y-m-d') : ($step->date_in ? 'Pending' : 'N/A') }}</td>
-                                        <td>{{ $step->total_time_completed ?: '-' }}</td>
-                                        <td>
-                                            @if ($step->is_active_step)
-                                                <select wire:model="activeAction" class="receive-row-action-select" style="padding: 4px 8px; border: 1px solid #cbd5e1; border-radius: 6px; font-size: 12.5px; font-weight: 500;">
-                                                    @foreach(DB::table('dts_action_options')->orderBy('option_name', 'asc')->pluck('option_name') as $opt)
-                                                        <option value="{{ $opt }}">{{ $opt }}</option>
-                                                    @endforeach
-                                                </select>
-                                            @else
-                                                {{ $step->action_needed ?: ($step->date_in ? 'Ongoing' : 'Pending') }}
-                                            @endif
-                                        </td>
-                                        <td>
-                                            @if ($step->is_active_step)
-                                                <input type="text" wire:model="activeNotes" class="active-notes-input" placeholder="Type notes here...">
-                                            @else
-                                                {{ $step->note ?: '-' }}
-                                            @endif
-                                        </td>
+                                        <th style="width: 60px;">#</th>
+                                        <th>Office Code</th>
+                                        <th>Office Name</th>
+                                        @if ($editingAll)
+                                            <th style="width: 100px;">Actions</th>
+                                        @endif
                                     </tr>
-                                @empty
+                                </thead>
+                                <tbody>
+                                    @php
+                                        $cfOfficeDetails = collect($cfSelectedOffices)->map(function($code) {
+                                            $off = DB::table('office')->where('office_code', $code)->first();
+                                            return (object)[
+                                                'code' => $code,
+                                                'name' => $off ? $off->office_name : 'Unknown Office'
+                                            ];
+                                        });
+                                    @endphp
+                                    @forelse ($cfOfficeDetails as $index => $cf)
+                                        <tr>
+                                            <td>{{ $index + 1 }}</td>
+                                            <td style="font-weight: 600; color: #3b82f6;">{{ $cf->code }}</td>
+                                            <td class="office-cell">{{ $cf->name }}</td>
+                                            @if ($editingAll)
+                                                <td>
+                                                    <button type="button" class="receive-action-btn receive-action-btn--danger" wire:click="removeCfOffice('{{ $cf->code }}')" style="padding: 4px 8px; font-size: 11px;">
+                                                        Remove
+                                                    </button>
+                                                </td>
+                                            @endif
+                                        </tr>
+                                    @empty
+                                        <tr>
+                                            <td colspan="{{ $editingAll ? 4 : 3 }}" style="padding: 24px; color: #888; font-style: italic; text-align: center;">No copy furnished offices added to this transaction.</td>
+                                        </tr>
+                                    @endforelse
+                                </tbody>
+                            </table>
+                        </div>
+                    @else
+                        <!-- Transaction Path Section -->
+                        <h2 class="receive-title" style="font-size: 16px; margin-top: 10px;">Transaction Path</h2>
+
+                        <div class="receive-table-wrap">
+                            <table class="receive-table">
+                                <thead>
                                     <tr>
-                                        <td colspan="7" style="padding: 24px; color: #888; font-style: italic;">No transaction paths listed.</td>
+                                        <th>#</th>
+                                        <th>Office</th>
+                                        <th>Date In</th>
+                                        <th>Date Out</th>
+                                        <th>Total Time</th>
+                                        <th>Action Need</th>
+                                        <th>Notes</th>
                                     </tr>
-                                @endforelse
-                            </tbody>
-                        </table>
-                    </div>
+                                </thead>
+                                <tbody>
+                                    @forelse ($this->visiblePath as $index => $step)
+                                        <tr>
+                                            <td>{{ $step->sequence_ranking ?? ($index + 1) }}</td>
+                                            <td class="office-cell">{{ $step->office_name }}</td>
+                                            <td>{{ $step->date_in ? \Carbon\Carbon::parse($step->date_in)->format('Y-m-d') : 'N/A' }}</td>
+                                            <td>{{ $step->date_out ? \Carbon\Carbon::parse($step->date_out)->format('Y-m-d') : ($step->date_in ? 'Pending' : 'N/A') }}</td>
+                                            <td>{{ $step->total_time_completed ?: '-' }}</td>
+                                            <td>
+                                                @if ($step->is_active_step)
+                                                    <select wire:model="activeAction" class="receive-row-action-select" style="padding: 4px 8px; border: 1px solid #cbd5e1; border-radius: 6px; font-size: 12.5px; font-weight: 500;">
+                                                        @foreach(DB::table('dts_action_options')->orderBy('option_name', 'asc')->pluck('option_name') as $opt)
+                                                            <option value="{{ $opt }}">{{ $opt }}</option>
+                                                        @endforeach
+                                                    </select>
+                                                @else
+                                                    {{ $step->action_needed ?: ($step->date_in ? 'Ongoing' : 'Pending') }}
+                                                @endif
+                                            </td>
+                                            <td>
+                                                @if ($step->is_active_step)
+                                                    <input type="text" wire:model="activeNotes" class="active-notes-input" placeholder="Type notes here...">
+                                                @else
+                                                    {{ $step->note ?: '-' }}
+                                                @endif
+                                            </td>
+                                        </tr>
+                                    @empty
+                                        <tr>
+                                            <td colspan="7" style="padding: 24px; color: #888; font-style: italic;">No transaction paths listed.</td>
+                                        </tr>
+                                    @endforelse
+                                </tbody>
+                            </table>
+                        </div>
+                    @endif
 
                     <!-- Popup Action Buttons -->
                     <div class="receive-actions">
-                        <!-- VIEW LISTED PATH / VIEW LOGS Toggle -->
-                        <button type="button" class="receive-action-btn" wire:click="toggleFullConfiguredPath">
-                            <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-                                <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
-                                <circle cx="12" cy="12" r="3"/>
-                            </svg>
-                            {{ $showFullConfiguredPath ? 'VIEW LOGS' : 'VIEW LISTED PATH' }}
-                        </button>
+                        <!-- VIEW LISTED PATH / VIEW LOGS / VIEW COPY FURNISHED Toggle Buttons -->
+                        @if (!$showCopyFurnished)
+                            <button type="button" class="receive-action-btn" wire:click="toggleFullConfiguredPath">
+                                <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                                    <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
+                                    <circle cx="12" cy="12" r="3"/>
+                                </svg>
+                                {{ $showFullConfiguredPath ? 'VIEW LOGS' : 'VIEW LISTED PATH' }}
+                            </button>
+                            <button type="button" class="receive-action-btn" wire:click="$set('showCopyFurnished', true)">
+                                <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                                    <rect x="3" y="3" width="18" height="18" rx="2" ry="2"/>
+                                    <line x1="9" y1="9" x2="15" y2="9"/>
+                                    <line x1="9" y1="13" x2="15" y2="13"/>
+                                    <line x1="9" y1="17" x2="15" y2="17"/>
+                                </svg>
+                                VIEW COPY FURNISHED
+                            </button>
+                        @else
+                            <button type="button" class="receive-action-btn" wire:click="$set('showCopyFurnished', false)">
+                                <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                                    <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
+                                    <circle cx="12" cy="12" r="3"/>
+                                </svg>
+                                VIEW LISTED PATH
+                            </button>
+                        @endif
 
                         <!-- COMPLETED -->
                         @if ($selectedTransaction->current_office === auth()->user()?->details?->office?->office_code)
@@ -855,15 +1118,24 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Receive Transac
                             </button>
                         @endif
 
-                        <!-- EDIT (Save Metadata changes manually without completing) -->
-                        @if (auth()->user()?->permissions?->is_sadm && $selectedTransaction->current_office === auth()->user()?->details?->office?->office_code)
-                            <button type="button" class="receive-action-btn" wire:click="completeTransaction">
-                                <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-                                    <path d="M17 3l4 4-7 7H10v-4l7-7z"/>
-                                    <path d="M4 20h16"/>
-                                </svg>
-                                EDIT
-                            </button>
+                        <!-- EDIT / SAVE toggle -->
+                        @if ($canModifyTrans)
+                            @if ($editingAll)
+                                <button type="button" class="receive-action-btn" wire:click="saveMetadataOnly" style="background-color: #16a34a;">
+                                    <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                                        <polyline points="20 6 9 17 4 12"/>
+                                    </svg>
+                                    SAVE
+                                </button>
+                            @else
+                                <button type="button" class="receive-action-btn" wire:click="toggleEditAll">
+                                    <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                                        <path d="M17 3l4 4-7 7H10v-4l7-7z"/>
+                                        <path d="M4 20h16"/>
+                                    </svg>
+                                    EDIT
+                                </button>
+                            @endif
                         @endif
 
                         <!-- DELETE (Creator and non-active/revised/amended/draft states only) -->
@@ -880,16 +1152,6 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Receive Transac
                                     <line x1="14" y1="11" x2="14" y2="17"/>
                                 </svg>
                                 DELETE
-                            </button>
-                        @endif
-
-                        <!-- + ADD CF (Dummy link to edit File Code) -->
-                        @if (auth()->user()?->permissions?->is_sadm && $selectedTransaction->current_office === auth()->user()?->details?->office?->office_code)
-                            <button type="button" class="receive-action-btn" wire:click="startEdit('file_code')">
-                                <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-                                    <path d="M12 5v14M5 12h14"/>
-                                </svg>
-                                + ADD CF
                             </button>
                         @endif
 

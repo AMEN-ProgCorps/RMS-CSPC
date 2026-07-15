@@ -2494,6 +2494,54 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
           if (activeDM && activeDMAccountId === Number(data.sender_id)) {
             showTypingIndicator(data.sender_name, data.is_typing);
           }
+        } else if (data.type === 'chat_cleared') {
+          console.log('Received WebSocket real-time update notice:', data);
+          if (data.chat_type === 'private') {
+            // Mirrors the 'message'/private matching above: sender_id is the
+            // admin who cleared it, recipient_id is the other DM party.
+            if (activeDM && activeDMAccountId === Number(data.sender_id)) {
+              loadChat(true);
+            } else if (activeAdminConv) {
+              const parts = activeAdminConv.split('_').map(Number);
+              const s = Number(data.sender_id);
+              const r = Number(data.recipient_id);
+              if ((s === parts[0] && r === parts[1]) || (s === parts[1] && r === parts[0])) {
+                loadAdminConv(activeAdminConv, true);
+              }
+            }
+          } else if (data.chat_type === 'admin_conv') {
+            // An admin cleared a conversation between two other users —
+            // refresh that exact admin view, plus either participant if
+            // they currently have the other one open as their own DM.
+            const a = Number(data.user_a);
+            const b = Number(data.user_b);
+            if (activeAdminConv) {
+              const parts = activeAdminConv.split('_').map(Number);
+              if ((parts[0] === a && parts[1] === b) || (parts[0] === b && parts[1] === a)) {
+                loadAdminConv(activeAdminConv, true);
+              }
+            }
+            if (activeDM && (activeDMAccountId === a || activeDMAccountId === b)) {
+              loadChat(true);
+            }
+          }
+          fetchNotifications();
+          fetchUsers();
+        } else if (data.type === 'all_cleared') {
+          console.log('Received WebSocket real-time update notice:', data);
+          // Every message in the system was wiped — reset this client's
+          // view immediately instead of waiting for a manual reload.
+          activeDM = null; activeAdminConv = null; isGlobalChat = false;
+          gcOffset = 0; dmOffset = 0;
+          gcViewingOlder = false; dmViewingOlder = false;
+          removePaginationBtn();
+          const gcItem = document.getElementById('globalChatItem');
+          if (gcItem) gcItem.classList.remove('active');
+          chatBox.innerHTML = '<div class="empty-chat"><p>All messages deleted.</p></div>';
+          renderSidebarUsers();
+          if (serverIsAdmin) renderAdminConvs();
+          fetchNotifications();
+          fetchUsers();
         }
       };
 
@@ -4303,7 +4351,29 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
             fetchUsers();
           }
           closeModal();
-          
+
+          // Broadcast the clear so every other connected client (the other
+          // party in the DM, or any other admin viewing the same admin
+          // conversation) refreshes immediately instead of showing stale
+          // messages until their next poll/reload.
+          if (ws && ws.readyState === WebSocket.OPEN) {
+            if (activeDM) {
+              ws.send(JSON.stringify({
+                type: 'chat_cleared',
+                chat_type: 'private',
+                recipient_id: activeDMAccountId
+              }));
+            } else if (activeAdminConv) {
+              const clearedParts = activeAdminConv.split('_').map(Number);
+              ws.send(JSON.stringify({
+                type: 'chat_cleared',
+                chat_type: 'admin_conv',
+                user_a: clearedParts[0],
+                user_b: clearedParts[1]
+              }));
+            }
+          }
+
           // Reset secret input
           secretInput.value = '';
           secretError.style.display = 'none';
@@ -4777,6 +4847,12 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
               chatBox.innerHTML = '<div class="empty-chat"><p>All messages deleted.</p></div>';
               renderSidebarUsers();
               if (serverIsAdmin) renderAdminConvs();
+
+              // Broadcast so every other connected client wipes its view in
+              // realtime too, instead of only the admin who triggered this.
+              if (ws && ws.readyState === WebSocket.OPEN) {
+                ws.send(JSON.stringify({ type: 'all_cleared' }));
+              }
             };
             dx.onerror = function() { alert('Delete failed. Try again.'); };
             dx.send();

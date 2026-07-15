@@ -195,7 +195,7 @@ if ($html === '') {
                 </div>
                 <h3>Private Conversation</h3>
                 <p>This is the start of your private conversation with <strong>{$targetName}</strong>.<br>
-                   Messages here are only visible to you and the recipient.</p>
+                   Messages here are only visible to you and the recipient, and may be accessible to authorized administrators.</p>
             </div>";
 }
 

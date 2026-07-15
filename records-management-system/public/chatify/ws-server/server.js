@@ -119,14 +119,6 @@ function clearRateState(accountId) {
   }
 }
 
-// ── Typing debounce (server-side state-change filter) ───────────────────
-// The frontend should already debounce keystrokes down to start/stop
-// events, but this is a second, server-side backstop: we only ever
-// broadcast a typing update when the is_typing value actually flips for
-// that (sender -> recipient) pair, so a client that still sends per-
-// keystroke pings can't spam recipients regardless.
-const lastTypingState = new Map(); // "senderId->recipientId" -> boolean
-
 // Helper for timing-safe string comparison
 function timingSafeEqual(a, b) {
   try {
@@ -317,24 +309,16 @@ wss.on('connection', (ws) => {
       if (isRateLimited(state.accountId, 'typing')) return;
 
       const { recipient_id, is_typing } = data;
-      const typingKey = `${state.accountId}->${recipient_id}`;
-      const flipped = lastTypingState.get(typingKey) !== !!is_typing;
 
-      // Server-side debounce backstop: only relay when the state actually
-      // changes for this sender/recipient pair, not on every ping the
-      // frontend might send while the key is held down.
-      if (!flipped) return;
-      lastTypingState.set(typingKey, !!is_typing);
-
-      log(`Routing typing status: from=${state.accountId}, to=${recipient_id}, typing=${is_typing}`);
       const payloadStr = JSON.stringify({
         type: 'typing',
         sender_id: state.accountId,
         sender_name: state.name,
-        is_typing: is_typing
+        is_typing: !!is_typing
       });
-      // Dispatch typing state exclusively to the active DM recipient
+
       broadcastToAccounts([Number(recipient_id)], payloadStr);
+
       return;
     }
 
@@ -400,13 +384,6 @@ wss.on('connection', (ws) => {
       // already auto-hides the indicator a few seconds after the last
       // typing packet, so a disconnected user's indicator disappears on
       // its own shortly after, without the server needing to announce it.
-      // Clean up this account's own typing-state entries so the map
-      // doesn't quietly grow forever across reconnects.
-      for (const key of lastTypingState.keys()) {
-        if (key.startsWith(`${state.accountId}->`)) {
-          lastTypingState.delete(key);
-        }
-      }
     }
     clients.delete(ws);
   });

@@ -965,6 +965,100 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
       border-radius: 8px;
     }
 
+    /* ── Media grid (compiled multi-image send) ───────────────── */
+    .message-media-grid {
+      display: grid;
+      gap: 3px;
+      border-radius: 12px;
+      overflow: hidden;
+      max-width: 280px;
+    }
+    .message-media-grid[data-count="2"]  { grid-template-columns: 1fr 1fr; }
+    .message-media-grid[data-count="3"]  { grid-template-columns: 1fr 1fr 1fr; }
+    .message-media-grid[data-count="4"]  { grid-template-columns: 1fr 1fr; }
+    /* 5+ photos: first spans full width, rest fill 3-col row */
+    .message-media-grid[data-count="5"]  { grid-template-columns: 1fr 1fr 1fr; }
+    .message-media-grid[data-count="5"]  .media-grid-item:first-child { grid-column: span 3; }
+    .message-media-grid:not([data-count]) { grid-template-columns: 1fr 1fr 1fr; }
+    .media-grid-item { overflow: hidden; aspect-ratio: 1; display: block; }
+    .media-grid-item img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      display: block;
+      transition: transform 0.2s ease;
+    }
+    .media-grid-item:hover img { transform: scale(1.04); }
+
+    /* ── Attachment / paperclip button ───────────────────────── */
+    .attachment-btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 36px;
+      height: 36px;
+      border-radius: 50%;
+      background: transparent;
+      color: var(--text-secondary);
+      cursor: pointer;
+      flex-shrink: 0;
+      transition: background 0.18s, color 0.18s, transform 0.15s;
+    }
+    .attachment-btn:hover {
+      background: var(--bg-hover);
+      color: #1b74e4;
+      transform: rotate(-15deg) scale(1.08);
+    }
+
+    /* ── Upload toast / progress overlay ──────────────────────── */
+    #uploadToast {
+      position: fixed;
+      bottom: 80px;
+      left: 50%;
+      transform: translateX(-50%) translateY(20px);
+      background: var(--bg-secondary);
+      color: var(--text-primary);
+      border: 1px solid var(--border-color);
+      border-radius: 24px;
+      padding: 8px 20px;
+      font-size: 13px;
+      font-family: 'Inter', sans-serif;
+      box-shadow: 0 4px 20px rgba(0,0,0,0.18);
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 0.22s, transform 0.22s;
+      z-index: 9999;
+      white-space: nowrap;
+    }
+    #uploadToast.visible {
+      opacity: 1;
+      transform: translateX(-50%) translateY(0);
+    }
+
+    /* ── Drop overlay active state ─────────────────────────────── */
+    .drop-overlay {
+      position: absolute;
+      inset: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 15px;
+      font-weight: 600;
+      letter-spacing: 0.02em;
+      color: #1b74e4;
+      background-color: var(--bg-drop-overlay);
+      border: 2px dashed #1b74e4;
+      border-radius: 16px;
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 0.18s;
+      z-index: 200;
+    }
+    .drop-overlay.visible {
+      opacity: 1;
+      pointer-events: auto;
+    }
+
     /* Message Content */
     .message-content {
       font-size: 14px;
@@ -1011,6 +1105,17 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
 
     .received .message-time {
       color: var(--text-time-received);
+    }
+
+    /* Image/audio messages (.message-media) have NO bubble background behind
+       the sender/time row — unlike text bubbles, which are always blue for
+       "sent" so white text always makes sense there. Without this override,
+       a sent image's info row inherits the white-on-blue-bubble color and
+       ends up white text sitting directly on the page background, which is
+       invisible in light mode. Force theme-aware neutral color instead. */
+    .message-media .message-sender,
+    .message-media .message-time {
+      color: var(--text-secondary);
     }
 
     /* Empty Chat State */
@@ -1090,9 +1195,17 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
     }
 
     .name-input-wrapper {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .name-field-inner {
       position: relative;
       display: flex;
       align-items: center;
+      flex: 1;
+      min-width: 0;
     }
 
     #nameInput {
@@ -2214,7 +2327,10 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
 
     <div id="chat-box">
       <!-- Drop overlay element for drag & drop -->
-      <div class="drop-overlay" id="dropOverlay">Drop files here to send</div>
+      <div class="drop-overlay" id="dropOverlay">
+        <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" style="width:36px;height:36px;margin-bottom:8px;"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" stroke="#1b74e4" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><polyline points="17 8 12 3 7 8" stroke="#1b74e4" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><line x1="12" y1="3" x2="12" y2="15" stroke="#1b74e4" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        Drop images or files here
+      </div>
     </div>
 
     <div class="input-area">
@@ -2237,20 +2353,28 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
 
 
       <div class="input-section">
-        <div class="name-input-wrapper<?php echo $is_admin ? ' is-admin-user' : ''; ?>" style="position: relative;">
-          <svg class="name-icon" viewBox="0 0 24 24">
-            <path d="M12 2C13.1 2 14 2.9 14 4C14 5.1 13.1 6 12 6C10.9 6 10 5.1 10 4C10 2.9 10.9 2 12 2ZM21 9V7L15 4V6L21 9ZM15 10.26L21 7.26V9.26L15 12.26V10.26ZM12 7C16.42 7 20 8.79 20 11V13C20 15.21 16.42 17 12 17S4 15.21 4 13V11C4 8.79 7.58 7 12 7Z"/>
-          </svg>
-          <input type="text" id="nameInput" placeholder="" required readonly value="<?php echo htmlspecialchars($user_name); ?>">
-          <?php if ($is_admin): ?>
-          <span class="admin-input-badge" title="You are the Super Admin">
-            <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-              <circle cx="12" cy="12" r="12" fill="#1b74e4"/>
-              <path d="M7 12.5l3.5 3.5 6.5-7" stroke="#fff" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
+        <div class="name-input-wrapper<?php echo $is_admin ? ' is-admin-user' : ''; ?>">
+          <div class="name-field-inner">
+            <svg class="name-icon" viewBox="0 0 24 24">
+              <path d="M12 2C13.1 2 14 2.9 14 4C14 5.1 13.1 6 12 6C10.9 6 10 5.1 10 4C10 2.9 10.9 2 12 2ZM21 9V7L15 4V6L21 9ZM15 10.26L21 7.26V9.26L15 12.26V10.26ZM12 7C16.42 7 20 8.79 20 11V13C20 15.21 16.42 17 12 17S4 15.21 4 13V11C4 8.79 7.58 7 12 7Z"/>
             </svg>
-            <span>Super Admin</span>
-          </span>
-          <?php endif; ?>
+            <input type="text" id="nameInput" placeholder="" required readonly value="<?php echo htmlspecialchars($user_name); ?>">
+            <?php if ($is_admin): ?>
+            <span class="admin-input-badge" title="You are the Super Admin">
+              <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                <circle cx="12" cy="12" r="12" fill="#1b74e4"/>
+                <path d="M7 12.5l3.5 3.5 6.5-7" stroke="#fff" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
+              </svg>
+              <span>Super Admin</span>
+            </span>
+            <?php endif; ?>
+          </div>
+          <label id="attachBtn" class="attachment-btn" title="Attach image or file" for="fileAttachmentInput">
+            <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" width="20" height="20">
+              <path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+            </svg>
+          </label>
+          <input type="file" id="fileAttachmentInput" multiple accept="image/*,.gif,.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.csv,.zip,.rar,.7z,.mp3,.wav,.ogg,.flac,.aac,.m4a,.mp4,.webm,.mov" style="display:none;">
         </div>
       </div>
 
@@ -4895,8 +5019,238 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
       }
     });
     
+    // ==========================================================================
+    // FILE UPLOAD — Drag-and-Drop + Attachment Button
+    // ==========================================================================
+
+    // ── Rejected executable/script extensions ──────────────────────────────────
+    const REJECTED_EXTS = new Set([
+      'exe','bat','cmd','sh','bash','zsh',
+      'php','php3','php4','php5','phtml','phar',
+      'pl','py','rb','go','swift',
+      'js','ts','jsx','tsx',
+      'jar','class',
+      'msi','vbs','vbe','wsf','ws','wsc',
+      'scr','com','pif','gadget',
+      'ps1','ps2','psm1','psd1',
+      'msc','hta','cpl','inf','reg',
+      'lnk','url',
+      'asp','aspx','jsp','jspx',
+      'dll','so','ko','sys','drv',
+      'cgi','fcgi',
+    ]);
+
+    // ── Image extensions (same list as PHP) ────────────────────────────────────
+    const IMAGE_EXTS = new Set(['jpg','jpeg','png','gif','webp','bmp','svg','ico']);
+
+    const dropOverlay       = document.getElementById('dropOverlay');
+    const fileAttachInput   = document.getElementById('fileAttachmentInput');
+
+    // ── Upload toast helper ────────────────────────────────────────────────────
+    let toastTimer = null;
+    function showUploadToast(msg, ms = 2800) {
+      let toast = document.getElementById('uploadToast');
+      if (!toast) {
+        toast = document.createElement('div');
+        toast.id = 'uploadToast';
+        document.body.appendChild(toast);
+      }
+      toast.textContent = msg;
+      toast.classList.add('visible');
+      clearTimeout(toastTimer);
+      toastTimer = setTimeout(() => toast.classList.remove('visible'), ms);
+    }
+
+    // ── Drag counter (prevents overlay flicker on child-enter/leave) ───────────
+    let dragCount = 0;
+
+    chatBox.addEventListener('dragenter', function(e) {
+      e.preventDefault();
+      dragCount++;
+      if (dropOverlay) dropOverlay.classList.add('visible');
+    }, false);
+
+    chatBox.addEventListener('dragleave', function(e) {
+      e.preventDefault();
+      dragCount--;
+      if (dragCount <= 0) {
+        dragCount = 0;
+        if (dropOverlay) dropOverlay.classList.remove('visible');
+      }
+    }, false);
+
+    chatBox.addEventListener('dragover', function(e) {
+      e.preventDefault();
+    }, false);
+
+    chatBox.addEventListener('drop', function(e) {
+      e.preventDefault();
+      dragCount = 0;
+      if (dropOverlay) dropOverlay.classList.remove('visible');
+      const files = e.dataTransfer ? Array.from(e.dataTransfer.files) : [];
+      if (files.length > 0) handleFileUploads(files);
+    }, false);
+
+    // ── File input (attachment button) ─────────────────────────────────────────
+    if (fileAttachInput) {
+      fileAttachInput.addEventListener('change', function() {
+        const files = Array.from(this.files || []);
+        if (files.length > 0) handleFileUploads(files);
+        this.value = ''; // reset so same file can be re-picked
+      });
+    }
+
+    // ── Mobile-friendly tap listener for the attach button ───────────────────
+    const attachBtn = document.getElementById('attachBtn');
+    if (attachBtn && fileAttachInput) {
+      attachBtn.addEventListener('click', function(e) {
+        e.preventDefault();
+        fileAttachInput.click();
+      });
+    }
+
+
+    // ── Core upload handler ───────────────────────────────────────────────────
+    function handleFileUploads(files) {
+      if (!activeDM && !isGlobalChat) {
+        showUploadToast('⚠️ Please select a chat first.');
+        return;
+      }
+
+      // Separate rejected and accepted files
+      const rejected = [];
+      const accepted = [];
+      for (const file of files) {
+        const ext = (file.name.split('.').pop() || '').toLowerCase();
+        if (REJECTED_EXTS.has(ext)) {
+          rejected.push(file.name);
+        } else {
+          accepted.push(file);
+        }
+      }
+
+      if (rejected.length > 0) {
+        showUploadToast(`Blocked: ${rejected.join(', ')} (executable files not allowed)`, 4000);
+      }
+      if (accepted.length === 0) return;
+
+      // Split accepted files: images in one batch, other files individually
+      const imageBatch = accepted.filter(f => IMAGE_EXTS.has((f.name.split('.').pop()||'').toLowerCase()));
+      const otherFiles = accepted.filter(f => !IMAGE_EXTS.has((f.name.split('.').pop()||'').toLowerCase()));
+
+      // Upload image batch as a single grid message (if there are images)
+      if (imageBatch.length > 0) {
+        uploadAndSend(imageBatch, true);
+      }
+
+      // Upload each non-image file individually
+      for (const file of otherFiles) {
+        uploadAndSend([file], false);
+      }
+    }
+
+    // ── Upload files → save message ───────────────────────────────────────────
+    function uploadAndSend(fileList, isImageBatch) {
+      // Show optimistic "Uploading…" bubble
+      const sendUid = ++sendingUidCounter;
+      const uploadBubble = document.createElement('div');
+      uploadBubble.setAttribute('data-sending-uid', sendUid);
+      uploadBubble.setAttribute('data-upload-uid', sendUid);
+      uploadBubble.className = 'message-container sent msg-animate-sent';
+      const previewLabel = isImageBatch && fileList.length > 1
+        ? `Uploading ${fileList.length} images…`
+        : (isImageBatch ? 'Uploading image…' : `Uploading ${fileList[0].name}…`);
+      uploadBubble.innerHTML = `
+        <div class="message-bubble" style="opacity:0.55;">
+          <div class="message-content" style="font-style:italic;font-size:13px;">${previewLabel}</div>
+        </div>
+        <div class="message-avatar">${getInitials(userName)}</div>
+      `;
+      uploadBubble.addEventListener('animationend', () => uploadBubble.classList.remove('msg-animate-sent'), { once: true });
+      const sendOverlay = getSendingOverlay();
+      if (sendOverlay) sendOverlay.appendChild(uploadBubble);
+      else chatBox.appendChild(uploadBubble);
+      shouldAutoScroll = true;
+      userScrolledUp   = false;
+      if (isAtBottom()) scrollToBottom(true, true);
+
+      // Build FormData
+      const fd = new FormData();
+      for (const file of fileList) {
+        fd.append('files[]', file);
+      }
+
+      // POST to upload.php
+      const xhr = new XMLHttpRequest();
+      xhr.open('POST', 'upload.php', true);
+      xhr.onload = function() {
+        // Remove optimistic bubble
+        const bub = document.querySelector(`[data-sending-uid="${sendUid}"]`);
+        if (bub) bub.remove();
+
+        if (this.status !== 200) {
+          showUploadToast('Upload failed. Please try again.', 3500);
+          return;
+        }
+
+        let result;
+        try { result = JSON.parse(this.responseText); } catch(e) {
+          showUploadToast('Upload error.', 3000);
+          return;
+        }
+
+        if (result.errors && result.errors.length > 0) {
+          showUploadToast('⚠️ ' + result.errors[0], 4000);
+        }
+
+        if (!result.success || !result.uploaded || result.uploaded.length === 0) return;
+
+        // Send the uploaded filenames as a message
+        const uploadedFiles = result.uploaded;
+        const filesPayload  = JSON.stringify(uploadedFiles);
+
+        const sendXhr = new XMLHttpRequest();
+        const sendUrl = isGlobalChat ? 'send.php' : 'send_dm.php';
+        sendXhr.open('POST', sendUrl, true);
+        sendXhr.setRequestHeader('Content-type', 'application/x-www-form-urlencoded');
+
+        let params = 'uploaded_files=' + encodeURIComponent(filesPayload);
+        if (!isGlobalChat && activeDM) {
+          params += '&target_user=' + encodeURIComponent(activeDM);
+        }
+
+        sendXhr.onload = function() {
+          if (this.status === 200) {
+            // Trigger WS broadcast so the other party refreshes
+            if (ws && ws.readyState === WebSocket.OPEN) {
+              if (isGlobalChat) {
+                ws.send(JSON.stringify({ type: 'message', chat_type: 'global' }));
+              } else {
+                ws.send(JSON.stringify({ type: 'message', chat_type: 'private', recipient_id: activeDMAccountId }));
+              }
+            }
+            // Force a fresh chat load so the grid renders
+            isLoadingChat = false;
+            if (isGlobalChat) loadGlobalChat();
+            else if (activeDM) loadChat();
+          } else {
+            showUploadToast('Failed to record upload. File saved but not shown.', 4000);
+          }
+        };
+        sendXhr.onerror = function() { showUploadToast('Network error sending upload.', 3000); };
+        sendXhr.send(params);
+      };
+      xhr.onerror = function() {
+        const bub = document.querySelector(`[data-sending-uid="${sendUid}"]`);
+        if (bub) bub.remove();
+        showUploadToast('Network error during upload.', 3000);
+      };
+      xhr.send(fd);
+    }
+
     // Prevent zoom on input focus (iOS)
     document.addEventListener('touchstart', function() {}, {passive: true});
+
 
     // ── iOS Safari keyboard fix ──
     // On iOS, the virtual keyboard does NOT resize the viewport (unlike Android).

@@ -149,38 +149,90 @@ foreach ($rawMessages as $msg) {
         $html .= "</div>";
 
     } else {
-        $file    = safeDecrypt($msg['message'] ?? '');
-        $file    = basename($file);
-        $url     = 'uploads/' . rawurlencode($file);
-        $ext     = strtolower(pathinfo($file, PATHINFO_EXTENSION));
-        $fileEsc = htmlspecialchars($file, ENT_QUOTES);
+        // Upload: decrypt payload — may be a single filename or a JSON array of filenames
+        $rawPayload = safeDecrypt($msg['message'] ?? '');
+        $decoded    = json_decode($rawPayload, true);
+        $isGrid     = is_array($decoded) && count($decoded) > 1;
 
-        if (in_array($ext, $imageExts, true)) {
-            $html .= "<div class='message-media'>";
-            $html .= "<a href='{$url}' target='_blank'><img src='{$url}' alt='{$fileEsc}' style='max-width:240px;max-height:240px;border-radius:12px;display:block;cursor:pointer;object-fit:cover;box-shadow:0 2px 8px rgba(0,0,0,0.18);' loading='lazy' /></a>";
-            $html .= "<div class='message-info' style='padding:3px 2px;'><span class='message-sender'>{$senderLabel}{$adminBadge}</span><span class='message-time'>{$timeDisplay}</span></div>";
-            $html .= "</div>";
+        if ($isGrid) {
+            // ── Multi-image grid ──────────────────────────────────────────────
+            $allImages = true;
+            foreach ($decoded as $fn) {
+                $fnExt = strtolower(pathinfo(basename((string)$fn), PATHINFO_EXTENSION));
+                if (!in_array($fnExt, $imageExts, true)) { $allImages = false; break; }
+            }
 
-        } elseif (in_array($ext, $audioExts, true)) {
-            $mime  = $mimeMap[$ext] ?? 'audio/' . $ext;
-            $html .= "<div class='message-bubble'>";
-            $html .= "<div class='message-content'>";
-            $html .= "<div style='font-size:12px;margin-bottom:6px;font-weight:500;opacity:0.85;max-width:240px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;'>{$fileEsc}</div>";
-            $html .= "<audio controls preload='metadata' style='width:240px;max-width:100%;display:block;border-radius:6px;'><source src='{$url}' type='{$mime}'></audio>";
-            $html .= "</div>";
-            $html .= "<div class='message-info'><span class='message-sender'>{$senderLabel}{$adminBadge}</span><span class='message-time'>{$timeDisplay}</span></div>";
-            $html .= "</div>";
+            if ($allImages) {
+                $count = count($decoded);
+                $html .= "<div class='message-media'>";
+                $html .= "<div class='message-media-grid' data-count='{$count}'>";
+                foreach ($decoded as $fn) {
+                    $fn      = basename((string)$fn);
+                    $fnUrl   = 'uploads/' . rawurlencode($fn);
+                    $fnEsc   = htmlspecialchars($fn, ENT_QUOTES);
+                    $html   .= "<a href='{$fnUrl}' target='_blank' class='media-grid-item'>";
+                    $html   .= "<img src='{$fnUrl}' alt='{$fnEsc}' loading='lazy' />";
+                    $html   .= "</a>";
+                }
+                $html .= "</div>"; // .message-media-grid
+                $html .= "<div class='message-info' style='padding:3px 2px;'><span class='message-sender'>{$senderLabel}{$adminBadge}</span><span class='message-time'>{$timeDisplay}</span></div>";
+                $html .= "</div>"; // .message-media
+            } else {
+                // Mixed files — render each as its own attachment link
+                $linkColor = $isSent ? 'white' : '#1b74e4';
+                $html .= "<div class='message-bubble'>";
+                $html .= "<div class='message-content' style='display:flex;flex-direction:column;gap:6px;'>";
+                foreach ($decoded as $fn) {
+                    $fn    = basename((string)$fn);
+                    $fnUrl = 'uploads/' . rawurlencode($fn);
+                    $fnEsc = htmlspecialchars($fn, ENT_QUOTES);
+                    $fnExt = strtolower(pathinfo($fn, PATHINFO_EXTENSION));
+                    if (in_array($fnExt, $imageExts, true)) {
+                        $html .= "<a href='{$fnUrl}' target='_blank'><img src='{$fnUrl}' alt='{$fnEsc}' style='max-width:200px;max-height:200px;border-radius:8px;display:block;object-fit:cover;' loading='lazy' /></a>";
+                    } else {
+                        $html .= "<a href='{$fnUrl}' target='_blank' rel='noopener' style='display:flex;align-items:center;gap:6px;color:{$linkColor};text-decoration:none;'><span style='font-size:18px;'>📎</span><span style='text-decoration:underline;font-size:13px;word-break:break-all;'>{$fnEsc}</span></a>";
+                    }
+                }
+                $html .= "</div>";
+                $html .= "<div class='message-info'><span class='message-sender'>{$senderLabel}{$adminBadge}</span><span class='message-time'>{$timeDisplay}</span></div>";
+                $html .= "</div>"; // .message-bubble
+            }
 
         } else {
-            $linkColor = $isSent ? 'white' : '#1b74e4';
-            $html .= "<div class='message-bubble'>";
-            $html .= "<div class='message-content'><a href='{$url}' target='_blank' rel='noopener' style='display:flex;align-items:center;gap:8px;color:{$linkColor};text-decoration:none;'><span style='font-size:22px;'>📎</span><span style='text-decoration:underline;font-weight:500;font-size:13px;word-break:break-all;'>{$fileEsc}</span></a></div>";
-            $html .= "<div class='message-info'><span class='message-sender'>{$senderLabel}{$adminBadge}</span><span class='message-time'>{$timeDisplay}</span></div>";
-            $html .= "</div>";
+            // ── Single file (or single-element JSON array) ────────────────────
+            $file    = $isGrid ? basename((string)$decoded[0]) : basename($rawPayload);
+            $url     = 'uploads/' . rawurlencode($file);
+            $ext     = strtolower(pathinfo($file, PATHINFO_EXTENSION));
+            $fileEsc = htmlspecialchars($file, ENT_QUOTES);
+
+            if (in_array($ext, $imageExts, true)) {
+                $html .= "<div class='message-media'>";
+                $html .= "<a href='{$url}' target='_blank'><img src='{$url}' alt='{$fileEsc}' style='max-width:240px;max-height:240px;border-radius:12px;display:block;cursor:pointer;object-fit:cover;box-shadow:0 2px 8px rgba(0,0,0,0.18);' loading='lazy' /></a>";
+                $html .= "<div class='message-info' style='padding:3px 2px;'><span class='message-sender'>{$senderLabel}{$adminBadge}</span><span class='message-time'>{$timeDisplay}</span></div>";
+                $html .= "</div>";
+
+            } elseif (in_array($ext, $audioExts, true)) {
+                $mime  = $mimeMap[$ext] ?? 'audio/' . $ext;
+                $html .= "<div class='message-bubble'>";
+                $html .= "<div class='message-content'>";
+                $html .= "<div style='font-size:12px;margin-bottom:6px;font-weight:500;opacity:0.85;max-width:240px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;'>{$fileEsc}</div>";
+                $html .= "<audio controls preload='metadata' style='width:240px;max-width:100%;display:block;border-radius:6px;'><source src='{$url}' type='{$mime}'></audio>";
+                $html .= "</div>";
+                $html .= "<div class='message-info'><span class='message-sender'>{$senderLabel}{$adminBadge}</span><span class='message-time'>{$timeDisplay}</span></div>";
+                $html .= "</div>";
+
+            } else {
+                $linkColor = $isSent ? 'white' : '#1b74e4';
+                $html .= "<div class='message-bubble'>";
+                $html .= "<div class='message-content'><a href='{$url}' target='_blank' rel='noopener' style='display:flex;align-items:center;gap:8px;color:{$linkColor};text-decoration:none;'><span style='font-size:22px;'>📎</span><span style='text-decoration:underline;font-weight:500;font-size:13px;word-break:break-all;'>{$fileEsc}</span></a></div>";
+                $html .= "<div class='message-info'><span class='message-sender'>{$senderLabel}{$adminBadge}</span><span class='message-time'>{$timeDisplay}</span></div>";
+                $html .= "</div>";
+            }
         }
     }
 
     $html .= "</div>"; // .bubble-wrapper
+
     $html .= "</div>"; // .message-container
 }
 

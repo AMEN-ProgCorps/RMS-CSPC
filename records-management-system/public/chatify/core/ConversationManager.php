@@ -118,6 +118,9 @@ class ConversationManager
             }
 
             if ($isAdmin) {
+                // ── Backup all messages to chatify_chat_backup ────────────────
+                self::backupConversation($pdo, $convId, $accountId);
+
                 // Full wipe — FK cascade removes reactions & read markers
                 $stmt = $pdo->prepare(
                     'DELETE FROM chat_messages WHERE conv_id = :conv_id'
@@ -355,7 +358,7 @@ class ConversationManager
 
             $type = $last['type'] ?? 'text';
             if ($type === 'upload') {
-                $text = '📎 Sent a file';
+                $text = 'Sent a file';
             } else {
                 $decrypted = safeDecrypt($last['message'] ?? '');
                 $text      = mb_strimwidth($decrypted, 0, 60, '…');
@@ -425,7 +428,7 @@ class ConversationManager
 
                 if ($last) {
                     if ($last['msg_type'] === 'upload') {
-                        $lastMessage = '📎 Sent a file';
+                        $lastMessage = 'Sent a file';
                     } else {
                         $decrypted   = safeDecrypt($last['message'] ?? '');
                         $lastMessage = mb_strimwidth($decrypted, 0, 60, '…');
@@ -468,6 +471,133 @@ class ConversationManager
         } catch (PDOException $e) {
             error_log('ConversationManager::conversationExists() — ' . $e->getMessage());
             return false;
+        }
+    }
+
+    // -------------------------------------------------------------------------
+    // Backup helpers
+    // -------------------------------------------------------------------------
+
+    /**
+     * Copy all messages for a conversation into chatify_chat_backup.
+     * Rows are marked status='inactive', is_active=false so they are never
+     * treated as live messages.
+     *
+     * @param PDO    $pdo
+     * @param string $convId
+     * @param int    $archivedBy  Admin account_id who triggered the deletion
+     */
+    public static function backupConversation(PDO $pdo, string $convId, int $archivedBy): void
+    {
+        try {
+            self::ensureBackupTable($pdo);
+
+            $pdo->prepare(
+                "INSERT INTO chatify_chat_backup
+                    (conv_id, sender_id, receiver_id, message, msg_type,
+                     created_at, updated_at, msg_uuid,
+                     status, is_active, archived_at, archived_by)
+                 SELECT
+                    conv_id, sender_id, receiver_id, message, msg_type,
+                    created_at, updated_at, msg_uuid,
+                    'inactive', false, NOW(), :archived_by
+                 FROM chat_messages
+                 WHERE conv_id = :conv_id"
+            )->execute([':conv_id' => $convId, ':archived_by' => $archivedBy]);
+        } catch (PDOException $e) {
+            error_log('ConversationManager::backupConversation() — ' . $e->getMessage());
+        }
+    }
+
+    /**
+     * Copy ALL non-global messages into chatify_chat_backup.
+     * Used by clear_all_dm.php before wiping the entire table.
+     *
+     * @param PDO $pdo
+     * @param int $archivedBy  Admin account_id who triggered the deletion
+     */
+    public static function backupAll(PDO $pdo, int $archivedBy): void
+    {
+        try {
+            self::ensureBackupTable($pdo);
+
+            $pdo->prepare(
+                "INSERT INTO chatify_chat_backup
+                    (conv_id, sender_id, receiver_id, message, msg_type,
+                     created_at, updated_at, msg_uuid,
+                     status, is_active, archived_at, archived_by)
+                 SELECT
+                    conv_id, sender_id, receiver_id, message, msg_type,
+                    created_at, updated_at, msg_uuid,
+                    'inactive', false, NOW(), :archived_by
+                 FROM chat_messages
+                 WHERE conv_id != 'global'"
+            )->execute([':archived_by' => $archivedBy]);
+        } catch (PDOException $e) {
+            error_log('ConversationManager::backupAll() — ' . $e->getMessage());
+        }
+    }
+
+    /**
+     * Copy ALL global messages into chatify_chat_backup.
+     * Used by GlobalChatManager::clearChat() before wiping.
+     *
+     * @param PDO $pdo
+     * @param int $archivedBy  Admin account_id who triggered the deletion
+     */
+    public static function backupGlobal(PDO $pdo, int $archivedBy): void
+    {
+        try {
+            self::ensureBackupTable($pdo);
+
+            $pdo->prepare(
+                "INSERT INTO chatify_chat_backup
+                    (conv_id, sender_id, receiver_id, message, msg_type,
+                     created_at, updated_at, msg_uuid,
+                     status, is_active, archived_at, archived_by)
+                 SELECT
+                    conv_id, sender_id, receiver_id, message, msg_type,
+                    created_at, updated_at, msg_uuid,
+                    'inactive', false, NOW(), :archived_by
+                 FROM chat_messages
+                 WHERE conv_id = 'global'"
+            )->execute([':archived_by' => $archivedBy]);
+        } catch (PDOException $e) {
+            error_log('ConversationManager::backupGlobal() — ' . $e->getMessage());
+        }
+    }
+
+    /**
+     * Create chatify_chat_backup if it does not yet exist.
+     * This is a safety net — the migration should normally handle creation.
+     */
+    private static function ensureBackupTable(PDO $pdo): void
+    {
+        static $checked = false;
+        if ($checked) return;
+        $checked = true;
+
+        try {
+            $pdo->query("SELECT 1 FROM chatify_chat_backup LIMIT 1");
+        } catch (PDOException $e) {
+            // Table missing — create it on the fly
+            $pdo->exec("
+                CREATE TABLE IF NOT EXISTS chatify_chat_backup (
+                    id          BIGSERIAL PRIMARY KEY,
+                    conv_id     VARCHAR(30)  NOT NULL,
+                    sender_id   INTEGER,
+                    receiver_id INTEGER,
+                    message     TEXT         NOT NULL,
+                    msg_type    VARCHAR(10)  NOT NULL DEFAULT 'text',
+                    created_at  TIMESTAMPTZ(6),
+                    updated_at  TIMESTAMPTZ(6),
+                    msg_uuid    VARCHAR(32)  NOT NULL,
+                    status      VARCHAR(10)  NOT NULL DEFAULT 'inactive',
+                    is_active   BOOLEAN      NOT NULL DEFAULT false,
+                    archived_at TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
+                    archived_by INTEGER
+                )
+            ");
         }
     }
 
@@ -529,3 +659,4 @@ class ConversationManager
     private function __construct() {}
     private function __clone() {}
 }
+

@@ -5142,10 +5142,7 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
         }
       }
 
-      if (rejected.length > 0) {
-        showUploadToast(`Blocked: ${rejected.join(', ')} (executable files not allowed)`, 4000);
-      }
-      if (accepted.length === 0) return;
+      // silently ignore rejected files
 
       // Split accepted files: images in one batch, other files individually
       const imageBatch = accepted.filter(f => IMAGE_EXTS.has((f.name.split('.').pop()||'').toLowerCase()));

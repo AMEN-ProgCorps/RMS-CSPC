@@ -144,7 +144,7 @@ foreach ($rawMessages as $msg) {
                         }
                         $itemsHtml .= "<a href='{$fnUrl}' target='_blank'><img src='{$fnUrl}' alt='{$fnEsc}' style='max-width:200px;max-height:200px;border-radius:8px;display:block;object-fit:cover;' loading='lazy' onerror=\"this.closest('a').remove()\" /></a>";
                     } else {
-                        $itemsHtml .= "<a href='{$fnUrl}' target='_blank' rel='noopener' style='display:flex;align-items:center;gap:6px;color:#1b74e4;text-decoration:none;'><span style='font-size:18px;'>📎</span><span style='text-decoration:underline;font-size:13px;word-break:break-all;'>{$fnEsc}</span></a>";
+                        $itemsHtml .= "<a href='{$fnUrl}' target='_blank' rel='noopener' style='display:flex;align-items:center;gap:6px;color:#1b74e4;text-decoration:none;'><span style='font-size:18px;line-height:1;flex-shrink:0;'></span><span style='text-decoration:underline;font-size:13px;word-break:break-all;'>{$fnEsc}</span></a>";
                     }
                 }
                 if ($itemsHtml !== '') {
@@ -183,7 +183,7 @@ foreach ($rawMessages as $msg) {
                 $bodyHtml .= "</div>";
             } else {
                 $bodyHtml .= "<div class='message-bubble'>";
-                $bodyHtml .= "<div class='message-content'><a href='{$url}' target='_blank' rel='noopener' style='display:flex;align-items:center;gap:8px;color:#1b74e4;text-decoration:none;'><span style='font-size:22px;'>📎</span><span style='text-decoration:underline;font-weight:500;font-size:13px;word-break:break-all;'>{$fileEsc}</span></a></div>";
+                $bodyHtml .= "<div class='message-content'><a href='{$url}' target='_blank' rel='noopener' style='display:flex;align-items:center;gap:8px;color:#1b74e4;text-decoration:none;'><span style='font-size:22px;line-height:1;flex-shrink:0;'></span><span style='text-decoration:underline;font-weight:500;font-size:13px;word-break:break-all;'>{$fileEsc}</span></a></div>";
                 $bodyHtml .= "<div class='message-info'><span class='message-sender'>{$senderLabel}</span><span class='message-time'>{$timeDisp}</span></div>";
                 $bodyHtml .= "</div>";
             }

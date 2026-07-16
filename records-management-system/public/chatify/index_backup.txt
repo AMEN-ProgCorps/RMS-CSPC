@@ -1063,6 +1063,20 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
       color: var(--text-bubble-received);
     }
 
+    /* Clickable links auto-detected inside message text */
+    .message-content a.chat-link {
+      text-decoration: underline;
+      word-break: break-all;
+    }
+
+    .sent .message-content a.chat-link {
+      color: var(--text-bubble-sent);
+    }
+
+    .received .message-content a.chat-link {
+      color: var(--text-header);
+    }
+
     .message-info {
       display: flex;
       align-items: center;
@@ -4050,11 +4064,79 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
       return emojiRegex.test(stripped);
     }
 
+    // ── Auto-linkify URLs inside message text ──
+    // Turns any plain-text http(s):// or www. URL found in a message bubble
+    // into a real, clickable <a> that opens in a new tab. Only touches raw
+    // text nodes (never other markup already inside the bubble, e.g. images)
+    // and marks each content element once it's been processed so re-running
+    // this on every poll/reconcile never double-wraps an already-linkified
+    // message.
+    const URL_REGEX = /((?:https?:\/\/|www\.)[^\s<]+)/gi;
+
+    function linkifyContent(contentEl) {
+      if (!contentEl || contentEl.dataset.linkified === '1') return;
+      contentEl.dataset.linkified = '1';
+
+      const walker = document.createTreeWalker(contentEl, NodeFilter.SHOW_TEXT, null);
+      const textNodes = [];
+      let node;
+      while ((node = walker.nextNode())) {
+        // Skip text that's already inside a link (e.g. from a future
+        // server-rendered link) to avoid nesting anchors.
+        if (node.parentElement && node.parentElement.closest('a')) continue;
+        textNodes.push(node);
+      }
+
+      textNodes.forEach(function(textNode) {
+        const text = textNode.nodeValue;
+        URL_REGEX.lastIndex = 0;
+        if (!URL_REGEX.test(text)) return;
+        URL_REGEX.lastIndex = 0;
+
+        const frag = document.createDocumentFragment();
+        let lastIndex = 0;
+        let match;
+        while ((match = URL_REGEX.exec(text)) !== null) {
+          let url = match[0];
+          // Trim common trailing punctuation that's likely part of the
+          // sentence rather than the URL itself (e.g. "check this out: https://x.com/foo.")
+          const trailingPunct = /[.,:;!?'")\]}]+$/;
+          const trimmedMatch = trailingPunct.exec(url);
+          let trailing = '';
+          if (trimmedMatch) {
+            trailing = trimmedMatch[0];
+            url = url.slice(0, url.length - trailing.length);
+          }
+          if (!url) continue;
+
+          const start = match.index;
+          frag.appendChild(document.createTextNode(text.slice(lastIndex, start)));
+
+          const a = document.createElement('a');
+          a.href = /^https?:\/\//i.test(url) ? url : 'https://' + url;
+          a.textContent = url;
+          a.target = '_blank';
+          a.rel = 'noopener noreferrer';
+          a.className = 'chat-link';
+          frag.appendChild(a);
+
+          lastIndex = start + url.length;
+          if (trailing) {
+            frag.appendChild(document.createTextNode(trailing));
+            lastIndex += trailing.length;
+          }
+        }
+        frag.appendChild(document.createTextNode(text.slice(lastIndex)));
+        textNode.parentNode.replaceChild(frag, textNode);
+      });
+    }
+
     // Walk all rendered bubbles and apply / remove the emoji-only class.
     function applyEmojiOnly() {
       chatBox.querySelectorAll('.message-bubble').forEach(function(bubble) {
         const contentEl = bubble.querySelector('.message-content');
         if (!contentEl) return;
+        linkifyContent(contentEl);
         const text = contentEl.textContent || '';
         if (isEmojiOnly(text)) {
           bubble.classList.add('emoji-only');

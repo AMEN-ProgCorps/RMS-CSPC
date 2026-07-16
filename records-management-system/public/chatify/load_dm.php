@@ -207,7 +207,7 @@ foreach ($rawMessages as $msg) {
                         }
                         $itemsHtml .= "<a href='{$fnUrl}' target='_blank'><img src='{$fnUrl}' alt='{$fnEsc}' style='max-width:200px;max-height:200px;border-radius:8px;display:block;object-fit:cover;' loading='lazy' onerror=\"this.closest('a').remove()\" /></a>";
                     } else {
-                        $itemsHtml .= "<a href='{$fnUrl}' target='_blank' rel='noopener' style='display:flex;align-items:center;gap:6px;color:{$linkColor};text-decoration:none;'><span style='font-size:18px;line-height:1;flex-shrink:0;'></span><span style='text-decoration:underline;font-size:13px;word-break:break-all;'>{$fnEsc}</span></a>";
+                        $itemsHtml .= "<a href='{$fnUrl}' target='_blank' rel='noopener' style='color:{$linkColor};text-decoration:underline;font-size:13px;word-break:break-all;'>{$fnEsc}</a>";
                     }
                 }
                 if ($itemsHtml !== '') {
@@ -249,7 +249,7 @@ foreach ($rawMessages as $msg) {
             } else {
                 $linkColor = $isSent ? 'white' : '#1b74e4';
                 $uploadBodyHtml .= "<div class='message-bubble'>";
-                $uploadBodyHtml .= "<div class='message-content'><a href='{$url}' target='_blank' rel='noopener' style='display:flex;align-items:center;gap:8px;color:{$linkColor};text-decoration:none;'><span style='font-size:22px;line-height:1;flex-shrink:0;'></span><span style='text-decoration:underline;font-weight:500;font-size:13px;word-break:break-all;'>{$fileEsc}</span></a></div>";
+                $uploadBodyHtml .= "<div class='message-content'><a href='{$url}' target='_blank' rel='noopener' style='color:{$linkColor};text-decoration:underline;font-weight:500;font-size:13px;word-break:break-all;'>{$fileEsc}</a></div>";
                 $uploadBodyHtml .= "<div class='message-info'><span class='message-sender'>{$senderLabel}{$adminBadge}</span><span class='message-time'>{$timeDisplay}</span></div>";
                 $uploadBodyHtml .= "</div>";
             }

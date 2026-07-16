@@ -11,6 +11,7 @@
     </div>
 </div>
 
+@if(auth()->user()?->permissions?->is_sadm || auth()->user()?->permissions?->can_sadm_modify_accountlist)
 <div id="admin-accounts-id" class="button-section-container {{ request()->routeIs('admin.accounts.*') ? 'show' : '' }}">
     <div class="button-container {{ request()->routeIs('admin.accounts.*') ? 'force-active' : '' }}" onclick="showButtonSection('admin-accounts-id')">
         <div class="button-icon">
@@ -38,7 +39,9 @@
         <div class="function-button {{ request()->routeIs('admin.accounts.offices') ? 'force-active' : '' }}" onclick="proccedto('{{ route('admin.accounts.offices') }}')">Offices</div>
     </div>
 </div>
+@endif
 
+@if(auth()->user()?->permissions?->is_sadm || auth()->user()?->permissions?->can_access_activity_logs)
 <div id="admin-activity-id" class="button-section-container {{ request()->routeIs('admin.activity.*') ? 'show' : '' }}">
     <div class="button-container {{ request()->routeIs('admin.activity.*') ? 'force-active' : '' }}" onclick="showButtonSection('admin-activity-id')">
         <div class="button-icon">
@@ -65,7 +68,9 @@
         <div class="function-button {{ request()->routeIs('admin.activity.notifications') ? 'force-active' : '' }}" onclick="proccedto('{{ route('admin.activity.notifications') }}')">Notifications</div>
     </div>
 </div>
+@endif
 
+@if(auth()->user()?->permissions?->is_sadm || auth()->user()?->permissions?->can_access_subsystems)
 <div id="admin-subsystems-id" class="button-section-container {{ request()->routeIs('admin.subsystems.*') ? 'show' : '' }}">
     <div class="button-container {{ request()->routeIs('admin.subsystems.*') ? 'force-active' : '' }}" onclick="showButtonSection('admin-subsystems-id')">
         <div class="button-icon">
@@ -94,9 +99,11 @@
         <div class="function-button {{ request()->routeIs('admin.subsystems.changes-logs') ? 'force-active' : '' }}" onclick="proccedto('{{ route('admin.subsystems.changes-logs') }}')">Changes Logs</div>
     </div>
 </div>
+@endif
 
 <hr>
 
+@if(auth()->user()?->permissions?->is_sadm || auth()->user()?->permissions?->can_access_dts_admin)
 <div id="admin-dts-logs-id" class="button-section-container {{ request()->routeIs('admin.dts.*') ? 'show' : '' }}">
     <div class="button-container {{ request()->routeIs('admin.dts.*') ? 'force-active' : '' }}" onclick="showButtonSection('admin-dts-logs-id')">
         <div class="button-icon">
@@ -126,7 +133,9 @@
         <div class="function-button {{ request()->routeIs('admin.dts.addon') ? 'force-active' : '' }}" onclick="proccedto('{{ route('admin.dts.addon') }}')">DTS Addon</div>
     </div>
 </div>
+@endif
 
+@if(auth()->user()?->permissions?->is_sadm || auth()->user()?->permissions?->can_access_rdp_admin)
 <div id="admin-rdp-id" class="button-section-container {{ request()->routeIs('admin.rdp.*') ? 'show' : '' }}">
     <div class="button-container {{ request()->routeIs('admin.rdp.*') ? 'force-active' : '' }}" onclick="showButtonSection('admin-rdp-id')">
         <div class="button-icon">
@@ -153,7 +162,9 @@
         <div class="function-button {{ request()->routeIs('admin.rdp.update-logs') ? 'force-active' : '' }}" onclick="proccedto('{{ route('admin.rdp.update-logs') }}')">Update Logs</div>
     </div>
 </div>
+@endif
 
+@if(auth()->user()?->permissions?->is_sadm || auth()->user()?->permissions?->can_access_settings)
 <div id="admin-settings-id" class="button-section-container {{ request()->routeIs('admin.settings.*') ? 'show' : '' }}">
     <div class="button-container {{ request()->routeIs('admin.settings.*') ? 'force-active' : '' }}" onclick="proccedto('{{ route('admin.settings.index') }}')">
         <div class="button-icon">
@@ -166,7 +177,9 @@
         </div>
     </div>
 </div>
+@endif
 
+@if(auth()->user()?->permissions?->is_sadm || auth()->user()?->permissions?->can_access_recycle_bin)
 <div id="admin-recycle-bin-id" class="button-section-container {{ request()->routeIs('admin.recycle-bin') ? 'show' : '' }}">
     <div class="button-container {{ request()->routeIs('admin.recycle-bin') ? 'force-active' : '' }}" onclick="proccedto('{{ route('admin.recycle-bin') }}')">
         <div class="button-icon">
@@ -179,3 +192,4 @@
         </div>
     </div>
 </div>
+@endif

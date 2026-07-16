@@ -219,7 +219,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Users')] class extends C
             ]);
         } else {
             // Edit mode validation rules
-            $this->validate([
+            $rules = [
                 'firstName' => 'required|string|max:255',
                 'lastName' => 'required|string|max:255',
                 'middleName' => 'nullable|string|max:255',
@@ -227,7 +227,13 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Users')] class extends C
                 'contactNumber' => 'nullable|string|max:25',
                 'roleId' => 'required|exists:condition_key,id',
                 'officeId' => 'nullable|exists:office,id',
-            ]);
+            ];
+
+            if ($this->password !== '') {
+                $rules['password'] = 'required|string|min:8|confirmed';
+            }
+
+            $this->validate($rules);
         }
 
         try {
@@ -279,11 +285,30 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Users')] class extends C
                     // Detect if status changed
                     $statusChanged = $user->account_active != $this->isActive;
 
-                    $user->update([
+                    $userData = [
                         'account_role' => $this->roleId,
                         'account_active' => $this->isActive,
                         'date_updated' => now(),
-                    ]);
+                    ];
+
+                    if ($this->password !== '') {
+                        $userData['password'] = \Hash::make($this->password);
+                    }
+
+                    $user->update($userData);
+
+                    if ($this->password !== '') {
+                        \DB::table('admin_logs')->insert([
+                            'changes' => "Reset password for user: {$user->username}",
+                            'admin_id' => auth()->id(),
+                            'what_system' => 3, // Admin Console
+                            'when_changes' => now()
+                        ]);
+                    }
+
+                    // Clear out sensitive password inputs
+                    $this->password = '';
+                    $this->password_confirmation = '';
 
                     // Update/Create personal Profile details
                     $details = \App\Models\AccountDetail::find($this->selectedUserId);
@@ -720,6 +745,26 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Users')] class extends C
                         @error('officeId') <span style="color:#ef4444; font-size:11px; margin-top:2px;">{{ $message }}</span> @enderror
                     </div>
 
+                    <!-- Reset Password Section (Edit Mode Only) -->
+                    @if($selectedUserId > 0)
+                        @if(auth()->user()?->permissions?->is_sadm || auth()->user()?->permissions?->can_sadm_modify_pass)
+                            <div class="form-group full-width" style="margin-top: 15px; border-top: 1px dashed #cbd5e1; padding-top: 15px;">
+                                <span style="font-size: 13px; font-weight: 600; color: #475569; display: block; margin-bottom: 8px;">Reset Password</span>
+                                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px; width: 100%;">
+                                    <div class="form-group" style="margin-bottom: 0;">
+                                        <span class="form-label">New Password</span>
+                                        <input type="password" class="form-input" style="height: 38px;" placeholder="Leave blank to keep current..." wire:model="password">
+                                        @error('password') <span style="color:#ef4444; font-size:11px; margin-top:2px;">{{ $message }}</span> @enderror
+                                    </div>
+                                    <div class="form-group" style="margin-bottom: 0;">
+                                        <span class="form-label">Confirm New Password</span>
+                                        <input type="password" class="form-input" style="height: 38px;" placeholder="Confirm new password..." wire:model="password_confirmation">
+                                        @error('password_confirmation') <span style="color:#ef4444; font-size:11px; margin-top:2px;">{{ $message }}</span> @enderror
+                                    </div>
+                                </div>
+                            </div>
+                        @endif
+                    @endif
                     <!-- Active Toggle Wrapper -->
                     <div class="form-group full-width">
                         <div class="status-toggle-wrapper">

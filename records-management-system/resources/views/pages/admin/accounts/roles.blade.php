@@ -53,6 +53,14 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Roles')] class extends C
     public bool $canDtsModifyTransaction = false;
     public bool $canDtsModifyControlNo = false;
 
+    // Admin Console Clearance flags
+    public bool $canAccessActivityLogs = false;
+    public bool $canAccessSubsystems = false;
+    public bool $canAccessDtsAdmin = false;
+    public bool $canAccessRdpAdmin = false;
+    public bool $canAccessSettings = false;
+    public bool $canAccessRecycleBin = false;
+
     // Toast notifications
     public string $successMessage = '';
     public string $errorMessage = '';
@@ -166,6 +174,14 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Roles')] class extends C
                 $this->canDtsUserReceived = (bool) $perms->can_dts_user_received;
                 $this->canDtsModifyTransaction = (bool) $perms->can_dts_modify_transaction;
                 $this->canDtsModifyControlNo = (bool) ($perms->can_dts_modify_control_no ?? false);
+
+                // Admin Console Clearance flags
+                $this->canAccessActivityLogs = (bool) ($perms->can_access_activity_logs ?? false);
+                $this->canAccessSubsystems = (bool) ($perms->can_access_subsystems ?? false);
+                $this->canAccessDtsAdmin = (bool) ($perms->can_access_dts_admin ?? false);
+                $this->canAccessRdpAdmin = (bool) ($perms->can_access_rdp_admin ?? false);
+                $this->canAccessSettings = (bool) ($perms->can_access_settings ?? false);
+                $this->canAccessRecycleBin = (bool) ($perms->can_access_recycle_bin ?? false);
             }
         }
     }
@@ -357,6 +373,14 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Roles')] class extends C
         $perms->can_dts_user_received = $this->canDtsUserReceived;
         $perms->can_dts_modify_transaction = $this->canDtsModifyTransaction;
         $perms->can_dts_modify_control_no = $this->canDtsModifyControlNo;
+
+        // Admin Console Clearance flags
+        $perms->can_access_activity_logs = $this->canAccessActivityLogs;
+        $perms->can_access_subsystems = $this->canAccessSubsystems;
+        $perms->can_access_dts_admin = $this->canAccessDtsAdmin;
+        $perms->can_access_rdp_admin = $this->canAccessRdpAdmin;
+        $perms->can_access_settings = $this->canAccessSettings;
+        $perms->can_access_recycle_bin = $this->canAccessRecycleBin;
     }
 
     /**
@@ -868,6 +892,72 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Roles')] class extends C
                                         </div>
                                         <label class="switch">
                                             <input type="checkbox" wire:model="canModifyPass" {{ (!$isSadm && !$isAdmin) ? 'disabled' : '' }}>
+                                            <span class="slider"></span>
+                                        </label>
+                                    </div>
+                                    <!-- View Activity Logs -->
+                                    <div class="permission-toggle-row" style="{{ (!$isSadm && !$isAdmin) ? 'opacity: 0.5; transition: opacity 0.2s ease;' : '' }}">
+                                        <div class="permission-toggle-info">
+                                            <span class="permission-toggle-title">Access Activity Logs</span>
+                                            <span class="permission-toggle-desc">Clearance to view the login, transaction, and update log history.</span>
+                                        </div>
+                                        <label class="switch">
+                                            <input type="checkbox" wire:model="canAccessActivityLogs" {{ (!$isSadm && !$isAdmin) ? 'disabled' : '' }}>
+                                            <span class="slider"></span>
+                                        </label>
+                                    </div>
+                                    <!-- Access Subsystems -->
+                                    <div class="permission-toggle-row" style="{{ (!$isSadm && !$isAdmin) ? 'opacity: 0.5; transition: opacity 0.2s ease;' : '' }}">
+                                        <div class="permission-toggle-info">
+                                            <span class="permission-toggle-title">Manage Subsystems</span>
+                                            <span class="permission-toggle-desc">Clearance to add, activate, or deactivate portal subsystems.</span>
+                                        </div>
+                                        <label class="switch">
+                                            <input type="checkbox" wire:model="canAccessSubsystems" {{ (!$isSadm && !$isAdmin) ? 'disabled' : '' }}>
+                                            <span class="slider"></span>
+                                        </label>
+                                    </div>
+                                    <!-- Access DTS Admin -->
+                                    <div class="permission-toggle-row" style="{{ (!$isSadm && !$isAdmin) ? 'opacity: 0.5; transition: opacity 0.2s ease;' : '' }}">
+                                        <div class="permission-toggle-info">
+                                            <span class="permission-toggle-title">Access DTS Admin Log</span>
+                                            <span class="permission-toggle-desc">Clearance to view transaction log history and predefined flow patterns.</span>
+                                        </div>
+                                        <label class="switch">
+                                            <input type="checkbox" wire:model="canAccessDtsAdmin" {{ (!$isSadm && !$isAdmin) ? 'disabled' : '' }}>
+                                            <span class="slider"></span>
+                                        </label>
+                                    </div>
+                                    <!-- Access RDP Admin -->
+                                    <div class="permission-toggle-row" style="{{ (!$isSadm && !$isAdmin) ? 'opacity: 0.5; transition: opacity 0.2s ease;' : '' }}">
+                                        <div class="permission-toggle-info">
+                                            <span class="permission-toggle-title">Access RDP Admin Log</span>
+                                            <span class="permission-toggle-desc">Clearance to view retention schedules and records logs.</span>
+                                        </div>
+                                        <label class="switch">
+                                            <input type="checkbox" wire:model="canAccessRdpAdmin" {{ (!$isSadm && !$isAdmin) ? 'disabled' : '' }}>
+                                            <span class="slider"></span>
+                                        </label>
+                                    </div>
+                                    <!-- Access System Settings -->
+                                    <div class="permission-toggle-row" style="{{ (!$isSadm && !$isAdmin) ? 'opacity: 0.5; transition: opacity 0.2s ease;' : '' }}">
+                                        <div class="permission-toggle-info">
+                                            <span class="permission-toggle-title">Manage System Settings</span>
+                                            <span class="permission-toggle-desc">Clearance to adjust portal variables and configurations.</span>
+                                        </div>
+                                        <label class="switch">
+                                            <input type="checkbox" wire:model="canAccessSettings" {{ (!$isSadm && !$isAdmin) ? 'disabled' : '' }}>
+                                            <span class="slider"></span>
+                                        </label>
+                                    </div>
+                                    <!-- Access Recycle Bin -->
+                                    <div class="permission-toggle-row" style="{{ (!$isSadm && !$isAdmin) ? 'opacity: 0.5; transition: opacity 0.2s ease;' : '' }}">
+                                        <div class="permission-toggle-info">
+                                            <span class="permission-toggle-title">Access Recycle Bin</span>
+                                            <span class="permission-toggle-desc">Clearance to view and restore deactivated portal items.</span>
+                                        </div>
+                                        <label class="switch">
+                                            <input type="checkbox" wire:model="canAccessRecycleBin" {{ (!$isSadm && !$isAdmin) ? 'disabled' : '' }}>
                                             <span class="slider"></span>
                                         </label>
                                     </div>

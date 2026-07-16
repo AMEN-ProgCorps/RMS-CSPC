@@ -5120,28 +5120,8 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
 
     // ── Upload files → save message ───────────────────────────────────────────
     function uploadAndSend(fileList, isImageBatch) {
-      // Show optimistic "Uploading…" bubble
-      const sendUid = ++sendingUidCounter;
-      const uploadBubble = document.createElement('div');
-      uploadBubble.setAttribute('data-sending-uid', sendUid);
-      uploadBubble.setAttribute('data-upload-uid', sendUid);
-      uploadBubble.className = 'message-container sent msg-animate-sent';
-      const previewLabel = isImageBatch && fileList.length > 1
-        ? `Uploading ${fileList.length} images…`
-        : (isImageBatch ? 'Uploading image…' : `Uploading ${fileList[0].name}…`);
-      uploadBubble.innerHTML = `
-        <div class="message-bubble" style="opacity:0.55;">
-          <div class="message-content" style="font-style:italic;font-size:13px;">${previewLabel}</div>
-        </div>
-        <div class="message-avatar">${getInitials(userName)}</div>
-      `;
-      uploadBubble.addEventListener('animationend', () => uploadBubble.classList.remove('msg-animate-sent'), { once: true });
-      const sendOverlay = getSendingOverlay();
-      if (sendOverlay) sendOverlay.appendChild(uploadBubble);
-      else chatBox.appendChild(uploadBubble);
       shouldAutoScroll = true;
       userScrolledUp   = false;
-      if (isAtBottom()) scrollToBottom(true, true);
 
       // Build FormData
       const fd = new FormData();
@@ -5153,10 +5133,6 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
       const xhr = new XMLHttpRequest();
       xhr.open('POST', 'upload.php', true);
       xhr.onload = function() {
-        // Remove optimistic bubble
-        const bub = document.querySelector(`[data-sending-uid="${sendUid}"]`);
-        if (bub) bub.remove();
-
         if (this.status !== 200) {
           return;
         }
@@ -5201,10 +5177,7 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
         sendXhr.onerror = function() {};
         sendXhr.send(params);
       };
-      xhr.onerror = function() {
-        const bub = document.querySelector(`[data-sending-uid="${sendUid}"]`);
-        if (bub) bub.remove();
-      };
+      xhr.onerror = function() {};
       xhr.send(fd);
     }
 

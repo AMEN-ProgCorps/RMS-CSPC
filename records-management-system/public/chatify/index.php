@@ -965,13 +965,19 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
       border-radius: 8px;
     }
 
-    /* ── Media grid (compiled multi-image send) ───────────────── */
+    /* ── Media grid (multi-image send) ───────────────────────────
+       No forced squares, no aggressive cropping: each image keeps
+       its natural aspect ratio. Columns still come from data-count
+       so the layout reads as a grid, but row height is driven by
+       the image itself (capped by max-height) instead of a fixed
+       1:1 box, so portrait stays portrait and landscape stays
+       landscape. */
     .message-media-grid {
       display: grid;
-      gap: 3px;
+      gap: 4px;
       border-radius: 12px;
-      overflow: hidden;
-      max-width: 280px;
+      max-width: 320px;
+      align-items: start;
     }
     .message-media-grid[data-count="2"]  { grid-template-columns: 1fr 1fr; }
     .message-media-grid[data-count="3"]  { grid-template-columns: 1fr 1fr 1fr; }
@@ -980,15 +986,22 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
     .message-media-grid[data-count="5"]  { grid-template-columns: 1fr 1fr 1fr; }
     .message-media-grid[data-count="5"]  .media-grid-item:first-child { grid-column: span 3; }
     .message-media-grid:not([data-count]) { grid-template-columns: 1fr 1fr 1fr; }
-    .media-grid-item { overflow: hidden; aspect-ratio: 1; display: block; }
-    .media-grid-item img {
-      width: 100%;
-      height: 100%;
-      object-fit: cover;
+    .media-grid-item {
       display: block;
+      overflow: hidden;
+      border-radius: 10px;
+      background: var(--bg-secondary, #e4e6eb);
+    }
+    .media-grid-item img {
+      display: block;
+      width: 100%;
+      height: auto;         /* let the image keep its own ratio, no stretching/cropping */
+      max-height: 360px;     /* keeps a very tall portrait from dominating the bubble */
+      object-fit: contain;   /* only matters if max-height caps it; never distorts */
+      border-radius: 10px;
       transition: transform 0.2s ease;
     }
-    .media-grid-item:hover img { transform: scale(1.04); }
+    .media-grid-item:hover img { transform: scale(1.02); }
 
     /* ── Attachment / paperclip button ───────────────────────── */
     .attachment-btn {

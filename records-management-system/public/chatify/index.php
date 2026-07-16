@@ -1023,31 +1023,6 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
       transform: rotate(-15deg) scale(1.08);
     }
 
-    /* ── Upload toast / progress overlay ──────────────────────── */
-    #uploadToast {
-      position: fixed;
-      bottom: 80px;
-      left: 50%;
-      transform: translateX(-50%) translateY(20px);
-      background: var(--bg-secondary);
-      color: var(--text-primary);
-      border: 1px solid var(--border-color);
-      border-radius: 24px;
-      padding: 8px 20px;
-      font-size: 13px;
-      font-family: 'Inter', sans-serif;
-      box-shadow: 0 4px 20px rgba(0,0,0,0.18);
-      opacity: 0;
-      pointer-events: none;
-      transition: opacity 0.22s, transform 0.22s;
-      z-index: 9999;
-      white-space: nowrap;
-    }
-    #uploadToast.visible {
-      opacity: 1;
-      transform: translateX(-50%) translateY(0);
-    }
-
     /* ── Drop overlay active state ─────────────────────────────── */
     .drop-overlay {
       position: absolute;
@@ -5059,21 +5034,6 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
     const dropOverlay       = document.getElementById('dropOverlay');
     const fileAttachInput   = document.getElementById('fileAttachmentInput');
 
-    // ── Upload toast helper ────────────────────────────────────────────────────
-    let toastTimer = null;
-    function showUploadToast(msg, ms = 2800) {
-      let toast = document.getElementById('uploadToast');
-      if (!toast) {
-        toast = document.createElement('div');
-        toast.id = 'uploadToast';
-        document.body.appendChild(toast);
-      }
-      toast.textContent = msg;
-      toast.classList.add('visible');
-      clearTimeout(toastTimer);
-      toastTimer = setTimeout(() => toast.classList.remove('visible'), ms);
-    }
-
     // ── Drag counter (prevents overlay flicker on child-enter/leave) ───────────
     let dragCount = 0;
 
@@ -5126,7 +5086,6 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
     // ── Core upload handler ───────────────────────────────────────────────────
     function handleFileUploads(files) {
       if (!activeDM && !isGlobalChat) {
-        showUploadToast('⚠️ Please select a chat first.');
         return;
       }
 
@@ -5199,18 +5158,12 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
         if (bub) bub.remove();
 
         if (this.status !== 200) {
-          showUploadToast('Upload failed. Please try again.', 3500);
           return;
         }
 
         let result;
         try { result = JSON.parse(this.responseText); } catch(e) {
-          showUploadToast('Upload error.', 3000);
           return;
-        }
-
-        if (result.errors && result.errors.length > 0) {
-          showUploadToast('⚠️ ' + result.errors[0], 4000);
         }
 
         if (!result.success || !result.uploaded || result.uploaded.length === 0) return;
@@ -5243,17 +5196,14 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
             isLoadingChat = false;
             if (isGlobalChat) loadGlobalChat();
             else if (activeDM) loadChat();
-          } else {
-            showUploadToast('Failed to record upload. File saved but not shown.', 4000);
           }
         };
-        sendXhr.onerror = function() { showUploadToast('Network error sending upload.', 3000); };
+        sendXhr.onerror = function() {};
         sendXhr.send(params);
       };
       xhr.onerror = function() {
         const bub = document.querySelector(`[data-sending-uid="${sendUid}"]`);
         if (bub) bub.remove();
-        showUploadToast('Network error during upload.', 3000);
       };
       xhr.send(fd);
     }

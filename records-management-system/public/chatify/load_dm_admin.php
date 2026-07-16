@@ -45,6 +45,10 @@ $mimeMap   = [
     'opus' => 'audio/ogg; codecs=opus',
 ];
 
+// Filesystem path to the uploads directory (the 'uploads/' URL prefix used
+// below points at this same directory on disk, relative to this file).
+$uploadsDir = __DIR__ . '/uploads/';
+
 function adminGetInitials(string $name): string
 {
     $words = explode(' ', trim($name));
@@ -77,48 +81,126 @@ foreach ($rawMessages as $msg) {
     }
     $timeDisp = date('g:i A', (int) floor($ts));
 
-    // In admin view, all shown as received-style
-    $html .= "<div class='message-container received' data-msg-id='{$msgId}'>";
-    $html .= "<div class='message-avatar'>{$initials}</div>";
-    $html .= "<div class='bubble-wrapper'>";
+    $senderLabel = htmlspecialchars(strtolower($senderName), ENT_QUOTES);
+    $bodyHtml    = '';
 
     if ($type === 'text') {
         $content = safeDecrypt($msg['message'] ?? '');
         $contentEsc = htmlspecialchars($content, ENT_QUOTES);
-        
-        $html .= "<div class='message-bubble'>";
-        $html .= "<div class='message-content'>{$contentEsc}</div>";
-        $html .= "<div class='message-info'><span class='message-sender'>" . htmlspecialchars(strtolower($senderName), ENT_QUOTES) . "</span><span class='message-time'>{$timeDisp}</span></div>";
-        $html .= "</div>";
-    } else {
-        $file = safeDecrypt($msg['message'] ?? '');
-        $file = basename($file);
-        $url = 'uploads/' . rawurlencode($file);
-        $ext = strtolower(pathinfo($file, PATHINFO_EXTENSION));
-        $fileEsc = htmlspecialchars($file, ENT_QUOTES);
 
-        if (in_array($ext, $imageExts, true)) {
-            $html .= "<div class='message-media'>";
-            $html .= "<a href='{$url}' target='_blank'><img src='{$url}' alt='{$fileEsc}' style='max-width:240px;max-height:240px;border-radius:12px;display:block;object-fit:cover;box-shadow:0 2px 8px rgba(0,0,0,0.18);' loading='lazy' /></a>";
-            $html .= "<div class='message-info' style='padding:3px 2px;'><span class='message-sender'>" . htmlspecialchars(strtolower($senderName), ENT_QUOTES) . "</span><span class='message-time'>{$timeDisp}</span></div>";
-            $html .= "</div>";
-        } elseif (in_array($ext, $audioExts, true)) {
-            $mime = $mimeMap[$ext] ?? 'audio/' . $ext;
-            $html .= "<div class='message-bubble'>";
-            $html .= "<div class='message-content'>";
-            $html .= "<div style='font-size:12px;margin-bottom:6px;font-weight:500;opacity:0.85;max-width:240px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;'>{$fileEsc}</div>";
-            $html .= "<audio controls preload='metadata' style='width:240px;max-width:100%;display:block;border-radius:6px;'><source src='{$url}' type='{$mime}'></audio>";
-            $html .= "</div>";
-            $html .= "<div class='message-info'><span class='message-sender'>" . htmlspecialchars(strtolower($senderName), ENT_QUOTES) . "</span><span class='message-time'>{$timeDisp}</span></div>";
-            $html .= "</div>";
+        $bodyHtml .= "<div class='message-bubble'>";
+        $bodyHtml .= "<div class='message-content'>{$contentEsc}</div>";
+        $bodyHtml .= "<div class='message-info'><span class='message-sender'>{$senderLabel}</span><span class='message-time'>{$timeDisp}</span></div>";
+        $bodyHtml .= "</div>";
+    } else {
+        // Upload: decrypt payload — may be a single filename or a JSON array of filenames
+        $rawPayload = safeDecrypt($msg['message'] ?? '');
+        $decoded    = json_decode($rawPayload, true);
+        $isGrid     = is_array($decoded) && count($decoded) > 1;
+
+        if ($isGrid) {
+            // ── Multi-image grid ──────────────────────────────────────────────
+            $allImages = true;
+            foreach ($decoded as $fn) {
+                $fnExt = strtolower(pathinfo(basename((string) $fn), PATHINFO_EXTENSION));
+                if (!in_array($fnExt, $imageExts, true)) { $allImages = false; break; }
+            }
+
+            if ($allImages) {
+                // Only keep images whose files still exist on disk
+                $existingFiles = array_values(array_filter($decoded, function ($fn) use ($uploadsDir) {
+                    return file_exists($uploadsDir . basename((string) $fn));
+                }));
+
+                if (!empty($existingFiles)) {
+                    $count = count($existingFiles);
+                    $bodyHtml .= "<div class='message-media'>";
+                    $bodyHtml .= "<div class='message-media-grid' data-count='{$count}'>";
+                    foreach ($existingFiles as $fn) {
+                        $fn    = basename((string) $fn);
+                        $fnUrl = 'uploads/' . rawurlencode($fn);
+                        $fnEsc = htmlspecialchars($fn, ENT_QUOTES);
+                        $bodyHtml .= "<a href='{$fnUrl}' target='_blank' class='media-grid-item'>";
+                        $bodyHtml .= "<img src='{$fnUrl}' alt='{$fnEsc}' loading='lazy' onerror=\"this.closest('.media-grid-item').remove()\" />";
+                        $bodyHtml .= "</a>";
+                    }
+                    $bodyHtml .= "</div>"; // .message-media-grid
+                    $bodyHtml .= "<div class='message-info' style='padding:3px 2px;'><span class='message-sender'>{$senderLabel}</span><span class='message-time'>{$timeDisp}</span></div>";
+                    $bodyHtml .= "</div>"; // .message-media
+                }
+                // If no files remain, no media container is emitted at all.
+            } else {
+                // Mixed files — render each as its own attachment link, skipping
+                // any image whose underlying file no longer exists
+                $itemsHtml = '';
+                foreach ($decoded as $fn) {
+                    $fn    = basename((string) $fn);
+                    $fnUrl = 'uploads/' . rawurlencode($fn);
+                    $fnEsc = htmlspecialchars($fn, ENT_QUOTES);
+                    $fnExt = strtolower(pathinfo($fn, PATHINFO_EXTENSION));
+                    if (in_array($fnExt, $imageExts, true)) {
+                        if (!file_exists($uploadsDir . $fn)) {
+                            continue; // deleted image — skip
+                        }
+                        $itemsHtml .= "<a href='{$fnUrl}' target='_blank'><img src='{$fnUrl}' alt='{$fnEsc}' style='max-width:200px;max-height:200px;border-radius:8px;display:block;object-fit:cover;' loading='lazy' onerror=\"this.closest('a').remove()\" /></a>";
+                    } else {
+                        $itemsHtml .= "<a href='{$fnUrl}' target='_blank' rel='noopener' style='display:flex;align-items:center;gap:6px;color:#1b74e4;text-decoration:none;'><span style='font-size:18px;'>📎</span><span style='text-decoration:underline;font-size:13px;word-break:break-all;'>{$fnEsc}</span></a>";
+                    }
+                }
+                if ($itemsHtml !== '') {
+                    $bodyHtml .= "<div class='message-bubble'>";
+                    $bodyHtml .= "<div class='message-content' style='display:flex;flex-direction:column;gap:6px;'>";
+                    $bodyHtml .= $itemsHtml;
+                    $bodyHtml .= "</div>";
+                    $bodyHtml .= "<div class='message-info'><span class='message-sender'>{$senderLabel}</span><span class='message-time'>{$timeDisp}</span></div>";
+                    $bodyHtml .= "</div>"; // .message-bubble
+                }
+            }
+
         } else {
-            $html .= "<div class='message-bubble'>";
-            $html .= "<div class='message-content'><a href='{$url}' target='_blank' rel='noopener' style='display:flex;align-items:center;gap:8px;color:#1b74e4;text-decoration:none;'><span style='font-size:22px;'>📎</span><span style='text-decoration:underline;font-weight:500;font-size:13px;word-break:break-all;'>{$fileEsc}</span></a></div>";
-            $html .= "<div class='message-info'><span class='message-sender'>" . htmlspecialchars(strtolower($senderName), ENT_QUOTES) . "</span><span class='message-time'>{$timeDisp}</span></div>";
-            $html .= "</div>";
+            // ── Single file (or single-element JSON array) ────────────────────
+            $file    = $isGrid ? basename((string) $decoded[0]) : basename(is_array($decoded) ? (string) ($decoded[0] ?? '') : $rawPayload);
+            $url     = 'uploads/' . rawurlencode($file);
+            $ext     = strtolower(pathinfo($file, PATHINFO_EXTENSION));
+            $fileEsc = htmlspecialchars($file, ENT_QUOTES);
+
+            if (in_array($ext, $imageExts, true)) {
+                if (file_exists($uploadsDir . $file)) {
+                    $bodyHtml .= "<div class='message-media'>";
+                    $bodyHtml .= "<a href='{$url}' target='_blank'><img src='{$url}' alt='{$fileEsc}' style='max-width:240px;max-height:240px;border-radius:12px;display:block;object-fit:cover;box-shadow:0 2px 8px rgba(0,0,0,0.18);' loading='lazy' onerror=\"this.closest('.message-media').remove()\" /></a>";
+                    $bodyHtml .= "<div class='message-info' style='padding:3px 2px;'><span class='message-sender'>{$senderLabel}</span><span class='message-time'>{$timeDisp}</span></div>";
+                    $bodyHtml .= "</div>";
+                }
+                // else: deleted image — nothing rendered for this message
+            } elseif (in_array($ext, $audioExts, true)) {
+                $mime = $mimeMap[$ext] ?? 'audio/' . $ext;
+                $bodyHtml .= "<div class='message-bubble'>";
+                $bodyHtml .= "<div class='message-content'>";
+                $bodyHtml .= "<div style='font-size:12px;margin-bottom:6px;font-weight:500;opacity:0.85;max-width:240px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;'>{$fileEsc}</div>";
+                $bodyHtml .= "<audio controls preload='metadata' style='width:240px;max-width:100%;display:block;border-radius:6px;'><source src='{$url}' type='{$mime}'></audio>";
+                $bodyHtml .= "</div>";
+                $bodyHtml .= "<div class='message-info'><span class='message-sender'>{$senderLabel}</span><span class='message-time'>{$timeDisp}</span></div>";
+                $bodyHtml .= "</div>";
+            } else {
+                $bodyHtml .= "<div class='message-bubble'>";
+                $bodyHtml .= "<div class='message-content'><a href='{$url}' target='_blank' rel='noopener' style='display:flex;align-items:center;gap:8px;color:#1b74e4;text-decoration:none;'><span style='font-size:22px;'>📎</span><span style='text-decoration:underline;font-weight:500;font-size:13px;word-break:break-all;'>{$fileEsc}</span></a></div>";
+                $bodyHtml .= "<div class='message-info'><span class='message-sender'>{$senderLabel}</span><span class='message-time'>{$timeDisp}</span></div>";
+                $bodyHtml .= "</div>";
+            }
         }
     }
 
+    // If everything attached to this message (e.g. all images) was deleted,
+    // there is nothing left to show — skip the message entirely.
+    if ($bodyHtml === '') {
+        continue;
+    }
+
+    // In admin view, all shown as received-style
+    $html .= "<div class='message-container received' data-msg-id='{$msgId}'>";
+    $html .= "<div class='message-avatar'>{$initials}</div>";
+    $html .= "<div class='bubble-wrapper'>";
+    $html .= $bodyHtml;
     $html .= "</div>"; // .bubble-wrapper
     $html .= "</div>"; // .message-container
 }

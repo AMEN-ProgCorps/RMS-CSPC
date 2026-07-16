@@ -78,7 +78,6 @@ for ($i = 0; $i < $total; $i++) {
     // ── PHP upload error check ────────────────────────────────────────────────
     if ($error !== UPLOAD_ERR_OK) {
         $errorMessages = [
-            UPLOAD_ERR_INI_SIZE   => 'File exceeds server upload size limit.',
             UPLOAD_ERR_FORM_SIZE  => 'File exceeds form size limit.',
             UPLOAD_ERR_PARTIAL    => 'File was only partially uploaded.',
             UPLOAD_ERR_NO_FILE    => 'No file was uploaded.',

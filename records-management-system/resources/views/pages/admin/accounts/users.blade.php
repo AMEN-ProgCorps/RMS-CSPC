@@ -679,11 +679,11 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Users')] class extends C
                                    wire:model.live="roleSearch" 
                                    wire:focus="$set('showRoleDropdown', true)" 
                                    autocomplete="off" 
-                                   style="padding-right: 32px; background-color: white;">
+                                   style="padding-right: 32px; background-color: white; font-family: 'Inter', sans-serif;">
                             <span style="position: absolute; right: 12px; top: 50%; transform: translateY(-50%); pointer-events: none; color: #94a3b8; font-size: 10px;">▼</span>
                             
                             @if($showRoleDropdown)
-                                <div style="position: absolute; top: 100%; left: 0; right: 0; margin-top: 4px; background: #ffffff; border: 1.5px solid #cbd5e1; border-radius: 8px; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1), 0 2px 4px -1px rgba(0,0,0,0.06); max-height: 160px; overflow-y: auto; z-index: 50;">
+                                <div style="position: absolute; top: 100%; left: 0; right: 0; margin-top: 4px; background: #ffffff; border: 1.5px solid #cbd5e1; border-radius: 8px; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1), 0 2px 4px -1px rgba(0,0,0,0.06); max-height: 160px; overflow-y: auto; z-index: 50; font-family: 'Inter', sans-serif;">
                                     <div wire:click="selectRole(null, '')" style="padding: 9px 14px; font-size: 13px; color: #64748b; cursor: pointer; border-bottom: 1px solid #f1f5f9; font-style: italic;" onmouseover="this.style.backgroundColor='#f1f5f9'" onmouseout="this.style.backgroundColor='transparent'">
                                         Select Role
                                     </div>
@@ -716,11 +716,11 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Users')] class extends C
                                    wire:model.live="officeSearch" 
                                    wire:focus="$set('showOfficeDropdown', true)" 
                                    autocomplete="off" 
-                                   style="padding-right: 32px; background-color: white;">
+                                   style="padding-right: 32px; background-color: white; font-family: 'Inter', sans-serif;">
                             <span style="position: absolute; right: 12px; top: 50%; transform: translateY(-50%); pointer-events: none; color: #94a3b8; font-size: 10px;">▼</span>
                             
                             @if($showOfficeDropdown)
-                                <div style="position: absolute; top: 100%; left: 0; right: 0; margin-top: 4px; background: #ffffff; border: 1.5px solid #cbd5e1; border-radius: 8px; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1), 0 2px 4px -1px rgba(0,0,0,0.06); max-height: 160px; overflow-y: auto; z-index: 50;">
+                                <div style="position: absolute; top: 100%; left: 0; right: 0; margin-top: 4px; background: #ffffff; border: 1.5px solid #cbd5e1; border-radius: 8px; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1), 0 2px 4px -1px rgba(0,0,0,0.06); max-height: 160px; overflow-y: auto; z-index: 50; font-family: 'Inter', sans-serif;">
                                     <div wire:click="selectOffice(null, '')" style="padding: 9px 14px; font-size: 13px; color: #64748b; cursor: pointer; border-bottom: 1px solid #f1f5f9; font-style: italic;" onmouseover="this.style.backgroundColor='#f1f5f9'" onmouseout="this.style.backgroundColor='transparent'">
                                         No Office Assigned
                                     </div>

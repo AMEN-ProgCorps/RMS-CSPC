@@ -1294,7 +1294,7 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create Internal
                     </button>
                     @php
                         $emailAccessRequired = DB::table('system_settings')->where('key', 'dts_email_access_required_internal')->value('value') === 'true';
-                        $isConfigured = !empty($email_access_input) && !empty($document_password_input);
+                        $isConfigured = !empty($email_access_input) && filter_var($email_access_input, FILTER_VALIDATE_EMAIL) !== false && !empty($document_password_input);
                         $btnBg = $isConfigured ? '#10b981' : ($emailAccessRequired ? '#ef4444' : '#3b82f6');
                         $btnHoverBg = $isConfigured ? '#059669' : ($emailAccessRequired ? '#dc2626' : '#2563eb');
                         $btnShadow = $isConfigured ? 'rgba(16, 185, 129, 0.25)' : ($emailAccessRequired ? 'rgba(239, 68, 68, 0.25)' : 'rgba(59, 130, 246, 0.25)');
@@ -1587,7 +1587,7 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create Internal
                 </button>
                 @php
                     $emailAccessRequired = DB::table('system_settings')->where('key', 'dts_email_access_required_internal')->value('value') === 'true';
-                    $isConfigured = !empty($email_access_input) && !empty($document_password_input);
+                    $isConfigured = !empty($email_access_input) && filter_var($email_access_input, FILTER_VALIDATE_EMAIL) !== false && !empty($document_password_input);
                     $btnBg = $isConfigured ? '#10b981' : ($emailAccessRequired ? '#ef4444' : '#3b82f6');
                     $btnHoverBg = $isConfigured ? '#059669' : ($emailAccessRequired ? '#dc2626' : '#2563eb');
                     $btnShadow = $isConfigured ? 'rgba(16, 185, 129, 0.2)' : ($emailAccessRequired ? 'rgba(239, 68, 68, 0.2)' : 'rgba(59, 130, 246, 0.2)');
@@ -1890,15 +1890,18 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create Internal
                     <!-- Authorized Email input -->
                     <div style="display: flex; flex-direction: column; gap: 6px;">
                         <label style="font-size: 12px; font-weight: 600; color: #334155;">Authorized Email Address</label>
-                        <input type="email" wire:model="email_access_input" placeholder="e.g. user@gmail.com" style="width: 100%; padding: 10px 12px; border: 1.5px solid #cbd5e1; border-radius: 8px; font-size: 13px; outline: none; transition: border-color 0.15s; font-family: 'Inter', sans-serif;" onfocus="this.style.borderColor='#3b82f6'" onblur="this.style.borderColor='#cbd5e1'">
+                        <input type="email" wire:model.live="email_access_input" placeholder="e.g. user@gmail.com" style="width: 100%; padding: 10px 12px; border: 1.5px solid #cbd5e1; border-radius: 8px; font-size: 13px; outline: none; transition: border-color 0.15s; font-family: 'Inter', sans-serif;" onfocus="this.style.borderColor='#3b82f6'" onblur="this.style.borderColor='#cbd5e1'">
                         @error('email_access_input') <span style="font-size: 11.5px; color: #ef4444; font-weight: 500;">{{ $message }}</span> @enderror
+                        @if(!empty($email_access_input) && filter_var($email_access_input, FILTER_VALIDATE_EMAIL) === false)
+                            <span style="font-size: 11.5px; color: #ef4444; font-weight: 600; display: block; margin-top: 2px;">Invalid email address format (e.g. user@gmail.com)</span>
+                        @endif
                         <p style="margin: 0; font-size: 11px; color: #64748b; line-height: 1.4;">Only this email address will be permitted to verify and track this document's lifecycle on the public portal.</p>
                     </div>
 
                     <!-- Password input -->
                     <div style="display: flex; flex-direction: column; gap: 6px;">
                         <label style="font-size: 12px; font-weight: 600; color: #334155;">Document Password</label>
-                        <input type="text" wire:model="document_password_input" placeholder="Enter secure password" style="width: 100%; padding: 10px 12px; border: 1.5px solid #cbd5e1; border-radius: 8px; font-size: 13px; outline: none; transition: border-color 0.15s; font-family: 'Inter', sans-serif;" onfocus="this.style.borderColor='#3b82f6'" onblur="this.style.borderColor='#cbd5e1'">
+                        <input type="text" wire:model.live="document_password_input" placeholder="Enter secure password" style="width: 100%; padding: 10px 12px; border: 1.5px solid #cbd5e1; border-radius: 8px; font-size: 13px; outline: none; transition: border-color 0.15s; font-family: 'Inter', sans-serif;" onfocus="this.style.borderColor='#3b82f6'" onblur="this.style.borderColor='#cbd5e1'">
                         @error('document_password_input') <span style="font-size: 11.5px; color: #ef4444; font-weight: 500;">{{ $message }}</span> @enderror
                         <p style="margin: 0; font-size: 11px; color: #64748b; line-height: 1.4;">Required for non-CSPC email addresses to view document tracking updates.</p>
                     </div>

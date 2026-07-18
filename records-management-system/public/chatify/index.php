@@ -1234,6 +1234,18 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
       min-width: 0;
     }
 
+    /* By default this just shrink-wraps the attach button (same footprint
+       as before). Only while editing (.editing) do we pin its width to
+       match #sendButton via JS, so the name field lines up with the
+       message field specifically when the cancel-edit X button is showing. */
+    .input-actions {
+      display: flex;
+      align-items: center;
+      justify-content: flex-end;
+      gap: 6px;
+      flex-shrink: 0;
+    }
+
     #nameInput {
       width: 100%;
       padding: 8px 12px 8px 36px;
@@ -2395,17 +2407,19 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
             </span>
             <?php endif; ?>
           </div>
-          <label id="attachBtn" class="attachment-btn" title="Attach image or file" for="fileAttachmentInput">
-            <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" width="20" height="20">
-              <path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-            </svg>
-          </label>
-          <input type="file" id="fileAttachmentInput" multiple accept="image/*,.gif,.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.csv,.zip,.rar,.7z,.mp3,.wav,.ogg,.flac,.aac,.m4a,.mp4,.webm,.mov" style="display:none;">
-          <button type="button" id="cancelEditXBtn" title="Cancel editing" aria-label="Cancel editing">
-            <svg viewBox="0 0 24 24" width="12" height="12" fill="#fff">
-              <path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/>
-            </svg>
-          </button>
+          <div class="input-actions">
+            <label id="attachBtn" class="attachment-btn" title="Attach image or file" for="fileAttachmentInput">
+              <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" width="20" height="20">
+                <path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+              </svg>
+            </label>
+            <input type="file" id="fileAttachmentInput" multiple accept="image/*,.gif,.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.csv,.zip,.rar,.7z,.mp3,.wav,.ogg,.flac,.aac,.m4a,.mp4,.webm,.mov" style="display:none;">
+            <button type="button" id="cancelEditXBtn" title="Cancel editing" aria-label="Cancel editing">
+              <svg viewBox="0 0 24 24" width="12" height="12" fill="#fff">
+                <path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/>
+              </svg>
+            </button>
+          </div>
         </div>
       </div>
 
@@ -2553,18 +2567,34 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
     const burgerButton    = document.getElementById('burgerButton');
     const closeSidebarBtn = document.getElementById('closeSidebarBtn');
 
+    // Keep the name-row's action column (attach button + cancel-edit X
+    // button) exactly as wide as the real rendered #sendButton, but ONLY
+    // while editing — the rest of the time it stays its normal shrink-wrap
+    // size (just the attach button), same as before.
+    const inputActions = document.querySelector('.input-actions');
+    function syncInputActionsWidth() {
+      if (!inputActions || !sendButton) return;
+      const w = sendButton.getBoundingClientRect().width;
+      if (w > 0) inputActions.style.width = w + 'px';
+    }
+    window.addEventListener('resize', function () {
+      if (editingMsgId !== null) syncInputActionsWidth();
+    });
+
     let editingMsgId = null;
 
     function showEditBanner(msgId) {
       editingMsgId = msgId;
       const xBtn = document.getElementById('cancelEditXBtn');
       if (xBtn) xBtn.style.display = 'flex';
+      syncInputActionsWidth();
     }
 
     function hideEditBanner() {
       editingMsgId = null;
       const xBtn = document.getElementById('cancelEditXBtn');
       if (xBtn) xBtn.style.display = 'none';
+      if (inputActions) inputActions.style.width = ''; // back to auto (shrink-wrap)
     }
     const notifyModal        = document.getElementById('notifyModal');
     const notifyTargetName   = document.getElementById('notifyTargetName');

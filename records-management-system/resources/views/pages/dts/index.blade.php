@@ -3,16 +3,24 @@ use Livewire\Attributes\Layout;
 use Livewire\Attributes\Title;
 use Livewire\Volt\Component;
 use Livewire\WithPagination;
+use Livewire\WithFileUploads;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 
 new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends Component {
     use WithPagination;
+    use WithFileUploads;
 
     public string $activeTab = 'all';
     public string $searchQuery = '';
     public int $perPage = 10;
     public string $layoutMode = 'table'; // table or box
+    public bool $groupByOffice = false;
+
+    public function toggleGroupByOffice(): void
+    {
+        $this->groupByOffice = !$this->groupByOffice;
+    }
 
     // Modal state properties
     public string $selectedTransactionId = '';
@@ -42,6 +50,13 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
     public bool $showCopyFurnished = false;
     public array $cfSelectedOffices = [];
     public string $selectedCfOfficeToAdd = '';
+
+    // Reaffirmation & Upload Modal properties
+    public bool $showCompletionConfirmModal = false;
+    public bool $showUploadModal = false;
+    public $uploadedFile = null;
+    public string $uploadFileCode = '';
+    public string $uploadErrorMessage = '';
 
     public function toggleLayout(): void
     {
@@ -415,9 +430,11 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
         $this->requestorPosition = '';
         $this->emailAccess = '';
         $this->docPassword = '';
-        $this->flowOffices = [];
-        $this->selectedFlowOfficeToAdd = '';
         $this->transactionFlow = '';
+        $this->showCompletionConfirmModal = false;
+        $this->showUploadModal = false;
+        $this->uploadedFile = null;
+        $this->uploadErrorMessage = '';
     }
 
     public function toggleMoreDetails(): void
@@ -541,6 +558,112 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
                         ->toArray();
                 }
             }
+        }
+    }
+
+    public function isLastStep(): bool
+    {
+        if (!$this->selectedTransaction) {
+            return false;
+        }
+        $flow = DB::table('dts_transaction_flow')
+            ->where('flow_code', $this->selectedTransaction->transaction_flow)
+            ->first();
+        if (!$flow) {
+            return false;
+        }
+        $nextSequence = DB::table('dts_sequence_list')
+            ->where('control_id', $flow->id)
+            ->where('sequence_ranking', $this->selectedTransaction->sequence + 1)
+            ->first();
+        return !$nextSequence;
+    }
+
+    public function triggerCompletionConfirm(): void
+    {
+        $this->showCompletionConfirmModal = true;
+    }
+
+    public function cancelCompletionConfirm(): void
+    {
+        $this->showCompletionConfirmModal = false;
+    }
+
+    public function confirmAndCompleteTransaction(): void
+    {
+        $this->showCompletionConfirmModal = false;
+        $this->completeTransaction();
+    }
+
+    public function triggerUploadFileModal(): void
+    {
+        $this->uploadFileCode = 'FC-' . strtoupper(Str::random(6));
+        $this->uploadErrorMessage = '';
+        $this->uploadedFile = null;
+        $this->showUploadModal = true;
+    }
+
+    public function cancelUploadModal(): void
+    {
+        $this->showUploadModal = false;
+        $this->uploadedFile = null;
+        $this->uploadErrorMessage = '';
+    }
+
+    public function handleUploadFile(): void
+    {
+        $this->uploadErrorMessage = '';
+        if (!$this->uploadedFile) {
+            $this->uploadErrorMessage = 'Please select a PDF file to upload.';
+            return;
+        }
+
+        $extension = strtolower($this->uploadedFile->getClientOriginalExtension());
+        if ($extension !== 'pdf') {
+            $this->uploadErrorMessage = 'Only PDF files (.pdf) are allowed.';
+            return;
+        }
+
+        try {
+            $filename = 'docs/dts-' . time() . '-' . Str::random(6) . '.pdf';
+            $path = $this->uploadedFile->storeAs('public', $filename);
+            $docPath = 'storage/' . $filename;
+
+            $docId = 'DOC-' . strtoupper(Str::random(8));
+            DB::table('dts_document_data')->insert([
+                'document_id' => $docId,
+                'document_name' => $this->selectedTransaction->subject ? (Str::limit($this->selectedTransaction->subject, 50) . ' PDF') : 'Attached Document PDF',
+                'document_path' => $docPath,
+                'date_added' => now(),
+                'date_modified' => now(),
+                'date_deleted' => now(),
+            ]);
+
+            $assignOfficesId = (DB::table('dts_copy_filled_transaction')->max('assign_offices_id') ?? 1000) + 1;
+            $codeNum = trim($this->uploadFileCode) ?: ('FC-' . strtoupper(Str::random(6)));
+
+            $copyFilledId = DB::table('dts_copy_filled_transaction')->insertGetId([
+                'control_num' => $codeNum,
+                'total_office' => count($this->cfSelectedOffices),
+                'is_modified' => false,
+                'assign_offices_id' => $assignOfficesId,
+                'data_created' => now(),
+                'date_modified' => now(),
+            ]);
+
+            DB::table('dts_transactions')
+                ->where('transaction_id', $this->selectedTransactionId)
+                ->update(['doc_dir' => $docPath]);
+
+            DB::table('dts_transaction_details')
+                ->where('id', $this->selectedTransactionId)
+                ->update(['copy_filled_id' => $copyFilledId]);
+
+            $this->loadSelectedTransaction();
+            $this->showUploadModal = false;
+            $this->uploadedFile = null;
+        } catch (\Exception $e) {
+            $this->uploadErrorMessage = 'Upload failed: ' . $e->getMessage();
         }
     }
 
@@ -1044,6 +1167,11 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
         </div>
 
         <div style="display: flex; gap: 12px; align-items: center;">
+            <button type="button" wire:click="toggleGroupByOffice" class="dts-nav-btn" style="border: 1.5px solid {{ $groupByOffice ? '#003699' : 'var(--border-gray)' }}; background: {{ $groupByOffice ? '#003699' : 'white' }}; color: {{ $groupByOffice ? '#ffffff' : 'inherit' }}; font-weight: 600; white-space: nowrap; height: 42px; box-sizing: border-box; display: inline-flex; align-items: center; padding: 0 16px; border-radius: 8px; font-size: 13px; cursor: pointer; outline: none; transition: all 0.2s ease; font-family: 'Inter', sans-serif;">
+                <i class="fa-solid fa-folder-tree" style="margin-right: 6px;"></i>
+                {{ $groupByOffice ? 'Grouped by Office' : 'Group by Office' }}
+            </button>
+
             <button type="button" wire:click="toggleLayout" class="dts-nav-btn" style="border: 1.5px solid var(--border-gray); background: white; white-space: nowrap; height: 42px; box-sizing: border-box;">
                 @if ($layoutMode === 'table')
                     <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-right: 6px;"><rect x="3" y="3" width="7" height="7"></rect><rect x="14" y="3" width="7" height="7"></rect><rect x="14" y="14" width="7" height="7"></rect><rect x="3" y="14" width="7" height="7"></rect></svg>
@@ -1090,95 +1218,222 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
                 </thead>
 
                 <tbody>
-                    @forelse ($this->transactions as $t)
-                        <tr>
-                            <td style="max-width: 300px; white-space: normal; word-break: break-word;">{{ $t->subject }}</td>
-                            <td>{{ $t->originated_office_name }}</td>
-                             <td style="white-space: nowrap;">
-                                 {{ $t->requestor_name }}
-                                 @if(!empty($t->requestor_label))
-                                     <div style="font-size: 11px; color: #6b7280; font-weight: normal;">({{ $t->requestor_label }})</div>
-                                 @endif
-                             </td>
-                            <td style="font-weight: 600; color: #1e40af; text-align: center;">{{ $t->control_number }}</td>
-                            <td>{{ $t->document_name ?? ucfirst($t->trans_type) }}</td>
-                            <td>{{ $t->from_office }}</td>
-                            <td>{{ $t->date_received ? \Carbon\Carbon::parse($t->date_received)->format('Y-m-d H:i') : 'N/A' }}</td>
-                            <td>{{ $t->next_office_name }}</td>
-                            <td style="color: #16a34a; font-weight: 500;">{{ $t->action_needed ?? 'For action' }}</td>
-                            <td style="color: #dc2626; font-weight: 600; white-space: nowrap; text-align: center;">{{ $t->elapsed_days }} day(s)</td>
-                            <td style="text-align: center;">
-                                <span class="status-badge status-{{ $t->status }}">
-                                    {{ $t->status }}
-                                </span>
-                            </td>
-                            <td style="text-align: center;">
-                                <button type="button" wire:click="openTransaction('{{ $t->transaction_id }}')" class="rms-select" style="text-decoration: none; display: inline-block; border: none; background: transparent; cursor: pointer; color: #043899; font-weight: 500;">View</button>
-                            </td>
-                        </tr>
-                    @empty
-                        <tr>
-                            <td class="rms-no-data" colspan="12">No records found.</td>
-                        </tr>
-                    @endforelse
+                    @if ($groupByOffice)
+                        @php
+                            $groupedTransactions = collect($this->transactions->items())->groupBy('current_office_name');
+                        @endphp
+                        @forelse ($groupedTransactions as $officeName => $items)
+                            <tr class="office-divider-row">
+                                <td colspan="12" style="padding: 14px 12px; background: #f8fafc; font-weight: 700; color: #475569; letter-spacing: 0.05em; font-size: 12px; font-family: 'Inter', sans-serif;">
+                                    <div style="display: flex; align-items: center; justify-content: center; gap: 14px;">
+                                        <div style="flex: 1; height: 1px; background: #cbd5e1;"></div>
+                                        <div style="text-transform: uppercase; display: flex; align-items: center; gap: 8px;">
+                                            <i class="fa-solid fa-building" style="color: #003699;"></i>
+                                            <span>{{ $officeName ?: 'Unassigned Office' }}</span>
+                                        </div>
+                                        <div style="flex: 1; height: 1px; background: #cbd5e1;"></div>
+                                    </div>
+                                </td>
+                            </tr>
+                            @php
+                                $sortedItems = $items->sortBy(function($t) {
+                                    if ($t->diff_in_minutes > 60) return 1;
+                                    if ($t->diff_in_minutes >= 10) return 2;
+                                    return 3;
+                                });
+                            @endphp
+                            @foreach ($sortedItems as $t)
+                                <tr>
+                                    <td style="max-width: 300px; white-space: normal; word-break: break-word;">{{ $t->subject }}</td>
+                                    <td>{{ $t->originated_office_name }}</td>
+                                     <td style="white-space: nowrap;">
+                                         {{ $t->requestor_name }}
+                                         @if(!empty($t->requestor_label))
+                                             <div style="font-size: 11px; color: #6b7280; font-weight: normal;">({{ $t->requestor_label }})</div>
+                                         @endif
+                                     </td>
+                                    <td style="font-weight: 600; color: #1e40af; text-align: center;">{{ $t->control_number }}</td>
+                                    <td>{{ $t->document_name ?? ucfirst($t->trans_type) }}</td>
+                                    <td>{{ $t->from_office }}</td>
+                                    <td>{{ $t->date_received ? \Carbon\Carbon::parse($t->date_received)->format('Y-m-d H:i') : 'N/A' }}</td>
+                                    <td>{{ $t->next_office_name }}</td>
+                                    <td style="color: #16a34a; font-weight: 500;">{{ $t->action_needed ?? 'For action' }}</td>
+                                    <td style="color: #dc2626; font-weight: 600; white-space: nowrap; text-align: center;">{{ $t->elapsed_days }} day(s)</td>
+                                    <td style="text-align: center;">
+                                        <span class="status-badge status-{{ $t->status }}">
+                                            {{ $t->status }}
+                                        </span>
+                                    </td>
+                                    <td style="text-align: center;">
+                                        <button type="button" wire:click="openTransaction('{{ $t->transaction_id }}')" class="rms-select" style="text-decoration: none; display: inline-block; border: none; background: transparent; cursor: pointer; color: #043899; font-weight: 500;">View</button>
+                                    </td>
+                                </tr>
+                            @endforeach
+                        @empty
+                            <tr>
+                                <td class="rms-no-data" colspan="12">No records found.</td>
+                            </tr>
+                        @endforelse
+                    @else
+                        @forelse ($this->transactions as $t)
+                            <tr>
+                                <td style="max-width: 300px; white-space: normal; word-break: break-word;">{{ $t->subject }}</td>
+                                <td>{{ $t->originated_office_name }}</td>
+                                 <td style="white-space: nowrap;">
+                                     {{ $t->requestor_name }}
+                                     @if(!empty($t->requestor_label))
+                                         <div style="font-size: 11px; color: #6b7280; font-weight: normal;">({{ $t->requestor_label }})</div>
+                                     @endif
+                                 </td>
+                                <td style="font-weight: 600; color: #1e40af; text-align: center;">{{ $t->control_number }}</td>
+                                <td>{{ $t->document_name ?? ucfirst($t->trans_type) }}</td>
+                                <td>{{ $t->from_office }}</td>
+                                <td>{{ $t->date_received ? \Carbon\Carbon::parse($t->date_received)->format('Y-m-d H:i') : 'N/A' }}</td>
+                                <td>{{ $t->next_office_name }}</td>
+                                <td style="color: #16a34a; font-weight: 500;">{{ $t->action_needed ?? 'For action' }}</td>
+                                <td style="color: #dc2626; font-weight: 600; white-space: nowrap; text-align: center;">{{ $t->elapsed_days }} day(s)</td>
+                                <td style="text-align: center;">
+                                    <span class="status-badge status-{{ $t->status }}">
+                                        {{ $t->status }}
+                                    </span>
+                                </td>
+                                <td style="text-align: center;">
+                                    <button type="button" wire:click="openTransaction('{{ $t->transaction_id }}')" class="rms-select" style="text-decoration: none; display: inline-block; border: none; background: transparent; cursor: pointer; color: #043899; font-weight: 500;">View</button>
+                                </td>
+                            </tr>
+                        @empty
+                            <tr>
+                                <td class="rms-no-data" colspan="12">No records found.</td>
+                            </tr>
+                        @endforelse
+                    @endif
                 </tbody>
             </table>
         </div>
     @else
         <!-- Box Layout (Card Grid) -->
         <div class="dts-card-grid-container" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(360px, 1fr)); gap: 20px; margin-bottom: 20px;">
-            @forelse ($this->transactions as $t)
-                <div class="dts-box-card" style="background: white; border: 1.5px solid var(--border-gray); border-radius: 12px; padding: 24px; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.05); display: flex; flex-direction: column; justify-content: space-between; position: relative;">
-                    <!-- Top Right Info & Icon -->
-                    <div style="position: absolute; top: 16px; right: 16px; display: flex; align-items: center; gap: 8px; font-size: 11px; color: #6b7280;">
-                        <span>{{ \Carbon\Carbon::parse($t->date_received)->diffForHumans(null, true) }} ago</span>
-                        @if ($t->current_office === auth()->user()?->details?->office?->office_code)
-                            @if ($t->diff_in_minutes < 10)
-                                <span style="display: inline-block; width: 14px; height: 14px; background-color: #10b981; transform: rotate(45deg); display: flex; align-items: center; justify-content: center; border-radius: 2px;" title="New (Less than 10 mins)">
-                                    <span style="transform: rotate(-45deg); color: white; font-size: 9px; font-weight: bold;">!</span>
-                                </span>
-                            @elseif ($t->diff_in_minutes <= 60)
-                                <span style="display: inline-block; width: 14px; height: 14px; background-color: #f59e0b; transform: rotate(45deg); display: flex; align-items: center; justify-content: center; border-radius: 2px;" title="Pending (Over 10 mins)">
-                                    <span style="transform: rotate(-45deg); color: white; font-size: 9px; font-weight: bold;">!</span>
-                                </span>
-                            @else
-                                <span style="display: inline-block; width: 14px; height: 14px; background-color: #ef4444; transform: rotate(45deg); display: flex; align-items: center; justify-content: center; border-radius: 2px;" title="Urgent (Over an hour)">
-                                    <span style="transform: rotate(-45deg); color: white; font-size: 9px; font-weight: bold;">!</span>
-                                </span>
+            @if ($groupByOffice)
+                @php
+                    $groupedTransactions = collect($this->transactions->items())->groupBy('current_office_name');
+                @endphp
+                @forelse ($groupedTransactions as $officeName => $items)
+                    <div style="grid-column: 1 / -1; margin: 16px 0 8px; display: flex; align-items: center; justify-content: center; gap: 14px; font-weight: 700; color: #475569; letter-spacing: 0.05em; font-size: 12px; font-family: 'Inter', sans-serif;">
+                        <div style="flex: 1; height: 1px; background: #cbd5e1;"></div>
+                        <div style="text-transform: uppercase; display: flex; align-items: center; gap: 8px; background: #f1f5f9; padding: 6px 16px; border-radius: 99px; border: 1px solid #cbd5e1;">
+                            <i class="fa-solid fa-building" style="color: #003699;"></i>
+                            <span>{{ $officeName ?: 'Unassigned Office' }}</span>
+                        </div>
+                        <div style="flex: 1; height: 1px; background: #cbd5e1;"></div>
+                    </div>
+                    @php
+                        $sortedItems = $items->sortBy(function($t) {
+                            if ($t->diff_in_minutes > 60) return 1;
+                            if ($t->diff_in_minutes >= 10) return 2;
+                            return 3;
+                        });
+                    @endphp
+                    @foreach ($sortedItems as $t)
+                        <div class="dts-box-card" style="background: white; border: 1.5px solid var(--border-gray); border-radius: 12px; padding: 24px; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.05); display: flex; flex-direction: column; justify-content: space-between; position: relative;">
+                            <!-- Top Right Info & Icon -->
+                            <div style="position: absolute; top: 16px; right: 16px; display: flex; align-items: center; gap: 8px; font-size: 11px; color: #6b7280;">
+                                <span>{{ \Carbon\Carbon::parse($t->date_received)->diffForHumans(null, true) }} ago</span>
+                                @if ($t->current_office === auth()->user()?->details?->office?->office_code)
+                                    @if ($t->diff_in_minutes < 10)
+                                        <span style="display: inline-block; width: 14px; height: 14px; background-color: #10b981; transform: rotate(45deg); display: flex; align-items: center; justify-content: center; border-radius: 2px;" title="New (Less than 10 mins)">
+                                            <span style="transform: rotate(-45deg); color: white; font-size: 9px; font-weight: bold;">!</span>
+                                        </span>
+                                    @elseif ($t->diff_in_minutes <= 60)
+                                        <span style="display: inline-block; width: 14px; height: 14px; background-color: #f59e0b; transform: rotate(45deg); display: flex; align-items: center; justify-content: center; border-radius: 2px;" title="Pending (Over 10 mins)">
+                                            <span style="transform: rotate(-45deg); color: white; font-size: 9px; font-weight: bold;">!</span>
+                                        </span>
+                                    @else
+                                        <span style="display: inline-block; width: 14px; height: 14px; background-color: #ef4444; transform: rotate(45deg); display: flex; align-items: center; justify-content: center; border-radius: 2px;" title="Urgent (Over an hour)">
+                                            <span style="transform: rotate(-45deg); color: white; font-size: 9px; font-weight: bold;">!</span>
+                                        </span>
+                                    @endif
+                                @endif
+                            </div>
+
+                            <!-- Card Body contents -->
+                            <div style="font-size: 13px; color: #4b5563; line-height: 1.6; margin-top: 12px; font-family: Roboto, sans-serif;">
+                                <div style="margin-bottom: 6px; word-break: break-word; overflow-wrap: break-word; white-space: normal;"><strong>Subject:</strong> {{ $t->subject }}</div>
+                                <div style="margin-bottom: 6px;"><strong>Unit/College:</strong> {{ $t->originated_office_name }}</div>
+                                <div style="margin-bottom: 6px;"><strong>Name of Requestor:</strong> {{ $t->requestor_name }} @if(!empty($t->requestor_label)) <span style="font-size: 12px; color: #6b7280; font-weight: normal;">({{ $t->requestor_label }})</span> @endif</div>
+                                <div style="margin-bottom: 6px;"><strong>Control Number:</strong> <span style="font-weight: 600; color: #1e40af;">{{ $t->control_number }}</span></div>
+                                <div style="margin-bottom: 14px;"><strong>Type of Document:</strong> {{ $t->document_name ?? ucfirst($t->trans_type) }}</div>
+
+                                <div style="margin-bottom: 6px;"><strong>Receive From:</strong> <span style="color: #ef4444; font-weight: 500;">{{ $t->from_office }}</span></div>
+                                <div style="margin-bottom: 14px;"><strong>Receive Date:</strong> {{ $t->date_received ? \Carbon\Carbon::parse($t->date_received)->format('Y-m-d H:i') : 'N/A' }}</div>
+
+                                <div style="margin-bottom: 14px;"><strong>Current Office:</strong> {{ $t->current_office_name }}</div>
+
+                                <div style="margin-bottom: 6px;"><strong>Action Needed:</strong> <span style="color: #16a34a; font-weight: 600;">{{ $t->action_needed ?? 'For action' }}</span></div>
+                                <div style="margin-bottom: 6px;"><strong>Elapsed Day:</strong> <span style="color: #ef4444; font-style: italic;">{{ $t->elapsed_days }} day(s)</span></div>
+                            </div>
+
+                            <!-- Card Footer action -->
+                            <div style="display: flex; justify-content: flex-end; margin-top: 16px;">
+                                <button type="button" wire:click="openTransaction('{{ $t->transaction_id }}')" class="rms-select" style="text-decoration: none; display: inline-block; border: none; background: transparent; cursor: pointer; color: #043899; font-weight: 500;">View</button>
+                            </div>
+                        </div>
+                    @endforeach
+                @empty
+                    <div style="grid-column: 1 / -1; background: white; border-radius: 12px; padding: 40px; text-align: center; color: #9CA3AF; font-style: italic; border: 1.5px solid var(--border-gray);">
+                        No records found.
+                    </div>
+                @endforelse
+            @else
+                @forelse ($this->transactions as $t)
+                    <div class="dts-box-card" style="background: white; border: 1.5px solid var(--border-gray); border-radius: 12px; padding: 24px; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.05); display: flex; flex-direction: column; justify-content: space-between; position: relative;">
+                        <!-- Top Right Info & Icon -->
+                        <div style="position: absolute; top: 16px; right: 16px; display: flex; align-items: center; gap: 8px; font-size: 11px; color: #6b7280;">
+                            <span>{{ \Carbon\Carbon::parse($t->date_received)->diffForHumans(null, true) }} ago</span>
+                            @if ($t->current_office === auth()->user()?->details?->office?->office_code)
+                                @if ($t->diff_in_minutes < 10)
+                                    <span style="display: inline-block; width: 14px; height: 14px; background-color: #10b981; transform: rotate(45deg); display: flex; align-items: center; justify-content: center; border-radius: 2px;" title="New (Less than 10 mins)">
+                                        <span style="transform: rotate(-45deg); color: white; font-size: 9px; font-weight: bold;">!</span>
+                                    </span>
+                                @elseif ($t->diff_in_minutes <= 60)
+                                    <span style="display: inline-block; width: 14px; height: 14px; background-color: #f59e0b; transform: rotate(45deg); display: flex; align-items: center; justify-content: center; border-radius: 2px;" title="Pending (Over 10 mins)">
+                                        <span style="transform: rotate(-45deg); color: white; font-size: 9px; font-weight: bold;">!</span>
+                                    </span>
+                                @else
+                                    <span style="display: inline-block; width: 14px; height: 14px; background-color: #ef4444; transform: rotate(45deg); display: flex; align-items: center; justify-content: center; border-radius: 2px;" title="Urgent (Over an hour)">
+                                        <span style="transform: rotate(-45deg); color: white; font-size: 9px; font-weight: bold;">!</span>
+                                    </span>
+                                @endif
                             @endif
-                        @endif
+                        </div>
+
+                        <!-- Card Body contents -->
+                        <div style="font-size: 13px; color: #4b5563; line-height: 1.6; margin-top: 12px; font-family: Roboto, sans-serif;">
+                            <div style="margin-bottom: 6px; word-break: break-word; overflow-wrap: break-word; white-space: normal;"><strong>Subject:</strong> {{ $t->subject }}</div>
+                            <div style="margin-bottom: 6px;"><strong>Unit/College:</strong> {{ $t->originated_office_name }}</div>
+                            <div style="margin-bottom: 6px;"><strong>Name of Requestor:</strong> {{ $t->requestor_name }} @if(!empty($t->requestor_label)) <span style="font-size: 12px; color: #6b7280; font-weight: normal;">({{ $t->requestor_label }})</span> @endif</div>
+                            <div style="margin-bottom: 6px;"><strong>Control Number:</strong> <span style="font-weight: 600; color: #1e40af;">{{ $t->control_number }}</span></div>
+                            <div style="margin-bottom: 14px;"><strong>Type of Document:</strong> {{ $t->document_name ?? ucfirst($t->trans_type) }}</div>
+
+                            <div style="margin-bottom: 6px;"><strong>Receive From:</strong> <span style="color: #ef4444; font-weight: 500;">{{ $t->from_office }}</span></div>
+                            <div style="margin-bottom: 14px;"><strong>Receive Date:</strong> {{ $t->date_received ? \Carbon\Carbon::parse($t->date_received)->format('Y-m-d H:i') : 'N/A' }}</div>
+
+                            <div style="margin-bottom: 14px;"><strong>Current Office:</strong> {{ $t->current_office_name }}</div>
+
+                            <div style="margin-bottom: 6px;"><strong>Action Needed:</strong> <span style="color: #16a34a; font-weight: 600;">{{ $t->action_needed ?? 'For action' }}</span></div>
+                            <div style="margin-bottom: 6px;"><strong>Elapsed Day:</strong> <span style="color: #ef4444; font-style: italic;">{{ $t->elapsed_days }} day(s)</span></div>
+                        </div>
+
+                        <!-- Card Footer action -->
+                        <div style="display: flex; justify-content: flex-end; margin-top: 16px;">
+                            <button type="button" wire:click="openTransaction('{{ $t->transaction_id }}')" class="rms-select" style="text-decoration: none; display: inline-block; border: none; background: transparent; cursor: pointer; color: #043899; font-weight: 500;">View</button>
+                        </div>
                     </div>
-
-                    <!-- Card Body contents -->
-                    <div style="font-size: 13px; color: #4b5563; line-height: 1.6; margin-top: 12px; font-family: Roboto, sans-serif;">
-                        <div style="margin-bottom: 6px; word-break: break-word; overflow-wrap: break-word; white-space: normal;"><strong>Subject:</strong> {{ $t->subject }}</div>
-                        <div style="margin-bottom: 6px;"><strong>Unit/College:</strong> {{ $t->originated_office_name }}</div>
-                        <div style="margin-bottom: 6px;"><strong>Name of Requestor:</strong> {{ $t->requestor_name }} @if(!empty($t->requestor_label)) <span style="font-size: 12px; color: #6b7280; font-weight: normal;">({{ $t->requestor_label }})</span> @endif</div>
-                        <div style="margin-bottom: 6px;"><strong>Control Number:</strong> <span style="font-weight: 600; color: #1e40af;">{{ $t->control_number }}</span></div>
-                        <div style="margin-bottom: 14px;"><strong>Type of Document:</strong> {{ $t->document_name ?? ucfirst($t->trans_type) }}</div>
-
-                        <div style="margin-bottom: 6px;"><strong>Receive From:</strong> <span style="color: #ef4444; font-weight: 500;">{{ $t->from_office }}</span></div>
-                        <div style="margin-bottom: 14px;"><strong>Receive Date:</strong> {{ $t->date_received ? \Carbon\Carbon::parse($t->date_received)->format('Y-m-d H:i') : 'N/A' }}</div>
-
-                        <div style="margin-bottom: 14px;"><strong>Current Office:</strong> {{ $t->current_office_name }}</div>
-
-                        <div style="margin-bottom: 6px;"><strong>Action Needed:</strong> <span style="color: #16a34a; font-weight: 600;">{{ $t->action_needed ?? 'For action' }}</span></div>
-                        <div style="margin-bottom: 6px;"><strong>Elapsed Day:</strong> <span style="color: #ef4444; font-style: italic;">{{ $t->elapsed_days }} day(s) </span></div>
+                @empty
+                    <div style="grid-column: 1 / -1; background: white; border-radius: 12px; padding: 40px; text-align: center; color: #9CA3AF; font-style: italic; border: 1.5px solid var(--border-gray);">
+                        No records found.
                     </div>
-
-                    <!-- Card Footer view action -->
-                    <div style="display: flex; justify-content: flex-end; margin-top: 16px;">
-                        <button type="button" wire:click="openTransaction('{{ $t->transaction_id }}')" class="dts-page-btn" style="background-color: #3b82f6; color: white; border: none; padding: 8px 18px; border-radius: 6px; display: inline-flex; align-items: center; gap: 6px; font-weight: 500; text-decoration: none; font-size: 11px; letter-spacing: 0.3px; transition: background-color 0.2s ease; cursor: pointer;">
-                            <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="16" x2="12" y2="12"></line><line x1="12" y1="8" x2="12.01" y2="8"></line></svg>
-                            VIEW TRANSACTION
-                        </button>
-                    </div>
-                </div>
-            @empty
-                <div style="grid-column: 1 / -1; background: white; border-radius: 12px; padding: 40px; text-align: center; color: #9CA3AF; font-style: italic; border: 1.5px solid var(--border-gray);">
-                    No records found.
-                </div>
-            @endforelse
+                @endforelse
+            @endif
         </div>
     @endif
 
@@ -1220,14 +1475,16 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
                         </div>
 
                         <!-- File Code / Copy Furnished field -->
-                        <div class="receive-field-row">
-                            <span class="receive-field-label">File Code:</span>
-                            @if ($editingAll)
-                                <input type="text" class="receive-field-input" wire:model="fileCode">
-                            @else
-                                <input type="text" class="receive-field-input" value="{{ $fileCode ?: 'N/A' }}" readonly>
-                            @endif
-                        </div>
+                        @if ($selectedTransaction && !empty($selectedTransaction->doc_dir))
+                            <div class="receive-field-row">
+                                <span class="receive-field-label">File Code:</span>
+                                @if ($editingAll)
+                                    <input type="text" class="receive-field-input" wire:model="fileCode">
+                                @else
+                                    <input type="text" class="receive-field-input" value="{{ $fileCode ?: 'N/A' }}" readonly>
+                                @endif
+                            </div>
+                        @endif
 
                         <!-- Transaction Flow field -->
                         <div class="receive-field-row" style="align-items: center;">
@@ -1290,10 +1547,12 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
                                         <input type="text" class="receive-field-input" value="{{ $requestorPosition ?: 'N/A' }}" readonly style="background-color: #f8fafc; color: #64748b;">
                                     @endif
                                 </div>
-                                <div class="receive-field-row" style="grid-template-columns: 180px 1fr; margin-bottom: 12px; align-items: center;">
-                                    <span class="receive-field-label" style="font-weight: 600; color: #475569; white-space: nowrap;">Copy Furnished (CF) ID:</span>
-                                    <input type="text" class="receive-field-input" value="{{ $fileCode ?: 'N/A' }}" readonly style="background-color: #f8fafc; color: #64748b;">
-                                </div>
+                                @if ($selectedTransaction && !empty($selectedTransaction->doc_dir))
+                                    <div class="receive-field-row" style="grid-template-columns: 180px 1fr; margin-bottom: 12px; align-items: center;">
+                                        <span class="receive-field-label" style="font-weight: 600; color: #475569; white-space: nowrap;">Copy Furnished (CF) ID:</span>
+                                        <input type="text" class="receive-field-input" value="{{ $fileCode ?: 'N/A' }}" readonly style="background-color: #f8fafc; color: #64748b;">
+                                    </div>
+                                @endif
                                 <div class="receive-field-row" style="grid-template-columns: 180px 1fr; margin-bottom: 12px; align-items: center;">
                                     <span class="receive-field-label" style="font-weight: 600; color: #475569; white-space: nowrap;">Email Access:</span>
                                     @if ($editingAll)
@@ -1512,14 +1771,31 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
                             </button>
                         @endif
 
-                        <!-- COMPLETED -->
+                        <!-- COMPLETED / REAFFIRM / UPLOAD -->
                         @if ($selectedTransaction->current_office === auth()->user()?->details?->office?->office_code && $canProcess)
-                            <button type="button" class="receive-action-btn" wire:click="completeTransaction">
-                                <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-                                    <polyline points="20 6 9 17 4 12"/>
-                                </svg>
-                                COMPLETED
-                            </button>
+                            @if ($this->isLastStep())
+                                <button type="button" class="receive-action-btn" wire:click="triggerCompletionConfirm" style="background-color: #16a34a;">
+                                    <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                                        <polyline points="20 6 9 17 4 12"/>
+                                    </svg>
+                                    Complete Transaction
+                                </button>
+                                <button type="button" class="receive-action-btn" wire:click="triggerUploadFileModal" style="background-color: #0284c7;">
+                                    <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                                        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+                                        <polyline points="17 8 12 3 7 8"/>
+                                        <line x1="12" y1="3" x2="12" y2="15"/>
+                                    </svg>
+                                    Upload File
+                                </button>
+                            @else
+                                <button type="button" class="receive-action-btn" wire:click="completeTransaction">
+                                    <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                                        <polyline points="20 6 9 17 4 12"/>
+                                    </svg>
+                                    COMPLETED
+                                </button>
+                            @endif
                         @endif
 
                         <!-- EDIT / SAVE toggle -->

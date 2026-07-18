@@ -1294,11 +1294,18 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create Internal
                     </button>
                     @php
                         $emailAccessRequired = DB::table('system_settings')->where('key', 'dts_email_access_required_internal')->value('value') === 'true';
-                        $isConfigured = !empty($email_access_input) && filter_var($email_access_input, FILTER_VALIDATE_EMAIL) !== false && !empty($document_password_input);
-                        $btnBg = $isConfigured ? '#10b981' : ($emailAccessRequired ? '#ef4444' : '#3b82f6');
-                        $btnHoverBg = $isConfigured ? '#059669' : ($emailAccessRequired ? '#dc2626' : '#2563eb');
-                        $btnShadow = $isConfigured ? 'rgba(16, 185, 129, 0.25)' : ($emailAccessRequired ? 'rgba(239, 68, 68, 0.25)' : 'rgba(59, 130, 246, 0.25)');
-                        $btnIcon = $isConfigured ? 'fa-circle-check' : ($emailAccessRequired ? 'fa-triangle-exclamation' : 'fa-envelope');
+                        $hasEmailInput = !empty($email_access_input);
+                        $hasPasswordInput = !empty($document_password_input);
+                        $hasAnyInput = $hasEmailInput || $hasPasswordInput;
+                        $isValidEmail = $hasEmailInput && filter_var($email_access_input, FILTER_VALIDATE_EMAIL) !== false;
+                        $isConfigured = $isValidEmail && $hasPasswordInput;
+                        $hasInvalidAttempt = $hasAnyInput && !$isConfigured;
+                        $isRed = $isConfigured ? false : ($emailAccessRequired || $hasInvalidAttempt);
+
+                        $btnBg = $isConfigured ? '#10b981' : ($isRed ? '#ef4444' : '#3b82f6');
+                        $btnHoverBg = $isConfigured ? '#059669' : ($isRed ? '#dc2626' : '#2563eb');
+                        $btnShadow = $isConfigured ? 'rgba(16, 185, 129, 0.25)' : ($isRed ? 'rgba(239, 68, 68, 0.25)' : 'rgba(59, 130, 246, 0.25)');
+                        $btnIcon = $isConfigured ? 'fa-circle-check' : ($isRed ? 'fa-triangle-exclamation' : 'fa-envelope');
                     @endphp
                     <button type="button" wire:click="toggleEmailAccessModal" class="beta-btn-submit" style="background-color: {{ $btnBg }}; box-shadow: 0 4px 10px {{ $btnShadow }}; transition: background-color 0.15s;" onmouseover="this.style.backgroundColor='{{ $btnHoverBg }}'" onmouseout="this.style.backgroundColor='{{ $btnBg }}'">
                         <i class="fa-solid {{ $btnIcon }}"></i> Manage Email Access
@@ -1587,11 +1594,18 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create Internal
                 </button>
                 @php
                     $emailAccessRequired = DB::table('system_settings')->where('key', 'dts_email_access_required_internal')->value('value') === 'true';
-                    $isConfigured = !empty($email_access_input) && filter_var($email_access_input, FILTER_VALIDATE_EMAIL) !== false && !empty($document_password_input);
-                    $btnBg = $isConfigured ? '#10b981' : ($emailAccessRequired ? '#ef4444' : '#3b82f6');
-                    $btnHoverBg = $isConfigured ? '#059669' : ($emailAccessRequired ? '#dc2626' : '#2563eb');
-                    $btnShadow = $isConfigured ? 'rgba(16, 185, 129, 0.2)' : ($emailAccessRequired ? 'rgba(239, 68, 68, 0.2)' : 'rgba(59, 130, 246, 0.2)');
-                    $btnIcon = $isConfigured ? 'fa-circle-check' : ($emailAccessRequired ? 'fa-triangle-exclamation' : 'fa-envelope');
+                    $hasEmailInput = !empty($email_access_input);
+                    $hasPasswordInput = !empty($document_password_input);
+                    $hasAnyInput = $hasEmailInput || $hasPasswordInput;
+                    $isValidEmail = $hasEmailInput && filter_var($email_access_input, FILTER_VALIDATE_EMAIL) !== false;
+                    $isConfigured = $isValidEmail && $hasPasswordInput;
+                    $hasInvalidAttempt = $hasAnyInput && !$isConfigured;
+                    $isRed = $isConfigured ? false : ($emailAccessRequired || $hasInvalidAttempt);
+
+                    $btnBg = $isConfigured ? '#10b981' : ($isRed ? '#ef4444' : '#3b82f6');
+                    $btnHoverBg = $isConfigured ? '#059669' : ($isRed ? '#dc2626' : '#2563eb');
+                    $btnShadow = $isConfigured ? 'rgba(16, 185, 129, 0.2)' : ($isRed ? 'rgba(239, 68, 68, 0.2)' : 'rgba(59, 130, 246, 0.2)');
+                    $btnIcon = $isConfigured ? 'fa-circle-check' : ($isRed ? 'fa-triangle-exclamation' : 'fa-envelope');
                 @endphp
                 <button type="button" wire:click="toggleEmailAccessModal" class="btn-primary" style="background-color: {{ $btnBg }}; border-radius: 4px; padding: 10px 20px; font-size: 13px; font-weight: 600; cursor: pointer; display: flex; align-items: center; gap: 6px; box-shadow: 0 2px 4px {{ $btnShadow }}; transition: background-color 0.15s;" onmouseover="this.style.backgroundColor='{{ $btnHoverBg }}'" onmouseout="this.style.backgroundColor='{{ $btnBg }}'">
                     <i class="fa-solid {{ $btnIcon }}"></i> Manage Email Access

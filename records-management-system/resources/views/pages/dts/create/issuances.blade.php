@@ -172,7 +172,7 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create Issuance
                 ->pluck('office_code')
                 ->toArray();
 
-            $originOfficeCode = $this->unit_college;
+            $originOfficeCode = $this->userOfficeCode;
             $originOffice = DB::table('office')->where('office_code', $originOfficeCode)->first();
             $clusterHead = null;
             if ($originOffice && $originOffice->cluster) {

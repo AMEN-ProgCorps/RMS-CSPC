@@ -587,7 +587,7 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create External
             'seq_number' => 'required|string|max:50',
             'source_office' => 'required|string|exists:office,office_code',
             'requestor_name' => 'required|string|max:255',
-            'requestor_label' => 'required|string|max:255',
+            'requestor_label' => 'nullable|string|max:255',
             'subject' => 'required|string',
             'transaction_flow' => 'required|string|exists:dts_transaction_flow,flow_code',
             'copy_furnished' => 'required|string|in:Yes,No',

@@ -555,7 +555,7 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create Issuance
     public function save()
     {
         $this->validate([
-            'issuance_type' => 'required|string|in:NM,AM,EM,TO,OM',
+            'issuance_type' => 'required|string|in:NM,AM,EM,TO,OM,TR,EN,DES,TA,AO',
             'seq_number' => 'required|string|max:50',
             'subject' => 'required|string',
             'transaction_flow' => 'required|string|exists:dts_transaction_flow,flow_code',
@@ -705,15 +705,29 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create Issuance
             // Insert Copy Furnished records into dts_copy_filled_transaction and dts_copy_filled_to_office tables
             if ($this->copy_furnished === 'Yes' && count($this->cf_selected_offices) > 0) {
                 $assignOfficesId = (DB::table('dts_copy_filled_transaction')->max('assign_offices_id') ?? 1000) + 1;
+
+                $finalCfOffices = [];
+                foreach ($this->cf_selected_offices as $cfOffice) {
+                    if ($cfOffice === 'ALL') {
+                        $allOffices = DB::table('office')->pluck('office_code')->toArray();
+                        foreach ($allOffices as $oCode) {
+                            $finalCfOffices[] = $oCode;
+                        }
+                    } else {
+                        $finalCfOffices[] = $cfOffice;
+                    }
+                }
+                $finalCfOffices = array_values(array_unique(array_filter($finalCfOffices)));
+
                 $copyFilledId = DB::table('dts_copy_filled_transaction')->insertGetId([
                     'control_num' => $controlNumber,
-                    'total_office' => count($this->cf_selected_offices),
+                    'total_office' => count($finalCfOffices),
                     'assign_offices_id' => $assignOfficesId,
                     'data_created' => now(),
                     'date_modified' => now(),
                 ]);
 
-                foreach ($this->cf_selected_offices as $cfOffice) {
+                foreach ($finalCfOffices as $cfOffice) {
                     DB::table('dts_copy_filled_to_office')->insert([
                         'control_id' => $assignOfficesId,
                         'office_code' => $cfOffice,
@@ -729,7 +743,7 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create Issuance
                 'originated_from' => $userOfficeCode,
                 'requestor_name' => auth()->user()?->details ? (auth()->user()->details->first_name . ' ' . auth()->user()->details->last_name) : 'Authorized User',
                 'subject' => $this->subject,
-                'classification' => 'Simple',
+                'classification' => null,
                 'action_needed' => 'For action',
                 'current_office_hold' => $currentOffice,
                 'status' => 'ongoing',
@@ -884,40 +898,49 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create Issuance
                 <div style="margin-right: 220px; display: flex; flex-direction: column; gap: 24px;">
                     
                     <!-- Generated Control Number Identity Badge -->
-                    @if(auth()->user()?->permissions?->can_dts_modify_control_no)
                     <div class="beta-control-badge">
-                        <span class="badge-label">Generated Control Number</span>
-                        <div style="display: flex; gap: 8px; align-items: center; margin-top: 4px;">
+                        <span class="badge-label">Control Number Type</span>
+                        <div style="display: flex; gap: 8px; align-items: center; margin-top: 4px; flex-wrap: wrap;">
                             <select wire:model.live="issuance_type" class="beta-select" style="background: rgba(255, 255, 255, 0.15); border: 1px solid rgba(255, 255, 255, 0.3); color: #ffffff; font-weight: 700; height: 38px; outline: none; border-radius: 6px; padding: 0 10px;">
-                                <option value="NM" style="color: #333;">NM</option>
-                                <option value="AM" style="color: #333;">AM</option>
-                                <option value="EM" style="color: #333;">EM</option>
-                                <option value="TO" style="color: #333;">TO</option>
-                                <option value="OM" style="color: #333;">OM</option>
+                                <option value="NM" style="color: #333;">Numbered Memo (NM)</option>
+                                <option value="AM" style="color: #333;">Admin Memo (AM)</option>
+                                <option value="EM" style="color: #333;">Executive Memo (EM)</option>
+                                <option value="TO" style="color: #333;">Travel Order (TO)</option>
+                                <option value="OM" style="color: #333;">Office Memo (OM)</option>
+                                <option value="TR" style="color: #333;">Transmittal (TR)</option>
+                                <option value="EN" style="color: #333;">Endorsement (EN)</option>
+                                <option value="DES" style="color: #333;">Designation (DES)</option>
+                                <option value="TA" style="color: #333;">Travel Authority (TA)</option>
+                                <option value="AO" style="color: #333;">Admin Order (AO)</option>
                             </select>
-                            <span class="beta-prefix" style="font-size: 16px; font-weight: 700;">-{{ now()->format('Y-m') }}-</span>
-                            <input type="text" wire:model.live="seq_number" class="beta-input badge-input" placeholder="0001" style="height: 38px; box-sizing: border-box;">
-                            @if(empty($seq_number))
-                                <button type="button" wire:click="generateRandomSeq" class="beta-btn-add" style="background: #3b82f6; border: 1px solid rgba(255, 255, 255, 0.4); color: #ffffff; height: 38px; font-size: 11px; padding: 0 12px; border-radius: 6px;">
-                                    Generate
-                                </button>
-                            @else
-                                <button type="button" wire:click="checkAvailability" class="beta-btn-add" style="background: rgba(255, 255, 255, 0.2); border: 1px solid rgba(255, 255, 255, 0.4); color: #ffffff; height: 38px; font-size: 11px; padding: 0 12px; border-radius: 6px;">
-                                    Check Availability
-                                </button>
-                            @endif
 
+                            @if(auth()->user()?->permissions?->can_dts_modify_control_no)
+                                <span class="beta-prefix" style="font-size: 16px; font-weight: 700;">-{{ now()->format('Y-m') }}-</span>
+                                <input type="text" wire:model.live="seq_number" class="beta-input badge-input" placeholder="0001" style="height: 38px; box-sizing: border-box;">
+                                @if(empty($seq_number))
+                                    <button type="button" wire:click="generateRandomSeq" class="beta-btn-add" style="background: #3b82f6; border: 1px solid rgba(255, 255, 255, 0.4); color: #ffffff; height: 38px; font-size: 11px; padding: 0 12px; border-radius: 6px;">
+                                        Generate
+                                    </button>
+                                @else
+                                    <button type="button" wire:click="checkAvailability" class="beta-btn-add" style="background: rgba(255, 255, 255, 0.2); border: 1px solid rgba(255, 255, 255, 0.4); color: #ffffff; height: 38px; font-size: 11px; padding: 0 12px; border-radius: 6px;">
+                                        Check Availability
+                                    </button>
+                                @endif
+                            @else
+                                <span style="font-size: 14px; font-weight: 600; color: #ffffff;">-{{ now()->format('Y-m') }}-{{ $seq_number ?: 'Auto' }}</span>
+                            @endif
                         </div>
-                        @if($availabilityMessage)
-                            <span style="font-size: 12px; margin-top: 4px; display: block; font-weight: 600; color: {{ $isAvailable ? '#a7f3d0' : '#fca5a5' }};">
-                                {{ $availabilityMessage }}
-                            </span>
+                        @if(auth()->user()?->permissions?->can_dts_modify_control_no)
+                            @if($availabilityMessage)
+                                <span style="font-size: 12px; margin-top: 4px; display: block; font-weight: 600; color: {{ $isAvailable ? '#a7f3d0' : '#fca5a5' }};">
+                                    {{ $availabilityMessage }}
+                                </span>
+                            @endif
+                            @error('seq_number')
+                                <span class="beta-error" style="color: #fca5a5; font-size: 12px; margin-top: 4px; display: block;">{{ $message }}</span>
+                            @enderror
                         @endif
-                        @error('seq_number')
-                            <span class="beta-error" style="color: #fca5a5; font-size: 12px; margin-top: 4px; display: block;">{{ $message }}</span>
-                        @enderror
                     </div>
-                    @endif
 
                     <!-- Card 1: Document Details -->
                     <div class="beta-card">
@@ -1131,47 +1154,54 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create Issuance
             
             <!-- Left Side Form Fields -->
             <div style="margin-right: 220px;">
-                
-                @if(auth()->user()?->permissions?->can_dts_modify_control_no)
-                    <!-- Control Number Selection Dropdown and Input -->
+                                    <!-- Control Number Selection Dropdown and Input -->
                     <div class="control-wrapper" style="margin-bottom: 20px;">
-                        <label class="control-label">Control Number:</label>
+                        <label class="control-label">Control Number Type:</label>
                         <div style="display: flex; gap: 8px; flex-wrap: wrap; align-items: center;">
-                            <select wire:model.live="issuance_type" class="select-input" style="max-width: 200px; height: 32px; padding: 2px 6px;">
+                            <select wire:model.live="issuance_type" class="select-input" style="max-width: 240px; height: 32px; padding: 2px 6px;">
                                 <option value="NM">Numbered Memo (NM)</option>
                                 <option value="AM">Admin Memo (AM)</option>
                                 <option value="EM">Executive Memo (EM)</option>
                                 <option value="TO">Travel Order (TO)</option>
                                 <option value="OM">Office Memo (OM)</option>
+                                <option value="TR">Transmittal (TR)</option>
+                                <option value="EN">Endorsement (EN)</option>
+                                <option value="DES">Designation (DES)</option>
+                                <option value="TA">Travel Authority (TA)</option>
+                                <option value="AO">Admin Order (AO)</option>
                             </select>
-                            
-                            <div style="display: flex; align-items: center; max-width: 300px; border: 1px solid #ced4da; border-radius: 4px; overflow: hidden; background: #e9ecef; height: 32px; box-sizing: border-box;">
-                                <span style="padding: 0 10px; font-family: 'Inter', sans-serif; font-size: 13px; color: #495057; font-weight: 600; border-right: 1px solid #ced4da; user-select: none; line-height: 30px;">
-                                    {{ $issuance_type }}-{{ now()->format('Y-m') }}-
-                                </span>
-                                <input type="text" wire:model.live="seq_number" class="text-input" placeholder="0001" style="flex: 1; border: none; height: 100%; padding: 0 8px; font-size: 13px; background: transparent; outline: none; box-shadow: none;">
-                            </div>
-                            @if(empty($seq_number))
-                                <button type="button" wire:click="generateRandomSeq" class="btn-primary" style="padding: 0 12px; height: 32px; font-size: 12px; background-color: #3b82f6; border-radius: 4px;">
-                                    Generate
-                                </button>
-                            @else
-                                <button type="button" wire:click="checkAvailability" class="btn-primary" style="padding: 0 12px; height: 32px; font-size: 12px; background-color: #4b5563; border-radius: 4px;">
-                                    Check Availability
-                                </button>
-                            @endif
 
+                            @if(auth()->user()?->permissions?->can_dts_modify_control_no)
+                                <div style="display: flex; align-items: center; max-width: 300px; border: 1px solid #ced4da; border-radius: 4px; overflow: hidden; background: #e9ecef; height: 32px; box-sizing: border-box;">
+                                    <span style="padding: 0 10px; font-family: 'Inter', sans-serif; font-size: 13px; color: #495057; font-weight: 600; border-right: 1px solid #ced4da; user-select: none; line-height: 30px;">
+                                        {{ $issuance_type }}-{{ now()->format('Y-m') }}-
+                                    </span>
+                                    <input type="text" wire:model.live="seq_number" class="text-input" placeholder="0001" style="flex: 1; border: none; height: 100%; padding: 0 8px; font-size: 13px; background: transparent; outline: none; box-shadow: none;">
+                                </div>
+                                @if(empty($seq_number))
+                                    <button type="button" wire:click="generateRandomSeq" class="btn-primary" style="padding: 0 12px; height: 32px; font-size: 12px; background-color: #3b82f6; border-radius: 4px;">
+                                        Generate
+                                    </button>
+                                @else
+                                    <button type="button" wire:click="checkAvailability" class="btn-primary" style="padding: 0 12px; height: 32px; font-size: 12px; background-color: #4b5563; border-radius: 4px;">
+                                        Check Availability
+                                    </button>
+                                @endif
+                            @else
+                                <span style="font-size: 13px; font-weight: 600; color: #4b5563; font-family: 'Inter', sans-serif;">-{{ now()->format('Y-m') }}-{{ $seq_number ?: 'Auto' }}</span>
+                            @endif
                         </div>
-                        @if($availabilityMessage)
-                            <span style="font-size: 12px; margin-top: 4px; display: block; font-weight: 600; color: {{ $isAvailable ? '#10b981' : '#dc2626' }};">
-                                {{ $availabilityMessage }}
-                            </span>
+                        @if(auth()->user()?->permissions?->can_dts_modify_control_no)
+                            @if($availabilityMessage)
+                                <span style="font-size: 12px; margin-top: 4px; display: block; font-weight: 600; color: {{ $isAvailable ? '#10b981' : '#dc2626' }};">
+                                    {{ $availabilityMessage }}
+                                </span>
+                            @endif
+                            @error('seq_number')
+                                <span class="error-msg" style="color: #dc2626; font-size: 12px; margin-top: 4px; display: block;">{{ $message }}</span>
+                            @enderror
                         @endif
-                        @error('seq_number')
-                            <span class="error-msg" style="color: #dc2626; font-size: 12px; margin-top: 4px; display: block;">{{ $message }}</span>
-                        @enderror
                     </div>
-                @endif
 
                 <!-- Subject field with label and textarea -->
                 <div class="form-row">

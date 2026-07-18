@@ -623,7 +623,7 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create Internal
             'requestor_name' => 'required|string|max:255',
             'requestor_label' => 'nullable|string|max:255',
             'type_of_document' => 'nullable|string|max:255',
-            'classification' => 'required|string|in:simple,complex,highly technical,highly_technical,Simple,Complex,Highly Technical,Highly_Technical',
+            'classification' => 'nullable|string',
             'action_needed' => 'required|string|max:255',
             'subject' => 'required|string',
             'transaction_flow' => 'required|string|exists:dts_transaction_flow,flow_code',
@@ -793,15 +793,29 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create Internal
             // Insert Copy Furnished records into dts_copy_filled_transaction and dts_copy_filled_to_office tables
             if ($this->copy_furnished === 'Yes' && count($this->cf_selected_offices) > 0) {
                 $assignOfficesId = (DB::table('dts_copy_filled_transaction')->max('assign_offices_id') ?? 1000) + 1;
+
+                $finalCfOffices = [];
+                foreach ($this->cf_selected_offices as $cfOffice) {
+                    if ($cfOffice === 'ALL') {
+                        $allOffices = DB::table('office')->pluck('office_code')->toArray();
+                        foreach ($allOffices as $oCode) {
+                            $finalCfOffices[] = $oCode;
+                        }
+                    } else {
+                        $finalCfOffices[] = $cfOffice;
+                    }
+                }
+                $finalCfOffices = array_values(array_unique(array_filter($finalCfOffices)));
+
                 $copyFilledId = DB::table('dts_copy_filled_transaction')->insertGetId([
                     'control_num' => $controlNumber,
-                    'total_office' => count($this->cf_selected_offices),
+                    'total_office' => count($finalCfOffices),
                     'assign_offices_id' => $assignOfficesId,
                     'data_created' => now(),
                     'date_modified' => now(),
                 ]);
 
-                foreach ($this->cf_selected_offices as $cfOffice) {
+                foreach ($finalCfOffices as $cfOffice) {
                     DB::table('dts_copy_filled_to_office')->insert([
                         'control_id' => $assignOfficesId,
                         'office_code' => $cfOffice,
@@ -832,7 +846,7 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create Internal
                 'requestor_name' => $this->requestor_name,
                 'requestor_label' => $this->requestor_label,
                 'subject' => $this->subject,
-                'classification' => strtolower(str_replace(' ', '_', $this->classification)),
+                'classification' => null,
                 'action_needed' => $this->action_needed,
                 'current_office_hold' => $currentOffice,
                 'status' => 'ongoing',
@@ -1046,16 +1060,7 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create Internal
                                 @error('requestor_label') <span class="beta-error">{{ $message }}</span> @enderror
                             </div>
 
-                            <div class="beta-form-group">
-                                <label class="beta-label">Classification</label>
-                                <select wire:model="classification" class="beta-select">
-                                    <option value="">Select Classification</option>
-                                    <option value="Simple">Simple</option>
-                                    <option value="Complex">Complex</option>
-                                    <option value="Highly Technical">Highly Technical</option>
-                                </select>
-                                @error('classification') <span class="beta-error">{{ $message }}</span> @enderror
-                            </div>
+
 
                             <div class="beta-form-group full-width">
                                 <label class="beta-label">Subject</label>
@@ -1386,21 +1391,7 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create Internal
                     </div>
                 </div>
 
-                <!-- Classification dropdown -->
-                <div class="form-row">
-                    <div class="form-col small-input">
-                        <label class="input-label">Classification</label>
-                        <select wire:model="classification" class="select-input">
-                            <option value="">Classification</option>
-                            <option value="Simple">Simple</option>
-                            <option value="Complex">Complex</option>
-                            <option value="Highly Technical">Highly Technical</option>
-                        </select>
-                        @error('classification')
-                            <span class="error-msg" style="color: #dc2626; font-size: 12px; margin-top: 4px; display: block;">{{ $message }}</span>
-                        @enderror
-                    </div>
-                </div>
+
 
                 <!-- Subject field with label and textarea -->
                 <div class="form-row">

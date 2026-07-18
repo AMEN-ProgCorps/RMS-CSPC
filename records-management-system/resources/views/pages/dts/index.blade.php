@@ -203,20 +203,22 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
             $dateReceived = $currentLog ? $currentLog->date_in : $t->date_created;
             $t->date_received = $dateReceived;
 
-            // Only calculate elapsed days if the transaction has been forwarded
-            $hasBeenForwarded = DB::table('sub_document_tracking_system_logs')
+            // Check if transaction has been forwarded from originating office
+            $firstLog = DB::table('sub_document_tracking_system_logs')
                 ->where('transaction_id', $t->transaction_id)
-                ->where('type', 'forwarded')
-                ->exists();
+                ->orderBy('id', 'asc')
+                ->first();
+
+            $hasBeenForwarded = ($t->sequence > 1) || ($firstLog && !empty($firstLog->date_out));
 
             if ($hasBeenForwarded) {
-                $t->elapsed_days = $dateReceived ? (now()->diffInDays(\Carbon\Carbon::parse($dateReceived)) + 1) : 1;
+                $startDate = \Carbon\Carbon::parse($firstLog->date_out ?? $firstLog->date_in ?? $t->date_created);
+                $t->elapsed_days = (int) abs(now()->diffInDays($startDate)) + 1;
+                $t->diff_in_minutes = (int) abs(now()->diffInMinutes($startDate));
             } else {
                 $t->elapsed_days = 0;
+                $t->diff_in_minutes = 0;
             }
-
-            // Duration in minutes for warning icon
-            $t->diff_in_minutes = $dateReceived ? abs(now()->diffInMinutes(\Carbon\Carbon::parse($dateReceived))) : 0;
 
             // Previous office (from office)
             $prevLog = DB::table('sub_document_tracking_system_logs as log')
@@ -1475,13 +1477,13 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
                         </div>
 
                         <!-- File Code / Copy Furnished field -->
-                        @if ($selectedTransaction && !empty($selectedTransaction->doc_dir))
+                        @if ($selectedTransaction && !empty($selectedTransaction->doc_dir) && !empty($fileCode) && $fileCode !== 'N/A')
                             <div class="receive-field-row">
                                 <span class="receive-field-label">File Code:</span>
                                 @if ($editingAll)
                                     <input type="text" class="receive-field-input" wire:model="fileCode">
                                 @else
-                                    <input type="text" class="receive-field-input" value="{{ $fileCode ?: 'N/A' }}" readonly>
+                                    <input type="text" class="receive-field-input" value="{{ $fileCode }}" readonly>
                                 @endif
                             </div>
                         @endif

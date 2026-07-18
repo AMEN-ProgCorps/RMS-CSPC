@@ -883,7 +883,7 @@ new #[Layout('layouts.dts')] #[Title('DTS - Issuances')] class extends Component
                         </div>
 
                         <!-- File Code / Copy Furnished field -->
-                        @if ($selectedTransaction && !empty($selectedTransaction->doc_dir))
+                        @if ($selectedTransaction && !empty($selectedTransaction->doc_dir) && !empty($fileCode) && $fileCode !== 'N/A')
                             <div class="receive-field-row">
                                 <span class="receive-field-label">File Code:</span>
                                 @if ($editingFileCode)
@@ -894,7 +894,7 @@ new #[Layout('layouts.dts')] #[Title('DTS - Issuances')] class extends Component
                                         </div>
                                     </div>
                                 @else
-                                    <input type="text" class="receive-field-input" value="{{ $fileCode ?: 'N/A' }}" readonly>
+                                    <input type="text" class="receive-field-input" value="{{ $fileCode }}" readonly>
                                     @if (auth()->user()?->permissions?->is_sadm && $selectedTransaction->current_office === auth()->user()?->details?->office?->office_code)
                                         <div class="receive-field-actions">
                                             <button type="button" wire:click="startEdit('file_code')">Update</button>

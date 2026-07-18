@@ -787,15 +787,29 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create Applicat
             // Insert Copy Furnished records into dts_copy_filled_transaction and dts_copy_filled_to_office tables
             if ($this->copy_furnished === 'Yes' && count($this->cf_selected_offices) > 0) {
                 $assignOfficesId = (DB::table('dts_copy_filled_transaction')->max('assign_offices_id') ?? 1000) + 1;
+
+                $finalCfOffices = [];
+                foreach ($this->cf_selected_offices as $cfOffice) {
+                    if ($cfOffice === 'ALL') {
+                        $allOffices = DB::table('office')->pluck('office_code')->toArray();
+                        foreach ($allOffices as $oCode) {
+                            $finalCfOffices[] = $oCode;
+                        }
+                    } else {
+                        $finalCfOffices[] = $cfOffice;
+                    }
+                }
+                $finalCfOffices = array_values(array_unique(array_filter($finalCfOffices)));
+
                 $copyFilledId = DB::table('dts_copy_filled_transaction')->insertGetId([
                     'control_num' => $controlNumber,
-                    'total_office' => count($this->cf_selected_offices),
+                    'total_office' => count($finalCfOffices),
                     'assign_offices_id' => $assignOfficesId,
                     'data_created' => now(),
                     'date_modified' => now(),
                 ]);
 
-                foreach ($this->cf_selected_offices as $cfOffice) {
+                foreach ($finalCfOffices as $cfOffice) {
                     DB::table('dts_copy_filled_to_office')->insert([
                         'control_id' => $assignOfficesId,
                         'office_code' => $cfOffice,
@@ -825,7 +839,7 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create Applicat
                 'originated_from' => $this->unit_college,
                 'requestor_name' => $this->applicant_name,
                 'subject' => 'Application for ' . $this->position,
-                'classification' => 'Simple',
+                'classification' => null,
                 'action_needed' => 'For action',
                 'current_office_hold' => $currentOffice,
                 'status' => 'ongoing',

@@ -3603,7 +3603,7 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
         const rec = reconcilePoll(newMessages, currentMessages, newKeys, curKeys);
 
         if (rec.type === 'nochange') {
-          if (isFirstLoad) { isFirstLoad = false; scrollToBottom(true, true); }
+          if (isFirstLoad) { isFirstLoad = false; handleFirstLoadScroll(); }
           if (adminConvHasMore && !document.getElementById('loadOlderBtn') && !document.getElementById('noMoreOlderNotice')) insertLoadOlderBtn();
           return;
         }
@@ -3629,7 +3629,7 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
           if (!adminConvViewingOlder) {
             trimWindowFromTop(newMessages.length);
           }
-          if (isFirstLoad) { isFirstLoad = false; scrollToBottom(true, true); }
+          if (isFirstLoad) { isFirstLoad = false; handleFirstLoadScroll(); }
           else if (wasAtBottom || shouldAutoScroll) requestAnimationFrame(() => requestAnimationFrame(() => scrollToBottom(true, false)));
           else showScrollIndicator(rec.items.filter(el => el.classList.contains('message-container')).length);
           applyAdminBadges();
@@ -3665,7 +3665,7 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
         if (mc > 0 && (wasAtBottom || shouldAutoScroll || isFirstLoad)) {
           const doInstant = isFirstLoad;
           isFirstLoad = false;
-          if (doInstant) scrollToBottom(true, true);
+          if (doInstant) handleFirstLoadScroll();
           else requestAnimationFrame(() => requestAnimationFrame(() => scrollToBottom(true, false)));
         } else {
           isFirstLoad = false;
@@ -3913,6 +3913,30 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
       }
     }
 
+    function handleFirstLoadScroll() {
+      const activeKey = isGlobalChat ? '__global__' : (activeDM || (activeAdminConv ? '__admin__' + activeAdminConv.convId : null));
+      let restored = false;
+      if (activeKey) {
+        const savedScrollTop = sessionStorage.getItem('chatScroll_' + activeKey);
+        const savedScrollHeight = sessionStorage.getItem('chatScrollHeight_' + activeKey);
+        const savedAtBottom = sessionStorage.getItem('chatScrollAtBottom_' + activeKey);
+        
+        if (savedAtBottom === 'true') {
+          scrollToBottom(true, true);
+          restored = true;
+        } else if (savedScrollTop !== null && savedScrollHeight !== null) {
+          const scrollTop = parseFloat(savedScrollTop);
+          const scrollHeight = parseFloat(savedScrollHeight);
+          const diff = chatBox.scrollHeight - scrollHeight;
+          chatBox.scrollTop = scrollTop + diff;
+          restored = true;
+        }
+      }
+      if (!restored) {
+        scrollToBottom(true, true);
+      }
+    }
+
     const scrollIndicatorText = document.getElementById('scrollIndicatorText');
     const unreadBadge = document.getElementById('unreadBadge');
 
@@ -3998,7 +4022,28 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
         // Show load-older button when user scrolls up and older messages exist
         syncLoadOlderBtn();
       }
+
+      // Save scroll position for active chat
+      const activeKey = isGlobalChat ? '__global__' : (activeDM || (activeAdminConv ? '__admin__' + activeAdminConv.convId : null));
+      if (activeKey) {
+        sessionStorage.setItem('chatScroll_' + activeKey, chatBox.scrollTop);
+        sessionStorage.setItem('chatScrollHeight_' + activeKey, chatBox.scrollHeight);
+        sessionStorage.setItem('chatScrollAtBottom_' + activeKey, atBottom ? 'true' : 'false');
+      }
     });
+
+    // Ensure scroll position is maintained when images finish loading
+    chatBox.addEventListener('load', function(event) {
+      if (event.target.tagName === 'IMG') {
+        const activeKey = isGlobalChat ? '__global__' : (activeDM || (activeAdminConv ? '__admin__' + activeAdminConv.convId : null));
+        if (activeKey) {
+          const savedAtBottom = sessionStorage.getItem('chatScrollAtBottom_' + activeKey);
+          if (savedAtBottom === 'true' || shouldAutoScroll || isAtBottom()) {
+            scrollToBottom(true, true);
+          }
+        }
+      }
+    }, true);
 
     // Click scroll indicator to go to bottom
     scrollIndicator.addEventListener('click', function() {
@@ -4242,7 +4287,7 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
         const rec = reconcilePoll(newMessages, currentMessages, newKeys, curKeys);
 
         if (rec.type === 'nochange') {
-          if (isFirstLoad) { isFirstLoad = false; scrollToBottom(true, true); }
+          if (isFirstLoad) { isFirstLoad = false; handleFirstLoadScroll(); }
           if (gcHasMore && !document.getElementById('loadOlderBtn') && !document.getElementById('noMoreOlderNotice')) insertLoadOlderBtn();
           return;
         }
@@ -4299,7 +4344,7 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
               }
               // Auto-scroll after the last message is revealed
               if (i === toInsert.length - 1) {
-                if (isFirstLoad) { isFirstLoad = false; scrollToBottom(true, true); }
+                if (isFirstLoad) { isFirstLoad = false; handleFirstLoadScroll(); }
                 else if (wasAtBottom || shouldAutoScroll) requestAnimationFrame(() => requestAnimationFrame(() => scrollToBottom(true, false)));
                 else showScrollIndicator(toInsert.filter(el => el.classList.contains('message-container')).length);
                 applyAdminBadges(); applyEmojiOnly();
@@ -4333,7 +4378,7 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
         
         document.querySelectorAll('[data-sending-uid]').forEach(el => el.remove());
         chatBox.scrollTop = Math.max(0, prevST + chatBox.scrollHeight - prevSH);
-        if (isFirstLoad) { isFirstLoad = false; scrollToBottom(true, true); }
+        if (isFirstLoad) { isFirstLoad = false; handleFirstLoadScroll(); }
         else if (wasAtBottom || shouldAutoScroll || isFirstLoad) requestAnimationFrame(() => requestAnimationFrame(() => scrollToBottom(true, false)));
         else if (genuinelyNewCount > 0) showScrollIndicator(genuinelyNewCount);
         applyAdminBadges(); applyEmojiOnly();
@@ -4433,7 +4478,7 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
         const rec = reconcilePoll(newMessages, currentMessages, newKeys, curKeys);
 
         if (rec.type === 'nochange') {
-          if (isFirstLoad) { isFirstLoad = false; scrollToBottom(true, true); }
+          if (isFirstLoad) { isFirstLoad = false; handleFirstLoadScroll(); }
           if (dmHasMore && !document.getElementById('loadOlderBtn') && !document.getElementById('noMoreOlderNotice')) insertLoadOlderBtn();
           return;
         }
@@ -4460,7 +4505,7 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
           if (!dmViewingOlder) {
             trimWindowFromTop(newMessages.length);
           }
-          if (isFirstLoad) { isFirstLoad = false; scrollToBottom(true, true); }
+          if (isFirstLoad) { isFirstLoad = false; handleFirstLoadScroll(); }
           else if (wasAtBottom || shouldAutoScroll) requestAnimationFrame(() => requestAnimationFrame(() => scrollToBottom(true, false)));
           else showScrollIndicator(rec.items.filter(el => el.classList.contains('message-container')).length);
           applyAdminBadges(); applyEmojiOnly();
@@ -4496,7 +4541,7 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
         if (mc > 0 && (wasAtBottom || shouldAutoScroll || isFirstLoad)) {
           const doInstant = isFirstLoad;
           isFirstLoad = false;
-          if (doInstant) scrollToBottom(true, true);
+          if (doInstant) handleFirstLoadScroll();
           else requestAnimationFrame(() => requestAnimationFrame(() => scrollToBottom(true, false)));
         } else {
           isFirstLoad = false;

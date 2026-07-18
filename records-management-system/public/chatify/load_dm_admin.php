@@ -219,6 +219,9 @@ foreach ($rawMessages as $msg) {
     $html .= "<div class='message-container received' data-msg-id='{$msgId}'>";
     $html .= "<div class='message-avatar'>{$initials}</div>";
     $html .= "<div class='bubble-wrapper'>";
+    if (!empty($msg['is_edited'])) {
+        $html .= "<div class='message-edited-label' style='font-size:10px;color:var(--text-secondary);opacity:0.8;margin-bottom:2px;font-style:italic;'>edited</div>";
+    }
     $html .= $bodyHtml;
     $html .= "</div>"; // .bubble-wrapper
     $html .= "</div>"; // .message-container

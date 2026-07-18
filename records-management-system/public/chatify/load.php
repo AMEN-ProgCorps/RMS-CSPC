@@ -126,6 +126,9 @@ foreach ($rawMessages as $msg) {
         $contentEsc = htmlspecialchars($content, ENT_QUOTES);
 
         $html .= "<div class='bubble-wrapper'>";
+        if (!empty($msg['is_edited'])) {
+            $html .= "<div class='message-edited-label' style='font-size:10px;color:var(--text-secondary);opacity:0.8;margin-bottom:2px;font-style:italic;'>edited</div>";
+        }
         $html .= "<div class='message-bubble'>";
         $html .= "<div class='message-content'>{$contentEsc}</div>";
         $html .= "<div class='message-info'><span class='message-sender'>{$senderLabel}{$adminBadge}</span><span class='message-time'>{$timeDisplay}</span></div>";

@@ -292,6 +292,30 @@ wss.on('connection', (ws) => {
       return;
     }
 
+    // 2b. Handle Message Edited Event
+    if (data.type === 'message_edited') {
+      if (isRateLimited(state.accountId, 'message')) return;
+
+      const { chat_type, recipient_id, msg_uuid, message } = data;
+      log(`Broadcasting message_edited event: msg_uuid=${msg_uuid}, sender_id=${state.accountId}`);
+
+      const payloadStr = JSON.stringify({
+        type: 'message_edited',
+        msg_uuid,
+        message,
+        chat_type,
+        sender_id: state.accountId
+      });
+
+      if (chat_type === 'global') {
+        broadcastToAll(payloadStr, state.accountId);
+      } else if (chat_type === 'private') {
+        // Recipient, any other session of the sender, and admin (1) for spymode
+        broadcastToAccounts([Number(recipient_id), state.accountId, 1], payloadStr);
+      }
+      return;
+    }
+
     // 3. Handle Name Update Event
     if (data.type === 'update_name') {
       if (isRateLimited(state.accountId, 'control')) return;

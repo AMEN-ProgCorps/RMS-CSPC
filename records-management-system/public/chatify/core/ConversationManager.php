@@ -73,6 +73,7 @@ class ConversationManager
                             receiver_id,
                             message,
                             msg_type AS type,
+                            is_edited,
                             to_char(created_at AT TIME ZONE \'Asia/Manila\', \'YYYY-MM-DD HH24:MI:SS.US\') AS timestamp
                      FROM chat_messages
                      WHERE conv_id = :conv_id
@@ -102,6 +103,7 @@ class ConversationManager
                             receiver_id,
                             message,
                             msg_type AS type,
+                            is_edited,
                             to_char(created_at AT TIME ZONE \'Asia/Manila\', \'YYYY-MM-DD HH24:MI:SS.US\') AS timestamp
                      FROM chat_messages
                      WHERE conv_id = :conv_id
@@ -120,6 +122,35 @@ class ConversationManager
         } catch (PDOException $e) {
             error_log('ConversationManager::loadRaw() — ' . $e->getMessage());
             return [];
+        }
+    }
+
+    /**
+     * Edit a message's text content.
+     */
+    public static function editMessage(string $msgUuid, int $senderId, string $newContent): bool
+    {
+        $encrypted = encryptMessage($newContent);
+        if ($encrypted === false) {
+            return false;
+        }
+
+        try {
+            $pdo = Database::getConnection();
+            $stmt = $pdo->prepare(
+                'UPDATE chat_messages
+                 SET message = :message, is_edited = true, updated_at = NOW()
+                 WHERE msg_uuid = :uuid AND sender_id = :sender_id'
+            );
+            $stmt->execute([
+                ':message'   => $encrypted,
+                ':uuid'      => $msgUuid,
+                ':sender_id' => $senderId,
+            ]);
+            return $stmt->rowCount() > 0;
+        } catch (PDOException $e) {
+            error_log('ConversationManager::editMessage() — ' . $e->getMessage());
+            return false;
         }
     }
 

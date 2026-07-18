@@ -49,6 +49,7 @@ class GlobalChatManager
                             sender_id,
                             message,
                             msg_type AS type,
+                            is_edited,
                             to_char(created_at AT TIME ZONE \'Asia/Manila\', \'YYYY-MM-DD HH24:MI:SS.US\') AS timestamp
                      FROM chat_messages
                      WHERE conv_id = :conv_id
@@ -75,6 +76,7 @@ class GlobalChatManager
                             sender_id,
                             message,
                             msg_type AS type,
+                            is_edited,
                             to_char(created_at AT TIME ZONE \'Asia/Manila\', \'YYYY-MM-DD HH24:MI:SS.US\') AS timestamp
                      FROM chat_messages
                      WHERE conv_id = :conv_id

@@ -2523,6 +2523,16 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
     const backButton      = document.getElementById('backButton');
     const burgerButton    = document.getElementById('burgerButton');
     const closeSidebarBtn = document.getElementById('closeSidebarBtn');
+
+    let editingMsgId = null;
+
+    function showEditBanner(msgId) {
+      editingMsgId = msgId;
+    }
+
+    function hideEditBanner() {
+      editingMsgId = null;
+    }
     const notifyModal        = document.getElementById('notifyModal');
     const notifyTargetName   = document.getElementById('notifyTargetName');
     const notifyMessageInput = document.getElementById('notifyMessageInput');
@@ -2594,7 +2604,26 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
           return;
         }
 
-        if (data.type === 'message') {
+        if (data.type === 'message_edited') {
+          // Another client edited a message — patch the bubble in-place immediately
+          // without any server fetch so the update is instant for all viewers.
+          const targetContainer = chatBox.querySelector(
+            `.message-container[data-msg-id="${data.msg_uuid}"]`
+          );
+          if (targetContainer) {
+            const contentEl = targetContainer.querySelector('.message-bubble .message-content');
+            if (contentEl) contentEl.textContent = data.message;
+
+            const bubbleWrapper = targetContainer.querySelector('.bubble-wrapper');
+            if (bubbleWrapper && !bubbleWrapper.querySelector('.message-edited-label')) {
+              const label = document.createElement('div');
+              label.className = 'message-edited-label';
+              label.style.cssText = 'font-size:10px;color:var(--text-secondary);opacity:0.8;margin-bottom:2px;font-style:italic;';
+              label.textContent = 'edited';
+              bubbleWrapper.insertBefore(label, bubbleWrapper.firstChild);
+            }
+          }
+        } else if (data.type === 'message') {
           console.log('Received WebSocket real-time update notice:', data);
           if (data.chat_type === 'global') {
             if (isGlobalChat) {
@@ -3287,6 +3316,7 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
       dmCursor = '';
       dmHasMore = false;
       dmViewingOlder = false;
+      hideEditBanner();
       
       // Reset local typing indicator state
       if (localTypingTimeout) {
@@ -3337,6 +3367,7 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
       gcCursor = '';
       gcHasMore = false;
       gcViewingOlder = false;
+      hideEditBanner();
       isFirstLoad = true;
       
       // Reset local typing indicator state
@@ -3704,6 +3735,7 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
       adminConvCursor = '';
       adminConvHasMore = false;
       adminConvViewingOlder = false;
+      hideEditBanner();
       isFirstLoad = true;
 
       // Reset local typing indicator state
@@ -4026,6 +4058,34 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
         closeLogoutModal();
       });
     }
+
+    // Event delegation for double click to edit chat message
+    chatBox.addEventListener('dblclick', function (e) {
+      const container = e.target.closest('.message-container.sent');
+      if (!container) return; // only edit messages sent by you
+      
+      const msgId = container.getAttribute('data-msg-id');
+      if (!msgId) return;
+
+      // Ensure it is a text message, not an upload
+      const contentEl = container.querySelector('.message-bubble .message-content');
+      if (!contentEl) return;
+      
+      // If it contains an attachment (like an anchor link or image or audio), do not edit
+      if (contentEl.querySelector('a') || container.querySelector('img') || container.querySelector('audio')) {
+        return;
+      }
+      
+      const text = contentEl.textContent.trim();
+      messageInput.value = text;
+      editingMsgId = msgId;
+      
+      // Auto-grow textarea to fit the text
+      messageInput.style.height = 'auto';
+      messageInput.style.height = messageInput.scrollHeight + 'px';
+      
+      messageInput.focus();
+    });
 
     // Monitor scroll position
     chatBox.addEventListener('scroll', function() {
@@ -4730,49 +4790,57 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
       messageInput.focus();
       if (isIOS) iosBlurSuppressed = false;
 
-      // Show optimistic "Sending..." bubble immediately.
-      // Each send gets a UNIQUE id so rapid-fire sends don't share a single indicator
-      // that gets orphaned when loadChat() only removes the first one it finds.
-      const emptyChat = chatBox.querySelector('.empty-chat');
-      if (emptyChat) emptyChat.remove();
+      // Show optimistic "Sending..." bubble immediately (only if NOT editing).
+      let sendIndId = null;
+      if (!editingMsgId) {
+        const emptyChat = chatBox.querySelector('.empty-chat');
+        if (emptyChat) emptyChat.remove();
 
-      const sendUid = ++sendingUidCounter;
-      const sendIndId = 'sending-indicator-' + sendUid;
+        const sendUid = ++sendingUidCounter;
+        sendIndId = 'sending-indicator-' + sendUid;
 
-      const sendingBubble = document.createElement('div');
-      sendingBubble.id = sendIndId;
-      sendingBubble.setAttribute('data-sending-uid', sendUid);
-      sendingBubble.className = 'message-container sent msg-animate-sent';
-      sendingBubble.innerHTML = `
-        <div class="message-bubble bubble-pop" style="opacity:0.55;">
-          <div class="message-content" style="font-style:italic;font-size:13px;">Sending...</div>
-        </div>
-        <div class="message-avatar">${getInitials(name)}</div>
-      `;
-      sendingBubble.addEventListener('animationend', () => sendingBubble.classList.remove('msg-animate-sent'), { once: true });
-      // Append optimistic sending bubble into floating overlay so it doesn't reflow chat
-      const overlay3 = getSendingOverlay();
-      if (overlay3) overlay3.appendChild(sendingBubble);
-      else chatBox.appendChild(sendingBubble);
-      shouldAutoScroll = true;
-      userScrolledUp = false;
-      // Only scroll if user was at bottom to avoid jarring jumps when overlay is used
-      if (isAtBottom()) scrollToBottom(true, true);
+        const sendingBubble = document.createElement('div');
+        sendingBubble.id = sendIndId;
+        sendingBubble.setAttribute('data-sending-uid', sendUid);
+        sendingBubble.className = 'message-container sent msg-animate-sent';
+        sendingBubble.innerHTML = `
+          <div class="message-bubble bubble-pop" style="opacity:0.55;">
+            <div class="message-content" style="font-style:italic;font-size:13px;">Sending...</div>
+          </div>
+          <div class="message-avatar">${getInitials(name)}</div>
+        `;
+        sendingBubble.addEventListener('animationend', () => sendingBubble.classList.remove('msg-animate-sent'), { once: true });
+        // Append optimistic sending bubble into floating overlay so it doesn't reflow chat
+        const overlay3 = getSendingOverlay();
+        if (overlay3) overlay3.appendChild(sendingBubble);
+        else chatBox.appendChild(sendingBubble);
+        shouldAutoScroll = true;
+        userScrolledUp = false;
+        // Only scroll if user was at bottom to avoid jarring jumps when overlay is used
+        if (isAtBottom()) scrollToBottom(true, true);
+      }
 
       // Delay the actual POST by 0.3s to reduce rapid-fire spamming.
-      // Keep the optimistic "Sending..." bubble visible immediately.
       const SEND_DELAY_MS = 100;
       const xhr = new XMLHttpRequest();
-      // Route to correct send endpoint
-      if (isGlobalChat) {
-        xhr.open('POST', 'send.php', true);
+      let payload = '';
+
+      if (editingMsgId) {
+        xhr.open('POST', 'edit_message.php', true);
+        xhr.setRequestHeader('Content-type', 'application/x-www-form-urlencoded');
+        payload = 'msg_uuid=' + encodeURIComponent(editingMsgId) + '&message=' + encodeURIComponent(message);
       } else {
-        xhr.open('POST', 'send_dm.php', true);
+        // Route to correct send endpoint
+        if (isGlobalChat) {
+          xhr.open('POST', 'send.php', true);
+        } else {
+          xhr.open('POST', 'send_dm.php', true);
+        }
+        xhr.setRequestHeader('Content-type', 'application/x-www-form-urlencoded');
+        payload = isGlobalChat
+          ? 'message=' + encodeURIComponent(message)
+          : 'target_user=' + encodeURIComponent(activeDM) + '&message=' + encodeURIComponent(message);
       }
-      xhr.setRequestHeader('Content-type', 'application/x-www-form-urlencoded');
-      const payload = isGlobalChat
-        ? 'message=' + encodeURIComponent(message)
-        : 'target_user=' + encodeURIComponent(activeDM) + '&message=' + encodeURIComponent(message);
 
       // Fire the XHR after a short delay. Re-enable send controls only after the XHR is dispatched.
       const sendTimer = setTimeout(function() {
@@ -4798,17 +4866,54 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
             sendTypingStatus(false);
           }
 
-          // Broadcast message notification via WebSocket so other connected
-          // clients get an instant refresh without waiting for polling.
+          // Optimistically patch the edited bubble in-place so it updates
+          // instantly without waiting for loadChatForced() to re-render.
+          let capturedEditingMsgId = null;
+          if (editingMsgId) {
+            capturedEditingMsgId = editingMsgId;
+            const editedContainer = chatBox.querySelector(
+              `.message-container[data-msg-id="${editingMsgId}"]`
+            );
+            if (editedContainer) {
+              const contentEl = editedContainer.querySelector('.message-bubble .message-content');
+              if (contentEl) contentEl.textContent = message;
+
+              // Inject "edited" label if not already present
+              const bubbleWrapper = editedContainer.querySelector('.bubble-wrapper');
+              if (bubbleWrapper && !bubbleWrapper.querySelector('.message-edited-label')) {
+                const label = document.createElement('div');
+                label.className = 'message-edited-label';
+                label.style.cssText = 'font-size:10px;color:var(--text-secondary);opacity:0.8;margin-bottom:2px;font-style:italic;';
+                label.textContent = 'edited';
+                bubbleWrapper.insertBefore(label, bubbleWrapper.firstChild);
+              }
+            }
+            hideEditBanner();
+          }
+
+          // Broadcast edit notification via WebSocket so other clients patch
+          // the bubble in-place instantly — no server round-trip needed.
           if (ws && ws.readyState === WebSocket.OPEN) {
-            if (isGlobalChat) {
-              ws.send(JSON.stringify({ type: 'message', chat_type: 'global' }));
-            } else if (activeDM && activeDMAccountId) {
+            const wasEditing = !!capturedEditingMsgId;
+            if (wasEditing) {
+              // Send a dedicated edit event so receivers can patch DOM directly
               ws.send(JSON.stringify({
-                type: 'message',
-                chat_type: 'private',
-                recipient_id: activeDMAccountId
+                type: 'message_edited',
+                msg_uuid: capturedEditingMsgId,
+                message: message,
+                chat_type: isGlobalChat ? 'global' : 'private',
+                recipient_id: activeDMAccountId || null
               }));
+            } else {
+              if (isGlobalChat) {
+                ws.send(JSON.stringify({ type: 'message', chat_type: 'global' }));
+              } else if (activeDM && activeDMAccountId) {
+                ws.send(JSON.stringify({
+                  type: 'message',
+                  chat_type: 'private',
+                  recipient_id: activeDMAccountId
+                }));
+              }
             }
           }
 
@@ -4816,9 +4921,11 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
           if (isGlobalChat) { isLoadingGC = false; loadGlobalChat(false); }
           else loadChatForced();
         } else {
-          // Server error — remove only THIS send's optimistic bubble
-          const indicator = document.getElementById(sendIndId);
-          if (indicator) indicator.remove();
+          // Server error — remove only THIS send's optimistic bubble (if present)
+          if (sendIndId) {
+            const indicator = document.getElementById(sendIndId);
+            if (indicator) indicator.remove();
+          }
         }
       };
 

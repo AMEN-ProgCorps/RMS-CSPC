@@ -29,14 +29,13 @@ $limit  = 100;
 $offset = max(0, (int) ($_GET['offset'] ?? 0));
 
 // ── Load data ────────────────────────────────────────────────────────────────
-$allMessages = GlobalChatManager::loadRaw();
-$reactions   = GlobalChatManager::loadReactions();
-$totalCount  = count($allMessages);
+$totalCount = GlobalChatManager::countRaw();
+$reactions  = GlobalChatManager::loadReactions();
 
-// Slice from the END: latest 200 when offset=0, older when offset>0
-$start       = max(0, $totalCount - $limit - $offset);
-$rawMessages = array_slice($allMessages, $start, $limit);
-$hasMore     = $start > 0;
+// Convert end-relative offset to SQL start offset
+$sqlOffset   = max(0, $totalCount - $limit - $offset);
+$rawMessages = GlobalChatManager::loadRaw($limit, $sqlOffset);
+$hasMore     = $sqlOffset > 0;
 
 // ── Build a name cache for all senders in this batch ────────────────────────
 $nameMap = UserResolver::buildNameMap();

@@ -35,7 +35,37 @@ class ConversationManager
      * @param string $convId  Result of self::convId()
      * @return array<int, array>
      */
-    public static function loadRaw(string $convId): array
+    /**
+     * Count all messages for a private conversation.
+     *
+     * @param string $convId
+     * @return int
+     */
+    public static function countRaw(string $convId): int
+    {
+        try {
+            $pdo  = Database::getConnection();
+            $stmt = $pdo->prepare(
+                'SELECT COUNT(*) FROM chat_messages WHERE conv_id = :conv_id'
+            );
+            $stmt->execute([':conv_id' => $convId]);
+            return (int) $stmt->fetchColumn();
+        } catch (PDOException $e) {
+            error_log('ConversationManager::countRaw() — ' . $e->getMessage());
+            return 0;
+        }
+    }
+
+    /**
+     * Load messages for a private conversation (raw — still encrypted).
+     * Only fetches the requested page directly from the DB.
+     *
+     * @param string $convId
+     * @param int    $limit
+     * @param int    $sqlOffset  Rows to skip from the START (oldest)
+     * @return array<int, array>
+     */
+    public static function loadRaw(string $convId, int $limit = 100, int $sqlOffset = 0): array
     {
         try {
             $pdo  = Database::getConnection();
@@ -48,9 +78,13 @@ class ConversationManager
                         to_char(created_at AT TIME ZONE \'Asia/Manila\', \'YYYY-MM-DD HH24:MI:SS.US\') AS timestamp
                  FROM chat_messages
                  WHERE conv_id = :conv_id
-                 ORDER BY created_at ASC, id ASC'
+                 ORDER BY created_at ASC, id ASC
+                 LIMIT :lim OFFSET :off'
             );
-            $stmt->execute([':conv_id' => $convId]);
+            $stmt->bindValue(':conv_id', $convId);
+            $stmt->bindValue(':lim',     $limit,     PDO::PARAM_INT);
+            $stmt->bindValue(':off',     $sqlOffset, PDO::PARAM_INT);
+            $stmt->execute();
             return $stmt->fetchAll() ?: [];
         } catch (PDOException $e) {
             error_log('ConversationManager::loadRaw() — ' . $e->getMessage());

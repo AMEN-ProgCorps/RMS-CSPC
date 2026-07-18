@@ -22,14 +22,12 @@ $limit  = 100;
 $offset = max(0, (int) ($_GET['offset'] ?? 0));
 
 // Load messages using ConversationManager (already ordered oldest-first by DB)
-$msgs = ConversationManager::loadRaw($convId);
+$totalCount = ConversationManager::countRaw($convId);
 
-$totalCount = count($msgs);
-
-// Slice from end
-$start       = max(0, $totalCount - $limit - $offset);
-$rawMessages = array_slice($msgs, $start, $limit);
-$hasMore     = $start > 0;
+// Convert end-relative offset to SQL start offset
+$sqlOffset   = max(0, $totalCount - $limit - $offset);
+$rawMessages = ConversationManager::loadRaw($convId, $limit, $sqlOffset);
+$hasMore     = $sqlOffset > 0;
 
 $nameMap = UserResolver::buildNameMap();
 

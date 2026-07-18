@@ -61,15 +61,14 @@ $limit  = 100;
 $offset = max(0, (int) ($_GET['offset'] ?? 0));
 
 // ── Load data ─────────────────────────────────────────────────────────────────
-$convId      = ConversationManager::convId($myAccountId, $targetId);
-$allMessages = ConversationManager::loadRaw($convId);
-$reactions   = ConversationManager::loadReactions($convId);
-$totalCount  = count($allMessages);
+$convId     = ConversationManager::convId($myAccountId, $targetId);
+$totalCount = ConversationManager::countRaw($convId);
+$reactions  = ConversationManager::loadReactions($convId);
 
-// Slice from end
-$start       = max(0, $totalCount - $limit - $offset);
-$rawMessages = array_slice($allMessages, $start, $limit);
-$hasMore     = $start > 0;
+// Convert end-relative offset to SQL start offset
+$sqlOffset   = max(0, $totalCount - $limit - $offset);
+$rawMessages = ConversationManager::loadRaw($convId, $limit, $sqlOffset);
+$hasMore     = $sqlOffset > 0;
 
 // ── Name cache ────────────────────────────────────────────────────────────────
 $nameMap = UserResolver::buildNameMap();

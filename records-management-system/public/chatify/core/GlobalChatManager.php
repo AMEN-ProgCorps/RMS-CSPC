@@ -19,12 +19,34 @@ class GlobalChatManager
     // -------------------------------------------------------------------------
 
     /**
-     * Load all global messages ordered chronologically (oldest first).
-     * Returns raw array — messages are still encrypted.
+     * Count all global messages.
      *
+     * @return int
+     */
+    public static function countRaw(): int
+    {
+        try {
+            $pdo  = Database::getConnection();
+            $stmt = $pdo->prepare(
+                'SELECT COUNT(*) FROM chat_messages WHERE conv_id = :conv_id'
+            );
+            $stmt->execute([':conv_id' => self::CONV_ID]);
+            return (int) $stmt->fetchColumn();
+        } catch (PDOException $e) {
+            error_log('GlobalChatManager::countRaw() — ' . $e->getMessage());
+            return 0;
+        }
+    }
+
+    /**
+     * Load global messages ordered chronologically (oldest first).
+     * Fetches only the requested page directly from the DB.
+     *
+     * @param int $limit   Max rows to return
+     * @param int $sqlOffset Rows to skip from the START (oldest)
      * @return array<int, array>
      */
-    public static function loadRaw(): array
+    public static function loadRaw(int $limit = 100, int $sqlOffset = 0): array
     {
         try {
             $pdo  = Database::getConnection();
@@ -36,9 +58,13 @@ class GlobalChatManager
                         to_char(created_at AT TIME ZONE \'Asia/Manila\', \'YYYY-MM-DD HH24:MI:SS.US\') AS timestamp
                  FROM chat_messages
                  WHERE conv_id = :conv_id
-                 ORDER BY created_at ASC, id ASC'
+                 ORDER BY created_at ASC, id ASC
+                 LIMIT :lim OFFSET :off'
             );
-            $stmt->execute([':conv_id' => self::CONV_ID]);
+            $stmt->bindValue(':conv_id', self::CONV_ID);
+            $stmt->bindValue(':lim',     $limit,     PDO::PARAM_INT);
+            $stmt->bindValue(':off',     $sqlOffset, PDO::PARAM_INT);
+            $stmt->execute();
             return $stmt->fetchAll() ?: [];
         } catch (PDOException $e) {
             error_log('GlobalChatManager::loadRaw() — ' . $e->getMessage());
@@ -175,7 +201,8 @@ class GlobalChatManager
 
             // Delete physical upload files first if requested
             if ($uploadsDir && is_dir($uploadsDir)) {
-                $msgs = self::loadRaw();
+                $allCount = self::countRaw();
+                $msgs = $allCount > 0 ? self::loadRaw($allCount, 0) : [];
                 foreach ($msgs as $msg) {
                     if (($msg['type'] ?? '') === 'upload') {
                         $filename = safeDecrypt($msg['message'] ?? '');

@@ -138,9 +138,7 @@ foreach ($rawMessages as $msg) {
             }
 
             if ($allImages) {
-                $count = count($decoded);
-                $html .= "<div class='message-media'>";
-                $html .= "<div class='message-media-grid' data-count='{$count}'>";
+                $html .= "<div class='message-media' style='display:flex; flex-direction:column; gap:8px;'>";
                 foreach ($decoded as $fn) {
                     $fn      = basename((string)$fn);
                     $fnUrl   = 'uploads/' . rawurlencode($fn);
@@ -150,13 +148,12 @@ foreach ($rawMessages as $msg) {
                     $info = @getimagesize($uploadsDir . $fn);
                     if ($info) {
                         $wAttr = " width='{$info[0]}' height='{$info[1]}'";
-                        $aspectRatioStyle = "aspect-ratio:{$info[0]}/{$info[1]};";
+                        $aspectRatioStyle = "aspect-ratio:{$info[0]}/{$info[1]};width:100%;height:auto;";
                     }
-                    $html   .= "<a href='{$fnUrl}' target='_blank' class='media-grid-item'>";
-                    $html   .= "<img src='{$fnUrl}' alt='{$fnEsc}'{$wAttr} style='{$aspectRatioStyle}' loading='lazy' />";
+                    $html   .= "<a href='{$fnUrl}' target='_blank' style='display:block;'>";
+                    $html   .= "<img src='{$fnUrl}' alt='{$fnEsc}'{$wAttr} style='{$aspectRatioStyle}max-width:240px;max-height:240px;border-radius:12px;display:block;cursor:pointer;object-fit:cover;box-shadow:0 2px 8px rgba(0,0,0,0.18);' loading='lazy' />";
                     $html   .= "</a>";
                 }
-                $html .= "</div>"; // .message-media-grid
                 $html .= "<div class='message-info' style='padding:3px 2px;'><span class='message-sender'>{$senderLabel}{$adminBadge}</span><span class='message-time'>{$timeDisplay}</span></div>";
                 $html .= "</div>"; // .message-media
             } else {
@@ -170,14 +167,7 @@ foreach ($rawMessages as $msg) {
                     $fnEsc = htmlspecialchars($fn, ENT_QUOTES);
                     $fnExt = strtolower(pathinfo($fn, PATHINFO_EXTENSION));
                     if (in_array($fnExt, $imageExts, true)) {
-                        $wAttr = '';
-                        $aspectRatioStyle = '';
-                        $info = @getimagesize($uploadsDir . $fn);
-                        if ($info) {
-                            $wAttr = " width='{$info[0]}' height='{$info[1]}'";
-                            $aspectRatioStyle = "aspect-ratio:{$info[0]}/{$info[1]};width:100%;height:auto;";
-                        }
-                        $html .= "<a href='{$fnUrl}' target='_blank'><img src='{$fnUrl}' alt='{$fnEsc}'{$wAttr} style='{$aspectRatioStyle}max-width:200px;max-height:200px;border-radius:8px;display:block;object-fit:cover;' loading='lazy' /></a>";
+                        $html .= "<a href='{$fnUrl}' target='_blank'><img src='{$fnUrl}' alt='{$fnEsc}'{$wAttr} style='{$aspectRatioStyle}max-width:240px;max-height:240px;border-radius:12px;display:block;object-fit:cover;' loading='lazy' /></a>";
                     } else {
                         $html .= "<a href='{$fnUrl}' target='_blank' rel='noopener' style='color:{$linkColor};text-decoration:underline;font-size:13px;word-break:break-all;'>{$fnEsc}</a>";
                     }

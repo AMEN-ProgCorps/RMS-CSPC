@@ -175,9 +175,7 @@ foreach ($rawMessages as $msg) {
                 }));
 
                 if (!empty($existingFiles)) {
-                    $count = count($existingFiles);
-                    $uploadBodyHtml .= "<div class='message-media'>";
-                    $uploadBodyHtml .= "<div class='message-media-grid' data-count='{$count}'>";
+                    $uploadBodyHtml .= "<div class='message-media' style='display:flex; flex-direction:column; gap:8px;'>";
                     foreach ($existingFiles as $fn) {
                         $fn      = basename((string)$fn);
                         $fnUrl   = 'uploads/' . rawurlencode($fn);
@@ -187,13 +185,10 @@ foreach ($rawMessages as $msg) {
                         $info = @getimagesize($uploadsDir . $fn);
                         if ($info) {
                             $wAttr = " width='{$info[0]}' height='{$info[1]}'";
-                            $aspectRatioStyle = "aspect-ratio:{$info[0]}/{$info[1]};";
+                            $aspectRatioStyle = "aspect-ratio:{$info[0]}/{$info[1]};width:100%;height:auto;";
                         }
-                        $uploadBodyHtml .= "<a href='{$fnUrl}' target='_blank' class='media-grid-item'>";
-                        $uploadBodyHtml .= "<img src='{$fnUrl}' alt='{$fnEsc}'{$wAttr} style='{$aspectRatioStyle}' loading='lazy' onerror=\"this.closest('.media-grid-item').remove()\" />";
-                        $uploadBodyHtml .= "</a>";
+                        $uploadBodyHtml .= "<a href='{$fnUrl}' target='_blank' style='display:block;'><img src='{$fnUrl}' alt='{$fnEsc}'{$wAttr} style='{$aspectRatioStyle}max-width:240px;max-height:240px;border-radius:12px;display:block;cursor:pointer;object-fit:cover;box-shadow:0 2px 8px rgba(0,0,0,0.18);' loading='lazy' onerror=\"this.closest('a').remove()\" /></a>";
                     }
-                    $uploadBodyHtml .= "</div>"; // .message-media-grid
                     $uploadBodyHtml .= "<div class='message-info' style='padding:3px 2px;'><span class='message-sender'>{$senderLabel}{$adminBadge}</span><span class='message-time'>{$timeDisplay}</span></div>";
                     $uploadBodyHtml .= "</div>"; // .message-media
                 }
@@ -219,7 +214,7 @@ foreach ($rawMessages as $msg) {
                             $wAttr = " width='{$info[0]}' height='{$info[1]}'";
                             $aspectRatioStyle = "aspect-ratio:{$info[0]}/{$info[1]};width:100%;height:auto;";
                         }
-                        $itemsHtml .= "<a href='{$fnUrl}' target='_blank'><img src='{$fnUrl}' alt='{$fnEsc}'{$wAttr} style='{$aspectRatioStyle}max-width:200px;max-height:200px;border-radius:8px;display:block;object-fit:cover;' loading='lazy' onerror=\"this.closest('a').remove()\" /></a>";
+                        $itemsHtml .= "<a href='{$fnUrl}' target='_blank'><img src='{$fnUrl}' alt='{$fnEsc}'{$wAttr} style='{$aspectRatioStyle}max-width:240px;max-height:240px;border-radius:12px;display:block;object-fit:cover;' loading='lazy' onerror=\"this.closest('a').remove()\" /></a>";
                     } else {
                         $itemsHtml .= "<a href='{$fnUrl}' target='_blank' rel='noopener' style='color:{$linkColor};text-decoration:underline;font-size:13px;word-break:break-all;'>{$fnEsc}</a>";
                     }

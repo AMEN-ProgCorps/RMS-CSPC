@@ -3,10 +3,19 @@ use Livewire\Attributes\Layout;
 use Livewire\Attributes\Title;
 use Livewire\Volt\Component;
 use Livewire\WithPagination;
+use Livewire\WithFileUploads;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Str;
 
-new #[Layout('layouts.dts')] #[Title('Document Tracking System - List External Transactions')] class extends Component {
+new #[Layout('layouts.dts')] #[Title('DTS - External Transactions')] class extends Component {
     use WithPagination;
+    use WithFileUploads;
+
+    public bool $showCompletionConfirmModal = false;
+    public bool $showUploadModal = false;
+    public $uploadedFile = null;
+    public string $uploadFileCode = '';
+    public string $uploadErrorMessage = '';
 
     public string $selectedPriority = 'all';
     public string $selectedStatus = 'all';
@@ -314,6 +323,112 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - List External T
             $this->classification = $this->selectedTransaction->classification ?: '';
             $this->actionNeeded = $this->selectedTransaction->action_needed ?: '';
             $this->activeAction = DB::table('dts_action_options')->orderBy('option_name', 'asc')->value('option_name') ?: 'For Approval';
+        }
+    }
+
+    public function isLastStep(): bool
+    {
+        if (!$this->selectedTransaction) {
+            return false;
+        }
+        $flow = DB::table('dts_transaction_flow')
+            ->where('flow_code', $this->selectedTransaction->transaction_flow)
+            ->first();
+        if (!$flow) {
+            return false;
+        }
+        $nextSequence = DB::table('dts_sequence_list')
+            ->where('control_id', $flow->id)
+            ->where('sequence_ranking', $this->selectedTransaction->sequence + 1)
+            ->first();
+        return !$nextSequence;
+    }
+
+    public function triggerCompletionConfirm(): void
+    {
+        $this->showCompletionConfirmModal = true;
+    }
+
+    public function cancelCompletionConfirm(): void
+    {
+        $this->showCompletionConfirmModal = false;
+    }
+
+    public function confirmAndCompleteTransaction(): void
+    {
+        $this->showCompletionConfirmModal = false;
+        $this->completeTransaction();
+    }
+
+    public function triggerUploadFileModal(): void
+    {
+        $this->uploadFileCode = 'FC-' . strtoupper(Str::random(6));
+        $this->uploadErrorMessage = '';
+        $this->uploadedFile = null;
+        $this->showUploadModal = true;
+    }
+
+    public function cancelUploadModal(): void
+    {
+        $this->showUploadModal = false;
+        $this->uploadedFile = null;
+        $this->uploadErrorMessage = '';
+    }
+
+    public function handleUploadFile(): void
+    {
+        $this->uploadErrorMessage = '';
+        if (!$this->uploadedFile) {
+            $this->uploadErrorMessage = 'Please select a PDF file to upload.';
+            return;
+        }
+
+        $extension = strtolower($this->uploadedFile->getClientOriginalExtension());
+        if ($extension !== 'pdf') {
+            $this->uploadErrorMessage = 'Only PDF files (.pdf) are allowed.';
+            return;
+        }
+
+        try {
+            $filename = 'docs/dts-' . time() . '-' . Str::random(6) . '.pdf';
+            $path = $this->uploadedFile->storeAs('public', $filename);
+            $docPath = 'storage/' . $filename;
+
+            $docId = 'DOC-' . strtoupper(Str::random(8));
+            DB::table('dts_document_data')->insert([
+                'document_id' => $docId,
+                'document_name' => $this->selectedTransaction->subject ? (Str::limit($this->selectedTransaction->subject, 50) . ' PDF') : 'Attached Document PDF',
+                'document_path' => $docPath,
+                'date_added' => now(),
+                'date_modified' => now(),
+                'date_deleted' => now(),
+            ]);
+
+            $assignOfficesId = (DB::table('dts_copy_filled_transaction')->max('assign_offices_id') ?? 1000) + 1;
+            $codeNum = trim($this->uploadFileCode) ?: ('FC-' . strtoupper(Str::random(6)));
+
+            $copyFilledId = DB::table('dts_copy_filled_transaction')->insertGetId([
+                'control_num' => $codeNum,
+                'total_office' => 0,
+                'is_modified' => false,
+                'assign_offices_id' => $assignOfficesId,
+                'data_created' => now(),
+                'date_modified' => now(),
+            ]);
+
+            DB::table('dts_transactions')
+                ->where('transaction_id', $this->selectedTransactionId)
+                ->update(['doc_dir' => $docPath]);
+
+            DB::table('dts_transaction_details')
+                ->where('id', $this->selectedTransactionId)
+                ->update(['copy_filled_id' => $copyFilledId]);
+
+            $this->loadSelectedTransaction();
+            $this->showUploadModal = false;
+            $this->uploadedFile = null;
+        } catch (\Exception $e) {
+            $this->uploadErrorMessage = 'Upload failed: ' . $e->getMessage();
         }
     }
 
@@ -759,26 +874,28 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - List External T
                         </div>
 
                         <!-- File Code / Copy Furnished field -->
-                        <div class="receive-field-row">
-                            <span class="receive-field-label">File Code:</span>
-                            @if ($editingFileCode)
-                                <div style="display: flex; gap: 8px; width: 100%;">
-                                    <input type="text" class="receive-field-input" wire:model="fileCode">
-                                    <div class="receive-field-actions">
-                                        <button type="button" wire:click="saveField('file_code')">Save</button>
+                        @if ($selectedTransaction && !empty($selectedTransaction->doc_dir) && !empty($fileCode) && $fileCode !== 'N/A')
+                            <div class="receive-field-row">
+                                <span class="receive-field-label">File Code:</span>
+                                @if ($editingFileCode)
+                                    <div style="display: flex; gap: 8px; width: 100%;">
+                                        <input type="text" class="receive-field-input" wire:model="fileCode">
+                                        <div class="receive-field-actions">
+                                            <button type="button" wire:click="saveField('file_code')">Save</button>
+                                        </div>
                                     </div>
-                                </div>
-                            @else
-                                <input type="text" class="receive-field-input" value="{{ $fileCode ?: 'N/A' }}" readonly>
-                                @if (auth()->user()?->permissions?->is_sadm && $selectedTransaction->current_office === auth()->user()?->details?->office?->office_code)
-                                    <div class="receive-field-actions">
-                                        <button type="button" wire:click="startEdit('file_code')">Update</button>
-                                        <span>|</span>
-                                        <button type="button" wire:click="startEdit('file_code')">Edit</button>
-                                    </div>
+                                @else
+                                    <input type="text" class="receive-field-input" value="{{ $fileCode }}" readonly>
+                                    @if (auth()->user()?->permissions?->is_sadm && $selectedTransaction->current_office === auth()->user()?->details?->office?->office_code)
+                                        <div class="receive-field-actions">
+                                            <button type="button" wire:click="startEdit('file_code')">Update</button>
+                                            <span>|</span>
+                                            <button type="button" wire:click="startEdit('file_code')">Edit</button>
+                                        </div>
+                                    @endif
                                 @endif
-                            @endif
-                        </div>
+                            </div>
+                        @endif
 
                         <!-- Particulars / Subject field -->
                         <div class="receive-field-row receive-field-row--particulars">
@@ -869,14 +986,31 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - List External T
                             {{ $showFullConfiguredPath ? 'VIEW LOGS' : 'VIEW LISTED PATH' }}
                         </button>
 
-                        <!-- COMPLETED -->
+                        <!-- COMPLETED / REAFFIRM / UPLOAD -->
                         @if ($selectedTransaction->current_office === auth()->user()?->details?->office?->office_code)
-                            <button type="button" class="receive-action-btn" wire:click="completeTransaction">
-                                <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-                                    <polyline points="20 6 9 17 4 12"/>
-                                </svg>
-                                COMPLETED
-                            </button>
+                            @if ($this->isLastStep())
+                                <button type="button" class="receive-action-btn" wire:click="triggerCompletionConfirm" style="background-color: #16a34a;">
+                                    <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                                        <polyline points="20 6 9 17 4 12"/>
+                                    </svg>
+                                    Complete Transaction
+                                </button>
+                                <button type="button" class="receive-action-btn" wire:click="triggerUploadFileModal" style="background-color: #0284c7;">
+                                    <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                                        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+                                        <polyline points="17 8 12 3 7 8"/>
+                                        <line x1="12" y1="3" x2="12" y2="15"/>
+                                    </svg>
+                                    Upload File
+                                </button>
+                            @else
+                                <button type="button" class="receive-action-btn" wire:click="completeTransaction">
+                                    <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                                        <polyline points="20 6 9 17 4 12"/>
+                                    </svg>
+                                    COMPLETED
+                                </button>
+                            @endif
                         @endif
 
                         <!-- EDIT (Save Metadata changes manually without completing) -->

@@ -1186,6 +1186,30 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
 
     .input-section {
       margin-bottom: 8px;
+      position: relative;
+    }
+
+    #cancelEditXBtn {
+      display: none;
+      width: 28px;
+      height: 28px;
+      border-radius: 50%;
+      background: var(--text-secondary);
+      border: none;
+      cursor: pointer;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+      opacity: 0.7;
+      transition: opacity 0.15s, background 0.15s;
+      padding: 0;
+    }
+    #cancelEditXBtn:hover {
+      opacity: 1;
+      background: #e53935;
+    }
+    #cancelEditXBtn svg {
+      display: block;
     }
 
     .input-label {
@@ -2377,6 +2401,11 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
             </svg>
           </label>
           <input type="file" id="fileAttachmentInput" multiple accept="image/*,.gif,.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.csv,.zip,.rar,.7z,.mp3,.wav,.ogg,.flac,.aac,.m4a,.mp4,.webm,.mov" style="display:none;">
+          <button type="button" id="cancelEditXBtn" title="Cancel editing" aria-label="Cancel editing">
+            <svg viewBox="0 0 24 24" width="12" height="12" fill="#fff">
+              <path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/>
+            </svg>
+          </button>
         </div>
       </div>
 
@@ -2528,10 +2557,14 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
 
     function showEditBanner(msgId) {
       editingMsgId = msgId;
+      const xBtn = document.getElementById('cancelEditXBtn');
+      if (xBtn) xBtn.style.display = 'flex';
     }
 
     function hideEditBanner() {
       editingMsgId = null;
+      const xBtn = document.getElementById('cancelEditXBtn');
+      if (xBtn) xBtn.style.display = 'none';
     }
     const notifyModal        = document.getElementById('notifyModal');
     const notifyTargetName   = document.getElementById('notifyTargetName');
@@ -4079,13 +4112,31 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
       const text = contentEl.textContent.trim();
       messageInput.value = text;
       editingMsgId = msgId;
-      
+
+      // Show X cancel button
+      showEditBanner(msgId);
+
       // Auto-grow textarea to fit the text
       messageInput.style.height = 'auto';
       messageInput.style.height = messageInput.scrollHeight + 'px';
-      
+
+      // Scroll to bottom so the input is always visible
+      shouldAutoScroll = true;
+      userScrolledUp = false;
+      scrollToBottom(true, true);
+
       messageInput.focus();
     });
+
+    // X cancel-edit button
+    const cancelEditXBtn = document.getElementById('cancelEditXBtn');
+    if (cancelEditXBtn) {
+      cancelEditXBtn.addEventListener('click', () => {
+        hideEditBanner();
+        messageInput.value = '';
+        messageInput.style.height = 'auto';
+      });
+    }
 
     // Monitor scroll position
     chatBox.addEventListener('scroll', function() {

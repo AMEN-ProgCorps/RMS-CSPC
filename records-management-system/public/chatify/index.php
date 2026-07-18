@@ -2658,7 +2658,7 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
           // Every message in the system was wiped — reset this client's
           // view immediately instead of waiting for a manual reload.
           activeDM = null; activeAdminConv = null; isGlobalChat = false;
-          gcOffset = 0; dmOffset = 0;
+          gcCursor = ''; dmCursor = '';
           gcViewingOlder = false; dmViewingOlder = false;
           removePaginationBtn();
           const gcItem = document.getElementById('globalChatItem');
@@ -2795,9 +2795,18 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
     let serverIsAdmin = false;
     let hasAutoSelected = false;
 
-    function fetchUsers() {
+    function fetchUsers(query = '') {
+      const currentInput = searchInput ? searchInput.value.trim() : '';
+      if (query === '' && currentInput !== '') {
+        return; // skip the poll since the user is in search mode
+      }
+
       const xhr = new XMLHttpRequest();
-      xhr.open("GET", "fetch_users_dm.php", true);
+      let url = "fetch_users_dm.php";
+      if (query !== '') {
+        url += "?q=" + encodeURIComponent(query);
+      }
+      xhr.open("GET", url, true);
       xhr.onload = function() {
         if (this.status === 200) {
           try {
@@ -2807,12 +2816,14 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
               allUsersData = data;
             } else {
               allUsersData = data.users || [];
-              allConvsData = data.conversations || [];
+              if (query === '') {
+                allConvsData = data.conversations || [];
+              }
               // Admin is always determined by currentUser.is_admin (set by server via account_id=1)
               serverIsAdmin = !!(data.currentUser && data.currentUser.is_admin);
             }
             renderSidebarUsers();
-            if (serverIsAdmin) renderAdminConvs();
+            if (serverIsAdmin && query === '') renderAdminConvs();
 
             // Automatically reopen the active DM from localStorage on initial load
             if (!hasAutoSelected) {
@@ -2855,17 +2866,20 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
     // "blinking" every few seconds, even while the mouse was perfectly still.
     // Keeping the same node identity per user avoids that entirely.
     const sidebarUserItems = new Map(); // username -> item element
+    let latestTotalUnread = 0;
 
     function renderSidebarUsers() {
-      const query = searchInput.value.toLowerCase();
+      const query = searchInput.value.toLowerCase().trim();
 
       const filtered = allUsersData.filter(u => 
         u.name.toLowerCase().includes(query) || u.username.toLowerCase().includes(query)
       );
 
-      // Total unread for tab title
-      const totalUnread = allUsersData.reduce((sum, u) => sum + (u.unreadCount || 0), 0);
-      updateTabTitle(totalUnread);
+      // Total unread for tab title — only compute when NOT searching
+      if (query === '') {
+        latestTotalUnread = allUsersData.reduce((sum, u) => sum + (u.unreadCount || 0), 0);
+      }
+      updateTabTitle(latestTotalUnread);
 
       const seen = new Set();
 
@@ -3258,10 +3272,10 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
     // indefinitely — the newest messages get trimmed off the bottom to make
     // room, and clicking "Go to bottom" snaps back to the latest PAGE_SIZE.
     const PAGE_SIZE = 100;
-    let gcOffset = 0;
+    let gcCursor = '';
     let gcHasMore = false;
     let gcViewingOlder = false; // true once the user has loaded an older window
-    let dmOffset  = 0;
+    let dmCursor  = '';
     let dmHasMore = false;
     let dmViewingOlder = false; // true once the user has loaded an older window
 
@@ -3270,7 +3284,7 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
       activeDM = u.username;
       activeDMAccountId = Number(u.account_id);
       activeAdminConv = null;
-      dmOffset = 0;
+      dmCursor = '';
       dmHasMore = false;
       dmViewingOlder = false;
       
@@ -3320,7 +3334,7 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
       activeDM = null;
       activeDMAccountId = null;
       activeAdminConv = null;
-      gcOffset = 0;
+      gcCursor = '';
       gcHasMore = false;
       gcViewingOlder = false;
       isFirstLoad = true;
@@ -3534,7 +3548,7 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
     }
 
     let activeAdminConv = null; // convId string when admin is spying
-    let adminConvOffset = 0;
+    let adminConvCursor = '';
     let adminConvHasMore = false;
     let adminConvViewingOlder = false; // true once the user has loaded an older window
 
@@ -3545,8 +3559,8 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
 
       const wasAtBottom = isAtBottom();
       const requestedConv = activeAdminConv;
-      const requestOffset = loadOlderMode ? adminConvOffset : 0;
-      const url = 'load_dm_admin.php?conv_id=' + encodeURIComponent(convId) + '&offset=' + requestOffset;
+      const cursor = loadOlderMode ? adminConvCursor : '';
+      const url = 'load_dm_admin.php?conv_id=' + encodeURIComponent(convId) + '&before_uuid=' + encodeURIComponent(cursor);
 
       const xhr = new XMLHttpRequest();
       xhr.open('GET', url, true);
@@ -3566,7 +3580,7 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
         adminConvHasMore = data.hasMore || false;
         
         if (loadOlderMode) {
-          adminConvOffset = data.nextOffset || (requestOffset + PAGE_SIZE);
+          adminConvCursor = data.nextCursor || '';
           adminConvViewingOlder = true;
           const prev = chatBox.scrollHeight;
           const temp = document.createElement('div');
@@ -3592,7 +3606,7 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
           return;
         }
 
-        if (adminConvOffset === 0) adminConvOffset = PAGE_SIZE; // establish the "next older offset" pointer
+        if (adminConvCursor === '') adminConvCursor = data.nextCursor || ''; // establish cursor pointer
         const temp = document.createElement('div');
         temp.innerHTML = newHtml;
         const newMessages = Array.from(temp.querySelectorAll('.message-container, .empty-chat'));
@@ -3673,7 +3687,7 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
         }
         applyAdminBadges();
         applyEmojiOnly();
-        adminConvOffset = PAGE_SIZE;
+        adminConvCursor = data.nextCursor || '';
         adminConvViewingOlder = false;
         if (adminConvHasMore && !document.getElementById('loadOlderBtn') && !document.getElementById('noMoreOlderNotice')) insertLoadOlderBtn();
       };
@@ -3687,7 +3701,7 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
       activeDMAccountId = null;
       isGlobalChat = false; // must reset — otherwise polling/visibilitychange keep re-loading Global Chat over the spy view
       
-      adminConvOffset = 0;
+      adminConvCursor = '';
       adminConvHasMore = false;
       adminConvViewingOlder = false;
       isFirstLoad = true;
@@ -3725,7 +3739,18 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
       }
     }
     
-    searchInput.addEventListener('input', renderSidebarUsers);
+    let searchTimeout = null;
+    searchInput.addEventListener('input', () => {
+      if (searchTimeout) clearTimeout(searchTimeout);
+      const query = searchInput.value.trim();
+      if (query === '') {
+        fetchUsers();
+      } else {
+        searchTimeout = setTimeout(() => {
+          fetchUsers(query);
+        }, 250);
+      }
+    });
 
     backButton.addEventListener('click', () => {
       activeDM = null;
@@ -4055,7 +4080,7 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
       // (now stale) older batch that's on screen.
       if (isGlobalChat && gcViewingOlder) {
         gcViewingOlder = false;
-        gcOffset = 0;
+        gcCursor = '';
         removePaginationBtn();
         chatBox.innerHTML = '';
         isFirstLoad = true;
@@ -4064,7 +4089,7 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
       }
       if (!isGlobalChat && activeDM && dmViewingOlder) {
         dmViewingOlder = false;
-        dmOffset = 0;
+        dmCursor = '';
         removePaginationBtn();
         chatBox.innerHTML = '';
         isFirstLoad = true;
@@ -4073,7 +4098,7 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
       }
       if (!isGlobalChat && activeAdminConv && adminConvViewingOlder) {
         adminConvViewingOlder = false;
-        adminConvOffset = 0;
+        adminConvCursor = '';
         removePaginationBtn();
         chatBox.innerHTML = '';
         isFirstLoad = true;
@@ -4233,15 +4258,10 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
       isLoadingGC = true;
 
       const wasAtBottom = isAtBottom();
-      // gcOffset always holds the offset to use for the NEXT "load older" request
-      // (it's set to PAGE_SIZE right after the initial load, and thereafter
-      // mirrors the server's nextOffset). Using it directly here — instead of
-      // gcOffset + PAGE_SIZE — avoids double-advancing and skipping a batch of
-      // messages on every click after the first.
-      const requestOffset = loadOlderMode ? gcOffset : 0;
+      const cursor = loadOlderMode ? gcCursor : '';
 
       const xhr = new XMLHttpRequest();
-      xhr.open('GET', 'load.php?offset=' + requestOffset, true);
+      xhr.open('GET', 'load.php?before_uuid=' + encodeURIComponent(cursor), true);
       xhr.onload = function() {
         isLoadingGC = false;
         if (this.status !== 200) return;
@@ -4251,7 +4271,7 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
         gcHasMore        = data.hasMore || false;
 
         if (loadOlderMode) {
-          gcOffset = data.nextOffset || (requestOffset + PAGE_SIZE);
+          gcCursor = data.nextCursor || '';
           gcViewingOlder = true;
           // Prepend older messages
           const prev = chatBox.scrollHeight;
@@ -4276,7 +4296,7 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
         }
 
         // Normal poll / initial load
-        if (gcOffset === 0) gcOffset = PAGE_SIZE; // establish the "next older offset" pointer after the first load
+        if (gcCursor === '') gcCursor = data.nextCursor || ''; // establish the cursor pointer
         const temp = document.createElement('div');
         temp.innerHTML = newHtml;
         const newMessages     = Array.from(temp.querySelectorAll('.message-container, .empty-chat'));
@@ -4383,7 +4403,7 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
         else if (genuinelyNewCount > 0) showScrollIndicator(genuinelyNewCount);
         applyAdminBadges(); applyEmojiOnly();
         // Chat was rebuilt from scratch (e.g. cleared), so pagination state no longer applies
-        gcOffset = PAGE_SIZE;
+        gcCursor = data.nextCursor || '';
         gcViewingOlder = false;
         if (gcHasMore && !document.getElementById('loadOlderBtn') && !document.getElementById('noMoreOlderNotice')) insertLoadOlderBtn();
       };
@@ -4419,12 +4439,8 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
       // a different conversation before this response comes back, we discard
       // the (now stale) result instead of rendering it into the wrong chat.
       const requestedUser = activeDM;
-      // dmOffset always holds the offset to use for the NEXT "load older" request
-      // (set to PAGE_SIZE right after the initial load, then mirrors the
-      // server's nextOffset). Using it directly — instead of dmOffset + PAGE_SIZE —
-      // avoids double-advancing and skipping a batch of messages after the first click.
-      const requestOffset = loadOlderMode ? dmOffset : 0;
-      const url = 'load_dm.php?target_user=' + encodeURIComponent(activeDM) + '&offset=' + requestOffset;
+      const cursor = loadOlderMode ? dmCursor : '';
+      const url = 'load_dm.php?target_user=' + encodeURIComponent(activeDM) + '&before_uuid=' + encodeURIComponent(cursor);
 
       const xhr = new XMLHttpRequest();
       chatXhr = xhr;
@@ -4440,7 +4456,7 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
         dmHasMore = data.hasMore || false;
 
         if (loadOlderMode) {
-          dmOffset = data.nextOffset || (requestOffset + PAGE_SIZE);
+          dmCursor = data.nextCursor || '';
           dmViewingOlder = true;
           const prev = chatBox.scrollHeight;
           const temp = document.createElement('div');
@@ -4467,7 +4483,7 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
           return;
         }
 
-        if (dmOffset === 0) dmOffset = PAGE_SIZE; // establish the "next older offset" pointer after the first load
+        if (dmCursor === '') dmCursor = data.nextCursor || ''; // establish cursor pointer
         const temp = document.createElement('div');
         temp.innerHTML = newHtml;
         const newMessages     = Array.from(temp.querySelectorAll('.message-container, .empty-chat'));
@@ -4550,7 +4566,7 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
         applyAdminBadges(); applyEmojiOnly();
         if (!document.hidden && activeDM) markRead(activeDM);
         // Chat was rebuilt from scratch (e.g. cleared), so pagination state no longer applies
-        dmOffset = PAGE_SIZE;
+        dmCursor = data.nextCursor || '';
         dmViewingOlder = false;
         if (dmHasMore && !document.getElementById('loadOlderBtn') && !document.getElementById('noMoreOlderNotice')) insertLoadOlderBtn();
       };
@@ -5079,7 +5095,7 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
               closeDeleteAllModal();
               // Reset all chat state
               activeDM = null; activeAdminConv = null; isGlobalChat = false;
-              gcOffset = 0; dmOffset = 0;
+              gcCursor = ''; dmCursor = '';
               gcViewingOlder = false; dmViewingOlder = false;
               removePaginationBtn();
               document.getElementById('globalChatItem').classList.remove('active');

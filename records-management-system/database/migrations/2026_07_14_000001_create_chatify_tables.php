@@ -32,7 +32,8 @@ return new class extends Migration
             $table->bigIncrements('id');
 
             // Conversation bucket: 'global' | '{min}_{max}'
-            $table->string('conv_id', 30)->index();
+            // No separate index — covered by idx_chat_messages_conv_cur (conv_id, created_at DESC, id DESC).
+            $table->string('conv_id', 30);
 
             // Sender (always set)
             $table->unsignedInteger('sender_id');
@@ -63,11 +64,18 @@ return new class extends Migration
             $table->string('msg_uuid', 32)->unique();
         });
 
-        // Composite index: primary access pattern for loading a conversation page
-        // SELECT ... WHERE conv_id = ? ORDER BY created_at ASC LIMIT 100
-        DB::statement('CREATE INDEX idx_chat_conv_sent ON chat_messages (conv_id, created_at ASC)');
+        // ── chat_messages indexes ─────────────────────────────────────────────
+        //
+        // Primary index for ALL chat query patterns:
+        //   1. Latest messages:   WHERE conv_id = ? ORDER BY created_at DESC, id DESC LIMIT 100
+        //   2. Keyset pagination: WHERE conv_id = ? AND (created_at, id) < (:ts, :id) ORDER BY created_at DESC, id DESC LIMIT 100
+        //   3. Conversation list: WHERE conv_id = ? LIMIT 1 (index-only scan on first leaf)
+        //
+        // DESC order matches the query direction, avoiding a sort step entirely.
+        // The old ASC index required PostgreSQL to scan backward or re-sort for DESC queries.
+        DB::statement('CREATE INDEX idx_chat_messages_conv_cur ON chat_messages (conv_id, created_at DESC, id DESC)');
 
-        // Supporting indexes for delete and notification queries
+        // Supporting indexes for sender delete and receiver notification queries
         DB::statement('CREATE INDEX idx_chat_sender   ON chat_messages (sender_id)');
         DB::statement('CREATE INDEX idx_chat_receiver ON chat_messages (receiver_id) WHERE receiver_id IS NOT NULL');
 
@@ -121,7 +129,9 @@ return new class extends Migration
             $table->unique(['conv_id', 'account_id'], 'uq_read_marker');
         });
 
-        DB::statement('CREATE INDEX idx_read_marker_conv_acct ON chat_read_markers (conv_id, account_id)');
+        // The unique constraint uq_read_marker already creates a B-tree index on
+        // (conv_id, account_id) — no additional index needed here.
+        // Lookups like: WHERE conv_id = ? AND account_id = ?  will use that constraint index.
     }
 
     public function down(): void

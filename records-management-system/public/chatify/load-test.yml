@@ -1,0 +1,13 @@
+config:
+  target: "http://localhost:48000"
+
+  phases:
+    - duration: 60
+      arrivalRate: 50
+
+scenarios:
+  - flow:
+      - get:
+          url: "/chatify/load.php"
+          headers:
+            Cookie: "rms-cspc-session=eyJpdiI6Im9zbXJDU0xBcSt0eElzUTA5Q0dpZWc9PSIsInZhbHVlIjoiY2lNZ0Qxdkg2RnFZbHd2c2JHSWpVd2tFNWpEL2xVTXVXQXIxMTlhMkphTm1oN01GRUNJUW96M2VFRE00MjV5YjNRTk5hd0tsNmdhNXBZZERBZ244MHhIemZNWE9GdXFpT0hyb3JuWWRoVHUra1oyb1g4TVBYYWo4WGlnV3BHSk0iLCJtYWMiOiJiNTQ5NTJjMjZiNTZiOGQxZWRhMGZhY2JkMmExNzIzMGJmMzE1ZjAzMGVlOGQ1ZWQ4NjNkMThhZTE3NTFjNmQ3IiwidGFnIjoiIn0%3D"

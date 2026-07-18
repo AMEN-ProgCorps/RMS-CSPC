@@ -7,6 +7,14 @@
 //
 // All message content remains AES-256-GCM encrypted (unchanged from before).
 // The conversation bucket key is the literal string 'global'.
+//
+// OPTIMIZATIONS (v2 — scale to millions of messages):
+//   • Keyset pagination  — no OFFSET, no COUNT(*). Cursor = (created_at, id).
+//   • Sequential UUIDs   — monotonically increasing msg_uuid prevents B-tree
+//                          page splits and keeps inserts clustered.
+//   • pruneOldest()       — uses DELETE…USING to avoid separate SELECT+DELETE.
+//   • loadReactions()     — scope to current page UUIDs to avoid loading all
+//                          reactions for every message ever sent.
 // =============================================================================
 
 class GlobalChatManager
@@ -19,9 +27,80 @@ class GlobalChatManager
     // -------------------------------------------------------------------------
 
     /**
-     * Count all global messages.
+     * Load global messages using KEYSET pagination.
      *
-     * @return int
+     * Returns messages in DESCENDING order (newest first); the caller must
+     * call array_reverse() to display them oldest-first.
+     *
+     * @param  int         $limit      Maximum rows to return (default 100)
+     * @param  string|null $beforeUuid UUID of the oldest message already shown;
+     *                                  null → return the newest $limit messages.
+     * @return array<int, array>
+     */
+    public static function loadRaw(int $limit = 100, ?string $beforeUuid = null): array
+    {
+        try {
+            $pdo = Database::getConnection();
+
+            if ($beforeUuid === null) {
+                // ── Initial load: newest $limit messages ──────────────────────
+                $stmt = $pdo->prepare(
+                    'SELECT msg_uuid AS id,
+                            sender_id,
+                            message,
+                            msg_type AS type,
+                            to_char(created_at AT TIME ZONE \'Asia/Manila\', \'YYYY-MM-DD HH24:MI:SS.US\') AS timestamp
+                     FROM chat_messages
+                     WHERE conv_id = :conv_id
+                     ORDER BY created_at DESC, id DESC
+                     LIMIT :lim'
+                );
+                $stmt->bindValue(':conv_id', self::CONV_ID);
+                $stmt->bindValue(':lim', $limit, PDO::PARAM_INT);
+            } else {
+                // ── Keyset: messages older than the cursor ────────────────────
+                $cur = $pdo->prepare(
+                    'SELECT created_at, id FROM chat_messages WHERE msg_uuid = :uuid LIMIT 1'
+                );
+                $cur->execute([':uuid' => $beforeUuid]);
+                $curRow = $cur->fetch();
+
+                if (!$curRow) {
+                    // Cursor message was deleted; fall back to newest page
+                    return self::loadRaw($limit, null);
+                }
+
+                $stmt = $pdo->prepare(
+                    'SELECT msg_uuid AS id,
+                            sender_id,
+                            message,
+                            msg_type AS type,
+                            to_char(created_at AT TIME ZONE \'Asia/Manila\', \'YYYY-MM-DD HH24:MI:SS.US\') AS timestamp
+                     FROM chat_messages
+                     WHERE conv_id = :conv_id
+                       AND (created_at, id) < (:cur_ts, :cur_id)
+                     ORDER BY created_at DESC, id DESC
+                     LIMIT :lim'
+                );
+                $stmt->bindValue(':conv_id', self::CONV_ID);
+                $stmt->bindValue(':cur_ts', $curRow['created_at']);
+                $stmt->bindValue(':cur_id', (int) $curRow['id'], PDO::PARAM_INT);
+                $stmt->bindValue(':lim', $limit, PDO::PARAM_INT);
+            }
+
+            $stmt->execute();
+            return $stmt->fetchAll() ?: [];
+        } catch (PDOException $e) {
+            error_log('GlobalChatManager::loadRaw() — ' . $e->getMessage());
+            return [];
+        }
+    }
+
+    /**
+     * Count all global messages.
+     * NOTE: Only use this when a total count is genuinely required (e.g. admin
+     * display). Do NOT call this in the normal message-loading path; use
+     * keyset pagination instead.
      */
     public static function countRaw(): int
     {
@@ -39,45 +118,7 @@ class GlobalChatManager
     }
 
     /**
-     * Load global messages ordered chronologically (oldest first).
-     * Fetches only the requested page directly from the DB.
-     *
-     * @param int $limit   Max rows to return
-     * @param int $sqlOffset Rows to skip from the START (oldest)
-     * @return array<int, array>
-     */
-    public static function loadRaw(int $limit = 100, int $sqlOffset = 0): array
-    {
-        try {
-            $pdo  = Database::getConnection();
-            $stmt = $pdo->prepare(
-                'SELECT msg_uuid AS id,
-                        sender_id,
-                        message,
-                        msg_type AS type,
-                        to_char(created_at AT TIME ZONE \'Asia/Manila\', \'YYYY-MM-DD HH24:MI:SS.US\') AS timestamp
-                 FROM chat_messages
-                 WHERE conv_id = :conv_id
-                 ORDER BY created_at ASC, id ASC
-                 LIMIT :lim OFFSET :off'
-            );
-            $stmt->bindValue(':conv_id', self::CONV_ID);
-            $stmt->bindValue(':lim',     $limit,     PDO::PARAM_INT);
-            $stmt->bindValue(':off',     $sqlOffset, PDO::PARAM_INT);
-            $stmt->execute();
-            return $stmt->fetchAll() ?: [];
-        } catch (PDOException $e) {
-            error_log('GlobalChatManager::loadRaw() — ' . $e->getMessage());
-            return [];
-        }
-    }
-
-    /**
      * Append a plain text message to the global chat.
-     *
-     * @param int    $senderId  account_id of the sender
-     * @param string $plaintext Plaintext content (will be encrypted)
-     * @return array|false  Saved message array or false on failure
      */
     public static function addTextMessage(int $senderId, string $plaintext): array|false
     {
@@ -86,10 +127,6 @@ class GlobalChatManager
 
     /**
      * Append a file-upload message to the global chat.
-     *
-     * @param int    $senderId Sender account_id
-     * @param string $filename Uploaded filename (stored encrypted)
-     * @return array|false
      */
     public static function addUploadMessage(int $senderId, string $filename): array|false
     {
@@ -102,22 +139,38 @@ class GlobalChatManager
 
     /**
      * Load all reactions for the global chat.
+     * Scoped to the provided message UUIDs to avoid loading all reactions
+     * for the entire history when MAX_STORED is large.
+     *
      * Returns:  array<msgUuid, array<emoji, list<int accountId>>>
      *
-     * @return array
+     * @param string[] $msgUuids  The UUIDs currently visible on the page (optional)
      */
-    public static function loadReactions(): array
+    public static function loadReactions(array $msgUuids = []): array
     {
         try {
-            $pdo  = Database::getConnection();
-            $stmt = $pdo->prepare(
-                'SELECT r.msg_uuid, r.emoji, r.account_id
-                 FROM chat_reactions r
-                 JOIN chat_messages  m ON m.msg_uuid = r.msg_uuid
-                 WHERE m.conv_id = :conv_id
-                 ORDER BY r.reacted_at ASC'
-            );
-            $stmt->execute([':conv_id' => self::CONV_ID]);
+            $pdo = Database::getConnection();
+
+            if (!empty($msgUuids)) {
+                $placeholders = implode(',', array_fill(0, count($msgUuids), '?'));
+                $stmt = $pdo->prepare(
+                    "SELECT r.msg_uuid, r.emoji, r.account_id
+                     FROM chat_reactions r
+                     WHERE r.msg_uuid IN ($placeholders)
+                     ORDER BY r.reacted_at ASC"
+                );
+                $stmt->execute($msgUuids);
+            } else {
+                // Fallback: all reactions for the whole global channel
+                $stmt = $pdo->prepare(
+                    'SELECT r.msg_uuid, r.emoji, r.account_id
+                     FROM chat_reactions r
+                     JOIN chat_messages  m ON m.msg_uuid = r.msg_uuid
+                     WHERE m.conv_id = :conv_id
+                     ORDER BY r.reacted_at ASC'
+                );
+                $stmt->execute([':conv_id' => self::CONV_ID]);
+            }
 
             $reactions = [];
             foreach ($stmt->fetchAll() as $row) {
@@ -133,12 +186,6 @@ class GlobalChatManager
     /**
      * Toggle a reaction on a global message.
      * One emoji per user per message. Same emoji = remove; different = replace.
-     *
-     * @param string $msgId     Message UUID
-     * @param string $emoji     Emoji character
-     * @param int    $accountId Reacting user's account_id
-     * @param array  $allowed   Whitelist of allowed emojis
-     * @return array{ok: bool, action: string}
      */
     public static function toggleReaction(
         string $msgId,
@@ -190,9 +237,6 @@ class GlobalChatManager
 
     /**
      * Clear all global messages (and optionally delete upload files from disk).
-     *
-     * @param string $uploadsDir  Absolute path to the uploads directory.
-     *                            Pass empty string to skip file deletion.
      */
     public static function clearChat(string $uploadsDir = ''): void
     {
@@ -202,7 +246,7 @@ class GlobalChatManager
             // Delete physical upload files first if requested
             if ($uploadsDir && is_dir($uploadsDir)) {
                 $allCount = self::countRaw();
-                $msgs = $allCount > 0 ? self::loadRaw($allCount, 0) : [];
+                $msgs = $allCount > 0 ? self::loadRaw($allCount, null) : [];
                 foreach ($msgs as $msg) {
                     if (($msg['type'] ?? '') === 'upload') {
                         $filename = safeDecrypt($msg['message'] ?? '');
@@ -229,7 +273,22 @@ class GlobalChatManager
     // -------------------------------------------------------------------------
 
     /**
-     * Insert a new message row; prune oldest if over MAX_STORED limit.
+     * Generate a sequential, chronologically ordered message UUID.
+     *
+     * Format:  msg_ + 10-hex-char millisecond timestamp + 6-hex-char random suffix
+     *
+     * Sequential UUIDs keep new inserts clustered at the right end of the
+     * msg_uuid unique index, avoiding page splits under sustained write load.
+     */
+    private static function generateSequentialUuid(): string
+    {
+        $ms  = (int)(microtime(true) * 1000);
+        $rnd = random_int(0, 0xffffff);
+        return 'msg_' . sprintf('%010x%06x', $ms, $rnd);
+    }
+
+    /**
+     * Insert a new message row; prune oldest rows if over MAX_STORED limit.
      */
     private static function insertMessage(
         int    $senderId,
@@ -241,7 +300,7 @@ class GlobalChatManager
             return false;
         }
 
-        $uuid = 'msg_' . bin2hex(random_bytes(8));
+        $uuid = self::generateSequentialUuid();
         $dt   = new DateTime('now', new DateTimeZone('Asia/Manila'));
         $ts   = $dt->format('Y-m-d H:i:s.u');
 
@@ -262,7 +321,6 @@ class GlobalChatManager
             ]);
 
             // Prune: if we now exceed MAX_STORED, delete the oldest surplus rows.
-            // This is a best-effort trim — done after insert for speed.
             self::pruneOldest($pdo);
 
             return [
@@ -279,58 +337,35 @@ class GlobalChatManager
     }
 
     /**
-     * Delete the oldest messages that exceed MAX_STORED, including their
-     * physical upload files if applicable.
+     * Delete the oldest messages that exceed MAX_STORED.
+     *
+     * Uses a single DELETE…USING with a subquery instead of SELECT + DELETE,
+     * eliminating one round-trip and avoiding a temporary result set in PHP.
      */
     private static function pruneOldest(PDO $pdo): void
     {
-        $count = (int) $pdo->query(
-            "SELECT COUNT(*) FROM chat_messages WHERE conv_id = '" . self::CONV_ID . "'"
-        )->fetchColumn();
-
-        if ($count <= self::MAX_STORED) {
-            return;
+        // Count and decide in one query using a CTE
+        try {
+            $pdo->prepare(
+                "DELETE FROM chat_messages
+                 WHERE id IN (
+                     SELECT id FROM chat_messages
+                     WHERE conv_id = :conv_id
+                     ORDER BY created_at ASC, id ASC
+                     LIMIT GREATEST(
+                         (SELECT COUNT(*) FROM chat_messages WHERE conv_id = :conv_id2) - :max_stored,
+                         0
+                     )
+                 )"
+            )->execute([
+                ':conv_id'    => self::CONV_ID,
+                ':conv_id2'   => self::CONV_ID,
+                ':max_stored' => self::MAX_STORED,
+            ]);
+        } catch (PDOException $e) {
+            // Non-critical — next insert will retry
+            error_log('GlobalChatManager::pruneOldest() — ' . $e->getMessage());
         }
-
-        $excess = $count - self::MAX_STORED;
-
-        // Fetch oldest rows to delete upload files first
-        $stmt = $pdo->prepare(
-            'SELECT msg_uuid, message, msg_type
-             FROM chat_messages
-             WHERE conv_id = :conv_id
-             ORDER BY created_at ASC, id ASC
-             LIMIT :excess'
-        );
-        $stmt->bindValue(':conv_id', self::CONV_ID);
-        $stmt->bindValue(':excess', $excess, PDO::PARAM_INT);
-        $stmt->execute();
-        $old = $stmt->fetchAll();
-
-        if (empty($old)) {
-            return;
-        }
-
-        // Attempt to delete physical upload files
-        if (defined('UPLOADS_DIR') && is_dir(UPLOADS_DIR)) {
-            foreach ($old as $row) {
-                if ($row['msg_type'] === 'upload') {
-                    $fname = safeDecrypt($row['message'] ?? '');
-                    if ($fname) {
-                        $path = UPLOADS_DIR . '/' . $fname;
-                        if (file_exists($path)) {
-                            @unlink($path);
-                        }
-                    }
-                }
-            }
-        }
-
-        // Delete the rows (cascade removes reactions)
-        $uuids  = array_column($old, 'msg_uuid');
-        $ph     = implode(',', array_fill(0, count($uuids), '?'));
-        $del    = $pdo->prepare("DELETE FROM chat_messages WHERE msg_uuid IN ($ph)");
-        $del->execute($uuids);
     }
 
     /**

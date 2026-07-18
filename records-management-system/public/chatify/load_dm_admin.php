@@ -18,16 +18,21 @@ if (empty($convId) || !preg_match('/^\d+_\d+$/', $convId)) {
 }
 
 // ── Pagination ────────────────────────────────────────────────────────────────
-$limit  = 100;
-$offset = max(0, (int) ($_GET['offset'] ?? 0));
+$limit      = 100;
+$beforeUuid = isset($_GET['before_uuid']) && $_GET['before_uuid'] !== '' ? (string) $_GET['before_uuid'] : null;
 
-// Load messages using ConversationManager (already ordered oldest-first by DB)
-$totalCount = ConversationManager::countRaw($convId);
+// Fetch limit+1 rows so we can detect hasMore without a separate COUNT(*).
+$rawMessages = ConversationManager::loadRaw($convId, $limit + 1, $beforeUuid);
+$hasMore     = count($rawMessages) > $limit;
+if ($hasMore) {
+    array_pop($rawMessages); // discard the extra sentinel row
+}
 
-// Convert end-relative offset to SQL start offset
-$sqlOffset   = max(0, $totalCount - $limit - $offset);
-$rawMessages = ConversationManager::loadRaw($convId, $limit, $sqlOffset);
-$hasMore     = $sqlOffset > 0;
+// DB returns newest-first; flip for chronological display.
+$rawMessages = array_reverse($rawMessages);
+
+// Cursor for the next "load older" request.
+$nextCursor = !empty($rawMessages) ? $rawMessages[0]['id'] : null;
 
 $nameMap = UserResolver::buildNameMap();
 
@@ -230,7 +235,5 @@ header('Content-Type: application/json');
 echo json_encode([
     'html'       => $html,
     'hasMore'    => $hasMore,
-    'totalCount' => $totalCount,
-    'offset'     => $offset,
-    'nextOffset' => $offset + $limit,
+    'nextCursor' => $nextCursor,   // pass as before_uuid for next "load older" request
 ]);

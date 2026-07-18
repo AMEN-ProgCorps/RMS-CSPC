@@ -3,13 +3,15 @@
 // load.php — Load and Render the Global Chat
 // =============================================================================
 // GET params:
-//   offset (int, optional) — 0-based offset from the END of the message list.
-//                             offset=0 (default) = latest 200 messages.
-//                             offset=200 = the 200 messages BEFORE those, etc.
-//   limit  (int, optional) — messages per page, default 200, max 200.
+//   before_uuid (string, optional) — msg_uuid of the oldest message already shown;
+//                                     omit to load the latest messages.
+//   limit       (int, optional)    — messages per page, default 100, max 100.
 //
 // Returns JSON:
-//   { html: string, hasMore: bool, totalCount: int, offset: int }
+//   { html: string, hasMore: bool, nextCursor: string|null }
+//
+// Uses KEYSET (cursor) pagination — no OFFSET, no COUNT(*).  The DB returns
+// rows newest-first; array_reverse() re-orders for display.
 // =============================================================================
 
 require_once __DIR__ . '/bootstrap.php';
@@ -25,17 +27,27 @@ $myAccountId = Auth::accountId();
 $adminId     = Auth::adminAccountId(); // 1
 
 // ── Pagination params ─────────────────────────────────────────────────────────
-$limit  = 100;
-$offset = max(0, (int) ($_GET['offset'] ?? 0));
+$limit      = 100;
+$beforeUuid = isset($_GET['before_uuid']) && $_GET['before_uuid'] !== '' ? (string) $_GET['before_uuid'] : null;
 
 // ── Load data ────────────────────────────────────────────────────────────────
-$totalCount = GlobalChatManager::countRaw();
-$reactions  = GlobalChatManager::loadReactions();
+// Fetch limit+1 rows so we can detect hasMore without a separate COUNT(*).
+$rawMessages = GlobalChatManager::loadRaw($limit + 1, $beforeUuid);
+$hasMore     = count($rawMessages) > $limit;
+if ($hasMore) {
+    array_pop($rawMessages); // discard the extra sentinel row
+}
 
-// Convert end-relative offset to SQL start offset
-$sqlOffset   = max(0, $totalCount - $limit - $offset);
-$rawMessages = GlobalChatManager::loadRaw($limit, $sqlOffset);
-$hasMore     = $sqlOffset > 0;
+// DB returns newest-first; flip for chronological display.
+$rawMessages = array_reverse($rawMessages);
+
+// Scope reaction loading to just this page's UUIDs — avoids loading the
+// entire channel's reaction history on every request.
+$pageUuids = array_column($rawMessages, 'id');
+$reactions = GlobalChatManager::loadReactions($pageUuids);
+
+// Cursor for the next "load older" request = UUID of the now-oldest shown message.
+$nextCursor = !empty($rawMessages) ? $rawMessages[0]['id'] : null;
 
 // ── Build a name cache for all senders in this batch ────────────────────────
 $nameMap = UserResolver::buildNameMap();
@@ -237,7 +249,5 @@ if ($html === '') {
 echo json_encode([
     'html'       => $html,
     'hasMore'    => $hasMore,
-    'totalCount' => $totalCount,
-    'offset'     => $offset,
-    'nextOffset' => $offset + $limit,
+    'nextCursor' => $nextCursor,   // pass as before_uuid for next "load older" request
 ]);

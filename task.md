@@ -1,38 +1,43 @@
-# Tasks - Predefined Flow & Offices File Import
+# Chat System Optimization Tasks
 
-- `[x]` Update Predefined Flow Editor & Import Logic (`transaction-flows.blade.php`)
-  - `[x]` Re-include `ORIGIN` in `$activeOffices` dropdown by removing the SQL filter.
-  - `[x]` Update `updatedSelectedPredefined` and `resetForm` to initialize sequences to `['ORIGIN', 'ORIGIN']`.
-  - `[x]` Update `addOfficeToPath` to insert new offices before the final `ORIGIN` if present.
-  - `[x]` Update `importFlow` sequence parsing to automatically append `ORIGIN` if missing from the end.
-- `[x]` Update Loop Import to support Predefined Copy Furnished offices
-  - `[x]` Update `importFlow` parsing logic to support optional 4th line for Copy Furnished offices.
-  - `[x]` Update database transactions in `importFlow` to save predefined Copy Furnished configurations to `dts_copy_filled_transaction` and `dts_copy_filled_to_office`.
-- `[x]` Update Document Creation views to auto-load Predefined Copy Furnished offices
-  - `[x]` Update `updatedTransactionFlow` in `internal.blade.php`.
-  - `[x]` Update database model `role_permission.php` to support `is_admin` column
-- `[/]` Update route middleware `CanAccessAdmin.php` to authorize normal administrators.
-  - `[x]` Update `updatedTransactionFlow` in `external.blade.php`.
-  - `[x]` Update `updatedTransactionFlow` in `issuances.blade.php`.
-  - `[x]` Update `updatedTransactionFlow` in `application-letters.blade.php`.
-- `[x]` Implement Offices Management bulk import feature (`offices.blade.php`)
-  - `[x]` Add "Import File" UI trigger button to Offices list directory header.
-  - `[x]` Implement Import Panel view with file selector and detailed layout instructions.
-  - `[x]` Implement loop parser with support for optional 3rd line active status (defaults to true).
-  - `[x]` Implement database transaction for atomic office insertion and logging.
-  - `[x]` Relocate status alerts to the top of the details panel.
-- `[x]` Predefined Flows Management Dual-Pane UI Redesign (`transaction-flows.blade.php`)
-  - `[x]` Port premium dual-pane directory sidebar & details panel configurator layout.
-  - `[x]` Implement flows search filter and sidebar active card selections.
-  - `[x]` Fix search box wrapper flex vertical stretching and absolute icon alignment.
-- `[x]` Searchable Office Dropdown for Sequence Builder (`transaction-flows.blade.php`)
-  - `[x]` Replace static `<select>` elements with searchable `<input>` text fields.
-  - `[x]` Implement Alpine.js popover suggestion list wrapper with dismiss-on-click-away behavior.
-  - `[x]` Add Livewire query matches and auto-fill selection handlers.
-- `[x]` Update Feature Tests (`TransactionFlowImportTest.php` and `OfficeImportTest.php`)
-  - `[x]` Test multi-flow imports with and without copy furnished lines.
-  - `[x]` Test component auto-loading of copy furnished offices.
-  - `[x]` Test bulk office import with and without optional active status lines.
-  - `[x]` Test flows search, selection, and starting creation panel transitions.
-- `[x]` Run PHPUnit tests and verify success.
-- `[x]` Update Walkthrough documentation.
+## Phase 1: Database Migration
+- `[x]` Optimize indexes in `2026_07_14_000001_create_chatify_tables.php`
+  - `[x]` Replace ASC composite index with DESC composite index on `(conv_id, created_at DESC, id DESC)`
+  - `[x]` Remove redundant single-column `conv_id` index
+  - `[x]` Remove redundant `idx_read_marker_conv_acct` (duplicates unique constraint)
+- `[x]` Create new migration for `account_details` search index
+
+## Phase 2: Core PHP Engine
+- `[x]` Optimize `ConversationManager.php`
+  - `[x]` Implement keyset pagination (`loadRaw` with `$beforeUuid`)
+  - `[x]` Remove `countRaw()` usage from load flow
+  - `[x]` Implement `getActiveConversations()` (single CTE query eliminates N+1)
+  - `[x]` Sequential UUID generation in `insertMessage()`
+  - `[x]` Optimize `unreadCount()` to use single query (no two-step lookup)
+  - `[x]` Optimize `markRead()` to avoid separate `SELECT` before `UPSERT`
+  - `[x]` Optimize `getAllConversations()` to avoid N+1 last-message fetches
+
+- `[x]` Optimize `GlobalChatManager.php`
+  - `[x]` Implement keyset pagination in `loadRaw()`
+  - `[x]` Sequential UUID generation in `insertMessage()`
+  - `[x]` Optimize `pruneOldest()` to use DELETE...RETURNING
+  - `[x]` Optimize `loadReactions()` to scope to current page instead of all
+
+- `[x]` Optimize `UserResolver.php`
+  - `[x]` Add `searchUsers()` server-side search method
+  - `[x]` Add `getConversationMetaBatch()` for batch last-message + unread
+
+## Phase 3: Endpoints
+- `[x]` Update `load.php` to keyset pagination
+- `[x]` Update `load_dm.php` to keyset pagination
+- `[x]` Update `load_dm_admin.php` to keyset pagination
+- `[x]` Update `fetch_users_dm.php` with active-conversations query + server-side search
+
+## Phase 4: Frontend
+- `[x]` Update `index.php` JS: `loadGlobalChat()` to send `before_uuid`
+- `[x]` Update `index.php` JS: `loadChat()` to send `before_uuid`
+- `[x]` Update `index.php` JS: `loadAdminConv()` to send `before_uuid`
+- `[x]` Update `index.php` JS: debounced server-side user search
+
+## Phase 5: Verification
+- `[x]` Create walkthrough summary

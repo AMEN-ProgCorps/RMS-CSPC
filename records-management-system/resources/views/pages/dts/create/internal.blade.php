@@ -16,7 +16,7 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create Internal
     public string $requestor_label = '';
     public string $type_of_document = '';
     public bool $showDocTypeDropdown = false;
-    public string $classification = '';
+    public ?string $classification = null;
     public string $subject = '';
     public string $action_needed = '';
     public string $transaction_flow = '';
@@ -623,7 +623,6 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create Internal
             'requestor_name' => 'required|string|max:255',
             'requestor_label' => 'nullable|string|max:255',
             'type_of_document' => 'nullable|string|max:255',
-            'classification' => 'nullable|string',
             'action_needed' => 'required|string|max:255',
             'subject' => 'required|string',
             'transaction_flow' => 'required|string|exists:dts_transaction_flow,flow_code',

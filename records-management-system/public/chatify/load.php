@@ -3,13 +3,15 @@
 // load.php — Load and Render the Global Chat
 // =============================================================================
 // GET params:
-//   offset (int, optional) — 0-based offset from the END of the message list.
-//                             offset=0 (default) = latest 200 messages.
-//                             offset=200 = the 200 messages BEFORE those, etc.
-//   limit  (int, optional) — messages per page, default 200, max 200.
+//   before_uuid (string, optional) — msg_uuid of the oldest message already shown;
+//                                     omit to load the latest messages.
+//   limit       (int, optional)    — messages per page, default 100, max 100.
 //
 // Returns JSON:
-//   { html: string, hasMore: bool, totalCount: int, offset: int }
+//   { html: string, hasMore: bool, nextCursor: string|null }
+//
+// Uses KEYSET (cursor) pagination — no OFFSET, no COUNT(*).  The DB returns
+// rows newest-first; array_reverse() re-orders for display.
 // =============================================================================
 
 require_once __DIR__ . '/bootstrap.php';
@@ -25,18 +27,27 @@ $myAccountId = Auth::accountId();
 $adminId     = Auth::adminAccountId(); // 1
 
 // ── Pagination params ─────────────────────────────────────────────────────────
-$limit  = 100;
-$offset = max(0, (int) ($_GET['offset'] ?? 0));
+$limit      = 100;
+$beforeUuid = isset($_GET['before_uuid']) && $_GET['before_uuid'] !== '' ? (string) $_GET['before_uuid'] : null;
 
 // ── Load data ────────────────────────────────────────────────────────────────
-$allMessages = GlobalChatManager::loadRaw();
-$reactions   = GlobalChatManager::loadReactions();
-$totalCount  = count($allMessages);
+// Fetch limit+1 rows so we can detect hasMore without a separate COUNT(*).
+$rawMessages = GlobalChatManager::loadRaw($limit + 1, $beforeUuid);
+$hasMore     = count($rawMessages) > $limit;
+if ($hasMore) {
+    array_pop($rawMessages); // discard the extra sentinel row
+}
 
-// Slice from the END: latest 200 when offset=0, older when offset>0
-$start       = max(0, $totalCount - $limit - $offset);
-$rawMessages = array_slice($allMessages, $start, $limit);
-$hasMore     = $start > 0;
+// DB returns newest-first; flip for chronological display.
+$rawMessages = array_reverse($rawMessages);
+
+// Scope reaction loading to just this page's UUIDs — avoids loading the
+// entire channel's reaction history on every request.
+$pageUuids = array_column($rawMessages, 'id');
+$reactions = GlobalChatManager::loadReactions($pageUuids);
+
+// Cursor for the next "load older" request = UUID of the now-oldest shown message.
+$nextCursor = !empty($rawMessages) ? $rawMessages[0]['id'] : null;
 
 // ── Build a name cache for all senders in this batch ────────────────────────
 $nameMap = UserResolver::buildNameMap();
@@ -53,6 +64,8 @@ $mimeMap   = [
     'm4a'  => 'audio/mp4',
     'opus' => 'audio/ogg; codecs=opus',
 ];
+
+$uploadsDir = __DIR__ . '/uploads/';
 
 function gcInitials(string $name): string
 {
@@ -113,6 +126,9 @@ foreach ($rawMessages as $msg) {
         $contentEsc = htmlspecialchars($content, ENT_QUOTES);
 
         $html .= "<div class='bubble-wrapper'>";
+        if (!empty($msg['is_edited'])) {
+            $html .= "<div class='message-edited-label' style='font-size:10px;color:var(--text-secondary);opacity:0.8;margin-bottom:2px;font-style:italic;'>edited</div>";
+        }
         $html .= "<div class='message-bubble'>";
         $html .= "<div class='message-content'>{$contentEsc}</div>";
         $html .= "<div class='message-info'><span class='message-sender'>{$senderLabel}{$adminBadge}</span><span class='message-time'>{$timeDisplay}</span></div>";
@@ -120,40 +136,101 @@ foreach ($rawMessages as $msg) {
         $html .= "</div>";
 
     } else {
-        // Upload: decrypt filename
-        $file    = safeDecrypt($msg['message'] ?? '');
-        $file    = basename($file);
-        $url     = 'uploads/' . rawurlencode($file);
-        $ext     = strtolower(pathinfo($file, PATHINFO_EXTENSION));
-        $fileEsc = htmlspecialchars($file, ENT_QUOTES);
+        // Upload: decrypt payload — may be a single filename or a JSON array of filenames
+        $rawPayload = safeDecrypt($msg['message'] ?? '');
+        $decoded    = json_decode($rawPayload, true);
+        $isGrid     = is_array($decoded) && count($decoded) > 1;
 
         $html .= "<div class='bubble-wrapper'>";
 
-        if (in_array($ext, $imageExts, true)) {
-            $html .= "<div class='message-media'>";
-            $html .= "<a href='{$url}' target='_blank'><img src='{$url}' alt='{$fileEsc}' style='max-width:240px;max-height:240px;border-radius:12px;display:block;cursor:pointer;object-fit:cover;box-shadow:0 2px 8px rgba(0,0,0,0.18);' loading='lazy' /></a>";
-            $html .= "<div class='message-info' style='padding:3px 2px;'><span class='message-sender'>{$senderLabel}{$adminBadge}</span><span class='message-time'>{$timeDisplay}</span></div>";
-            $html .= "</div>";
+        if ($isGrid) {
+            // ── Multi-image grid ──────────────────────────────────────────────
+            $allImages = true;
+            foreach ($decoded as $fn) {
+                $fnExt = strtolower(pathinfo(basename((string)$fn), PATHINFO_EXTENSION));
+                if (!in_array($fnExt, $imageExts, true)) { $allImages = false; break; }
+            }
 
-        } elseif (in_array($ext, $audioExts, true)) {
-            $mime  = $mimeMap[$ext] ?? 'audio/' . $ext;
-            $html .= "<div class='message-bubble'>";
-            $html .= "<div class='message-content'>";
-            $html .= "<div style='font-size:12px;margin-bottom:6px;font-weight:500;opacity:0.85;max-width:240px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;'>{$fileEsc}</div>";
-            $html .= "<audio controls preload='metadata' style='width:240px;max-width:100%;display:block;border-radius:6px;'><source src='{$url}' type='{$mime}'></audio>";
-            $html .= "</div>";
-            $html .= "<div class='message-info'><span class='message-sender'>{$senderLabel}{$adminBadge}</span><span class='message-time'>{$timeDisplay}</span></div>";
-            $html .= "</div>";
+            if ($allImages) {
+                $html .= "<div class='message-media' style='display:flex; flex-direction:column; gap:8px;'>";
+                foreach ($decoded as $fn) {
+                    $fn      = basename((string)$fn);
+                    $fnUrl   = 'uploads/' . rawurlencode($fn);
+                    $fnEsc   = htmlspecialchars($fn, ENT_QUOTES);
+                    $wAttr = '';
+                    $aspectRatioStyle = '';
+                    $info = @getimagesize($uploadsDir . $fn);
+                    if ($info) {
+                        $wAttr = " width='{$info[0]}' height='{$info[1]}'";
+                        $aspectRatioStyle = "aspect-ratio:{$info[0]}/{$info[1]};width:100%;height:auto;";
+                    }
+                    $html   .= "<a href='{$fnUrl}' target='_blank' style='display:block;'>";
+                    $html   .= "<img src='{$fnUrl}' alt='{$fnEsc}'{$wAttr} style='{$aspectRatioStyle}max-width:240px;max-height:240px;border-radius:12px;display:block;cursor:pointer;object-fit:cover;box-shadow:0 2px 8px rgba(0,0,0,0.18);' loading='lazy' />";
+                    $html   .= "</a>";
+                }
+                $html .= "<div class='message-info' style='padding:3px 2px;'><span class='message-sender'>{$senderLabel}{$adminBadge}</span><span class='message-time'>{$timeDisplay}</span></div>";
+                $html .= "</div>"; // .message-media
+            } else {
+                // Mixed files — render each as its own attachment link
+                $linkColor = $isSent ? 'white' : '#1b74e4';
+                $html .= "<div class='message-bubble'>";
+                $html .= "<div class='message-content' style='display:flex;flex-direction:column;gap:6px;'>";
+                foreach ($decoded as $fn) {
+                    $fn    = basename((string)$fn);
+                    $fnUrl = 'uploads/' . rawurlencode($fn);
+                    $fnEsc = htmlspecialchars($fn, ENT_QUOTES);
+                    $fnExt = strtolower(pathinfo($fn, PATHINFO_EXTENSION));
+                    if (in_array($fnExt, $imageExts, true)) {
+                        $html .= "<a href='{$fnUrl}' target='_blank'><img src='{$fnUrl}' alt='{$fnEsc}'{$wAttr} style='{$aspectRatioStyle}max-width:240px;max-height:240px;border-radius:12px;display:block;object-fit:cover;' loading='lazy' /></a>";
+                    } else {
+                        $html .= "<a href='{$fnUrl}' target='_blank' rel='noopener' style='color:{$linkColor};text-decoration:underline;font-size:13px;word-break:break-all;'>{$fnEsc}</a>";
+                    }
+                }
+                $html .= "</div>";
+                $html .= "<div class='message-info'><span class='message-sender'>{$senderLabel}{$adminBadge}</span><span class='message-time'>{$timeDisplay}</span></div>";
+                $html .= "</div>"; // .message-bubble
+            }
 
         } else {
-            $linkColor = $isSent ? 'white' : '#1b74e4';
-            $html .= "<div class='message-bubble'>";
-            $html .= "<div class='message-content'><a href='{$url}' target='_blank' rel='noopener' style='display:flex;align-items:center;gap:8px;color:{$linkColor};text-decoration:none;'><span style='font-size:22px;'>📎</span><span style='text-decoration:underline;font-weight:500;font-size:13px;word-break:break-all;'>{$fileEsc}</span></a></div>";
-            $html .= "<div class='message-info'><span class='message-sender'>{$senderLabel}{$adminBadge}</span><span class='message-time'>{$timeDisplay}</span></div>";
-            $html .= "</div>";
+            // ── Single file (or single-element JSON array) ────────────────────
+            $file    = $isGrid ? basename((string)$decoded[0]) : basename($rawPayload);
+            $url     = 'uploads/' . rawurlencode($file);
+            $ext     = strtolower(pathinfo($file, PATHINFO_EXTENSION));
+            $fileEsc = htmlspecialchars($file, ENT_QUOTES);
+
+            if (in_array($ext, $imageExts, true)) {
+                $wAttr = '';
+                $aspectRatioStyle = '';
+                $info = @getimagesize($uploadsDir . $file);
+                if ($info) {
+                    $wAttr = " width='{$info[0]}' height='{$info[1]}'";
+                    $aspectRatioStyle = "aspect-ratio:{$info[0]}/{$info[1]};width:100%;height:auto;";
+                }
+                $html .= "<div class='message-media'>";
+                $html .= "<a href='{$url}' target='_blank'><img src='{$url}' alt='{$fileEsc}'{$wAttr} style='{$aspectRatioStyle}max-width:240px;max-height:240px;border-radius:12px;display:block;cursor:pointer;object-fit:cover;box-shadow:0 2px 8px rgba(0,0,0,0.18);' loading='lazy' /></a>";
+                $html .= "<div class='message-info' style='padding:3px 2px;'><span class='message-sender'>{$senderLabel}{$adminBadge}</span><span class='message-time'>{$timeDisplay}</span></div>";
+                $html .= "</div>";
+
+            } elseif (in_array($ext, $audioExts, true)) {
+                $mime  = $mimeMap[$ext] ?? 'audio/' . $ext;
+                $html .= "<div class='message-bubble'>";
+                $html .= "<div class='message-content'>";
+                $html .= "<div style='font-size:12px;margin-bottom:6px;font-weight:500;opacity:0.85;max-width:240px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;'>{$fileEsc}</div>";
+                $html .= "<audio controls preload='metadata' style='width:240px;max-width:100%;display:block;border-radius:6px;'><source src='{$url}' type='{$mime}'></audio>";
+                $html .= "</div>";
+                $html .= "<div class='message-info'><span class='message-sender'>{$senderLabel}{$adminBadge}</span><span class='message-time'>{$timeDisplay}</span></div>";
+                $html .= "</div>";
+
+            } else {
+                $linkColor = $isSent ? 'white' : '#1b74e4';
+                $html .= "<div class='message-bubble'>";
+                $html .= "<div class='message-content'><a href='{$url}' target='_blank' rel='noopener' style='color:{$linkColor};text-decoration:underline;font-weight:500;font-size:13px;word-break:break-all;'>{$fileEsc}</a></div>";
+                $html .= "<div class='message-info'><span class='message-sender'>{$senderLabel}{$adminBadge}</span><span class='message-time'>{$timeDisplay}</span></div>";
+                $html .= "</div>";
+            }
         }
 
-        $html .= "</div>";
+        $html .= "</div>"; // .bubble-wrapper
     }
 
     $html .= "</div>"; // .message-container
@@ -175,7 +252,5 @@ if ($html === '') {
 echo json_encode([
     'html'       => $html,
     'hasMore'    => $hasMore,
-    'totalCount' => $totalCount,
-    'offset'     => $offset,
-    'nextOffset' => $offset + $limit,
+    'nextCursor' => $nextCursor,   // pass as before_uuid for next "load older" request
 ]);

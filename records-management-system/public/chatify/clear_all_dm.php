@@ -26,13 +26,20 @@ if (!Auth::isAdmin()) {
 }
 
 try {
-    $pdo = Database::getConnection();
+    $pdo      = Database::getConnection();
+    $adminId  = Auth::accountId();
 
     // Count distinct private conversations before deletion (for the response)
     $countStmt = $pdo->query(
         "SELECT COUNT(DISTINCT conv_id) FROM chat_messages WHERE conv_id != 'global'"
     );
     $deletedConversations = (int) $countStmt->fetchColumn();
+
+    // ── Backup all private DMs to chatify_chat_backup ─────────────────────────
+    ConversationManager::backupAll($pdo, $adminId);
+
+    // ── Backup global chat messages ───────────────────────────────────────────
+    ConversationManager::backupGlobal($pdo, $adminId);
 
     // Delete all private DM messages (cascade removes their reactions)
     $pdo->exec("DELETE FROM chat_messages WHERE conv_id != 'global'");
@@ -49,3 +56,4 @@ try {
     http_response_code(500);
     echo json_encode(['ok' => false, 'error' => 'Server error']);
 }
+

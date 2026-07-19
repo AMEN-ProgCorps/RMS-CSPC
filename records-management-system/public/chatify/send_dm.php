@@ -4,8 +4,9 @@
 // =============================================================================
 // POST params:
 //   target_id     (int, required  — account_id of the recipient)
-//   message       (string, optional if uploaded_file present)
-//   uploaded_file (string, optional — pre-uploaded filename)
+//   message       (string, optional if uploaded_files present)
+//   uploaded_files (string, optional — JSON array of pre-uploaded filenames,
+//                   OR a single filename string for backward-compat)
 // =============================================================================
 
 require_once __DIR__ . '/bootstrap.php';
@@ -52,10 +53,10 @@ if ($targetInfo === null) {
     die(json_encode(['error' => 'Target user not found.']));
 }
 
-$message      = trim($_POST['message']       ?? '');
-$uploadedFile = trim($_POST['uploaded_file'] ?? '');
+$message     = trim($_POST['message']        ?? '');
+$uploadedRaw = trim($_POST['uploaded_files'] ?? trim($_POST['uploaded_file'] ?? ''));
 
-if ($message === '' && $uploadedFile === '') {
+if ($message === '' && $uploadedRaw === '') {
     http_response_code(400);
     die(json_encode(['error' => 'Nothing to send.']));
 }
@@ -70,17 +71,47 @@ if ($message !== '') {
     }
 }
 
-// ── Upload message ─────────────────────────────────────────────────────────────
-if ($uploadedFile !== '') {
-    $uploadedFile = basename($uploadedFile);
-    $filePath     = UPLOADS_DIR . '/' . $uploadedFile;
+// ── Upload message(s) ─────────────────────────────────────────────────────────
+if ($uploadedRaw !== '') {
+    // Try to decode as JSON array (multi-file from the new upload flow).
+    $decoded = json_decode($uploadedRaw, true);
 
-    if (!file_exists($filePath)) {
-        $errors[] = 'Uploaded file not found.';
+    if (is_array($decoded) && count($decoded) > 0) {
+        // Multi-file: validate each filename exists on disk, then store the
+        // JSON array as a single 'upload' message (rendered as a grid in load_dm.php).
+        $validFiles = [];
+        foreach ($decoded as $filename) {
+            $filename = basename((string) $filename);
+            if ($filename === '') continue;
+            $filePath = UPLOADS_DIR . '/' . $filename;
+            if (file_exists($filePath)) {
+                $validFiles[] = $filename;
+            } else {
+                $errors[] = "Uploaded file not found: {$filename}";
+            }
+        }
+
+        if (!empty($validFiles)) {
+            // Store as JSON-encoded array so load_dm.php can render a grid
+            $payload = count($validFiles) === 1 ? $validFiles[0] : json_encode($validFiles);
+            $result  = ConversationManager::addUploadMessage($senderId, $targetId, $payload);
+            if ($result === false) {
+                $errors[] = 'Failed to save upload record.';
+            }
+        }
+
     } else {
-        $result = ConversationManager::addUploadMessage($senderId, $targetId, $uploadedFile);
-        if ($result === false) {
-            $errors[] = 'Failed to save upload record.';
+        // Single filename (legacy / backward-compat)
+        $uploadedFile = basename($uploadedRaw);
+        $filePath     = UPLOADS_DIR . '/' . $uploadedFile;
+
+        if (!file_exists($filePath)) {
+            $errors[] = 'Uploaded file not found.';
+        } else {
+            $result = ConversationManager::addUploadMessage($senderId, $targetId, $uploadedFile);
+            if ($result === false) {
+                $errors[] = 'Failed to save upload record.';
+            }
         }
     }
 }

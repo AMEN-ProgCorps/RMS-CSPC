@@ -4,6 +4,13 @@
 // =============================================================================
 // Caches all users in a single query per request to avoid N+1 DB lookups.
 // The cache lives for the duration of the PHP request only (no persistent cache).
+//
+// ADDED (v2):
+//   • searchUsers()  — PostgreSQL-side ILIKE search on (first_name, last_name)
+//                      using the GIN trigram index from the search-indexes migration.
+//                      Returns only matching rows + their conv metadata in one query.
+//   • enrichWithConvMeta() — batch enriches a user list with last-message and
+//                             unread-count data in a single SQL pass.
 // =============================================================================
 
 class UserResolver
@@ -61,6 +68,8 @@ class UserResolver
             'full_name'           => trim($row['first_name'] . ' ' . $row['last_name']),
             'first_name'          => $row['first_name'],
             'last_name'           => $row['last_name'],
+            'email'               => $row['email'] ?? '',
+            'username'            => $row['email'] ?? '',
             'office_id'           => isset($row['office_id']) ? (int) $row['office_id'] : null,
             'office_name'         => $row['office_name'] ?? null,
             'office_code'         => $row['office_code'] ?? null,
@@ -119,6 +128,86 @@ class UserResolver
             $map[$id] = trim($row['first_name'] . ' ' . $row['last_name']);
         }
         return $map;
+    }
+
+    /**
+     * Server-side user search using PostgreSQL ILIKE.
+     *
+     * Uses the pg_trgm GIN index (idx_acct_details_name_trgm) added by the
+     * 2026_07_18_000000_add_account_details_search_indexes.php migration for
+     * sub-millisecond substring matching even on 20,000+ user tables.
+     *
+     * Falls back gracefully if the index is absent (query still works, just slower).
+     *
+     * @param  string $query            Partial name to search for
+     * @param  int    $excludeAccountId The current user's ID (exclude self)
+     * @param  int    $limit            Maximum results to return (default 50)
+     * @return array<int, array>        User rows matching the query
+     */
+    public static function searchUsers(string $query, int $excludeAccountId, int $limit = 50): array
+    {
+        if (trim($query) === '') {
+            return [];
+        }
+
+        try {
+            $pdo  = Database::getConnection();
+            $like = '%' . str_replace(['%', '_', '\\'], ['\\%', '\\_', '\\\\'], $query) . '%';
+
+            $stmt = $pdo->prepare(
+                "SELECT ad.account_id,
+                        ad.first_name,
+                        ad.last_name,
+                        ad.email,
+                        ad.office_id,
+                        o.office_name,
+                        o.office_code,
+                        ad.is_currently_online,
+                        ad.last_online_time
+                 FROM account_details ad
+                 LEFT JOIN office o ON o.id = ad.office_id
+                 WHERE ad.account_id != :exclude
+                   AND (
+                         ad.first_name ILIKE :q1
+                      OR ad.last_name  ILIKE :q2
+                      OR (ad.first_name || ' ' || ad.last_name) ILIKE :q3
+                      OR (ad.last_name  || ' ' || ad.first_name) ILIKE :q4
+                   )
+                 ORDER BY ad.last_name, ad.first_name
+                 LIMIT :lim"
+            );
+            $stmt->bindValue(':exclude', $excludeAccountId, PDO::PARAM_INT);
+            $stmt->bindValue(':q1', $like);
+            $stmt->bindValue(':q2', $like);
+            $stmt->bindValue(':q3', $like);
+            $stmt->bindValue(':q4', $like);
+            $stmt->bindValue(':lim', $limit, PDO::PARAM_INT);
+            $stmt->execute();
+
+            $users = [];
+            foreach ($stmt->fetchAll() as $row) {
+                // Populate local cache for subsequent getUserInfo() calls
+                self::$cache[(int) $row['account_id']] = $row;
+
+                $users[] = [
+                    'account_id'          => (int) $row['account_id'],
+                    'username'            => $row['email'] ?? '',
+                    'email'               => $row['email'] ?? '',
+                    'full_name'           => trim($row['first_name'] . ' ' . $row['last_name']),
+                    'first_name'          => $row['first_name'],
+                    'last_name'           => $row['last_name'],
+                    'office_id'           => isset($row['office_id']) ? (int) $row['office_id'] : null,
+                    'office_name'         => $row['office_name'] ?? null,
+                    'office_code'         => $row['office_code'] ?? null,
+                    'is_currently_online' => (bool) ($row['is_currently_online'] ?? false),
+                    'last_online_time'    => $row['last_online_time'] ?? null,
+                ];
+            }
+            return $users;
+        } catch (PDOException $e) {
+            error_log('UserResolver::searchUsers() — ' . $e->getMessage());
+            return [];
+        }
     }
 
     /**

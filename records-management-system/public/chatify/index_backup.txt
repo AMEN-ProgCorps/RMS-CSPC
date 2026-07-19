@@ -965,6 +965,88 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
       border-radius: 8px;
     }
 
+    /* ── Media grid (multi-image send) ───────────────────────────
+       No forced squares, no aggressive cropping: each image keeps
+       its natural aspect ratio. Columns still come from data-count
+       so the layout reads as a grid, but row height is driven by
+       the image itself (capped by max-height) instead of a fixed
+       1:1 box, so portrait stays portrait and landscape stays
+       landscape. */
+    .message-media-grid {
+      display: grid;
+      gap: 4px;
+      border-radius: 12px;
+      max-width: 320px;
+      align-items: start;
+    }
+    .message-media-grid[data-count="2"]  { grid-template-columns: 1fr 1fr; }
+    .message-media-grid[data-count="3"]  { grid-template-columns: 1fr 1fr 1fr; }
+    .message-media-grid[data-count="4"]  { grid-template-columns: 1fr 1fr; }
+    /* 5+ photos: first spans full width, rest fill 3-col row */
+    .message-media-grid[data-count="5"]  { grid-template-columns: 1fr 1fr 1fr; }
+    .message-media-grid[data-count="5"]  .media-grid-item:first-child { grid-column: span 3; }
+    .message-media-grid:not([data-count]) { grid-template-columns: 1fr 1fr 1fr; }
+    .media-grid-item {
+      display: block;
+      overflow: hidden;
+      border-radius: 10px;
+      background: var(--bg-secondary, #e4e6eb);
+    }
+    .media-grid-item img {
+      display: block;
+      width: 100%;
+      height: auto;         /* let the image keep its own ratio, no stretching/cropping */
+      max-height: 360px;     /* keeps a very tall portrait from dominating the bubble */
+      object-fit: contain;   /* only matters if max-height caps it; never distorts */
+      border-radius: 10px;
+      transition: transform 0.2s ease;
+    }
+    .media-grid-item:hover img { transform: scale(1.02); }
+
+    /* ── Attachment / paperclip button ───────────────────────── */
+    .attachment-btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 36px;
+      height: 36px;
+      border-radius: 50%;
+      background: transparent;
+      color: var(--text-secondary);
+      cursor: pointer;
+      flex-shrink: 0;
+      transition: background 0.18s, color 0.18s, transform 0.15s;
+    }
+    .attachment-btn:hover {
+      background: var(--bg-hover);
+      color: #1b74e4;
+      transform: rotate(-15deg) scale(1.08);
+    }
+
+    /* ── Drop overlay active state ─────────────────────────────── */
+    .drop-overlay {
+      position: absolute;
+      inset: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 15px;
+      font-weight: 600;
+      letter-spacing: 0.02em;
+      color: #1b74e4;
+      background-color: var(--bg-drop-overlay);
+      border: 2px dashed #1b74e4;
+      border-radius: 16px;
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 0.18s;
+      z-index: 200;
+    }
+    .drop-overlay.visible {
+      opacity: 1;
+      pointer-events: auto;
+    }
+
     /* Message Content */
     .message-content {
       font-size: 14px;
@@ -979,6 +1061,20 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
 
     .received .message-content {
       color: var(--text-bubble-received);
+    }
+
+    /* Clickable links auto-detected inside message text */
+    .message-content a.chat-link {
+      text-decoration: underline;
+      word-break: break-all;
+    }
+
+    .sent .message-content a.chat-link {
+      color: var(--text-bubble-sent);
+    }
+
+    .received .message-content a.chat-link {
+      color: var(--text-header);
     }
 
     .message-info {
@@ -1011,6 +1107,17 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
 
     .received .message-time {
       color: var(--text-time-received);
+    }
+
+    /* Image/audio messages (.message-media) have NO bubble background behind
+       the sender/time row — unlike text bubbles, which are always blue for
+       "sent" so white text always makes sense there. Without this override,
+       a sent image's info row inherits the white-on-blue-bubble color and
+       ends up white text sitting directly on the page background, which is
+       invisible in light mode. Force theme-aware neutral color instead. */
+    .message-media .message-sender,
+    .message-media .message-time {
+      color: var(--text-secondary);
     }
 
     /* Empty Chat State */
@@ -1079,6 +1186,30 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
 
     .input-section {
       margin-bottom: 8px;
+      position: relative;
+    }
+
+    #cancelEditXBtn {
+      display: none;
+      width: 28px;
+      height: 28px;
+      border-radius: 50%;
+      background: var(--text-secondary);
+      border: none;
+      cursor: pointer;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+      opacity: 0.7;
+      transition: opacity 0.15s, background 0.15s;
+      padding: 0;
+    }
+    #cancelEditXBtn:hover {
+      opacity: 1;
+      background: #e53935;
+    }
+    #cancelEditXBtn svg {
+      display: block;
     }
 
     .input-label {
@@ -1090,9 +1221,29 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
     }
 
     .name-input-wrapper {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .name-field-inner {
       position: relative;
       display: flex;
       align-items: center;
+      flex: 1;
+      min-width: 0;
+    }
+
+    /* By default this just shrink-wraps the attach button (same footprint
+       as before). Only while editing (.editing) do we pin its width to
+       match #sendButton via JS, so the name field lines up with the
+       message field specifically when the cancel-edit X button is showing. */
+    .input-actions {
+      display: flex;
+      align-items: center;
+      justify-content: flex-end;
+      gap: 6px;
+      flex-shrink: 0;
     }
 
     #nameInput {
@@ -2214,7 +2365,10 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
 
     <div id="chat-box">
       <!-- Drop overlay element for drag & drop -->
-      <div class="drop-overlay" id="dropOverlay">Drop files here to send</div>
+      <div class="drop-overlay" id="dropOverlay">
+        <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" style="width:36px;height:36px;margin-bottom:8px;"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" stroke="#1b74e4" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><polyline points="17 8 12 3 7 8" stroke="#1b74e4" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><line x1="12" y1="3" x2="12" y2="15" stroke="#1b74e4" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        Drop images or files here
+      </div>
     </div>
 
     <div class="input-area">
@@ -2237,20 +2391,35 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
 
 
       <div class="input-section">
-        <div class="name-input-wrapper<?php echo $is_admin ? ' is-admin-user' : ''; ?>" style="position: relative;">
-          <svg class="name-icon" viewBox="0 0 24 24">
-            <path d="M12 2C13.1 2 14 2.9 14 4C14 5.1 13.1 6 12 6C10.9 6 10 5.1 10 4C10 2.9 10.9 2 12 2ZM21 9V7L15 4V6L21 9ZM15 10.26L21 7.26V9.26L15 12.26V10.26ZM12 7C16.42 7 20 8.79 20 11V13C20 15.21 16.42 17 12 17S4 15.21 4 13V11C4 8.79 7.58 7 12 7Z"/>
-          </svg>
-          <input type="text" id="nameInput" placeholder="" required readonly value="<?php echo htmlspecialchars($user_name); ?>">
-          <?php if ($is_admin): ?>
-          <span class="admin-input-badge" title="You are the Super Admin">
-            <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-              <circle cx="12" cy="12" r="12" fill="#1b74e4"/>
-              <path d="M7 12.5l3.5 3.5 6.5-7" stroke="#fff" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
+        <div class="name-input-wrapper<?php echo $is_admin ? ' is-admin-user' : ''; ?>">
+          <div class="name-field-inner">
+            <svg class="name-icon" viewBox="0 0 24 24">
+              <path d="M12 2C13.1 2 14 2.9 14 4C14 5.1 13.1 6 12 6C10.9 6 10 5.1 10 4C10 2.9 10.9 2 12 2ZM21 9V7L15 4V6L21 9ZM15 10.26L21 7.26V9.26L15 12.26V10.26ZM12 7C16.42 7 20 8.79 20 11V13C20 15.21 16.42 17 12 17S4 15.21 4 13V11C4 8.79 7.58 7 12 7Z"/>
             </svg>
-            <span>Super Admin</span>
-          </span>
-          <?php endif; ?>
+            <input type="text" id="nameInput" placeholder="" required readonly value="<?php echo htmlspecialchars($user_name); ?>">
+            <?php if ($is_admin): ?>
+            <span class="admin-input-badge" title="You are the Super Admin">
+              <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                <circle cx="12" cy="12" r="12" fill="#1b74e4"/>
+                <path d="M7 12.5l3.5 3.5 6.5-7" stroke="#fff" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
+              </svg>
+              <span></span>
+            </span>
+            <?php endif; ?>
+          </div>
+          <div class="input-actions">
+            <label id="attachBtn" class="attachment-btn" title="Attach image or file" for="fileAttachmentInput">
+              <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" width="20" height="20">
+                <path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+              </svg>
+            </label>
+            <input type="file" id="fileAttachmentInput" multiple accept="image/*,.gif,.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.csv,.zip,.rar,.7z,.mp3,.wav,.ogg,.flac,.aac,.m4a,.mp4,.webm,.mov" style="display:none;">
+            <button type="button" id="cancelEditXBtn" title="Cancel editing" aria-label="Cancel editing">
+              <svg viewBox="0 0 24 24" width="12" height="12" fill="#fff">
+                <path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/>
+              </svg>
+            </button>
+          </div>
         </div>
       </div>
 
@@ -2397,6 +2566,36 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
     const backButton      = document.getElementById('backButton');
     const burgerButton    = document.getElementById('burgerButton');
     const closeSidebarBtn = document.getElementById('closeSidebarBtn');
+
+    // Keep the name-row's action column (attach button + cancel-edit X
+    // button) exactly as wide as the real rendered #sendButton, but ONLY
+    // while editing — the rest of the time it stays its normal shrink-wrap
+    // size (just the attach button), same as before.
+    const inputActions = document.querySelector('.input-actions');
+    function syncInputActionsWidth() {
+      if (!inputActions || !sendButton) return;
+      const w = sendButton.getBoundingClientRect().width;
+      if (w > 0) inputActions.style.width = w + 'px';
+    }
+    window.addEventListener('resize', function () {
+      if (editingMsgId !== null) syncInputActionsWidth();
+    });
+
+    let editingMsgId = null;
+
+    function showEditBanner(msgId) {
+      editingMsgId = msgId;
+      const xBtn = document.getElementById('cancelEditXBtn');
+      if (xBtn) xBtn.style.display = 'flex';
+      syncInputActionsWidth();
+    }
+
+    function hideEditBanner() {
+      editingMsgId = null;
+      const xBtn = document.getElementById('cancelEditXBtn');
+      if (xBtn) xBtn.style.display = 'none';
+      if (inputActions) inputActions.style.width = ''; // back to auto (shrink-wrap)
+    }
     const notifyModal        = document.getElementById('notifyModal');
     const notifyTargetName   = document.getElementById('notifyTargetName');
     const notifyMessageInput = document.getElementById('notifyMessageInput');
@@ -2468,7 +2667,26 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
           return;
         }
 
-        if (data.type === 'message') {
+        if (data.type === 'message_edited') {
+          // Another client edited a message — patch the bubble in-place immediately
+          // without any server fetch so the update is instant for all viewers.
+          const targetContainer = chatBox.querySelector(
+            `.message-container[data-msg-id="${data.msg_uuid}"]`
+          );
+          if (targetContainer) {
+            const contentEl = targetContainer.querySelector('.message-bubble .message-content');
+            if (contentEl) contentEl.textContent = data.message;
+
+            const bubbleWrapper = targetContainer.querySelector('.bubble-wrapper');
+            if (bubbleWrapper && !bubbleWrapper.querySelector('.message-edited-label')) {
+              const label = document.createElement('div');
+              label.className = 'message-edited-label';
+              label.style.cssText = 'font-size:10px;color:var(--text-secondary);opacity:0.8;margin-bottom:2px;font-style:italic;';
+              label.textContent = 'edited';
+              bubbleWrapper.insertBefore(label, bubbleWrapper.firstChild);
+            }
+          }
+        } else if (data.type === 'message') {
           console.log('Received WebSocket real-time update notice:', data);
           if (data.chat_type === 'global') {
             if (isGlobalChat) {
@@ -2494,6 +2712,54 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
           if (activeDM && activeDMAccountId === Number(data.sender_id)) {
             showTypingIndicator(data.sender_name, data.is_typing);
           }
+        } else if (data.type === 'chat_cleared') {
+          console.log('Received WebSocket real-time update notice:', data);
+          if (data.chat_type === 'private') {
+            // Mirrors the 'message'/private matching above: sender_id is the
+            // admin who cleared it, recipient_id is the other DM party.
+            if (activeDM && activeDMAccountId === Number(data.sender_id)) {
+              loadChat(true);
+            } else if (activeAdminConv) {
+              const parts = activeAdminConv.split('_').map(Number);
+              const s = Number(data.sender_id);
+              const r = Number(data.recipient_id);
+              if ((s === parts[0] && r === parts[1]) || (s === parts[1] && r === parts[0])) {
+                loadAdminConv(activeAdminConv, true);
+              }
+            }
+          } else if (data.chat_type === 'admin_conv') {
+            // An admin cleared a conversation between two other users —
+            // refresh that exact admin view, plus either participant if
+            // they currently have the other one open as their own DM.
+            const a = Number(data.user_a);
+            const b = Number(data.user_b);
+            if (activeAdminConv) {
+              const parts = activeAdminConv.split('_').map(Number);
+              if ((parts[0] === a && parts[1] === b) || (parts[0] === b && parts[1] === a)) {
+                loadAdminConv(activeAdminConv, true);
+              }
+            }
+            if (activeDM && (activeDMAccountId === a || activeDMAccountId === b)) {
+              loadChat(true);
+            }
+          }
+          fetchNotifications();
+          fetchUsers();
+        } else if (data.type === 'all_cleared') {
+          console.log('Received WebSocket real-time update notice:', data);
+          // Every message in the system was wiped — reset this client's
+          // view immediately instead of waiting for a manual reload.
+          activeDM = null; activeAdminConv = null; isGlobalChat = false;
+          gcCursor = ''; dmCursor = '';
+          gcViewingOlder = false; dmViewingOlder = false;
+          removePaginationBtn();
+          const gcItem = document.getElementById('globalChatItem');
+          if (gcItem) gcItem.classList.remove('active');
+          chatBox.innerHTML = '<div class="empty-chat"><p>All messages deleted.</p></div>';
+          renderSidebarUsers();
+          if (serverIsAdmin) renderAdminConvs();
+          fetchNotifications();
+          fetchUsers();
         }
       };
 
@@ -2621,9 +2887,18 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
     let serverIsAdmin = false;
     let hasAutoSelected = false;
 
-    function fetchUsers() {
+    function fetchUsers(query = '') {
+      const currentInput = searchInput ? searchInput.value.trim() : '';
+      if (query === '' && currentInput !== '') {
+        return; // skip the poll since the user is in search mode
+      }
+
       const xhr = new XMLHttpRequest();
-      xhr.open("GET", "fetch_users_dm.php", true);
+      let url = "fetch_users_dm.php";
+      if (query !== '') {
+        url += "?q=" + encodeURIComponent(query);
+      }
+      xhr.open("GET", url, true);
       xhr.onload = function() {
         if (this.status === 200) {
           try {
@@ -2633,12 +2908,14 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
               allUsersData = data;
             } else {
               allUsersData = data.users || [];
-              allConvsData = data.conversations || [];
+              if (query === '') {
+                allConvsData = data.conversations || [];
+              }
               // Admin is always determined by currentUser.is_admin (set by server via account_id=1)
               serverIsAdmin = !!(data.currentUser && data.currentUser.is_admin);
             }
             renderSidebarUsers();
-            if (serverIsAdmin) renderAdminConvs();
+            if (serverIsAdmin && query === '') renderAdminConvs();
 
             // Automatically reopen the active DM from localStorage on initial load
             if (!hasAutoSelected) {
@@ -2681,17 +2958,20 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
     // "blinking" every few seconds, even while the mouse was perfectly still.
     // Keeping the same node identity per user avoids that entirely.
     const sidebarUserItems = new Map(); // username -> item element
+    let latestTotalUnread = 0;
 
     function renderSidebarUsers() {
-      const query = searchInput.value.toLowerCase();
+      const query = searchInput.value.toLowerCase().trim();
 
       const filtered = allUsersData.filter(u => 
         u.name.toLowerCase().includes(query) || u.username.toLowerCase().includes(query)
       );
 
-      // Total unread for tab title
-      const totalUnread = allUsersData.reduce((sum, u) => sum + (u.unreadCount || 0), 0);
-      updateTabTitle(totalUnread);
+      // Total unread for tab title — only compute when NOT searching
+      if (query === '') {
+        latestTotalUnread = allUsersData.reduce((sum, u) => sum + (u.unreadCount || 0), 0);
+      }
+      updateTabTitle(latestTotalUnread);
 
       const seen = new Set();
 
@@ -3084,10 +3364,10 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
     // indefinitely — the newest messages get trimmed off the bottom to make
     // room, and clicking "Go to bottom" snaps back to the latest PAGE_SIZE.
     const PAGE_SIZE = 100;
-    let gcOffset = 0;
+    let gcCursor = '';
     let gcHasMore = false;
     let gcViewingOlder = false; // true once the user has loaded an older window
-    let dmOffset  = 0;
+    let dmCursor  = '';
     let dmHasMore = false;
     let dmViewingOlder = false; // true once the user has loaded an older window
 
@@ -3096,9 +3376,10 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
       activeDM = u.username;
       activeDMAccountId = Number(u.account_id);
       activeAdminConv = null;
-      dmOffset = 0;
+      dmCursor = '';
       dmHasMore = false;
       dmViewingOlder = false;
+      hideEditBanner();
       
       // Reset local typing indicator state
       if (localTypingTimeout) {
@@ -3146,9 +3427,10 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
       activeDM = null;
       activeDMAccountId = null;
       activeAdminConv = null;
-      gcOffset = 0;
+      gcCursor = '';
       gcHasMore = false;
       gcViewingOlder = false;
+      hideEditBanner();
       isFirstLoad = true;
       
       // Reset local typing indicator state
@@ -3360,7 +3642,7 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
     }
 
     let activeAdminConv = null; // convId string when admin is spying
-    let adminConvOffset = 0;
+    let adminConvCursor = '';
     let adminConvHasMore = false;
     let adminConvViewingOlder = false; // true once the user has loaded an older window
 
@@ -3371,8 +3653,8 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
 
       const wasAtBottom = isAtBottom();
       const requestedConv = activeAdminConv;
-      const requestOffset = loadOlderMode ? adminConvOffset : 0;
-      const url = 'load_dm_admin.php?conv_id=' + encodeURIComponent(convId) + '&offset=' + requestOffset;
+      const cursor = loadOlderMode ? adminConvCursor : '';
+      const url = 'load_dm_admin.php?conv_id=' + encodeURIComponent(convId) + '&before_uuid=' + encodeURIComponent(cursor);
 
       const xhr = new XMLHttpRequest();
       xhr.open('GET', url, true);
@@ -3392,7 +3674,7 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
         adminConvHasMore = data.hasMore || false;
         
         if (loadOlderMode) {
-          adminConvOffset = data.nextOffset || (requestOffset + PAGE_SIZE);
+          adminConvCursor = data.nextCursor || '';
           adminConvViewingOlder = true;
           const prev = chatBox.scrollHeight;
           const temp = document.createElement('div');
@@ -3418,7 +3700,7 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
           return;
         }
 
-        if (adminConvOffset === 0) adminConvOffset = PAGE_SIZE; // establish the "next older offset" pointer
+        if (adminConvCursor === '') adminConvCursor = data.nextCursor || ''; // establish cursor pointer
         const temp = document.createElement('div');
         temp.innerHTML = newHtml;
         const newMessages = Array.from(temp.querySelectorAll('.message-container, .empty-chat'));
@@ -3429,7 +3711,7 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
         const rec = reconcilePoll(newMessages, currentMessages, newKeys, curKeys);
 
         if (rec.type === 'nochange') {
-          if (isFirstLoad) { isFirstLoad = false; scrollToBottom(true, true); }
+          if (isFirstLoad) { isFirstLoad = false; handleFirstLoadScroll(); }
           if (adminConvHasMore && !document.getElementById('loadOlderBtn') && !document.getElementById('noMoreOlderNotice')) insertLoadOlderBtn();
           return;
         }
@@ -3455,7 +3737,7 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
           if (!adminConvViewingOlder) {
             trimWindowFromTop(newMessages.length);
           }
-          if (isFirstLoad) { isFirstLoad = false; scrollToBottom(true, true); }
+          if (isFirstLoad) { isFirstLoad = false; handleFirstLoadScroll(); }
           else if (wasAtBottom || shouldAutoScroll) requestAnimationFrame(() => requestAnimationFrame(() => scrollToBottom(true, false)));
           else showScrollIndicator(rec.items.filter(el => el.classList.contains('message-container')).length);
           applyAdminBadges();
@@ -3491,7 +3773,7 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
         if (mc > 0 && (wasAtBottom || shouldAutoScroll || isFirstLoad)) {
           const doInstant = isFirstLoad;
           isFirstLoad = false;
-          if (doInstant) scrollToBottom(true, true);
+          if (doInstant) handleFirstLoadScroll();
           else requestAnimationFrame(() => requestAnimationFrame(() => scrollToBottom(true, false)));
         } else {
           isFirstLoad = false;
@@ -3499,7 +3781,7 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
         }
         applyAdminBadges();
         applyEmojiOnly();
-        adminConvOffset = PAGE_SIZE;
+        adminConvCursor = data.nextCursor || '';
         adminConvViewingOlder = false;
         if (adminConvHasMore && !document.getElementById('loadOlderBtn') && !document.getElementById('noMoreOlderNotice')) insertLoadOlderBtn();
       };
@@ -3513,9 +3795,10 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
       activeDMAccountId = null;
       isGlobalChat = false; // must reset — otherwise polling/visibilitychange keep re-loading Global Chat over the spy view
       
-      adminConvOffset = 0;
+      adminConvCursor = '';
       adminConvHasMore = false;
       adminConvViewingOlder = false;
+      hideEditBanner();
       isFirstLoad = true;
 
       // Reset local typing indicator state
@@ -3551,7 +3834,18 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
       }
     }
     
-    searchInput.addEventListener('input', renderSidebarUsers);
+    let searchTimeout = null;
+    searchInput.addEventListener('input', () => {
+      if (searchTimeout) clearTimeout(searchTimeout);
+      const query = searchInput.value.trim();
+      if (query === '') {
+        fetchUsers();
+      } else {
+        searchTimeout = setTimeout(() => {
+          fetchUsers(query);
+        }, 250);
+      }
+    });
 
     backButton.addEventListener('click', () => {
       activeDM = null;
@@ -3652,7 +3946,7 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
     function injectBadge(el) {
       const badge = document.createElement('span');
       badge.className = 'verified-badge';
-      badge.title = 'Super Admin';
+      badge.title = '';
       badge.innerHTML = `<svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
         <circle cx="12" cy="12" r="12" fill="#1b74e4"/>
         <path d="M7 12.5l3.5 3.5 6.5-7" stroke="#fff" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
@@ -3739,6 +4033,30 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
       }
     }
 
+    function handleFirstLoadScroll() {
+      const activeKey = isGlobalChat ? '__global__' : (activeDM || (activeAdminConv ? '__admin__' + activeAdminConv.convId : null));
+      let restored = false;
+      if (activeKey) {
+        const savedScrollTop = sessionStorage.getItem('chatScroll_' + activeKey);
+        const savedScrollHeight = sessionStorage.getItem('chatScrollHeight_' + activeKey);
+        const savedAtBottom = sessionStorage.getItem('chatScrollAtBottom_' + activeKey);
+        
+        if (savedAtBottom === 'true') {
+          scrollToBottom(true, true);
+          restored = true;
+        } else if (savedScrollTop !== null && savedScrollHeight !== null) {
+          const scrollTop = parseFloat(savedScrollTop);
+          const scrollHeight = parseFloat(savedScrollHeight);
+          const diff = chatBox.scrollHeight - scrollHeight;
+          chatBox.scrollTop = scrollTop + diff;
+          restored = true;
+        }
+      }
+      if (!restored) {
+        scrollToBottom(true, true);
+      }
+    }
+
     const scrollIndicatorText = document.getElementById('scrollIndicatorText');
     const unreadBadge = document.getElementById('unreadBadge');
 
@@ -3804,6 +4122,52 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
       });
     }
 
+    // Event delegation for double click to edit chat message
+    chatBox.addEventListener('dblclick', function (e) {
+      const container = e.target.closest('.message-container.sent');
+      if (!container) return; // only edit messages sent by you
+      
+      const msgId = container.getAttribute('data-msg-id');
+      if (!msgId) return;
+
+      // Ensure it is a text message, not an upload
+      const contentEl = container.querySelector('.message-bubble .message-content');
+      if (!contentEl) return;
+      
+      // If it contains an attachment (like an anchor link or image or audio), do not edit
+      if (contentEl.querySelector('a') || container.querySelector('img') || container.querySelector('audio')) {
+        return;
+      }
+      
+      const text = contentEl.textContent.trim();
+      messageInput.value = text;
+      editingMsgId = msgId;
+
+      // Show X cancel button
+      showEditBanner(msgId);
+
+      // Auto-grow textarea to fit the text
+      messageInput.style.height = 'auto';
+      messageInput.style.height = messageInput.scrollHeight + 'px';
+
+      // Scroll to bottom so the input is always visible
+      shouldAutoScroll = true;
+      userScrolledUp = false;
+      scrollToBottom(true, true);
+
+      messageInput.focus();
+    });
+
+    // X cancel-edit button
+    const cancelEditXBtn = document.getElementById('cancelEditXBtn');
+    if (cancelEditXBtn) {
+      cancelEditXBtn.addEventListener('click', () => {
+        hideEditBanner();
+        messageInput.value = '';
+        messageInput.style.height = 'auto';
+      });
+    }
+
     // Monitor scroll position
     chatBox.addEventListener('scroll', function() {
       const atBottom = isAtBottom();
@@ -3824,7 +4188,28 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
         // Show load-older button when user scrolls up and older messages exist
         syncLoadOlderBtn();
       }
+
+      // Save scroll position for active chat
+      const activeKey = isGlobalChat ? '__global__' : (activeDM || (activeAdminConv ? '__admin__' + activeAdminConv.convId : null));
+      if (activeKey) {
+        sessionStorage.setItem('chatScroll_' + activeKey, chatBox.scrollTop);
+        sessionStorage.setItem('chatScrollHeight_' + activeKey, chatBox.scrollHeight);
+        sessionStorage.setItem('chatScrollAtBottom_' + activeKey, atBottom ? 'true' : 'false');
+      }
     });
+
+    // Ensure scroll position is maintained when images finish loading
+    chatBox.addEventListener('load', function(event) {
+      if (event.target.tagName === 'IMG') {
+        const activeKey = isGlobalChat ? '__global__' : (activeDM || (activeAdminConv ? '__admin__' + activeAdminConv.convId : null));
+        if (activeKey) {
+          const savedAtBottom = sessionStorage.getItem('chatScrollAtBottom_' + activeKey);
+          if (savedAtBottom === 'true' || shouldAutoScroll || isAtBottom()) {
+            scrollToBottom(true, true);
+          }
+        }
+      }
+    }, true);
 
     // Click scroll indicator to go to bottom
     scrollIndicator.addEventListener('click', function() {
@@ -3836,7 +4221,7 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
       // (now stale) older batch that's on screen.
       if (isGlobalChat && gcViewingOlder) {
         gcViewingOlder = false;
-        gcOffset = 0;
+        gcCursor = '';
         removePaginationBtn();
         chatBox.innerHTML = '';
         isFirstLoad = true;
@@ -3845,7 +4230,7 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
       }
       if (!isGlobalChat && activeDM && dmViewingOlder) {
         dmViewingOlder = false;
-        dmOffset = 0;
+        dmCursor = '';
         removePaginationBtn();
         chatBox.innerHTML = '';
         isFirstLoad = true;
@@ -3854,7 +4239,7 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
       }
       if (!isGlobalChat && activeAdminConv && adminConvViewingOlder) {
         adminConvViewingOlder = false;
-        adminConvOffset = 0;
+        adminConvCursor = '';
         removePaginationBtn();
         chatBox.innerHTML = '';
         isFirstLoad = true;
@@ -3890,11 +4275,79 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
       return emojiRegex.test(stripped);
     }
 
+    // ── Auto-linkify URLs inside message text ──
+    // Turns any plain-text http(s):// or www. URL found in a message bubble
+    // into a real, clickable <a> that opens in a new tab. Only touches raw
+    // text nodes (never other markup already inside the bubble, e.g. images)
+    // and marks each content element once it's been processed so re-running
+    // this on every poll/reconcile never double-wraps an already-linkified
+    // message.
+    const URL_REGEX = /((?:https?:\/\/|www\.)[^\s<]+)/gi;
+
+    function linkifyContent(contentEl) {
+      if (!contentEl || contentEl.dataset.linkified === '1') return;
+      contentEl.dataset.linkified = '1';
+
+      const walker = document.createTreeWalker(contentEl, NodeFilter.SHOW_TEXT, null);
+      const textNodes = [];
+      let node;
+      while ((node = walker.nextNode())) {
+        // Skip text that's already inside a link (e.g. from a future
+        // server-rendered link) to avoid nesting anchors.
+        if (node.parentElement && node.parentElement.closest('a')) continue;
+        textNodes.push(node);
+      }
+
+      textNodes.forEach(function(textNode) {
+        const text = textNode.nodeValue;
+        URL_REGEX.lastIndex = 0;
+        if (!URL_REGEX.test(text)) return;
+        URL_REGEX.lastIndex = 0;
+
+        const frag = document.createDocumentFragment();
+        let lastIndex = 0;
+        let match;
+        while ((match = URL_REGEX.exec(text)) !== null) {
+          let url = match[0];
+          // Trim common trailing punctuation that's likely part of the
+          // sentence rather than the URL itself (e.g. "check this out: https://x.com/foo.")
+          const trailingPunct = /[.,:;!?'")\]}]+$/;
+          const trimmedMatch = trailingPunct.exec(url);
+          let trailing = '';
+          if (trimmedMatch) {
+            trailing = trimmedMatch[0];
+            url = url.slice(0, url.length - trailing.length);
+          }
+          if (!url) continue;
+
+          const start = match.index;
+          frag.appendChild(document.createTextNode(text.slice(lastIndex, start)));
+
+          const a = document.createElement('a');
+          a.href = /^https?:\/\//i.test(url) ? url : 'https://' + url;
+          a.textContent = url;
+          a.target = '_blank';
+          a.rel = 'noopener noreferrer';
+          a.className = 'chat-link';
+          frag.appendChild(a);
+
+          lastIndex = start + url.length;
+          if (trailing) {
+            frag.appendChild(document.createTextNode(trailing));
+            lastIndex += trailing.length;
+          }
+        }
+        frag.appendChild(document.createTextNode(text.slice(lastIndex)));
+        textNode.parentNode.replaceChild(frag, textNode);
+      });
+    }
+
     // Walk all rendered bubbles and apply / remove the emoji-only class.
     function applyEmojiOnly() {
       chatBox.querySelectorAll('.message-bubble').forEach(function(bubble) {
         const contentEl = bubble.querySelector('.message-content');
         if (!contentEl) return;
+        linkifyContent(contentEl);
         const text = contentEl.textContent || '';
         if (isEmojiOnly(text)) {
           bubble.classList.add('emoji-only');
@@ -3946,15 +4399,10 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
       isLoadingGC = true;
 
       const wasAtBottom = isAtBottom();
-      // gcOffset always holds the offset to use for the NEXT "load older" request
-      // (it's set to PAGE_SIZE right after the initial load, and thereafter
-      // mirrors the server's nextOffset). Using it directly here — instead of
-      // gcOffset + PAGE_SIZE — avoids double-advancing and skipping a batch of
-      // messages on every click after the first.
-      const requestOffset = loadOlderMode ? gcOffset : 0;
+      const cursor = loadOlderMode ? gcCursor : '';
 
       const xhr = new XMLHttpRequest();
-      xhr.open('GET', 'load.php?offset=' + requestOffset, true);
+      xhr.open('GET', 'load.php?before_uuid=' + encodeURIComponent(cursor), true);
       xhr.onload = function() {
         isLoadingGC = false;
         if (this.status !== 200) return;
@@ -3964,7 +4412,7 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
         gcHasMore        = data.hasMore || false;
 
         if (loadOlderMode) {
-          gcOffset = data.nextOffset || (requestOffset + PAGE_SIZE);
+          gcCursor = data.nextCursor || '';
           gcViewingOlder = true;
           // Prepend older messages
           const prev = chatBox.scrollHeight;
@@ -3989,7 +4437,7 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
         }
 
         // Normal poll / initial load
-        if (gcOffset === 0) gcOffset = PAGE_SIZE; // establish the "next older offset" pointer after the first load
+        if (gcCursor === '') gcCursor = data.nextCursor || ''; // establish the cursor pointer
         const temp = document.createElement('div');
         temp.innerHTML = newHtml;
         const newMessages     = Array.from(temp.querySelectorAll('.message-container, .empty-chat'));
@@ -4000,7 +4448,7 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
         const rec = reconcilePoll(newMessages, currentMessages, newKeys, curKeys);
 
         if (rec.type === 'nochange') {
-          if (isFirstLoad) { isFirstLoad = false; scrollToBottom(true, true); }
+          if (isFirstLoad) { isFirstLoad = false; handleFirstLoadScroll(); }
           if (gcHasMore && !document.getElementById('loadOlderBtn') && !document.getElementById('noMoreOlderNotice')) insertLoadOlderBtn();
           return;
         }
@@ -4057,7 +4505,7 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
               }
               // Auto-scroll after the last message is revealed
               if (i === toInsert.length - 1) {
-                if (isFirstLoad) { isFirstLoad = false; scrollToBottom(true, true); }
+                if (isFirstLoad) { isFirstLoad = false; handleFirstLoadScroll(); }
                 else if (wasAtBottom || shouldAutoScroll) requestAnimationFrame(() => requestAnimationFrame(() => scrollToBottom(true, false)));
                 else showScrollIndicator(toInsert.filter(el => el.classList.contains('message-container')).length);
                 applyAdminBadges(); applyEmojiOnly();
@@ -4091,12 +4539,12 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
         
         document.querySelectorAll('[data-sending-uid]').forEach(el => el.remove());
         chatBox.scrollTop = Math.max(0, prevST + chatBox.scrollHeight - prevSH);
-        if (isFirstLoad) { isFirstLoad = false; scrollToBottom(true, true); }
+        if (isFirstLoad) { isFirstLoad = false; handleFirstLoadScroll(); }
         else if (wasAtBottom || shouldAutoScroll || isFirstLoad) requestAnimationFrame(() => requestAnimationFrame(() => scrollToBottom(true, false)));
         else if (genuinelyNewCount > 0) showScrollIndicator(genuinelyNewCount);
         applyAdminBadges(); applyEmojiOnly();
         // Chat was rebuilt from scratch (e.g. cleared), so pagination state no longer applies
-        gcOffset = PAGE_SIZE;
+        gcCursor = data.nextCursor || '';
         gcViewingOlder = false;
         if (gcHasMore && !document.getElementById('loadOlderBtn') && !document.getElementById('noMoreOlderNotice')) insertLoadOlderBtn();
       };
@@ -4132,12 +4580,8 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
       // a different conversation before this response comes back, we discard
       // the (now stale) result instead of rendering it into the wrong chat.
       const requestedUser = activeDM;
-      // dmOffset always holds the offset to use for the NEXT "load older" request
-      // (set to PAGE_SIZE right after the initial load, then mirrors the
-      // server's nextOffset). Using it directly — instead of dmOffset + PAGE_SIZE —
-      // avoids double-advancing and skipping a batch of messages after the first click.
-      const requestOffset = loadOlderMode ? dmOffset : 0;
-      const url = 'load_dm.php?target_user=' + encodeURIComponent(activeDM) + '&offset=' + requestOffset;
+      const cursor = loadOlderMode ? dmCursor : '';
+      const url = 'load_dm.php?target_user=' + encodeURIComponent(activeDM) + '&before_uuid=' + encodeURIComponent(cursor);
 
       const xhr = new XMLHttpRequest();
       chatXhr = xhr;
@@ -4153,7 +4597,7 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
         dmHasMore = data.hasMore || false;
 
         if (loadOlderMode) {
-          dmOffset = data.nextOffset || (requestOffset + PAGE_SIZE);
+          dmCursor = data.nextCursor || '';
           dmViewingOlder = true;
           const prev = chatBox.scrollHeight;
           const temp = document.createElement('div');
@@ -4180,7 +4624,7 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
           return;
         }
 
-        if (dmOffset === 0) dmOffset = PAGE_SIZE; // establish the "next older offset" pointer after the first load
+        if (dmCursor === '') dmCursor = data.nextCursor || ''; // establish cursor pointer
         const temp = document.createElement('div');
         temp.innerHTML = newHtml;
         const newMessages     = Array.from(temp.querySelectorAll('.message-container, .empty-chat'));
@@ -4191,7 +4635,7 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
         const rec = reconcilePoll(newMessages, currentMessages, newKeys, curKeys);
 
         if (rec.type === 'nochange') {
-          if (isFirstLoad) { isFirstLoad = false; scrollToBottom(true, true); }
+          if (isFirstLoad) { isFirstLoad = false; handleFirstLoadScroll(); }
           if (dmHasMore && !document.getElementById('loadOlderBtn') && !document.getElementById('noMoreOlderNotice')) insertLoadOlderBtn();
           return;
         }
@@ -4218,7 +4662,7 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
           if (!dmViewingOlder) {
             trimWindowFromTop(newMessages.length);
           }
-          if (isFirstLoad) { isFirstLoad = false; scrollToBottom(true, true); }
+          if (isFirstLoad) { isFirstLoad = false; handleFirstLoadScroll(); }
           else if (wasAtBottom || shouldAutoScroll) requestAnimationFrame(() => requestAnimationFrame(() => scrollToBottom(true, false)));
           else showScrollIndicator(rec.items.filter(el => el.classList.contains('message-container')).length);
           applyAdminBadges(); applyEmojiOnly();
@@ -4254,7 +4698,7 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
         if (mc > 0 && (wasAtBottom || shouldAutoScroll || isFirstLoad)) {
           const doInstant = isFirstLoad;
           isFirstLoad = false;
-          if (doInstant) scrollToBottom(true, true);
+          if (doInstant) handleFirstLoadScroll();
           else requestAnimationFrame(() => requestAnimationFrame(() => scrollToBottom(true, false)));
         } else {
           isFirstLoad = false;
@@ -4263,7 +4707,7 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
         applyAdminBadges(); applyEmojiOnly();
         if (!document.hidden && activeDM) markRead(activeDM);
         // Chat was rebuilt from scratch (e.g. cleared), so pagination state no longer applies
-        dmOffset = PAGE_SIZE;
+        dmCursor = data.nextCursor || '';
         dmViewingOlder = false;
         if (dmHasMore && !document.getElementById('loadOlderBtn') && !document.getElementById('noMoreOlderNotice')) insertLoadOlderBtn();
       };
@@ -4303,7 +4747,29 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
             fetchUsers();
           }
           closeModal();
-          
+
+          // Broadcast the clear so every other connected client (the other
+          // party in the DM, or any other admin viewing the same admin
+          // conversation) refreshes immediately instead of showing stale
+          // messages until their next poll/reload.
+          if (ws && ws.readyState === WebSocket.OPEN) {
+            if (activeDM) {
+              ws.send(JSON.stringify({
+                type: 'chat_cleared',
+                chat_type: 'private',
+                recipient_id: activeDMAccountId
+              }));
+            } else if (activeAdminConv) {
+              const clearedParts = activeAdminConv.split('_').map(Number);
+              ws.send(JSON.stringify({
+                type: 'chat_cleared',
+                chat_type: 'admin_conv',
+                user_a: clearedParts[0],
+                user_b: clearedParts[1]
+              }));
+            }
+          }
+
           // Reset secret input
           secretInput.value = '';
           secretError.style.display = 'none';
@@ -4405,49 +4871,57 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
       messageInput.focus();
       if (isIOS) iosBlurSuppressed = false;
 
-      // Show optimistic "Sending..." bubble immediately.
-      // Each send gets a UNIQUE id so rapid-fire sends don't share a single indicator
-      // that gets orphaned when loadChat() only removes the first one it finds.
-      const emptyChat = chatBox.querySelector('.empty-chat');
-      if (emptyChat) emptyChat.remove();
+      // Show optimistic "Sending..." bubble immediately (only if NOT editing).
+      let sendIndId = null;
+      if (!editingMsgId) {
+        const emptyChat = chatBox.querySelector('.empty-chat');
+        if (emptyChat) emptyChat.remove();
 
-      const sendUid = ++sendingUidCounter;
-      const sendIndId = 'sending-indicator-' + sendUid;
+        const sendUid = ++sendingUidCounter;
+        sendIndId = 'sending-indicator-' + sendUid;
 
-      const sendingBubble = document.createElement('div');
-      sendingBubble.id = sendIndId;
-      sendingBubble.setAttribute('data-sending-uid', sendUid);
-      sendingBubble.className = 'message-container sent msg-animate-sent';
-      sendingBubble.innerHTML = `
-        <div class="message-bubble bubble-pop" style="opacity:0.55;">
-          <div class="message-content" style="font-style:italic;font-size:13px;">Sending...</div>
-        </div>
-        <div class="message-avatar">${getInitials(name)}</div>
-      `;
-      sendingBubble.addEventListener('animationend', () => sendingBubble.classList.remove('msg-animate-sent'), { once: true });
-      // Append optimistic sending bubble into floating overlay so it doesn't reflow chat
-      const overlay3 = getSendingOverlay();
-      if (overlay3) overlay3.appendChild(sendingBubble);
-      else chatBox.appendChild(sendingBubble);
-      shouldAutoScroll = true;
-      userScrolledUp = false;
-      // Only scroll if user was at bottom to avoid jarring jumps when overlay is used
-      if (isAtBottom()) scrollToBottom(true, true);
+        const sendingBubble = document.createElement('div');
+        sendingBubble.id = sendIndId;
+        sendingBubble.setAttribute('data-sending-uid', sendUid);
+        sendingBubble.className = 'message-container sent msg-animate-sent';
+        sendingBubble.innerHTML = `
+          <div class="message-bubble bubble-pop" style="opacity:0.55;">
+            <div class="message-content" style="font-style:italic;font-size:13px;">Sending...</div>
+          </div>
+          <div class="message-avatar">${getInitials(name)}</div>
+        `;
+        sendingBubble.addEventListener('animationend', () => sendingBubble.classList.remove('msg-animate-sent'), { once: true });
+        // Append optimistic sending bubble into floating overlay so it doesn't reflow chat
+        const overlay3 = getSendingOverlay();
+        if (overlay3) overlay3.appendChild(sendingBubble);
+        else chatBox.appendChild(sendingBubble);
+        shouldAutoScroll = true;
+        userScrolledUp = false;
+        // Only scroll if user was at bottom to avoid jarring jumps when overlay is used
+        if (isAtBottom()) scrollToBottom(true, true);
+      }
 
       // Delay the actual POST by 0.3s to reduce rapid-fire spamming.
-      // Keep the optimistic "Sending..." bubble visible immediately.
       const SEND_DELAY_MS = 100;
       const xhr = new XMLHttpRequest();
-      // Route to correct send endpoint
-      if (isGlobalChat) {
-        xhr.open('POST', 'send.php', true);
+      let payload = '';
+
+      if (editingMsgId) {
+        xhr.open('POST', 'edit_message.php', true);
+        xhr.setRequestHeader('Content-type', 'application/x-www-form-urlencoded');
+        payload = 'msg_uuid=' + encodeURIComponent(editingMsgId) + '&message=' + encodeURIComponent(message);
       } else {
-        xhr.open('POST', 'send_dm.php', true);
+        // Route to correct send endpoint
+        if (isGlobalChat) {
+          xhr.open('POST', 'send.php', true);
+        } else {
+          xhr.open('POST', 'send_dm.php', true);
+        }
+        xhr.setRequestHeader('Content-type', 'application/x-www-form-urlencoded');
+        payload = isGlobalChat
+          ? 'message=' + encodeURIComponent(message)
+          : 'target_user=' + encodeURIComponent(activeDM) + '&message=' + encodeURIComponent(message);
       }
-      xhr.setRequestHeader('Content-type', 'application/x-www-form-urlencoded');
-      const payload = isGlobalChat
-        ? 'message=' + encodeURIComponent(message)
-        : 'target_user=' + encodeURIComponent(activeDM) + '&message=' + encodeURIComponent(message);
 
       // Fire the XHR after a short delay. Re-enable send controls only after the XHR is dispatched.
       const sendTimer = setTimeout(function() {
@@ -4473,17 +4947,54 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
             sendTypingStatus(false);
           }
 
-          // Broadcast message notification via WebSocket so other connected
-          // clients get an instant refresh without waiting for polling.
+          // Optimistically patch the edited bubble in-place so it updates
+          // instantly without waiting for loadChatForced() to re-render.
+          let capturedEditingMsgId = null;
+          if (editingMsgId) {
+            capturedEditingMsgId = editingMsgId;
+            const editedContainer = chatBox.querySelector(
+              `.message-container[data-msg-id="${editingMsgId}"]`
+            );
+            if (editedContainer) {
+              const contentEl = editedContainer.querySelector('.message-bubble .message-content');
+              if (contentEl) contentEl.textContent = message;
+
+              // Inject "edited" label if not already present
+              const bubbleWrapper = editedContainer.querySelector('.bubble-wrapper');
+              if (bubbleWrapper && !bubbleWrapper.querySelector('.message-edited-label')) {
+                const label = document.createElement('div');
+                label.className = 'message-edited-label';
+                label.style.cssText = 'font-size:10px;color:var(--text-secondary);opacity:0.8;margin-bottom:2px;font-style:italic;';
+                label.textContent = 'edited';
+                bubbleWrapper.insertBefore(label, bubbleWrapper.firstChild);
+              }
+            }
+            hideEditBanner();
+          }
+
+          // Broadcast edit notification via WebSocket so other clients patch
+          // the bubble in-place instantly — no server round-trip needed.
           if (ws && ws.readyState === WebSocket.OPEN) {
-            if (isGlobalChat) {
-              ws.send(JSON.stringify({ type: 'message', chat_type: 'global' }));
-            } else if (activeDM && activeDMAccountId) {
+            const wasEditing = !!capturedEditingMsgId;
+            if (wasEditing) {
+              // Send a dedicated edit event so receivers can patch DOM directly
               ws.send(JSON.stringify({
-                type: 'message',
-                chat_type: 'private',
-                recipient_id: activeDMAccountId
+                type: 'message_edited',
+                msg_uuid: capturedEditingMsgId,
+                message: message,
+                chat_type: isGlobalChat ? 'global' : 'private',
+                recipient_id: activeDMAccountId || null
               }));
+            } else {
+              if (isGlobalChat) {
+                ws.send(JSON.stringify({ type: 'message', chat_type: 'global' }));
+              } else if (activeDM && activeDMAccountId) {
+                ws.send(JSON.stringify({
+                  type: 'message',
+                  chat_type: 'private',
+                  recipient_id: activeDMAccountId
+                }));
+              }
             }
           }
 
@@ -4491,9 +5002,11 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
           if (isGlobalChat) { isLoadingGC = false; loadGlobalChat(false); }
           else loadChatForced();
         } else {
-          // Server error — remove only THIS send's optimistic bubble
-          const indicator = document.getElementById(sendIndId);
-          if (indicator) indicator.remove();
+          // Server error — remove only THIS send's optimistic bubble (if present)
+          if (sendIndId) {
+            const indicator = document.getElementById(sendIndId);
+            if (indicator) indicator.remove();
+          }
         }
       };
 
@@ -4770,13 +5283,19 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
               closeDeleteAllModal();
               // Reset all chat state
               activeDM = null; activeAdminConv = null; isGlobalChat = false;
-              gcOffset = 0; dmOffset = 0;
+              gcCursor = ''; dmCursor = '';
               gcViewingOlder = false; dmViewingOlder = false;
               removePaginationBtn();
               document.getElementById('globalChatItem').classList.remove('active');
               chatBox.innerHTML = '<div class="empty-chat"><p>All messages deleted.</p></div>';
               renderSidebarUsers();
               if (serverIsAdmin) renderAdminConvs();
+
+              // Broadcast so every other connected client wipes its view in
+              // realtime too, instead of only the admin who triggered this.
+              if (ws && ws.readyState === WebSocket.OPEN) {
+                ws.send(JSON.stringify({ type: 'all_cleared' }));
+              }
             };
             dx.onerror = function() { alert('Delete failed. Try again.'); };
             dx.send();
@@ -4819,8 +5338,183 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
       }
     });
     
+    // ==========================================================================
+    // FILE UPLOAD — Drag-and-Drop + Attachment Button
+    // ==========================================================================
+
+    // ── Rejected executable/script extensions ──────────────────────────────────
+    const REJECTED_EXTS = new Set([
+      'exe','bat','cmd','sh','bash','zsh',
+      'php','php3','php4','php5','phtml','phar',
+      'pl','py','rb','go','swift',
+      'js','ts','jsx','tsx',
+      'jar','class',
+      'msi','vbs','vbe','wsf','ws','wsc',
+      'scr','com','pif','gadget',
+      'ps1','ps2','psm1','psd1',
+      'msc','hta','cpl','inf','reg',
+      'lnk','url',
+      'asp','aspx','jsp','jspx',
+      'dll','so','ko','sys','drv',
+      'cgi','fcgi',
+    ]);
+
+    // ── Image extensions (same list as PHP) ────────────────────────────────────
+    const IMAGE_EXTS = new Set(['jpg','jpeg','png','gif','webp','bmp','svg','ico']);
+
+    const dropOverlay       = document.getElementById('dropOverlay');
+    const fileAttachInput   = document.getElementById('fileAttachmentInput');
+
+    // ── Drag counter (prevents overlay flicker on child-enter/leave) ───────────
+    let dragCount = 0;
+
+    chatBox.addEventListener('dragenter', function(e) {
+      e.preventDefault();
+      dragCount++;
+      if (dropOverlay) dropOverlay.classList.add('visible');
+    }, false);
+
+    chatBox.addEventListener('dragleave', function(e) {
+      e.preventDefault();
+      dragCount--;
+      if (dragCount <= 0) {
+        dragCount = 0;
+        if (dropOverlay) dropOverlay.classList.remove('visible');
+      }
+    }, false);
+
+    chatBox.addEventListener('dragover', function(e) {
+      e.preventDefault();
+    }, false);
+
+    chatBox.addEventListener('drop', function(e) {
+      e.preventDefault();
+      dragCount = 0;
+      if (dropOverlay) dropOverlay.classList.remove('visible');
+      const files = e.dataTransfer ? Array.from(e.dataTransfer.files) : [];
+      if (files.length > 0) handleFileUploads(files);
+    }, false);
+
+    // ── File input (attachment button) ─────────────────────────────────────────
+    if (fileAttachInput) {
+      fileAttachInput.addEventListener('change', function() {
+        const files = Array.from(this.files || []);
+        if (files.length > 0) handleFileUploads(files);
+        this.value = ''; // reset so same file can be re-picked
+      });
+    }
+
+    // ── Mobile-friendly tap listener for the attach button ───────────────────
+    const attachBtn = document.getElementById('attachBtn');
+    if (attachBtn && fileAttachInput) {
+      attachBtn.addEventListener('click', function(e) {
+        e.preventDefault();
+        fileAttachInput.click();
+      });
+    }
+
+
+    // ── Core upload handler ───────────────────────────────────────────────────
+    function handleFileUploads(files) {
+      if (!activeDM && !isGlobalChat) {
+        return;
+      }
+
+      // Separate rejected and accepted files
+      const rejected = [];
+      const accepted = [];
+      for (const file of files) {
+        const ext = (file.name.split('.').pop() || '').toLowerCase();
+        if (REJECTED_EXTS.has(ext)) {
+          rejected.push(file.name);
+        } else {
+          accepted.push(file);
+        }
+      }
+
+      // silently ignore rejected files
+
+      // Split accepted files: images in one batch, other files individually
+      const imageBatch = accepted.filter(f => IMAGE_EXTS.has((f.name.split('.').pop()||'').toLowerCase()));
+      const otherFiles = accepted.filter(f => !IMAGE_EXTS.has((f.name.split('.').pop()||'').toLowerCase()));
+
+      // Upload image batch as a single grid message (if there are images)
+      if (imageBatch.length > 0) {
+        uploadAndSend(imageBatch, true);
+      }
+
+      // Upload each non-image file individually
+      for (const file of otherFiles) {
+        uploadAndSend([file], false);
+      }
+    }
+
+    // ── Upload files → save message ───────────────────────────────────────────
+    function uploadAndSend(fileList, isImageBatch) {
+      shouldAutoScroll = true;
+      userScrolledUp   = false;
+
+      // Build FormData
+      const fd = new FormData();
+      for (const file of fileList) {
+        fd.append('files[]', file);
+      }
+
+      // POST to upload.php
+      const xhr = new XMLHttpRequest();
+      xhr.open('POST', 'upload.php', true);
+      xhr.onload = function() {
+        if (this.status !== 200) {
+          return;
+        }
+
+        let result;
+        try { result = JSON.parse(this.responseText); } catch(e) {
+          return;
+        }
+
+        if (!result.success || !result.uploaded || result.uploaded.length === 0) return;
+
+        // Send the uploaded filenames as a message
+        const uploadedFiles = result.uploaded;
+        const filesPayload  = JSON.stringify(uploadedFiles);
+
+        const sendXhr = new XMLHttpRequest();
+        const sendUrl = isGlobalChat ? 'send.php' : 'send_dm.php';
+        sendXhr.open('POST', sendUrl, true);
+        sendXhr.setRequestHeader('Content-type', 'application/x-www-form-urlencoded');
+
+        let params = 'uploaded_files=' + encodeURIComponent(filesPayload);
+        if (!isGlobalChat && activeDM) {
+          params += '&target_user=' + encodeURIComponent(activeDM);
+        }
+
+        sendXhr.onload = function() {
+          if (this.status === 200) {
+            // Trigger WS broadcast so the other party refreshes
+            if (ws && ws.readyState === WebSocket.OPEN) {
+              if (isGlobalChat) {
+                ws.send(JSON.stringify({ type: 'message', chat_type: 'global' }));
+              } else {
+                ws.send(JSON.stringify({ type: 'message', chat_type: 'private', recipient_id: activeDMAccountId }));
+              }
+            }
+            // Force a fresh chat load so the grid renders
+            isLoadingChat = false;
+            if (isGlobalChat) loadGlobalChat();
+            else if (activeDM) loadChat();
+          }
+        };
+        sendXhr.onerror = function() {};
+        sendXhr.send(params);
+      };
+      xhr.onerror = function() {};
+      xhr.send(fd);
+    }
+
     // Prevent zoom on input focus (iOS)
     document.addEventListener('touchstart', function() {}, {passive: true});
+
 
     // ── iOS Safari keyboard fix ──
     // On iOS, the virtual keyboard does NOT resize the viewport (unlike Android).

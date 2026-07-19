@@ -985,14 +985,19 @@ new #[Layout('layouts.dts')] #[Title('DTS - Internal Transactions')] class exten
                         </button>
 
                         <!-- COMPLETED / REAFFIRM / UPLOAD -->
+                        @php
+                            $allowManualComplete = \DB::table('system_settings')->where('key', 'dts_allow_manual_completion_button')->value('value') === 'true';
+                        @endphp
                         @if ($selectedTransaction->current_office === auth()->user()?->details?->office?->office_code)
                             @if ($this->isLastStep())
-                                <button type="button" class="receive-action-btn" wire:click="triggerCompletionConfirm" style="background-color: #16a34a;">
-                                    <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-                                        <polyline points="20 6 9 17 4 12"/>
-                                    </svg>
-                                    Complete Transaction
-                                </button>
+                                @if ($allowManualComplete)
+                                    <button type="button" class="receive-action-btn" wire:click="triggerCompletionConfirm" style="background-color: #16a34a;">
+                                        <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                                            <polyline points="20 6 9 17 4 12"/>
+                                        </svg>
+                                        Complete Transaction
+                                    </button>
+                                @endif
                                 <button type="button" class="receive-action-btn" wire:click="triggerUploadFileModal" style="background-color: #0284c7;">
                                     <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
                                         <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
@@ -1002,12 +1007,14 @@ new #[Layout('layouts.dts')] #[Title('DTS - Internal Transactions')] class exten
                                     Upload File
                                 </button>
                             @else
-                                <button type="button" class="receive-action-btn" wire:click="completeTransaction">
-                                    <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-                                        <polyline points="20 6 9 17 4 12"/>
-                                    </svg>
-                                    COMPLETED
-                                </button>
+                                @if ($allowManualComplete)
+                                    <button type="button" class="receive-action-btn" wire:click="completeTransaction">
+                                        <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                                            <polyline points="20 6 9 17 4 12"/>
+                                        </svg>
+                                        COMPLETED
+                                    </button>
+                                @endif
                             @endif
                         @endif
 
@@ -1058,6 +1065,55 @@ new #[Layout('layouts.dts')] #[Title('DTS - Internal Transactions')] class exten
                         </button>
                     </div>
                 </form>
+            </div>
+        </div>
+    @endif
+
+    <!-- Complete Transaction Confirmation Popout Modal -->
+    @if ($showCompletionConfirmModal)
+        <div style="position: fixed; inset: 0; z-index: 9999; background: rgba(15, 23, 42, 0.6); backdrop-filter: blur(4px); display: flex; align-items: center; justify-content: center; padding: 16px;">
+            <div style="background: #ffffff; width: 100%; max-width: 440px; border-radius: 16px; box-shadow: 0 20px 25px -5px rgba(0,0,0,0.1), 0 8px 10px -6px rgba(0,0,0,0.1); overflow: hidden; font-family: 'Inter', sans-serif; animation: fadeIn 0.2s ease-out;">
+                
+                <!-- Modal Header -->
+                <div style="padding: 20px 24px; background: #f8fafc; border-bottom: 1px solid #e2e8f0; display: flex; align-items: center; justify-content: space-between;">
+                    <div style="display: flex; align-items: center; gap: 12px;">
+                        <div style="width: 40px; height: 40px; border-radius: 10px; background: #dcfce7; color: #15803d; display: flex; align-items: center; justify-content: center; font-size: 18px;">
+                            <i class="fa-solid fa-circle-check"></i>
+                        </div>
+                        <div>
+                            <h3 style="margin: 0; font-size: 16px; font-weight: 700; color: #0f172a;">Complete Transaction</h3>
+                            <span style="font-size: 12px; color: #64748b;">Final step verification</span>
+                        </div>
+                    </div>
+                    <button type="button" wire:click="cancelCompletionConfirm" style="background: none; border: none; font-size: 20px; color: #94a3b8; cursor: pointer; border-radius: 50%; width: 32px; height: 32px; display: flex; align-items: center; justify-content: center;" onmouseover="this.style.background='#e2e8f0'" onmouseout="this.style.background='transparent'">&times;</button>
+                </div>
+
+                <!-- Modal Body -->
+                <div style="padding: 24px;">
+                    <p style="margin: 0 0 12px 0; font-size: 14px; color: #334155; line-height: 1.5;">
+                        Are you sure you want to mark this transaction as <strong style="color: #15803d;">Completed</strong>?
+                    </p>
+                    @if ($selectedTransaction)
+                        <div style="background: #f1f5f9; border-radius: 8px; padding: 12px 16px; font-size: 13px; color: #475569;">
+                            <div style="margin-bottom: 4px;"><strong>Control No:</strong> <span style="font-family: monospace; font-weight: 700; color: #0f172a;">{{ $selectedTransaction->control_number }}</span></div>
+                            <div><strong>Subject:</strong> {{ $selectedTransaction->subject }}</div>
+                        </div>
+                    @endif
+                    <p style="margin: 12px 0 0 0; font-size: 12px; color: #64748b; line-height: 1.4;">
+                        Once completed, the document tracking flow for this transaction will be closed.
+                    </p>
+                </div>
+
+                <!-- Modal Footer -->
+                <div style="padding: 16px 24px; background: #f8fafc; border-top: 1px solid #e2e8f0; display: flex; align-items: center; justify-content: flex-end; gap: 12px;">
+                    <button type="button" wire:click="cancelCompletionConfirm" style="padding: 9px 18px; border-radius: 8px; border: 1.5px solid #cbd5e1; background: #ffffff; color: #334155; font-size: 13px; font-weight: 600; cursor: pointer; transition: all 0.15s;" onmouseover="this.style.background='#f1f5f9'" onmouseout="this.style.background='#ffffff'">
+                        Cancel
+                    </button>
+                    <button type="button" wire:click="confirmAndCompleteTransaction" style="padding: 9px 20px; border-radius: 8px; border: none; background: #16a34a; color: #ffffff; font-size: 13px; font-weight: 600; cursor: pointer; display: flex; align-items: center; gap: 6px; box-shadow: 0 4px 10px rgba(22, 163, 74, 0.25); transition: background 0.15s;" onmouseover="this.style.backgroundColor='#15803d'" onmouseout="this.style.backgroundColor='#16a34a'">
+                        <i class="fa-solid fa-check"></i> Yes, Complete
+                    </button>
+                </div>
+
             </div>
         </div>
     @endif

@@ -82,6 +82,16 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Users')] class extends C
     public bool $showRoleDropdown = false;
     public string $officeSearch = '';
     public bool $showOfficeDropdown = false;
+    public bool $showResetPasswordContainer = false;
+
+    public function toggleResetPasswordContainer(): void
+    {
+        $this->showResetPasswordContainer = !$this->showResetPasswordContainer;
+        if (!$this->showResetPasswordContainer) {
+            $this->password = '';
+            $this->password_confirmation = '';
+        }
+    }
 
     /**
      * Initializes "Create Mode" for configuring a new user profile.
@@ -167,6 +177,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Users')] class extends C
         $this->showRoleDropdown = false;
         $this->officeSearch = '';
         $this->showOfficeDropdown = false;
+        $this->showResetPasswordContainer = false;
         $this->clearMessages();
     }
 
@@ -220,6 +231,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Users')] class extends C
         } else {
             // Edit mode validation rules
             $rules = [
+                'username' => 'required|string|max:255|unique:account,username,' . $this->selectedUserId . ',id',
                 'firstName' => 'required|string|max:255',
                 'lastName' => 'required|string|max:255',
                 'middleName' => 'nullable|string|max:255',
@@ -286,6 +298,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Users')] class extends C
                     $statusChanged = $user->account_active != $this->isActive;
 
                     $userData = [
+                        'username' => $this->username,
                         'account_role' => $this->roleId,
                         'account_active' => $this->isActive,
                         'date_updated' => now(),
@@ -610,12 +623,8 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Users')] class extends C
                     <!-- Username -->
                     <div class="form-group">
                         <span class="form-label">Username</span>
-                        @if($selectedUserId === -1)
-                            <input type="text" class="form-input" placeholder="e.g. jdoe" wire:model="username">
-                            @error('username') <span style="color:#ef4444; font-size:11px; margin-top:2px;">{{ $message }}</span> @enderror
-                        @else
-                            <input type="text" class="form-input" value="{{ $username }}" readonly>
-                        @endif
+                        <input type="text" class="form-input" placeholder="e.g. jdoe" wire:model="username">
+                        @error('username') <span style="color:#ef4444; font-size:11px; margin-top:2px;">{{ $message }}</span> @enderror
                     </div>
 
                     <!-- Email -->
@@ -745,26 +754,32 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Users')] class extends C
                         @error('officeId') <span style="color:#ef4444; font-size:11px; margin-top:2px;">{{ $message }}</span> @enderror
                     </div>
 
-                    <!-- Reset Password Section (Edit Mode Only) -->
-                    @if($selectedUserId > 0)
+                    <!-- Reset Password Container (Edit Mode Only, toggled by Reset Password button) -->
+                    @if($selectedUserId > 0 && $showResetPasswordContainer)
                         @if(auth()->user()?->permissions?->is_sadm || auth()->user()?->permissions?->can_sadm_modify_pass)
-                            <div class="form-group full-width" style="margin-top: 15px; border-top: 1px dashed #cbd5e1; padding-top: 15px;">
-                                <span style="font-size: 13px; font-weight: 600; color: #475569; display: block; margin-bottom: 8px;">Reset Password</span>
+                            <div class="form-group full-width" style="margin-top: 15px; background: #f8fafc; border: 1.5px solid #cbd5e1; border-radius: 10px; padding: 16px; animation: fadeIn 0.2s ease-out;">
+                                <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px;">
+                                    <span style="font-size: 13.5px; font-weight: 700; color: #1e293b; display: flex; align-items: center; gap: 8px;">
+                                        <i class="fa-solid fa-key" style="color: #0284c7;"></i> Reset Account Password
+                                    </span>
+                                    <button type="button" wire:click="toggleResetPasswordContainer" style="background: none; border: none; font-size: 18px; color: #94a3b8; cursor: pointer; padding: 0 4px;" onmouseover="this.style.color='#64748b'" onmouseout="this.style.color='#94a3b8'">&times;</button>
+                                </div>
                                 <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px; width: 100%;">
                                     <div class="form-group" style="margin-bottom: 0;">
                                         <span class="form-label">New Password</span>
-                                        <input type="password" class="form-input" style="height: 38px;" placeholder="Leave blank to keep current..." wire:model="password">
+                                        <input type="password" class="form-input" style="height: 38px; background: #ffffff;" placeholder="Enter new password..." wire:model="password">
                                         @error('password') <span style="color:#ef4444; font-size:11px; margin-top:2px;">{{ $message }}</span> @enderror
                                     </div>
                                     <div class="form-group" style="margin-bottom: 0;">
                                         <span class="form-label">Confirm New Password</span>
-                                        <input type="password" class="form-input" style="height: 38px;" placeholder="Confirm new password..." wire:model="password_confirmation">
+                                        <input type="password" class="form-input" style="height: 38px; background: #ffffff;" placeholder="Confirm new password..." wire:model="password_confirmation">
                                         @error('password_confirmation') <span style="color:#ef4444; font-size:11px; margin-top:2px;">{{ $message }}</span> @enderror
                                     </div>
                                 </div>
                             </div>
                         @endif
                     @endif
+
                     <!-- Active Toggle Wrapper -->
                     <div class="form-group full-width">
                         <div class="status-toggle-wrapper">
@@ -785,11 +800,17 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Users')] class extends C
             <div class="details-footer">
                 @php
                     $canModify = auth()->user()?->permissions?->is_sadm || auth()->user()?->permissions?->can_sadm_modify_account;
+                    $canResetPass = auth()->user()?->permissions?->is_sadm || auth()->user()?->permissions?->can_sadm_modify_pass;
                 @endphp
                 @if($selectedUserId > 0)
                     <button type="button" class="btn-delete" wire:click="deleteUser" style="margin-right: auto;" {{ !$canModify ? 'disabled style=opacity:0.6;cursor:not-allowed;' : '' }}>
                         <i class="fa-solid fa-trash-can"></i> Delete Account
                     </button>
+                    @if($canResetPass)
+                        <button type="button" class="btn-cancel" wire:click="toggleResetPasswordContainer" style="margin-right: 8px; border-color: #0284c7; color: #0284c7; background-color: {{ $showResetPasswordContainer ? '#e0f2fe' : '#ffffff' }}; font-weight: 600; display: inline-flex; align-items: center; gap: 6px; padding: 8px 16px; border-radius: 20px;" onmouseover="this.style.backgroundColor='#e0f2fe'" onmouseout="this.style.backgroundColor='{{ $showResetPasswordContainer ? '#e0f2fe' : '#ffffff' }}'">
+                            <i class="fa-solid fa-key"></i> Reset Password
+                        </button>
+                    @endif
                 @endif
                 <button type="button" class="btn-cancel" wire:click="cancelSelection">Cancel</button>
                 <button type="button" class="btn-save" wire:click="saveUserChanges" {{ !$canModify ? 'disabled style=opacity:0.6;cursor:not-allowed;' : '' }}>

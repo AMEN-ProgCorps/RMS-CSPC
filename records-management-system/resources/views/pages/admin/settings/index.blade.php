@@ -10,6 +10,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - System Settings')] class
     public bool $emailAccessRequiredExternal = true;
     public bool $emailAccessRequiredApplication = true;
     public bool $emailAccessRequiredInternal = false;
+    public bool $allowManualCompletionButton = false;
     public string $successMessage = '';
     public string $errorMessage = '';
 
@@ -26,6 +27,9 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - System Settings')] class
 
         $int = \DB::table('system_settings')->where('key', 'dts_email_access_required_internal')->value('value');
         $this->emailAccessRequiredInternal = ($int === 'true');
+
+        $manual = \DB::table('system_settings')->where('key', 'dts_allow_manual_completion_button')->value('value');
+        $this->allowManualCompletionButton = ($manual === 'true');
     }
 
     public function saveSettings(): void
@@ -67,12 +71,21 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - System Settings')] class
                     ]
                 );
 
+                \DB::table('system_settings')->updateOrInsert(
+                    ['key' => 'dts_allow_manual_completion_button'],
+                    [
+                        'value' => $this->allowManualCompletionButton ? 'true' : 'false',
+                        'updated_at' => now(),
+                    ]
+                );
+
                 // Log activity
                 \DB::table('admin_logs')->insert([
                     'changes' => "Updated system settings. Prewarming: " . ($this->pagePrewarmingEnabled ? 'true' : 'false') . 
                                  ", Email Access External: " . ($this->emailAccessRequiredExternal ? 'true' : 'false') . 
                                  ", Email Access Application: " . ($this->emailAccessRequiredApplication ? 'true' : 'false') . 
-                                 ", Email Access Internal: " . ($this->emailAccessRequiredInternal ? 'true' : 'false'),
+                                 ", Email Access Internal: " . ($this->emailAccessRequiredInternal ? 'true' : 'false') .
+                                 ", Allow Manual Completion Button: " . ($this->allowManualCompletionButton ? 'true' : 'false'),
                     'admin_id' => auth()->id(),
                     'what_system' => 3, // Admin Console
                     'when_changes' => now(),
@@ -261,6 +274,20 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - System Settings')] class
                 </div>
                 <label class="switch">
                     <input type="checkbox" wire:model="emailAccessRequiredInternal">
+                    <span class="slider"></span>
+                </label>
+            </div>
+
+            <!-- Setting: Allow Manual Complete / Forward Button -->
+            <div class="setting-item">
+                <div class="setting-details">
+                    <span class="setting-title">Allow Manual Complete / Forward Buttons (Alternative to QR Scanning)</span>
+                    <span class="setting-desc">
+                        When disabled (default), manual completion buttons are hidden and transactions can only be forwarded and completed via physical QR Code scanning. When enabled, displays the manual COMPLETED / Complete Transaction button as an alternative override option.
+                    </span>
+                </div>
+                <label class="switch">
+                    <input type="checkbox" wire:model="allowManualCompletionButton">
                     <span class="slider"></span>
                 </label>
             </div>

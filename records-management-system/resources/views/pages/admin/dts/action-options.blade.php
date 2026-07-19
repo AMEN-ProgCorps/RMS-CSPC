@@ -4,7 +4,7 @@ use Livewire\Attributes\Title;
 use Livewire\Volt\Component;
 use Illuminate\Support\Facades\DB;
 
-new #[Layout('layouts.admin')] #[Title('Admin Console - DTS Addon')] class extends Component {
+new #[Layout('layouts.admin')] #[Title('Admin Console - Action Options')] class extends Component {
     public string $search = '';
     public string $optionName = '';
     public ?int $editingOptionId = null;
@@ -309,7 +309,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - DTS Addon')] class exten
         <div class="logs-title-area">
             <h1 class="logs-title-main" style="display: flex; align-items: center; gap: 8px;">
                 <i class="fa-solid fa-puzzle-piece" style="color: #003699;"></i>
-                DTS Action Options (Add-on)
+                Action Options
             </h1>
             <p class="logs-subtitle-sub">Manage custom dropdown options for "Action Needed" steps in transaction details.</p>
         </div>

@@ -2133,7 +2133,7 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
       cursor: default;
     }
     .verified-badge::after {
-      content: '';
+      content: 'Super Admin';
       position: absolute;
       bottom: calc(100% + 4px);
       left: 50%;

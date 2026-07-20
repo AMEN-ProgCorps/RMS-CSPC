@@ -33,6 +33,6 @@ if ($laravelSessionId) {
 Auth::destroy();
 
 // Redirect to main system login page
-header("Location: http://localhost:48000");
+header("Location: /");
 exit();
 ?>

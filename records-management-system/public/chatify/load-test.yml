@@ -1,5 +1,5 @@
 config:
-  target: "http://localhost:48000"
+  target: "http://localhost"
 
   phases:
     - duration: 60

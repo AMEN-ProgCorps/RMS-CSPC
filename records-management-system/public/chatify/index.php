@@ -3936,6 +3936,8 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
     const adminEyeToggleBtn = document.getElementById('adminEyeToggleBtn');
     const ownSidebarSearch = document.getElementById('ownSidebarSearch');
     let isAdminAllChatsView = (localStorage.getItem('__adminAllChatsView__') === '1');
+    let preSpyDM = localStorage.getItem('__preSpyDM__') || null;        // activeDM to restore when leaving the all-conversations spy view
+    let preSpyIsGlobal = (localStorage.getItem('__preSpyIsGlobal__') === '1'); // isGlobalChat to restore when leaving the all-conversations spy view
 
     function applyAdminAllChatsView() {
       if (adminEyeToggleBtn) {
@@ -3952,7 +3954,47 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
     if (adminEyeToggleBtn) {
       if (isAdmin) adminEyeToggleBtn.style.display = 'inline-flex';
       adminEyeToggleBtn.addEventListener('click', () => {
-        isAdminAllChatsView = !isAdminAllChatsView;
+        const turningOn = !isAdminAllChatsView;
+
+        if (turningOn) {
+          // Entering spy view — remember exactly what the admin had open
+          // (their own DM, or Global Chat) so we can jump straight back to
+          // it automatically once they leave.
+          preSpyDM = activeDM;
+          preSpyIsGlobal = isGlobalChat;
+          localStorage.setItem('__preSpyDM__', activeDM || '');
+          localStorage.setItem('__preSpyIsGlobal__', isGlobalChat ? '1' : '0');
+        } else {
+          // Leaving spy view — restore the admin's own conversation
+          activeAdminConv = null;
+          if (preSpyIsGlobal) {
+            selectGlobalChat();
+          } else if (preSpyDM && preSpyDM !== '') {
+            const matchedUser = allUsersData.find(u => u.username === preSpyDM);
+            if (matchedUser) {
+              selectDM(matchedUser);
+            } else {
+              activeDM = null; activeDMAccountId = null;
+              localStorage.removeItem('activeDM');
+              chatHeaderTitle.textContent = '';
+              removePaginationBtn();
+              chatBox.innerHTML = '<div class="empty-chat"><p>Camarines Sur Polytechnic Colleges</p></div>';
+            }
+          } else {
+            activeDM = null; activeDMAccountId = null;
+            localStorage.removeItem('activeDM');
+            chatHeaderTitle.textContent = '';
+            removePaginationBtn();
+            chatBox.innerHTML = '<div class="empty-chat"><p>Camarines Sur Polytechnic Colleges</p></div>';
+          }
+          // Clean up pre-spy state
+          preSpyDM = null;
+          preSpyIsGlobal = false;
+          localStorage.removeItem('__preSpyDM__');
+          localStorage.removeItem('__preSpyIsGlobal__');
+        }
+
+        isAdminAllChatsView = turningOn;
         localStorage.setItem('__adminAllChatsView__', isAdminAllChatsView ? '1' : '0');
         applyAdminAllChatsView();
       });
@@ -4153,6 +4195,7 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
       });
     }
 
+    let clickTimeout = null;
     // Event delegation to smoothly toggle timestamp on click
     chatBox.addEventListener('click', function (e) {
       if (e.target.closest('a') && !e.target.closest('a').querySelector('img') && !e.target.closest('.message-media')) {
@@ -4160,12 +4203,22 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
       }
       const bubble = e.target.closest('.message-bubble, .message-media');
       if (!bubble) return;
-      const wrapper = bubble.closest('.bubble-wrapper');
-      if (!wrapper) return;
-      const timestamp = wrapper.querySelector('.message-click-timestamp');
-      if (timestamp) {
-        timestamp.classList.toggle('show-timestamp');
+
+      if (clickTimeout) {
+        clearTimeout(clickTimeout);
+        clickTimeout = null;
+        return;
       }
+
+      clickTimeout = setTimeout(function () {
+        clickTimeout = null;
+        const wrapper = bubble.closest('.bubble-wrapper');
+        if (!wrapper) return;
+        const timestamp = wrapper.querySelector('.message-click-timestamp');
+        if (timestamp) {
+          timestamp.classList.toggle('show-timestamp');
+        }
+      }, 250);
     });
 
     // Event delegation for double click to edit chat message
@@ -5047,6 +5100,10 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
           // Ensure chat is refreshed to pick up the confirmed message
           if (isGlobalChat) { isLoadingGC = false; loadGlobalChat(false); }
           else loadChatForced();
+
+          // Refresh the sidebar/admin "all conversations" list right away
+          // so the conversation is updated in the spy view in real-time
+          fetchUsers();
         } else {
           // Server error — remove only THIS send's optimistic bubble (if present)
           if (sendIndId) {

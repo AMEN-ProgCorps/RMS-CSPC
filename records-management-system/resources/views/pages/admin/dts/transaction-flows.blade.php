@@ -19,6 +19,15 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - DTS Transaction Flows')]
     /** @var string Active tab: 'predefined' or 'custom' */
     public string $activeTab = 'predefined';
 
+    public function mount(): void
+    {
+        $perms = auth()->user()?->permissions;
+        if (!$perms || (!$perms->is_sadm && !$perms->can_access_dts_admin && !$perms->can_dts_modify_docflow)) {
+            $this->redirect(route('portal'));
+            return;
+        }
+    }
+
     // ---- PREDEFINED FLOW EDITOR PROPERTIES ----
     /** @var string Selected action/subsystem option (empty, 'new', or numeric ID) */
     public string $selectedPredefined = '';

@@ -71,6 +71,15 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Users')] class extends C
     /** @var bool Active status of the user account */
     public bool $isActive = true;
 
+    public function mount(): void
+    {
+        $perms = auth()->user()?->permissions;
+        if (!$perms || (!$perms->is_sadm && !$perms->is_admin && !$perms->can_sadm_modify_accountlist && !$perms->can_sadm_modify_account)) {
+            $this->redirect(route('portal'));
+            return;
+        }
+    }
+
     /** @var string Holds successful transaction alert messages */
     public string $successMessage = '';
 

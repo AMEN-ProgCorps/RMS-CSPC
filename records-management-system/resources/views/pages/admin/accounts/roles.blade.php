@@ -76,6 +76,11 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Roles')] class extends C
      */
     public function mount(): void
     {
+        $perms = auth()->user()?->permissions;
+        if (!$perms || (!$perms->is_sadm && !$perms->can_sadm_modify_accountlist)) {
+            $this->redirect(route('portal'));
+            return;
+        }
         $this->cancelSelection();
     }
 

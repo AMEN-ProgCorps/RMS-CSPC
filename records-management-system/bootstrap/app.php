@@ -21,5 +21,18 @@ return Application::configure(basePath: dirname(__DIR__))
         ]);
     })
     ->withExceptions(function (Exceptions $exceptions): void {
-        //
+        $exceptions->render(function (\Throwable $e, \Illuminate\Http\Request $request) {
+            if ($request->is('api/*')) {
+                return null;
+            }
+
+            if ($e instanceof \Symfony\Component\HttpKernel\Exception\NotFoundHttpException ||
+                $e instanceof \Symfony\Component\HttpKernel\Exception\AccessDeniedHttpException ||
+                $e instanceof \Illuminate\Auth\Access\AuthorizationException ||
+                ($e instanceof \Symfony\Component\HttpKernel\Exception\HttpException && in_array($e->getStatusCode(), [403, 404]))) {
+                return redirect()->route('portal');
+            }
+
+            return null;
+        });
     })->create();

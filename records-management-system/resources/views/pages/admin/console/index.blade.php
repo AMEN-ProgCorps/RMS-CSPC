@@ -15,6 +15,28 @@ use Livewire\Attributes\Title;
 use Livewire\Volt\Component;
 
 new #[Layout('layouts.admin')] #[Title('Admin Console - Dashboard')] class extends Component {
+
+    public function mount(): void
+    {
+        $perms = auth()->user()?->permissions;
+        $hasAccess = $perms && (
+            $perms->is_sadm || 
+            $perms->is_admin || 
+            $perms->can_access_dts_admin || 
+            $perms->can_access_rdp_admin || 
+            $perms->can_access_subsystems || 
+            $perms->can_access_activity_logs || 
+            $perms->can_access_settings || 
+            $perms->can_access_recycle_bin || 
+            $perms->can_sadm_modify_accountlist || 
+            $perms->can_sadm_modify_account
+        );
+
+        if (!$hasAccess) {
+            $this->redirect(route('portal'));
+            return;
+        }
+    }
     
     /**
      * Fetch statistics metrics and recent activities for the dashboard view.

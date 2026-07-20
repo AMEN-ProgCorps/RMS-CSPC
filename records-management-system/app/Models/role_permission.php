@@ -38,6 +38,13 @@ class role_permission extends Model
         'can_dts_use_issuance',
         'can_dts_user_received',
         'can_dts_modify_transaction',
+        'can_dts_modify_control_no',
+        'can_access_activity_logs',
+        'can_access_subsystems',
+        'can_access_dts_admin',
+        'can_access_rdp_admin',
+        'can_access_settings',
+        'can_access_recycle_bin',
     ];
     /*
      * The attributes here will be change in the future if there's more permissions to be added, 
@@ -64,5 +71,12 @@ class role_permission extends Model
         'can_dts_use_issuance' => 'boolean',
         'can_dts_user_received' => 'boolean',
         'can_dts_modify_transaction' => 'boolean',
+        'can_dts_modify_control_no' => 'boolean',
+        'can_access_activity_logs' => 'boolean',
+        'can_access_subsystems' => 'boolean',
+        'can_access_dts_admin' => 'boolean',
+        'can_access_rdp_admin' => 'boolean',
+        'can_access_settings' => 'boolean',
+        'can_access_recycle_bin' => 'boolean',
     ];
 }

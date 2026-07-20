@@ -4,9 +4,11 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Relations\HasOne;
+use Illuminate\Database\Eloquent\Relations\HasOneThrough;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
 use App\Models\role_permission;
+use App\Models\role_list;
 
 class User extends Authenticatable
 {
@@ -69,8 +71,15 @@ class User extends Authenticatable
         return $this->hasOne(AccountDetail::class, 'account_id');
     }
 
-    public function permissions(): HasOne
+    public function permissions(): HasOneThrough
     {
-        return $this->hasOne(role_permission::class, 'key_id', 'account_role');
+        return $this->hasOneThrough(
+            role_permission::class,
+            role_list::class,
+            'id',           // Foreign key on condition_key table (condition_key.id)
+            'key_id',       // Foreign key on condition_details table (condition_details.key_id)
+            'account_role', // Local key on account table (account.account_role)
+            'modifier_key'  // Local key on condition_key table (condition_key.modifier_key)
+        );
     }
 }

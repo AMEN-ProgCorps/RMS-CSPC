@@ -54,6 +54,11 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Offices & Clusters')] cl
      */
     public function mount(): void
     {
+        $perms = auth()->user()?->permissions;
+        if (!$perms || (!$perms->is_sadm && !$perms->is_admin && !$perms->can_sadm_modify_accountlist)) {
+            $this->redirect(route('portal'));
+            return;
+        }
         $this->cancelSelection();
     }
 

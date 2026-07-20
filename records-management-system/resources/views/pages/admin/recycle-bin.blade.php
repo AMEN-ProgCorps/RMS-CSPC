@@ -29,6 +29,15 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Recycle Bin')] class ext
     /** @var string Flow purpose filter (used on flows tab) */
     public string $flowPurposeFilter = 'all';
 
+    public function mount(): void
+    {
+        $perms = auth()->user()?->permissions;
+        if (!$perms || (!$perms->is_sadm && !$perms->can_access_recycle_bin)) {
+            $this->redirect(route('portal'));
+            return;
+        }
+    }
+
     /**
      * Reset selection array on search updates.
      */

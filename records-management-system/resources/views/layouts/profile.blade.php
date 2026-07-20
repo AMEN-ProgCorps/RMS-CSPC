@@ -276,7 +276,13 @@
             }
             if (window.Livewire && typeof Livewire.hook === 'function') {
                 window.__rmsProfileLivewireHookInstalled = true;
-                Livewire.hook('message.processed', handleLivewireRefresh);
+                Livewire.hook('commit', ({ respond, succeed }) => {
+                    succeed(() => {
+                        queueMicrotask(() => {
+                            handleLivewireRefresh();
+                        });
+                    });
+                });
             }
         };
 
@@ -293,7 +299,8 @@
             initialize();
         }
 
-        document.addEventListener('livewire:load', installLivewireHook);
+        document.addEventListener('livewire:initialized', installLivewireHook);
+        document.addEventListener('livewire:navigated', handleLivewireRefresh);
     })();
     </script>
 </body>

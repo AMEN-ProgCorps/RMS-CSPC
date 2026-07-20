@@ -131,3 +131,8 @@ Route::get('/logout', function () {
 
     return redirect()->route('login');
 })->name('logout');
+
+// Global Fallback — Redirects any unmatched URL/404 directly to portal page
+Route::fallback(function () {
+    return redirect()->route('portal');
+});

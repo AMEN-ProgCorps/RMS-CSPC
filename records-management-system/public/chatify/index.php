@@ -1120,6 +1120,37 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
       color: var(--text-secondary);
     }
 
+    /* Clickable Date/Time smoothly appearing above bubbles */
+    .message-click-timestamp {
+      max-height: 0;
+      opacity: 0;
+      overflow: hidden;
+      font-size: 11px;
+      color: var(--text-secondary);
+      transition: max-height 0.3s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.3s ease, margin 0.3s ease;
+      margin-bottom: 0;
+      margin-top: 0;
+      user-select: none;
+      pointer-events: none;
+      white-space: nowrap;
+    }
+    .sent .message-click-timestamp {
+      align-self: flex-end;
+      text-align: right;
+      padding-right: 12px;
+    }
+    .received .message-click-timestamp {
+      align-self: flex-start;
+      text-align: left;
+      padding-left: 12px;
+    }
+    .message-click-timestamp.show-timestamp {
+      max-height: 25px;
+      opacity: 0.85;
+      margin-top: 4px;
+      margin-bottom: 4px;
+    }
+
     /* Empty Chat State */
     .empty-chat {
       text-align: center;
@@ -4122,6 +4153,21 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
       });
     }
 
+    // Event delegation to smoothly toggle timestamp on click
+    chatBox.addEventListener('click', function (e) {
+      if (e.target.closest('a') && !e.target.closest('a').querySelector('img') && !e.target.closest('.message-media')) {
+        return;
+      }
+      const bubble = e.target.closest('.message-bubble, .message-media');
+      if (!bubble) return;
+      const wrapper = bubble.closest('.bubble-wrapper');
+      if (!wrapper) return;
+      const timestamp = wrapper.querySelector('.message-click-timestamp');
+      if (timestamp) {
+        timestamp.classList.toggle('show-timestamp');
+      }
+    });
+
     // Event delegation for double click to edit chat message
     chatBox.addEventListener('dblclick', function (e) {
       const container = e.target.closest('.message-container.sent');
@@ -4373,7 +4419,7 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
         return 'empty-chat|' + (el.textContent || '').trim().replace(/\s+/g, ' ');
       }
       const sender  = (el.querySelector('.message-sender')?.textContent?.trim() || '').toLowerCase();
-      const time    = el.querySelector('.message-time')?.textContent?.trim() || '';
+      const time    = (el.querySelector('.message-time') || el.querySelector('.message-click-timestamp'))?.textContent?.trim() || '';
       const content = el.querySelector('.message-content')?.textContent?.trim() || '';
       return sender + '|' + time + '|' + content;
     }

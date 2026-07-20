@@ -83,6 +83,7 @@ foreach ($rawMessages as $msg) {
         $ts = $dt !== false ? (float) $dt->format('U.u') : (float) strtotime($msg['timestamp']);
     }
     $timeDisp = date('g:i A', (int) floor($ts));
+    $fullTimeDisplay = date('F j, Y - g:i A', (int) floor($ts));
 
     $senderLabel = htmlspecialchars(strtolower($senderName), ENT_QUOTES);
     $bodyHtml    = '';
@@ -93,7 +94,7 @@ foreach ($rawMessages as $msg) {
 
         $bodyHtml .= "<div class='message-bubble'>";
         $bodyHtml .= "<div class='message-content'>{$contentEsc}</div>";
-        $bodyHtml .= "<div class='message-info'><span class='message-sender'>{$senderLabel}</span><span class='message-time'>{$timeDisp}</span></div>";
+        $bodyHtml .= "<div class='message-info'><span class='message-sender'>{$senderLabel}</span></div>";
         $bodyHtml .= "</div>";
     } else {
         // Upload: decrypt payload — may be a single filename or a JSON array of filenames
@@ -130,7 +131,7 @@ foreach ($rawMessages as $msg) {
                         }
                         $bodyHtml .= "<a href='{$fnUrl}' target='_blank' style='display:block;'><img src='{$fnUrl}' alt='{$fnEsc}'{$wAttr} style='{$aspectRatioStyle}max-width:240px;max-height:240px;border-radius:12px;display:block;cursor:pointer;object-fit:cover;box-shadow:0 2px 8px rgba(0,0,0,0.18);' loading='lazy' onerror=\"this.closest('a').remove()\" /></a>";
                     }
-                    $bodyHtml .= "<div class='message-info' style='padding:3px 2px;'><span class='message-sender'>{$senderLabel}</span><span class='message-time'>{$timeDisp}</span></div>";
+                    $bodyHtml .= "<div class='message-info' style='padding:3px 2px;'><span class='message-sender'>{$senderLabel}</span></div>";
                     $bodyHtml .= "</div>"; // .message-media
                 }
                 // If no files remain, no media container is emitted at all.
@@ -164,7 +165,7 @@ foreach ($rawMessages as $msg) {
                     $bodyHtml .= "<div class='message-content' style='display:flex;flex-direction:column;gap:6px;'>";
                     $bodyHtml .= $itemsHtml;
                     $bodyHtml .= "</div>";
-                    $bodyHtml .= "<div class='message-info'><span class='message-sender'>{$senderLabel}</span><span class='message-time'>{$timeDisp}</span></div>";
+                    $bodyHtml .= "<div class='message-info'><span class='message-sender'>{$senderLabel}</span></div>";
                     $bodyHtml .= "</div>"; // .message-bubble
                 }
             }
@@ -187,7 +188,7 @@ foreach ($rawMessages as $msg) {
                     }
                     $bodyHtml .= "<div class='message-media'>";
                     $bodyHtml .= "<a href='{$url}' target='_blank'><img src='{$url}' alt='{$fileEsc}'{$wAttr} style='{$aspectRatioStyle}max-width:240px;max-height:240px;border-radius:12px;display:block;object-fit:cover;box-shadow:0 2px 8px rgba(0,0,0,0.18);' loading='lazy' onerror=\"this.closest('.message-media').remove()\" /></a>";
-                    $bodyHtml .= "<div class='message-info' style='padding:3px 2px;'><span class='message-sender'>{$senderLabel}</span><span class='message-time'>{$timeDisp}</span></div>";
+                    $bodyHtml .= "<div class='message-info' style='padding:3px 2px;'><span class='message-sender'>{$senderLabel}</span></div>";
                     $bodyHtml .= "</div>";
                 }
                 // else: deleted image — nothing rendered for this message
@@ -198,12 +199,12 @@ foreach ($rawMessages as $msg) {
                 $bodyHtml .= "<div style='font-size:12px;margin-bottom:6px;font-weight:500;opacity:0.85;max-width:240px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;'>{$fileEsc}</div>";
                 $bodyHtml .= "<audio controls preload='metadata' style='width:240px;max-width:100%;display:block;border-radius:6px;'><source src='{$url}' type='{$mime}'></audio>";
                 $bodyHtml .= "</div>";
-                $bodyHtml .= "<div class='message-info'><span class='message-sender'>{$senderLabel}</span><span class='message-time'>{$timeDisp}</span></div>";
+                $bodyHtml .= "<div class='message-info'><span class='message-sender'>{$senderLabel}</span></div>";
                 $bodyHtml .= "</div>";
             } else {
                 $bodyHtml .= "<div class='message-bubble'>";
                 $bodyHtml .= "<div class='message-content'><a href='{$url}' target='_blank' rel='noopener' style='color:#1b74e4;text-decoration:underline;font-weight:500;font-size:13px;word-break:break-all;'>{$fileEsc}</a></div>";
-                $bodyHtml .= "<div class='message-info'><span class='message-sender'>{$senderLabel}</span><span class='message-time'>{$timeDisp}</span></div>";
+                $bodyHtml .= "<div class='message-info'><span class='message-sender'>{$senderLabel}</span></div>";
                 $bodyHtml .= "</div>";
             }
         }
@@ -219,6 +220,7 @@ foreach ($rawMessages as $msg) {
     $html .= "<div class='message-container received' data-msg-id='{$msgId}'>";
     $html .= "<div class='message-avatar'>{$initials}</div>";
     $html .= "<div class='bubble-wrapper'>";
+    $html .= "<div class='message-click-timestamp'>{$fullTimeDisplay}</div>";
     if (!empty($msg['is_edited'])) {
         $html .= "<div class='message-edited-label' style='font-size:10px;color:var(--text-secondary);opacity:0.8;margin-bottom:2px;font-style:italic;'>edited</div>";
     }

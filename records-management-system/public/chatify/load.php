@@ -97,7 +97,7 @@ foreach ($rawMessages as $msg) {
     // Resolve sender name from cache
     $senderName  = $nameMap[$senderId] ?? 'Unknown User';
     $initials    = gcInitials($senderName);
-    $senderLabel = $isSent ? 'you' : htmlspecialchars(strtolower($senderName), ENT_QUOTES);
+    $senderLabel = htmlspecialchars(strtolower($senderName), ENT_QUOTES);
 
     // Admin badge markup
     $adminBadge = '';
@@ -116,6 +116,7 @@ foreach ($rawMessages as $msg) {
         $ts = $dt !== false ? (float) $dt->format('U.u') : (float) strtotime($msg['timestamp']);
     }
     $timeDisplay = date('g:i A', (int) floor($ts));
+    $fullTimeDisplay = date('F j, Y - g:i A', (int) floor($ts));
 
     $html .= "<div class='message-container {$msgClass}' data-msg-id='{$msgId}'>";
     $html .= "<div class='message-avatar'>{$initials}</div>";
@@ -126,12 +127,13 @@ foreach ($rawMessages as $msg) {
         $contentEsc = htmlspecialchars($content, ENT_QUOTES);
 
         $html .= "<div class='bubble-wrapper'>";
+        $html .= "<div class='message-click-timestamp'>{$fullTimeDisplay}</div>";
         if (!empty($msg['is_edited'])) {
             $html .= "<div class='message-edited-label' style='font-size:10px;color:var(--text-secondary);opacity:0.8;margin-bottom:2px;font-style:italic;'>edited</div>";
         }
         $html .= "<div class='message-bubble'>";
         $html .= "<div class='message-content'>{$contentEsc}</div>";
-        $html .= "<div class='message-info'><span class='message-sender'>{$senderLabel}{$adminBadge}</span><span class='message-time'>{$timeDisplay}</span></div>";
+        $html .= "<div class='message-info'><span class='message-sender'>{$senderLabel}{$adminBadge}</span></div>";
         $html .= "</div>";
         $html .= "</div>";
 
@@ -142,6 +144,7 @@ foreach ($rawMessages as $msg) {
         $isGrid     = is_array($decoded) && count($decoded) > 1;
 
         $html .= "<div class='bubble-wrapper'>";
+        $html .= "<div class='message-click-timestamp'>{$fullTimeDisplay}</div>";
 
         if ($isGrid) {
             // ── Multi-image grid ──────────────────────────────────────────────
@@ -168,7 +171,7 @@ foreach ($rawMessages as $msg) {
                     $html   .= "<img src='{$fnUrl}' alt='{$fnEsc}'{$wAttr} style='{$aspectRatioStyle}max-width:240px;max-height:240px;border-radius:12px;display:block;cursor:pointer;object-fit:cover;box-shadow:0 2px 8px rgba(0,0,0,0.18);' loading='lazy' />";
                     $html   .= "</a>";
                 }
-                $html .= "<div class='message-info' style='padding:3px 2px;'><span class='message-sender'>{$senderLabel}{$adminBadge}</span><span class='message-time'>{$timeDisplay}</span></div>";
+                $html .= "<div class='message-info' style='padding:3px 2px;'><span class='message-sender'>{$senderLabel}{$adminBadge}</span></div>";
                 $html .= "</div>"; // .message-media
             } else {
                 // Mixed files — render each as its own attachment link
@@ -187,7 +190,7 @@ foreach ($rawMessages as $msg) {
                     }
                 }
                 $html .= "</div>";
-                $html .= "<div class='message-info'><span class='message-sender'>{$senderLabel}{$adminBadge}</span><span class='message-time'>{$timeDisplay}</span></div>";
+                $html .= "<div class='message-info'><span class='message-sender'>{$senderLabel}{$adminBadge}</span></div>";
                 $html .= "</div>"; // .message-bubble
             }
 
@@ -208,7 +211,7 @@ foreach ($rawMessages as $msg) {
                 }
                 $html .= "<div class='message-media'>";
                 $html .= "<a href='{$url}' target='_blank'><img src='{$url}' alt='{$fileEsc}'{$wAttr} style='{$aspectRatioStyle}max-width:240px;max-height:240px;border-radius:12px;display:block;cursor:pointer;object-fit:cover;box-shadow:0 2px 8px rgba(0,0,0,0.18);' loading='lazy' /></a>";
-                $html .= "<div class='message-info' style='padding:3px 2px;'><span class='message-sender'>{$senderLabel}{$adminBadge}</span><span class='message-time'>{$timeDisplay}</span></div>";
+                $html .= "<div class='message-info' style='padding:3px 2px;'><span class='message-sender'>{$senderLabel}{$adminBadge}</span></div>";
                 $html .= "</div>";
 
             } elseif (in_array($ext, $audioExts, true)) {
@@ -218,14 +221,14 @@ foreach ($rawMessages as $msg) {
                 $html .= "<div style='font-size:12px;margin-bottom:6px;font-weight:500;opacity:0.85;max-width:240px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;'>{$fileEsc}</div>";
                 $html .= "<audio controls preload='metadata' style='width:240px;max-width:100%;display:block;border-radius:6px;'><source src='{$url}' type='{$mime}'></audio>";
                 $html .= "</div>";
-                $html .= "<div class='message-info'><span class='message-sender'>{$senderLabel}{$adminBadge}</span><span class='message-time'>{$timeDisplay}</span></div>";
+                $html .= "<div class='message-info'><span class='message-sender'>{$senderLabel}{$adminBadge}</span></div>";
                 $html .= "</div>";
 
             } else {
                 $linkColor = $isSent ? 'white' : '#1b74e4';
                 $html .= "<div class='message-bubble'>";
                 $html .= "<div class='message-content'><a href='{$url}' target='_blank' rel='noopener' style='color:{$linkColor};text-decoration:underline;font-weight:500;font-size:13px;word-break:break-all;'>{$fileEsc}</a></div>";
-                $html .= "<div class='message-info'><span class='message-sender'>{$senderLabel}{$adminBadge}</span><span class='message-time'>{$timeDisplay}</span></div>";
+                $html .= "<div class='message-info'><span class='message-sender'>{$senderLabel}{$adminBadge}</span></div>";
                 $html .= "</div>";
             }
         }

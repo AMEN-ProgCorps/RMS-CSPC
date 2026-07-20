@@ -1,14 +1,26 @@
 /* Admin Console - Accounts Management Offices Redesign Styles */
 
 .admin-offices-container {
-    display: grid;
-    grid-template-columns: 360px 1fr;
-    gap: 24px;
-    height: auto;
-    min-height: calc(100vh - 120px);
     width: 100%;
     padding: 10px;
     box-sizing: border-box;
+    transition: all 0.2s ease;
+}
+
+.admin-offices-container.has-selection {
+    display: grid;
+    grid-template-columns: 360px 1fr;
+    gap: 24px;
+}
+
+.admin-offices-container.no-selection {
+    display: block;
+    width: 100%;
+}
+
+.admin-offices-container.no-selection .directory-panel {
+    width: 100%;
+    max-width: 100%;
 }
 
 /* Left Pane: Offices Directory */
@@ -21,9 +33,12 @@
     display: flex;
     flex-direction: column;
     gap: 16px;
-    height: 100%;
-    max-height: calc(100vh - 140px);
+    height: calc(100vh - 110px);
+    max-height: calc(100vh - 110px);
+    position: sticky;
+    top: 85px;
     box-sizing: border-box;
+    overflow: hidden;
 }
 
 .directory-header-row {
@@ -88,13 +103,26 @@
     font-size: 14px;
 }
 
-.offices-list {
+.offices-list, .clusters-list {
     overflow-y: auto;
+    flex: 1;
+    min-height: 0;
+    padding-right: 4px;
+}
+
+.admin-offices-container.no-selection .offices-list,
+.admin-offices-container.no-selection .clusters-list {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(310px, 1fr));
+    gap: 14px;
+    align-content: start;
+}
+
+.admin-offices-container.has-selection .offices-list,
+.admin-offices-container.has-selection .clusters-list {
     display: flex;
     flex-direction: column;
     gap: 8px;
-    flex: 1;
-    padding-right: 4px;
 }
 
 /* Scrollbar styling */
@@ -215,8 +243,10 @@
     border: 1px solid #eef2f6;
     display: flex;
     flex-direction: column;
-    height: 100%;
-    max-height: calc(100vh - 140px);
+    height: calc(100vh - 110px);
+    max-height: calc(100vh - 110px);
+    position: sticky;
+    top: 85px;
     overflow: hidden;
     box-sizing: border-box;
 }
@@ -464,6 +494,7 @@ input:checked + .slider:before {
     justify-content: flex-end;
     gap: 12px;
     box-sizing: border-box;
+    flex-shrink: 0;
 }
 
 .btn-save {
@@ -564,10 +595,26 @@ input:checked + .slider:before {
     }
     
     .directory-panel {
-        max-height: 380px;
+        max-height: 520px;
     }
     
     .details-panel {
         max-height: none;
     }
+
+    .details-panel.panel-hidden-default {
+        display: none !important;
+    }
+}
+
+/* Pagination Bar Wrappers */
+.offices-pagination-bar,
+.clusters-pagination-bar {
+    padding-top: 14px;
+    margin-top: 10px;
+    border-top: 1px solid #f1f5f9;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    width: 100%;
 }

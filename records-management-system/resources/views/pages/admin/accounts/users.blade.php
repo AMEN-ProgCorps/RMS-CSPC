@@ -14,8 +14,11 @@
 use Livewire\Attributes\Layout;
 use Livewire\Attributes\Title;
 use Livewire\Volt\Component;
+use Livewire\WithPagination;
 
 new #[Layout('layouts.admin')] #[Title('Admin Console - Users')] class extends Component {
+    use WithPagination;
+
     /** @var string Holds the active search input value */
     public string $search = '';
 
@@ -28,6 +31,21 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Users')] class extends C
     /** @var int|null The ID of the currently selected user profile being viewed/edited. (-1 = create mode) */
     public ?int $selectedUserId = null;
 
+    public function updatingSearch(): void
+    {
+        $this->resetPage();
+    }
+
+    public function updatingSortBy(): void
+    {
+        $this->resetPage();
+    }
+
+    public function updatingSortDir(): void
+    {
+        $this->resetPage();
+    }
+
     /**
      * Toggles the sort direction between ascending (asc) and descending (desc).
      * Automatically clears any active success or error banners.
@@ -35,6 +53,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Users')] class extends C
     public function toggleSortDir(): void
     {
         $this->sortDir = $this->sortDir === 'asc' ? 'desc' : 'asc';
+        $this->resetPage();
         $this->clearMessages();
     }
     
@@ -482,7 +501,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Users')] class extends C
                 break;
         }
 
-        $users = $query->get();
+        $users = $query->paginate(20);
 
         // Fetch auxiliary lists for form dropdown lists (only active ones)
         $roles = \App\Models\role_list::where('is_active', true)->orderBy('key_name')->get();
@@ -502,7 +521,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Users')] class extends C
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css">
 @endpush
 
-<div class="admin-users-container">
+<div class="admin-users-container {{ !$selectedUserId ? 'no-selection' : 'has-selection' }}">
     <!-- Left Pane: Users Directory -->
     <div class="directory-panel">
         <div class="directory-header-row">
@@ -517,27 +536,29 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Users')] class extends C
             @endif
         </div>
 
-        <div class="search-box-wrapper">
-            <i class="fa-solid fa-magnifying-glass search-icon"></i>
-            <input type="text" class="search-box" placeholder="Search by name, email, user..." wire:model.live="search">
-        </div>
-        
-        <div style="display: flex; align-items: center; gap: 8px; width: 100%;">
-            <span style="font-size: 11px; font-weight: 700; color: #8b95a5; text-transform: uppercase; letter-spacing: 0.05em; white-space: nowrap;">Sort By:</span>
-            <select class="form-select" wire:model.live="sortBy" style="flex: 1; padding: 6px 32px 6px 12px; font-size: 12.5px; border-radius: 99px; height: 32px; border: 1.5px solid #e2e8f0;">
-                <option value="name">Name</option>
-                <option value="username">Username</option>
-                <option value="role">Role</option>
-                <option value="office">Office</option>
-                <option value="date_created">Date Created</option>
-            </select>
-            <button type="button" wire:click="toggleSortDir" style="display: flex; align-items: center; justify-content: center; width: 32px; height: 32px; border-radius: 50%; border: 1.5px solid #e2e8f0; background: #ffffff; cursor: pointer; color: #003699; font-size: 13px; transition: all 0.2s ease; padding: 0;" onmouseover="this.style.background='#f8fafc'; this.style.borderColor='#cbd5e1';" onmouseout="this.style.background='#ffffff'; this.style.borderColor='#e2e8f0';" title="Toggle Order Direction ({{ strtoupper($sortDir) }})">
-                @if($sortDir === 'asc')
-                    <i class="fa-solid fa-arrow-up-a-z"></i>
-                @else
-                    <i class="fa-solid fa-arrow-down-z-a"></i>
-                @endif
-            </button>
+        <div class="directory-controls-bar">
+            <div class="search-box-wrapper">
+                <i class="fa-solid fa-magnifying-glass search-icon"></i>
+                <input type="text" class="search-box" placeholder="Search by name, email, user..." wire:model.live="search">
+            </div>
+            
+            <div class="sort-controls-wrapper">
+                <span class="sort-label">Sort By:</span>
+                <select class="sort-select" wire:model.live="sortBy">
+                    <option value="name">Name</option>
+                    <option value="username">Username</option>
+                    <option value="role">Role</option>
+                    <option value="office">Office</option>
+                    <option value="date_created">Date Created</option>
+                </select>
+                <button type="button" wire:click="toggleSortDir" class="btn-sort-dir" title="Toggle Order Direction ({{ strtoupper($sortDir) }})">
+                    @if($sortDir === 'asc')
+                        <i class="fa-solid fa-arrow-up-a-z"></i>
+                    @else
+                        <i class="fa-solid fa-arrow-down-z-a"></i>
+                    @endif
+                </button>
+            </div>
         </div>
         
         <div class="users-list">
@@ -567,11 +588,17 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Users')] class extends C
                 </div>
             @endforelse
         </div>
+
+        @if($users->hasPages())
+            <div class="users-pagination-bar">
+                {{ $users->links('components.pagination') }}
+            </div>
+        @endif
     </div>
 
-    <!-- Right Pane: User Details & Form -->
-    <div class="details-panel">
-        @if($selectedUserId)
+    <!-- Right Pane: User Details & Form (Only rendered when a user is selected or creating a new user) -->
+    @if($selectedUserId)
+        <div class="details-panel">
             @php
                 if ($selectedUserId > 0) {
                     $selectedUser = \App\Models\User::with('details')->find($selectedUserId);
@@ -610,6 +637,9 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Users')] class extends C
                         @endif
                     </span>
                 </div>
+                <button type="button" class="btn-close-details" wire:click="cancelSelection" title="Close Details Panel">
+                    <i class="fa-solid fa-xmark"></i>
+                </button>
             </div>
 
             <!-- Body/Form -->
@@ -826,13 +856,6 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Users')] class extends C
                     <i class="fa-solid fa-floppy-disk"></i> {{ $selectedUserId === -1 ? 'Create User' : 'Save Changes' }}
                 </button>
             </div>
-        @else
-            <!-- Placeholder -->
-            <div class="details-placeholder">
-                <i class="fa-solid fa-users-gear"></i>
-                <h3>User Accounts Directory</h3>
-                <p>Click on any user's name from the directory list on the left to view and update their profile details, assigned roles, and access settings.</p>
-            </div>
-        @endif
-    </div>
+        </div>
+    @endif
 </div>

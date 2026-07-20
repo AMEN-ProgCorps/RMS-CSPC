@@ -56,18 +56,32 @@ new #[Layout('layouts.profile')] #[Title('Profile Manager - Details')] class ext
         $perms = $user->permissions;
         if ($perms) {
             $labels = [
-                'is_sadm'                => 'Super Administrator',
-                'can_access_dts'         => 'Access Document Tracking System',
-                'can_access_rdp'       => 'Access Archive',
-                'can_access_dcs'         => 'Access DCS',
-                'can_dts_modify_docflow'     => 'Modify Document Flow',
-                'can_sadm_modify_accountlist' => 'Modify Account List',
-                'can_sadm_modify_pass'        => 'Modify Passwords',
+                'is_sadm'                        => 'Super Administrator',
+                'is_admin'                       => 'Administrator',
+                'can_access_dts'                 => 'Access Document Tracking System',
+                'can_access_rdp'                 => 'Access Archive',
+                'can_access_dcs'                 => 'Access DCS',
+                'can_dts_modify_docflow'         => 'Modify Document Flow',
+                'can_sadm_modify_accountlist'    => 'Modify Account List',
+                'can_sadm_modify_pass'           => 'Modify Passwords',
                 'can_sadm_modify_account'        => 'Modify Users',
-                'can_dts_view_all_list'      => 'View All Lists',
-                'can_dts_view_all_archive'   => 'View All Archives',
+                'can_dts_view_all_list'          => 'View All Lists',
+                'can_dts_view_all_archive'       => 'View All Archives',
                 'can_dts_view_all_current_trans' => 'View All Current Transactions',
                 'can_dts_create_own_flow'        => 'Create Own Transaction Flow',
+                'can_dts_use_internal'           => 'Access Internal Transactions',
+                'can_dts_use_external'           => 'Access External Transactions',
+                'can_dts_use_application'        => 'Access Application Letters',
+                'can_dts_use_issuance'           => 'Access Issuances',
+                'can_dts_user_received'          => 'Receive Documents',
+                'can_dts_modify_transaction'     => 'Modify Transactions',
+                'can_dts_modify_control_no'      => 'Modify Control Number',
+                'can_access_activity_logs'       => 'Access Activity Logs',
+                'can_access_subsystems'          => 'Access Subsystems',
+                'can_access_dts_admin'           => 'Access DTS Admin',
+                'can_access_rdp_admin'           => 'Access RDP Admin',
+                'can_access_settings'            => 'Access Settings',
+                'can_access_recycle_bin'         => 'Access Recycle Bin',
             ];
 
             foreach ($labels as $key => $label) {
@@ -164,25 +178,25 @@ new #[Layout('layouts.profile')] #[Title('Profile Manager - Details')] class ext
                 <span class="detail-value">{{ $lastName }}</span>
             </div>
             
-            <div class="detail-row" setid="email">
+            <div class="detail-row" setid="email" x-data="{ masked: true }">
                 <span class="detail-label">Email</span>
                 <div class="masked-field">
-                    <span class="masked-value" data-masked="true">{{ $email }}</span>
-                    <button type="button" class="mask-toggle" data-target="email" aria-label="Show hidden email">
+                    <span class="masked-value" data-masked="true" x-text="masked ? '{{ str_repeat('•', max(strlen($email), 12)) }}' : '{{ addslashes($email) }}'">{{ str_repeat('•', max(strlen($email), 12)) }}</span>
+                    <button type="button" class="mask-toggle" data-target="email" @click="masked = !masked" aria-label="Show hidden email">
                         <span class="eye-icon">
-                            <i class="fa-solid fa-eye"></i>
+                            <i class="fa-solid" :class="masked ? 'fa-eye' : 'fa-eye-slash'"></i>
                         </span>
                     </button>
                 </div>
             </div>
             
-            <div class="detail-row" setid="contacts">
+            <div class="detail-row" setid="contacts" x-data="{ masked: true }">
                 <span class="detail-label">Contact Number</span>
                 <div class="masked-field">
-                    <span class="masked-value" data-masked="true">{{ $contactNumber ?: '—' }}</span>
-                    <button type="button" class="mask-toggle" data-target="contacts" aria-label="Show hidden contact number">
+                    <span class="masked-value" data-masked="true" x-text="masked ? '••••••••' : '{{ addslashes($contactNumber ?: '—') }}'">••••••••</span>
+                    <button type="button" class="mask-toggle" data-target="contacts" @click="masked = !masked" aria-label="Show hidden contact number">
                         <span class="eye-icon">
-                            <i class="fa-solid fa-eye"></i>
+                            <i class="fa-solid" :class="masked ? 'fa-eye' : 'fa-eye-slash'"></i>
                         </span>
                     </button>
                 </div>

@@ -19,6 +19,15 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Logins')] class extends 
     /** @var string Selected status filter */
     public string $statusFilter = '';
 
+    public function mount(): void
+    {
+        $perms = auth()->user()?->permissions;
+        if (!$perms || (!$perms->is_sadm && !$perms->can_access_activity_logs)) {
+            $this->redirect(route('portal'));
+            return;
+        }
+    }
+
     /**
      * Component Lifecycle Hook - reset page pagination on search update.
      */

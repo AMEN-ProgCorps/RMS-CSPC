@@ -19,6 +19,15 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Account Changes')] class
     /** @var string Selected subsystem filter */
     public string $subsystemFilter = '';
 
+    public function mount(): void
+    {
+        $perms = auth()->user()?->permissions;
+        if (!$perms || (!$perms->is_sadm && !$perms->can_access_activity_logs)) {
+            $this->redirect(route('portal'));
+            return;
+        }
+    }
+
     /**
      * Component Lifecycle Hook - reset page pagination on search update.
      */

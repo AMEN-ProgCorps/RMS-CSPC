@@ -1,14 +1,26 @@
 /* Admin Console - Accounts Management Roles Redesign Styles */
 
 .admin-roles-container {
-    display: grid;
-    grid-template-columns: 360px 1fr;
-    gap: 24px;
-    height: auto;
-    min-height: calc(100vh - 120px);
     width: 100%;
     padding: 10px;
     box-sizing: border-box;
+    transition: all 0.2s ease;
+}
+
+.admin-roles-container.has-selection {
+    display: grid;
+    grid-template-columns: 360px 1fr;
+    gap: 24px;
+}
+
+.admin-roles-container.no-selection {
+    display: block;
+    width: 100%;
+}
+
+.admin-roles-container.no-selection .directory-panel {
+    width: 100%;
+    max-width: 100%;
 }
 
 /* Left Pane: Roles Directory */
@@ -21,9 +33,12 @@
     display: flex;
     flex-direction: column;
     gap: 16px;
-    height: 100%;
-    max-height: calc(100vh - 140px);
+    height: calc(100vh - 110px);
+    max-height: calc(100vh - 110px);
+    position: sticky;
+    top: 85px;
     box-sizing: border-box;
+    overflow: hidden;
 }
 
 .directory-header-row {
@@ -90,11 +105,22 @@
 
 .roles-list {
     overflow-y: auto;
+    flex: 1;
+    min-height: 0;
+    padding-right: 4px;
+}
+
+.admin-roles-container.no-selection .roles-list {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(310px, 1fr));
+    gap: 14px;
+    align-content: start;
+}
+
+.admin-roles-container.has-selection .roles-list {
     display: flex;
     flex-direction: column;
     gap: 8px;
-    flex: 1;
-    padding-right: 4px;
 }
 
 /* Scrollbar styling */
@@ -135,23 +161,23 @@
 }
 
 .role-avatar-small {
-    width: 40px;
-    height: 40px;
+    width: 42px;
+    height: 42px;
     border-radius: 50%;
     background: #f1f5f9;
     color: #003699;
     display: flex;
     align-items: center;
     justify-content: center;
-    font-size: 16px;
-    border: 1px solid #e2e8f0;
+    font-weight: 700;
+    font-size: 14px;
     flex-shrink: 0;
+    font-family: 'Inter', sans-serif;
 }
 
 .role-item-card.active .role-avatar-small {
     background: #003699;
     color: #ffffff;
-    border-color: #003699;
 }
 
 .role-meta-info {
@@ -163,7 +189,7 @@
 }
 
 .role-display-name {
-    font-size: 14px;
+    font-size: 13.5px;
     font-weight: 600;
     color: #1e293b;
     white-space: nowrap;
@@ -173,7 +199,7 @@
 }
 
 .role-display-desc {
-    font-size: 11.5px;
+    font-size: 12px;
     color: #64748b;
     white-space: nowrap;
     overflow: hidden;
@@ -182,9 +208,8 @@
 }
 
 .role-status-badge {
-    display: inline-flex;
-    padding: 2px 6px;
-    border-radius: 4px;
+    padding: 2px 8px;
+    border-radius: 99px;
     font-size: 9px;
     font-weight: 700;
     background: #f1f5f9;
@@ -214,8 +239,10 @@
     border: 1px solid #eef2f6;
     display: flex;
     flex-direction: column;
-    height: 100%;
-    max-height: calc(100vh - 140px);
+    height: calc(100vh - 110px);
+    max-height: calc(100vh - 110px);
+    position: sticky;
+    top: 85px;
     overflow: hidden;
     box-sizing: border-box;
 }
@@ -495,6 +522,7 @@ input:checked + .slider:before {
     justify-content: flex-end;
     gap: 12px;
     box-sizing: border-box;
+    flex-shrink: 0;
 }
 
 .btn-save {
@@ -595,7 +623,7 @@ input:checked + .slider:before {
     }
     
     .directory-panel {
-        max-height: 380px;
+        max-height: 520px;
     }
     
     .details-panel {
@@ -605,4 +633,15 @@ input:checked + .slider:before {
     .permissions-grid-layout {
         grid-template-columns: 1fr;
     }
+}
+
+/* Pagination Bar Wrapper */
+.roles-pagination-bar {
+    padding-top: 14px;
+    margin-top: 10px;
+    border-top: 1px solid #f1f5f9;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    width: 100%;
 }

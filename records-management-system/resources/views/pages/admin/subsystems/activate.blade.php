@@ -16,6 +16,15 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Active Subsystems')] cla
     /** @var string Error message */
     public string $errorMessage = '';
 
+    public function mount(): void
+    {
+        $perms = auth()->user()?->permissions;
+        if (!$perms || (!$perms->is_sadm && !$perms->can_access_subsystems)) {
+            $this->redirect(route('portal'));
+            return;
+        }
+    }
+
     /**
      * Clear alert messages.
      */

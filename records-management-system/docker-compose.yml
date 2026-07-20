@@ -10,7 +10,7 @@ services:
     env_file:
       - .env.docker
     ports:
-      - "48000:8000"
+      - "80:8000"
     volumes:
       # Bind-mount source — changes reflect instantly without rebuilding
       - .:/var/www/html

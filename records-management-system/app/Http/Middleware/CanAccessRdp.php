@@ -13,7 +13,7 @@ class CanAccessRdp
         $perms = auth()->user()?->permissions;
 
         if (! $perms || (! $perms->is_sadm && ! $perms->can_access_rdp)) {
-            abort(403);
+            return redirect()->route('portal');
         }
 
         // Check if Records Disposition Program is active globally
@@ -21,8 +21,8 @@ class CanAccessRdp
             ->where('subsystem_name', 'Records Disposition Program')
             ->value('is_active');
 
-        if (! $isActive) {
-            abort(403, 'The Records Disposition Program is currently deactivated.');
+        if (! $isActive && ! $perms->is_sadm) {
+            return redirect()->route('portal');
         }
 
         return $next($request);

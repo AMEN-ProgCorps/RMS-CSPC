@@ -16,6 +16,12 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - System Settings')] class
 
     public function mount(): void
     {
+        $perms = auth()->user()?->permissions;
+        if (!$perms || (!$perms->is_sadm && !$perms->can_access_settings)) {
+            $this->redirect(route('portal'));
+            return;
+        }
+
         $setting = \DB::table('system_settings')->where('key', 'page_prewarming_enabled')->value('value');
         $this->pagePrewarmingEnabled = ($setting === 'true');
 

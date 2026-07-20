@@ -290,7 +290,7 @@ foreach ($rawMessages as $msg) {
         }
 
         if ($uploadBodyHtml !== '') {
-            $msgBodyHtml = "<div class='bubble-wrapper'><div class='message-click-timestamp'>{$fullTimeDisplay}</div>{$uploadBodyHtml}</div>";
+            $msgBodyHtml = "<div class='bubble-wrapper'><div class='message-click-timestamp show-timestamp'>{$fullTimeDisplay}</div>{$uploadBodyHtml}</div>";
         }
     }
 

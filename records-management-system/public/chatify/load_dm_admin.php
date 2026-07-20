@@ -220,7 +220,8 @@ foreach ($rawMessages as $msg) {
     $html .= "<div class='message-container received' data-msg-id='{$msgId}'>";
     $html .= "<div class='message-avatar'>{$initials}</div>";
     $html .= "<div class='bubble-wrapper'>";
-    $html .= "<div class='message-click-timestamp'>{$fullTimeDisplay}</div>";
+    $tsClass = ($type !== 'text') ? 'message-click-timestamp show-timestamp' : 'message-click-timestamp';
+    $html .= "<div class='{$tsClass}'>{$fullTimeDisplay}</div>";
     if (!empty($msg['is_edited'])) {
         $html .= "<div class='message-edited-label' style='font-size:10px;color:var(--text-secondary);opacity:0.8;margin-bottom:2px;font-style:italic;'>edited</div>";
     }

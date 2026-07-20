@@ -144,7 +144,7 @@ foreach ($rawMessages as $msg) {
         $isGrid     = is_array($decoded) && count($decoded) > 1;
 
         $html .= "<div class='bubble-wrapper'>";
-        $html .= "<div class='message-click-timestamp'>{$fullTimeDisplay}</div>";
+        $html .= "<div class='message-click-timestamp show-timestamp'>{$fullTimeDisplay}</div>";
 
         if ($isGrid) {
             // ── Multi-image grid ──────────────────────────────────────────────

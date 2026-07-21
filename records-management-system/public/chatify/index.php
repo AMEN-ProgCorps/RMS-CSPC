@@ -4048,11 +4048,10 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
       if (ownSidebarSearch) ownSidebarSearch.style.display = isAdminAllChatsView ? 'none' : '';
       if (globalChatItemEl) globalChatItemEl.style.display = isAdminAllChatsView ? 'none' : '';
       if (sidebarUsers) sidebarUsers.style.display = isAdminAllChatsView ? 'none' : '';
-      // Hide the message input entirely while in spy mode — admin is read-only
-      const chatFormEl = document.getElementById('chatForm');
-      const inputSectionEl = document.querySelector('.input-section');
-      if (chatFormEl) chatFormEl.style.display = isAdminAllChatsView ? 'none' : '';
-      if (inputSectionEl) inputSectionEl.style.display = isAdminAllChatsView ? 'none' : '';
+      // Hide the ENTIRE input-area footer while in spy mode so no empty rectangle remains.
+      // Hiding only the inner chatForm/input-section still left the container's min-height visible.
+      const inputAreaEl = document.querySelector('.input-area');
+      if (inputAreaEl) inputAreaEl.style.display = isAdminAllChatsView ? 'none' : '';
       renderAdminConvs();
     }
 

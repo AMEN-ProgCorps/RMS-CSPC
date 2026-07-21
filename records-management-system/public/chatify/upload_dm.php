@@ -26,20 +26,8 @@ $senderId = Auth::accountId();
 
 // ── Target validation ─────────────────────────────────────────────────────────
 $targetId = isset($_POST['target_id']) ? (int) trim($_POST['target_id']) : 0;
-
 if ($targetId <= 0 && isset($_POST['target_user'])) {
-    $targetUser = trim($_POST['target_user']);
-    try {
-        $pdo  = Database::getConnection();
-        $stmt = $pdo->prepare('SELECT account_id FROM account_details WHERE email = :email LIMIT 1');
-        $stmt->execute([':email' => $targetUser]);
-        $row = $stmt->fetch();
-        if ($row) {
-            $targetId = (int) $row['account_id'];
-        }
-    } catch (PDOException $e) {
-        // Silently fail; check below
-    }
+    $targetId = UserResolver::resolveAccountId($_POST['target_user']);
 }
 
 if ($targetId <= 0 || $targetId === $senderId) {

@@ -30,20 +30,8 @@ $adminId     = Auth::adminAccountId(); // 1
 
 // ── Target validation ─────────────────────────────────────────────────────────
 $targetId = isset($_GET['target_id']) ? (int) trim($_GET['target_id']) : 0;
-
 if ($targetId <= 0 && isset($_GET['target_user'])) {
-    $targetUser = trim($_GET['target_user']);
-    try {
-        $pdo  = Database::getConnection();
-        $stmt = $pdo->prepare('SELECT account_id FROM account_details WHERE email = :email LIMIT 1');
-        $stmt->execute([':email' => $targetUser]);
-        $row = $stmt->fetch();
-        if ($row) {
-            $targetId = (int) $row['account_id'];
-        }
-    } catch (PDOException $e) {
-        // Silently continue
-    }
+    $targetId = UserResolver::resolveAccountId($_GET['target_user']);
 }
 
 if ($targetId <= 0 || $targetId === $myAccountId) {

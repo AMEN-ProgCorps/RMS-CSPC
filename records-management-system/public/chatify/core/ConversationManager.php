@@ -27,6 +27,7 @@ class ConversationManager
 
     /**
      * Ensure chat_conversations table and indexes exist on the fly.
+     * Called as a safety net in case the migration hasn't been run yet.
      */
     private static function ensureConversationsTable(PDO $pdo): void
     {
@@ -59,7 +60,7 @@ class ConversationManager
                     $pdo->exec("CREATE INDEX IF NOT EXISTS idx_chat_conv_user2 ON chat_conversations (user_2, last_message_time DESC)");
                 } catch (Throwable $t) {}
 
-                // Populate metadata from existing chat_messages
+                // Backfill metadata from existing chat_messages
                 $pdo->exec("
                     INSERT INTO chat_conversations (
                         conv_id, user_1, user_2, last_message, last_msg_type, last_msg_uuid, last_message_time, unread_user_1, unread_user_2, created_at, updated_at
@@ -159,6 +160,7 @@ class ConversationManager
 
     /**
      * Edit a message's text content.
+     * Also updates chat_conversations if the edited message is the latest.
      */
     public static function editMessage(string $msgUuid, int $senderId, string $newContent): bool
     {
@@ -230,7 +232,8 @@ class ConversationManager
     }
 
     /**
-     * Delete a conversation for a specific user.
+     * Delete a conversation (admin: full delete; user: own messages only).
+     * Also removes/updates the chat_conversations metadata row.
      */
     public static function deleteConversation(
         string $convId,
@@ -245,10 +248,6 @@ class ConversationManager
             );
             $check->execute([':conv_id' => $convId]);
             if (!$check->fetch()) {
-                try {
-                    self::ensureConversationsTable($pdo);
-                    $pdo->prepare('DELETE FROM chat_conversations WHERE conv_id = :conv_id')->execute([':conv_id' => $convId]);
-                } catch (Throwable $t) {}
                 return false;
             }
 
@@ -261,10 +260,11 @@ class ConversationManager
                 $mrk = $pdo->prepare('DELETE FROM chat_read_markers WHERE conv_id = :conv_id');
                 $mrk->execute([':conv_id' => $convId]);
 
+                // Remove the metadata row entirely
                 try {
                     self::ensureConversationsTable($pdo);
-                    $cc = $pdo->prepare('DELETE FROM chat_conversations WHERE conv_id = :conv_id');
-                    $cc->execute([':conv_id' => $convId]);
+                    $pdo->prepare('DELETE FROM chat_conversations WHERE conv_id = :conv_id')
+                        ->execute([':conv_id' => $convId]);
                 } catch (Throwable $t) {}
             } else {
                 $stmt = $pdo->prepare('DELETE FROM chat_messages WHERE conv_id = :conv_id AND sender_id = :sender_id');
@@ -273,6 +273,7 @@ class ConversationManager
                 $mrk = $pdo->prepare('DELETE FROM chat_read_markers WHERE conv_id = :conv_id AND account_id = :account_id');
                 $mrk->execute([':conv_id' => $convId, ':account_id' => $accountId]);
 
+                // Recalculate latest message for metadata after partial delete
                 try {
                     self::ensureConversationsTable($pdo);
                     $latest = $pdo->prepare(
@@ -286,12 +287,12 @@ class ConversationManager
                     $lastRow = $latest->fetch();
 
                     if ($lastRow) {
-                        $upd = $pdo->prepare(
+                        $pdo->prepare(
                             'UPDATE chat_conversations
-                             SET last_message = :msg, last_msg_type = :type, last_msg_uuid = :uuid, last_message_time = :ts, updated_at = NOW()
+                             SET last_message = :msg, last_msg_type = :type, last_msg_uuid = :uuid,
+                                 last_message_time = :ts, updated_at = NOW()
                              WHERE conv_id = :conv_id'
-                        );
-                        $upd->execute([
+                        )->execute([
                             ':msg'     => $lastRow['message'],
                             ':type'    => $lastRow['msg_type'],
                             ':uuid'    => $lastRow['msg_uuid'],
@@ -299,8 +300,8 @@ class ConversationManager
                             ':conv_id' => $convId,
                         ]);
                     } else {
-                        $del = $pdo->prepare('DELETE FROM chat_conversations WHERE conv_id = :conv_id');
-                        $del->execute([':conv_id' => $convId]);
+                        $pdo->prepare('DELETE FROM chat_conversations WHERE conv_id = :conv_id')
+                            ->execute([':conv_id' => $convId]);
                     }
                 } catch (Throwable $t) {}
             }
@@ -312,8 +313,34 @@ class ConversationManager
         }
     }
 
+    /**
+     * Clear all DM conversations for all users.
+     * Also wipes chat_conversations metadata.
+     */
+    public static function clearAllDms(int $archivedBy, bool $isAdmin = false): bool
+    {
+        if (!$isAdmin) {
+            return false;
+        }
+        try {
+            $pdo = Database::getConnection();
+            self::backupAll($pdo, $archivedBy);
+            $pdo->exec("DELETE FROM chat_messages WHERE conv_id != 'global'");
+            $pdo->exec("DELETE FROM chat_read_markers WHERE conv_id != 'global'");
+            // Wipe metadata table too
+            try {
+                self::ensureConversationsTable($pdo);
+                $pdo->exec("DELETE FROM chat_conversations");
+            } catch (Throwable $t) {}
+            return true;
+        } catch (PDOException $e) {
+            error_log('ConversationManager::clearAllDms() — ' . $e->getMessage());
+            return false;
+        }
+    }
+
     // -------------------------------------------------------------------------
-    // Reactions (per conversation)
+    // Reactions
     // -------------------------------------------------------------------------
 
     public static function loadReactions(string $convId, array $msgUuids = []): array
@@ -334,7 +361,7 @@ class ConversationManager
                 $stmt = $pdo->prepare(
                     'SELECT r.msg_uuid, r.emoji, r.account_id
                      FROM chat_reactions r
-                     JOIN chat_messages  m ON m.msg_uuid = r.msg_uuid
+                     JOIN chat_messages m ON m.msg_uuid = r.msg_uuid
                      WHERE m.conv_id = :conv_id
                      ORDER BY r.reacted_at ASC'
                 );
@@ -349,35 +376,6 @@ class ConversationManager
         } catch (PDOException $e) {
             error_log('ConversationManager::loadReactions() — ' . $e->getMessage());
             return [];
-        }
-    }
-
-    public static function toggleReaction(
-        string $convId,
-        string $msgId,
-        string $emoji,
-        int    $accountId,
-        array  $allowed
-    ): array {
-        if (!in_array($emoji, $allowed, true)) {
-            return ['ok' => false, 'action' => 'invalid_emoji'];
-        }
-
-        try {
-            $pdo = Database::getConnection();
-
-            $check = $pdo->prepare(
-                'SELECT msg_uuid FROM chat_messages WHERE msg_uuid = :uuid AND conv_id = :conv_id LIMIT 1'
-            );
-            $check->execute([':uuid' => $msgId, ':conv_id' => $convId]);
-            if (!$check->fetch()) {
-                return ['ok' => false, 'action' => 'message_not_found'];
-            }
-
-            return GlobalChatManager::upsertReaction($pdo, $msgId, $emoji, $accountId, $allowed);
-        } catch (PDOException $e) {
-            error_log('ConversationManager::toggleReaction() — ' . $e->getMessage());
-            return ['ok' => false, 'action' => 'db_error'];
         }
     }
 
@@ -408,6 +406,7 @@ class ConversationManager
                 ':conv_id2'   => $convId,
             ]);
 
+            // Zero out unread counter in chat_conversations metadata
             try {
                 self::ensureConversationsTable($pdo);
                 $pdo->prepare(
@@ -457,8 +456,7 @@ class ConversationManager
             $stmt = $pdo->prepare(
                 'SELECT last_message AS message, last_msg_type AS type, last_message_time AS timestamp
                  FROM chat_conversations
-                 WHERE conv_id = :conv_id
-                 LIMIT 1'
+                 WHERE conv_id = :conv_id'
             );
             $stmt->execute([':conv_id' => $convId]);
             $last = $stmt->fetch();
@@ -554,8 +552,8 @@ class ConversationManager
             $result = [];
             foreach ($rows as $row) {
                 $convId = $row['conv_id'];
-                $userA = (int) $row['user_1'];
-                $userB = (int) $row['user_2'];
+                $userA  = (int) $row['user_1'];
+                $userB  = (int) $row['user_2'];
 
                 if ($row['last_msg_type'] === 'upload') {
                     $lastMessage = 'Sent a file';
@@ -816,13 +814,14 @@ class ConversationManager
                 ':msg_uuid'    => $uuid,
             ]);
 
-            // 2. Best-effort metadata update into chat_conversations
+            // 2. Best-effort metadata upsert into chat_conversations
             try {
                 self::ensureConversationsTable($pdo);
-                $u1 = min($senderId, $receiverId);
-                $u2 = max($senderId, $receiverId);
-                $un1Inc = ($senderId === $u2) ? 1 : 0;
-                $un2Inc = ($senderId === $u1) ? 1 : 0;
+                $u1     = min($senderId, $receiverId);
+                $u2     = max($senderId, $receiverId);
+                // Increment unread counter for the RECEIVER only
+                $un1Inc = ($senderId === $u2) ? 1 : 0; // sender is u2 → receiver is u1 → u1 unread++
+                $un2Inc = ($senderId === $u1) ? 1 : 0; // sender is u1 → receiver is u2 → u2 unread++
 
                 $upsert = $pdo->prepare(
                     'INSERT INTO chat_conversations

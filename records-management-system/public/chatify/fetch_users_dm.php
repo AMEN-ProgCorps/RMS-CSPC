@@ -143,8 +143,13 @@ if ($isAdmin) {
     $nameMap  = UserResolver::buildNameMap();
     $rawConvs = ConversationManager::getAllConversations();
     foreach ($rawConvs as $conv) {
-        $conv['name1'] = $nameMap[$conv['userA']] ?? ('User #' . $conv['userA']);
-        $conv['name2'] = $nameMap[$conv['userB']] ?? ('User #' . $conv['userB']);
+        if ($conv['convId'] === 'global') {
+            $conv['name1'] = 'Global Chat';
+            $conv['name2'] = 'Everyone';
+        } else {
+            $conv['name1'] = $nameMap[$conv['userA']] ?? ('User #' . $conv['userA']);
+            $conv['name2'] = $nameMap[$conv['userB']] ?? ('User #' . $conv['userB']);
+        }
         $conversations[] = $conv;
     }
 }

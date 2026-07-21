@@ -1537,7 +1537,7 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
     /* Scroll indicator */
     .scroll-indicator {
       position: absolute;
-      bottom: calc(100% + 8px);
+      bottom: 80px;
       right: 16px;
       background: #1b74e4;
       color: white;
@@ -1548,7 +1548,7 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
       cursor: pointer;
       opacity: 0;
       visibility: hidden;
-      transition: opacity 0.3s ease, visibility 0.3s ease, transform 0.2s ease, background 0.2s ease;
+      transition: opacity 0.3s ease, visibility 0.3s ease, transform 0.2s ease, background 0.2s ease, bottom 0.2s ease;
       z-index: 200;
       box-shadow: 0 2px 10px rgba(0,0,0,0.25);
       display: flex;
@@ -1557,6 +1557,10 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
       user-select: none;
       white-space: nowrap;
       will-change: opacity, transform;
+    }
+
+    body.in-spy-mode .scroll-indicator {
+      bottom: 20px;
     }
 
     .scroll-indicator.visible {
@@ -2353,15 +2357,17 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
     <div class="sidebar no-anim" id="sidebar">
       <div class="sidebar-header">
         <span style="flex-grow:1;">Chatify</span>
-        <button id="adminEyeToggleBtn" class="clear-button" style="display:none;padding:0 8px;min-width:auto;margin-right:6px;" title="View all user conversations">
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path><circle cx="12" cy="12" r="3"></circle></svg>
-        </button>
-        <button id="adminKeyToggleBtn" class="clear-button" style="display:none;padding:0 8px;min-width:auto;margin-left:6px;margin-right:6px;" title="Change Chat Secret Key">
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="7.5" cy="15.5" r="4.5"></circle><path d="m10.7 12.3 8.8-8.8"></path><path d="m15.5 4.5 3 3"></path><path d="m18 7 3 3"></path></svg>
-        </button>
-        <button id="closeSidebarBtn" class="clear-button" style="display:none;padding:0 8px;min-width:auto;">
-          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
-        </button>
+        <div class="sidebar-header-actions" style="display:flex;align-items:center;gap:6px;">
+          <button id="adminEyeToggleBtn" class="clear-button" style="display:none;padding:0 8px;min-width:auto;margin:0;" title="View all user conversations">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path><circle cx="12" cy="12" r="3"></circle></svg>
+          </button>
+          <button id="adminKeyToggleBtn" class="clear-button" style="display:none;padding:0 8px;min-width:auto;margin:0;" title="Change Chat Secret Key">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="7.5" cy="15.5" r="4.5"></circle><path d="m10.7 12.3 8.8-8.8"></path><path d="m15.5 4.5 3 3"></path><path d="m18 7 3 3"></path></svg>
+          </button>
+          <button id="closeSidebarBtn" class="clear-button" style="display:none;padding:0 8px;min-width:auto;margin:0;" title="Close Sidebar">
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+          </button>
+        </div>
       </div>
       <div class="sidebar-search" id="ownSidebarSearch">
         <input type="text" id="searchInput" placeholder="Search users..." autocomplete="off">
@@ -2437,14 +2443,14 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
       </div>
     </div>
 
-    <div class="input-area">
-      <!-- Scroll to bottom indicator anchored to top-right of input area -->
-      <div class="scroll-indicator" id="scrollIndicator">
-        <span>↓</span>
-        <span id="scrollIndicatorText">Go to bottom</span>
-        <span class="unread-badge" id="unreadBadge"></span>
-      </div>
+    <!-- Scroll to bottom indicator — lives outside chat-box & input-area so it displays in spy mode -->
+    <div class="scroll-indicator" id="scrollIndicator">
+      <span>↓</span>
+      <span id="scrollIndicatorText">Go to bottom</span>
+      <span class="unread-badge" id="unreadBadge"></span>
+    </div>
 
+    <div class="input-area">
       <!-- Typing Indicator -->
       <div id="typingIndicator" class="typing-indicator-container">
         <span id="typingIndicatorText"></span>
@@ -4043,6 +4049,7 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
       if (adminEyeToggleBtn) {
         adminEyeToggleBtn.classList.toggle('active', isAdminAllChatsView);
       }
+      document.body.classList.toggle('in-spy-mode', isAdminAllChatsView);
       // Hide the admin's own conversation list/search while browsing all users' chats
       const globalChatItemEl = document.getElementById('globalChatItem');
       if (ownSidebarSearch) ownSidebarSearch.style.display = isAdminAllChatsView ? 'none' : '';
@@ -5028,9 +5035,9 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
     }
 
     function loadOlderMessages() {
-      if (isGlobalChat) loadGlobalChat(false, true);
+      if (activeAdminConv) loadAdminConv(activeAdminConv, false, true);
+      else if (isGlobalChat) loadGlobalChat(false, true);
       else if (activeDM) loadChat(false, true);
-      else if (activeAdminConv) loadAdminConv(activeAdminConv, false, true);
     }
 
     function deleteChat() {
@@ -5235,7 +5242,7 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
         xhr.setRequestHeader('Content-type', 'application/x-www-form-urlencoded');
         payload = isGlobalChat
           ? 'message=' + encodeURIComponent(message)
-          : 'target_user=' + encodeURIComponent(activeDM) + '&message=' + encodeURIComponent(message);
+          : 'target_id=' + encodeURIComponent(activeDMAccountId || '') + '&target_user=' + encodeURIComponent(activeDM || '') + '&message=' + encodeURIComponent(message);
       }
 
       // Fire the XHR immediately — no artificial delay. The "Sending..." bubble

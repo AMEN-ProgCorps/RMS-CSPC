@@ -861,15 +861,47 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
       }
     }
 
-    /* Bubble pop on send */
-    .message-bubble.bubble-pop {
-      animation: bubblePop 0.22s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
+    /* Optimistic "sending" bubble — snappy entrance, then a gentle
+       breathing pulse for as long as it stays pending. */
+    .message-bubble.sending-bubble {
+      animation:
+        sendingBubbleIn 0.16s cubic-bezier(0.34, 1.56, 0.64, 1) forwards,
+        sendingPulse 1.3s ease-in-out 0.16s infinite;
     }
 
-    @keyframes bubblePop {
-      0%   { transform: scale(0.88); }
-      60%  { transform: scale(1.04); }
-      100% { transform: scale(1); }
+    @keyframes sendingBubbleIn {
+      0%   { opacity: 0;   transform: scale(0.82) translateY(4px); }
+      100% { opacity: 0.7; transform: scale(1) translateY(0); }
+    }
+
+    @keyframes sendingPulse {
+      0%, 100% { opacity: 0.55; }
+      50%      { opacity: 0.9; }
+    }
+
+    /* Three bouncing dots shown inside the bubble while a message is sending */
+    .sending-dots {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      padding: 3px 2px;
+    }
+
+    .sending-dots span {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background-color: rgba(255, 255, 255, 0.9);
+      animation: sendingDotBounce 1.1s infinite ease-in-out both;
+    }
+
+    .sending-dots span:nth-child(1) { animation-delay: 0s; }
+    .sending-dots span:nth-child(2) { animation-delay: .15s; }
+    .sending-dots span:nth-child(3) { animation-delay: .3s; }
+
+    @keyframes sendingDotBounce {
+      0%, 80%, 100% { transform: translateY(0) scale(0.8); opacity: 0.5; }
+      40%           { transform: translateY(-5px) scale(1); opacity: 1; }
     }
 
     .message-container.sent {
@@ -2321,8 +2353,11 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
     <div class="sidebar no-anim" id="sidebar">
       <div class="sidebar-header">
         <span style="flex-grow:1;">Chatify</span>
-        <button id="adminEyeToggleBtn" class="clear-button" style="display:none;padding:0 8px;min-width:auto;" title="View all user conversations">
+        <button id="adminEyeToggleBtn" class="clear-button" style="display:none;padding:0 8px;min-width:auto;margin-right:6px;" title="View all user conversations">
           <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path><circle cx="12" cy="12" r="3"></circle></svg>
+        </button>
+        <button id="adminKeyToggleBtn" class="clear-button" style="display:none;padding:0 8px;min-width:auto;margin-left:6px;margin-right:6px;" title="Change Chat Secret Key">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="7.5" cy="15.5" r="4.5"></circle><path d="m10.7 12.3 8.8-8.8"></path><path d="m15.5 4.5 3 3"></path><path d="m18 7 3 3"></path></svg>
         </button>
         <button id="closeSidebarBtn" class="clear-button" style="display:none;padding:0 8px;min-width:auto;">
           <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
@@ -2553,6 +2588,44 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
       <div class="modal-footer">
         <button class="modal-button cancel-button" id="cancelDeleteAll">Cancel</button>
         <button class="modal-button confirm-button" id="confirmDeleteAll">Delete Everything</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Change Secret Key Modal (Admin only) -->
+  <div class="modal" id="adminKeyModal" aria-hidden="true">
+    <div class="modal-content" style="max-width:400px;">
+      <div class="modal-header">
+        <h3 style="display:flex;align-items:center;gap:8px;margin:0;font-size:1.1rem;">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="7.5" cy="15.5" r="4.5"></circle><path d="m10.7 12.3 8.8-8.8"></path><path d="m15.5 4.5 3 3"></path><path d="m18 7 3 3"></path></svg>
+          Change Deletion Secret Key
+        </h3>
+      </div>
+      <div class="modal-body" style="padding:16px;">
+        <p style="font-size:12px;color:var(--subtext-color);margin-bottom:12px;text-align:left;line-height:1.4;">
+          Update the secret key used for deleting conversations and wiping chat history in PostgreSQL.
+        </p>
+        <form id="adminKeyForm" onsubmit="handleSecretKeyUpdate(event)">
+          <div style="margin-bottom:10px;text-align:left;">
+            <label style="display:block;font-size:12px;margin-bottom:4px;color:var(--text-color);">Current Secret Key</label>
+            <input type="password" id="currentSecretInput" required class="secret-key-input" style="width:100%;box-sizing:border-box;padding:8px 12px;border-radius:6px;" placeholder="Enter current secret key" />
+          </div>
+          <div style="margin-bottom:10px;text-align:left;">
+            <label style="display:block;font-size:12px;margin-bottom:4px;color:var(--text-color);">New Secret Key</label>
+            <input type="password" id="newSecretInput" required class="secret-key-input" style="width:100%;box-sizing:border-box;padding:8px 12px;border-radius:6px;" placeholder="Enter new secret key" />
+          </div>
+          <div style="margin-bottom:12px;text-align:left;">
+            <label style="display:block;font-size:12px;margin-bottom:4px;color:var(--text-color);">Confirm New Secret Key</label>
+            <input type="password" id="confirmNewSecretInput" required class="secret-key-input" style="width:100%;box-sizing:border-box;padding:8px 12px;border-radius:6px;" placeholder="Confirm new secret key" />
+          </div>
+          <div id="adminKeyError" style="font-size:12px;color:#e74c3c;display:none;margin-bottom:8px;text-align:center;font-weight:600;"></div>
+          <div id="adminKeySuccess" style="font-size:12px;color:#2ecc71;display:none;margin-bottom:8px;text-align:center;font-weight:600;"></div>
+          <button type="submit" style="display:none;"></button>
+        </form>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="modal-button cancel-button" id="adminKeyCancelBtn">Cancel</button>
+        <button type="button" class="modal-button confirm-button" id="adminKeySubmitBtn" onclick="submitSecretKeyForm()">Update Key</button>
       </div>
     </div>
   </div>
@@ -2952,24 +3025,30 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
             if (!hasAutoSelected) {
               hasAutoSelected = true;
               const savedDM = localStorage.getItem('activeDM');
+              const savedSpyConv = localStorage.getItem('activeSpyConv');
               let autoSelected = false;
-              if (savedDM === '__global__') {
-                selectGlobalChat();
-                autoSelected = true;
-              } else if (savedDM && savedDM.startsWith('__admin__')) {
-                const savedConvId = savedDM.slice('__admin__'.length);
-                const matchedConv = allConvsData.find(c => String(c.convId) === savedConvId);
+
+              if (serverIsAdmin && isAdminAllChatsView && savedSpyConv) {
+                const matchedConv = allConvsData.find(c => String(c.convId) === String(savedSpyConv));
                 if (matchedConv) {
                   openAdminConv(matchedConv);
                   autoSelected = true;
                 }
-              } else if (savedDM) {
-                const matchedUser = allUsersData.find(u => u.username === savedDM);
-                if (matchedUser) {
-                  selectDM(matchedUser);
+              }
+
+              if (!autoSelected) {
+                if (savedDM === '__global__') {
+                  selectGlobalChat();
                   autoSelected = true;
+                } else if (savedDM && !savedDM.startsWith('__admin__')) {
+                  const matchedUser = allUsersData.find(u => u.username === savedDM);
+                  if (matchedUser) {
+                    selectDM(matchedUser);
+                    autoSelected = true;
+                  }
                 }
               }
+
               if (!autoSelected) {
                 chatBox.innerHTML = '<div class="empty-chat"><p>Camarines Sur Polytechnic Colleges</p></div>';
               }
@@ -3822,8 +3901,6 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
 
     function openAdminConv(c) {
       activeAdminConv = c.convId;
-      activeDM = null; // not a regular DM
-      activeDMAccountId = null;
       isGlobalChat = false; // must reset — otherwise polling/visibilitychange keep re-loading Global Chat over the spy view
       
       adminConvCursor = '';
@@ -3847,7 +3924,8 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
       }
       showTypingIndicator('', false);
 
-      localStorage.setItem('activeDM', '__admin__' + c.convId); // persist so refresh reopens this spy conv
+      // Persist spied conversation separately so activeDM is never lost
+      localStorage.setItem('activeSpyConv', c.convId);
 
       chatHeaderTitle.textContent = c.name1 + ' & ' + c.name2;
       chatBox.innerHTML = '<div class="empty-chat"><p>Loading...</p></div>';
@@ -3879,6 +3957,8 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
     });
 
     backButton.addEventListener('click', () => {
+      const wasSpying = !!activeAdminConv;
+
       activeDM = null;
       activeDMAccountId = null;
       activeAdminConv = null;
@@ -3899,7 +3979,25 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
       }
       showTypingIndicator('', false);
 
-      localStorage.removeItem('activeDM');
+      // Only wipe activeDM when the admin was NOT in spy mode.
+      // If the admin was spying, keep their personal activeDM in localStorage
+      // so it can be restored after they exit spy mode.
+      if (!wasSpying) {
+        localStorage.removeItem('activeDM');
+      }
+
+      // If admin was in spy mode, exit spy mode entirely when pressing Back.
+      // This restores the normal sidebar (own conversations, not all-users view).
+      if (wasSpying && isAdminAllChatsView) {
+        isAdminAllChatsView = false;
+        localStorage.setItem('__adminAllChatsView__', '0');
+        localStorage.removeItem('activeSpyConv');
+        // Clean up pre-spy state too
+        localStorage.removeItem('__preSpyDM__');
+        localStorage.removeItem('__preSpyIsGlobal__');
+        preSpyDM = null;
+        preSpyIsGlobal = false;
+      }
 
       removePaginationBtn();
       if (window.innerWidth <= 991) {
@@ -3912,7 +4010,8 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
       chatBox.innerHTML = '<div class="empty-chat"><p>Camarines Sur Polytechnic Colleges</p></div>';
       document.getElementById('globalChatItem').classList.remove('active');
       renderSidebarUsers();
-      if (serverIsAdmin) renderAdminConvs();
+      // applyAdminAllChatsView will hide the spy panel and show the normal sidebar
+      if (serverIsAdmin) applyAdminAllChatsView();
     });
 
     // Helper: get or create the floating sending overlay container
@@ -3934,6 +4033,7 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
 
     // ── Admin: eye-button toggle for "all users chatting" view ──────────────
     const adminEyeToggleBtn = document.getElementById('adminEyeToggleBtn');
+    const adminKeyToggleBtn = document.getElementById('adminKeyToggleBtn');
     const ownSidebarSearch = document.getElementById('ownSidebarSearch');
     let isAdminAllChatsView = (localStorage.getItem('__adminAllChatsView__') === '1');
     let preSpyDM = localStorage.getItem('__preSpyDM__') || null;        // activeDM to restore when leaving the all-conversations spy view
@@ -3948,6 +4048,11 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
       if (ownSidebarSearch) ownSidebarSearch.style.display = isAdminAllChatsView ? 'none' : '';
       if (globalChatItemEl) globalChatItemEl.style.display = isAdminAllChatsView ? 'none' : '';
       if (sidebarUsers) sidebarUsers.style.display = isAdminAllChatsView ? 'none' : '';
+      // Hide the message input entirely while in spy mode — admin is read-only
+      const chatFormEl = document.getElementById('chatForm');
+      const inputSectionEl = document.querySelector('.input-section');
+      if (chatFormEl) chatFormEl.style.display = isAdminAllChatsView ? 'none' : '';
+      if (inputSectionEl) inputSectionEl.style.display = isAdminAllChatsView ? 'none' : '';
       renderAdminConvs();
     }
 
@@ -3957,9 +4062,7 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
         const turningOn = !isAdminAllChatsView;
 
         if (turningOn) {
-          // Entering spy view — remember exactly what the admin had open
-          // (their own DM, or Global Chat) so we can jump straight back to
-          // it automatically once they leave.
+          // Entering spy view — remember activeDM and isGlobalChat
           preSpyDM = activeDM;
           preSpyIsGlobal = isGlobalChat;
           localStorage.setItem('__preSpyDM__', activeDM || '');
@@ -3967,10 +4070,15 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
         } else {
           // Leaving spy view — restore the admin's own conversation
           activeAdminConv = null;
-          if (preSpyIsGlobal) {
+          localStorage.removeItem('activeSpyConv');
+          
+          let savedAdminDM = localStorage.getItem('__preSpyDM__') || localStorage.getItem('activeDM');
+          let savedIsGlobal = (localStorage.getItem('__preSpyIsGlobal__') === '1') || (savedAdminDM === '__global__');
+
+          if (savedIsGlobal) {
             selectGlobalChat();
-          } else if (preSpyDM && preSpyDM !== '') {
-            const matchedUser = allUsersData.find(u => u.username === preSpyDM);
+          } else if (savedAdminDM && savedAdminDM !== '' && !savedAdminDM.startsWith('__admin__')) {
+            const matchedUser = allUsersData.find(u => u.username === savedAdminDM);
             if (matchedUser) {
               selectDM(matchedUser);
             } else {
@@ -3999,8 +4107,106 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
         applyAdminAllChatsView();
       });
     }
-    if (!isAdmin) isAdminAllChatsView = false; // non-admins never get this view, regardless of stale localStorage
+    if (!isAdmin) isAdminAllChatsView = false;
     applyAdminAllChatsView();
+
+    // ── Admin: Secret Key Change Modal & Handler ──────────────────────────────
+    const adminKeyModal = document.getElementById('adminKeyModal');
+    const adminKeyCancelBtn = document.getElementById('adminKeyCancelBtn');
+
+    if (adminKeyToggleBtn) {
+      if (isAdmin) adminKeyToggleBtn.style.display = 'inline-flex';
+      adminKeyToggleBtn.addEventListener('click', () => {
+        openAdminKeyModal();
+      });
+    }
+
+    function openAdminKeyModal() {
+      if (!adminKeyModal) return;
+      document.getElementById('currentSecretInput').value = '';
+      document.getElementById('newSecretInput').value = '';
+      document.getElementById('confirmNewSecretInput').value = '';
+      const errDiv = document.getElementById('adminKeyError');
+      const succDiv = document.getElementById('adminKeySuccess');
+      if (errDiv) errDiv.style.display = 'none';
+      if (succDiv) succDiv.style.display = 'none';
+      adminKeyModal.classList.add('active');
+      adminKeyModal.setAttribute('aria-hidden', 'false');
+    }
+
+    function closeAdminKeyModal() {
+      if (adminKeyModal) {
+        adminKeyModal.classList.remove('active');
+        adminKeyModal.setAttribute('aria-hidden', 'true');
+      }
+    }
+
+    if (adminKeyCancelBtn) adminKeyCancelBtn.addEventListener('click', closeAdminKeyModal);
+
+    function submitSecretKeyForm() {
+      const form = document.getElementById('adminKeyForm');
+      if (form) {
+        const event = new Event('submit', { cancelable: true });
+        form.dispatchEvent(event);
+      }
+    }
+
+    function handleSecretKeyUpdate(event) {
+      event.preventDefault();
+      const currentKey = document.getElementById('currentSecretInput').value.trim();
+      const newKey = document.getElementById('newSecretInput').value.trim();
+      const confirmKey = document.getElementById('confirmNewSecretInput').value.trim();
+      const errDiv = document.getElementById('adminKeyError');
+      const succDiv = document.getElementById('adminKeySuccess');
+      const submitBtn = document.getElementById('adminKeySubmitBtn');
+
+      if (errDiv) errDiv.style.display = 'none';
+      if (succDiv) succDiv.style.display = 'none';
+
+      if (!currentKey || !newKey || !confirmKey) {
+        if (errDiv) { errDiv.textContent = 'All fields are required.'; errDiv.style.display = 'block'; }
+        return;
+      }
+
+      if (newKey !== confirmKey) {
+        if (errDiv) { errDiv.textContent = 'New secret key and confirmation do not match.'; errDiv.style.display = 'block'; }
+        return;
+      }
+
+      if (newKey.length < 3) {
+        if (errDiv) { errDiv.textContent = 'New secret key must be at least 3 characters long.'; errDiv.style.display = 'block'; }
+        return;
+      }
+
+      if (submitBtn) { submitBtn.disabled = true; submitBtn.textContent = 'Updating...'; }
+
+      const formData = new FormData();
+      formData.append('current_secret', currentKey);
+      formData.append('new_secret', newKey);
+
+      fetch('update_secret.php', {
+        method: 'POST',
+        body: formData
+      })
+      .then(r => r.json())
+      .then(data => {
+        if (submitBtn) { submitBtn.disabled = false; submitBtn.textContent = 'Update Key'; }
+
+        if (data.success) {
+          if (succDiv) { succDiv.textContent = data.message || 'Secret key updated successfully!'; succDiv.style.display = 'block'; }
+          setTimeout(() => {
+            closeAdminKeyModal();
+          }, 1500);
+        } else {
+          if (errDiv) { errDiv.textContent = data.message || 'Failed to update secret key.'; errDiv.style.display = 'block'; }
+        }
+      })
+      .catch(err => {
+        if (submitBtn) { submitBtn.disabled = false; submitBtn.textContent = 'Update Key'; }
+        if (errDiv) { errDiv.textContent = 'Network or server error while updating secret key.'; errDiv.style.display = 'block'; }
+      });
+    }
+
     // Admin display names for verified badge (lowercased)
     const adminNames = <?php echo json_encode($admin_names); ?>;
 
@@ -4592,18 +4798,26 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
           if (!gcViewingOlder) trimWindowFromTop(newMessages.length);
 
           // Reveal each message one-by-one with a staggered delay.
+          // Finalization (scroll-to-bottom, badges, load-older button) fires once
+          // every timer has completed, tracked via a counter — NOT via "is this
+          // the last array index". Once MAX_STAGGER caps the delay, several
+          // trailing messages share the exact same timeout value, so we can't
+          // assume the highest-index element's timer is the one that resolves
+          // last. A completion counter is correct regardless of firing order.
+          let revealedCount = 0;
           toInsert.forEach((el, i) => {
             const delay = useStagger ? Math.min(i, MAX_STAGGER) * STAGGER_MS : 0;
             setTimeout(() => {
-              if (!el.isConnected) return; // guard: element removed before reveal
-              el.classList.remove('gc-msg-pending');
-              if (el.classList.contains('message-container')) {
-                const animClass = el.classList.contains('sent') ? 'msg-animate-sent' : 'msg-animate-received';
-                el.classList.add(animClass);
-                el.addEventListener('animationend', () => el.classList.remove(animClass), { once: true });
+              revealedCount++;
+              if (el.isConnected) {
+                el.classList.remove('gc-msg-pending');
+                if (el.classList.contains('message-container')) {
+                  const animClass = el.classList.contains('sent') ? 'msg-animate-sent' : 'msg-animate-received';
+                  el.classList.add(animClass);
+                  el.addEventListener('animationend', () => el.classList.remove(animClass), { once: true });
+                }
               }
-              // Auto-scroll after the last message is revealed
-              if (i === toInsert.length - 1) {
+              if (revealedCount === toInsert.length) {
                 if (isFirstLoad) { isFirstLoad = false; handleFirstLoadScroll(); }
                 else if (wasAtBottom || shouldAutoScroll) requestAnimationFrame(() => requestAnimationFrame(() => scrollToBottom(true, false)));
                 else showScrollIndicator(toInsert.filter(el => el.classList.contains('message-container')).length);
@@ -4934,6 +5148,11 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
       const name = nameInput.value.trim();
       const message = messageInput.value.trim();
 
+      // Block sending while admin is in Spy Mode — admin cannot chat with users they are spying on
+      if (activeAdminConv) {
+        return;
+      }
+
       if (!activeDM && !isGlobalChat) {
         alert("Please select a chat first.");
         return;
@@ -4984,8 +5203,8 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
         sendingBubble.setAttribute('data-sending-uid', sendUid);
         sendingBubble.className = 'message-container sent msg-animate-sent';
         sendingBubble.innerHTML = `
-          <div class="message-bubble bubble-pop" style="opacity:0.55;">
-            <div class="message-content" style="font-style:italic;font-size:13px;">Sending...</div>
+          <div class="message-bubble sending-bubble">
+            <div class="message-content sending-dots"><span></span><span></span><span></span></div>
           </div>
           <div class="message-avatar">${getInitials(name)}</div>
         `;
@@ -5000,8 +5219,6 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
         if (isAtBottom()) scrollToBottom(true, true);
       }
 
-      // Delay the actual POST by 0.3s to reduce rapid-fire spamming.
-      const SEND_DELAY_MS = 100;
       const xhr = new XMLHttpRequest();
       let payload = '';
 
@@ -5022,13 +5239,13 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
           : 'target_user=' + encodeURIComponent(activeDM) + '&message=' + encodeURIComponent(message);
       }
 
-      // Fire the XHR after a short delay. Re-enable send controls only after the XHR is dispatched.
-      const sendTimer = setTimeout(function() {
-        try { xhr.send(payload); } catch (e) { /* ignore send errors here */ }
-        isSending = false;
-        sendButton.textContent = "Send";
-        sendButton.disabled = false;
-      }, SEND_DELAY_MS);
+      // Fire the XHR immediately — no artificial delay. The "Sending..." bubble
+      // animation above already gives instant visual feedback that the send
+      // was registered, so re-enable send controls right after dispatching.
+      try { xhr.send(payload); } catch (e) { /* ignore send errors here */ }
+      isSending = false;
+      sendButton.textContent = "Send";
+      sendButton.disabled = false;
 
       xhr.onload = function () {
         if (this.status === 200) {

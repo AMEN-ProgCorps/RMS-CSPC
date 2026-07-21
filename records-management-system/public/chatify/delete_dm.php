@@ -2,11 +2,6 @@
 // =============================================================================
 // delete_dm.php — Delete a private conversation (admin clears all, user clears own)
 // =============================================================================
-// POST params (one required):
-//   target_id   (int)    — account_id of the other participant
-//   conv_id     (string) — canonical conv_id (e.g. "2_5"), admin-only shortcut
-//   secret      (string) — secret key from secret.json (required for admin delete)
-// =============================================================================
 
 require_once __DIR__ . '/bootstrap.php';
 
@@ -28,7 +23,6 @@ $secret    = trim($_POST['secret'] ?? '');
 
 // ── Resolve conv_id ───────────────────────────────────────────────────────────
 if (empty($convId)) {
-    // Try to look up by target_id or target_user (email)
     if ($targetId <= 0 && !empty($_POST['target_user'])) {
         try {
             $pdo  = Database::getConnection();
@@ -46,7 +40,6 @@ if (empty($convId)) {
 
     $convId = ConversationManager::convId($myAccountId, $targetId);
 } else {
-    // Sanitize: allow only numeric_numeric format
     $convId = preg_replace('/[^0-9_]/', '', $convId);
     if (!preg_match('/^\d+_\d+$/', $convId)) {
         http_response_code(400);
@@ -60,14 +53,7 @@ if ($isAdmin) {
         http_response_code(403);
         die('Secret key required');
     }
-    $secretFile = __DIR__ . '/secret.json';
-    if (!file_exists($secretFile)) {
-        http_response_code(500);
-        die('Secret configuration not found');
-    }
-    $secretData = json_decode(file_get_contents($secretFile), true);
-    $storedKey  = $secretData['secret_key'] ?? $secretData['secret'] ?? '';
-    if (empty($storedKey) || !hash_equals($storedKey, $secret)) {
+    if (!ConversationManager::verifySecretKey($secret)) {
         http_response_code(403);
         die('Invalid secret key');
     }
@@ -86,22 +72,7 @@ if (!$isAdmin) {
 $deleted = ConversationManager::deleteConversation($convId, $myAccountId, $isAdmin);
 
 if ($isAdmin) {
-    // Also delete any physical upload files that were attached to this conversation
-    try {
-        // We need to fetch message records before deletion (already done inside
-        // deleteConversation), so here we just clean orphaned uploads by name pattern
-        // if the uploads dir is accessible. Non-fatal.
-        if (defined('UPLOADS_DIR') && is_dir(UPLOADS_DIR)) {
-            // Nothing to iterate — deletion is already done; this is a best-effort pass
-            // for any upload files. Since messages are removed by DB cascade, files that
-            // are no longer referenced can be left for periodic cleanup or handled here
-            // if the caller passes filenames explicitly. Skip for now.
-        }
-    } catch (Throwable $e) {
-        // Non-fatal
-    }
     echo $deleted ? 'Entire conversation deleted successfully' : 'Conversation cleared';
 } else {
-    // Regular users: always report success so the UI reloads gracefully.
     echo 'Conversation cleared';
 }

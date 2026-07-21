@@ -1252,6 +1252,41 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
       position: relative;
     }
 
+    .spy-mode-notice {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      text-align: center;
+      gap: 10px;
+      width: 90%;
+      max-width: 460px;
+      min-width: 260px;
+      min-height: 48px;
+      flex-shrink: 0;
+      padding: 12px 18px;
+      background: var(--bg-modal, var(--bg-secondary));
+      color: var(--text-secondary);
+      font-size: 13px;
+      font-weight: 600;
+      border-radius: 12px;
+      border: 1px dashed var(--border-color);
+      box-shadow: 0 2px 8px var(--shadow-color, rgba(0, 0, 0, 0.08));
+      margin: 6px auto;
+      box-sizing: border-box;
+      user-select: none;
+      transition: all 0.3s ease;
+    }
+
+    @media (max-width: 480px) {
+      .spy-mode-notice {
+        width: 95%;
+        min-width: 220px;
+        padding: 10px 14px;
+        font-size: 12px;
+        gap: 6px;
+      }
+    }
+
     #cancelEditXBtn {
       display: none;
       width: 28px;
@@ -1537,7 +1572,7 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
     /* Scroll indicator */
     .scroll-indicator {
       position: absolute;
-      bottom: 80px;
+      bottom: calc(100% + 8px);
       right: 16px;
       background: #1b74e4;
       color: white;
@@ -1548,7 +1583,7 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
       cursor: pointer;
       opacity: 0;
       visibility: hidden;
-      transition: opacity 0.3s ease, visibility 0.3s ease, transform 0.2s ease, background 0.2s ease, bottom 0.2s ease;
+      transition: opacity 0.3s ease, visibility 0.3s ease, transform 0.2s ease, background 0.2s ease;
       z-index: 200;
       box-shadow: 0 2px 10px rgba(0,0,0,0.25);
       display: flex;
@@ -1557,10 +1592,6 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
       user-select: none;
       white-space: nowrap;
       will-change: opacity, transform;
-    }
-
-    body.in-spy-mode .scroll-indicator {
-      bottom: 20px;
     }
 
     .scroll-indicator.visible {
@@ -2357,17 +2388,15 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
     <div class="sidebar no-anim" id="sidebar">
       <div class="sidebar-header">
         <span style="flex-grow:1;">Chatify</span>
-        <div class="sidebar-header-actions" style="display:flex;align-items:center;gap:6px;">
-          <button id="adminEyeToggleBtn" class="clear-button" style="display:none;padding:0 8px;min-width:auto;margin:0;" title="View all user conversations">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path><circle cx="12" cy="12" r="3"></circle></svg>
-          </button>
-          <button id="adminKeyToggleBtn" class="clear-button" style="display:none;padding:0 8px;min-width:auto;margin:0;" title="Change Chat Secret Key">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="7.5" cy="15.5" r="4.5"></circle><path d="m10.7 12.3 8.8-8.8"></path><path d="m15.5 4.5 3 3"></path><path d="m18 7 3 3"></path></svg>
-          </button>
-          <button id="closeSidebarBtn" class="clear-button" style="display:none;padding:0 8px;min-width:auto;margin:0;" title="Close Sidebar">
-            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
-          </button>
-        </div>
+        <button id="adminEyeToggleBtn" class="clear-button" style="display:none;padding:0 8px;min-width:auto;margin-right:6px;" title="View all user conversations">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path><circle cx="12" cy="12" r="3"></circle></svg>
+        </button>
+        <button id="adminKeyToggleBtn" class="clear-button" style="display:none;padding:0 8px;min-width:auto;margin-left:6px;margin-right:6px;" title="Change Chat Secret Key">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="7.5" cy="15.5" r="4.5"></circle><path d="m10.7 12.3 8.8-8.8"></path><path d="m15.5 4.5 3 3"></path><path d="m18 7 3 3"></path></svg>
+        </button>
+        <button id="closeSidebarBtn" class="clear-button" style="display:none;padding:0 8px;min-width:auto;">
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+        </button>
       </div>
       <div class="sidebar-search" id="ownSidebarSearch">
         <input type="text" id="searchInput" placeholder="Search users..." autocomplete="off">
@@ -2443,14 +2472,14 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
       </div>
     </div>
 
-    <!-- Scroll to bottom indicator — lives outside chat-box & input-area so it displays in spy mode -->
-    <div class="scroll-indicator" id="scrollIndicator">
-      <span>↓</span>
-      <span id="scrollIndicatorText">Go to bottom</span>
-      <span class="unread-badge" id="unreadBadge"></span>
-    </div>
-
     <div class="input-area">
+      <!-- Scroll to bottom indicator anchored to top-right of input area -->
+      <div class="scroll-indicator" id="scrollIndicator">
+        <span>↓</span>
+        <span id="scrollIndicatorText">Go to bottom</span>
+        <span class="unread-badge" id="unreadBadge"></span>
+      </div>
+
       <!-- Typing Indicator -->
       <div id="typingIndicator" class="typing-indicator-container">
         <span id="typingIndicatorText"></span>
@@ -2499,6 +2528,14 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
         <textarea id="messageInput" placeholder="Type a message..." required autocomplete="off" rows="1"></textarea>
         <button type="submit" id="sendButton">Send</button>
       </form>
+
+      <!-- Admin Spy Mode Notice -->
+      <div id="spyModeNotice" class="spy-mode-notice" style="display:none;">
+        <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor" style="flex-shrink:0;">
+          <path d="M12 4.5C7 4.5 2.73 7.61 1 12c1.73 4.39 6 7.5 11 7.5s9.27-3.11 11-7.5c-1.73-4.39-6-7.5-11-7.5zM12 17c-2.76 0-5-2.24-5-5s2.24-5 5-5 5 2.24 5 5-2.24 5-5 5zm0-8c-1.66 0-3 1.34-3 3s1.34 3 3 3 3-1.34 3-3-1.34-3-3-3z"/>
+        </svg>
+        <span>Admin Spy Mode Active — Read Only (Messaging Disabled)</span>
+      </div>
     </div>
   </div>
 
@@ -2805,15 +2842,15 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
             fetchNotifications();
             fetchUsers();
           } else if (data.chat_type === 'private') {
-            if (activeDM && activeDMAccountId === Number(data.sender_id)) {
-              loadChat(true);
-            } else if (activeAdminConv) {
+            if (activeAdminConv) {
               const parts = activeAdminConv.split('_').map(Number);
               const s = Number(data.sender_id);
               const r = Number(data.recipient_id);
               if ((s === parts[0] && r === parts[1]) || (s === parts[1] && r === parts[0])) {
                 loadAdminConv(activeAdminConv, true);
               }
+            } else if (activeDM && activeDMAccountId === Number(data.sender_id)) {
+              loadChat(true);
             }
             fetchNotifications();
             fetchUsers();
@@ -3963,8 +4000,6 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
     });
 
     backButton.addEventListener('click', () => {
-      const wasSpying = !!activeAdminConv;
-
       activeDM = null;
       activeDMAccountId = null;
       activeAdminConv = null;
@@ -3985,25 +4020,7 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
       }
       showTypingIndicator('', false);
 
-      // Only wipe activeDM when the admin was NOT in spy mode.
-      // If the admin was spying, keep their personal activeDM in localStorage
-      // so it can be restored after they exit spy mode.
-      if (!wasSpying) {
-        localStorage.removeItem('activeDM');
-      }
-
-      // If admin was in spy mode, exit spy mode entirely when pressing Back.
-      // This restores the normal sidebar (own conversations, not all-users view).
-      if (wasSpying && isAdminAllChatsView) {
-        isAdminAllChatsView = false;
-        localStorage.setItem('__adminAllChatsView__', '0');
-        localStorage.removeItem('activeSpyConv');
-        // Clean up pre-spy state too
-        localStorage.removeItem('__preSpyDM__');
-        localStorage.removeItem('__preSpyIsGlobal__');
-        preSpyDM = null;
-        preSpyIsGlobal = false;
-      }
+      localStorage.removeItem('activeDM');
 
       removePaginationBtn();
       if (window.innerWidth <= 991) {
@@ -4016,8 +4033,7 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
       chatBox.innerHTML = '<div class="empty-chat"><p>Camarines Sur Polytechnic Colleges</p></div>';
       document.getElementById('globalChatItem').classList.remove('active');
       renderSidebarUsers();
-      // applyAdminAllChatsView will hide the spy panel and show the normal sidebar
-      if (serverIsAdmin) applyAdminAllChatsView();
+      if (serverIsAdmin) renderAdminConvs();
     });
 
     // Helper: get or create the floating sending overlay container
@@ -4049,16 +4065,19 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
       if (adminEyeToggleBtn) {
         adminEyeToggleBtn.classList.toggle('active', isAdminAllChatsView);
       }
-      document.body.classList.toggle('in-spy-mode', isAdminAllChatsView);
       // Hide the admin's own conversation list/search while browsing all users' chats
       const globalChatItemEl = document.getElementById('globalChatItem');
       if (ownSidebarSearch) ownSidebarSearch.style.display = isAdminAllChatsView ? 'none' : '';
       if (globalChatItemEl) globalChatItemEl.style.display = isAdminAllChatsView ? 'none' : '';
       if (sidebarUsers) sidebarUsers.style.display = isAdminAllChatsView ? 'none' : '';
-      // Hide the ENTIRE input-area footer while in spy mode so no empty rectangle remains.
-      // Hiding only the inner chatForm/input-section still left the container's min-height visible.
-      const inputAreaEl = document.querySelector('.input-area');
-      if (inputAreaEl) inputAreaEl.style.display = isAdminAllChatsView ? 'none' : '';
+
+      const inputSection = document.querySelector('.input-section');
+      const chatForm = document.getElementById('chatForm');
+      const spyNotice = document.getElementById('spyModeNotice');
+      if (inputSection) inputSection.style.display = isAdminAllChatsView ? 'none' : '';
+      if (chatForm) chatForm.style.display = isAdminAllChatsView ? 'none' : '';
+      if (spyNotice) spyNotice.style.display = isAdminAllChatsView ? 'flex' : 'none';
+
       renderAdminConvs();
     }
 
@@ -4068,23 +4087,69 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
         const turningOn = !isAdminAllChatsView;
 
         if (turningOn) {
-          // Entering spy view — remember activeDM and isGlobalChat
+          // Entering spy view — remember activeDM and isGlobalChat to restore upon exit
           preSpyDM = activeDM;
           preSpyIsGlobal = isGlobalChat;
           localStorage.setItem('__preSpyDM__', activeDM || '');
           localStorage.setItem('__preSpyIsGlobal__', isGlobalChat ? '1' : '0');
-        } else {
-          // Leaving spy view — restore the admin's own conversation
+
+          // Close/clear previously opened conversation
+          activeDM = null;
+          activeDMAccountId = null;
+          isGlobalChat = false;
           activeAdminConv = null;
           localStorage.removeItem('activeSpyConv');
           
-          let savedAdminDM = localStorage.getItem('__preSpyDM__') || localStorage.getItem('activeDM');
-          let savedIsGlobal = (localStorage.getItem('__preSpyIsGlobal__') === '1') || (savedAdminDM === '__global__');
+          chatHeaderTitle.textContent = '';
+          removePaginationBtn();
+          chatBox.innerHTML = '<div class="empty-chat"><p>Select a conversation to spy on</p></div>';
+
+          isAdminAllChatsView = true;
+          localStorage.setItem('__adminAllChatsView__', '1');
+          applyAdminAllChatsView();
+        } else {
+          // Leaving spy view — restore the admin's conversation
+          const currentSpyConv = activeAdminConv || localStorage.getItem('activeSpyConv');
+
+          isAdminAllChatsView = false;
+          localStorage.setItem('__adminAllChatsView__', '0');
+          activeAdminConv = null;
+          localStorage.removeItem('activeSpyConv');
+
+          // Wipe chatBox innerHTML so reconcilePoll doesn't retain old spy-mode DOM nodes ("one liner")
+          chatBox.innerHTML = '';
+          isFirstLoad = true;
+
+          applyAdminAllChatsView();
+
+          let savedAdminDM = preSpyDM || localStorage.getItem('__preSpyDM__');
+          let savedIsGlobal = preSpyIsGlobal || (localStorage.getItem('__preSpyIsGlobal__') === '1');
+
+          // Fallback: If no preSpyDM was set, but admin was viewing a spied conversation in spy mode
+          if (!savedAdminDM && !savedIsGlobal && currentSpyConv) {
+            const parts = String(currentSpyConv).split('_').map(Number);
+            if (parts.length === 2) {
+              const spiedUser = (allUsersData || []).find(u => 
+                (Number(u.account_id) === parts[0] || Number(u.account_id) === parts[1]) &&
+                Number(u.account_id) !== Number(myAccountId || 0)
+              );
+              if (spiedUser) {
+                savedAdminDM = spiedUser.username;
+              }
+            }
+          }
+
+          // Fallback: check activeDM in localStorage if not starting with __admin__
+          if (!savedAdminDM && !savedIsGlobal) {
+            let locDM = localStorage.getItem('activeDM');
+            if (locDM === '__global__') savedIsGlobal = true;
+            else if (locDM && !locDM.startsWith('__admin__')) savedAdminDM = locDM;
+          }
 
           if (savedIsGlobal) {
             selectGlobalChat();
           } else if (savedAdminDM && savedAdminDM !== '' && !savedAdminDM.startsWith('__admin__')) {
-            const matchedUser = allUsersData.find(u => u.username === savedAdminDM);
+            const matchedUser = (allUsersData || []).find(u => u.username === savedAdminDM);
             if (matchedUser) {
               selectDM(matchedUser);
             } else {
@@ -4101,16 +4166,13 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
             removePaginationBtn();
             chatBox.innerHTML = '<div class="empty-chat"><p>Camarines Sur Polytechnic Colleges</p></div>';
           }
+
           // Clean up pre-spy state
           preSpyDM = null;
           preSpyIsGlobal = false;
           localStorage.removeItem('__preSpyDM__');
           localStorage.removeItem('__preSpyIsGlobal__');
         }
-
-        isAdminAllChatsView = turningOn;
-        localStorage.setItem('__adminAllChatsView__', isAdminAllChatsView ? '1' : '0');
-        applyAdminAllChatsView();
       });
     }
     if (!isAdmin) isAdminAllChatsView = false;
@@ -4539,15 +4601,6 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
         loadGlobalChat(false, false);
         return;
       }
-      if (!isGlobalChat && activeDM && dmViewingOlder) {
-        dmViewingOlder = false;
-        dmCursor = '';
-        removePaginationBtn();
-        chatBox.innerHTML = '';
-        isFirstLoad = true;
-        loadChat(false, false, true);
-        return;
-      }
       if (!isGlobalChat && activeAdminConv && adminConvViewingOlder) {
         adminConvViewingOlder = false;
         adminConvCursor = '';
@@ -4555,6 +4608,15 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
         chatBox.innerHTML = '';
         isFirstLoad = true;
         loadAdminConv(activeAdminConv, false, false);
+        return;
+      }
+      if (!isGlobalChat && !activeAdminConv && activeDM && dmViewingOlder) {
+        dmViewingOlder = false;
+        dmCursor = '';
+        removePaginationBtn();
+        chatBox.innerHTML = '';
+        isFirstLoad = true;
+        loadChat(false, false, true);
         return;
       }
 
@@ -4880,6 +4942,7 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
     let chatXhr = null;
 
     function loadChat(isAutoPoll = false, loadOlderMode = false, force = false) {
+      if (isAdminAllChatsView || activeAdminConv) return;
       if (!activeDM) return;
       // While the user is browsing an older window they loaded manually, silent
       // background polls must not touch the chat box — otherwise the very next
@@ -5035,9 +5098,13 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
     }
 
     function loadOlderMessages() {
-      if (activeAdminConv) loadAdminConv(activeAdminConv, false, true);
-      else if (isGlobalChat) loadGlobalChat(false, true);
-      else if (activeDM) loadChat(false, true);
+      if (activeAdminConv || isAdminAllChatsView) {
+        if (activeAdminConv) loadAdminConv(activeAdminConv, false, true);
+      } else if (isGlobalChat) {
+        loadGlobalChat(false, true);
+      } else if (activeDM) {
+        loadChat(false, true);
+      }
     }
 
     function deleteChat() {
@@ -5151,13 +5218,12 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
     document.getElementById("chatForm").addEventListener("submit", function (e) {
       e.preventDefault();
 
-      const name = nameInput.value.trim();
-      const message = messageInput.value.trim();
-
-      // Block sending while admin is in Spy Mode — admin cannot chat with users they are spying on
-      if (activeAdminConv) {
+      if (isAdminAllChatsView || activeAdminConv) {
         return;
       }
+
+      const name = nameInput.value.trim();
+      const message = messageInput.value.trim();
 
       if (!activeDM && !isGlobalChat) {
         alert("Please select a chat first.");
@@ -5242,7 +5308,7 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
         xhr.setRequestHeader('Content-type', 'application/x-www-form-urlencoded');
         payload = isGlobalChat
           ? 'message=' + encodeURIComponent(message)
-          : 'target_id=' + encodeURIComponent(activeDMAccountId || '') + '&target_user=' + encodeURIComponent(activeDM || '') + '&message=' + encodeURIComponent(message);
+          : 'target_user=' + encodeURIComponent(activeDM) + '&message=' + encodeURIComponent(message);
       }
 
       // Fire the XHR immediately — no artificial delay. The "Sending..." bubble
@@ -5742,6 +5808,10 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
 
     // ── Core upload handler ───────────────────────────────────────────────────
     function handleFileUploads(files) {
+      if (isAdminAllChatsView || activeAdminConv) {
+        return;
+      }
+
       if (!activeDM && !isGlobalChat) {
         return;
       }
@@ -5777,6 +5847,10 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
 
     // ── Upload files → save message ───────────────────────────────────────────
     function uploadAndSend(fileList, isImageBatch) {
+      if (isAdminAllChatsView || activeAdminConv) {
+        return;
+      }
+
       shouldAutoScroll = true;
       userScrolledUp   = false;
 
@@ -5998,7 +6072,7 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
       });
     });
 
-    // Initialize app
+    // Initialize app 
     window.addEventListener('load', function() {
       // Set the name input as readonly
       nameInput.readOnly = true;

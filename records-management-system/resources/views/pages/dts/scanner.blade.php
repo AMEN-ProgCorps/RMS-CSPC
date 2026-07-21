@@ -122,7 +122,7 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - QR Code Scanner
         $transaction = DB::table('dts_transactions as dt')
             ->join('dts_transaction_details as dtd', 'dtd.id', '=', 'dt.transaction_id')
             ->leftJoin('office as originated_office', 'originated_office.office_code', '=', 'dtd.originated_from')
-            ->leftJoin('dts_document_data as doc', 'doc.document_path', '=', 'dt.doc_dir')
+            ->leftJoin('document_data as doc', 'doc.document_path', '=', 'dt.doc_dir')
             ->where(function($q) use ($code) {
                 $q->where('dt.qr_code', $code)
                   ->orWhere('dtd.control_number', $code);

@@ -71,6 +71,17 @@ class User extends Authenticatable
         return $this->hasOne(AccountDetail::class, 'account_id');
     }
 
+    public function personalSetting(): HasOne
+    {
+        return $this->hasOne(PersonalSetting::class, 'user', 'id');
+    }
+
+    public function autoOpenChat(): bool
+    {
+        $setting = $this->personalSetting;
+        return $setting ? (bool)$setting->auto_open_chat : true;
+    }
+
     public function permissions(): HasOneThrough
     {
         return $this->hasOneThrough(

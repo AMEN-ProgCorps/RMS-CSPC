@@ -755,7 +755,7 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create Internal
             // Create document data record if type of document is provided
             $docDir = null;
             if (!empty($this->type_of_document)) {
-                $existingDoc = DB::table('dts_document_data')
+                $existingDoc = DB::table('document_data')
                     ->where('document_name', $this->type_of_document)
                     ->first();
                 if ($existingDoc) {
@@ -763,7 +763,7 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create Internal
                 } else {
                     $docId = 'DOC-' . strtoupper(Str::random(8));
                     $docDir = 'docs/' . Str::slug($this->type_of_document) . '-' . time() . '.pdf';
-                    DB::table('dts_document_data')->insert([
+                    DB::table('document_data')->insert([
                         'document_id' => $docId,
                         'document_name' => $this->type_of_document,
                         'document_path' => $docDir,

@@ -38,6 +38,9 @@ new #[Layout('layouts.profile')] #[Title('Profile Manager - Details')] class ext
 
     public ?int $currentRoleId = null;
 
+    /** @var bool Personal preference for auto-opening Chatify widget upon login */
+    public bool $autoOpenChat = true;
+
     /**
      * Component Mount hook - populates user attributes and maps roles/permissions.
      */
@@ -46,9 +49,24 @@ new #[Layout('layouts.profile')] #[Title('Profile Manager - Details')] class ext
         $this->refresh();
     }
 
+    public function toggleAutoOpenChat(): void
+    {
+        $user = auth()->user();
+        if ($user) {
+            $setting = \App\Models\PersonalSetting::firstOrCreate(
+                ['user' => $user->id],
+                ['auto_open_chat' => true]
+            );
+            $setting->auto_open_chat = !$setting->auto_open_chat;
+            $setting->save();
+            $this->autoOpenChat = (bool)$setting->auto_open_chat;
+        }
+    }
+
     public function refresh(): void
     {
         $user = auth()->user()->fresh();
+        $this->autoOpenChat = $user ? $user->autoOpenChat() : true;
         
         $newRoleId = $user->account_role;
         $newPermissions = [];
@@ -203,9 +221,28 @@ new #[Layout('layouts.profile')] #[Title('Profile Manager - Details')] class ext
             </div>
         </div>
 
-        <!-- Role & Permissions Card -->
+        <!-- Role & Permissions & Personal Settings Card -->
         <div class="profile-card">
             <h2 class="card-title">
+                <i class="fa-solid fa-sliders"></i> Personal Preferences & Settings
+            </h2>
+            
+            <div class="detail-row" style="padding: 12px 0; border-bottom: 1px solid #e2e8f0; display: flex; align-items: center; justify-content: space-between;">
+                <div>
+                    <span class="detail-label" style="font-size: 14px; font-weight: 600; color: #1e293b; display: block;">Auto-open Chatify upon login</span>
+                    <span style="font-size: 12px; color: #64748b; display: block; margin-top: 2px;">Automatically open the floating Chatify messaging widget when logging into your account.</span>
+                </div>
+                <div>
+                    <label style="position: relative; display: inline-block; width: 44px; height: 24px; cursor: pointer;">
+                        <input type="checkbox" wire:click="toggleAutoOpenChat" {{ $autoOpenChat ? 'checked' : '' }} style="opacity: 0; width: 0; height: 0;">
+                        <span style="position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0; background-color: {{ $autoOpenChat ? '#2563eb' : '#cbd5e1' }}; transition: .3s; border-radius: 24px;">
+                            <span style="position: absolute; content: ''; height: 18px; width: 18px; left: {{ $autoOpenChat ? '22px' : '3px' }}; bottom: 3px; background-color: white; transition: .3s; border-radius: 50%;"></span>
+                        </span>
+                    </label>
+                </div>
+            </div>
+
+            <h2 class="card-title" style="margin-top: 25px;">
                 <i class="fa-solid fa-key"></i> System Access & Permissions
             </h2>
             
@@ -232,4 +269,3 @@ new #[Layout('layouts.profile')] #[Title('Profile Manager - Details')] class ext
         </div>
     </div>
 </div>
-

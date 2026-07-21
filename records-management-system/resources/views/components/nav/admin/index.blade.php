@@ -66,6 +66,9 @@
         <div class="function-button {{ request()->routeIs('admin.activity.logins') ? 'force-active' : '' }}" onclick="proccedto('{{ route('admin.activity.logins') }}')">Logins</div>
         <div class="function-button {{ request()->routeIs('admin.activity.account-changes') ? 'force-active' : '' }}" onclick="proccedto('{{ route('admin.activity.account-changes') }}')">Account Changes</div>
         <div class="function-button {{ request()->routeIs('admin.activity.notifications') ? 'force-active' : '' }}" onclick="proccedto('{{ route('admin.activity.notifications') }}')">Notifications</div>
+        <div class="function-button {{ request()->routeIs('admin.activity.dts.transaction-logs') ? 'force-active' : '' }}" onclick="proccedto('{{ route('admin.activity.dts.transaction-logs') }}')">[DTS] Transactions Logs</div>
+        <div class="function-button {{ request()->routeIs('admin.activity.dts.update-logs') ? 'force-active' : '' }}" onclick="proccedto('{{ route('admin.activity.dts.update-logs') }}')">[DTS] Update Logs</div>
+        <div class="function-button {{ request()->routeIs('admin.activity.dts.flow-logs') ? 'force-active' : '' }}" onclick="proccedto('{{ route('admin.activity.dts.flow-logs') }}')">[DTS] Flows Logs</div>
     </div>
 </div>
 @endif
@@ -126,10 +129,7 @@
         </div>
     </div>
     <div class="functions-container">
-        <div class="function-button {{ request()->routeIs('admin.dts.transaction-logs') ? 'force-active' : '' }}" onclick="proccedto('{{ route('admin.dts.transaction-logs') }}')">Transactions Logs</div>
-        <div class="function-button {{ request()->routeIs('admin.dts.update-logs') ? 'force-active' : '' }}" onclick="proccedto('{{ route('admin.dts.update-logs') }}')">Update Logs</div>
         <div class="function-button {{ request()->routeIs('admin.dts.transaction-flows') ? 'force-active' : '' }}" onclick="proccedto('{{ route('admin.dts.transaction-flows') }}')">Transaction Flows</div>
-        <div class="function-button {{ request()->routeIs('admin.dts.flow-logs') ? 'force-active' : '' }}" onclick="proccedto('{{ route('admin.dts.flow-logs') }}')">Flows Logs</div>
         <div class="function-button {{ request()->routeIs('admin.dts.action-options') ? 'force-active' : '' }}" onclick="proccedto('{{ route('admin.dts.action-options') }}')">Action Options</div>
     </div>
 </div>

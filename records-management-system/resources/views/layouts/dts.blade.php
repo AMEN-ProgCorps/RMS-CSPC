@@ -88,8 +88,8 @@
         </div>
         <div id="article-container" class="article-container imdown">
             {{ $slot }}
-        </div>
     </section>
+    <x-chatify.floating-widget />
     @stack('scripts')
     <script>
         document.addEventListener('submit', () => {

@@ -183,6 +183,7 @@
             {{ $slot }}
         </div>
     </section>
+    <x-chatify.floating-widget />
     @stack('scripts')
 </body>
 </html>

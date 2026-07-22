@@ -2811,9 +2811,23 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
     let typingTimer = null;
 
 
+    // Exponential backoff state
+    let wsAttempts = 0;
+    const WS_BASE_DELAY = 1000;
+    const WS_MAX_DELAY = 30000;
+
     function connectWebSocket() {
       if (ws) {
+        // Prevent onclose trigger loop when closing manually
+        ws.onclose = null;
+        ws.onerror = null;
         try { ws.close(); } catch(e) {}
+        ws = null;
+      }
+
+      if (wsReconnectTimer) {
+        clearTimeout(wsReconnectTimer);
+        wsReconnectTimer = null;
       }
 
       const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
@@ -2826,6 +2840,7 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
 
       ws.onopen = function() {
         console.log('WebSocket connection established.');
+        wsAttempts = 0; // Reset exponential backoff counter on success
         if (wsReconnectTimer) {
           clearTimeout(wsReconnectTimer);
           wsReconnectTimer = null;
@@ -2873,6 +2888,10 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
           }
         } else if (data.type === 'message') {
           console.log('Received WebSocket real-time update notice:', data);
+          // Deduplication: if message is already rendered in chatBox, skip fetching!
+          if (data.msg_uuid && chatBox.querySelector(`.message-container[data-msg-id="${data.msg_uuid}"]`)) {
+            return;
+          }
           if (data.chat_type === 'global') {
             if (isGlobalChat) {
               loadGlobalChat(true);
@@ -2900,8 +2919,6 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
         } else if (data.type === 'chat_cleared') {
           console.log('Received WebSocket real-time update notice:', data);
           if (data.chat_type === 'private') {
-            // Mirrors the 'message'/private matching above: sender_id is the
-            // admin who cleared it, recipient_id is the other DM party.
             if (activeDM && activeDMAccountId === Number(data.sender_id)) {
               loadChat(true);
             } else if (activeAdminConv) {
@@ -2913,9 +2930,6 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
               }
             }
           } else if (data.chat_type === 'admin_conv') {
-            // An admin cleared a conversation between two other users —
-            // refresh that exact admin view, plus either participant if
-            // they currently have the other one open as their own DM.
             const a = Number(data.user_a);
             const b = Number(data.user_b);
             if (activeAdminConv) {
@@ -2932,8 +2946,6 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
           fetchUsers();
         } else if (data.type === 'all_cleared') {
           console.log('Received WebSocket real-time update notice:', data);
-          // Every message in the system was wiped — reset this client's
-          // view immediately instead of waiting for a manual reload.
           activeDM = null; activeAdminConv = null; isGlobalChat = false;
           gcCursor = ''; dmCursor = '';
           gcViewingOlder = false; dmViewingOlder = false;
@@ -2951,12 +2963,16 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
       ws.onclose = function() {
         console.warn('WebSocket connection lost.');
         showTypingIndicator('', false);
+        ws = null;
         
         // Start polling fallback immediately when connection is lost
         startPollingFallback();
 
         if (!wsReconnectTimer) {
-          wsReconnectTimer = setTimeout(connectWebSocket, 3000);
+          wsAttempts++;
+          const delay = Math.min(WS_MAX_DELAY, WS_BASE_DELAY * Math.pow(2, wsAttempts - 1)) + Math.floor(Math.random() * 500);
+          console.log(`Scheduling WebSocket reconnect in ${delay}ms (attempt ${wsAttempts})...`);
+          wsReconnectTimer = setTimeout(connectWebSocket, delay);
         }
       };
 
@@ -2999,8 +3015,10 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
 
     function startPollingFallback() {
       if (wsPollInterval) return;
+      if (document.hidden) return; // don't poll while tab is in background
       console.log('Starting backup message polling...');
       wsPollInterval = setInterval(function() {
+        if (document.hidden) return; // skip each tick while hidden
         if (isGlobalChat) {
           loadGlobalChat(true);
         } else if (activeDM) {
@@ -3570,6 +3588,7 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
       dmCursor = '';
       dmHasMore = false;
       dmViewingOlder = false;
+      clearSendingOverlay(); // drop any pending-send bubbles from the previous conversation
       hideEditBanner();
       
       // Reset local typing indicator state
@@ -3621,6 +3640,7 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
       gcCursor = '';
       gcHasMore = false;
       gcViewingOlder = false;
+      clearSendingOverlay(); // drop any pending-send bubbles from the previous conversation
       hideEditBanner();
       isFirstLoad = true;
       
@@ -3836,11 +3856,17 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
     let adminConvCursor = '';
     let adminConvHasMore = false;
     let adminConvViewingOlder = false; // true once the user has loaded an older window
+    let isLoadingAdminConv = false;   // separate flag so admin spy never blocks DM loads
+    let adminConvXhr = null;          // track in-flight XHR so stale responses can be discarded
 
     function loadAdminConv(convId, isAutoPoll = false, loadOlderMode = false) {
       if (isAutoPoll && !loadOlderMode && adminConvViewingOlder) return;
-      if (isLoadingChat) return;
-      isLoadingChat = true;
+      if (isLoadingAdminConv) {
+        // For non-poll (explicit open) calls, abort any in-flight request and proceed
+        if (!isAutoPoll && adminConvXhr) { adminConvXhr.abort(); adminConvXhr = null; isLoadingAdminConv = false; }
+        else return;
+      }
+      isLoadingAdminConv = true;
 
       const wasAtBottom = isAtBottom();
       const requestedConv = activeAdminConv;
@@ -3848,9 +3874,11 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
       const url = 'load_dm_admin.php?conv_id=' + encodeURIComponent(convId) + '&before_uuid=' + encodeURIComponent(cursor);
 
       const xhr = new XMLHttpRequest();
+      adminConvXhr = xhr;
       xhr.open('GET', url, true);
       xhr.onload = function() {
-        isLoadingChat = false;
+        isLoadingAdminConv = false;
+        if (adminConvXhr === xhr) adminConvXhr = null;
         if (this.status !== 200) return;
         if (requestedConv !== activeAdminConv) return; // stale response
         
@@ -3922,11 +3950,10 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
           });
           const prevScrollTop = chatBox.scrollTop;
           const prevScrollHeight = chatBox.scrollHeight;
-          document.querySelectorAll('[data-sending-uid]').forEach(el => el.remove());
           const newScrollHeight = chatBox.scrollHeight;
           chatBox.scrollTop = Math.max(0, prevScrollTop + newScrollHeight - prevScrollHeight);
           if (!adminConvViewingOlder) {
-            trimWindowFromTop(newMessages.length);
+            trimWindowFromTop(PAGE_SIZE);
           }
           if (isFirstLoad) { isFirstLoad = false; handleFirstLoadScroll(); }
           else if (wasAtBottom || shouldAutoScroll) requestAnimationFrame(() => requestAnimationFrame(() => scrollToBottom(true, false)));
@@ -3958,7 +3985,6 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
           chatBox.appendChild(el);
         });
 
-        document.querySelectorAll('[data-sending-uid]').forEach(el => el.remove());
         chatBox.scrollTop = Math.max(0, prevSTF + chatBox.scrollHeight - prevSHF);
         const mc = chatBox.querySelectorAll('.message-container').length;
         if (mc > 0 && (wasAtBottom || shouldAutoScroll || isFirstLoad)) {
@@ -3976,7 +4002,7 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
         adminConvViewingOlder = false;
         if (adminConvHasMore && !document.getElementById('loadOlderBtn') && !document.getElementById('noMoreOlderNotice')) insertLoadOlderBtn();
       };
-      xhr.onerror = function() { isLoadingChat = false; };
+      xhr.onerror = function() { isLoadingAdminConv = false; adminConvXhr = null; };
       xhr.send();
     }
 
@@ -3987,6 +4013,7 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
       adminConvCursor = '';
       adminConvHasMore = false;
       adminConvViewingOlder = false;
+      clearSendingOverlay(); // drop any pending-send bubbles from the previous conversation
       hideEditBanner();
       isFirstLoad = true;
 
@@ -4085,6 +4112,15 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
         inputArea.appendChild(overlay);
       }
       return overlay;
+    }
+
+    // Clear all pending send bubbles when switching conversations so they
+    // don't bleed into the freshly-opened chat pane.
+    function clearSendingOverlay() {
+      const overlay = document.getElementById('sending-overlay-container');
+      if (overlay) overlay.innerHTML = '';
+      // Also sweep any stragglers that landed directly in chatBox
+      document.querySelectorAll('[data-sending-uid]').forEach(el => el.remove());
     }
 
     // Get the user's name and admin status from PHP
@@ -5076,11 +5112,10 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
           });
           const prevScrollTop = chatBox.scrollTop;
           const prevScrollHeight = chatBox.scrollHeight;
-          document.querySelectorAll('[data-sending-uid]').forEach(el => el.remove());
           const newScrollHeight = chatBox.scrollHeight;
           chatBox.scrollTop = Math.max(0, prevScrollTop + newScrollHeight - prevScrollHeight);
           if (!dmViewingOlder) {
-            trimWindowFromTop(newMessages.length);
+            trimWindowFromTop(PAGE_SIZE);
           }
           if (isFirstLoad) { isFirstLoad = false; handleFirstLoadScroll(); }
           else if (wasAtBottom || shouldAutoScroll) requestAnimationFrame(() => requestAnimationFrame(() => scrollToBottom(true, false)));
@@ -5112,7 +5147,6 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
           chatBox.appendChild(el);
         });
         
-        document.querySelectorAll('[data-sending-uid]').forEach(el => el.remove());
         chatBox.scrollTop = Math.max(0, prevSTF + chatBox.scrollHeight - prevSHF);
         const mc = chatBox.querySelectorAll('.message-container').length;
         if (mc > 0 && (wasAtBottom || shouldAutoScroll || isFirstLoad)) {
@@ -5398,12 +5432,48 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
             hideEditBanner();
           }
 
-          // Broadcast edit notification via WebSocket so other clients patch
-          // the bubble in-place instantly — no server round-trip needed.
+          let resData = null;
+          try { resData = JSON.parse(this.responseText); } catch(e) {}
+          const confirmedMsg = (resData && resData.message) ? resData.message : null;
+
+          // Convert optimistic sending bubble in-place immediately without full chat reload
+          if (!editingMsgId && sendIndId) {
+            const sendingBubble = document.getElementById(sendIndId);
+            if (sendingBubble) {
+              if (confirmedMsg && confirmedMsg.id) {
+                sendingBubble.setAttribute('data-msg-id', confirmedMsg.id);
+                sendingBubble.removeAttribute('id');
+                
+                // Move from floating sending overlay to main chatBox if needed
+                if (sendingBubble.parentNode && sendingBubble.parentNode !== chatBox) {
+                  sendingBubble.parentNode.removeChild(sendingBubble);
+                  chatBox.appendChild(sendingBubble);
+                }
+
+                const msgContent = confirmedMsg.plaintext || message;
+                const fullTimeDisplay = new Date().toLocaleString([], { month: 'long', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' });
+                const senderLabel = (name || 'you').toLowerCase();
+
+                sendingBubble.className = 'message-container sent';
+                sendingBubble.innerHTML = `
+                  <div class="message-avatar">${getInitials(name)}</div>
+                  <div class="bubble-wrapper">
+                    <div class="message-click-timestamp">${fullTimeDisplay}</div>
+                    <div class="message-bubble">
+                      <div class="message-content">${escapeHtml(msgContent)}</div>
+                      <div class="message-info"><span class="message-sender">${senderLabel}</span></div>
+                    </div>
+                  </div>
+                `;
+                if (isAtBottom()) scrollToBottom(true, true);
+              }
+            }
+          }
+
+          // Broadcast notification via WebSocket so other clients patch DOM
           if (ws && ws.readyState === WebSocket.OPEN) {
             const wasEditing = !!capturedEditingMsgId;
             if (wasEditing) {
-              // Send a dedicated edit event so receivers can patch DOM directly
               ws.send(JSON.stringify({
                 type: 'message_edited',
                 msg_uuid: capturedEditingMsgId,
@@ -5412,27 +5482,25 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
                 recipient_id: activeDMAccountId || null
               }));
             } else {
-              if (isGlobalChat) {
-                ws.send(JSON.stringify({ type: 'message', chat_type: 'global' }));
-              } else if (activeDM && activeDMAccountId) {
-                ws.send(JSON.stringify({
-                  type: 'message',
-                  chat_type: 'private',
-                  recipient_id: activeDMAccountId
-                }));
-              }
+              ws.send(JSON.stringify({
+                type: 'message',
+                chat_type: isGlobalChat ? 'global' : 'private',
+                recipient_id: activeDMAccountId || null,
+                msg_uuid: confirmedMsg ? confirmedMsg.id : null
+              }));
             }
           }
 
-          // Ensure chat is refreshed to pick up the confirmed message
-          if (isGlobalChat) { isLoadingGC = false; loadGlobalChat(false); }
-          else loadChatForced();
+          // Fallback only if confirmedMsg missing
+          if (!confirmedMsg) {
+            if (isGlobalChat) { isLoadingGC = false; loadGlobalChat(false); }
+            else loadChatForced();
+          }
 
-          // Refresh the sidebar/admin "all conversations" list right away
-          // so the conversation is updated in the spy view in real-time
+          // Refresh sidebar user positions and unread status
           fetchUsers();
         } else {
-          // Server error — remove only THIS send's optimistic bubble (if present)
+          // Server error — remove only THIS send's optimistic bubble
           if (sendIndId) {
             const indicator = document.getElementById(sendIndId);
             if (indicator) indicator.remove();
@@ -6125,20 +6193,41 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
       // Start WebSocket client connection
       connectWebSocket();
 
-
-      // Poll sidebar users every 3 seconds
-      setInterval(fetchUsers, 3000);
+      // ── Adaptive sidebar polling ──────────────────────────────────────────────
+      // • Poll every 3 s  when WebSocket is disconnected (fallback mode).
+      // • Poll every 10 s when WebSocket is live (WS already pushes new msgs).
+      // • Skip the tick entirely while the tab is hidden to save CPU/battery.
+      let sidebarPollInterval = null;
+      function startSidebarPoll() {
+        if (sidebarPollInterval) clearInterval(sidebarPollInterval);
+        const wsAlive = ws && ws.readyState === WebSocket.OPEN;
+        const delay   = wsAlive ? 10000 : 3000;
+        sidebarPollInterval = setInterval(function() {
+          if (document.hidden) return;
+          fetchUsers();
+          // Re-evaluate interval length each tick so it adapts when WS state changes
+          const nowAlive = ws && ws.readyState === WebSocket.OPEN;
+          if (nowAlive !== wsAlive) startSidebarPoll(); // restart with new delay
+        }, delay);
+      }
+      // Expose so connectWebSocket / visibilitychange can re-trigger the interval
+      window._startSidebarPoll = startSidebarPoll;
+      startSidebarPoll();
       fetchUsers();
 
       // Poll for incoming notify/mention toasts every 4 seconds
-      setInterval(fetchNotifications, 4000);
+      setInterval(function() {
+        if (document.hidden) return;
+        fetchNotifications();
+      }, 4000);
       fetchNotifications();
     });
     
     // Handle page visibility change
     document.addEventListener('visibilitychange', function() {
       if (!document.hidden) {
-        // Reconnect WebSocket if it disconnected while the tab was hidden
+        // ── Tab became visible ────────────────────────────────────────────────
+        // 1. Reconnect WebSocket if it dropped while we were away
         if (!ws || ws.readyState === WebSocket.CLOSED || ws.readyState === WebSocket.CLOSING) {
           if (wsReconnectTimer) {
             clearTimeout(wsReconnectTimer);
@@ -6147,6 +6236,7 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
           connectWebSocket();
         }
 
+        // 2. Immediately catch up on any messages missed while hidden
         if (isGlobalChat) {
           loadGlobalChat(false);
         } else if (activeDM) {
@@ -6154,6 +6244,22 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
         } else if (activeAdminConv) {
           loadAdminConv(activeAdminConv, false);
         }
+
+        // 3. Also refresh sidebar so unread badges are current
+        fetchUsers();
+
+        // 4. Resume the fallback poll if WebSocket is still down
+        if (!ws || ws.readyState !== WebSocket.OPEN) {
+          startPollingFallback();
+        }
+
+        // 5. Re-evaluate sidebar poll frequency now that we're visible again
+        if (typeof window._startSidebarPoll === 'function') window._startSidebarPoll();
+      } else {
+        // ── Tab became hidden ─────────────────────────────────────────────────
+        // Fallback HTTP poll is suspended (each tick guards against document.hidden)
+        // — no explicit stop needed since the guard inside each tick is enough.
+        // We do nothing here so the interval handle stays valid for when we return.
       }
     });
 

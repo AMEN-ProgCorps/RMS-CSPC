@@ -40,12 +40,12 @@ Route::middleware(['auth'])
         Volt::route('/admin/activity/logins', 'pages.admin.activity.logins')->name('admin.activity.logins');
         Volt::route('/admin/activity/account-changes', 'pages.admin.activity.account-changes')->name('admin.activity.account-changes');
         Volt::route('/admin/activity/notifications', 'pages.admin.activity.notifications')->name('admin.activity.notifications');
+        Volt::route('/admin/activity/dts/transaction-logs', 'pages.admin.activity.dts.transaction-logs')->name('admin.activity.dts.transaction-logs');
+        Volt::route('/admin/activity/dts/update-logs', 'pages.admin.activity.dts.update-logs')->name('admin.activity.dts.update-logs');
+        Volt::route('/admin/activity/dts/flow-logs', 'pages.admin.activity.dts.flow-logs')->name('admin.activity.dts.flow-logs');
 
-        Volt::route('/admin/dts/transaction-logs', 'pages.admin.dts.transaction-logs')->name('admin.dts.transaction-logs');
-        Volt::route('/admin/dts/update-logs', 'pages.admin.dts.update-logs')->name('admin.dts.update-logs');
-        Volt::route('/admin/dts/transaction-flows', 'pages.admin.dts.transaction-flows')->name('admin.dts.transaction-flows');
-        Volt::route('/admin/dts/flow-logs', 'pages.admin.dts.flow-logs')->name('admin.dts.flow-logs');
         Volt::route('/admin/dts/action-options', 'pages.admin.dts.action-options')->name('admin.dts.action-options');
+        Volt::route('/admin/dts/transaction-flows', 'pages.admin.dts.transaction-flows')->name('admin.dts.transaction-flows');
 
         Volt::route('/admin/rdp/records-logs', 'pages.admin.rdp.records-logs')->name('admin.rdp.records-logs');
         Volt::route('/admin/rdp/update-logs', 'pages.admin.rdp.update-logs')->name('admin.rdp.update-logs');
@@ -61,6 +61,7 @@ Route::middleware(['auth'])
     // RDP — Records Disposition Program (requires can_access_rdp or is_sadm)
     Route::middleware(['can.access.rdp'])->group(function () {
         Volt::route('/rdp', 'pages.rdp.index')->name('rdp');
+        Volt::route('/rdp/manage-files', 'pages.rdp.manage-files')->name('rdp.manage-files');
 
         Volt::route('/rdp/add-records/inventory-and-appraisal', 'pages.rdp.add-records.inventory-and-appraisal')->name('rdp.add-records.inventory-and-appraisal');
         Volt::route('/rdp/add-records/records-and-disposition-schedule', 'pages.rdp.add-records.records-and-disposition-schedule')->name('rdp.add-records.records-and-disposition-schedule');

@@ -36,13 +36,18 @@ return new class extends Migration
             $table->foreign('added_by')->references('id')->on('account')->onDelete('cascade');
         });
 
-        Schema::create('dts_document_data', function (Blueprint $table) {
+        Schema::create('document_data', function (Blueprint $table) {
             $table->string('document_id')->primary()->unique()->notNull();
             $table->string('document_name')->notNull()->unique();
             $table->string('document_path')->nullable()->unique();
+            $table->unsignedInteger('uploaded_by')->nullable();
+            $table->string('user_office')->nullable();
             $table->timestamp('date_added')->index()->notNull();
             $table->timestamp('date_modified')->index()->notNull();
             $table->timestamp('date_deleted')->index()->notNull();
+
+            $table->foreign('uploaded_by')->references('id')->on('account')->onDelete('set null');
+            $table->foreign('user_office')->references('office_code')->on('office')->onDelete('set null');
         });
 
         // The table with foreign key dependencies are here
@@ -59,8 +64,8 @@ return new class extends Migration
             $table->string('document_id');
             $table->string('office_code');
             $table->boolean('is_active')->default(true);
-            $table->foreign('dt_name')->references('document_name')->on('dts_document_data')->onDelete('cascade');
-            $table->foreign('document_id')->references('document_id')->on('dts_document_data')->onDelete('cascade');
+            $table->foreign('dt_name')->references('document_name')->on('document_data')->onDelete('cascade');
+            $table->foreign('document_id')->references('document_id')->on('document_data')->onDelete('cascade');
             $table->foreign('office_code')->references('office_code')->on('office')->onDelete('cascade');
         });
 
@@ -74,7 +79,7 @@ return new class extends Migration
             $table->string('current_office')->index()->notNull();
             $table->enum('status', ['completed','ongoing','revision', 'cancelled','drafted'])->default('ongoing')->index();
             $table->integer('sequence')->index()->notNull();
-            $table->foreign('doc_dir')->references('document_path')->on('dts_document_data')->onDelete('cascade');
+            $table->foreign('doc_dir')->references('document_path')->on('document_data')->onDelete('cascade');
             $table->foreign('qr_code')->references('code_id')->on('dts_qr_code')->onDelete('cascade');
             $table->foreign('current_office')->references('office_code')->on('office')->onDelete('cascade');
         });
@@ -134,7 +139,7 @@ return new class extends Migration
         Schema::dropIfExists('dts_email_access');
         Schema::dropIfExists('dts_transaction_flow');
         Schema::dropIfExists('dts_document_trans');
-        Schema::dropIfExists('dts_document_data');
+        Schema::dropIfExists('document_data');
         Schema::dropIfExists('dts_sequence_list');
         Schema::dropIfExists('dts_transactions');
     }

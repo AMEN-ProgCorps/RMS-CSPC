@@ -102,7 +102,7 @@ new #[Layout('layouts.dts')] #[Title('DTS - External Transactions')] class exten
             ->join('dts_transaction_details as dtd', 'dtd.id', '=', 'dt.transaction_id')
             ->leftJoin('office as originated_office', 'originated_office.office_code', '=', 'dtd.originated_from')
             ->leftJoin('office as current_office', 'current_office.office_code', '=', 'dt.current_office')
-            ->leftJoin('dts_document_data as doc', 'doc.document_path', '=', 'dt.doc_dir')
+            ->leftJoin('document_data as doc', 'doc.document_path', '=', 'dt.doc_dir')
             ->where('dt.trans_type', 'external');
 
         $canViewAll = auth()->user()?->permissions?->is_sadm || auth()->user()?->permissions?->can_dts_view_all_list;
@@ -395,7 +395,7 @@ new #[Layout('layouts.dts')] #[Title('DTS - External Transactions')] class exten
             $docPath = 'storage/' . $filename;
 
             $docId = 'DOC-' . strtoupper(Str::random(8));
-            DB::table('dts_document_data')->insert([
+            DB::table('document_data')->insert([
                 'document_id' => $docId,
                 'document_name' => $this->selectedTransaction->subject ? (Str::limit($this->selectedTransaction->subject, 50) . ' PDF') : 'Attached Document PDF',
                 'document_path' => $docPath,

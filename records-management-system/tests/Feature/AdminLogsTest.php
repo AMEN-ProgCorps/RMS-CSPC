@@ -236,7 +236,7 @@ class AdminLogsTest extends TestCase
         ]);
 
         // Assert log entry is fetched by the flow-logs component
-        Volt::test('pages.admin.dts.flow-logs')
+        Volt::test('pages.admin.activity.dts.flow-logs')
             ->set('search', 'TEST FLOW FOR TESTING LOGS')
             ->assertSee($logChange);
 

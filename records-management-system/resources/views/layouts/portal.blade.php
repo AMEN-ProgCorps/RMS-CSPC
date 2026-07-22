@@ -127,5 +127,6 @@
     </script>
     @endif
     @endauth
+    <x-chatify.floating-widget />
 </body>
 </html>

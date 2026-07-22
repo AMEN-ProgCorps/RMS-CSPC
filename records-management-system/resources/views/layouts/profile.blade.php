@@ -303,5 +303,6 @@
         document.addEventListener('livewire:navigated', handleLivewireRefresh);
     })();
     </script>
+    <x-chatify.floating-widget />
 </body>
 </html>

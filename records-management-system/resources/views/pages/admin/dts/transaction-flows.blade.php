@@ -19,6 +19,15 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - DTS Transaction Flows')]
     /** @var string Active tab: 'predefined' or 'custom' */
     public string $activeTab = 'predefined';
 
+    public function mount(): void
+    {
+        $perms = auth()->user()?->permissions;
+        if (!$perms || (!$perms->is_sadm && !$perms->can_access_dts_admin && !$perms->can_dts_modify_docflow)) {
+            $this->redirect(route('portal'));
+            return;
+        }
+    }
+
     // ---- PREDEFINED FLOW EDITOR PROPERTIES ----
     /** @var string Selected action/subsystem option (empty, 'new', or numeric ID) */
     public string $selectedPredefined = '';
@@ -935,7 +944,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - DTS Transaction Flows')]
         }
 
         $predefinedFlows = $predefinedQuery->orderBy('flow_name')
-            ->get();
+            ->paginate(20);
 
         // Query custom flows (Tab 2)
         $customFlows = collect();
@@ -1028,16 +1037,6 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - DTS Transaction Flows')]
         }
         .activity-logs-container {
             padding: 12px 24px;
-        }
-        .admin-offices-container {
-            min-height: calc(100vh - 190px) !important;
-            height: calc(100vh - 190px) !important;
-        }
-        .directory-panel {
-            max-height: calc(100vh - 210px) !important;
-        }
-        .details-panel {
-            max-height: calc(100vh - 210px) !important;
         }
         .sequence-editor-box {
             border: 1.5px dashed #cbd5e1;
@@ -1150,6 +1149,17 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - DTS Transaction Flows')]
         .suggestion-item:hover {
             background-color: #f1f5f9;
         }
+
+        /* Flows Pagination Bar Wrapper */
+        .flows-pagination-bar {
+            padding-top: 14px;
+            margin-top: 10px;
+            border-top: 1px solid #f1f5f9;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            width: 100%;
+        }
     </style>
 @endpush
 
@@ -1167,7 +1177,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - DTS Transaction Flows')]
 
     <!-- Tab 1: Predefined Flow Manager -->
     @if($activeTab === 'predefined')
-        <div class="admin-offices-container">
+        <div class="admin-offices-container {{ !$selectedPredefined ? 'no-selection' : 'has-selection' }}">
             <!-- Left Pane: Predefined Flows Directory -->
             <div class="directory-panel">
                 <div class="directory-header-row">
@@ -1243,10 +1253,17 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - DTS Transaction Flows')]
                         </div>
                     @endforelse
                 </div>
+
+                @if($predefinedFlows->hasPages())
+                    <div class="flows-pagination-bar">
+                        {{ $predefinedFlows->links('components.pagination') }}
+                    </div>
+                @endif
             </div>
 
             <!-- Right Pane: Flow Configuration details-panel -->
-            <div class="details-panel">
+            @if($selectedPredefined)
+                <div class="details-panel">
                 @if($successMessage)
                     <div class="toast-alert success" style="margin: 20px 20px 0 20px;">
                         <i class="fa-solid fa-circle-check"></i>
@@ -1261,8 +1278,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - DTS Transaction Flows')]
                     </div>
                 @endif
 
-                @if($selectedPredefined)
-                    @if($selectedPredefined === 'import')
+                @if($selectedPredefined === 'import')
                         <!-- Header -->
                         <div class="details-header" style="background: linear-gradient(135deg, #0284c7 0%, #0369a1 100%);">
                             <div class="details-header-avatar" style="background-color: rgba(255,255,255,0.15); color: #ffffff;">
@@ -1517,15 +1533,8 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - DTS Transaction Flows')]
                             </button>
                         </div>
                     @endif
-                @else
-                    <!-- Placeholder -->
-                    <div class="details-placeholder">
-                        <i class="fa-solid fa-route"></i>
-                        <h3>Transaction Flows Configuration</h3>
-                        <p>Click on any flow in the directory list to edit its sequence path. Click the <strong>New Flow</strong> button above to construct a new flow template from scratch, or click <strong>Import File</strong> to upload predefined flow definitions.</p>
-                    </div>
-                @endif
-            </div>
+                </div>
+            @endif
         </div>
     @endif
 

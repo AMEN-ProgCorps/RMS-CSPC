@@ -95,19 +95,6 @@ new #[Layout('layouts.portal')] #[Title('Track Document')] class extends Compone
             return;
         }
 
-        // Second level validation: check if the QR code is associated with a transaction that has email access
-        if ($qrExists) {
-            $hasTransaction = DB::table('dts_transactions as dt')
-                ->join('dts_transaction_details as dtd', 'dtd.id', '=', 'dt.transaction_id')
-                ->where('dt.qr_code', $code)
-                ->whereNotNull('dtd.email_access')
-                ->exists();
-            if (!$hasTransaction) {
-                $this->dispatch('track-result', status: 'not-found');
-                return;
-            }
-        }
-
         try {
             // Phase 2: Check if tracking number exists in dts_transactions or transaction details and has email access
             $exists = DB::table('dts_transactions as dt')
@@ -325,8 +312,15 @@ new #[Layout('layouts.portal')] #[Title('Track Document')] class extends Compone
         // Remove any previously registered track-result listener
         if (cleanupTrackResult) { cleanupTrackResult(); cleanupTrackResult = null; }
 
-        cleanupTrackResult = Livewire.on('track-result', function ({ status }) {
+        cleanupTrackResult = Livewire.on('track-result', function (data) {
             submitting = false;
+            let status = null;
+            if (typeof data === 'string') {
+                status = data;
+            } else if (data && typeof data === 'object') {
+                status = data.status || (data[0] && (data[0].status || data[0])) || null;
+            }
+
             if (status === 'not-found') {
                 setStatus('Phase 2 — Result', 'Document Cannot Be Found. Please check your tracking number and try again.', 'error');
             } else if (status === 'found') {

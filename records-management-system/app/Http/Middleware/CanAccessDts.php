@@ -13,7 +13,7 @@ class CanAccessDts
         $perms = auth()->user()?->permissions;
 
         if (! $perms || (! $perms->is_sadm && ! $perms->can_access_dts)) {
-            abort(403);
+            return redirect()->route('portal');
         }
 
         // Check if Document Tracking System is active globally
@@ -21,8 +21,8 @@ class CanAccessDts
             ->where('subsystem_name', 'Document Tracking System')
             ->value('is_active');
 
-        if (! $isActive) {
-            abort(403, 'The Document Tracking System is currently deactivated.');
+        if (! $isActive && ! $perms->is_sadm) {
+            return redirect()->route('portal');
         }
 
         return $next($request);

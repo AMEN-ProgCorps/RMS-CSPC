@@ -16,6 +16,15 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Subsystem Changes Logs')
     /** @var string Search query */
     public string $search = '';
 
+    public function mount(): void
+    {
+        $perms = auth()->user()?->permissions;
+        if (!$perms || (!$perms->is_sadm && !$perms->can_access_subsystems)) {
+            $this->redirect(route('portal'));
+            return;
+        }
+    }
+
     /**
      * Reset pagination page on search update.
      */

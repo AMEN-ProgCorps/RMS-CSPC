@@ -35,7 +35,7 @@ new #[Layout('layouts.portal')] #[Title('Login')] class extends Component
                 DB::table('security_logs')->insert([
                     'status'      => 1, // Login Successful
                     'account'     => $user->id,
-                    'user_ipaddr' => request()->ip(),
+                    'user_ipaddr' => \App\Helpers\NetworkHelper::getClientIp(),
                     'time'        => now(),
                 ]);
 
@@ -55,7 +55,7 @@ new #[Layout('layouts.portal')] #[Title('Login')] class extends Component
         DB::table('security_logs')->insert([
             'status'      => 2, // Login Failed
             'account'     => $userObj ? $userObj->id : null,
-            'user_ipaddr' => request()->ip(),
+            'user_ipaddr' => \App\Helpers\NetworkHelper::getClientIp(),
             'time'        => now(),
         ]);
 

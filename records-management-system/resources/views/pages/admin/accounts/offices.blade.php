@@ -7,10 +7,21 @@ use Livewire\Attributes\Layout;
 use Livewire\Attributes\Title;
 use Livewire\Volt\Component;
 use Livewire\WithFileUploads;
+use Livewire\WithPagination;
 use Illuminate\Support\Str;
 
 new #[Layout('layouts.admin')] #[Title('Admin Console - Offices & Clusters')] class extends Component {
-    use WithFileUploads;
+    use WithFileUploads, WithPagination;
+
+    public function updatingSearch(): void
+    {
+        $this->resetPage();
+    }
+
+    public function updatingClusterSearch(): void
+    {
+        $this->resetPage();
+    }
 
     /** @var string Active tab: 'offices' or 'clusters' */
     public string $activeTab = 'offices';
@@ -54,6 +65,11 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Offices & Clusters')] cl
      */
     public function mount(): void
     {
+        $perms = auth()->user()?->permissions;
+        if (!$perms || (!$perms->is_sadm && !$perms->is_admin && !$perms->can_sadm_modify_accountlist)) {
+            $this->redirect(route('portal'));
+            return;
+        }
         $this->cancelSelection();
     }
 
@@ -1076,7 +1092,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Offices & Clusters')] cl
                   ->orWhere('office_code', 'like', $searchVal);
             });
         }
-        $offices = $officeQuery->orderBy('office_name', 'asc')->get();
+        $offices = $officeQuery->orderBy('office_name', 'asc')->paginate(20);
 
         $clusterQuery = \App\Models\Cluster::query()->where('is_active', true);
         if ($this->clusterSearch !== '') {
@@ -1086,7 +1102,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Offices & Clusters')] cl
                   ->orWhere('cluster_code', 'like', $cSearchVal);
             });
         }
-        $clusters = $clusterQuery->orderBy('cluster_name', 'asc')->get();
+        $clusters = $clusterQuery->orderBy('cluster_name', 'asc')->paginate(20);
 
         // Get offices assigned to the currently selected cluster
         $clusterOffices = collect();
@@ -1148,16 +1164,6 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Offices & Clusters')] cl
         .activity-logs-container {
             padding: 12px 24px;
         }
-        .admin-offices-container {
-            min-height: calc(100vh - 190px) !important;
-            height: calc(100vh - 190px) !important;
-        }
-        .directory-panel {
-            max-height: calc(100vh - 210px) !important;
-        }
-        .details-panel {
-            max-height: calc(100vh - 210px) !important;
-        }
         .search-box-wrapper {
             position: relative;
             width: 100% !important;
@@ -1181,7 +1187,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Offices & Clusters')] cl
     </div>
 
     @if($activeTab === 'offices')
-        <div class="admin-offices-container" wire:key="tab-offices-view">
+        <div class="admin-offices-container {{ !$selectedOfficeId ? 'no-selection' : 'has-selection' }}" wire:key="tab-offices-view">
             <!-- Left Pane: Offices Directory -->
             <div class="directory-panel">
                 <div class="directory-header-row">
@@ -1248,10 +1254,17 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Offices & Clusters')] cl
                         </div>
                     @endforelse
                 </div>
+
+                @if($offices->hasPages())
+                    <div class="offices-pagination-bar">
+                        {{ $offices->links('components.pagination') }}
+                    </div>
+                @endif
             </div>
 
             <!-- Right Pane: Office Form Configurator -->
-            <div class="details-panel">
+            @if($selectedOfficeId)
+                <div class="details-panel">
                 @if($successMessage)
                     <div class="toast-alert success" style="margin: 20px 20px 0 20px;">
                         <i class="fa-solid fa-circle-check"></i>
@@ -1266,8 +1279,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Offices & Clusters')] cl
                     </div>
                 @endif
 
-                @if($selectedOfficeId)
-                    @if($selectedOfficeId === -2)
+                @if($selectedOfficeId === -2)
                         <!-- Header -->
                         <div class="details-header">
                             <div class="details-header-avatar" style="background-color: #e0f2fe; color: #0369a1;">
@@ -1412,18 +1424,11 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Offices & Clusters')] cl
                             </button>
                         </div>
                     @endif
-                @else
-                    <!-- Selection Placeholder -->
-                    <div class="details-placeholder">
-                        <i class="fa-solid fa-building"></i>
-                        <h3>Offices Configuration</h3>
-                        <p>Click on any office in the directory list to edit its details. Click the <strong>New Office</strong> button above to construct a new office entry from scratch, or click <strong>Import File</strong> to upload multiple offices at once.</p>
-                    </div>
-                @endif
-            </div>
+                </div>
+            @endif
         </div>
     @else
-        <div class="admin-offices-container" wire:key="tab-clusters-view">
+        <div class="admin-offices-container {{ !$selectedClusterId ? 'no-selection' : 'has-selection' }}" wire:key="tab-clusters-view">
             <!-- Left Pane: Clusters Directory -->
             <div class="directory-panel">
                 <div class="directory-header-row">
@@ -1486,10 +1491,17 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Offices & Clusters')] cl
                         </div>
                     @endforelse
                 </div>
+
+                @if($clusters->hasPages())
+                    <div class="clusters-pagination-bar">
+                        {{ $clusters->links('components.pagination') }}
+                    </div>
+                @endif
             </div>
 
             <!-- Right Pane: Cluster Form Configurator -->
-            <div class="details-panel">
+            @if($selectedClusterId)
+                <div class="details-panel">
                 @if($successMessage)
                     <div class="toast-alert success" style="margin: 20px 20px 0 20px;">
                         <i class="fa-solid fa-circle-check"></i>
@@ -1504,8 +1516,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Offices & Clusters')] cl
                     </div>
                 @endif
 
-                @if($selectedClusterId)
-                    @if($selectedClusterId === -2)
+                @if($selectedClusterId === -2)
                         <!-- Header -->
                         <div class="details-header">
                             <div class="details-header-avatar" style="background-color: #e0f2fe; color: #0369a1;">
@@ -1649,15 +1660,8 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Offices & Clusters')] cl
                             </button>
                         </div>
                     @endif
-                @else
-                    <!-- Selection Placeholder -->
-                    <div class="details-placeholder">
-                        <i class="fa-solid fa-sitemap" style="color: #cbd5e1; font-size: 48px;"></i>
-                        <h3>Clusters Configuration</h3>
-                        <p>Click on any cluster in the directory list to edit its details. Click the <strong>New Cluster</strong> button above to construct a new cluster from scratch, or click <strong>Import File</strong> to upload multiple clusters at once.</p>
-                    </div>
-                @endif
-            </div>
+                </div>
+            @endif
         </div>
     @endif
 </div>

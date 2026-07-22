@@ -16,6 +16,15 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - DTS Update Logs')] class
     /** @var string Real-time search query */
     public string $search = '';
 
+    public function mount(): void
+    {
+        $perms = auth()->user()?->permissions;
+        if (!$perms || (!$perms->is_sadm && !$perms->can_access_dts_admin && !$perms->can_dts_modify_docflow)) {
+            $this->redirect(route('portal'));
+            return;
+        }
+    }
+
     /**
      * Reset pagination page on search update.
      */

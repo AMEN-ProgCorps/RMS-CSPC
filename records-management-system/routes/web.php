@@ -104,7 +104,7 @@ Route::get('/logout', function () {
         \Illuminate\Support\Facades\DB::table('security_logs')->insert([
             'status'      => 3, // Logout
             'account'     => $user->id,
-            'user_ipaddr' => request()->ip(),
+            'user_ipaddr' => \App\Helpers\NetworkHelper::getClientIp(),
             'time'        => now(),
         ]);
 
@@ -131,3 +131,8 @@ Route::get('/logout', function () {
 
     return redirect()->route('login');
 })->name('logout');
+
+// Global Fallback — Redirects any unmatched URL/404 directly to portal page
+Route::fallback(function () {
+    return redirect()->route('portal');
+});

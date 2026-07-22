@@ -13,6 +13,15 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Action Options')] class 
     public string $successMessage = '';
     public string $errorMessage = '';
 
+    public function mount(): void
+    {
+        $perms = auth()->user()?->permissions;
+        if (!$perms || (!$perms->is_sadm && !$perms->can_access_dts_admin && !$perms->can_dts_modify_docflow)) {
+            $this->redirect(route('portal'));
+            return;
+        }
+    }
+
     public function clearMessages(): void
     {
         $this->successMessage = '';

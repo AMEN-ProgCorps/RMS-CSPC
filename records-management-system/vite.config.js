@@ -29,11 +29,10 @@ export default defineConfig({
         tailwindcss(),
     ],
     server: {
-        host: process.env.DOCKER ? '0.0.0.0' : '192.168.1.100',
+        host: '0.0.0.0',
         port: 5173,
-        hmr: {
-            host: '192.168.1.100',
-        },
+        cors: true,
+        origin: 'http://localhost:5173',
         watch: {
             usePolling: true,
             interval: 800,

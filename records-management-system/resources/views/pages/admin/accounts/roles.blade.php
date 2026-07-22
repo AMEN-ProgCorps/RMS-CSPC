@@ -13,10 +13,18 @@
 use Livewire\Attributes\Layout;
 use Livewire\Attributes\Title;
 use Livewire\Volt\Component;
+use Livewire\WithPagination;
 
 new #[Layout('layouts.admin')] #[Title('Admin Console - Roles')] class extends Component {
+    use WithPagination;
+
     /** @var string Holds the active search input query */
     public string $search = '';
+
+    public function updatingSearch(): void
+    {
+        $this->resetPage();
+    }
 
     /** @var int|null ID of the selected role. (null = placeholder, -1 = create mode, >0 = edit mode) */
     public ?int $selectedRoleId = null;
@@ -76,6 +84,11 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Roles')] class extends C
      */
     public function mount(): void
     {
+        $perms = auth()->user()?->permissions;
+        if (!$perms || (!$perms->is_sadm && !$perms->can_sadm_modify_accountlist)) {
+            $this->redirect(route('portal'));
+            return;
+        }
         $this->cancelSelection();
     }
 
@@ -531,7 +544,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Roles')] class extends C
             });
         }
 
-        $roles = $query->orderBy('key_name', 'asc')->get();
+        $roles = $query->orderBy('key_name', 'asc')->paginate(20);
 
         return [
             'roles' => $roles,
@@ -545,7 +558,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Roles')] class extends C
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css">
 @endpush
 
-<div class="admin-roles-container">
+<div class="admin-roles-container {{ !$selectedRoleId ? 'no-selection' : 'has-selection' }}">
     <!-- Left Pane: Roles Directory -->
     <div class="directory-panel">
         <div class="directory-header-row">
@@ -585,11 +598,17 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Roles')] class extends C
                 </div>
             @endforelse
         </div>
+
+        @if($roles->hasPages())
+            <div class="roles-pagination-bar" style="padding-top: 10px; border-top: 1px solid #f1f5f9; display: flex; justify-content: center;">
+                {{ $roles->links('components.pagination') }}
+            </div>
+        @endif
     </div>
 
     <!-- Right Pane: Role Form Configurator -->
-    <div class="details-panel">
-        @if($selectedRoleId)
+    @if($selectedRoleId)
+        <div class="details-panel">
             <!-- Header -->
             <div class="details-header">
                 <div class="details-header-avatar">
@@ -603,6 +622,9 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Roles')] class extends C
                         {{ $selectedRoleId === -1 ? 'Configure access clearance permissions from scratch' : 'Review & adjust active clearance clearances' }}
                     </span>
                 </div>
+                <button type="button" class="btn-close-details" wire:click="cancelSelection" title="Close details panel" style="background: transparent; border: none; color: #94a3b8; font-size: 18px; cursor: pointer; padding: 6px 10px; border-radius: 8px; margin-left: auto;">
+                    <i class="fa-solid fa-xmark"></i>
+                </button>
             </div>
 
             <!-- Body Form -->
@@ -980,14 +1002,8 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Roles')] class extends C
                     <i class="fa-solid fa-floppy-disk"></i> Save Configuration
                 </button>
             </div>
-        @else
-            <!-- Selection Placeholder -->
-            <div class="details-placeholder">
-                <i class="fa-solid fa-user-shield"></i>
-                <h3>Clearance & Roles Configuration</h3>
-                <p>Click on any role in the directory list to edit its access matrix. Click the <strong>New Role</strong> button above to construct a new role from scratch.</p>
-            </div>
-        @endif
+        </div>
+    @endif
         @if($showVerificationModal)
         <!-- Modal Backdrop -->
         <div style="position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(15, 23, 42, 0.4); backdrop-filter: blur(4px); z-index: 9999; display: flex; align-items: center; justify-content: center;">

@@ -40,31 +40,43 @@
         </div>
     </div>
 
-    <!-- Floating Trigger Button -->
-    <button id="chatify-widget-btn" 
-            type="button" 
-            onclick="toggleChatifyWidget()" 
-            title="Chatify Messages"
-            style="width: 56px; height: 56px; border-radius: 28px; background: linear-gradient(135deg, #1d4ed8, #2563eb); border: none; box-shadow: 0 8px 24px -4px rgba(37, 99, 235, 0.5), 0 0 0 1px rgba(255, 255, 255, 0.2); cursor: pointer; display: flex; align-items: center; justify-content: center; color: #ffffff; transition: transform 0.2s ease, box-shadow 0.2s ease;"
-            onmouseover="this.style.transform='scale(1.06)'" 
-            onmouseout="this.style.transform='scale(1)'">
-        
-        <!-- Chat Icon -->
-        <svg id="chatify-icon-chat" width="26" height="26" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 10h.01M12 10h.01M16 10h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"/>
-        </svg>
+    <!-- Floating Trigger Button Container -->
+    <div style="position: relative;">
+        <!-- Unread Red Badge Pop-Up -->
+        <span id="chatify-unread-badge" 
+              style="display: none; position: absolute; top: -4px; right: -4px; background: #ef4444; color: #ffffff; font-size: 11px; font-weight: 700; min-width: 22px; height: 22px; border-radius: 11px; padding: 0 6px; box-shadow: 0 4px 10px rgba(239, 68, 68, 0.5), 0 0 0 2px #ffffff; align-items: center; justify-content: center; z-index: 10; pointer-events: none; animation: chatify-badge-pop 0.3s ease-out;">
+            0
+        </span>
+        <button id="chatify-widget-btn" 
+                type="button" 
+                onclick="toggleChatifyWidget()" 
+                title="Chatify Messages"
+                style="width: 56px; height: 56px; border-radius: 28px; background: linear-gradient(135deg, #1d4ed8, #2563eb); border: none; box-shadow: 0 8px 24px -4px rgba(37, 99, 235, 0.5), 0 0 0 1px rgba(255, 255, 255, 0.2); cursor: pointer; display: flex; align-items: center; justify-content: center; color: #ffffff; transition: transform 0.2s ease, box-shadow 0.2s ease;"
+                onmouseover="this.style.transform='scale(1.06)'" 
+                onmouseout="this.style.transform='scale(1)'">
+            
+            <!-- Chat Icon -->
+            <svg id="chatify-icon-chat" width="26" height="26" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 10h.01M12 10h.01M16 10h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"/>
+            </svg>
 
-        <!-- Close Icon -->
-        <svg id="chatify-icon-close" width="22" height="22" fill="none" stroke="currentColor" viewBox="0 0 24 24" style="display: none;">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M6 18L18 6M6 6l12 12"/>
-        </svg>
-    </button>
+            <!-- Close Icon -->
+            <svg id="chatify-icon-close" width="22" height="22" fill="none" stroke="currentColor" viewBox="0 0 24 24" style="display: none;">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M6 18L18 6M6 6l12 12"/>
+            </svg>
+        </button>
+    </div>
 </div>
 
 <style>
 @keyframes chatify-spin {
     0% { transform: rotate(0deg); }
     100% { transform: rotate(360deg); }
+}
+@keyframes chatify-badge-pop {
+    0% { transform: scale(0); opacity: 0; }
+    80% { transform: scale(1.15); }
+    100% { transform: scale(1); opacity: 1; }
 }
 </style>
 
@@ -89,12 +101,50 @@
         if (isOpen) {
             setWidgetVisibility(true, false);
         }
+
+        updateUnreadBadge();
+        setInterval(updateUnreadBadge, 5000);
+    }
+
+    function updateUnreadBadge() {
+        fetch('{{ route("chat.unread-count") }}', {
+            headers: {
+                'Accept': 'application/json',
+                'X-Requested-With': 'XMLHttpRequest'
+            }
+        })
+        .then(res => res.json())
+        .then(data => {
+            const count = parseInt(data.unread || 0, 10);
+
+            const badge = document.getElementById('chatify-unread-badge');
+            if (badge) {
+                if (count > 0) {
+                    badge.textContent = count > 99 ? '99+' : count;
+                    badge.style.display = 'flex';
+                } else {
+                    badge.style.display = 'none';
+                }
+            }
+
+            const dropdownBadge = document.getElementById('chatify-dropdown-unread-badge');
+            if (dropdownBadge) {
+                if (count > 0) {
+                    dropdownBadge.textContent = count > 99 ? '99+' : count;
+                    dropdownBadge.style.display = 'inline-flex';
+                } else {
+                    dropdownBadge.style.display = 'none';
+                }
+            }
+        })
+        .catch(() => {});
     }
 
     window.toggleChatifyWidget = function() {
         isOpen = !isOpen;
         sessionStorage.setItem('chatify_widget_open', isOpen);
         setWidgetVisibility(isOpen, true);
+        setTimeout(updateUnreadBadge, 800);
     };
 
     window.reloadChatifyIframe = function() {
@@ -104,6 +154,7 @@
             if (loader) loader.style.display = 'flex';
             iframe.src = iframe.getAttribute('data-src') + '?t=' + new Date().getTime();
         }
+        setTimeout(updateUnreadBadge, 800);
     };
 
     window.hideChatifyLoader = function() {
@@ -165,5 +216,6 @@
     }
 })();
 </script>
+
 @endunless
 @endauth

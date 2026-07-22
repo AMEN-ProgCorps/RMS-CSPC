@@ -20,6 +20,21 @@ Volt::route('/tracked', 'pages.portal.tracked')
 Route::middleware(['auth'])
     ->group(function () {
     Route::get('/open-chat', [ChatController::class, 'openChat'])->name('open-chat');
+    Route::get('/chat/unread-count', function () {
+        $userId = Auth::id();
+        if (!$userId) {
+            return response()->json(['unread' => 0]);
+        }
+        try {
+            $totalUnread = \Illuminate\Support\Facades\DB::table('view_user_unread_chats')
+                ->where('account_id', $userId)
+                ->value('total_unread');
+            return response()->json(['unread' => (int) ($totalUnread ?? 0)]);
+        } catch (\Throwable $e) {
+            return response()->json(['unread' => 0]);
+        }
+    })->name('chat.unread-count');
+
 
     Volt::route('/portal', 'pages.portal.access-page')
         ->name('portal');

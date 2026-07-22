@@ -1425,11 +1425,18 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
       font-family: 'Inter', sans-serif;
       transition: border-color 0.2s ease, background-color 0.2s ease;
       resize: none;
-      overflow-y: hidden;
+      overflow-y: scroll;
       min-height: 40px;
       max-height: 120px;
       line-height: 1.4;
       display: block;
+      /* Hide scrollbar — webkit */
+      scrollbar-width: none;
+    }
+
+    #messageInput::-webkit-scrollbar {
+      width: 0;
+      background: transparent;
     }
 
     input:focus, textarea:focus {
@@ -5535,8 +5542,7 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
       this.style.height = 'auto';
       const newHeight = Math.min(this.scrollHeight, 120);
       this.style.height = newHeight + 'px';
-      // Show scrollbar only when content exceeds max-height
-      this.style.overflowY = this.scrollHeight > 120 ? 'auto' : 'hidden';
+      // Keep overflow-y:scroll always (scrollbar hidden via CSS, not JS toggle)
       // iOS: recalculate layout whenever textarea height changes.
       // Double-rAF ensures we read offsetHeight AFTER the browser has fully
       // reflowed the textarea — otherwise footerH is stale → white gap appears.

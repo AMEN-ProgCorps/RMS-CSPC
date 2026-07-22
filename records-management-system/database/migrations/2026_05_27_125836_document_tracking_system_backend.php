@@ -40,9 +40,14 @@ return new class extends Migration
             $table->string('document_id')->primary()->unique()->notNull();
             $table->string('document_name')->notNull()->unique();
             $table->string('document_path')->nullable()->unique();
+            $table->unsignedInteger('uploaded_by')->nullable();
+            $table->string('user_office')->nullable();
             $table->timestamp('date_added')->index()->notNull();
             $table->timestamp('date_modified')->index()->notNull();
             $table->timestamp('date_deleted')->index()->notNull();
+
+            $table->foreign('uploaded_by')->references('id')->on('account')->onDelete('set null');
+            $table->foreign('user_office')->references('office_code')->on('office')->onDelete('set null');
         });
 
         // The table with foreign key dependencies are here

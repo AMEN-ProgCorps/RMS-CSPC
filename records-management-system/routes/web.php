@@ -61,6 +61,7 @@ Route::middleware(['auth'])
     // RDP — Records Disposition Program (requires can_access_rdp or is_sadm)
     Route::middleware(['can.access.rdp'])->group(function () {
         Volt::route('/rdp', 'pages.rdp.index')->name('rdp');
+        Volt::route('/rdp/manage-files', 'pages.rdp.manage-files')->name('rdp.manage-files');
 
         Volt::route('/rdp/add-records/inventory-and-appraisal', 'pages.rdp.add-records.inventory-and-appraisal')->name('rdp.add-records.inventory-and-appraisal');
         Volt::route('/rdp/add-records/records-and-disposition-schedule', 'pages.rdp.add-records.records-and-disposition-schedule')->name('rdp.add-records.records-and-disposition-schedule');

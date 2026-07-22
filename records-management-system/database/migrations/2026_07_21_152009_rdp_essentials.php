@@ -23,11 +23,12 @@ return new class extends Migration
             $table->id();
             $table->integer('item_number')->nullable();
             $table->string('series_title')->nullable();
-            $table->string('parent_id')->nullable();
+            $table->unsignedBigInteger('parent_id')->nullable();
             $table->unsignedBigInteger('retention_period')->nullable();
             $table->boolean('is_retention_period_active')->default(false);
             $table->string('remarks')->nullable();
             $table->string('recorded_at_office')->nullable();
+            $table->foreign('parent_id')->references('id')->on('rdp_record_series')->onDelete('cascade');
             $table->foreign('retention_period')->references('id')->on('rdp_retention_period')->onDelete('cascade');
             $table->foreign('recorded_at_office')->references('office_code')->on('office')->onDelete('cascade');
             $table->timestamps();
@@ -35,56 +36,95 @@ return new class extends Migration
         
         Schema::create('rdp_recorded_value', function (Blueprint $table) {
             $table->id();
-            $table->string('medium_name')->notNull();
+            $table->string('medium_name');
             $table->string('description')->nullable();
+            $table->timestamps();
+        });
+        
+        Schema::create('rdp_frequence_use', function (Blueprint $table) {
+            $table->id();
+            $table->string('freq_type')->unique();
+            $table->timestamps();
+        });
+        
+        Schema::create('rdp_restriction_type', function (Blueprint $table) {
+            $table->id();
+            $table->string('restriction_value')->unique();
             $table->timestamps();
         });
         
         Schema::create('rdp_utility_medium', function (Blueprint $table) {
             $table->id();
-            $table->string('utility_name')->notNull();
+            $table->string('utility_name');
             $table->string('description')->nullable();
             $table->timestamps();
         });
 
         Schema::create('rdp_time_value', function (Blueprint $table) {
             $table->id();
-            $table->char('char_value', 1)->unique()->notNull();
+            $table->char('char_value', 1)->unique();
             $table->string('description')->nullable();
             $table->timestamps();
         });
         
-        Schema::create('rdp_volumn_convertion', function (Blueprint $table) {
+        Schema::create('rdp_volume_conversion', function (Blueprint $table) {
             $table->id();
-            $table->string('value_standard')->notNull();
-            $table->string('value_converted')->notNull();
+            $table->string('value_standard');
+            $table->string('value_converted');
             $table->boolean('is_active')->default(false);
             $table->timestamps();
         });
+
         Schema::create('rdp_record', function (Blueprint $table) {
             $table->id();
             $table->unsignedBigInteger('record_series_id');
             $table->text('description')->nullable();
-            $table->unsignedBigInteger('period_id')->unique();
+            $table->unsignedBigInteger('period_id')->nullable();
             $table->string('volume')->nullable();
+            $table->string('records_location')->nullable();
+            $table->string('restriction')->nullable();
             $table->unsignedBigInteger('records_medium')->nullable();
             $table->char('time_value', 1)->nullable();
+            $table->string('frequence_use')->nullable();
             $table->unsignedBigInteger('utility_value')->nullable();
             $table->unsignedInteger('user_own')->nullable();
             $table->string('office_own')->nullable();
             $table->string('upload_doc_id_handler')->unique()->nullable();
+            $table->unsignedBigInteger('duplication_id')->unique()->nullable();
+            
             $table->foreign('record_series_id')->references('id')->on('rdp_record_series')->onDelete('cascade');
-            $table->foreign('period_id')->references('id')->on('rdp_retention_period')->onDelete('cascade');
+            $table->foreign('period_id')->references('id')->on('rdp_retention_period')->onDelete('set null');
+            $table->foreign('restriction')->references('restriction_value')->on('rdp_restriction_type')->onDelete('cascade');
             $table->foreign('records_medium')->references('id')->on('rdp_recorded_value')->onDelete('cascade');
             $table->foreign('time_value')->references('char_value')->on('rdp_time_value')->onDelete('cascade');
+            $table->foreign('frequence_use')->references('freq_type')->on('rdp_frequence_use')->onDelete('cascade');
             $table->foreign('utility_value')->references('id')->on('rdp_utility_medium')->onDelete('cascade');
             $table->foreign('user_own')->references('id')->on('account')->onDelete('cascade');
             $table->foreign('office_own')->references('office_code')->on('office')->onDelete('cascade');
             $table->foreign('upload_doc_id_handler')->references('document_id')->on('document_data')->onDelete('cascade');
             $table->timestamps();
         });
+        
+        Schema::create('rdp_duplication_section', function (Blueprint $table) {
+            $table->id();
+            $table->unsignedBigInteger('dup_id_manager');
+            $table->string('office_code')->nullable();
+            $table->foreign('dup_id_manager')->references('duplication_id')->on('rdp_record')->onDelete('cascade');
+            $table->foreign('office_code')->references('office_code')->on('office')->onDelete('cascade');
+            $table->timestamps();
+        });
 
+        Schema::create('rdp_period_covered', function (Blueprint $table) {
+            $table->id();
+            $table->unsignedBigInteger('period_owner')->nullable();
+            $table->timestamp('start_at')->nullable();
+            $table->timestamp('ends_at')->nullable();
+            $table->timestamps();
+            $table->foreign('period_owner')->references('id')->on('rdp_record')->onDelete('cascade');
+        });
+        
         Schema::create('rdp_document_record', function (Blueprint $table) {
+            $table->id();
             $table->string('parent_id');
             $table->string('doc_name')->nullable();
             $table->string('doc_path')->nullable();
@@ -101,10 +141,14 @@ return new class extends Migration
     public function down(): void
     {
         Schema::dropIfExists('rdp_document_record');
+        Schema::dropIfExists('rdp_duplication_section');
+        Schema::dropIfExists('rdp_period_covered');
         Schema::dropIfExists('rdp_record');
-        Schema::dropIfExists('rdp_volumn_convertion');
+        Schema::dropIfExists('rdp_volume_conversion');
         Schema::dropIfExists('rdp_time_value');
         Schema::dropIfExists('rdp_utility_medium');
+        Schema::dropIfExists('rdp_restriction_type');
+        Schema::dropIfExists('rdp_frequence_use');
         Schema::dropIfExists('rdp_recorded_value');
         Schema::dropIfExists('rdp_record_series');
         Schema::dropIfExists('rdp_retention_period');        

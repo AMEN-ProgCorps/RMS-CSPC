@@ -2831,9 +2831,7 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
       }
 
       const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-      const wsHost = window.location.hostname;
-      const wsPort = '48080';
-      const wsUrl = `${wsProtocol}//${wsHost}:${wsPort}`;
+      const wsUrl = `${wsProtocol}//${window.location.host}/ws`;
 
       console.log('Connecting to WebSocket server:', wsUrl);
       ws = new WebSocket(wsUrl);

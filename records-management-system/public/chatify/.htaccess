@@ -35,9 +35,11 @@ DirectoryIndex index.php index.html
 </FilesMatch>
 
 # -------------------------------
-# Block access to internal folders
+# Block access to internal folders & proxy WebSocket upgrade
 # -------------------------------
 <IfModule mod_rewrite.c>
     RewriteEngine On
+    RewriteCond %{HTTP:Upgrade} =websocket [NC]
+    RewriteRule ^ws/(.*) ws://127.0.0.1:8080/$1 [P,L]
     RewriteRule ^(config|core|storage|ws-server)(/|$) - [F,L]
 </IfModule>

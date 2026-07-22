@@ -2679,7 +2679,6 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
     <div class="modal-content" style="max-width:400px;">
       <div class="modal-header">
         <h3 style="display:flex;align-items:center;gap:8px;margin:0;font-size:1.1rem;">
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="7.5" cy="15.5" r="4.5"></circle><path d="m10.7 12.3 8.8-8.8"></path><path d="m15.5 4.5 3 3"></path><path d="m18 7 3 3"></path></svg>
           Change Deletion Secret Key
         </h3>
       </div>

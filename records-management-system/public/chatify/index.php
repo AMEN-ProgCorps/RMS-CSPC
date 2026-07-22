@@ -3588,6 +3588,7 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
       dmCursor = '';
       dmHasMore = false;
       dmViewingOlder = false;
+      clearSendingOverlay(); // drop any pending-send bubbles from the previous conversation
       hideEditBanner();
       
       // Reset local typing indicator state
@@ -3639,6 +3640,7 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
       gcCursor = '';
       gcHasMore = false;
       gcViewingOlder = false;
+      clearSendingOverlay(); // drop any pending-send bubbles from the previous conversation
       hideEditBanner();
       isFirstLoad = true;
       
@@ -4011,6 +4013,7 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
       adminConvCursor = '';
       adminConvHasMore = false;
       adminConvViewingOlder = false;
+      clearSendingOverlay(); // drop any pending-send bubbles from the previous conversation
       hideEditBanner();
       isFirstLoad = true;
 
@@ -4109,6 +4112,15 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
         inputArea.appendChild(overlay);
       }
       return overlay;
+    }
+
+    // Clear all pending send bubbles when switching conversations so they
+    // don't bleed into the freshly-opened chat pane.
+    function clearSendingOverlay() {
+      const overlay = document.getElementById('sending-overlay-container');
+      if (overlay) overlay.innerHTML = '';
+      // Also sweep any stragglers that landed directly in chatBox
+      document.querySelectorAll('[data-sending-uid]').forEach(el => el.remove());
     }
 
     // Get the user's name and admin status from PHP

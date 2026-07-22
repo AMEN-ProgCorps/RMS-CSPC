@@ -37,8 +37,8 @@ class UserResolver
             $pdo = Database::getConnection();
             $stmt = $pdo->prepare(
                 'SELECT account_id FROM account_details
-                 WHERE email = :val
-                    OR first_name || \' \' || last_name = :val
+                 WHERE LOWER(email) = LOWER(:val)
+                    OR LOWER(first_name || \' \' || last_name) = LOWER(:val)
                     OR account_id::text = :val
                  LIMIT 1'
             );

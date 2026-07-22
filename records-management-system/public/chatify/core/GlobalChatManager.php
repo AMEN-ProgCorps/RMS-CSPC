@@ -302,7 +302,7 @@ class GlobalChatManager
 
         $uuid = self::generateSequentialUuid();
         $dt   = new DateTime('now', new DateTimeZone('Asia/Manila'));
-        $ts   = $dt->format('Y-m-d H:i:s.u');
+        $ts   = $dt->format('Y-m-d H:i:s.uP');
 
         try {
             $pdo = Database::getConnection();

@@ -110,13 +110,16 @@ foreach ($rawMessages as $msg) {
     }
 
     // Parse timestamp
-    $ts = 0;
+    $fullTimeDisplay = '';
     if (!empty($msg['timestamp'])) {
-        $dt = DateTime::createFromFormat('Y-m-d H:i:s.u', $msg['timestamp']);
-        $ts = $dt !== false ? (float) $dt->format('U.u') : (float) strtotime($msg['timestamp']);
+        $dt = DateTime::createFromFormat('Y-m-d H:i:s.u', $msg['timestamp'], new DateTimeZone('Asia/Manila'));
+        if ($dt === false) {
+            $dt = DateTime::createFromFormat('Y-m-d H:i:s', $msg['timestamp'], new DateTimeZone('Asia/Manila'));
+        }
+        $fullTimeDisplay = $dt ? $dt->format('F j, Y - g:i A') : date('F j, Y - g:i A');
+    } else {
+        $fullTimeDisplay = date('F j, Y - g:i A');
     }
-    $timeDisplay = date('g:i A', (int) floor($ts));
-    $fullTimeDisplay = date('F j, Y - g:i A', (int) floor($ts));
 
     $html .= "<div class='message-container {$msgClass}' data-msg-id='{$msgId}'>";
     $html .= "<div class='message-avatar'>{$initials}</div>";

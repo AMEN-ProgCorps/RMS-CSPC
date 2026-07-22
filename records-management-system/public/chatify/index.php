@@ -3571,7 +3571,7 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
       const xhr = new XMLHttpRequest();
       xhr.open('POST', 'mark_read.php', true);
       xhr.setRequestHeader('Content-type', 'application/x-www-form-urlencoded');
-      xhr.send('target_user=' + encodeURIComponent(targetUsername));
+      xhr.send('target_id=' + encodeURIComponent(activeDMAccountId || 0) + '&target_user=' + encodeURIComponent(targetUsername));
     }
 
     // State for global chat
@@ -5047,7 +5047,7 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
       // the (now stale) result instead of rendering it into the wrong chat.
       const requestedUser = activeDM;
       const cursor = loadOlderMode ? dmCursor : '';
-      const url = 'load_dm.php?target_user=' + encodeURIComponent(activeDM) + '&before_uuid=' + encodeURIComponent(cursor);
+      const url = 'load_dm.php?target_id=' + encodeURIComponent(activeDMAccountId || 0) + '&target_user=' + encodeURIComponent(activeDM) + '&before_uuid=' + encodeURIComponent(cursor);
 
       const xhr = new XMLHttpRequest();
       chatXhr = xhr;
@@ -5249,7 +5249,9 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
       };
       
       let params = "secret=" + encodeURIComponent(secret);
-      if (activeDM) {
+      if (activeDMAccountId) {
+        params += "&target_id=" + encodeURIComponent(activeDMAccountId) + "&target_user=" + encodeURIComponent(activeDM);
+      } else if (activeDM) {
         params += "&target_user=" + encodeURIComponent(activeDM);
       } else if (activeAdminConv) {
         params += "&conv_id=" + encodeURIComponent(activeAdminConv);
@@ -5390,7 +5392,7 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
         xhr.setRequestHeader('Content-type', 'application/x-www-form-urlencoded');
         payload = isGlobalChat
           ? 'message=' + encodeURIComponent(message)
-          : 'target_user=' + encodeURIComponent(activeDM) + '&message=' + encodeURIComponent(message);
+          : 'target_id=' + encodeURIComponent(activeDMAccountId || 0) + '&target_user=' + encodeURIComponent(activeDM) + '&message=' + encodeURIComponent(message);
       }
 
       // Fire the XHR immediately — no artificial delay. The "Sending..." bubble
@@ -5461,7 +5463,7 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
                 }
 
                 const msgContent = confirmedMsg.plaintext || message;
-                const fullTimeDisplay = new Date().toLocaleString([], { month: 'long', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' });
+                const fullTimeDisplay = new Date().toLocaleString('en-US', { timeZone: 'Asia/Manila', month: 'long', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit', hour12: true }).replace(',', ' -');
                 const senderLabel = (name || 'you').toLowerCase();
 
                 sendingBubble.className = 'message-container sent';
@@ -6004,7 +6006,7 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
 
         let params = 'uploaded_files=' + encodeURIComponent(filesPayload);
         if (!isGlobalChat && activeDM) {
-          params += '&target_user=' + encodeURIComponent(activeDM);
+          params += '&target_id=' + encodeURIComponent(activeDMAccountId || 0) + '&target_user=' + encodeURIComponent(activeDM);
         }
 
         sendXhr.onload = function() {

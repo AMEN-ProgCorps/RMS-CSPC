@@ -29,26 +29,35 @@ try {
     $pdo      = Database::getConnection();
     $adminId  = Auth::accountId();
 
-    // Count distinct private conversations before deletion (for the response)
-    $countStmt = $pdo->query(
-        "SELECT COUNT(DISTINCT conv_id) FROM chat_messages WHERE conv_id != 'global'"
-    );
-    $deletedConversations = (int) $countStmt->fetchColumn();
+    // 1. Delete physical upload files from disk efficiently (query ONLY msg_type = 'upload')
+    $uploadsDir = defined('UPLOADS_DIR') ? UPLOADS_DIR : '';
+    if ($uploadsDir && is_dir($uploadsDir)) {
+        try {
+            $stmt = $pdo->query("SELECT message FROM chat_messages WHERE msg_type = 'upload'");
+            while ($row = $stmt->fetch(PDO::FETCH_ASSOC)) {
+                $filename = safeDecrypt($row['message'] ?? '');
+                if ($filename) {
+                    $path = rtrim($uploadsDir, '/') . '/' . $filename;
+                    if (file_exists($path)) {
+                        @unlink($path);
+                    }
+                }
+            }
+        } catch (Throwable $e) {}
+    }
 
-    // ── Backup all private DMs to chatify_chat_backup ─────────────────────────
+    // 2. Count distinct private conversations before deletion (for the response)
+    $deletedConversations = 0;
+    try {
+        $countStmt = $pdo->query("SELECT COUNT(DISTINCT conv_id) FROM chat_conversations");
+        $deletedConversations = (int) $countStmt->fetchColumn();
+    } catch (Throwable $e) {}
+
+    // 3. Backup all messages to backup table if required
     ConversationManager::backupAll($pdo, $adminId);
 
-    // ── Backup global chat messages ───────────────────────────────────────────
-    ConversationManager::backupGlobal($pdo, $adminId);
-
-    // Delete all private DM messages (cascade removes their reactions)
-    $pdo->exec("DELETE FROM chat_messages WHERE conv_id != 'global'");
-
-    // Delete all private read markers
-    $pdo->exec("DELETE FROM chat_read_markers WHERE conv_id != 'global'");
-
-    // Wipe global chat (also deletes upload files from disk)
-    GlobalChatManager::clearChat(defined('UPLOADS_DIR') ? UPLOADS_DIR : '');
+    // 4. Instantaneous wipe using TRUNCATE CASCADE across chat messages, read markers, and conversations
+    $pdo->exec("TRUNCATE TABLE chat_messages, chat_read_markers, chat_conversations CASCADE;");
 
     echo json_encode(['ok' => true, 'deleted_conversations' => $deletedConversations]);
 } catch (Throwable $e) {

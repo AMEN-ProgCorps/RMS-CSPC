@@ -2947,6 +2947,9 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
           activeDM = null; activeAdminConv = null; isGlobalChat = false;
           gcCursor = ''; dmCursor = '';
           gcViewingOlder = false; dmViewingOlder = false;
+          allConvsData = [];
+          localStorage.removeItem('activeSpyConv');
+          localStorage.removeItem('activeDM');
           removePaginationBtn();
           const gcItem = document.getElementById('globalChatItem');
           if (gcItem) gcItem.classList.remove('active');
@@ -3785,6 +3788,8 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
 
       if (!isAdminAllChatsView || activeConvs.length === 0) {
         section.style.display = 'none';
+        list.innerHTML = '';
+        adminConvItems.clear();
         return;
       }
       section.style.display = 'flex';
@@ -5781,6 +5786,9 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
               activeDM = null; activeAdminConv = null; isGlobalChat = false;
               gcCursor = ''; dmCursor = '';
               gcViewingOlder = false; dmViewingOlder = false;
+              allConvsData = [];
+              localStorage.removeItem('activeSpyConv');
+              localStorage.removeItem('activeDM');
               removePaginationBtn();
               document.getElementById('globalChatItem').classList.remove('active');
               chatBox.innerHTML = '<div class="empty-chat"><p>All messages deleted.</p></div>';

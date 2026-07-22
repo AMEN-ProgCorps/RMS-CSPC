@@ -3785,6 +3785,8 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
 
       if (!isAdminAllChatsView || activeConvs.length === 0) {
         section.style.display = 'none';
+        list.innerHTML = '';
+        adminConvItems.clear();
         return;
       }
       section.style.display = 'flex';

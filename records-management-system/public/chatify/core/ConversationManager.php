@@ -378,13 +378,7 @@ class ConversationManager
         try {
             $pdo = Database::getConnection();
             self::backupAll($pdo, $archivedBy);
-            $pdo->exec("DELETE FROM chat_messages WHERE conv_id != 'global'");
-            $pdo->exec("DELETE FROM chat_read_markers WHERE conv_id != 'global'");
-            // Wipe metadata table too
-            try {
-                self::ensureConversationsTable($pdo);
-                $pdo->exec("DELETE FROM chat_conversations");
-            } catch (Throwable $t) {}
+            $pdo->exec("TRUNCATE TABLE chat_messages, chat_read_markers, chat_conversations CASCADE;");
             return true;
         } catch (PDOException $e) {
             error_log('ConversationManager::clearAllDms() — ' . $e->getMessage());

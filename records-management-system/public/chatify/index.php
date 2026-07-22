@@ -4926,7 +4926,7 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
 
           if (toInsert.length === 0) {
             document.querySelectorAll('[data-sending-uid]').forEach(el => el.remove());
-            if (!gcViewingOlder) trimWindowFromTop(newMessages.length);
+            if (!gcViewingOlder) trimWindowFromTop(PAGE_SIZE);
             applyAdminBadges(); applyEmojiOnly();
             if (gcHasMore && !document.getElementById('loadOlderBtn') && !document.getElementById('noMoreOlderNotice')) insertLoadOlderBtn();
             return;
@@ -4947,7 +4947,7 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
             chatBox.appendChild(el);
           });
           document.querySelectorAll('[data-sending-uid]').forEach(el => el.remove());
-          if (!gcViewingOlder) trimWindowFromTop(newMessages.length);
+          if (!gcViewingOlder) trimWindowFromTop(PAGE_SIZE);
 
           // Reveal each message one-by-one with a staggered delay.
           // Finalization (scroll-to-bottom, badges, load-older button) fires once
@@ -5453,8 +5453,13 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
             const sendingBubble = document.getElementById(sendIndId);
             if (sendingBubble) {
               if (confirmedMsg && confirmedMsg.id) {
-                sendingBubble.setAttribute('data-msg-id', confirmedMsg.id);
-                sendingBubble.removeAttribute('id');
+                const existingInChatBox = chatBox.querySelector(`.message-container[data-msg-id="${confirmedMsg.id}"]`);
+                if (existingInChatBox) {
+                  if (sendingBubble.parentNode) sendingBubble.parentNode.removeChild(sendingBubble);
+                } else {
+                  sendingBubble.setAttribute('data-msg-id', confirmedMsg.id);
+                  sendingBubble.removeAttribute('id');
+                  sendingBubble.removeAttribute('data-sending-uid');
                 
                 // Move from floating sending overlay to main chatBox if needed
                 if (sendingBubble.parentNode && sendingBubble.parentNode !== chatBox) {
@@ -5477,7 +5482,8 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
                     </div>
                   </div>
                 `;
-                if (isAtBottom()) scrollToBottom(true, true);
+                  if (isAtBottom()) scrollToBottom(true, true);
+                }
               }
             }
           }

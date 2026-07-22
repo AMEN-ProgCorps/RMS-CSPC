@@ -197,6 +197,9 @@ class UserResolver
                       OR ad.last_name  ILIKE :q2
                       OR (ad.first_name || ' ' || ad.last_name) ILIKE :q3
                       OR (ad.last_name  || ' ' || ad.first_name) ILIKE :q4
+                      OR ad.email ILIKE :q5
+                      OR o.office_name ILIKE :q6
+                      OR o.office_code ILIKE :q7
                    )
                  ORDER BY ad.last_name, ad.first_name
                  LIMIT :lim"
@@ -206,6 +209,9 @@ class UserResolver
             $stmt->bindValue(':q2', $like);
             $stmt->bindValue(':q3', $like);
             $stmt->bindValue(':q4', $like);
+            $stmt->bindValue(':q5', $like);
+            $stmt->bindValue(':q6', $like);
+            $stmt->bindValue(':q7', $like);
             $stmt->bindValue(':lim', $limit, PDO::PARAM_INT);
             $stmt->execute();
 

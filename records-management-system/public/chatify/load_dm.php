@@ -146,9 +146,9 @@ foreach ($rawMessages as $msg) {
         if ($dt === false) {
             $dt = DateTime::createFromFormat('Y-m-d H:i:s', $msg['timestamp'], new DateTimeZone('Asia/Manila'));
         }
-        $fullTimeDisplay = $dt ? $dt->format('F j, Y - g:i A') : date('F j, Y - g:i A');
+        $fullTimeDisplay = $dt ? $dt->format('F j, Y \a\t g:i A') : date('F j, Y \a\t g:i A');
     } else {
-        $fullTimeDisplay = date('F j, Y - g:i A');
+        $fullTimeDisplay = date('F j, Y \a\t g:i A');
     }
 
     $msgBodyHtml = '';

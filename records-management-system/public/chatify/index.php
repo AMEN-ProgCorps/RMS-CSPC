@@ -3181,7 +3181,10 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
       const query = searchInput.value.toLowerCase().trim();
 
       const filtered = allUsersData.filter(u => 
-        u.name.toLowerCase().includes(query) || u.username.toLowerCase().includes(query)
+        u.name.toLowerCase().includes(query) ||
+        (u.username && u.username.toLowerCase().includes(query)) ||
+        (u.office_name && u.office_name.toLowerCase().includes(query)) ||
+        (u.office_code && u.office_code.toLowerCase().includes(query))
       );
 
       // Total unread for tab title — only compute when NOT searching
@@ -5468,7 +5471,10 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
                 }
 
                 const msgContent = confirmedMsg.plaintext || message;
-                const fullTimeDisplay = new Date().toLocaleString('en-US', { timeZone: 'Asia/Manila', month: 'long', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit', hour12: true }).replace(',', ' -');
+                const d = new Date();
+                const dateStr = d.toLocaleDateString('en-US', { timeZone: 'Asia/Manila', month: 'long', day: 'numeric', year: 'numeric' });
+                const timeStr = d.toLocaleTimeString('en-US', { timeZone: 'Asia/Manila', hour: 'numeric', minute: '2-digit', hour12: true });
+                const fullTimeDisplay = `${dateStr} at ${timeStr}`;
                 const senderLabel = (name || 'you').toLowerCase();
 
                 sendingBubble.className = 'message-container sent';

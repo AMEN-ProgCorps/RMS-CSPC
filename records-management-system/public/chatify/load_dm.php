@@ -30,20 +30,8 @@ $adminId     = Auth::adminAccountId(); // 1
 
 // ── Target validation ─────────────────────────────────────────────────────────
 $targetId = isset($_GET['target_id']) ? (int) trim($_GET['target_id']) : 0;
-
 if ($targetId <= 0 && isset($_GET['target_user'])) {
-    $targetUser = trim($_GET['target_user']);
-    try {
-        $pdo  = Database::getConnection();
-        $stmt = $pdo->prepare('SELECT account_id FROM account_details WHERE email = :email LIMIT 1');
-        $stmt->execute([':email' => $targetUser]);
-        $row = $stmt->fetch();
-        if ($row) {
-            $targetId = (int) $row['account_id'];
-        }
-    } catch (PDOException $e) {
-        // Silently continue
-    }
+    $targetId = UserResolver::resolveAccountId($_GET['target_user']);
 }
 
 if ($targetId <= 0 || $targetId === $myAccountId) {
@@ -60,22 +48,29 @@ if ($targetInfo === null) {
     exit;
 }
 
-// ── Pagination ────────────────────────────────────────────────────────────────────
+// ── Pagination & Incremental Fetching ──────────────────────────────────────────
 $limit      = 100;
 $beforeUuid = isset($_GET['before_uuid']) && $_GET['before_uuid'] !== '' ? (string) $_GET['before_uuid'] : null;
+$sinceUuid  = isset($_GET['since_uuid'])  && $_GET['since_uuid']  !== '' ? (string) $_GET['since_uuid']  : null;
 
 // ── Load data ────────────────────────────────────────────────────────────────────
-$convId      = ConversationManager::convId($myAccountId, $targetId);
+$convId = ConversationManager::convId($myAccountId, $targetId);
 
-// Fetch limit+1 rows so we can detect hasMore without a separate COUNT(*).
-$rawMessages = ConversationManager::loadRaw($convId, $limit + 1, $beforeUuid);
-$hasMore     = count($rawMessages) > $limit;
-if ($hasMore) {
-    array_pop($rawMessages); // discard the extra sentinel row
+if ($sinceUuid !== null) {
+    // Incremental update: fetch only messages created AFTER sinceUuid
+    $rawMessages = ConversationManager::loadIncrementalRaw($convId, $sinceUuid, $limit);
+    $hasMore     = false;
+} else {
+    // Standard keyset pagination: fetch limit+1 rows to detect hasMore
+    $rawMessages = ConversationManager::loadRaw($convId, $limit + 1, $beforeUuid);
+    $hasMore     = count($rawMessages) > $limit;
+    if ($hasMore) {
+        array_pop($rawMessages); // discard the extra sentinel row
+    }
+
+    // DB returns newest-first; flip for chronological display.
+    $rawMessages = array_reverse($rawMessages);
 }
-
-// DB returns newest-first; flip for chronological display.
-$rawMessages = array_reverse($rawMessages);
 
 // Scope reaction loading to just this page's UUIDs.
 $pageUuids = array_column($rawMessages, 'id');
@@ -133,7 +128,7 @@ foreach ($rawMessages as $msg) {
 
     $senderName  = $nameMap[$senderId] ?? 'Unknown User';
     $initials    = dmInitials2($senderName);
-    $senderLabel = $isSent ? 'you' : htmlspecialchars(strtolower($senderName), ENT_QUOTES);
+    $senderLabel = htmlspecialchars(strtolower($senderName), ENT_QUOTES);
 
     // Admin badge
     $adminBadge = '';
@@ -151,6 +146,7 @@ foreach ($rawMessages as $msg) {
         $ts = $dt !== false ? (float) $dt->format('U.u') : (float) strtotime($msg['timestamp']);
     }
     $timeDisplay = date('g:i A', (int) floor($ts));
+    $fullTimeDisplay = date('F j, Y - g:i A', (int) floor($ts));
 
     $msgBodyHtml = '';
 
@@ -159,12 +155,13 @@ foreach ($rawMessages as $msg) {
         $contentEsc  = htmlspecialchars($content, ENT_QUOTES);
 
         $msgBodyHtml .= "<div class='bubble-wrapper'>";
+        $msgBodyHtml .= "<div class='message-click-timestamp'>{$fullTimeDisplay}</div>";
         if (!empty($msg['is_edited'])) {
             $msgBodyHtml .= "<div class='message-edited-label' style='font-size:10px;color:var(--text-secondary);opacity:0.8;margin-bottom:2px;font-style:italic;'>edited</div>";
         }
         $msgBodyHtml .= "<div class='message-bubble'>";
         $msgBodyHtml .= "<div class='message-content'>{$contentEsc}</div>";
-        $msgBodyHtml .= "<div class='message-info'><span class='message-sender'>{$senderLabel}{$adminBadge}</span><span class='message-time'>{$timeDisplay}</span></div>";
+        $msgBodyHtml .= "<div class='message-info'><span class='message-sender'>{$senderLabel}{$adminBadge}</span></div>";
         $msgBodyHtml .= "</div>";
         $msgBodyHtml .= "</div>";
 
@@ -205,7 +202,7 @@ foreach ($rawMessages as $msg) {
                         }
                         $uploadBodyHtml .= "<a href='{$fnUrl}' target='_blank' style='display:block;'><img src='{$fnUrl}' alt='{$fnEsc}'{$wAttr} style='{$aspectRatioStyle}max-width:240px;max-height:240px;border-radius:12px;display:block;cursor:pointer;object-fit:cover;box-shadow:0 2px 8px rgba(0,0,0,0.18);' loading='lazy' onerror=\"this.closest('a').remove()\" /></a>";
                     }
-                    $uploadBodyHtml .= "<div class='message-info' style='padding:3px 2px;'><span class='message-sender'>{$senderLabel}{$adminBadge}</span><span class='message-time'>{$timeDisplay}</span></div>";
+                    $uploadBodyHtml .= "<div class='message-info' style='padding:3px 2px;'><span class='message-sender'>{$senderLabel}{$adminBadge}</span></div>";
                     $uploadBodyHtml .= "</div>"; // .message-media
                 }
                 // If no files remain, no media container is emitted at all.
@@ -240,7 +237,7 @@ foreach ($rawMessages as $msg) {
                     $uploadBodyHtml .= "<div class='message-content' style='display:flex;flex-direction:column;gap:6px;'>";
                     $uploadBodyHtml .= $itemsHtml;
                     $uploadBodyHtml .= "</div>";
-                    $uploadBodyHtml .= "<div class='message-info'><span class='message-sender'>{$senderLabel}{$adminBadge}</span><span class='message-time'>{$timeDisplay}</span></div>";
+                    $uploadBodyHtml .= "<div class='message-info'><span class='message-sender'>{$senderLabel}{$adminBadge}</span></div>";
                     $uploadBodyHtml .= "</div>"; // .message-bubble
                 }
             }
@@ -263,7 +260,7 @@ foreach ($rawMessages as $msg) {
                     }
                     $uploadBodyHtml .= "<div class='message-media'>";
                     $uploadBodyHtml .= "<a href='{$url}' target='_blank'><img src='{$url}' alt='{$fileEsc}'{$wAttr} style='{$aspectRatioStyle}max-width:240px;max-height:240px;border-radius:12px;display:block;cursor:pointer;object-fit:cover;box-shadow:0 2px 8px rgba(0,0,0,0.18);' loading='lazy' onerror=\"this.closest('.message-media').remove()\" /></a>";
-                    $uploadBodyHtml .= "<div class='message-info' style='padding:3px 2px;'><span class='message-sender'>{$senderLabel}{$adminBadge}</span><span class='message-time'>{$timeDisplay}</span></div>";
+                    $uploadBodyHtml .= "<div class='message-info' style='padding:3px 2px;'><span class='message-sender'>{$senderLabel}{$adminBadge}</span></div>";
                     $uploadBodyHtml .= "</div>";
                 }
                 // else: deleted image — nothing rendered for this message
@@ -275,20 +272,20 @@ foreach ($rawMessages as $msg) {
                 $uploadBodyHtml .= "<div style='font-size:12px;margin-bottom:6px;font-weight:500;opacity:0.85;max-width:240px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;'>{$fileEsc}</div>";
                 $uploadBodyHtml .= "<audio controls preload='metadata' style='width:240px;max-width:100%;display:block;border-radius:6px;'><source src='{$url}' type='{$mime}'></audio>";
                 $uploadBodyHtml .= "</div>";
-                $uploadBodyHtml .= "<div class='message-info'><span class='message-sender'>{$senderLabel}{$adminBadge}</span><span class='message-time'>{$timeDisplay}</span></div>";
+                $uploadBodyHtml .= "<div class='message-info'><span class='message-sender'>{$senderLabel}{$adminBadge}</span></div>";
                 $uploadBodyHtml .= "</div>";
 
             } else {
                 $linkColor = $isSent ? 'white' : '#1b74e4';
                 $uploadBodyHtml .= "<div class='message-bubble'>";
                 $uploadBodyHtml .= "<div class='message-content'><a href='{$url}' target='_blank' rel='noopener' style='color:{$linkColor};text-decoration:underline;font-weight:500;font-size:13px;word-break:break-all;'>{$fileEsc}</a></div>";
-                $uploadBodyHtml .= "<div class='message-info'><span class='message-sender'>{$senderLabel}{$adminBadge}</span><span class='message-time'>{$timeDisplay}</span></div>";
+                $uploadBodyHtml .= "<div class='message-info'><span class='message-sender'>{$senderLabel}{$adminBadge}</span></div>";
                 $uploadBodyHtml .= "</div>";
             }
         }
 
         if ($uploadBodyHtml !== '') {
-            $msgBodyHtml = "<div class='bubble-wrapper'>{$uploadBodyHtml}</div>";
+            $msgBodyHtml = "<div class='bubble-wrapper'><div class='message-click-timestamp show-timestamp'>{$fullTimeDisplay}</div>{$uploadBodyHtml}</div>";
         }
     }
 

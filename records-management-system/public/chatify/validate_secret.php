@@ -1,11 +1,6 @@
 <?php
 // =============================================================================
-// validate_secret.php — Validate the admin secret key
-// =============================================================================
-// POST params:
-//   secretKey  (string) — the key to validate against secret.json
-//
-// Returns JSON: { valid: bool }
+// validate_secret.php — Validate admin secret key against PostgreSQL hash
 // =============================================================================
 
 require_once __DIR__ . '/bootstrap.php';
@@ -28,22 +23,13 @@ if (!Auth::isAdmin()) {
     exit;
 }
 
-$inputKey   = trim($_POST['secretKey'] ?? '');
-$secretFile = __DIR__ . '/secret.json';
+$inputKey = trim($_POST['secretKey'] ?? '');
 
-if (empty($inputKey) || !file_exists($secretFile)) {
+if (empty($inputKey)) {
     echo json_encode(['valid' => false]);
     exit;
 }
 
-$data = json_decode(file_get_contents($secretFile), true);
+$isValid = ConversationManager::verifySecretKey($inputKey);
 
-// Support both "secret" and "secret_key" fields
-$storedKey = $data['secret_key'] ?? $data['secret'] ?? '';
-
-if (empty($storedKey)) {
-    echo json_encode(['valid' => false]);
-    exit;
-}
-
-echo json_encode(['valid' => hash_equals($storedKey, $inputKey)]);
+echo json_encode(['valid' => $isValid]);

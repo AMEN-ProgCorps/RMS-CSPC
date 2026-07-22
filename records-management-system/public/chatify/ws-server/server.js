@@ -269,14 +269,15 @@ wss.on('connection', (ws) => {
     if (data.type === 'message') {
       if (isRateLimited(state.accountId, 'message')) return;
 
-      const { chat_type, recipient_id } = data;
-      log(`Broadcasting message event: type=${chat_type}, sender_id=${state.accountId}`);
+      const { chat_type, recipient_id, msg_uuid } = data;
+      log(`Broadcasting message event: type=${chat_type}, sender_id=${state.accountId}, msg_uuid=${msg_uuid || ''}`);
 
       if (chat_type === 'global') {
         const payloadStr = JSON.stringify({
           type: 'message',
           chat_type: 'global',
-          sender_id: state.accountId
+          sender_id: state.accountId,
+          msg_uuid: msg_uuid || null
         });
         broadcastToAll(payloadStr, state.accountId);
       } else if (chat_type === 'private') {
@@ -284,7 +285,8 @@ wss.on('connection', (ws) => {
           type: 'message',
           chat_type: 'private',
           sender_id: state.accountId,
-          recipient_id: recipient_id
+          recipient_id: recipient_id,
+          msg_uuid: msg_uuid || null
         });
         // Recipient, any other session of the sender, and admin (1) for spymode
         broadcastToAccounts([Number(recipient_id), state.accountId, 1], payloadStr);

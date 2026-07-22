@@ -48,7 +48,6 @@ if (!Auth::validateToken($accountId, $expires, $token)) {
 <html lang="en">
 <head>
     <title>Chatlify - CSPC</title>
-    <meta name="description" content="flag{h3y_st4wp_r1ght_h3r3}">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <link rel="icon" type="image/png" href="cspc.png">
     <style>

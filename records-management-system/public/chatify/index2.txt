@@ -301,6 +301,46 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
       box-sizing: border-box;
       flex-shrink: 0;
     }
+
+    .sidebar-header-actions {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      margin-left: auto;
+    }
+
+    .sidebar-action-btn {
+      width: 36px !important;
+      height: 36px !important;
+      min-width: 36px !important;
+      max-width: 36px !important;
+      padding: 0 !important;
+      margin: 0 !important;
+      border-radius: 50% !important;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+      background: #1b74e4;
+      color: #ffffff;
+      border: none;
+      cursor: pointer;
+      transition: all 0.2s ease;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.12);
+    }
+
+    .sidebar-action-btn:hover {
+      background: #1669c1;
+    }
+
+    .sidebar-action-btn:active {
+      transform: scale(0.94);
+    }
+
+    @media (min-width: 992px) {
+      #closeSidebarBtn {
+        display: none !important;
+      }
+    }
     
     .sidebar-search {
       padding: 12px 16px;
@@ -861,15 +901,47 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
       }
     }
 
-    /* Bubble pop on send */
-    .message-bubble.bubble-pop {
-      animation: bubblePop 0.22s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
+    /* Optimistic "sending" bubble — snappy entrance, then a gentle
+       breathing pulse for as long as it stays pending. */
+    .message-bubble.sending-bubble {
+      animation:
+        sendingBubbleIn 0.16s cubic-bezier(0.34, 1.56, 0.64, 1) forwards,
+        sendingPulse 1.3s ease-in-out 0.16s infinite;
     }
 
-    @keyframes bubblePop {
-      0%   { transform: scale(0.88); }
-      60%  { transform: scale(1.04); }
-      100% { transform: scale(1); }
+    @keyframes sendingBubbleIn {
+      0%   { opacity: 0;   transform: scale(0.82) translateY(4px); }
+      100% { opacity: 0.7; transform: scale(1) translateY(0); }
+    }
+
+    @keyframes sendingPulse {
+      0%, 100% { opacity: 0.55; }
+      50%      { opacity: 0.9; }
+    }
+
+    /* Three bouncing dots shown inside the bubble while a message is sending */
+    .sending-dots {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      padding: 3px 2px;
+    }
+
+    .sending-dots span {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background-color: rgba(255, 255, 255, 0.9);
+      animation: sendingDotBounce 1.1s infinite ease-in-out both;
+    }
+
+    .sending-dots span:nth-child(1) { animation-delay: 0s; }
+    .sending-dots span:nth-child(2) { animation-delay: .15s; }
+    .sending-dots span:nth-child(3) { animation-delay: .3s; }
+
+    @keyframes sendingDotBounce {
+      0%, 80%, 100% { transform: translateY(0) scale(0.8); opacity: 0.5; }
+      40%           { transform: translateY(-5px) scale(1); opacity: 1; }
     }
 
     .message-container.sent {
@@ -1120,6 +1192,37 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
       color: var(--text-secondary);
     }
 
+    /* Clickable Date/Time smoothly appearing above bubbles */
+    .message-click-timestamp {
+      max-height: 0;
+      opacity: 0;
+      overflow: hidden;
+      font-size: 11px;
+      color: var(--text-secondary);
+      transition: max-height 0.3s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.3s ease, margin 0.3s ease;
+      margin-bottom: 0;
+      margin-top: 0;
+      user-select: none;
+      pointer-events: none;
+      white-space: nowrap;
+    }
+    .sent .message-click-timestamp {
+      align-self: flex-end;
+      text-align: right;
+      padding-right: 12px;
+    }
+    .received .message-click-timestamp {
+      align-self: flex-start;
+      text-align: left;
+      padding-left: 12px;
+    }
+    .message-click-timestamp.show-timestamp {
+      max-height: 25px;
+      opacity: 0.85;
+      margin-top: 4px;
+      margin-bottom: 4px;
+    }
+
     /* Empty Chat State */
     .empty-chat {
       text-align: center;
@@ -1187,6 +1290,41 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
     .input-section {
       margin-bottom: 8px;
       position: relative;
+    }
+
+    .spy-mode-notice {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      text-align: center;
+      gap: 10px;
+      width: 90%;
+      max-width: 460px;
+      min-width: 260px;
+      min-height: 48px;
+      flex-shrink: 0;
+      padding: 12px 18px;
+      background: var(--bg-modal, var(--bg-secondary));
+      color: var(--text-secondary);
+      font-size: 13px;
+      font-weight: 600;
+      border-radius: 12px;
+      border: 1px dashed var(--border-color);
+      box-shadow: 0 2px 8px var(--shadow-color, rgba(0, 0, 0, 0.08));
+      margin: 6px auto;
+      box-sizing: border-box;
+      user-select: none;
+      transition: all 0.3s ease;
+    }
+
+    @media (max-width: 480px) {
+      .spy-mode-notice {
+        width: 95%;
+        min-width: 220px;
+        padding: 10px 14px;
+        font-size: 12px;
+        gap: 6px;
+      }
     }
 
     #cancelEditXBtn {
@@ -1655,9 +1793,6 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
         }
       }
 
-      #adminEyeToggleBtn {
-        margin-right: 10px;
-      }
 
       .sidebar.open {
         transform: translateX(0);
@@ -2290,12 +2425,17 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
     <div class="sidebar no-anim" id="sidebar">
       <div class="sidebar-header">
         <span style="flex-grow:1;">Chatify</span>
-        <button id="adminEyeToggleBtn" class="clear-button" style="display:none;padding:0 8px;min-width:auto;" title="View all user conversations">
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path><circle cx="12" cy="12" r="3"></circle></svg>
-        </button>
-        <button id="closeSidebarBtn" class="clear-button" style="display:none;padding:0 8px;min-width:auto;">
-          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
-        </button>
+        <div class="sidebar-header-actions">
+          <button id="adminEyeToggleBtn" class="clear-button sidebar-action-btn" style="display:none;" title="View all user conversations">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path><circle cx="12" cy="12" r="3"></circle></svg>
+          </button>
+          <button id="adminKeyToggleBtn" class="clear-button sidebar-action-btn" style="display:none;" title="Change Chat Secret Key">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="7.5" cy="15.5" r="4.5"></circle><path d="m10.7 12.3 8.8-8.8"></path><path d="m15.5 4.5 3 3"></path><path d="m18 7 3 3"></path></svg>
+          </button>
+          <button id="closeSidebarBtn" class="clear-button sidebar-action-btn" style="display:none;" title="Close sidebar">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+          </button>
+        </div>
       </div>
       <div class="sidebar-search" id="ownSidebarSearch">
         <input type="text" id="searchInput" placeholder="Search users..." autocomplete="off">
@@ -2427,6 +2567,14 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
         <textarea id="messageInput" placeholder="Type a message..." required autocomplete="off" rows="1"></textarea>
         <button type="submit" id="sendButton">Send</button>
       </form>
+
+      <!-- Admin Spy Mode Notice -->
+      <div id="spyModeNotice" class="spy-mode-notice" style="display:none;">
+        <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor" style="flex-shrink:0;">
+          <path d="M12 4.5C7 4.5 2.73 7.61 1 12c1.73 4.39 6 7.5 11 7.5s9.27-3.11 11-7.5c-1.73-4.39-6-7.5-11-7.5zM12 17c-2.76 0-5-2.24-5-5s2.24-5 5-5 5 2.24 5 5-2.24 5-5 5zm0-8c-1.66 0-3 1.34-3 3s1.34 3 3 3 3-1.34 3-3-1.34-3-3-3z"/>
+        </svg>
+        <span>Admin Spy Mode Active</span>
+      </div>
     </div>
   </div>
 
@@ -2522,6 +2670,43 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
       <div class="modal-footer">
         <button class="modal-button cancel-button" id="cancelDeleteAll">Cancel</button>
         <button class="modal-button confirm-button" id="confirmDeleteAll">Delete Everything</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Change Secret Key Modal (Admin only) -->
+  <div class="modal" id="adminKeyModal" aria-hidden="true">
+    <div class="modal-content" style="max-width:400px;">
+      <div class="modal-header">
+        <h3 style="display:flex;align-items:center;gap:8px;margin:0;font-size:1.1rem;">
+          Change Deletion Secret Key
+        </h3>
+      </div>
+      <div class="modal-body" style="padding:16px;">
+        <p style="font-size:12px;color:var(--subtext-color);margin-bottom:12px;text-align:left;line-height:1.4;">
+          Update the secret key used for deleting conversations and wiping chat history in PostgreSQL.
+        </p>
+        <form id="adminKeyForm" onsubmit="handleSecretKeyUpdate(event)">
+          <div style="margin-bottom:10px;text-align:left;">
+            <label style="display:block;font-size:12px;margin-bottom:4px;color:var(--text-color);">Current Secret Key</label>
+            <input type="password" id="currentSecretInput" required class="secret-key-input" style="width:100%;box-sizing:border-box;padding:8px 12px;border-radius:6px;" placeholder="Enter current secret key" />
+          </div>
+          <div style="margin-bottom:10px;text-align:left;">
+            <label style="display:block;font-size:12px;margin-bottom:4px;color:var(--text-color);">New Secret Key</label>
+            <input type="password" id="newSecretInput" required class="secret-key-input" style="width:100%;box-sizing:border-box;padding:8px 12px;border-radius:6px;" placeholder="Enter new secret key" />
+          </div>
+          <div style="margin-bottom:12px;text-align:left;">
+            <label style="display:block;font-size:12px;margin-bottom:4px;color:var(--text-color);">Confirm New Secret Key</label>
+            <input type="password" id="confirmNewSecretInput" required class="secret-key-input" style="width:100%;box-sizing:border-box;padding:8px 12px;border-radius:6px;" placeholder="Confirm new secret key" />
+          </div>
+          <div id="adminKeyError" style="font-size:12px;color:#e74c3c;display:none;margin-bottom:8px;text-align:center;font-weight:600;"></div>
+          <div id="adminKeySuccess" style="font-size:12px;color:#2ecc71;display:none;margin-bottom:8px;text-align:center;font-weight:600;"></div>
+          <button type="submit" style="display:none;"></button>
+        </form>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="modal-button cancel-button" id="adminKeyCancelBtn">Cancel</button>
+        <button type="button" class="modal-button confirm-button" id="adminKeySubmitBtn" onclick="submitSecretKeyForm()">Update Key</button>
       </div>
     </div>
   </div>
@@ -2626,9 +2811,23 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
     let typingTimer = null;
 
 
+    // Exponential backoff state
+    let wsAttempts = 0;
+    const WS_BASE_DELAY = 1000;
+    const WS_MAX_DELAY = 30000;
+
     function connectWebSocket() {
       if (ws) {
+        // Prevent onclose trigger loop when closing manually
+        ws.onclose = null;
+        ws.onerror = null;
         try { ws.close(); } catch(e) {}
+        ws = null;
+      }
+
+      if (wsReconnectTimer) {
+        clearTimeout(wsReconnectTimer);
+        wsReconnectTimer = null;
       }
 
       const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
@@ -2641,6 +2840,7 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
 
       ws.onopen = function() {
         console.log('WebSocket connection established.');
+        wsAttempts = 0; // Reset exponential backoff counter on success
         if (wsReconnectTimer) {
           clearTimeout(wsReconnectTimer);
           wsReconnectTimer = null;
@@ -2688,6 +2888,10 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
           }
         } else if (data.type === 'message') {
           console.log('Received WebSocket real-time update notice:', data);
+          // Deduplication: if message is already rendered in chatBox, skip fetching!
+          if (data.msg_uuid && chatBox.querySelector(`.message-container[data-msg-id="${data.msg_uuid}"]`)) {
+            return;
+          }
           if (data.chat_type === 'global') {
             if (isGlobalChat) {
               loadGlobalChat(true);
@@ -2695,15 +2899,15 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
             fetchNotifications();
             fetchUsers();
           } else if (data.chat_type === 'private') {
-            if (activeDM && activeDMAccountId === Number(data.sender_id)) {
-              loadChat(true);
-            } else if (activeAdminConv) {
+            if (activeAdminConv) {
               const parts = activeAdminConv.split('_').map(Number);
               const s = Number(data.sender_id);
               const r = Number(data.recipient_id);
               if ((s === parts[0] && r === parts[1]) || (s === parts[1] && r === parts[0])) {
                 loadAdminConv(activeAdminConv, true);
               }
+            } else if (activeDM && activeDMAccountId === Number(data.sender_id)) {
+              loadChat(true);
             }
             fetchNotifications();
             fetchUsers();
@@ -2715,8 +2919,6 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
         } else if (data.type === 'chat_cleared') {
           console.log('Received WebSocket real-time update notice:', data);
           if (data.chat_type === 'private') {
-            // Mirrors the 'message'/private matching above: sender_id is the
-            // admin who cleared it, recipient_id is the other DM party.
             if (activeDM && activeDMAccountId === Number(data.sender_id)) {
               loadChat(true);
             } else if (activeAdminConv) {
@@ -2728,9 +2930,6 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
               }
             }
           } else if (data.chat_type === 'admin_conv') {
-            // An admin cleared a conversation between two other users —
-            // refresh that exact admin view, plus either participant if
-            // they currently have the other one open as their own DM.
             const a = Number(data.user_a);
             const b = Number(data.user_b);
             if (activeAdminConv) {
@@ -2747,8 +2946,6 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
           fetchUsers();
         } else if (data.type === 'all_cleared') {
           console.log('Received WebSocket real-time update notice:', data);
-          // Every message in the system was wiped — reset this client's
-          // view immediately instead of waiting for a manual reload.
           activeDM = null; activeAdminConv = null; isGlobalChat = false;
           gcCursor = ''; dmCursor = '';
           gcViewingOlder = false; dmViewingOlder = false;
@@ -2766,12 +2963,16 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
       ws.onclose = function() {
         console.warn('WebSocket connection lost.');
         showTypingIndicator('', false);
+        ws = null;
         
         // Start polling fallback immediately when connection is lost
         startPollingFallback();
 
         if (!wsReconnectTimer) {
-          wsReconnectTimer = setTimeout(connectWebSocket, 3000);
+          wsAttempts++;
+          const delay = Math.min(WS_MAX_DELAY, WS_BASE_DELAY * Math.pow(2, wsAttempts - 1)) + Math.floor(Math.random() * 500);
+          console.log(`Scheduling WebSocket reconnect in ${delay}ms (attempt ${wsAttempts})...`);
+          wsReconnectTimer = setTimeout(connectWebSocket, delay);
         }
       };
 
@@ -2814,8 +3015,10 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
 
     function startPollingFallback() {
       if (wsPollInterval) return;
+      if (document.hidden) return; // don't poll while tab is in background
       console.log('Starting backup message polling...');
       wsPollInterval = setInterval(function() {
+        if (document.hidden) return; // skip each tick while hidden
         if (isGlobalChat) {
           loadGlobalChat(true);
         } else if (activeDM) {
@@ -2921,24 +3124,30 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
             if (!hasAutoSelected) {
               hasAutoSelected = true;
               const savedDM = localStorage.getItem('activeDM');
+              const savedSpyConv = localStorage.getItem('activeSpyConv');
               let autoSelected = false;
-              if (savedDM === '__global__') {
-                selectGlobalChat();
-                autoSelected = true;
-              } else if (savedDM && savedDM.startsWith('__admin__')) {
-                const savedConvId = savedDM.slice('__admin__'.length);
-                const matchedConv = allConvsData.find(c => String(c.convId) === savedConvId);
+
+              if (serverIsAdmin && isAdminAllChatsView && savedSpyConv) {
+                const matchedConv = allConvsData.find(c => String(c.convId) === String(savedSpyConv));
                 if (matchedConv) {
                   openAdminConv(matchedConv);
                   autoSelected = true;
                 }
-              } else if (savedDM) {
-                const matchedUser = allUsersData.find(u => u.username === savedDM);
-                if (matchedUser) {
-                  selectDM(matchedUser);
+              }
+
+              if (!autoSelected) {
+                if (savedDM === '__global__') {
+                  selectGlobalChat();
                   autoSelected = true;
+                } else if (savedDM && !savedDM.startsWith('__admin__')) {
+                  const matchedUser = allUsersData.find(u => u.username === savedDM);
+                  if (matchedUser) {
+                    selectDM(matchedUser);
+                    autoSelected = true;
+                  }
                 }
               }
+
               if (!autoSelected) {
                 chatBox.innerHTML = '<div class="empty-chat"><p>Camarines Sur Polytechnic Colleges</p></div>';
               }
@@ -3379,6 +3588,7 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
       dmCursor = '';
       dmHasMore = false;
       dmViewingOlder = false;
+      clearSendingOverlay(); // drop any pending-send bubbles from the previous conversation
       hideEditBanner();
       
       // Reset local typing indicator state
@@ -3430,6 +3640,7 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
       gcCursor = '';
       gcHasMore = false;
       gcViewingOlder = false;
+      clearSendingOverlay(); // drop any pending-send bubbles from the previous conversation
       hideEditBanner();
       isFirstLoad = true;
       
@@ -3645,11 +3856,17 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
     let adminConvCursor = '';
     let adminConvHasMore = false;
     let adminConvViewingOlder = false; // true once the user has loaded an older window
+    let isLoadingAdminConv = false;   // separate flag so admin spy never blocks DM loads
+    let adminConvXhr = null;          // track in-flight XHR so stale responses can be discarded
 
     function loadAdminConv(convId, isAutoPoll = false, loadOlderMode = false) {
       if (isAutoPoll && !loadOlderMode && adminConvViewingOlder) return;
-      if (isLoadingChat) return;
-      isLoadingChat = true;
+      if (isLoadingAdminConv) {
+        // For non-poll (explicit open) calls, abort any in-flight request and proceed
+        if (!isAutoPoll && adminConvXhr) { adminConvXhr.abort(); adminConvXhr = null; isLoadingAdminConv = false; }
+        else return;
+      }
+      isLoadingAdminConv = true;
 
       const wasAtBottom = isAtBottom();
       const requestedConv = activeAdminConv;
@@ -3657,9 +3874,11 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
       const url = 'load_dm_admin.php?conv_id=' + encodeURIComponent(convId) + '&before_uuid=' + encodeURIComponent(cursor);
 
       const xhr = new XMLHttpRequest();
+      adminConvXhr = xhr;
       xhr.open('GET', url, true);
       xhr.onload = function() {
-        isLoadingChat = false;
+        isLoadingAdminConv = false;
+        if (adminConvXhr === xhr) adminConvXhr = null;
         if (this.status !== 200) return;
         if (requestedConv !== activeAdminConv) return; // stale response
         
@@ -3731,11 +3950,10 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
           });
           const prevScrollTop = chatBox.scrollTop;
           const prevScrollHeight = chatBox.scrollHeight;
-          document.querySelectorAll('[data-sending-uid]').forEach(el => el.remove());
           const newScrollHeight = chatBox.scrollHeight;
           chatBox.scrollTop = Math.max(0, prevScrollTop + newScrollHeight - prevScrollHeight);
           if (!adminConvViewingOlder) {
-            trimWindowFromTop(newMessages.length);
+            trimWindowFromTop(PAGE_SIZE);
           }
           if (isFirstLoad) { isFirstLoad = false; handleFirstLoadScroll(); }
           else if (wasAtBottom || shouldAutoScroll) requestAnimationFrame(() => requestAnimationFrame(() => scrollToBottom(true, false)));
@@ -3767,7 +3985,6 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
           chatBox.appendChild(el);
         });
 
-        document.querySelectorAll('[data-sending-uid]').forEach(el => el.remove());
         chatBox.scrollTop = Math.max(0, prevSTF + chatBox.scrollHeight - prevSHF);
         const mc = chatBox.querySelectorAll('.message-container').length;
         if (mc > 0 && (wasAtBottom || shouldAutoScroll || isFirstLoad)) {
@@ -3785,19 +4002,18 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
         adminConvViewingOlder = false;
         if (adminConvHasMore && !document.getElementById('loadOlderBtn') && !document.getElementById('noMoreOlderNotice')) insertLoadOlderBtn();
       };
-      xhr.onerror = function() { isLoadingChat = false; };
+      xhr.onerror = function() { isLoadingAdminConv = false; adminConvXhr = null; };
       xhr.send();
     }
 
     function openAdminConv(c) {
       activeAdminConv = c.convId;
-      activeDM = null; // not a regular DM
-      activeDMAccountId = null;
       isGlobalChat = false; // must reset — otherwise polling/visibilitychange keep re-loading Global Chat over the spy view
       
       adminConvCursor = '';
       adminConvHasMore = false;
       adminConvViewingOlder = false;
+      clearSendingOverlay(); // drop any pending-send bubbles from the previous conversation
       hideEditBanner();
       isFirstLoad = true;
 
@@ -3816,7 +4032,8 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
       }
       showTypingIndicator('', false);
 
-      localStorage.setItem('activeDM', '__admin__' + c.convId); // persist so refresh reopens this spy conv
+      // Persist spied conversation separately so activeDM is never lost
+      localStorage.setItem('activeSpyConv', c.convId);
 
       chatHeaderTitle.textContent = c.name1 + ' & ' + c.name2;
       chatBox.innerHTML = '<div class="empty-chat"><p>Loading...</p></div>';
@@ -3897,14 +4114,26 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
       return overlay;
     }
 
+    // Clear all pending send bubbles when switching conversations so they
+    // don't bleed into the freshly-opened chat pane.
+    function clearSendingOverlay() {
+      const overlay = document.getElementById('sending-overlay-container');
+      if (overlay) overlay.innerHTML = '';
+      // Also sweep any stragglers that landed directly in chatBox
+      document.querySelectorAll('[data-sending-uid]').forEach(el => el.remove());
+    }
+
     // Get the user's name and admin status from PHP
     const userName = "<?php echo addslashes($user_name); ?>";
     const isAdmin = <?php echo $is_admin ? 'true' : 'false'; ?>;
 
     // ── Admin: eye-button toggle for "all users chatting" view ──────────────
     const adminEyeToggleBtn = document.getElementById('adminEyeToggleBtn');
+    const adminKeyToggleBtn = document.getElementById('adminKeyToggleBtn');
     const ownSidebarSearch = document.getElementById('ownSidebarSearch');
     let isAdminAllChatsView = (localStorage.getItem('__adminAllChatsView__') === '1');
+    let preSpyDM = localStorage.getItem('__preSpyDM__') || null;        // activeDM to restore when leaving the all-conversations spy view
+    let preSpyIsGlobal = (localStorage.getItem('__preSpyIsGlobal__') === '1'); // isGlobalChat to restore when leaving the all-conversations spy view
 
     function applyAdminAllChatsView() {
       if (adminEyeToggleBtn) {
@@ -3915,19 +4144,211 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
       if (ownSidebarSearch) ownSidebarSearch.style.display = isAdminAllChatsView ? 'none' : '';
       if (globalChatItemEl) globalChatItemEl.style.display = isAdminAllChatsView ? 'none' : '';
       if (sidebarUsers) sidebarUsers.style.display = isAdminAllChatsView ? 'none' : '';
+
+      const inputSection = document.querySelector('.input-section');
+      const chatForm = document.getElementById('chatForm');
+      const spyNotice = document.getElementById('spyModeNotice');
+      if (inputSection) inputSection.style.display = isAdminAllChatsView ? 'none' : '';
+      if (chatForm) chatForm.style.display = isAdminAllChatsView ? 'none' : '';
+      if (spyNotice) spyNotice.style.display = isAdminAllChatsView ? 'flex' : 'none';
+
       renderAdminConvs();
     }
 
     if (adminEyeToggleBtn) {
       if (isAdmin) adminEyeToggleBtn.style.display = 'inline-flex';
       adminEyeToggleBtn.addEventListener('click', () => {
-        isAdminAllChatsView = !isAdminAllChatsView;
-        localStorage.setItem('__adminAllChatsView__', isAdminAllChatsView ? '1' : '0');
-        applyAdminAllChatsView();
+        const turningOn = !isAdminAllChatsView;
+
+        if (turningOn) {
+          // Entering spy view — remember activeDM and isGlobalChat to restore upon exit
+          preSpyDM = activeDM;
+          preSpyIsGlobal = isGlobalChat;
+          localStorage.setItem('__preSpyDM__', activeDM || '');
+          localStorage.setItem('__preSpyIsGlobal__', isGlobalChat ? '1' : '0');
+
+          // Close/clear previously opened conversation
+          activeDM = null;
+          activeDMAccountId = null;
+          isGlobalChat = false;
+          activeAdminConv = null;
+          localStorage.removeItem('activeSpyConv');
+          
+          chatHeaderTitle.textContent = '';
+          removePaginationBtn();
+          chatBox.innerHTML = '<div class="empty-chat"><p>Select a conversation to spy on</p></div>';
+
+          isAdminAllChatsView = true;
+          localStorage.setItem('__adminAllChatsView__', '1');
+          applyAdminAllChatsView();
+        } else {
+          // Leaving spy view — restore the admin's conversation
+          const currentSpyConv = activeAdminConv || localStorage.getItem('activeSpyConv');
+
+          isAdminAllChatsView = false;
+          localStorage.setItem('__adminAllChatsView__', '0');
+          activeAdminConv = null;
+          localStorage.removeItem('activeSpyConv');
+
+          // Wipe chatBox innerHTML so reconcilePoll doesn't retain old spy-mode DOM nodes ("one liner")
+          chatBox.innerHTML = '';
+          isFirstLoad = true;
+
+          applyAdminAllChatsView();
+
+          let savedAdminDM = preSpyDM || localStorage.getItem('__preSpyDM__');
+          let savedIsGlobal = preSpyIsGlobal || (localStorage.getItem('__preSpyIsGlobal__') === '1');
+
+          // Fallback: If no preSpyDM was set, but admin was viewing a spied conversation in spy mode
+          if (!savedAdminDM && !savedIsGlobal && currentSpyConv) {
+            const parts = String(currentSpyConv).split('_').map(Number);
+            if (parts.length === 2) {
+              const spiedUser = (allUsersData || []).find(u => 
+                (Number(u.account_id) === parts[0] || Number(u.account_id) === parts[1]) &&
+                Number(u.account_id) !== Number(myAccountId || 0)
+              );
+              if (spiedUser) {
+                savedAdminDM = spiedUser.username;
+              }
+            }
+          }
+
+          // Fallback: check activeDM in localStorage if not starting with __admin__
+          if (!savedAdminDM && !savedIsGlobal) {
+            let locDM = localStorage.getItem('activeDM');
+            if (locDM === '__global__') savedIsGlobal = true;
+            else if (locDM && !locDM.startsWith('__admin__')) savedAdminDM = locDM;
+          }
+
+          if (savedIsGlobal) {
+            selectGlobalChat();
+          } else if (savedAdminDM && savedAdminDM !== '' && !savedAdminDM.startsWith('__admin__')) {
+            const matchedUser = (allUsersData || []).find(u => u.username === savedAdminDM);
+            if (matchedUser) {
+              selectDM(matchedUser);
+            } else {
+              activeDM = null; activeDMAccountId = null;
+              localStorage.removeItem('activeDM');
+              chatHeaderTitle.textContent = '';
+              removePaginationBtn();
+              chatBox.innerHTML = '<div class="empty-chat"><p>Camarines Sur Polytechnic Colleges</p></div>';
+            }
+          } else {
+            activeDM = null; activeDMAccountId = null;
+            localStorage.removeItem('activeDM');
+            chatHeaderTitle.textContent = '';
+            removePaginationBtn();
+            chatBox.innerHTML = '<div class="empty-chat"><p>Camarines Sur Polytechnic Colleges</p></div>';
+          }
+
+          // Clean up pre-spy state
+          preSpyDM = null;
+          preSpyIsGlobal = false;
+          localStorage.removeItem('__preSpyDM__');
+          localStorage.removeItem('__preSpyIsGlobal__');
+        }
       });
     }
-    if (!isAdmin) isAdminAllChatsView = false; // non-admins never get this view, regardless of stale localStorage
+    if (!isAdmin) isAdminAllChatsView = false;
     applyAdminAllChatsView();
+
+    // ── Admin: Secret Key Change Modal & Handler ──────────────────────────────
+    const adminKeyModal = document.getElementById('adminKeyModal');
+    const adminKeyCancelBtn = document.getElementById('adminKeyCancelBtn');
+
+    if (adminKeyToggleBtn) {
+      if (isAdmin) adminKeyToggleBtn.style.display = 'inline-flex';
+      adminKeyToggleBtn.addEventListener('click', () => {
+        openAdminKeyModal();
+      });
+    }
+
+    function openAdminKeyModal() {
+      if (!adminKeyModal) return;
+      document.getElementById('currentSecretInput').value = '';
+      document.getElementById('newSecretInput').value = '';
+      document.getElementById('confirmNewSecretInput').value = '';
+      const errDiv = document.getElementById('adminKeyError');
+      const succDiv = document.getElementById('adminKeySuccess');
+      if (errDiv) errDiv.style.display = 'none';
+      if (succDiv) succDiv.style.display = 'none';
+      adminKeyModal.classList.add('active');
+      adminKeyModal.setAttribute('aria-hidden', 'false');
+    }
+
+    function closeAdminKeyModal() {
+      if (adminKeyModal) {
+        adminKeyModal.classList.remove('active');
+        adminKeyModal.setAttribute('aria-hidden', 'true');
+      }
+    }
+
+    if (adminKeyCancelBtn) adminKeyCancelBtn.addEventListener('click', closeAdminKeyModal);
+
+    function submitSecretKeyForm() {
+      const form = document.getElementById('adminKeyForm');
+      if (form) {
+        const event = new Event('submit', { cancelable: true });
+        form.dispatchEvent(event);
+      }
+    }
+
+    function handleSecretKeyUpdate(event) {
+      event.preventDefault();
+      const currentKey = document.getElementById('currentSecretInput').value.trim();
+      const newKey = document.getElementById('newSecretInput').value.trim();
+      const confirmKey = document.getElementById('confirmNewSecretInput').value.trim();
+      const errDiv = document.getElementById('adminKeyError');
+      const succDiv = document.getElementById('adminKeySuccess');
+      const submitBtn = document.getElementById('adminKeySubmitBtn');
+
+      if (errDiv) errDiv.style.display = 'none';
+      if (succDiv) succDiv.style.display = 'none';
+
+      if (!currentKey || !newKey || !confirmKey) {
+        if (errDiv) { errDiv.textContent = 'All fields are required.'; errDiv.style.display = 'block'; }
+        return;
+      }
+
+      if (newKey !== confirmKey) {
+        if (errDiv) { errDiv.textContent = 'New secret key and confirmation do not match.'; errDiv.style.display = 'block'; }
+        return;
+      }
+
+      if (newKey.length < 3) {
+        if (errDiv) { errDiv.textContent = 'New secret key must be at least 3 characters long.'; errDiv.style.display = 'block'; }
+        return;
+      }
+
+      if (submitBtn) { submitBtn.disabled = true; submitBtn.textContent = 'Updating...'; }
+
+      const formData = new FormData();
+      formData.append('current_secret', currentKey);
+      formData.append('new_secret', newKey);
+
+      fetch('update_secret.php', {
+        method: 'POST',
+        body: formData
+      })
+      .then(r => r.json())
+      .then(data => {
+        if (submitBtn) { submitBtn.disabled = false; submitBtn.textContent = 'Update Key'; }
+
+        if (data.success) {
+          if (succDiv) { succDiv.textContent = data.message || 'Secret key updated successfully!'; succDiv.style.display = 'block'; }
+          setTimeout(() => {
+            closeAdminKeyModal();
+          }, 1500);
+        } else {
+          if (errDiv) { errDiv.textContent = data.message || 'Failed to update secret key.'; errDiv.style.display = 'block'; }
+        }
+      })
+      .catch(err => {
+        if (submitBtn) { submitBtn.disabled = false; submitBtn.textContent = 'Update Key'; }
+        if (errDiv) { errDiv.textContent = 'Network or server error while updating secret key.'; errDiv.style.display = 'block'; }
+      });
+    }
+
     // Admin display names for verified badge (lowercased)
     const adminNames = <?php echo json_encode($admin_names); ?>;
 
@@ -4122,6 +4543,32 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
       });
     }
 
+    let clickTimeout = null;
+    // Event delegation to smoothly toggle timestamp on click
+    chatBox.addEventListener('click', function (e) {
+      if (e.target.closest('a') && !e.target.closest('a').querySelector('img') && !e.target.closest('.message-media')) {
+        return;
+      }
+      const bubble = e.target.closest('.message-bubble, .message-media');
+      if (!bubble) return;
+
+      if (clickTimeout) {
+        clearTimeout(clickTimeout);
+        clickTimeout = null;
+        return;
+      }
+
+      clickTimeout = setTimeout(function () {
+        clickTimeout = null;
+        const wrapper = bubble.closest('.bubble-wrapper');
+        if (!wrapper) return;
+        const timestamp = wrapper.querySelector('.message-click-timestamp');
+        if (timestamp) {
+          timestamp.classList.toggle('show-timestamp');
+        }
+      }, 250);
+    });
+
     // Event delegation for double click to edit chat message
     chatBox.addEventListener('dblclick', function (e) {
       const container = e.target.closest('.message-container.sent');
@@ -4228,15 +4675,6 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
         loadGlobalChat(false, false);
         return;
       }
-      if (!isGlobalChat && activeDM && dmViewingOlder) {
-        dmViewingOlder = false;
-        dmCursor = '';
-        removePaginationBtn();
-        chatBox.innerHTML = '';
-        isFirstLoad = true;
-        loadChat(false, false, true);
-        return;
-      }
       if (!isGlobalChat && activeAdminConv && adminConvViewingOlder) {
         adminConvViewingOlder = false;
         adminConvCursor = '';
@@ -4244,6 +4682,15 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
         chatBox.innerHTML = '';
         isFirstLoad = true;
         loadAdminConv(activeAdminConv, false, false);
+        return;
+      }
+      if (!isGlobalChat && !activeAdminConv && activeDM && dmViewingOlder) {
+        dmViewingOlder = false;
+        dmCursor = '';
+        removePaginationBtn();
+        chatBox.innerHTML = '';
+        isFirstLoad = true;
+        loadChat(false, false, true);
         return;
       }
 
@@ -4373,7 +4820,7 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
         return 'empty-chat|' + (el.textContent || '').trim().replace(/\s+/g, ' ');
       }
       const sender  = (el.querySelector('.message-sender')?.textContent?.trim() || '').toLowerCase();
-      const time    = el.querySelector('.message-time')?.textContent?.trim() || '';
+      const time    = (el.querySelector('.message-time') || el.querySelector('.message-click-timestamp'))?.textContent?.trim() || '';
       const content = el.querySelector('.message-content')?.textContent?.trim() || '';
       return sender + '|' + time + '|' + content;
     }
@@ -4493,18 +4940,26 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
           if (!gcViewingOlder) trimWindowFromTop(newMessages.length);
 
           // Reveal each message one-by-one with a staggered delay.
+          // Finalization (scroll-to-bottom, badges, load-older button) fires once
+          // every timer has completed, tracked via a counter — NOT via "is this
+          // the last array index". Once MAX_STAGGER caps the delay, several
+          // trailing messages share the exact same timeout value, so we can't
+          // assume the highest-index element's timer is the one that resolves
+          // last. A completion counter is correct regardless of firing order.
+          let revealedCount = 0;
           toInsert.forEach((el, i) => {
             const delay = useStagger ? Math.min(i, MAX_STAGGER) * STAGGER_MS : 0;
             setTimeout(() => {
-              if (!el.isConnected) return; // guard: element removed before reveal
-              el.classList.remove('gc-msg-pending');
-              if (el.classList.contains('message-container')) {
-                const animClass = el.classList.contains('sent') ? 'msg-animate-sent' : 'msg-animate-received';
-                el.classList.add(animClass);
-                el.addEventListener('animationend', () => el.classList.remove(animClass), { once: true });
+              revealedCount++;
+              if (el.isConnected) {
+                el.classList.remove('gc-msg-pending');
+                if (el.classList.contains('message-container')) {
+                  const animClass = el.classList.contains('sent') ? 'msg-animate-sent' : 'msg-animate-received';
+                  el.classList.add(animClass);
+                  el.addEventListener('animationend', () => el.classList.remove(animClass), { once: true });
+                }
               }
-              // Auto-scroll after the last message is revealed
-              if (i === toInsert.length - 1) {
+              if (revealedCount === toInsert.length) {
                 if (isFirstLoad) { isFirstLoad = false; handleFirstLoadScroll(); }
                 else if (wasAtBottom || shouldAutoScroll) requestAnimationFrame(() => requestAnimationFrame(() => scrollToBottom(true, false)));
                 else showScrollIndicator(toInsert.filter(el => el.classList.contains('message-container')).length);
@@ -4561,6 +5016,7 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
     let chatXhr = null;
 
     function loadChat(isAutoPoll = false, loadOlderMode = false, force = false) {
+      if (isAdminAllChatsView || activeAdminConv) return;
       if (!activeDM) return;
       // While the user is browsing an older window they loaded manually, silent
       // background polls must not touch the chat box — otherwise the very next
@@ -4656,11 +5112,10 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
           });
           const prevScrollTop = chatBox.scrollTop;
           const prevScrollHeight = chatBox.scrollHeight;
-          document.querySelectorAll('[data-sending-uid]').forEach(el => el.remove());
           const newScrollHeight = chatBox.scrollHeight;
           chatBox.scrollTop = Math.max(0, prevScrollTop + newScrollHeight - prevScrollHeight);
           if (!dmViewingOlder) {
-            trimWindowFromTop(newMessages.length);
+            trimWindowFromTop(PAGE_SIZE);
           }
           if (isFirstLoad) { isFirstLoad = false; handleFirstLoadScroll(); }
           else if (wasAtBottom || shouldAutoScroll) requestAnimationFrame(() => requestAnimationFrame(() => scrollToBottom(true, false)));
@@ -4692,7 +5147,6 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
           chatBox.appendChild(el);
         });
         
-        document.querySelectorAll('[data-sending-uid]').forEach(el => el.remove());
         chatBox.scrollTop = Math.max(0, prevSTF + chatBox.scrollHeight - prevSHF);
         const mc = chatBox.querySelectorAll('.message-container').length;
         if (mc > 0 && (wasAtBottom || shouldAutoScroll || isFirstLoad)) {
@@ -4716,9 +5170,13 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
     }
 
     function loadOlderMessages() {
-      if (isGlobalChat) loadGlobalChat(false, true);
-      else if (activeDM) loadChat(false, true);
-      else if (activeAdminConv) loadAdminConv(activeAdminConv, false, true);
+      if (activeAdminConv || isAdminAllChatsView) {
+        if (activeAdminConv) loadAdminConv(activeAdminConv, false, true);
+      } else if (isGlobalChat) {
+        loadGlobalChat(false, true);
+      } else if (activeDM) {
+        loadChat(false, true);
+      }
     }
 
     function deleteChat() {
@@ -4832,6 +5290,10 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
     document.getElementById("chatForm").addEventListener("submit", function (e) {
       e.preventDefault();
 
+      if (isAdminAllChatsView || activeAdminConv) {
+        return;
+      }
+
       const name = nameInput.value.trim();
       const message = messageInput.value.trim();
 
@@ -4885,8 +5347,8 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
         sendingBubble.setAttribute('data-sending-uid', sendUid);
         sendingBubble.className = 'message-container sent msg-animate-sent';
         sendingBubble.innerHTML = `
-          <div class="message-bubble bubble-pop" style="opacity:0.55;">
-            <div class="message-content" style="font-style:italic;font-size:13px;">Sending...</div>
+          <div class="message-bubble sending-bubble">
+            <div class="message-content sending-dots"><span></span><span></span><span></span></div>
           </div>
           <div class="message-avatar">${getInitials(name)}</div>
         `;
@@ -4901,8 +5363,6 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
         if (isAtBottom()) scrollToBottom(true, true);
       }
 
-      // Delay the actual POST by 0.3s to reduce rapid-fire spamming.
-      const SEND_DELAY_MS = 100;
       const xhr = new XMLHttpRequest();
       let payload = '';
 
@@ -4923,13 +5383,13 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
           : 'target_user=' + encodeURIComponent(activeDM) + '&message=' + encodeURIComponent(message);
       }
 
-      // Fire the XHR after a short delay. Re-enable send controls only after the XHR is dispatched.
-      const sendTimer = setTimeout(function() {
-        try { xhr.send(payload); } catch (e) { /* ignore send errors here */ }
-        isSending = false;
-        sendButton.textContent = "Send";
-        sendButton.disabled = false;
-      }, SEND_DELAY_MS);
+      // Fire the XHR immediately — no artificial delay. The "Sending..." bubble
+      // animation above already gives instant visual feedback that the send
+      // was registered, so re-enable send controls right after dispatching.
+      try { xhr.send(payload); } catch (e) { /* ignore send errors here */ }
+      isSending = false;
+      sendButton.textContent = "Send";
+      sendButton.disabled = false;
 
       xhr.onload = function () {
         if (this.status === 200) {
@@ -4972,12 +5432,48 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
             hideEditBanner();
           }
 
-          // Broadcast edit notification via WebSocket so other clients patch
-          // the bubble in-place instantly — no server round-trip needed.
+          let resData = null;
+          try { resData = JSON.parse(this.responseText); } catch(e) {}
+          const confirmedMsg = (resData && resData.message) ? resData.message : null;
+
+          // Convert optimistic sending bubble in-place immediately without full chat reload
+          if (!editingMsgId && sendIndId) {
+            const sendingBubble = document.getElementById(sendIndId);
+            if (sendingBubble) {
+              if (confirmedMsg && confirmedMsg.id) {
+                sendingBubble.setAttribute('data-msg-id', confirmedMsg.id);
+                sendingBubble.removeAttribute('id');
+                
+                // Move from floating sending overlay to main chatBox if needed
+                if (sendingBubble.parentNode && sendingBubble.parentNode !== chatBox) {
+                  sendingBubble.parentNode.removeChild(sendingBubble);
+                  chatBox.appendChild(sendingBubble);
+                }
+
+                const msgContent = confirmedMsg.plaintext || message;
+                const fullTimeDisplay = new Date().toLocaleString([], { month: 'long', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' });
+                const senderLabel = (name || 'you').toLowerCase();
+
+                sendingBubble.className = 'message-container sent';
+                sendingBubble.innerHTML = `
+                  <div class="message-avatar">${getInitials(name)}</div>
+                  <div class="bubble-wrapper">
+                    <div class="message-click-timestamp">${fullTimeDisplay}</div>
+                    <div class="message-bubble">
+                      <div class="message-content">${escapeHtml(msgContent)}</div>
+                      <div class="message-info"><span class="message-sender">${senderLabel}</span></div>
+                    </div>
+                  </div>
+                `;
+                if (isAtBottom()) scrollToBottom(true, true);
+              }
+            }
+          }
+
+          // Broadcast notification via WebSocket so other clients patch DOM
           if (ws && ws.readyState === WebSocket.OPEN) {
             const wasEditing = !!capturedEditingMsgId;
             if (wasEditing) {
-              // Send a dedicated edit event so receivers can patch DOM directly
               ws.send(JSON.stringify({
                 type: 'message_edited',
                 msg_uuid: capturedEditingMsgId,
@@ -4986,23 +5482,25 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
                 recipient_id: activeDMAccountId || null
               }));
             } else {
-              if (isGlobalChat) {
-                ws.send(JSON.stringify({ type: 'message', chat_type: 'global' }));
-              } else if (activeDM && activeDMAccountId) {
-                ws.send(JSON.stringify({
-                  type: 'message',
-                  chat_type: 'private',
-                  recipient_id: activeDMAccountId
-                }));
-              }
+              ws.send(JSON.stringify({
+                type: 'message',
+                chat_type: isGlobalChat ? 'global' : 'private',
+                recipient_id: activeDMAccountId || null,
+                msg_uuid: confirmedMsg ? confirmedMsg.id : null
+              }));
             }
           }
 
-          // Ensure chat is refreshed to pick up the confirmed message
-          if (isGlobalChat) { isLoadingGC = false; loadGlobalChat(false); }
-          else loadChatForced();
+          // Fallback only if confirmedMsg missing
+          if (!confirmedMsg) {
+            if (isGlobalChat) { isLoadingGC = false; loadGlobalChat(false); }
+            else loadChatForced();
+          }
+
+          // Refresh sidebar user positions and unread status
+          fetchUsers();
         } else {
-          // Server error — remove only THIS send's optimistic bubble (if present)
+          // Server error — remove only THIS send's optimistic bubble
           if (sendIndId) {
             const indicator = document.getElementById(sendIndId);
             if (indicator) indicator.remove();
@@ -5416,6 +5914,10 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
 
     // ── Core upload handler ───────────────────────────────────────────────────
     function handleFileUploads(files) {
+      if (isAdminAllChatsView || activeAdminConv) {
+        return;
+      }
+
       if (!activeDM && !isGlobalChat) {
         return;
       }
@@ -5451,6 +5953,10 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
 
     // ── Upload files → save message ───────────────────────────────────────────
     function uploadAndSend(fileList, isImageBatch) {
+      if (isAdminAllChatsView || activeAdminConv) {
+        return;
+      }
+
       shouldAutoScroll = true;
       userScrolledUp   = false;
 
@@ -5672,7 +6178,7 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
       });
     });
 
-    // Initialize app
+    // Initialize app 
     window.addEventListener('load', function() {
       // Set the name input as readonly
       nameInput.readOnly = true;
@@ -5687,20 +6193,41 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
       // Start WebSocket client connection
       connectWebSocket();
 
-
-      // Poll sidebar users every 3 seconds
-      setInterval(fetchUsers, 3000);
+      // ── Adaptive sidebar polling ──────────────────────────────────────────────
+      // • Poll every 3 s  when WebSocket is disconnected (fallback mode).
+      // • Poll every 10 s when WebSocket is live (WS already pushes new msgs).
+      // • Skip the tick entirely while the tab is hidden to save CPU/battery.
+      let sidebarPollInterval = null;
+      function startSidebarPoll() {
+        if (sidebarPollInterval) clearInterval(sidebarPollInterval);
+        const wsAlive = ws && ws.readyState === WebSocket.OPEN;
+        const delay   = wsAlive ? 10000 : 3000;
+        sidebarPollInterval = setInterval(function() {
+          if (document.hidden) return;
+          fetchUsers();
+          // Re-evaluate interval length each tick so it adapts when WS state changes
+          const nowAlive = ws && ws.readyState === WebSocket.OPEN;
+          if (nowAlive !== wsAlive) startSidebarPoll(); // restart with new delay
+        }, delay);
+      }
+      // Expose so connectWebSocket / visibilitychange can re-trigger the interval
+      window._startSidebarPoll = startSidebarPoll;
+      startSidebarPoll();
       fetchUsers();
 
       // Poll for incoming notify/mention toasts every 4 seconds
-      setInterval(fetchNotifications, 4000);
+      setInterval(function() {
+        if (document.hidden) return;
+        fetchNotifications();
+      }, 4000);
       fetchNotifications();
     });
     
     // Handle page visibility change
     document.addEventListener('visibilitychange', function() {
       if (!document.hidden) {
-        // Reconnect WebSocket if it disconnected while the tab was hidden
+        // ── Tab became visible ────────────────────────────────────────────────
+        // 1. Reconnect WebSocket if it dropped while we were away
         if (!ws || ws.readyState === WebSocket.CLOSED || ws.readyState === WebSocket.CLOSING) {
           if (wsReconnectTimer) {
             clearTimeout(wsReconnectTimer);
@@ -5709,6 +6236,7 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
           connectWebSocket();
         }
 
+        // 2. Immediately catch up on any messages missed while hidden
         if (isGlobalChat) {
           loadGlobalChat(false);
         } else if (activeDM) {
@@ -5716,6 +6244,22 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
         } else if (activeAdminConv) {
           loadAdminConv(activeAdminConv, false);
         }
+
+        // 3. Also refresh sidebar so unread badges are current
+        fetchUsers();
+
+        // 4. Resume the fallback poll if WebSocket is still down
+        if (!ws || ws.readyState !== WebSocket.OPEN) {
+          startPollingFallback();
+        }
+
+        // 5. Re-evaluate sidebar poll frequency now that we're visible again
+        if (typeof window._startSidebarPoll === 'function') window._startSidebarPoll();
+      } else {
+        // ── Tab became hidden ─────────────────────────────────────────────────
+        // Fallback HTTP poll is suspended (each tick guards against document.hidden)
+        // — no explicit stop needed since the guard inside each tick is enough.
+        // We do nothing here so the interval handle stays valid for when we return.
       }
     });
 

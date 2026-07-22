@@ -21,9 +21,34 @@ class UserResolver
     /** @var bool Whether we've loaded the full user table yet */
     private static bool $loaded = false;
 
-    // -------------------------------------------------------------------------
-    // Public API
-    // -------------------------------------------------------------------------
+    /**
+     * Resolve target ID from integer, numeric string, email, or username.
+     */
+    public static function resolveAccountId(mixed $target): int
+    {
+        if (is_numeric($target) && (int) $target > 0) {
+            return (int) $target;
+        }
+        $targetStr = trim((string) $target);
+        if (empty($targetStr)) {
+            return 0;
+        }
+        try {
+            $pdo = Database::getConnection();
+            $stmt = $pdo->prepare(
+                'SELECT account_id FROM account_details
+                 WHERE email = :val
+                    OR first_name || \' \' || last_name = :val
+                    OR account_id::text = :val
+                 LIMIT 1'
+            );
+            $stmt->execute([':val' => $targetStr]);
+            $val = $stmt->fetchColumn();
+            return ($val !== false) ? (int) $val : 0;
+        } catch (Throwable $e) {
+            return 0;
+        }
+    }
 
     /**
      * Return the full name ("First Last") for an account_id.

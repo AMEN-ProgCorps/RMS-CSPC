@@ -25,20 +25,8 @@ $senderId = Auth::accountId();
 
 // ── Target validation ─────────────────────────────────────────────────────────
 $targetId = isset($_POST['target_id']) ? (int) trim($_POST['target_id']) : 0;
-
 if ($targetId <= 0 && isset($_POST['target_user'])) {
-    $targetUser = trim($_POST['target_user']);
-    try {
-        $pdo = Database::getConnection();
-        $stmt = $pdo->prepare('SELECT account_id FROM account_details WHERE email = :email LIMIT 1');
-        $stmt->execute([':email' => $targetUser]);
-        $row = $stmt->fetch();
-        if ($row) {
-            $targetId = (int) $row['account_id'];
-        }
-    } catch (PDOException $e) {
-        // Handle database fail silently, targetId <= 0 check will intercept
-    }
+    $targetId = UserResolver::resolveAccountId($_POST['target_user']);
 }
 
 if ($targetId <= 0 || $targetId === $senderId) {
@@ -119,7 +107,11 @@ if ($uploadedRaw !== '') {
 header('Content-Type: application/json');
 
 if (empty($errors)) {
-    echo json_encode(['success' => true]);
+    $msgData = is_array($result) ? $result : null;
+    if ($msgData) {
+        $msgData['plaintext'] = $message;
+    }
+    echo json_encode(['success' => true, 'message' => $msgData]);
 } else {
     http_response_code(500);
     echo json_encode(['success' => false, 'errors' => $errors]);

@@ -50,10 +50,15 @@ class ConversationManager
                         last_message_time TIMESTAMPTZ(6) NOT NULL,
                         unread_user_1     INTEGER NOT NULL DEFAULT 0,
                         unread_user_2     INTEGER NOT NULL DEFAULT 0,
+                        msg_count         INTEGER NOT NULL DEFAULT 1,
                         created_at        TIMESTAMPTZ(6) NOT NULL,
                         updated_at        TIMESTAMPTZ(6) NOT NULL
                     )
                 ");
+
+                try {
+                    $pdo->exec("ALTER TABLE chat_conversations ADD COLUMN IF NOT EXISTS msg_count INTEGER NOT NULL DEFAULT 1");
+                } catch (Throwable $t) {}
 
                 try {
                     $pdo->exec("CREATE INDEX IF NOT EXISTS idx_chat_conv_user1 ON chat_conversations (user_1, last_message_time DESC)");
@@ -154,6 +159,54 @@ class ConversationManager
             return $stmt->fetchAll() ?: [];
         } catch (PDOException $e) {
             error_log('ConversationManager::loadRaw() — ' . $e->getMessage());
+            return [];
+        }
+    }
+
+    /**
+     * Load messages newer than a given message UUID for incremental UI updates.
+     */
+    public static function loadIncrementalRaw(
+        string $convId,
+        string $sinceUuid,
+        int    $limit = 100
+    ): array {
+        try {
+            $pdo = Database::getConnection();
+
+            $cur = $pdo->prepare(
+                'SELECT created_at, id FROM chat_messages WHERE msg_uuid = :uuid LIMIT 1'
+            );
+            $cur->execute([':uuid' => $sinceUuid]);
+            $curRow = $cur->fetch();
+
+            if (!$curRow) {
+                return [];
+            }
+
+            $stmt = $pdo->prepare(
+                'SELECT msg_uuid AS id,
+                        sender_id,
+                        receiver_id,
+                        message,
+                        msg_type AS type,
+                        is_edited,
+                        to_char(created_at AT TIME ZONE \'Asia/Manila\', \'YYYY-MM-DD HH24:MI:SS.US\') AS timestamp
+                 FROM chat_messages
+                 WHERE conv_id = :conv_id
+                   AND (created_at, id) > (:cur_ts, :cur_id)
+                 ORDER BY created_at ASC, id ASC
+                 LIMIT :lim'
+            );
+            $stmt->bindValue(':conv_id', $convId);
+            $stmt->bindValue(':cur_ts', $curRow['created_at']);
+            $stmt->bindValue(':cur_id', (int) $curRow['id'], PDO::PARAM_INT);
+            $stmt->bindValue(':lim', $limit, PDO::PARAM_INT);
+
+            $stmt->execute();
+            return $stmt->fetchAll() ?: [];
+        } catch (PDOException $e) {
+            error_log('ConversationManager::loadIncrementalRaw() — ' . $e->getMessage());
             return [];
         }
     }
@@ -540,10 +593,7 @@ class ConversationManager
                      c.last_message AS last_message_enc,
                      c.last_msg_type,
                      c.last_message_time AS last_ts,
-                     COALESCE(
-                         (SELECT COUNT(*) FROM chat_messages m WHERE m.conv_id = c.conv_id),
-                         0
-                     ) AS msg_count
+                     COALESCE(c.msg_count, 1) AS msg_count
                  FROM chat_conversations c
                  ORDER BY c.last_message_time DESC"
             );
@@ -825,9 +875,9 @@ class ConversationManager
 
                 $upsert = $pdo->prepare(
                     'INSERT INTO chat_conversations
-                        (conv_id, user_1, user_2, last_message, last_msg_type, last_msg_uuid, last_message_time, unread_user_1, unread_user_2, created_at, updated_at)
+                        (conv_id, user_1, user_2, last_message, last_msg_type, last_msg_uuid, last_message_time, unread_user_1, unread_user_2, created_at, updated_at, msg_count)
                      VALUES
-                        (:conv_id, :u1, :u2, :last_msg, :msg_type, :last_uuid, :ts, :un1, :un2, :ts2, :ts3)
+                        (:conv_id, :u1, :u2, :last_msg, :msg_type, :last_uuid, :ts, :un1, :un2, :ts2, :ts3, 1)
                      ON CONFLICT (conv_id) DO UPDATE SET
                         last_message      = EXCLUDED.last_message,
                         last_msg_type     = EXCLUDED.last_msg_type,
@@ -835,6 +885,7 @@ class ConversationManager
                         last_message_time = EXCLUDED.last_message_time,
                         unread_user_1     = chat_conversations.unread_user_1 + EXCLUDED.unread_user_1,
                         unread_user_2     = chat_conversations.unread_user_2 + EXCLUDED.unread_user_2,
+                        msg_count         = COALESCE(chat_conversations.msg_count, 0) + 1,
                         updated_at        = EXCLUDED.updated_at'
                 );
                 $upsert->execute([

@@ -48,22 +48,29 @@ if ($targetInfo === null) {
     exit;
 }
 
-// ── Pagination ────────────────────────────────────────────────────────────────────
+// ── Pagination & Incremental Fetching ──────────────────────────────────────────
 $limit      = 100;
 $beforeUuid = isset($_GET['before_uuid']) && $_GET['before_uuid'] !== '' ? (string) $_GET['before_uuid'] : null;
+$sinceUuid  = isset($_GET['since_uuid'])  && $_GET['since_uuid']  !== '' ? (string) $_GET['since_uuid']  : null;
 
 // ── Load data ────────────────────────────────────────────────────────────────────
-$convId      = ConversationManager::convId($myAccountId, $targetId);
+$convId = ConversationManager::convId($myAccountId, $targetId);
 
-// Fetch limit+1 rows so we can detect hasMore without a separate COUNT(*).
-$rawMessages = ConversationManager::loadRaw($convId, $limit + 1, $beforeUuid);
-$hasMore     = count($rawMessages) > $limit;
-if ($hasMore) {
-    array_pop($rawMessages); // discard the extra sentinel row
+if ($sinceUuid !== null) {
+    // Incremental update: fetch only messages created AFTER sinceUuid
+    $rawMessages = ConversationManager::loadIncrementalRaw($convId, $sinceUuid, $limit);
+    $hasMore     = false;
+} else {
+    // Standard keyset pagination: fetch limit+1 rows to detect hasMore
+    $rawMessages = ConversationManager::loadRaw($convId, $limit + 1, $beforeUuid);
+    $hasMore     = count($rawMessages) > $limit;
+    if ($hasMore) {
+        array_pop($rawMessages); // discard the extra sentinel row
+    }
+
+    // DB returns newest-first; flip for chronological display.
+    $rawMessages = array_reverse($rawMessages);
 }
-
-// DB returns newest-first; flip for chronological display.
-$rawMessages = array_reverse($rawMessages);
 
 // Scope reaction loading to just this page's UUIDs.
 $pageUuids = array_column($rawMessages, 'id');

@@ -17,19 +17,25 @@ if (empty($convId) || !preg_match('/^\d+_\d+$/', $convId)) {
     die('Invalid conv_id');
 }
 
-// ── Pagination ────────────────────────────────────────────────────────────────
+// ── Pagination & Incremental Fetching ──────────────────────────────────────────
 $limit      = 100;
 $beforeUuid = isset($_GET['before_uuid']) && $_GET['before_uuid'] !== '' ? (string) $_GET['before_uuid'] : null;
+$sinceUuid  = isset($_GET['since_uuid'])  && $_GET['since_uuid']  !== '' ? (string) $_GET['since_uuid']  : null;
 
-// Fetch limit+1 rows so we can detect hasMore without a separate COUNT(*).
-$rawMessages = ConversationManager::loadRaw($convId, $limit + 1, $beforeUuid);
-$hasMore     = count($rawMessages) > $limit;
-if ($hasMore) {
-    array_pop($rawMessages); // discard the extra sentinel row
+if ($sinceUuid !== null) {
+    $rawMessages = ConversationManager::loadIncrementalRaw($convId, $sinceUuid, $limit);
+    $hasMore     = false;
+} else {
+    // Fetch limit+1 rows so we can detect hasMore without a separate COUNT(*).
+    $rawMessages = ConversationManager::loadRaw($convId, $limit + 1, $beforeUuid);
+    $hasMore     = count($rawMessages) > $limit;
+    if ($hasMore) {
+        array_pop($rawMessages); // discard the extra sentinel row
+    }
+
+    // DB returns newest-first; flip for chronological display.
+    $rawMessages = array_reverse($rawMessages);
 }
-
-// DB returns newest-first; flip for chronological display.
-$rawMessages = array_reverse($rawMessages);
 
 // Cursor for the next "load older" request.
 $nextCursor = !empty($rawMessages) ? $rawMessages[0]['id'] : null;

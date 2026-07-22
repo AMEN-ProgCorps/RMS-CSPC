@@ -107,7 +107,11 @@ if ($uploadedRaw !== '') {
 header('Content-Type: application/json');
 
 if (empty($errors)) {
-    echo json_encode(['success' => true]);
+    $msgData = is_array($result) ? $result : null;
+    if ($msgData) {
+        $msgData['plaintext'] = $message;
+    }
+    echo json_encode(['success' => true, 'message' => $msgData]);
 } else {
     http_response_code(500);
     echo json_encode(['success' => false, 'errors' => $errors]);

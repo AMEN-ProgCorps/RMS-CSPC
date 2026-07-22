@@ -3854,11 +3854,17 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
     let adminConvCursor = '';
     let adminConvHasMore = false;
     let adminConvViewingOlder = false; // true once the user has loaded an older window
+    let isLoadingAdminConv = false;   // separate flag so admin spy never blocks DM loads
+    let adminConvXhr = null;          // track in-flight XHR so stale responses can be discarded
 
     function loadAdminConv(convId, isAutoPoll = false, loadOlderMode = false) {
       if (isAutoPoll && !loadOlderMode && adminConvViewingOlder) return;
-      if (isLoadingChat) return;
-      isLoadingChat = true;
+      if (isLoadingAdminConv) {
+        // For non-poll (explicit open) calls, abort any in-flight request and proceed
+        if (!isAutoPoll && adminConvXhr) { adminConvXhr.abort(); adminConvXhr = null; isLoadingAdminConv = false; }
+        else return;
+      }
+      isLoadingAdminConv = true;
 
       const wasAtBottom = isAtBottom();
       const requestedConv = activeAdminConv;
@@ -3866,9 +3872,11 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
       const url = 'load_dm_admin.php?conv_id=' + encodeURIComponent(convId) + '&before_uuid=' + encodeURIComponent(cursor);
 
       const xhr = new XMLHttpRequest();
+      adminConvXhr = xhr;
       xhr.open('GET', url, true);
       xhr.onload = function() {
-        isLoadingChat = false;
+        isLoadingAdminConv = false;
+        if (adminConvXhr === xhr) adminConvXhr = null;
         if (this.status !== 200) return;
         if (requestedConv !== activeAdminConv) return; // stale response
         
@@ -3940,11 +3948,10 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
           });
           const prevScrollTop = chatBox.scrollTop;
           const prevScrollHeight = chatBox.scrollHeight;
-          document.querySelectorAll('[data-sending-uid]').forEach(el => el.remove());
           const newScrollHeight = chatBox.scrollHeight;
           chatBox.scrollTop = Math.max(0, prevScrollTop + newScrollHeight - prevScrollHeight);
           if (!adminConvViewingOlder) {
-            trimWindowFromTop(newMessages.length);
+            trimWindowFromTop(PAGE_SIZE);
           }
           if (isFirstLoad) { isFirstLoad = false; handleFirstLoadScroll(); }
           else if (wasAtBottom || shouldAutoScroll) requestAnimationFrame(() => requestAnimationFrame(() => scrollToBottom(true, false)));
@@ -3976,7 +3983,6 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
           chatBox.appendChild(el);
         });
 
-        document.querySelectorAll('[data-sending-uid]').forEach(el => el.remove());
         chatBox.scrollTop = Math.max(0, prevSTF + chatBox.scrollHeight - prevSHF);
         const mc = chatBox.querySelectorAll('.message-container').length;
         if (mc > 0 && (wasAtBottom || shouldAutoScroll || isFirstLoad)) {
@@ -3994,7 +4000,7 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
         adminConvViewingOlder = false;
         if (adminConvHasMore && !document.getElementById('loadOlderBtn') && !document.getElementById('noMoreOlderNotice')) insertLoadOlderBtn();
       };
-      xhr.onerror = function() { isLoadingChat = false; };
+      xhr.onerror = function() { isLoadingAdminConv = false; adminConvXhr = null; };
       xhr.send();
     }
 

@@ -137,20 +137,46 @@ if ($searchQuery !== '') {
 // ── Current user context (for JS UI) ─────────────────────────────────────────
 $myInfo = UserResolver::getUserInfo($myAccountId);
 
-// ── Admin spy: enrich conversations with user names ───────────────────────────
-$conversations = [];
+// ── Admin spy: search-first architecture ───────────────────────────────────────
+$adminSpyResponse = [
+    'type'          => 'none', // 'users', 'conversations', or 'none'
+    'users'         => [],
+    'conversations' => [],
+    'targetUser'    => null,
+    'hasMore'       => false,
+    'offset'        => 0,
+    'limit'         => 20,
+];
+
 if ($isAdmin) {
-    $nameMap  = UserResolver::buildNameMap();
-    $rawConvs = ConversationManager::getAllConversations();
-    foreach ($rawConvs as $conv) {
-        if ($conv['convId'] === 'global') {
-            $conv['name1'] = 'Global Chat';
-            $conv['name2'] = 'Everyone';
-        } else {
-            $conv['name1'] = $nameMap[$conv['userA']] ?? ('User #' . $conv['userA']);
-            $conv['name2'] = $nameMap[$conv['userB']] ?? ('User #' . $conv['userB']);
-        }
-        $conversations[] = $conv;
+    $adminTargetId = max(0, (int) ($_GET['admin_target_id'] ?? 0));
+    $adminQuery    = trim($_GET['admin_q'] ?? '');
+    $adminOffset   = max(0, (int) ($_GET['admin_offset'] ?? 0));
+    $adminLimit    = min(100, max(1, (int) ($_GET['admin_limit'] ?? 20)));
+
+    if ($adminTargetId > 0) {
+        // Mode A: Fetch conversations for a specific selected user
+        $convsResult = ConversationManager::getUserConversations($adminTargetId, $adminLimit, $adminOffset);
+        $targetInfo  = UserResolver::getUserInfo($adminTargetId);
+
+        $adminSpyResponse = [
+            'type'          => 'conversations',
+            'targetUser'    => $targetInfo,
+            'conversations' => $convsResult['conversations'],
+            'hasMore'       => $convsResult['hasMore'],
+            'offset'        => $adminOffset,
+            'limit'         => $adminLimit,
+        ];
+    } elseif ($adminQuery !== '') {
+        // Mode B: User/office search
+        $usersResult = UserResolver::searchUsersPaginated($adminQuery, 0, $adminLimit, $adminOffset);
+        $adminSpyResponse = [
+            'type'    => 'users',
+            'users'   => $usersResult['users'],
+            'hasMore' => $usersResult['hasMore'],
+            'offset'  => $adminOffset,
+            'limit'   => $adminLimit,
+        ];
     }
 }
 
@@ -162,5 +188,6 @@ echo json_encode([
         'office_id'  => $_SESSION['office_id'] ?? null,
         'is_admin'   => $isAdmin,
     ],
-    'conversations' => $conversations,
+    'conversations' => $adminSpyResponse['conversations'] ?? [],
+    'adminConvs'    => $adminSpyResponse,
 ]);

@@ -242,6 +242,100 @@ class UserResolver
     }
 
     /**
+     * Server-side paginated user search using PostgreSQL ILIKE.
+     * Supports search by First Name, Last Name, Email, Office Name, Office Code.
+     *
+     * @param string $query Filter term
+     * @param int $excludeAccountId Exclude current account ID (0 for no exclusion)
+     * @param int $limit Page limit
+     * @param int $offset Page offset
+     * @return array { users: array, hasMore: bool, offset: int, limit: int }
+     */
+    public static function searchUsersPaginated(string $query, int $excludeAccountId = 0, int $limit = 20, int $offset = 0): array
+    {
+        $q = trim($query);
+        if ($q === '') {
+            return ['users' => [], 'hasMore' => false, 'offset' => $offset, 'limit' => $limit];
+        }
+
+        try {
+            $pdo  = Database::getConnection();
+            $like = '%' . str_replace(['%', '_', '\\'], ['\\%', '\\_', '\\\\'], $q) . '%';
+
+            $stmt = $pdo->prepare(
+                "SELECT ad.account_id,
+                        ad.first_name,
+                        ad.last_name,
+                        ad.email,
+                        ad.office_id,
+                        o.office_name,
+                        o.office_code,
+                        ad.is_currently_online,
+                        ad.last_online_time
+                 FROM account_details ad
+                 LEFT JOIN office o ON o.id = ad.office_id
+                 WHERE (:exclude = 0 OR ad.account_id != :exclude)
+                   AND (
+                         ad.first_name ILIKE :q1
+                      OR ad.last_name  ILIKE :q2
+                      OR (ad.first_name || ' ' || ad.last_name) ILIKE :q3
+                      OR (ad.last_name  || ' ' || ad.first_name) ILIKE :q4
+                      OR ad.email ILIKE :q5
+                      OR o.office_name ILIKE :q6
+                      OR o.office_code ILIKE :q7
+                   )
+                 ORDER BY ad.last_name, ad.first_name
+                 LIMIT :lim OFFSET :off"
+            );
+            $stmt->bindValue(':exclude', $excludeAccountId, PDO::PARAM_INT);
+            $stmt->bindValue(':q1', $like);
+            $stmt->bindValue(':q2', $like);
+            $stmt->bindValue(':q3', $like);
+            $stmt->bindValue(':q4', $like);
+            $stmt->bindValue(':q5', $like);
+            $stmt->bindValue(':q6', $like);
+            $stmt->bindValue(':q7', $like);
+            $stmt->bindValue(':lim', $limit + 1, PDO::PARAM_INT);
+            $stmt->bindValue(':off', $offset, PDO::PARAM_INT);
+            $stmt->execute();
+
+            $rows = $stmt->fetchAll();
+            $hasMore = count($rows) > $limit;
+            if ($hasMore) {
+                array_pop($rows);
+            }
+
+            $users = [];
+            foreach ($rows as $row) {
+                self::$cache[(int) $row['account_id']] = $row;
+                $users[] = [
+                    'account_id'          => (int) $row['account_id'],
+                    'username'            => $row['email'] ?? '',
+                    'email'               => $row['email'] ?? '',
+                    'full_name'           => trim($row['first_name'] . ' ' . $row['last_name']),
+                    'first_name'          => $row['first_name'],
+                    'last_name'           => $row['last_name'],
+                    'office_id'           => isset($row['office_id']) ? (int) $row['office_id'] : null,
+                    'office_name'         => $row['office_name'] ?? null,
+                    'office_code'         => $row['office_code'] ?? null,
+                    'is_currently_online' => (bool) ($row['is_currently_online'] ?? false),
+                    'last_online_time'    => $row['last_online_time'] ?? null,
+                ];
+            }
+
+            return [
+                'users'   => $users,
+                'hasMore' => $hasMore,
+                'offset'  => $offset,
+                'limit'   => $limit,
+            ];
+        } catch (PDOException $e) {
+            error_log('UserResolver::searchUsersPaginated() — ' . $e->getMessage());
+            return ['users' => [], 'hasMore' => false, 'offset' => $offset, 'limit' => $limit];
+        }
+    }
+
+    /**
      * Attempt to find an account_id by matching first + last name (case-insensitive).
      * Used during migration from the old name-based system.
      * Returns null if no unique match is found.

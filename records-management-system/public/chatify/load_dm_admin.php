@@ -40,7 +40,7 @@ if ($sinceUuid !== null) {
 // Cursor for the next "load older" request.
 $nextCursor = !empty($rawMessages) ? $rawMessages[0]['id'] : null;
 
-$nameMap = UserResolver::buildNameMap();
+$nameMap = [];
 
 $imageExts = ['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp', 'svg'];
 $audioExts = ['mp3', 'wav', 'ogg', 'flac', 'aac', 'm4a', 'opus'];
@@ -79,7 +79,10 @@ foreach ($rawMessages as $msg) {
     $senderId   = (int) $msg['sender_id'];
     $msgId      = htmlspecialchars($msg['id'] ?? '', ENT_QUOTES);
     $type       = $msg['type'] ?? 'text';
-    $senderName = $nameMap[$senderId] ?? 'Unknown User';
+    if (!isset($nameMap[$senderId])) {
+        $nameMap[$senderId] = UserResolver::getFullName($senderId);
+    }
+    $senderName = $nameMap[$senderId];
     $initials   = adminGetInitials($senderName);
     
     // Parse timestamp

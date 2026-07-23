@@ -1698,6 +1698,47 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
       transform: translateX(-50%) scale(0.96);
     }
 
+    /* Floating Load More button for Super Admin Spy Mode user cards */
+    .admin-spy-floating-btn {
+      position: absolute;
+      bottom: 16px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: #1b74e4;
+      color: white;
+      padding: 8px 16px;
+      border-radius: 24px;
+      font-size: 13px;
+      font-weight: 500;
+      border: none;
+      cursor: pointer;
+      opacity: 0;
+      visibility: hidden;
+      transition: opacity 0.3s ease, visibility 0.3s ease, transform 0.2s ease, background 0.2s ease;
+      z-index: 50;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.25);
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      user-select: none;
+      white-space: nowrap;
+    }
+
+    .admin-spy-floating-btn.visible {
+      opacity: 1;
+      visibility: visible;
+    }
+
+    .admin-spy-floating-btn:hover {
+      background: #1669c1;
+      transform: translateX(-50%) translateY(-2px);
+      box-shadow: 0 6px 16px rgba(0,0,0,0.3);
+    }
+
+    .admin-spy-floating-btn:active {
+      transform: translateX(-50%) scale(0.96);
+    }
+
     .unread-badge {
       background: #ff3b30;
       color: white;
@@ -2462,12 +2503,15 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
         <!-- Users will be populated here via JS -->
       </div>
       <!-- Admin: View all users chats view -->
-      <div id="adminConvsSection" style="display:none;">
-        <div style="padding:8px 16px 4px;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.8px;color:var(--text-secondary);margin-top:4px;text-align:center;">View of all user conversations</div>
+      <div id="adminConvsSection" style="display:none;position:relative;">
+        <div id="adminConvsHeaderTitle" style="padding:8px 16px 4px;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.8px;color:var(--text-secondary);margin-top:4px;text-align:center;"></div>
         <div class="admin-search" style="padding: 6px 16px;">
           <input type="text" id="adminSearchInput" placeholder="Search conversations..." autocomplete="off">
         </div>
         <div class="sidebar-users" id="adminConvsList"></div>
+        <button id="adminSpyLoadMoreFloatingBtn" class="admin-spy-floating-btn">
+          <span>Load More Conversations</span>
+        </button>
       </div>
     </div>
 
@@ -3119,14 +3163,17 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
               allUsersData = data;
             } else {
               allUsersData = data.users || [];
-              if (query === '') {
+              if (data.adminConvs && data.adminConvs.conversations) {
+                allConvsData = data.adminConvs.conversations;
+                adminSpyHasMore = !!data.adminConvs.hasMore;
+              } else if (data.conversations) {
                 allConvsData = data.conversations || [];
               }
               // Admin is always determined by currentUser.is_admin (set by server via account_id=1)
               serverIsAdmin = !!(data.currentUser && data.currentUser.is_admin);
             }
             renderSidebarUsers();
-            if (serverIsAdmin && query === '') renderAdminConvs();
+            if (serverIsAdmin && isAdminAllChatsView && query === '') renderAdminConvs();
 
             // Automatically reopen the active DM from localStorage on initial load
             if (!hasAutoSelected) {
@@ -3775,94 +3822,335 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
       }
     }
 
-    // ── Admin: render all conversations spy panel ────────────────────────────
-    // Same DOM-node-reuse approach as sidebarUserItems above, and for the same
-    // reason: rebuilding every row from scratch on every poll reset :hover /
-    // .active transitions, making the selected conversation row blink.
-    const adminConvItems = new Map(); // convId -> item element
+    // ── Admin: render all conversations spy panel (Search-First Architecture) ──
+    const adminConvItems = new Map(); // convId/userId -> item element
+    let adminSpyType = 'none';        // 'none', 'users', or 'conversations'
+    let adminSpyTargetUser = null;    // null or selected user object { account_id, full_name, email, ... }
+    let adminSpyUsers = [];           // array of user search result objects
+    let adminSpyConvs = [];           // array of conversation objects for target user
+    let adminSpyHasMore = false;
+    let adminSpyOffset = 0;
+    let adminSpyIsLoading = false;
+    let adminSearchTimeout = null;
+
+    function getInitialsFromFullName(name) {
+      if (!name) return '??';
+      const parts = name.trim().split(/\s+/);
+      if (parts.length === 1) return parts[0].substring(0, 2).toUpperCase();
+      return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
+    }
+
+    function escapeHtml(str) {
+      if (!str) return '';
+      return String(str).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+    }
+
+    function fetchAdminConvs(query = '', offset = 0, isAppend = false, targetId = 0) {
+      if (!serverIsAdmin) return;
+
+      const trimmedQuery = query.trim();
+      const currentTargetId = targetId || (adminSpyTargetUser ? adminSpyTargetUser.account_id : 0);
+
+      // If no query and no target user selected: empty state, no network call
+      if (trimmedQuery === '' && currentTargetId === 0) {
+        adminSpyType = 'none';
+        adminSpyUsers = [];
+        adminSpyConvs = [];
+        adminSpyHasMore = false;
+        adminSpyOffset = 0;
+        adminSpyTargetUser = null;
+        renderAdminConvs();
+        return;
+      }
+
+      adminSpyIsLoading = true;
+      const xhr = new XMLHttpRequest();
+      let url = "fetch_users_dm.php?spy_mode=1&admin_offset=" + offset + "&admin_limit=20";
+
+      if (currentTargetId > 0) {
+        url += "&admin_target_id=" + currentTargetId;
+      } else {
+        url += "&admin_q=" + encodeURIComponent(trimmedQuery);
+      }
+
+      xhr.open("GET", url, true);
+      xhr.onload = function() {
+        adminSpyIsLoading = false;
+        if (this.status === 200) {
+          try {
+            const data = JSON.parse(this.responseText);
+            const adminData = data.adminConvs || {};
+            adminSpyType = adminData.type || 'none';
+            adminSpyHasMore = !!adminData.hasMore;
+            adminSpyOffset = adminData.offset !== undefined ? adminData.offset : offset;
+
+            if (adminSpyType === 'users') {
+              const newUsers = adminData.users || [];
+              if (isAppend) {
+                const existingIds = new Set(adminSpyUsers.map(u => u.account_id));
+                newUsers.forEach(u => {
+                  if (!existingIds.has(u.account_id)) adminSpyUsers.push(u);
+                });
+              } else {
+                adminSpyUsers = newUsers;
+              }
+            } else if (adminSpyType === 'conversations') {
+              if (adminData.targetUser) {
+                adminSpyTargetUser = adminData.targetUser;
+              }
+              const newConvs = adminData.conversations || [];
+              if (isAppend) {
+                const existingIds = new Set(adminSpyConvs.map(c => c.convId));
+                newConvs.forEach(c => {
+                  if (!existingIds.has(c.convId)) adminSpyConvs.push(c);
+                });
+              } else {
+                adminSpyConvs = newConvs;
+              }
+            }
+
+            renderAdminConvs();
+          } catch(e) { console.error('fetchAdminConvs parse error', e); }
+        }
+      };
+      xhr.onerror = function() { adminSpyIsLoading = false; };
+      xhr.send();
+    }
+
+    function selectAdminSpyTargetUser(user) {
+      adminSpyTargetUser = user;
+      adminSpyConvs = [];
+      fetchAdminConvs('', 0, false, user.account_id);
+    }
+
+    function clearAdminSpyTargetUser() {
+      adminSpyTargetUser = null;
+      adminSpyConvs = [];
+      const query = adminSearchInput ? adminSearchInput.value.trim() : '';
+      if (query !== '') {
+        fetchAdminConvs(query, 0, false, 0);
+      } else {
+        adminSpyType = 'none';
+        adminSpyUsers = [];
+        renderAdminConvs();
+      }
+    }
 
     function renderAdminConvs() {
       const section = document.getElementById('adminConvsSection');
       const list    = document.getElementById('adminConvsList');
+      const floatingBtn = document.getElementById('adminSpyLoadMoreFloatingBtn');
+      const floatingBtnText = floatingBtn ? floatingBtn.querySelector('span') : null;
+      const headerTitle = document.getElementById('adminConvsHeaderTitle');
       if (!section || !list) return;
 
-      const query = adminSearchInput ? adminSearchInput.value.toLowerCase() : '';
-
-      // Only show conversations that actually have exchanged messages —
-      // skip predefined/empty pairs with no chat history yet.
-      const activeConvs = (allConvsData || []).filter(c => (c.msgCount || 0) > 0);
-      
-      const filteredConvs = activeConvs.filter(c => 
-        c.name1.toLowerCase().includes(query) || c.name2.toLowerCase().includes(query) || (c.lastMessage && c.lastMessage.toLowerCase().includes(query))
-      );
-
-      if (!isAdminAllChatsView || activeConvs.length === 0) {
+      if (!isAdminAllChatsView) {
         section.style.display = 'none';
         list.innerHTML = '';
         adminConvItems.clear();
+        if (floatingBtn) floatingBtn.classList.remove('visible');
         return;
       }
+
       section.style.display = 'flex';
 
-      const seen = new Set();
-
-      filteredConvs.forEach(c => {
-        seen.add(c.convId);
-        let item = adminConvItems.get(c.convId);
-        let nameEl, msgEl;
-
-        if (!item) {
-          item = document.createElement('div');
-
-          const avatar = document.createElement('div');
-          avatar.className = 'user-avatar';
-          avatar.innerHTML = EYE_ICON_SVG;
-
-          const info = document.createElement('div');
-          info.className = 'user-info';
-
-          nameEl = document.createElement('div');
-          nameEl.className = 'user-name';
-          nameEl.style.fontSize = '13px';
-          info.appendChild(nameEl);
-
-          msgEl = document.createElement('div');
-          msgEl.className = 'user-last-msg';
-          info.appendChild(msgEl);
-
-          item.appendChild(avatar);
-          item.appendChild(info);
-
-          adminConvItems.set(c.convId, item);
+      // Update Section Header Title
+      if (headerTitle) {
+        if (adminSpyTargetUser) {
+          headerTitle.innerHTML = `<div style="display:flex;align-items:center;justify-content:space-between;width:100%;gap:6px;">
+            <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">Conversations for: ${escapeHtml(adminSpyTargetUser.full_name)}</span>
+            <button onclick="clearAdminSpyTargetUser()" style="background:none;border:none;color:#1b74e4;cursor:pointer;font-size:11px;font-weight:600;padding:2px 6px;border-radius:4px;white-space:nowrap;">← Back</button>
+          </div>`;
         } else {
-          nameEl = item.querySelector('.user-name');
-          msgEl = item.querySelector('.user-last-msg');
+          headerTitle.textContent = '';
+        }
+      }
+
+      // State A: Empty initial state (No search query, no target user)
+      if (adminSpyType === 'none') {
+        list.innerHTML = `<div class="sidebar-empty-state" style="padding:32px 16px;text-align:center;font-size:13px;color:var(--text-secondary);opacity:0.85;">
+          <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" style="margin-bottom:8px;opacity:0.6;"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
+          <p style="margin:0;font-weight:500;">Search for a user or office to view conversations.</p>
+        </div>`;
+        adminConvItems.clear();
+        if (floatingBtn) floatingBtn.classList.remove('visible');
+        return;
+      }
+
+      // State B: Render User Search Results
+      if (adminSpyType === 'users') {
+        if (!adminSpyUsers || adminSpyUsers.length === 0) {
+          const q = adminSearchInput ? adminSearchInput.value.trim() : '';
+          list.innerHTML = `<div class="sidebar-empty-state" style="padding:24px 16px;text-align:center;font-size:13px;color:var(--text-secondary);opacity:0.85;font-weight:500;"><p style="margin:0;">No users found matching "${escapeHtml(q)}".</p></div>`;
+          adminConvItems.clear();
+          if (floatingBtn) floatingBtn.classList.remove('visible');
+          return;
         }
 
-        item.onclick = () => openAdminConv(c);
+        const emptyEl = list.querySelector('.sidebar-empty-state, .empty-chat');
+        if (emptyEl) emptyEl.remove();
 
-        const newClassName = 'user-item' + (activeAdminConv === c.convId ? ' active' : '');
-        if (item.className !== newClassName) item.className = newClassName;
+        const seen = new Set();
+        adminSpyUsers.forEach(u => {
+          const key = 'user_' + u.account_id;
+          seen.add(key);
+          let item = adminConvItems.get(key);
+          let nameEl, msgEl;
 
-        const newName = c.name1 + ' & ' + c.name2;
-        if (nameEl.textContent !== newName) nameEl.textContent = newName;
+          if (!item) {
+            item = document.createElement('div');
+            item.className = 'user-item';
 
-        const newMsg = c.msgCount + ' msg' + (c.msgCount !== 1 ? 's' : '') + (c.lastMessage ? ' · ' + c.lastMessage : '');
-        if (msgEl.textContent !== newMsg) msgEl.textContent = newMsg;
+            const avatar = document.createElement('div');
+            avatar.className = 'user-avatar';
+            avatar.style.background = 'linear-gradient(135deg, #1b74e4, #00c3ff)';
+            avatar.textContent = getInitialsFromFullName(u.full_name);
 
-        list.appendChild(item);
-      });
+            const info = document.createElement('div');
+            info.className = 'user-info';
 
-      for (const [convId, item] of adminConvItems) {
-        if (!seen.has(convId)) {
-          item.remove();
-          adminConvItems.delete(convId);
+            nameEl = document.createElement('div');
+            nameEl.className = 'user-name';
+            nameEl.style.fontSize = '13px';
+            info.appendChild(nameEl);
+
+            msgEl = document.createElement('div');
+            msgEl.className = 'user-last-msg';
+            info.appendChild(msgEl);
+
+            item.appendChild(avatar);
+            item.appendChild(info);
+
+            adminConvItems.set(key, item);
+          } else {
+            nameEl = item.querySelector('.user-name');
+            msgEl = item.querySelector('.user-last-msg');
+          }
+
+          item.onclick = () => selectAdminSpyTargetUser(u);
+
+          if (nameEl.textContent !== u.full_name) nameEl.textContent = u.full_name;
+
+          let subText = u.email || '';
+          if (u.office_code) subText += ' • ' + u.office_code;
+          else if (u.office_name) subText += ' • ' + u.office_name;
+
+          if (msgEl.textContent !== subText) msgEl.textContent = subText;
+
+          list.appendChild(item);
+        });
+
+        for (const [key, item] of adminConvItems) {
+          if (!seen.has(key)) {
+            item.remove();
+            adminConvItems.delete(key);
+          }
+        }
+
+        if (floatingBtn) {
+          if (floatingBtnText) floatingBtnText.textContent = 'Load More Users';
+          floatingBtn.classList.toggle('visible', adminSpyHasMore);
+        }
+        return;
+      }
+
+      // State C: Render Selected User's Conversations
+      if (adminSpyType === 'conversations') {
+        if (!adminSpyConvs || adminSpyConvs.length === 0) {
+          const name = adminSpyTargetUser ? adminSpyTargetUser.full_name : 'selected user';
+          list.innerHTML = `<div class="sidebar-empty-state" style="padding:24px 16px;text-align:center;font-size:13px;color:var(--text-secondary);opacity:0.85;font-weight:500;"><p style="margin:0;">No active conversations found for ${escapeHtml(name)}.</p></div>`;
+          adminConvItems.clear();
+          if (floatingBtn) floatingBtn.classList.remove('visible');
+          return;
+        }
+
+        const emptyEl = list.querySelector('.sidebar-empty-state, .empty-chat');
+        if (emptyEl) emptyEl.remove();
+
+        const seen = new Set();
+        adminSpyConvs.forEach(c => {
+          const key = 'conv_' + c.convId;
+          seen.add(key);
+          let item = adminConvItems.get(key);
+          let nameEl, msgEl;
+
+          if (!item) {
+            item = document.createElement('div');
+
+            const avatar = document.createElement('div');
+            avatar.className = 'user-avatar';
+            avatar.innerHTML = EYE_ICON_SVG;
+
+            const info = document.createElement('div');
+            info.className = 'user-info';
+
+            nameEl = document.createElement('div');
+            nameEl.className = 'user-name';
+            nameEl.style.fontSize = '13px';
+            info.appendChild(nameEl);
+
+            msgEl = document.createElement('div');
+            msgEl.className = 'user-last-msg';
+            info.appendChild(msgEl);
+
+            item.appendChild(avatar);
+            item.appendChild(info);
+
+            adminConvItems.set(key, item);
+          } else {
+            nameEl = item.querySelector('.user-name');
+            msgEl = item.querySelector('.user-last-msg');
+          }
+
+          item.onclick = () => openAdminConv(c);
+
+          const newClassName = 'user-item' + (activeAdminConv === c.convId ? ' active' : '');
+          if (item.className !== newClassName) item.className = newClassName;
+
+          const nameDisplay = c.name1 + ' ↔ ' + c.name2;
+          if (nameEl.textContent !== nameDisplay) nameEl.textContent = nameDisplay;
+
+          const newMsg = (c.msgCount || 1) + ' msg' + (c.msgCount !== 1 ? 's' : '') + (c.lastMessage ? ' · ' + c.lastMessage : '');
+          if (msgEl.textContent !== newMsg) msgEl.textContent = newMsg;
+
+          list.appendChild(item);
+        });
+
+        for (const [key, item] of adminConvItems) {
+          if (!seen.has(key)) {
+            item.remove();
+            adminConvItems.delete(key);
+          }
+        }
+
+        if (floatingBtn) {
+          if (floatingBtnText) floatingBtnText.textContent = 'Load More Conversations';
+          floatingBtn.classList.toggle('visible', adminSpyHasMore);
         }
       }
     }
 
     if (adminSearchInput) {
-      adminSearchInput.addEventListener('input', renderAdminConvs);
+      adminSearchInput.addEventListener('input', () => {
+        if (adminSearchTimeout) clearTimeout(adminSearchTimeout);
+        adminSpyTargetUser = null; // Reset user selection when typing new search
+        const query = adminSearchInput.value.trim();
+        adminSearchTimeout = setTimeout(() => {
+          fetchAdminConvs(query, 0, false, 0);
+        }, 250);
+      });
+    }
+
+    const adminSpyLoadMoreFloatingBtn = document.getElementById('adminSpyLoadMoreFloatingBtn');
+    if (adminSpyLoadMoreFloatingBtn) {
+      adminSpyLoadMoreFloatingBtn.addEventListener('click', () => {
+        if (adminSpyHasMore && !adminSpyIsLoading) {
+          const query = adminSearchInput ? adminSearchInput.value.trim() : '';
+          const currentTargetId = adminSpyTargetUser ? adminSpyTargetUser.account_id : 0;
+          const currentCount = adminSpyType === 'users' ? adminSpyUsers.length : adminSpyConvs.length;
+          fetchAdminConvs(query, currentCount, true, currentTargetId);
+        }
+      });
     }
 
     let activeAdminConv = null; // convId string when admin is spying
@@ -4165,7 +4453,11 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
       if (chatForm) chatForm.style.display = isAdminAllChatsView ? 'none' : '';
       if (spyNotice) spyNotice.style.display = isAdminAllChatsView ? 'flex' : 'none';
 
-      renderAdminConvs();
+      if (isAdminAllChatsView) {
+        fetchAdminConvs(adminSearchInput ? adminSearchInput.value.trim() : '', 0, false);
+      } else {
+        renderAdminConvs();
+      }
     }
 
     if (adminEyeToggleBtn) {

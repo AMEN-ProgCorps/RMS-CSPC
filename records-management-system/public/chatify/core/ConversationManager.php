@@ -704,8 +704,9 @@ class ConversationManager
 
     /**
      * Get active conversations involving a specific target account ID for Admin Spy Mode discovery.
+     * Returns the 50 most recent conversations ordered by last_message_time DESC.
      */
-    public static function getUserConversations(int $targetAccountId, int $limit = 20, int $offset = 0): array
+    public static function getUserConversations(int $targetAccountId, int $limit = 50, int $offset = 0): array
     {
         try {
             $pdo = Database::getConnection();

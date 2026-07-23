@@ -1,24 +1,15 @@
 <?php
 // =============================================================================
-// fetch_users_dm.php — Fetch User List for DM Sidebar
+// fetch_users_dm.php — Fetch User List for DM Sidebar & Admin Spy Mode
 // =============================================================================
-// Returns JSON:
-//   {
-//     "users": [ { account_id, full_name, office_id, is_currently_online,
-//                  last_online_time, lastMessage, lastTimestamp, unreadCount } ],
-//     "currentUser": { account_id, full_name, office_id, is_admin },
-//     "conversations": [...] (admin only)
-//   }
-//
-// GET params (optional):
-//   q   (string) — search query: returns server-side ILIKE search results
-//                  instead of the full user list (debounced by the client).
-//
-// OPTIMIZATIONS (v2):
-//   • When no 'q' param is given: only users with an active conversation are
-//     returned (N+1 eliminated — 1 query instead of 2×N queries).
-//   • When 'q' param is given: UserResolver::searchUsers() runs a server-side
-//     ILIKE query backed by the pg_trgm GIN index.
+// Behavior:
+//   - When no search query is given ('q' is empty): returns active conversation partners
+//     (people the user has exchanged messages with). If none, returns empty list.
+//   - When search query ('q') is given: performs server-side search capped at 10 results.
+//   - Admin Spy Mode:
+//     - No search/target: returns empty state ('none').
+//     - Search query ('admin_q'): returns server-side user/office search (10 results max).
+//     - Target user ('admin_target_id'): returns latest 50 conversations for selected target.
 // =============================================================================
 
 require_once __DIR__ . '/bootstrap.php';
@@ -33,21 +24,53 @@ $myAccountId = Auth::accountId();
 $isAdmin     = Auth::isAdmin();
 $searchQuery = trim($_GET['q'] ?? '');
 
+$sidebarUsers = [];
+$hasMoreUsers = false;
+
 // ── Branch: Search vs. Active Conversations ───────────────────────────────────
 if ($searchQuery !== '') {
-    // Server-side search — returns only matching users (no conv metadata)
-    $matched = UserResolver::searchUsers($searchQuery, $myAccountId, 50);
+    // Fetch active conversations map to enrich search results if conversation exists
+    $activeConvs = ConversationManager::getActiveConversations($myAccountId);
+    $convByPartner = [];
+    foreach ($activeConvs as $conv) {
+        $partnerId = (int) ($conv['partner_id'] ?? 0);
+        if ($partnerId > 0) {
+            $convByPartner[$partnerId] = $conv;
+        }
+    }
 
-    $sidebarUsers = [];
+    // Server-side search — returns up to 10 matching users
+    $searchResult = UserResolver::searchUsers($searchQuery, $myAccountId, 10);
+    $matched      = $searchResult['users'] ?? [];
+    $hasMoreUsers = !empty($searchResult['hasMore']);
+
     foreach ($matched as $user) {
-        $uid    = (int) $user['account_id'];
+        $uid = (int) $user['account_id'];
 
         // Exclude admin from search results unless a conversation exists
-        if ($uid === 1) {
+        if ($uid === 1 && $myAccountId !== 1) {
             $convId = ConversationManager::convId(1, $myAccountId);
             if (!ConversationManager::conversationExists($convId)) {
                 continue;
             }
+        }
+
+        $lastMessageText = '';
+        $lastTimestamp   = 0;
+        $unreadCount     = 0;
+
+        // If an active conversation exists with this user, populate real metadata
+        if (isset($convByPartner[$uid])) {
+            $conv = $convByPartner[$uid];
+            $lastMsgType = $conv['last_msg_type'] ?? 'text';
+            if ($lastMsgType === 'upload') {
+                $lastMessageText = 'Sent a file';
+            } else {
+                $decrypted       = safeDecrypt($conv['last_message'] ?? '');
+                $lastMessageText = mb_strimwidth($decrypted, 0, 60, '…');
+            }
+            $lastTimestamp = (int) ($conv['last_ts'] ?? 0);
+            $unreadCount   = (int) ($conv['unread_count'] ?? 0);
         }
 
         $sidebarUsers[] = [
@@ -61,20 +84,15 @@ if ($searchQuery !== '') {
             'is_currently_online' => $user['is_currently_online'],
             'last_online_time'    => $user['last_online_time'],
             'status'              => ((bool) $user['is_currently_online']) ? 'online' : 'offline',
-            // No lastMessage / unreadCount in search results — client shows
-            // them only after the user clicks into a conversation.
-            'lastMessage'         => '',
-            'lastTimestamp'       => 0,
-            'unreadCount'         => 0,
+            'lastMessage'         => $lastMessageText,
+            'lastTimestamp'       => $lastTimestamp,
+            'unreadCount'         => $unreadCount,
         ];
     }
 } else {
-    // ── No search query: return active conversations with N+1 eliminated ───────
-    // getActiveConversations() returns last-message + unread-count for ALL
-    // of the user's conversations in a SINGLE CTE query.
+    // ── No search query: return active conversations (people user has chatted with) ──
     $activeConvs = ConversationManager::getActiveConversations($myAccountId);
 
-    // Build a map of partnerId => conv row for quick lookup
     $convByPartner = [];
     foreach ($activeConvs as $conv) {
         $partnerId = (int) ($conv['partner_id'] ?? 0);
@@ -83,18 +101,12 @@ if ($searchQuery !== '') {
         }
     }
 
-    // Now build sidebar rows for partners who have active convs
-    $sidebarUsers = [];
     foreach ($convByPartner as $partnerId => $conv) {
-        // Exclude admin unless there's a real conversation (already in $activeConvs
-        // only if they exchanged messages, so admin is included automatically)
-
         $userInfo = UserResolver::getUserInfo($partnerId);
         if ($userInfo === null) {
             continue;
         }
 
-        // Decrypt last message preview
         $lastMsgType = $conv['last_msg_type'] ?? 'text';
         if ($lastMsgType === 'upload') {
             $lastMessageText = 'Sent a file';
@@ -120,7 +132,7 @@ if ($searchQuery !== '') {
         ];
     }
 
-    // ── Sort: unreads first → most recent → alphabetical ─────────────────────
+    // Sort: unreads first → most recent → alphabetical
     usort($sidebarUsers, function ($a, $b) {
         $aHasUnread = $a['unreadCount'] > 0 ? 1 : 0;
         $bHasUnread = $b['unreadCount'] > 0 ? 1 : 0;
@@ -145,43 +157,42 @@ $adminSpyResponse = [
     'targetUser'    => null,
     'hasMore'       => false,
     'offset'        => 0,
-    'limit'         => 20,
+    'limit'         => 10,
 ];
 
 if ($isAdmin) {
     $adminTargetId = max(0, (int) ($_GET['admin_target_id'] ?? 0));
     $adminQuery    = trim($_GET['admin_q'] ?? '');
-    $adminOffset   = max(0, (int) ($_GET['admin_offset'] ?? 0));
-    $adminLimit    = min(100, max(1, (int) ($_GET['admin_limit'] ?? 20)));
 
     if ($adminTargetId > 0) {
-        // Mode A: Fetch conversations for a specific selected user
-        $convsResult = ConversationManager::getUserConversations($adminTargetId, $adminLimit, $adminOffset);
+        // Mode A: Fetch latest 50 conversations for a specific selected target user
+        $convsResult = ConversationManager::getUserConversations($adminTargetId, 50, 0);
         $targetInfo  = UserResolver::getUserInfo($adminTargetId);
 
         $adminSpyResponse = [
             'type'          => 'conversations',
             'targetUser'    => $targetInfo,
             'conversations' => $convsResult['conversations'],
-            'hasMore'       => $convsResult['hasMore'],
-            'offset'        => $adminOffset,
-            'limit'         => $adminLimit,
+            'hasMore'       => !empty($convsResult['hasMore']),
+            'offset'        => 0,
+            'limit'         => 50,
         ];
     } elseif ($adminQuery !== '') {
-        // Mode B: User/office search
-        $usersResult = UserResolver::searchUsersPaginated($adminQuery, 0, $adminLimit, $adminOffset);
+        // Mode B: User/office search capped at 10 results max
+        $usersResult = UserResolver::searchUsersPaginated($adminQuery, 0, 10, 0);
         $adminSpyResponse = [
             'type'    => 'users',
             'users'   => $usersResult['users'],
-            'hasMore' => $usersResult['hasMore'],
-            'offset'  => $adminOffset,
-            'limit'   => $adminLimit,
+            'hasMore' => !empty($usersResult['hasMore']),
+            'offset'  => 0,
+            'limit'   => 10,
         ];
     }
 }
 
 echo json_encode([
     'users'         => array_values($sidebarUsers),
+    'hasMore'       => $hasMoreUsers,
     'currentUser'   => [
         'account_id' => $myAccountId,
         'full_name'  => $myInfo['full_name'] ?? Auth::fullName(),

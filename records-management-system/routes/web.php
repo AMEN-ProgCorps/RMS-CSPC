@@ -117,7 +117,7 @@ Route::get('/logout', function () {
             ]);
             // Invalidate the user's chat session in the XAMPP chat system
         try {
-            \Illuminate\Support\Facades\Http::timeout(3)->post('http://localhost/chatlify/invalidate_chat_session.php', [
+            \Illuminate\Support\Facades\Http::timeout(3)->post(url('/chatify/invalidate_chat_session.php'), [
                 'account_id' => $user->id,
                 'secret'     => env('CHAT_SHARED_SECRET', ''),
             ]);

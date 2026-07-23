@@ -40,7 +40,7 @@ if ($sinceUuid !== null) {
 // Cursor for the next "load older" request.
 $nextCursor = !empty($rawMessages) ? $rawMessages[0]['id'] : null;
 
-$nameMap = UserResolver::buildNameMap();
+$nameMap = [];
 
 $imageExts = ['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp', 'svg'];
 $audioExts = ['mp3', 'wav', 'ogg', 'flac', 'aac', 'm4a', 'opus'];
@@ -79,17 +79,23 @@ foreach ($rawMessages as $msg) {
     $senderId   = (int) $msg['sender_id'];
     $msgId      = htmlspecialchars($msg['id'] ?? '', ENT_QUOTES);
     $type       = $msg['type'] ?? 'text';
-    $senderName = $nameMap[$senderId] ?? 'Unknown User';
+    if (!isset($nameMap[$senderId])) {
+        $nameMap[$senderId] = UserResolver::getFullName($senderId);
+    }
+    $senderName = $nameMap[$senderId];
     $initials   = adminGetInitials($senderName);
     
     // Parse timestamp
-    $ts = 0;
+    $fullTimeDisplay = '';
     if (!empty($msg['timestamp'])) {
-        $dt = DateTime::createFromFormat('Y-m-d H:i:s.u', $msg['timestamp']);
-        $ts = $dt !== false ? (float) $dt->format('U.u') : (float) strtotime($msg['timestamp']);
+        $dt = DateTime::createFromFormat('Y-m-d H:i:s.u', $msg['timestamp'], new DateTimeZone('Asia/Manila'));
+        if ($dt === false) {
+            $dt = DateTime::createFromFormat('Y-m-d H:i:s', $msg['timestamp'], new DateTimeZone('Asia/Manila'));
+        }
+        $fullTimeDisplay = $dt ? $dt->format('F j, Y \a\t g:i A') : date('F j, Y \a\t g:i A');
+    } else {
+        $fullTimeDisplay = date('F j, Y \a\t g:i A');
     }
-    $timeDisp = date('g:i A', (int) floor($ts));
-    $fullTimeDisplay = date('F j, Y - g:i A', (int) floor($ts));
 
     $senderLabel = htmlspecialchars(strtolower($senderName), ENT_QUOTES);
     $bodyHtml    = '';

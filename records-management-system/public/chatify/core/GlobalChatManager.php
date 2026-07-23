@@ -245,18 +245,16 @@ class GlobalChatManager
         try {
             $pdo = Database::getConnection();
 
-            // Delete physical upload files first if requested
+            // Delete physical upload files first if requested (FAST: query msg_type = 'upload')
             if ($uploadsDir && is_dir($uploadsDir)) {
-                $allCount = self::countRaw();
-                $msgs = $allCount > 0 ? self::loadRaw($allCount, null) : [];
-                foreach ($msgs as $msg) {
-                    if (($msg['type'] ?? '') === 'upload') {
-                        $filename = safeDecrypt($msg['message'] ?? '');
-                        if ($filename) {
-                            $path = rtrim($uploadsDir, '/') . '/' . $filename;
-                            if (file_exists($path)) {
-                                @unlink($path);
-                            }
+                $stmt = $pdo->prepare("SELECT message FROM chat_messages WHERE conv_id = :conv_id AND msg_type = 'upload'");
+                $stmt->execute([':conv_id' => self::CONV_ID]);
+                while ($msg = $stmt->fetch(PDO::FETCH_ASSOC)) {
+                    $filename = safeDecrypt($msg['message'] ?? '');
+                    if ($filename) {
+                        $path = rtrim($uploadsDir, '/') . '/' . $filename;
+                        if (file_exists($path)) {
+                            @unlink($path);
                         }
                     }
                 }
@@ -304,7 +302,7 @@ class GlobalChatManager
 
         $uuid = self::generateSequentialUuid();
         $dt   = new DateTime('now', new DateTimeZone('Asia/Manila'));
-        $ts   = $dt->format('Y-m-d H:i:s.u');
+        $ts   = $dt->format('Y-m-d H:i:s.uP');
 
         try {
             $pdo = Database::getConnection();

@@ -35,6 +35,7 @@ class Database
                 PDO::ATTR_EMULATE_PREPARES   => false,
                 PDO::ATTR_PERSISTENT         => false,  // avoid stale connections in XAMPP
             ]);
+            self::$instance->exec("SET TIME ZONE 'Asia/Manila';");
         } catch (PDOException $e) {
             // Do not expose connection details in production
             http_response_code(503);

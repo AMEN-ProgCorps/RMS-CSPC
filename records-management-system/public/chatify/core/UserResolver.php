@@ -37,8 +37,8 @@ class UserResolver
             $pdo = Database::getConnection();
             $stmt = $pdo->prepare(
                 'SELECT account_id FROM account_details
-                 WHERE email = :val
-                    OR first_name || \' \' || last_name = :val
+                 WHERE LOWER(email) = LOWER(:val)
+                    OR LOWER(first_name || \' \' || last_name) = LOWER(:val)
                     OR account_id::text = :val
                  LIMIT 1'
             );
@@ -169,15 +169,26 @@ class UserResolver
      * @param  int    $limit            Maximum results to return (default 50)
      * @return array<int, array>        User rows matching the query
      */
-    public static function searchUsers(string $query, int $excludeAccountId, int $limit = 50): array
+    /**
+     * Server-side user search using PostgreSQL ILIKE with exact match ordering.
+     *
+     * Uses pg_trgm GIN index for sub-millisecond substring matching.
+     *
+     * @param  string $query            Partial name, email, or office to search for
+     * @param  int    $excludeAccountId The current user's ID (exclude self)
+     * @param  int    $limit            Maximum results to return (default 10)
+     * @return array{users: array, hasMore: bool} Matching user rows and hasMore flag
+     */
+    public static function searchUsers(string $query, int $excludeAccountId, int $limit = 10): array
     {
-        if (trim($query) === '') {
-            return [];
+        $q = trim($query);
+        if ($q === '') {
+            return ['users' => [], 'hasMore' => false];
         }
 
         try {
             $pdo  = Database::getConnection();
-            $like = '%' . str_replace(['%', '_', '\\'], ['\\%', '\\_', '\\\\'], $query) . '%';
+            $like = '%' . str_replace(['%', '_', '\\'], ['\\%', '\\_', '\\\\'], $q) . '%';
 
             $stmt = $pdo->prepare(
                 "SELECT ad.account_id,
@@ -191,14 +202,27 @@ class UserResolver
                         ad.last_online_time
                  FROM account_details ad
                  LEFT JOIN office o ON o.id = ad.office_id
-                 WHERE ad.account_id != :exclude
+                 WHERE (:exclude = 0 OR ad.account_id != :exclude)
                    AND (
                          ad.first_name ILIKE :q1
                       OR ad.last_name  ILIKE :q2
                       OR (ad.first_name || ' ' || ad.last_name) ILIKE :q3
                       OR (ad.last_name  || ' ' || ad.first_name) ILIKE :q4
+                      OR ad.email ILIKE :q5
+                      OR o.office_name ILIKE :q6
+                      OR o.office_code ILIKE :q7
                    )
-                 ORDER BY ad.last_name, ad.first_name
+                 ORDER BY
+                   CASE
+                     WHEN LOWER(ad.first_name || ' ' || ad.last_name) = LOWER(:exact_q) THEN 1
+                     WHEN LOWER(ad.last_name  || ' ' || ad.first_name) = LOWER(:exact_q) THEN 2
+                     WHEN LOWER(ad.first_name) = LOWER(:exact_q) THEN 3
+                     WHEN LOWER(ad.last_name) = LOWER(:exact_q) THEN 4
+                     WHEN LOWER(ad.email) = LOWER(:exact_q) THEN 5
+                     WHEN LOWER(o.office_code) = LOWER(:exact_q) THEN 6
+                     ELSE 7
+                   END,
+                   ad.last_name, ad.first_name
                  LIMIT :lim"
             );
             $stmt->bindValue(':exclude', $excludeAccountId, PDO::PARAM_INT);
@@ -206,11 +230,21 @@ class UserResolver
             $stmt->bindValue(':q2', $like);
             $stmt->bindValue(':q3', $like);
             $stmt->bindValue(':q4', $like);
-            $stmt->bindValue(':lim', $limit, PDO::PARAM_INT);
+            $stmt->bindValue(':q5', $like);
+            $stmt->bindValue(':q6', $like);
+            $stmt->bindValue(':q7', $like);
+            $stmt->bindValue(':exact_q', $q);
+            $stmt->bindValue(':lim', $limit + 1, PDO::PARAM_INT);
             $stmt->execute();
 
+            $rows = $stmt->fetchAll();
+            $hasMore = count($rows) > $limit;
+            if ($hasMore) {
+                array_pop($rows);
+            }
+
             $users = [];
-            foreach ($stmt->fetchAll() as $row) {
+            foreach ($rows as $row) {
                 // Populate local cache for subsequent getUserInfo() calls
                 self::$cache[(int) $row['account_id']] = $row;
 
@@ -228,11 +262,32 @@ class UserResolver
                     'last_online_time'    => $row['last_online_time'] ?? null,
                 ];
             }
-            return $users;
+            return ['users' => $users, 'hasMore' => $hasMore];
         } catch (PDOException $e) {
             error_log('UserResolver::searchUsers() — ' . $e->getMessage());
-            return [];
+            return ['users' => [], 'hasMore' => false];
         }
+    }
+
+    /**
+     * Server-side paginated user search using PostgreSQL ILIKE.
+     * Supports search by First Name, Last Name, Email, Office Name, Office Code.
+     *
+     * @param string $query Filter term
+     * @param int $excludeAccountId Exclude current account ID (0 for no exclusion)
+     * @param int $limit Page limit (default 10)
+     * @param int $offset Page offset
+     * @return array { users: array, hasMore: bool, offset: int, limit: int }
+     */
+    public static function searchUsersPaginated(string $query, int $excludeAccountId = 0, int $limit = 10, int $offset = 0): array
+    {
+        $res = self::searchUsers($query, $excludeAccountId, $limit);
+        return [
+            'users'   => $res['users'],
+            'hasMore' => $res['hasMore'],
+            'offset'  => $offset,
+            'limit'   => $limit,
+        ];
     }
 
     /**

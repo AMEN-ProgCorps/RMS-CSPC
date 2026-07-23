@@ -378,13 +378,7 @@ class ConversationManager
         try {
             $pdo = Database::getConnection();
             self::backupAll($pdo, $archivedBy);
-            $pdo->exec("DELETE FROM chat_messages WHERE conv_id != 'global'");
-            $pdo->exec("DELETE FROM chat_read_markers WHERE conv_id != 'global'");
-            // Wipe metadata table too
-            try {
-                self::ensureConversationsTable($pdo);
-                $pdo->exec("DELETE FROM chat_conversations");
-            } catch (Throwable $t) {}
+            $pdo->exec("TRUNCATE TABLE chat_messages, chat_read_markers, chat_conversations CASCADE;");
             return true;
         } catch (PDOException $e) {
             error_log('ConversationManager::clearAllDms() — ' . $e->getMessage());
@@ -579,31 +573,96 @@ class ConversationManager
         }
     }
 
-    public static function getAllConversations(): array
+    public static function getAdminConversations(string $searchQuery = '', int $limit = 20, int $offset = 0): array
     {
         try {
             $pdo = Database::getConnection();
             self::ensureConversationsTable($pdo);
 
-            $stmt = $pdo->query(
-                "SELECT
+            $searchQuery = trim($searchQuery);
+            $params = [];
+            
+            $whereClause = "WHERE COALESCE(c.msg_count, 0) > 0";
+
+            if ($searchQuery !== '') {
+                $like = '%' . str_replace(['%', '_', '\\'], ['\\%', '\\_', '\\\\'], $searchQuery) . '%';
+                $whereClause .= " AND (
+                    ad1.first_name ILIKE :q1
+                 OR ad1.last_name ILIKE :q2
+                 OR (ad1.first_name || ' ' || ad1.last_name) ILIKE :q3
+                 OR (ad1.last_name || ' ' || ad1.first_name) ILIKE :q4
+                 OR ad1.email ILIKE :q5
+                 OR o1.office_name ILIKE :q6
+                 OR o1.office_code ILIKE :q7
+                 OR ad2.first_name ILIKE :q8
+                 OR ad2.last_name ILIKE :q9
+                 OR (ad2.first_name || ' ' || ad2.last_name) ILIKE :q10
+                 OR (ad2.last_name || ' ' || ad2.first_name) ILIKE :q11
+                 OR ad2.email ILIKE :q12
+                 OR o2.office_name ILIKE :q13
+                 OR o2.office_code ILIKE :q14
+                )";
+                
+                for ($i = 1; $i <= 14; $i++) {
+                    $params[":q{$i}"] = $like;
+                }
+            }
+
+            $sql = "SELECT
                      c.conv_id,
                      c.user_1,
                      c.user_2,
                      c.last_message AS last_message_enc,
                      c.last_msg_type,
-                     c.last_message_time AS last_ts,
-                     COALESCE(c.msg_count, 1) AS msg_count
+                     EXTRACT(EPOCH FROM c.last_message_time)::BIGINT AS last_ts,
+                     COALESCE(c.msg_count, 1) AS msg_count,
+                     ad1.first_name AS u1_first_name,
+                     ad1.last_name AS u1_last_name,
+                     ad1.email AS u1_email,
+                     o1.office_name AS u1_office_name,
+                     o1.office_code AS u1_office_code,
+                     ad2.first_name AS u2_first_name,
+                     ad2.last_name AS u2_last_name,
+                     ad2.email AS u2_email,
+                     o2.office_name AS u2_office_name,
+                     o2.office_code AS u2_office_code
                  FROM chat_conversations c
-                 ORDER BY c.last_message_time DESC"
-            );
+                 LEFT JOIN account_details ad1 ON ad1.account_id = c.user_1
+                 LEFT JOIN office o1 ON o1.id = ad1.office_id
+                 LEFT JOIN account_details ad2 ON ad2.account_id = c.user_2
+                 LEFT JOIN office o2 ON o2.id = ad2.office_id
+                 {$whereClause}
+                 ORDER BY c.last_message_time DESC
+                 LIMIT :lim OFFSET :off";
+
+            $stmt = $pdo->prepare($sql);
+            foreach ($params as $k => $v) {
+                $stmt->bindValue($k, $v, PDO::PARAM_STR);
+            }
+            $stmt->bindValue(':lim', $limit + 1, PDO::PARAM_INT);
+            $stmt->bindValue(':off', $offset, PDO::PARAM_INT);
+            $stmt->execute();
+
             $rows = $stmt->fetchAll();
+            $hasMore = count($rows) > $limit;
+            if ($hasMore) {
+                array_pop($rows);
+            }
 
             $result = [];
             foreach ($rows as $row) {
                 $convId = $row['conv_id'];
                 $userA  = (int) $row['user_1'];
                 $userB  = (int) $row['user_2'];
+
+                $name1 = trim(($row['u1_first_name'] ?? '') . ' ' . ($row['u1_last_name'] ?? ''));
+                if (empty($name1)) {
+                    $name1 = 'User #' . $userA;
+                }
+                $name2 = trim(($row['u2_first_name'] ?? '') . ' ' . ($row['u2_last_name'] ?? ''));
+                if (empty($name2)) {
+                    $name2 = 'User #' . $userB;
+                }
 
                 if ($row['last_msg_type'] === 'upload') {
                     $lastMessage = 'Sent a file';
@@ -616,17 +675,131 @@ class ConversationManager
                     'convId'        => $convId,
                     'userA'         => $userA,
                     'userB'         => $userB,
+                    'name1'         => $name1,
+                    'name2'         => $name2,
+                    'u1_office'     => $row['u1_office_code'] ?: ($row['u1_office_name'] ?: null),
+                    'u2_office'     => $row['u2_office_code'] ?: ($row['u2_office_name'] ?: null),
                     'msgCount'      => (int) $row['msg_count'],
                     'lastMessage'   => $lastMessage,
-                    'lastTimestamp' => strtotime($row['last_ts'] ?? '') ?: 0,
+                    'lastTimestamp' => (int) ($row['last_ts'] ?? 0),
                 ];
             }
 
-            return $result;
+            return [
+                'conversations' => $result,
+                'hasMore'       => $hasMore,
+                'offset'        => $offset,
+                'limit'         => $limit,
+            ];
         } catch (PDOException $e) {
-            error_log('ConversationManager::getAllConversations() — ' . $e->getMessage());
-            return [];
+            error_log('ConversationManager::getAdminConversations() — ' . $e->getMessage());
+            return [
+                'conversations' => [],
+                'hasMore'       => false,
+                'offset'        => $offset,
+                'limit'         => $limit,
+            ];
         }
+    }
+
+    /**
+     * Get active conversations involving a specific target account ID for Admin Spy Mode discovery.
+     * Returns the 50 most recent conversations ordered by last_message_time DESC.
+     */
+    public static function getUserConversations(int $targetAccountId, int $limit = 50, int $offset = 0): array
+    {
+        try {
+            $pdo = Database::getConnection();
+            self::ensureConversationsTable($pdo);
+
+            $sql = "SELECT
+                     c.conv_id,
+                     c.user_1,
+                     c.user_2,
+                     c.last_message AS last_message_enc,
+                     c.last_msg_type,
+                     EXTRACT(EPOCH FROM c.last_message_time)::BIGINT AS last_ts,
+                     COALESCE(c.msg_count, 1) AS msg_count,
+                     ad1.first_name AS u1_first_name,
+                     ad1.last_name AS u1_last_name,
+                     ad1.email AS u1_email,
+                     o1.office_name AS u1_office_name,
+                     o1.office_code AS u1_office_code,
+                     ad2.first_name AS u2_first_name,
+                     ad2.last_name AS u2_last_name,
+                     ad2.email AS u2_email,
+                     o2.office_name AS u2_office_name,
+                     o2.office_code AS u2_office_code
+                 FROM chat_conversations c
+                 LEFT JOIN account_details ad1 ON ad1.account_id = c.user_1
+                 LEFT JOIN office o1 ON o1.id = ad1.office_id
+                 LEFT JOIN account_details ad2 ON ad2.account_id = c.user_2
+                 LEFT JOIN office o2 ON o2.id = ad2.office_id
+                 WHERE (c.user_1 = :target_id OR c.user_2 = :target_id)
+                   AND COALESCE(c.msg_count, 0) > 0
+                 ORDER BY c.last_message_time DESC
+                 LIMIT :lim OFFSET :off";
+
+            $stmt = $pdo->prepare($sql);
+            $stmt->bindValue(':target_id', $targetAccountId, PDO::PARAM_INT);
+            $stmt->bindValue(':lim', $limit + 1, PDO::PARAM_INT);
+            $stmt->bindValue(':off', $offset, PDO::PARAM_INT);
+            $stmt->execute();
+
+            $rows = $stmt->fetchAll();
+            $hasMore = count($rows) > $limit;
+            if ($hasMore) {
+                array_pop($rows);
+            }
+
+            $result = [];
+            foreach ($rows as $row) {
+                $convId = $row['conv_id'];
+                $userA  = (int) $row['user_1'];
+                $userB  = (int) $row['user_2'];
+
+                $name1 = trim(($row['u1_first_name'] ?? '') . ' ' . ($row['u1_last_name'] ?? ''));
+                if (empty($name1)) $name1 = 'User #' . $userA;
+                $name2 = trim(($row['u2_first_name'] ?? '') . ' ' . ($row['u2_last_name'] ?? ''));
+                if (empty($name2)) $name2 = 'User #' . $userB;
+
+                if ($row['last_msg_type'] === 'upload') {
+                    $lastMessage = 'Sent a file';
+                } else {
+                    $decrypted   = safeDecrypt($row['last_message_enc'] ?? '');
+                    $lastMessage = mb_strimwidth($decrypted, 0, 60, '…');
+                }
+
+                $result[] = [
+                    'convId'        => $convId,
+                    'userA'         => $userA,
+                    'userB'         => $userB,
+                    'name1'         => $name1,
+                    'name2'         => $name2,
+                    'u1_office'     => $row['u1_office_code'] ?: ($row['u1_office_name'] ?: null),
+                    'u2_office'     => $row['u2_office_code'] ?: ($row['u2_office_name'] ?: null),
+                    'msgCount'      => (int) $row['msg_count'],
+                    'lastMessage'   => $lastMessage,
+                    'lastTimestamp' => (int) ($row['last_ts'] ?? 0),
+                ];
+            }
+
+            return [
+                'conversations' => $result,
+                'hasMore'       => $hasMore,
+                'offset'        => $offset,
+                'limit'         => $limit,
+            ];
+        } catch (PDOException $e) {
+            error_log('ConversationManager::getUserConversations() — ' . $e->getMessage());
+            return ['conversations' => [], 'hasMore' => false, 'offset' => $offset, 'limit' => $limit];
+        }
+    }
+
+    public static function getAllConversations(): array
+    {
+        $res = self::getAdminConversations('', 100, 0);
+        return $res['conversations'] ?? [];
     }
 
     public static function conversationExists(string $convId): bool
@@ -844,7 +1017,7 @@ class ConversationManager
 
         $uuid = self::generateSequentialUuid();
         $dt   = new DateTime('now', new DateTimeZone('Asia/Manila'));
-        $ts   = $dt->format('Y-m-d H:i:s.u');
+        $ts   = $dt->format('Y-m-d H:i:s.uP');
 
         try {
             $pdo  = Database::getConnection();

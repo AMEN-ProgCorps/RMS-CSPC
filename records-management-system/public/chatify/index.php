@@ -281,6 +281,9 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
       flex-direction: column;
       transition: background-color 0.3s ease, border-color 0.3s ease, transform 0.3s ease;
       z-index: 150;
+      will-change: transform;
+      backface-visibility: hidden;
+      -webkit-backface-visibility: hidden;
     }
 
     /* Suppress the open/close slide transition on initial page load so the
@@ -377,6 +380,8 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
       /* Hide scrollbar but keep scroll functionality */
       scrollbar-width: none; /* Firefox */
       -ms-overflow-style: none; /* IE/Edge */
+      -webkit-overflow-scrolling: touch; /* Smooth momentum scrolling on mobile iOS/Android */
+      contain: content; /* Isolate layout & repaint boundaries for max scrolling performance */
     }
 
     .sidebar-users::-webkit-scrollbar {
@@ -1425,11 +1430,18 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
       font-family: 'Inter', sans-serif;
       transition: border-color 0.2s ease, background-color 0.2s ease;
       resize: none;
-      overflow-y: hidden;
+      overflow-y: scroll;
       min-height: 40px;
       max-height: 120px;
       line-height: 1.4;
       display: block;
+      /* Hide scrollbar — webkit */
+      scrollbar-width: none;
+    }
+
+    #messageInput::-webkit-scrollbar {
+      width: 0;
+      background: transparent;
     }
 
     input:focus, textarea:focus {
@@ -1691,6 +1703,47 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
       transform: translateX(-50%) scale(0.96);
     }
 
+    /* Floating Load More button for Super Admin Spy Mode user cards */
+    .admin-spy-floating-btn {
+      position: absolute;
+      bottom: 16px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: #1b74e4;
+      color: white;
+      padding: 8px 16px;
+      border-radius: 24px;
+      font-size: 13px;
+      font-weight: 500;
+      border: none;
+      cursor: pointer;
+      opacity: 0;
+      visibility: hidden;
+      transition: opacity 0.3s ease, visibility 0.3s ease, transform 0.2s ease, background 0.2s ease;
+      z-index: 50;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.25);
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      user-select: none;
+      white-space: nowrap;
+    }
+
+    .admin-spy-floating-btn.visible {
+      opacity: 1;
+      visibility: visible;
+    }
+
+    .admin-spy-floating-btn:hover {
+      background: #1669c1;
+      transform: translateX(-50%) translateY(-2px);
+      box-shadow: 0 6px 16px rgba(0,0,0,0.3);
+    }
+
+    .admin-spy-floating-btn:active {
+      transform: translateX(-50%) scale(0.96);
+    }
+
     .unread-badge {
       background: #ff3b30;
       color: white;
@@ -1782,9 +1835,10 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
         bottom: 0;
         width: 320px;
         max-width: 100%;
-        transform: translateX(-100%);
+        transform: translate3d(-100%, 0, 0);
         z-index: 200;
         box-shadow: 4px 0 24px rgba(0,0,0,0.15);
+        will-change: transform;
       }
 
       @media (max-width: 480px) {
@@ -1793,9 +1847,8 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
         }
       }
 
-
       .sidebar.open {
-        transform: translateX(0);
+        transform: translate3d(0, 0, 0);
       }
 
       .app-container {
@@ -2438,7 +2491,7 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
         </div>
       </div>
       <div class="sidebar-search" id="ownSidebarSearch">
-        <input type="text" id="searchInput" placeholder="Search users..." autocomplete="off">
+        <input type="text" id="searchInput" placeholder="Search for a user or office..." autocomplete="off">
       </div>
       <!-- Pinned Global Chat entry -->
       <div class="user-item" id="globalChatItem" onclick="selectGlobalChat()" style="border-bottom:1px solid var(--border-color);">
@@ -2455,10 +2508,10 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
         <!-- Users will be populated here via JS -->
       </div>
       <!-- Admin: View all users chats view -->
-      <div id="adminConvsSection" style="display:none;">
-        <div style="padding:8px 16px 4px;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.8px;color:var(--text-secondary);margin-top:4px;text-align:center;">View of all user conversations</div>
+      <div id="adminConvsSection" style="display:none;position:relative;">
+        <div id="adminConvsHeaderTitle" style="padding:8px 16px 4px;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.8px;color:var(--text-secondary);margin-top:4px;text-align:center;"></div>
         <div class="admin-search" style="padding: 6px 16px;">
-          <input type="text" id="adminSearchInput" placeholder="Search conversations..." autocomplete="off">
+          <input type="text" id="adminSearchInput" placeholder="Search for a user or office..." autocomplete="off">
         </div>
         <div class="sidebar-users" id="adminConvsList"></div>
       </div>
@@ -2573,7 +2626,7 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
         <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor" style="flex-shrink:0;">
           <path d="M12 4.5C7 4.5 2.73 7.61 1 12c1.73 4.39 6 7.5 11 7.5s9.27-3.11 11-7.5c-1.73-4.39-6-7.5-11-7.5zM12 17c-2.76 0-5-2.24-5-5s2.24-5 5-5 5 2.24 5 5-2.24 5-5 5zm0-8c-1.66 0-3 1.34-3 3s1.34 3 3 3 3-1.34 3-3-1.34-3-3-3z"/>
         </svg>
-        <span>Admin Spy Mode Active</span>
+        <span>Super Admin Spy Mode</span>
       </div>
     </div>
   </div>
@@ -2746,6 +2799,20 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
     const sidebarUsers    = document.getElementById('sidebarUsers');
     const searchInput     = document.getElementById('searchInput');
     const adminSearchInput = document.getElementById('adminSearchInput');
+
+    // ── Persist search box contents across tab refreshes ─────────────────────
+    // Previously the search text lived only in the input's live DOM value, so
+    // refreshing the tab silently wiped it out. Restore whatever was typed
+    // last (per-tab, via localStorage) before anything else on init reads
+    // these inputs' .value (e.g. fetchUsers(), applyAdminAllChatsView()).
+    if (searchInput) {
+      const savedSearchQuery = localStorage.getItem('__searchQuery__');
+      if (savedSearchQuery) searchInput.value = savedSearchQuery;
+    }
+    if (adminSearchInput) {
+      const savedAdminSearchQuery = localStorage.getItem('__adminSearchQuery__');
+      if (savedAdminSearchQuery) adminSearchInput.value = savedAdminSearchQuery;
+    }
     const chatHeaderTitle = document.getElementById('chatHeaderTitle');
     const sidebar         = document.getElementById('sidebar');
     const backButton      = document.getElementById('backButton');
@@ -2831,9 +2898,7 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
       }
 
       const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-      const wsHost = window.location.hostname;
-      const wsPort = '48080';
-      const wsUrl = `${wsProtocol}//${wsHost}:${wsPort}`;
+      const wsUrl = `${wsProtocol}//${window.location.host}/ws`;
 
       console.log('Connecting to WebSocket server:', wsUrl);
       ws = new WebSocket(wsUrl);
@@ -2949,6 +3014,9 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
           activeDM = null; activeAdminConv = null; isGlobalChat = false;
           gcCursor = ''; dmCursor = '';
           gcViewingOlder = false; dmViewingOlder = false;
+          allConvsData = [];
+          localStorage.removeItem('activeSpyConv');
+          localStorage.removeItem('activeDM');
           removePaginationBtn();
           const gcItem = document.getElementById('globalChatItem');
           if (gcItem) gcItem.classList.remove('active');
@@ -3090,65 +3158,42 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
     let serverIsAdmin = false;
     let hasAutoSelected = false;
 
+    let userSearchHasMore = false;
+
     function fetchUsers(query = '') {
       const currentInput = searchInput ? searchInput.value.trim() : '';
-      if (query === '' && currentInput !== '') {
-        return; // skip the poll since the user is in search mode
-      }
+      const q = query !== '' ? query : currentInput;
 
       const xhr = new XMLHttpRequest();
       let url = "fetch_users_dm.php";
-      if (query !== '') {
-        url += "?q=" + encodeURIComponent(query);
+      if (q !== '') {
+        url += "?q=" + encodeURIComponent(q);
       }
       xhr.open("GET", url, true);
       xhr.onload = function() {
         if (this.status === 200) {
           try {
             const data = JSON.parse(this.responseText);
-            // Support both old (array) and new (object) format
             if (Array.isArray(data)) {
               allUsersData = data;
+              userSearchHasMore = false;
             } else {
               allUsersData = data.users || [];
-              if (query === '') {
-                allConvsData = data.conversations || [];
-              }
-              // Admin is always determined by currentUser.is_admin (set by server via account_id=1)
+              userSearchHasMore = !!data.hasMore;
               serverIsAdmin = !!(data.currentUser && data.currentUser.is_admin);
             }
             renderSidebarUsers();
-            if (serverIsAdmin && query === '') renderAdminConvs();
 
-            // Automatically reopen the active DM from localStorage on initial load
             if (!hasAutoSelected) {
               hasAutoSelected = true;
-              const savedDM = localStorage.getItem('activeDM');
-              const savedSpyConv = localStorage.getItem('activeSpyConv');
-              let autoSelected = false;
 
-              if (serverIsAdmin && isAdminAllChatsView && savedSpyConv) {
-                const matchedConv = allConvsData.find(c => String(c.convId) === String(savedSpyConv));
-                if (matchedConv) {
-                  openAdminConv(matchedConv);
-                  autoSelected = true;
-                }
-              }
-
-              if (!autoSelected) {
-                if (savedDM === '__global__') {
-                  selectGlobalChat();
-                  autoSelected = true;
-                } else if (savedDM && !savedDM.startsWith('__admin__')) {
-                  const matchedUser = allUsersData.find(u => u.username === savedDM);
-                  if (matchedUser) {
-                    selectDM(matchedUser);
-                    autoSelected = true;
-                  }
-                }
-              }
-
-              if (!autoSelected) {
+              // Reopen whichever chat was active before the tab was
+              // refreshed, instead of always dropping back to the
+              // placeholder screen.
+              const savedActiveDM = (!isAdminAllChatsView) ? localStorage.getItem('activeDM') : null;
+              if (savedActiveDM) {
+                restoreActiveConversation(savedActiveDM);
+              } else {
                 chatBox.innerHTML = '<div class="empty-chat"><p>Camarines Sur Polytechnic Colleges</p></div>';
               }
             }
@@ -3158,33 +3203,75 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
       xhr.send();
     }
 
-    // Reuse existing .user-item DOM nodes across re-renders (keyed by username).
-    // We used to do sidebarUsers.innerHTML = '' and rebuild every user-item from
-    // scratch on every 3s poll, even when nothing changed. That destroyed and
-    // recreated the DOM node sitting under the mouse cursor, which reset its
-    // :hover state and restarted CSS transitions (opacity, background-color) —
-    // visible as the notify bell icon and the active/selected highlight
-    // "blinking" every few seconds, even while the mouse was perfectly still.
-    // Keeping the same node identity per user avoids that entirely.
+    // Reopens the conversation the person had open before a refresh. Looked
+    // up directly by username via its own request (rather than relying on
+    // allUsersData, which may currently be narrowed by an unrelated, restored
+    // sidebar search filter) so the restore works no matter what's typed in
+    // the search box.
+    function restoreActiveConversation(savedActiveDM) {
+      if (savedActiveDM === '__global__') {
+        selectGlobalChat();
+        return;
+      }
+
+      const xhr = new XMLHttpRequest();
+      xhr.open('GET', 'fetch_users_dm.php?q=' + encodeURIComponent(savedActiveDM), true);
+      xhr.onload = function() {
+        let matchedUser = null;
+        if (this.status === 200) {
+          try {
+            const data = JSON.parse(this.responseText);
+            const list = Array.isArray(data) ? data : (data.users || []);
+            matchedUser = list.find(u => u.username === savedActiveDM) || null;
+          } catch (e) { console.error('restoreActiveConversation parse error', e); }
+        }
+        if (matchedUser) {
+          selectDM(matchedUser);
+        } else {
+          // The saved conversation partner no longer exists / isn't reachable
+          // anymore — don't keep pointing at a chat we can't reopen.
+          localStorage.removeItem('activeDM');
+          chatBox.innerHTML = '<div class="empty-chat"><p>Camarines Sur Polytechnic Colleges</p></div>';
+        }
+      };
+      xhr.onerror = function() {
+        chatBox.innerHTML = '<div class="empty-chat"><p>Camarines Sur Polytechnic Colleges</p></div>';
+      };
+      xhr.send();
+    }
+
     const sidebarUserItems = new Map(); // username -> item element
     let latestTotalUnread = 0;
 
     function renderSidebarUsers() {
-      const query = searchInput.value.toLowerCase().trim();
+      const query = searchInput ? searchInput.value.toLowerCase().trim() : '';
 
-      const filtered = allUsersData.filter(u => 
-        u.name.toLowerCase().includes(query) || u.username.toLowerCase().includes(query)
-      );
-
-      // Total unread for tab title — only compute when NOT searching
       if (query === '') {
-        latestTotalUnread = allUsersData.reduce((sum, u) => sum + (u.unreadCount || 0), 0);
+        latestTotalUnread = (allUsersData || []).reduce((sum, u) => sum + (u.unreadCount || 0), 0);
+        updateTabTitle(latestTotalUnread);
+
+        if (!allUsersData || allUsersData.length === 0) {
+          sidebarUsers.innerHTML = `<div class="sidebar-empty-state" style="padding:32px 16px;text-align:center;font-size:13px;color:var(--text-secondary);opacity:0.85;">
+            <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" style="margin-bottom:8px;opacity:0.6;"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
+            <p style="margin:0;font-weight:500;">Search for a user or office.</p>
+          </div>`;
+          sidebarUserItems.clear();
+          return;
+        }
+      } else {
+        if (!allUsersData || allUsersData.length === 0) {
+          sidebarUsers.innerHTML = `<div class="sidebar-empty-state" style="padding:24px 16px;text-align:center;font-size:13px;color:var(--text-secondary);opacity:0.85;font-weight:500;"><p style="margin:0;">No users found matching "${escapeHtml(query)}".</p></div>`;
+          sidebarUserItems.clear();
+          return;
+        }
       }
-      updateTabTitle(latestTotalUnread);
+
+      const emptyEl = sidebarUsers.querySelector('.sidebar-empty-state');
+      if (emptyEl) emptyEl.remove();
 
       const seen = new Set();
 
-      filtered.forEach((u, index) => {
+      allUsersData.forEach((u, index) => {
         const hasUnread = u.unreadCount > 0 && activeDM !== u.username;
         seen.add(u.username);
 
@@ -3192,7 +3279,6 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
         let avatar, dot, info, nameRow, nameEl, officeEl, msgEl, actionsRight;
 
         if (!item) {
-          // First time we've seen this user — build the DOM node once.
           item = document.createElement('div');
           item.dataset.username = u.username;
 
@@ -3228,28 +3314,31 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
 
           item.onclick = () => selectDM(u);
 
+          item._avatar = avatar;
+          item._dot = dot;
+          item._nameEl = nameEl;
+          item._officeEl = officeEl;
+          item._msgEl = msgEl;
+          item._actionsRight = actionsRight;
+
           sidebarUserItems.set(u.username, item);
         } else {
-          avatar = item.querySelector('.user-avatar');
-          dot = item.querySelector('.status-dot');
-          info = item.querySelector('.user-info');
-          nameRow = info.querySelector('div');
-          nameEl = item.querySelector('.user-name');
-          officeEl = item.querySelector('.user-office');
-          msgEl = item.querySelector('.user-last-msg');
-          actionsRight = item.querySelector('.user-actions-right');
-          // Keep the closure's user object current for clicks/notify.
+          avatar = item._avatar || item.querySelector('.user-avatar');
+          dot = item._dot || item.querySelector('.status-dot');
+          nameEl = item._nameEl || item.querySelector('.user-name');
+          officeEl = item._officeEl || item.querySelector('.user-office');
+          msgEl = item._msgEl || item.querySelector('.user-last-msg');
+          actionsRight = item._actionsRight || item.querySelector('.user-actions-right');
           item.onclick = () => selectDM(u);
         }
 
-        // Update only what actually changed instead of recreating nodes.
         const newClassName = 'user-item' + (activeDM === u.username ? ' active' : '') + (hasUnread ? ' has-unread' : '');
         if (item.className !== newClassName) item.className = newClassName;
 
         if (avatar.dataset.initials !== u.name) {
           const initials = getInitials(u.name);
           avatar.textContent = initials;
-          avatar.appendChild(dot); // textContent write above wiped the dot; re-attach
+          avatar.appendChild(dot);
           avatar.dataset.initials = u.name;
         }
         const newDotClass = 'status-dot ' + (u.status || 'offline');
@@ -3257,8 +3346,6 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
 
         if (nameEl.textContent !== u.name) nameEl.textContent = u.name;
 
-        // Keep the chat header title in sync when the active DM user's name
-        // changes (e.g. admin edits the user's name in the main RMS).
         if (activeDM === u.username && chatHeaderTitle.textContent !== u.name) {
           chatHeaderTitle.textContent = u.name;
         }
@@ -3289,7 +3376,6 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
         let notifyBtn = actionsRight.querySelector('.notify-btn');
 
         if (targetIsAdmin) {
-          // Remove normal notify button if exists
           if (notifyBtn) {
             notifyBtn.remove();
             notifyBtn = null;
@@ -3315,7 +3401,6 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
               badge.textContent = badgeText;
             }
             
-            // Remove standalone badge if exists
             let standaloneBadge = actionsRight.querySelector(':scope > .user-unread-badge');
             if (standaloneBadge) {
               standaloneBadge.remove();
@@ -3327,13 +3412,11 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
             }
           }
         } else {
-          // Normal user: remove admin wrapper if exists
           if (adminBadgeWrapper) {
             adminBadgeWrapper.remove();
             adminBadgeWrapper = null;
           }
 
-          // Unread badge: insert as first child in actionsRight
           if (hasUnread) {
             const badgeText = u.unreadCount > 99 ? '99+' : String(u.unreadCount);
             if (!badge) {
@@ -3349,7 +3432,6 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
             badge = null;
           }
 
-          // Notify button
           if (!notifyBtn) {
             notifyBtn = document.createElement('button');
             notifyBtn.type = 'button';
@@ -3365,21 +3447,27 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
           };
         }
 
-        // Move the item to the correct order inside sidebarUsers ONLY if it is not
-        // already at the correct position. This completely prevents DOM thrashing/reflows
-        // and stops any blinking/flickering bugs when polling.
         if (sidebarUsers.children[index] !== item) {
           sidebarUsers.insertBefore(item, sidebarUsers.children[index] || null);
         }
       });
 
-      // Remove nodes for users that dropped out of the filtered list
-      // (e.g. search narrowed the results, or a user was removed).
       for (const [username, item] of sidebarUserItems) {
         if (!seen.has(username)) {
           item.remove();
           sidebarUserItems.delete(username);
         }
+      }
+
+      const existingNotice = sidebarUsers.querySelector('.search-limit-notice');
+      if (existingNotice) existingNotice.remove();
+
+      if (userSearchHasMore) {
+        const notice = document.createElement('div');
+        notice.className = 'search-limit-notice';
+        notice.style.cssText = 'padding:10px 16px;font-size:12px;color:var(--text-secondary);text-align:center;font-weight:500;border-top:1px dashed var(--border-color);margin-top:4px;';
+        notice.textContent = 'Showing the first 10 matches. Enter a more specific search term.';
+        sidebarUsers.appendChild(notice);
       }
     }
 
@@ -3563,7 +3651,7 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
       const xhr = new XMLHttpRequest();
       xhr.open('POST', 'mark_read.php', true);
       xhr.setRequestHeader('Content-type', 'application/x-www-form-urlencoded');
-      xhr.send('target_user=' + encodeURIComponent(targetUsername));
+      xhr.send('target_id=' + encodeURIComponent(activeDMAccountId || 0) + '&target_user=' + encodeURIComponent(targetUsername));
     }
 
     // State for global chat
@@ -3764,93 +3852,334 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
       }
     }
 
-    // ── Admin: render all conversations spy panel ────────────────────────────
-    // Same DOM-node-reuse approach as sidebarUserItems above, and for the same
-    // reason: rebuilding every row from scratch on every poll reset :hover /
-    // .active transitions, making the selected conversation row blink.
-    const adminConvItems = new Map(); // convId -> item element
+    // ── Admin: render all conversations spy panel (Search-First Architecture) ──
+    const adminConvItems = new Map(); // convId/userId -> item element
+    let adminSpyType = 'none';        // 'none', 'users', or 'conversations'
+    let adminSpyTargetUser = null;    // null or selected user object { account_id, full_name, email, ... }
+    let adminSpyUsers = [];           // array of user search result objects
+    let adminSpyConvs = [];           // array of conversation objects for target user
+    let adminSpyHasMore = false;
+    let adminSpyOffset = 0;
+    let adminSpyIsLoading = false;
+    let adminSearchTimeout = null;
+
+    function getInitialsFromFullName(name) {
+      if (!name) return '??';
+      const parts = name.trim().split(/\s+/);
+      if (parts.length === 1) return parts[0].substring(0, 2).toUpperCase();
+      return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
+    }
+
+    function escapeHtml(str) {
+      if (!str) return '';
+      return String(str).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+    }
+
+    function fetchAdminConvs(query = '', offset = 0, isAppend = false, targetId = 0) {
+      // Use isAdmin (available synchronously from PHP on page load) as a fallback,
+      // since serverIsAdmin is only confirmed later via an async AJAX response —
+      // without this fallback, a call made during the initial page load (e.g. when
+      // restoring a persisted spy-mode view on refresh) would bail out too early
+      // and never render the spy-mode search panel.
+      if (!serverIsAdmin && !isAdmin) return;
+
+      const trimmedQuery = query.trim();
+      const currentTargetId = targetId || (adminSpyTargetUser ? adminSpyTargetUser.account_id : 0);
+
+      // If no query and no target user selected: empty state, zero network calls
+      if (trimmedQuery === '' && currentTargetId === 0) {
+        adminSpyType = 'none';
+        adminSpyUsers = [];
+        adminSpyConvs = [];
+        adminSpyHasMore = false;
+        adminSpyOffset = 0;
+        adminSpyTargetUser = null;
+        renderAdminConvs();
+        return;
+      }
+
+      adminSpyIsLoading = true;
+      const xhr = new XMLHttpRequest();
+      let url = "fetch_users_dm.php?spy_mode=1";
+
+      if (currentTargetId > 0) {
+        url += "&admin_target_id=" + currentTargetId;
+      } else {
+        url += "&admin_q=" + encodeURIComponent(trimmedQuery);
+      }
+
+      xhr.open("GET", url, true);
+      xhr.onload = function() {
+        adminSpyIsLoading = false;
+        if (this.status === 200) {
+          try {
+            const data = JSON.parse(this.responseText);
+            const adminData = data.adminConvs || {};
+            adminSpyType = adminData.type || 'none';
+            adminSpyHasMore = !!adminData.hasMore;
+
+            if (adminSpyType === 'users') {
+              adminSpyUsers = adminData.users || [];
+            } else if (adminSpyType === 'conversations') {
+              if (adminData.targetUser) {
+                adminSpyTargetUser = adminData.targetUser;
+              }
+              adminSpyConvs = adminData.conversations || [];
+            }
+
+            renderAdminConvs();
+          } catch(e) { console.error('fetchAdminConvs parse error', e); }
+        }
+      };
+      xhr.onerror = function() { adminSpyIsLoading = false; };
+      xhr.send();
+    }
+
+    function selectAdminSpyTargetUser(user) {
+      adminSpyTargetUser = user;
+      adminSpyConvs = [];
+      fetchAdminConvs('', 0, false, user.account_id);
+    }
+
+    function clearAdminSpyTargetUser() {
+      adminSpyTargetUser = null;
+      adminSpyConvs = [];
+      const query = adminSearchInput ? adminSearchInput.value.trim() : '';
+      if (query !== '') {
+        fetchAdminConvs(query, 0, false, 0);
+      } else {
+        adminSpyType = 'none';
+        adminSpyUsers = [];
+        renderAdminConvs();
+      }
+    }
 
     function renderAdminConvs() {
       const section = document.getElementById('adminConvsSection');
       const list    = document.getElementById('adminConvsList');
+      const headerTitle = document.getElementById('adminConvsHeaderTitle');
       if (!section || !list) return;
 
-      const query = adminSearchInput ? adminSearchInput.value.toLowerCase() : '';
-
-      // Only show conversations that actually have exchanged messages —
-      // skip predefined/empty pairs with no chat history yet.
-      const activeConvs = (allConvsData || []).filter(c => (c.msgCount || 0) > 0);
-      
-      const filteredConvs = activeConvs.filter(c => 
-        c.name1.toLowerCase().includes(query) || c.name2.toLowerCase().includes(query) || (c.lastMessage && c.lastMessage.toLowerCase().includes(query))
-      );
-
-      if (!isAdminAllChatsView || activeConvs.length === 0) {
+      if (!isAdminAllChatsView) {
         section.style.display = 'none';
+        list.innerHTML = '';
+        adminConvItems.clear();
         return;
       }
+
       section.style.display = 'flex';
 
-      const seen = new Set();
-
-      filteredConvs.forEach(c => {
-        seen.add(c.convId);
-        let item = adminConvItems.get(c.convId);
-        let nameEl, msgEl;
-
-        if (!item) {
-          item = document.createElement('div');
-
-          const avatar = document.createElement('div');
-          avatar.className = 'user-avatar';
-          avatar.innerHTML = EYE_ICON_SVG;
-
-          const info = document.createElement('div');
-          info.className = 'user-info';
-
-          nameEl = document.createElement('div');
-          nameEl.className = 'user-name';
-          nameEl.style.fontSize = '13px';
-          info.appendChild(nameEl);
-
-          msgEl = document.createElement('div');
-          msgEl.className = 'user-last-msg';
-          info.appendChild(msgEl);
-
-          item.appendChild(avatar);
-          item.appendChild(info);
-
-          adminConvItems.set(c.convId, item);
+      // Update Section Header Title
+      if (headerTitle) {
+        if (adminSpyTargetUser) {
+          headerTitle.innerHTML = `<div style="display:flex;align-items:center;justify-content:space-between;width:100%;gap:6px;">
+            <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">Conversations for: ${escapeHtml(adminSpyTargetUser.full_name)}</span>
+            <button onclick="clearAdminSpyTargetUser()" style="background:none;border:none;color:#1b74e4;cursor:pointer;font-size:11px;font-weight:600;padding:2px 6px;border-radius:4px;white-space:nowrap;">← Back</button>
+          </div>`;
         } else {
-          nameEl = item.querySelector('.user-name');
-          msgEl = item.querySelector('.user-last-msg');
+          headerTitle.textContent = '';
+        }
+      }
+
+      // State A: Empty initial state (No search query, no target user)
+      if (adminSpyType === 'none') {
+        list.innerHTML = `<div class="sidebar-empty-state" style="padding:32px 16px;text-align:center;font-size:13px;color:var(--text-secondary);opacity:0.85;">
+          <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" style="margin-bottom:8px;opacity:0.6;"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
+          <p style="margin:0;font-weight:500;">Search for a user or office to spy on.</p>
+        </div>`;
+        adminConvItems.clear();
+        return;
+      }
+
+      // State B: Render User Search Results (Max 10)
+      if (adminSpyType === 'users') {
+        if (!adminSpyUsers || adminSpyUsers.length === 0) {
+          const q = adminSearchInput ? adminSearchInput.value.trim() : '';
+          list.innerHTML = `<div class="sidebar-empty-state" style="padding:24px 16px;text-align:center;font-size:13px;color:var(--text-secondary);opacity:0.85;font-weight:500;"><p style="margin:0;">No users found matching "${escapeHtml(q)}".</p></div>`;
+          adminConvItems.clear();
+          return;
         }
 
-        item.onclick = () => openAdminConv(c);
+        const emptyEl = list.querySelector('.sidebar-empty-state, .empty-chat');
+        if (emptyEl) emptyEl.remove();
 
-        const newClassName = 'user-item' + (activeAdminConv === c.convId ? ' active' : '');
-        if (item.className !== newClassName) item.className = newClassName;
+        const seen = new Set();
+        adminSpyUsers.forEach(u => {
+          const key = 'user_' + u.account_id;
+          seen.add(key);
+          let item = adminConvItems.get(key);
+          let nameEl, msgEl;
 
-        const newName = c.name1 + ' & ' + c.name2;
-        if (nameEl.textContent !== newName) nameEl.textContent = newName;
+          if (!item) {
+            item = document.createElement('div');
+            item.className = 'user-item';
 
-        const newMsg = c.msgCount + ' msg' + (c.msgCount !== 1 ? 's' : '') + (c.lastMessage ? ' · ' + c.lastMessage : '');
-        if (msgEl.textContent !== newMsg) msgEl.textContent = newMsg;
+            const avatar = document.createElement('div');
+            avatar.className = 'user-avatar';
+            avatar.style.background = 'linear-gradient(135deg, #1b74e4, #00c3ff)';
+            avatar.textContent = getInitialsFromFullName(u.full_name);
 
-        list.appendChild(item);
-      });
+            const info = document.createElement('div');
+            info.className = 'user-info';
 
-      for (const [convId, item] of adminConvItems) {
-        if (!seen.has(convId)) {
-          item.remove();
-          adminConvItems.delete(convId);
+            nameEl = document.createElement('div');
+            nameEl.className = 'user-name';
+            nameEl.style.fontSize = '13px';
+            info.appendChild(nameEl);
+
+            msgEl = document.createElement('div');
+            msgEl.className = 'user-last-msg';
+            info.appendChild(msgEl);
+
+            item.appendChild(avatar);
+            item.appendChild(info);
+
+            item._nameEl = nameEl;
+            item._msgEl = msgEl;
+
+            adminConvItems.set(key, item);
+          } else {
+            nameEl = item._nameEl || item.querySelector('.user-name');
+            msgEl = item._msgEl || item.querySelector('.user-last-msg');
+          }
+
+          item.onclick = () => selectAdminSpyTargetUser(u);
+
+          if (nameEl.textContent !== u.full_name) nameEl.textContent = u.full_name;
+
+          let subText = u.email || '';
+          if (u.office_code) subText += ' • ' + u.office_code;
+          else if (u.office_name) subText += ' • ' + u.office_name;
+
+          if (msgEl.textContent !== subText) msgEl.textContent = subText;
+
+          list.appendChild(item);
+        });
+
+        for (const [key, item] of adminConvItems) {
+          if (!seen.has(key)) {
+            item.remove();
+            adminConvItems.delete(key);
+          }
+        }
+
+        const existingNotice = list.querySelector('.search-limit-notice');
+        if (existingNotice) existingNotice.remove();
+
+        if (adminSpyHasMore) {
+          const notice = document.createElement('div');
+          notice.className = 'search-limit-notice';
+          notice.style.cssText = 'padding:10px 16px;font-size:12px;color:var(--text-secondary);text-align:center;font-weight:500;border-top:1px dashed var(--border-color);margin-top:4px;';
+          notice.textContent = 'Showing the first 10 matches. Enter a more specific search term.';
+          list.appendChild(notice);
+        }
+        return;
+      }
+
+      // State C: Render Selected User's Conversations (Max 50 latest)
+      if (adminSpyType === 'conversations') {
+        if (!adminSpyConvs || adminSpyConvs.length === 0) {
+          const name = adminSpyTargetUser ? adminSpyTargetUser.full_name : 'selected user';
+          list.innerHTML = `<div class="sidebar-empty-state" style="padding:24px 16px;text-align:center;font-size:13px;color:var(--text-secondary);opacity:0.85;font-weight:500;"><p style="margin:0;">No active conversations found for ${escapeHtml(name)}.</p></div>`;
+          adminConvItems.clear();
+          return;
+        }
+
+        const emptyEl = list.querySelector('.sidebar-empty-state, .empty-chat');
+        if (emptyEl) emptyEl.remove();
+
+        const seen = new Set();
+        adminSpyConvs.forEach(c => {
+          const key = 'conv_' + c.convId;
+          seen.add(key);
+          let item = adminConvItems.get(key);
+          let nameEl, msgEl;
+
+          if (!item) {
+            item = document.createElement('div');
+
+            const avatar = document.createElement('div');
+            avatar.className = 'user-avatar';
+            avatar.innerHTML = EYE_ICON_SVG;
+
+            const info = document.createElement('div');
+            info.className = 'user-info';
+
+            nameEl = document.createElement('div');
+            nameEl.className = 'user-name';
+            nameEl.style.fontSize = '13px';
+            info.appendChild(nameEl);
+
+            msgEl = document.createElement('div');
+            msgEl.className = 'user-last-msg';
+            info.appendChild(msgEl);
+
+            item.appendChild(avatar);
+            item.appendChild(info);
+
+            item._nameEl = nameEl;
+            item._msgEl = msgEl;
+
+            adminConvItems.set(key, item);
+          } else {
+            nameEl = item._nameEl || item.querySelector('.user-name');
+            msgEl = item._msgEl || item.querySelector('.user-last-msg');
+          }
+
+          item.onclick = () => openAdminConv(c);
+
+          const newClassName = 'user-item' + (activeAdminConv === c.convId ? ' active' : '');
+          if (item.className !== newClassName) item.className = newClassName;
+
+          const nameDisplay = c.name1 + ' ↔ ' + c.name2;
+          if (nameEl.textContent !== nameDisplay) nameEl.textContent = nameDisplay;
+
+          const newMsg = (c.msgCount || 1) + ' msg' + (c.msgCount !== 1 ? 's' : '') + (c.lastMessage ? ' · ' + c.lastMessage : '');
+          if (msgEl.textContent !== newMsg) msgEl.textContent = newMsg;
+
+          list.appendChild(item);
+        });
+
+        for (const [key, item] of adminConvItems) {
+          if (!seen.has(key)) {
+            item.remove();
+            adminConvItems.delete(key);
+          }
+        }
+
+        const existingNotice = list.querySelector('.search-limit-notice');
+        if (existingNotice) existingNotice.remove();
+
+        if (adminSpyHasMore) {
+          const notice = document.createElement('div');
+          notice.className = 'search-limit-notice';
+          notice.style.cssText = 'padding:10px 16px;font-size:12px;color:var(--text-secondary);text-align:center;font-weight:500;border-top:1px dashed var(--border-color);margin-top:4px;';
+          notice.textContent = 'Showing the first 50 matches. Enter a more specific search term.';
+          list.appendChild(notice);
         }
       }
     }
 
     if (adminSearchInput) {
-      adminSearchInput.addEventListener('input', renderAdminConvs);
+      adminSearchInput.addEventListener('input', () => {
+        if (adminSearchTimeout) clearTimeout(adminSearchTimeout);
+        adminSpyTargetUser = null; // Reset user selection when typing new search
+        const query = adminSearchInput.value.trim();
+
+        // Keep the search box's contents across refreshes
+        if (query === '') {
+          localStorage.removeItem('__adminSearchQuery__');
+        } else {
+          localStorage.setItem('__adminSearchQuery__', query);
+        }
+
+        adminSearchTimeout = setTimeout(() => {
+          fetchAdminConvs(query, 0, false, 0);
+        }, 250);
+      });
     }
+
+
 
     let activeAdminConv = null; // convId string when admin is spying
     let adminConvCursor = '';
@@ -4055,6 +4384,14 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
     searchInput.addEventListener('input', () => {
       if (searchTimeout) clearTimeout(searchTimeout);
       const query = searchInput.value.trim();
+
+      // Keep the search box's contents across refreshes
+      if (query === '') {
+        localStorage.removeItem('__searchQuery__');
+      } else {
+        localStorage.setItem('__searchQuery__', query);
+      }
+
       if (query === '') {
         fetchUsers();
       } else {
@@ -4152,7 +4489,11 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
       if (chatForm) chatForm.style.display = isAdminAllChatsView ? 'none' : '';
       if (spyNotice) spyNotice.style.display = isAdminAllChatsView ? 'flex' : 'none';
 
-      renderAdminConvs();
+      if (isAdminAllChatsView) {
+        fetchAdminConvs(adminSearchInput ? adminSearchInput.value.trim() : '', 0, false);
+      } else {
+        renderAdminConvs();
+      }
     }
 
     if (adminEyeToggleBtn) {
@@ -4176,7 +4517,7 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
           
           chatHeaderTitle.textContent = '';
           removePaginationBtn();
-          chatBox.innerHTML = '<div class="empty-chat"><p>Select a conversation to spy on</p></div>';
+          chatBox.innerHTML = '<div class="empty-chat"><p>Camarines Sur Polytechnic Colleges</p></div>';
 
           isAdminAllChatsView = true;
           localStorage.setItem('__adminAllChatsView__', '1');
@@ -4916,7 +5257,7 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
 
           if (toInsert.length === 0) {
             document.querySelectorAll('[data-sending-uid]').forEach(el => el.remove());
-            if (!gcViewingOlder) trimWindowFromTop(newMessages.length);
+            if (!gcViewingOlder) trimWindowFromTop(PAGE_SIZE);
             applyAdminBadges(); applyEmojiOnly();
             if (gcHasMore && !document.getElementById('loadOlderBtn') && !document.getElementById('noMoreOlderNotice')) insertLoadOlderBtn();
             return;
@@ -4937,7 +5278,7 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
             chatBox.appendChild(el);
           });
           document.querySelectorAll('[data-sending-uid]').forEach(el => el.remove());
-          if (!gcViewingOlder) trimWindowFromTop(newMessages.length);
+          if (!gcViewingOlder) trimWindowFromTop(PAGE_SIZE);
 
           // Reveal each message one-by-one with a staggered delay.
           // Finalization (scroll-to-bottom, badges, load-older button) fires once
@@ -5037,7 +5378,7 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
       // the (now stale) result instead of rendering it into the wrong chat.
       const requestedUser = activeDM;
       const cursor = loadOlderMode ? dmCursor : '';
-      const url = 'load_dm.php?target_user=' + encodeURIComponent(activeDM) + '&before_uuid=' + encodeURIComponent(cursor);
+      const url = 'load_dm.php?target_id=' + encodeURIComponent(activeDMAccountId || 0) + '&target_user=' + encodeURIComponent(activeDM) + '&before_uuid=' + encodeURIComponent(cursor);
 
       const xhr = new XMLHttpRequest();
       chatXhr = xhr;
@@ -5239,7 +5580,9 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
       };
       
       let params = "secret=" + encodeURIComponent(secret);
-      if (activeDM) {
+      if (activeDMAccountId) {
+        params += "&target_id=" + encodeURIComponent(activeDMAccountId) + "&target_user=" + encodeURIComponent(activeDM);
+      } else if (activeDM) {
         params += "&target_user=" + encodeURIComponent(activeDM);
       } else if (activeAdminConv) {
         params += "&conv_id=" + encodeURIComponent(activeAdminConv);
@@ -5380,7 +5723,7 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
         xhr.setRequestHeader('Content-type', 'application/x-www-form-urlencoded');
         payload = isGlobalChat
           ? 'message=' + encodeURIComponent(message)
-          : 'target_user=' + encodeURIComponent(activeDM) + '&message=' + encodeURIComponent(message);
+          : 'target_id=' + encodeURIComponent(activeDMAccountId || 0) + '&target_user=' + encodeURIComponent(activeDM) + '&message=' + encodeURIComponent(message);
       }
 
       // Fire the XHR immediately — no artificial delay. The "Sending..." bubble
@@ -5441,8 +5784,13 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
             const sendingBubble = document.getElementById(sendIndId);
             if (sendingBubble) {
               if (confirmedMsg && confirmedMsg.id) {
-                sendingBubble.setAttribute('data-msg-id', confirmedMsg.id);
-                sendingBubble.removeAttribute('id');
+                const existingInChatBox = chatBox.querySelector(`.message-container[data-msg-id="${confirmedMsg.id}"]`);
+                if (existingInChatBox) {
+                  if (sendingBubble.parentNode) sendingBubble.parentNode.removeChild(sendingBubble);
+                } else {
+                  sendingBubble.setAttribute('data-msg-id', confirmedMsg.id);
+                  sendingBubble.removeAttribute('id');
+                  sendingBubble.removeAttribute('data-sending-uid');
                 
                 // Move from floating sending overlay to main chatBox if needed
                 if (sendingBubble.parentNode && sendingBubble.parentNode !== chatBox) {
@@ -5451,7 +5799,10 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
                 }
 
                 const msgContent = confirmedMsg.plaintext || message;
-                const fullTimeDisplay = new Date().toLocaleString([], { month: 'long', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' });
+                const d = new Date();
+                const dateStr = d.toLocaleDateString('en-US', { timeZone: 'Asia/Manila', month: 'long', day: 'numeric', year: 'numeric' });
+                const timeStr = d.toLocaleTimeString('en-US', { timeZone: 'Asia/Manila', hour: 'numeric', minute: '2-digit', hour12: true });
+                const fullTimeDisplay = `${dateStr} at ${timeStr}`;
                 const senderLabel = (name || 'you').toLowerCase();
 
                 sendingBubble.className = 'message-container sent';
@@ -5465,7 +5816,8 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
                     </div>
                   </div>
                 `;
-                if (isAtBottom()) scrollToBottom(true, true);
+                  if (isAtBottom()) scrollToBottom(true, true);
+                }
               }
             }
           }
@@ -5535,8 +5887,7 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
       this.style.height = 'auto';
       const newHeight = Math.min(this.scrollHeight, 120);
       this.style.height = newHeight + 'px';
-      // Show scrollbar only when content exceeds max-height
-      this.style.overflowY = this.scrollHeight > 120 ? 'auto' : 'hidden';
+      // Keep overflow-y:scroll always (scrollbar hidden via CSS, not JS toggle)
       // iOS: recalculate layout whenever textarea height changes.
       // Double-rAF ensures we read offsetHeight AFTER the browser has fully
       // reflowed the textarea — otherwise footerH is stale → white gap appears.
@@ -5783,6 +6134,9 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
               activeDM = null; activeAdminConv = null; isGlobalChat = false;
               gcCursor = ''; dmCursor = '';
               gcViewingOlder = false; dmViewingOlder = false;
+              allConvsData = [];
+              localStorage.removeItem('activeSpyConv');
+              localStorage.removeItem('activeDM');
               removePaginationBtn();
               document.getElementById('globalChatItem').classList.remove('active');
               chatBox.innerHTML = '<div class="empty-chat"><p>All messages deleted.</p></div>';
@@ -5992,7 +6346,7 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
 
         let params = 'uploaded_files=' + encodeURIComponent(filesPayload);
         if (!isGlobalChat && activeDM) {
-          params += '&target_user=' + encodeURIComponent(activeDM);
+          params += '&target_id=' + encodeURIComponent(activeDMAccountId || 0) + '&target_user=' + encodeURIComponent(activeDM);
         }
 
         sendXhr.onload = function() {

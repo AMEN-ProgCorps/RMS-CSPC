@@ -3186,10 +3186,56 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
 
             if (!hasAutoSelected) {
               hasAutoSelected = true;
-              chatBox.innerHTML = '<div class="empty-chat"><p>Camarines Sur Polytechnic Colleges</p></div>';
+
+              // Reopen whichever chat was active before the tab was
+              // refreshed, instead of always dropping back to the
+              // placeholder screen.
+              const savedActiveDM = (!isAdminAllChatsView) ? localStorage.getItem('activeDM') : null;
+              if (savedActiveDM) {
+                restoreActiveConversation(savedActiveDM);
+              } else {
+                chatBox.innerHTML = '<div class="empty-chat"><p>Camarines Sur Polytechnic Colleges</p></div>';
+              }
             }
           } catch(e){ console.error('fetchUsers parse error', e); }
         }
+      };
+      xhr.send();
+    }
+
+    // Reopens the conversation the person had open before a refresh. Looked
+    // up directly by username via its own request (rather than relying on
+    // allUsersData, which may currently be narrowed by an unrelated, restored
+    // sidebar search filter) so the restore works no matter what's typed in
+    // the search box.
+    function restoreActiveConversation(savedActiveDM) {
+      if (savedActiveDM === '__global__') {
+        selectGlobalChat();
+        return;
+      }
+
+      const xhr = new XMLHttpRequest();
+      xhr.open('GET', 'fetch_users_dm.php?q=' + encodeURIComponent(savedActiveDM), true);
+      xhr.onload = function() {
+        let matchedUser = null;
+        if (this.status === 200) {
+          try {
+            const data = JSON.parse(this.responseText);
+            const list = Array.isArray(data) ? data : (data.users || []);
+            matchedUser = list.find(u => u.username === savedActiveDM) || null;
+          } catch (e) { console.error('restoreActiveConversation parse error', e); }
+        }
+        if (matchedUser) {
+          selectDM(matchedUser);
+        } else {
+          // The saved conversation partner no longer exists / isn't reachable
+          // anymore — don't keep pointing at a chat we can't reopen.
+          localStorage.removeItem('activeDM');
+          chatBox.innerHTML = '<div class="empty-chat"><p>Camarines Sur Polytechnic Colleges</p></div>';
+        }
+      };
+      xhr.onerror = function() {
+        chatBox.innerHTML = '<div class="empty-chat"><p>Camarines Sur Polytechnic Colleges</p></div>';
       };
       xhr.send();
     }

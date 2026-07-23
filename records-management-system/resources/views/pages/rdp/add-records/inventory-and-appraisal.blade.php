@@ -7,6 +7,7 @@ use Livewire\WithFileUploads;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Str;
+use Carbon\Carbon;
 
 new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends Component {
     use WithFileUploads;
@@ -18,14 +19,16 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
     public array $subsections = [];
     public ?int $activeSubDropdownIndex = null;
 
-    // Selected Series Staged State (Not saved to DB until Create Record)
+    // Selected Series Staged State (Deferred DB save)
     public ?int $record_series_id = null;
     public ?string $selectedSeriesTitle = null;
 
+    // Period Covered Modal & Staged State (Deferred DB save)
+    public bool $showPeriodModal = false;
+    public array $periodsCovered = [];
+
     // Form Input Properties
     public string $description = '';
-    public ?string $start_year = null;
-    public ?string $end_year = null;
     public string $volume = '';
     public ?int $records_medium = null;
     public ?string $restriction = null;
@@ -43,10 +46,9 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
 
     public function mount(): void
     {
-        $this->start_year = date('Y');
-        $this->end_year = date('Y');
     }
 
+    // --- Record Series Modal Handlers ---
     public function openSeriesModal(): void
     {
         $this->showSeriesModal = true;
@@ -87,7 +89,7 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
     }
 
     /**
-     * Staging Series locally without saving to DB directly.
+     * Stage Record Series in memory without direct DB write.
      */
     public function saveNewRecordSeries(): void
     {
@@ -104,16 +106,89 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
             }
         }
 
-        // Stage locally for form display
         $this->selectedSeriesTitle = implode(' ➔ ', $fullPathTitles);
         $this->showSeriesModal = false;
         $this->showParentDropdown = false;
         $this->activeSubDropdownIndex = null;
     }
 
+    // --- Period Covered Modal Handlers ---
+    public function openPeriodModal(): void
+    {
+        if (empty($this->periodsCovered)) {
+            $this->periodsCovered = [
+                ['start_month' => date('Y-01'), 'end_month' => date('Y-12')]
+            ];
+        }
+        $this->showPeriodModal = true;
+    }
+
+    public function closePeriodModal(): void
+    {
+        $this->showPeriodModal = false;
+    }
+
+    public function addPeriodRange(): void
+    {
+        $this->periodsCovered[] = ['start_month' => '', 'end_month' => ''];
+    }
+
+    public function removePeriodRange(int $index): void
+    {
+        if (isset($this->periodsCovered[$index])) {
+            unset($this->periodsCovered[$index]);
+            $this->periodsCovered = array_values($this->periodsCovered);
+        }
+    }
+
+    /**
+     * Stage Period Covered in memory without direct DB write.
+     */
+    public function savePeriods(): void
+    {
+        $this->periodsCovered = array_values(array_filter($this->periodsCovered, function ($p) {
+            return !empty($p['start_month']) || !empty($p['end_month']);
+        }));
+
+        $this->showPeriodModal = false;
+    }
+
+    public function getFormattedPeriodsProperty(): array
+    {
+        $formatted = [];
+        foreach ($this->periodsCovered as $p) {
+            $startStr = '';
+            $endStr = '';
+
+            if (!empty($p['start_month'])) {
+                try {
+                    $startStr = Carbon::createFromFormat('Y-m', $p['start_month'])->format('M Y');
+                } catch (\Exception $e) {
+                    $startStr = $p['start_month'];
+                }
+            }
+
+            if (!empty($p['end_month'])) {
+                try {
+                    $endStr = Carbon::createFromFormat('Y-m', $p['end_month'])->format('M Y');
+                } catch (\Exception $e) {
+                    $endStr = $p['end_month'];
+                }
+            }
+
+            if ($startStr && $endStr) {
+                $formatted[] = $startStr . ' - ' . $endStr;
+            } elseif ($startStr) {
+                $formatted[] = $startStr;
+            } elseif ($endStr) {
+                $formatted[] = $endStr;
+            }
+        }
+        return $formatted;
+    }
+
     public function with(): array
     {
-        // Predefined Series suggestions for Parent input
         $parentSuggestions = DB::table('rdp_record_series')
             ->select('series_title')
             ->whereNull('parent_id')
@@ -125,7 +200,6 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
             ->limit(8)
             ->get();
 
-        // Subsections suggestions
         $allSeriesSuggestions = DB::table('rdp_record_series')
             ->select('series_title')
             ->distinct()
@@ -170,7 +244,7 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
             $userOfficeCode = $user?->details?->office?->office_code;
             $documentIdHandler = null;
 
-            // 1. Save Staged Record Series to DB only on Create Record submission
+            // 1. Save Staged Record Series to DB only on form submission
             $titles = explode(' ➔ ', $this->selectedSeriesTitle);
             $lastSeriesId = null;
 
@@ -245,21 +319,42 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
                 'updated_at'             => now(),
             ]);
 
-            // 5. Period Covered
-            if ($this->start_year || $this->end_year) {
-                DB::table('rdp_period_covered')->insert([
-                    'period_owner' => $recordId,
-                    'start_at'     => $this->start_year ? $this->start_year . '-01-01 00:00:00' : null,
-                    'ends_at'      => $this->end_year ? $this->end_year . '-12-31 23:59:59' : null,
-                    'created_at'   => now(),
-                    'updated_at'   => now(),
-                ]);
+            // 5. Period Covered - Saved to DB only on form submission
+            foreach ($this->periodsCovered as $p) {
+                $startAt = null;
+                $endsAt = null;
+
+                if (!empty($p['start_month'])) {
+                    try {
+                        $startAt = Carbon::createFromFormat('Y-m', $p['start_month'])->startOfMonth()->toDateTimeString();
+                    } catch (\Exception $e) {
+                        $startAt = null;
+                    }
+                }
+
+                if (!empty($p['end_month'])) {
+                    try {
+                        $endsAt = Carbon::createFromFormat('Y-m', $p['end_month'])->endOfMonth()->toDateTimeString();
+                    } catch (\Exception $e) {
+                        $endsAt = null;
+                    }
+                }
+
+                if ($startAt || $endsAt) {
+                    DB::table('rdp_period_covered')->insert([
+                        'period_owner' => $recordId,
+                        'start_at'     => $startAt,
+                        'ends_at'      => $endsAt,
+                        'created_at'   => now(),
+                        'updated_at'   => now(),
+                    ]);
+                }
             }
 
             DB::commit();
 
             $this->successMessage = 'Record created successfully!';
-            $this->reset(['description', 'volume', 'records_location', 'uploadedFile', 'retention_period', 'disposition_provision', 'record_series_id', 'selectedSeriesTitle', 'parentSeriesTitle', 'subsections']);
+            $this->reset(['description', 'volume', 'records_location', 'uploadedFile', 'retention_period', 'disposition_provision', 'record_series_id', 'selectedSeriesTitle', 'parentSeriesTitle', 'subsections', 'periodsCovered']);
 
         } catch (\Exception $e) {
             DB::rollBack();
@@ -270,11 +365,41 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
     public function saveDraft(): void
     {
         try {
+            DB::beginTransaction();
+
             $user = Auth::user();
             $userOfficeCode = $user?->details?->office?->office_code;
 
-            DB::table('rdp_record')->insert([
-                'record_series_id'       => $this->record_series_id ?? 1,
+            // Resolve staged Record Series if present
+            $seriesId = 1;
+            if (!empty($this->selectedSeriesTitle)) {
+                $titles = explode(' ➔ ', $this->selectedSeriesTitle);
+                $lastSeriesId = null;
+
+                foreach ($titles as $title) {
+                    $trimmed = trim($title);
+                    $existing = DB::table('rdp_record_series')
+                        ->where('series_title', $trimmed)
+                        ->where('parent_id', $lastSeriesId)
+                        ->first();
+
+                    if ($existing) {
+                        $lastSeriesId = $existing->id;
+                    } else {
+                        $lastSeriesId = DB::table('rdp_record_series')->insertGetId([
+                            'series_title'       => $trimmed,
+                            'parent_id'          => $lastSeriesId,
+                            'recorded_at_office' => $userOfficeCode,
+                            'created_at'         => now(),
+                            'updated_at'         => now(),
+                        ]);
+                    }
+                }
+                $seriesId = $lastSeriesId;
+            }
+
+            $recordId = DB::table('rdp_record')->insertGetId([
+                'record_series_id'       => $seriesId,
                 'description'            => '[DRAFT] ' . $this->description,
                 'volume'                 => $this->volume,
                 'records_location'       => $this->records_location,
@@ -289,8 +414,43 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
                 'updated_at'             => now(),
             ]);
 
+            // Save Period Covered for draft
+            foreach ($this->periodsCovered as $p) {
+                $startAt = null;
+                $endsAt = null;
+
+                if (!empty($p['start_month'])) {
+                    try {
+                        $startAt = Carbon::createFromFormat('Y-m', $p['start_month'])->startOfMonth()->toDateTimeString();
+                    } catch (\Exception $e) {
+                        $startAt = null;
+                    }
+                }
+
+                if (!empty($p['end_month'])) {
+                    try {
+                        $endsAt = Carbon::createFromFormat('Y-m', $p['end_month'])->endOfMonth()->toDateTimeString();
+                    } catch (\Exception $e) {
+                        $endsAt = null;
+                    }
+                }
+
+                if ($startAt || $endsAt) {
+                    DB::table('rdp_period_covered')->insert([
+                        'period_owner' => $recordId,
+                        'start_at'     => $startAt,
+                        'ends_at'      => $endsAt,
+                        'created_at'   => now(),
+                        'updated_at'   => now(),
+                    ]);
+                }
+            }
+
+            DB::commit();
+
             $this->successMessage = 'Draft saved successfully!';
         } catch (\Exception $e) {
+            DB::rollBack();
             $this->errorMessage = 'Error saving draft: ' . $e->getMessage();
         }
     }
@@ -385,7 +545,7 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
             font-weight: 600;
         }
 
-        /* Series Selection Modal Container */
+        /* Series & Period Modal Overlay */
         .series-modal-overlay {
             position: fixed;
             top: 0;
@@ -549,6 +709,16 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
             justify-content: flex-end;
             margin-top: 24px;
         }
+        .period-range-row {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            background: #f8fafc;
+            padding: 12px 14px;
+            border: 1px solid #e2e8f0;
+            border-radius: 10px;
+            margin-bottom: 12px;
+        }
     </style>
 
     <!-- Header Section -->
@@ -574,7 +744,6 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
             <span class="form-label-bold">Record Series:</span>
             
             @if($selectedSeriesTitle)
-                <!-- Added State: Show Series Path Badge + White EDIT Button with Icon on the Right -->
                 <span class="selected-series-badge">
                     {{ $selectedSeriesTitle }}
                 </span>
@@ -583,7 +752,6 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
                     <span>EDIT</span>
                 </button>
             @else
-                <!-- Initial State: Show Blue SET Button -->
                 <button type="button" class="btn btn-primary btn-set-inline" wire:click="openSeriesModal">
                     SET
                 </button>
@@ -597,13 +765,26 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
         </div>
 
         <!-- ===== Period Covered / Inclusive Dates ===== -->
-        <div class="form-row-flex">
+        <div class="form-row-flex" style="align-items: center;">
             <span class="form-label-bold">Period Covered:</span>
-            <div style="display:flex; gap:10px; align-items:center;">
-                <input type="number" class="form-input-custom" wire:model="start_year" placeholder="Start Year (e.g. 2020)" style="width:140px;">
-                <span style="font-weight:600; color:#64748b;">to</span>
-                <input type="number" class="form-input-custom" wire:model="end_year" placeholder="End Year (e.g. 2025)" style="width:140px;">
-            </div>
+            
+            @if(count($this->formattedPeriods) > 0)
+                <div style="display:flex; flex-wrap:wrap; gap:8px; align-items:center;">
+                    @foreach($this->formattedPeriods as $periodLabel)
+                        <span class="selected-series-badge">
+                            {{ $periodLabel }}
+                        </span>
+                    @endforeach
+                    <button type="button" class="btn-edit-series" wire:click="openPeriodModal">
+                        <svg viewBox="0 0 24 24"><path d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04c.39-.39.39-1.02 0-1.41l-2.34-2.34c-.39-.39-1.02-.39-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z"/></svg>
+                        <span>EDIT</span>
+                    </button>
+                </div>
+            @else
+                <button type="button" class="btn btn-primary btn-set-inline" wire:click="openPeriodModal">
+                    ADD
+                </button>
+            @endif
         </div>
 
         <!-- ===== Volume ===== -->
@@ -781,6 +962,55 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
                             Add Record
                         </button>
                         <button type="button" class="btn-secondary-modal" wire:click="closeSeriesModal">
+                            Cancel
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    @endif
+
+    <!-- PERIOD COVERED MODAL CONTAINER -->
+    @if($showPeriodModal)
+        <div class="series-modal-overlay">
+            <div class="series-modal-container">
+                <div class="series-modal-header">
+                    <h3>Configure Period Covered</h3>
+                    <button type="button" class="close-modal-btn" wire:click="closePeriodModal">&times;</button>
+                </div>
+                <div class="series-modal-body">
+                    <div style="margin-bottom: 16px; font-size: 13px; color: #64748b;">
+                        Add one or multiple period ranges covered by this record (e.g. Jan 2026 - Jan 2027, Jan 2029 - Jan 2030).
+                    </div>
+
+                    @foreach($periodsCovered as $index => $period)
+                        <div class="period-range-row">
+                            <div style="flex: 1;">
+                                <label style="font-size: 11px; font-weight: 700; color: #475569; display: block; margin-bottom: 4px;">Start Month & Year:</label>
+                                <input type="month" class="modal-input-style" wire:model="periodsCovered.{{ $index }}.start_month">
+                            </div>
+                            <span style="font-weight: 700; color: #64748b; margin-top: 18px;">to</span>
+                            <div style="flex: 1;">
+                                <label style="font-size: 11px; font-weight: 700; color: #475569; display: block; margin-bottom: 4px;">End Month & Year:</label>
+                                <input type="month" class="modal-input-style" wire:model="periodsCovered.{{ $index }}.end_month">
+                            </div>
+                            <button type="button" class="btn-remove-sub" style="margin-top: 18px;" wire:click="removePeriodRange({{ $index }})" title="Remove Period">&times;</button>
+                        </div>
+                    @endforeach
+
+                    <!-- Add Period Button -->
+                    <div style="margin-top: 12px; margin-bottom: 20px;">
+                        <button type="button" class="btn-add-subsection" wire:click="addPeriodRange">
+                            + add period range
+                        </button>
+                    </div>
+
+                    <!-- Modal Actions Footer: Add Period | Cancel -->
+                    <div class="modal-actions-footer">
+                        <button type="button" class="btn btn-primary" wire:click="savePeriods">
+                            Add Period
+                        </button>
+                        <button type="button" class="btn-secondary-modal" wire:click="closePeriodModal">
                             Cancel
                         </button>
                     </div>

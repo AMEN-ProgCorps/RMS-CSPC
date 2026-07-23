@@ -2580,7 +2580,7 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
         <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor" style="flex-shrink:0;">
           <path d="M12 4.5C7 4.5 2.73 7.61 1 12c1.73 4.39 6 7.5 11 7.5s9.27-3.11 11-7.5c-1.73-4.39-6-7.5-11-7.5zM12 17c-2.76 0-5-2.24-5-5s2.24-5 5-5 5 2.24 5 5-2.24 5-5 5zm0-8c-1.66 0-3 1.34-3 3s1.34 3 3 3 3-1.34 3-3-1.34-3-3-3z"/>
         </svg>
-        <span>Admin Spy Mode Active</span>
+        <span>Super Admin Spy Mode</span>
       </div>
     </div>
   </div>
@@ -2954,6 +2954,9 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
           activeDM = null; activeAdminConv = null; isGlobalChat = false;
           gcCursor = ''; dmCursor = '';
           gcViewingOlder = false; dmViewingOlder = false;
+          allConvsData = [];
+          localStorage.removeItem('activeSpyConv');
+          localStorage.removeItem('activeDM');
           removePaginationBtn();
           const gcItem = document.getElementById('globalChatItem');
           if (gcItem) gcItem.classList.remove('active');
@@ -5803,6 +5806,9 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
               activeDM = null; activeAdminConv = null; isGlobalChat = false;
               gcCursor = ''; dmCursor = '';
               gcViewingOlder = false; dmViewingOlder = false;
+              allConvsData = [];
+              localStorage.removeItem('activeSpyConv');
+              localStorage.removeItem('activeDM');
               removePaginationBtn();
               document.getElementById('globalChatItem').classList.remove('active');
               chatBox.innerHTML = '<div class="empty-chat"><p>All messages deleted.</p></div>';

@@ -736,6 +736,9 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
       -moz-user-select: none;
       -ms-user-select: none;
       user-select: none;
+      /* iOS Safari: block the long-press callout menu (Save Image / Open in
+         New Tab / Copy) that would otherwise appear even with the above rules. */
+      -webkit-touch-callout: none;
     }
 
     .header-buttons {
@@ -2493,7 +2496,7 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
           <button id="backButton" class="clear-button" style="display:none;margin-right:10px;padding:0 10px;min-width:auto;">
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="19" y1="12" x2="5" y2="12"></line><polyline points="12 19 5 12 12 5"></polyline></svg>
           </button>
-          <img src="cspc.png" alt="GhostLAN ghost logo" class="header-logo" draggable="false" ondragstart="return false;">
+          <img src="cspc.png" alt="GhostLAN ghost logo" class="header-logo" draggable="false" ondragstart="return false;" oncontextmenu="return false;">
           <h1 id="chatHeaderTitle"></h1>
         </div>
       

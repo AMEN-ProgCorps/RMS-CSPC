@@ -23,12 +23,17 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
     public ?int $record_series_id = null;
     public ?string $selectedSeriesTitle = null;
 
+    // Predefined vs Custom Series Flag
+    public bool $isCustomSeries = false;
+
     // Period Covered Modal & Staged State (Deferred DB save)
     public bool $showPeriodModal = false;
     public array $periodsCovered = [];
 
     // Form Input Properties
     public string $description = '';
+    public ?float $volume_amount = null;
+    public mixed $volume_unit = null;
     public string $volume = '';
     public ?int $records_medium = null;
     public ?string $restriction = null;
@@ -46,6 +51,11 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
 
     public function mount(): void
     {
+        // Default volume_unit to Pages if available
+        $defaultUnit = DB::table('rdp_volume_value')->whereRaw('LOWER(value_standard) = ?', ['pages'])->value('volume_id');
+        if ($defaultUnit) {
+            $this->volume_unit = $defaultUnit;
+        }
     }
 
     // --- Record Series Modal Handlers ---
@@ -90,6 +100,7 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
 
     /**
      * Stage Record Series in memory without direct DB write.
+     * Evaluates whether selected series is predefined or custom, binding retention parameters.
      */
     public function saveNewRecordSeries(): void
     {
@@ -107,6 +118,65 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
         }
 
         $this->selectedSeriesTitle = implode(' ➔ ', $fullPathTitles);
+        $leafTitle = end($fullPathTitles);
+
+        // Check if the selected series is predefined in database
+        $foundSeries = DB::table('rdp_record_series')
+            ->where('series_title', $leafTitle)
+            ->first();
+
+        if ($foundSeries) {
+            $this->isCustomSeries = false;
+
+            $retention = null;
+            if ($foundSeries->retention_period) {
+                $retention = DB::table('rdp_retention_period')
+                    ->where('id', $foundSeries->retention_period)
+                    ->first();
+            }
+
+            $isActivePermanent = $retention && strtolower($retention->active_period ?? '') === 'permanent';
+            $isTotalPermanent  = $retention && strtolower($retention->total_period ?? '') === 'permanent';
+            $isTitlePermanent  = str_contains(strtolower($leafTitle), 'permanent');
+
+            if ($isActivePermanent || $isTotalPermanent || $isTitlePermanent) {
+                // Permanent retention binding: Auto-set Retention, Time Value (Permanent), and Utility Value (Archival)
+                $this->retention_period = 'Permanent';
+                $this->time_value = 'P';
+
+                $archivalId = DB::table('rdp_utility_medium')
+                    ->where('utility_name', 'like', '%Archival%')
+                    ->value('id');
+
+                if ($archivalId) {
+                    $this->utility_value = $archivalId;
+                }
+
+                if ($foundSeries->remarks) {
+                    $this->disposition_provision = $foundSeries->remarks;
+                }
+            } else {
+                // Predefined non-permanent retention binding: Auto-set active/storage period
+                if ($retention) {
+                    $parts = [];
+                    if (!empty($retention->active_period)) {
+                        $parts[] = 'Active: ' . $retention->active_period;
+                    }
+                    if (!empty($retention->storage_period)) {
+                        $parts[] = 'Storage: ' . $retention->storage_period;
+                    }
+                    $this->retention_period = !empty($parts) ? implode(', ', $parts) : ($retention->total_period ?? '');
+                }
+
+                if ($foundSeries->remarks) {
+                    $this->disposition_provision = $foundSeries->remarks;
+                }
+            }
+        } else {
+            // Non-predefined / Custom Record Series
+            $this->isCustomSeries = true;
+        }
+
         $this->showSeriesModal = false;
         $this->showParentDropdown = false;
         $this->activeSubDropdownIndex = null;
@@ -117,7 +187,7 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
     {
         if (empty($this->periodsCovered)) {
             $this->periodsCovered = [
-                ['start_month' => date('Y-01'), 'end_month' => date('Y-12')]
+                ['start_day' => '', 'start_month' => date('Y-01'), 'end_day' => '', 'end_month' => date('Y-12')]
             ];
         }
         $this->showPeriodModal = true;
@@ -130,7 +200,12 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
 
     public function addPeriodRange(): void
     {
-        $this->periodsCovered[] = ['start_month' => '', 'end_month' => ''];
+        $this->periodsCovered[] = [
+            'start_day'   => '',
+            'start_month' => '',
+            'end_day'     => '',
+            'end_month'   => ''
+        ];
     }
 
     public function removePeriodRange(int $index): void
@@ -160,9 +235,17 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
             $startStr = '';
             $endStr = '';
 
+            $startDay = !empty($p['start_day']) ? (int)$p['start_day'] : null;
+            $endDay = !empty($p['end_day']) ? (int)$p['end_day'] : null;
+
             if (!empty($p['start_month'])) {
                 try {
-                    $startStr = Carbon::createFromFormat('Y-m', $p['start_month'])->format('M Y');
+                    $dt = Carbon::createFromFormat('Y-m', $p['start_month']);
+                    if ($startDay && $startDay >= 1 && $startDay <= $dt->daysInMonth) {
+                        $startStr = $dt->format('M') . ' ' . $startDay . ', ' . $dt->format('Y');
+                    } else {
+                        $startStr = $dt->format('M Y');
+                    }
                 } catch (\Exception $e) {
                     $startStr = $p['start_month'];
                 }
@@ -170,7 +253,12 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
 
             if (!empty($p['end_month'])) {
                 try {
-                    $endStr = Carbon::createFromFormat('Y-m', $p['end_month'])->format('M Y');
+                    $dt = Carbon::createFromFormat('Y-m', $p['end_month']);
+                    if ($endDay && $endDay >= 1 && $endDay <= $dt->daysInMonth) {
+                        $endStr = $dt->format('M') . ' ' . $endDay . ', ' . $dt->format('Y');
+                    } else {
+                        $endStr = $dt->format('M Y');
+                    }
                 } catch (\Exception $e) {
                     $endStr = $p['end_month'];
                 }
@@ -185,6 +273,63 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
             }
         }
         return $formatted;
+    }
+
+    /**
+     * Volume conversion calculator consuming rdp_volume_conversion & rdp_volume_value tables.
+     */
+    public function calculateFormattedVolume(): string
+    {
+        if (!$this->volume_amount || $this->volume_amount <= 0 || !$this->volume_unit) {
+            return '';
+        }
+
+        $amount  = floatval($this->volume_amount);
+        $unitVal = $this->volume_unit;
+
+        // Query active conversion rule where value_standard matches volume_unit
+        $rule = DB::table('rdp_volume_conversion')
+            ->join('rdp_volume_value as std', 'rdp_volume_conversion.value_standard', '=', 'std.volume_id')
+            ->join('rdp_volume_value as conv', 'rdp_volume_conversion.value_converted', '=', 'conv.volume_id')
+            ->select([
+                'rdp_volume_conversion.amount_standard',
+                'rdp_volume_conversion.amount_converted',
+                'std.value_standard as std_name',
+                'conv.value_standard as conv_name',
+            ])
+            ->where('rdp_volume_conversion.is_active', true)
+            ->where(function ($q) use ($unitVal) {
+                if (is_numeric($unitVal)) {
+                    $q->where('std.volume_id', $unitVal);
+                } else {
+                    $q->whereRaw('LOWER(std.value_standard) = ?', [strtolower(trim($unitVal))]);
+                }
+            })
+            ->first();
+
+        if ($rule && $rule->amount_standard > 0) {
+            $fromAmount = floatval($rule->amount_standard);
+            $toAmount   = floatval($rule->amount_converted ?: 1);
+
+            $fullUnits = floor($amount / $fromAmount) * $toAmount;
+            $remainder = fmod($amount, $fromAmount);
+
+            $targetUnitStr = $rule->conv_name;
+            $sourceUnitStr = $rule->std_name;
+
+            if ($fullUnits > 0 && $remainder > 0) {
+                return "{$fullUnits} " . Str::plural($targetUnitStr, $fullUnits) . ", {$remainder} " . Str::plural($sourceUnitStr, $remainder);
+            } elseif ($fullUnits > 0 && $remainder == 0) {
+                return "{$fullUnits} " . Str::plural($targetUnitStr, $fullUnits);
+            }
+        }
+
+        // Fallback if no conversion rule found
+        $sourceUnitName = is_numeric($unitVal) 
+            ? (DB::table('rdp_volume_value')->where('volume_id', $unitVal)->value('value_standard') ?: 'Unit') 
+            : $unitVal;
+
+        return "{$amount} " . Str::plural($sourceUnitName, $amount);
     }
 
     public function with(): array
@@ -207,14 +352,20 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
             ->limit(10)
             ->get();
 
+        $availableUnits = DB::table('rdp_volume_value')
+            ->where('is_active', true)
+            ->orderBy('value_standard', 'asc')
+            ->get();
+
         return [
-            'parentSuggestions' => $parentSuggestions,
+            'parentSuggestions'    => $parentSuggestions,
             'allSeriesSuggestions' => $allSeriesSuggestions,
-            'mediaList'         => DB::table('rdp_recorded_value')->orderBy('medium_name', 'asc')->get(),
-            'restrictionsList'  => DB::table('rdp_restriction_type')->orderBy('restriction_value', 'asc')->get(),
-            'frequenciesList'   => DB::table('rdp_frequence_use')->orderBy('freq_type', 'asc')->get(),
-            'timeValuesList'    => DB::table('rdp_time_value')->orderBy('char_value', 'asc')->get(),
-            'utilityValuesList' => DB::table('rdp_utility_medium')->orderBy('utility_name', 'asc')->get(),
+            'availableUnits'       => $availableUnits,
+            'mediaList'            => DB::table('rdp_recorded_value')->orderBy('medium_name', 'asc')->get(),
+            'restrictionsList'     => DB::table('rdp_restriction_type')->orderBy('restriction_value', 'asc')->get(),
+            'frequenciesList'      => DB::table('rdp_frequence_use')->orderBy('freq_type', 'asc')->get(),
+            'timeValuesList'       => DB::table('rdp_time_value')->orderBy('char_value', 'asc')->get(),
+            'utilityValuesList'    => DB::table('rdp_utility_medium')->orderBy('utility_name', 'asc')->get(),
         ];
     }
 
@@ -227,7 +378,6 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
 
         $this->validate([
             'description'      => 'nullable|string',
-            'volume'           => 'nullable|string',
             'records_medium'   => 'nullable|integer',
             'restriction'      => 'nullable|string',
             'records_location' => 'nullable|string',
@@ -243,6 +393,9 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
             $user = Auth::user();
             $userOfficeCode = $user?->details?->office?->office_code;
             $documentIdHandler = null;
+
+            // Compute converted volume
+            $this->volume = $this->calculateFormattedVolume();
 
             // 1. Save Staged Record Series to DB only on form submission
             $titles = explode(' ➔ ', $this->selectedSeriesTitle);
@@ -324,9 +477,18 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
                 $startAt = null;
                 $endsAt = null;
 
+                $startDay = !empty($p['start_day']) ? (int)$p['start_day'] : null;
+                $endDay = !empty($p['end_day']) ? (int)$p['end_day'] : null;
+
                 if (!empty($p['start_month'])) {
                     try {
-                        $startAt = Carbon::createFromFormat('Y-m', $p['start_month'])->startOfMonth()->toDateTimeString();
+                        $dt = Carbon::createFromFormat('Y-m', $p['start_month']);
+                        if ($startDay && $startDay >= 1 && $startDay <= $dt->daysInMonth) {
+                            $dt->day($startDay);
+                        } else {
+                            $dt->startOfMonth();
+                        }
+                        $startAt = $dt->startOfDay()->toDateTimeString();
                     } catch (\Exception $e) {
                         $startAt = null;
                     }
@@ -334,7 +496,13 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
 
                 if (!empty($p['end_month'])) {
                     try {
-                        $endsAt = Carbon::createFromFormat('Y-m', $p['end_month'])->endOfMonth()->toDateTimeString();
+                        $dt = Carbon::createFromFormat('Y-m', $p['end_month']);
+                        if ($endDay && $endDay >= 1 && $endDay <= $dt->daysInMonth) {
+                            $dt->day($endDay);
+                        } else {
+                            $dt->endOfMonth();
+                        }
+                        $endsAt = $dt->endOfDay()->toDateTimeString();
                     } catch (\Exception $e) {
                         $endsAt = null;
                     }
@@ -354,7 +522,7 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
             DB::commit();
 
             $this->successMessage = 'Record created successfully!';
-            $this->reset(['description', 'volume', 'records_location', 'uploadedFile', 'retention_period', 'disposition_provision', 'record_series_id', 'selectedSeriesTitle', 'parentSeriesTitle', 'subsections', 'periodsCovered']);
+            $this->reset(['description', 'volume', 'volume_amount', 'uploadedFile', 'retention_period', 'disposition_provision', 'record_series_id', 'selectedSeriesTitle', 'parentSeriesTitle', 'subsections', 'periodsCovered', 'isCustomSeries']);
 
         } catch (\Exception $e) {
             DB::rollBack();
@@ -369,6 +537,9 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
 
             $user = Auth::user();
             $userOfficeCode = $user?->details?->office?->office_code;
+
+            // Compute converted volume
+            $this->volume = $this->calculateFormattedVolume();
 
             // Resolve staged Record Series if present
             $seriesId = 1;
@@ -419,9 +590,18 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
                 $startAt = null;
                 $endsAt = null;
 
+                $startDay = !empty($p['start_day']) ? (int)$p['start_day'] : null;
+                $endDay = !empty($p['end_day']) ? (int)$p['end_day'] : null;
+
                 if (!empty($p['start_month'])) {
                     try {
-                        $startAt = Carbon::createFromFormat('Y-m', $p['start_month'])->startOfMonth()->toDateTimeString();
+                        $dt = Carbon::createFromFormat('Y-m', $p['start_month']);
+                        if ($startDay && $startDay >= 1 && $startDay <= $dt->daysInMonth) {
+                            $dt->day($startDay);
+                        } else {
+                            $dt->startOfMonth();
+                        }
+                        $startAt = $dt->startOfDay()->toDateTimeString();
                     } catch (\Exception $e) {
                         $startAt = null;
                     }
@@ -429,7 +609,13 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
 
                 if (!empty($p['end_month'])) {
                     try {
-                        $endsAt = Carbon::createFromFormat('Y-m', $p['end_month'])->endOfMonth()->toDateTimeString();
+                        $dt = Carbon::createFromFormat('Y-m', $p['end_month']);
+                        if ($endDay && $endDay >= 1 && $endDay <= $dt->daysInMonth) {
+                            $dt->day($endDay);
+                        } else {
+                            $dt->endOfMonth();
+                        }
+                        $endsAt = $dt->endOfDay()->toDateTimeString();
                     } catch (\Exception $e) {
                         $endsAt = null;
                     }
@@ -563,7 +749,7 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
         .series-modal-container {
             background: #ffffff;
             width: 100%;
-            max-width: 580px;
+            max-width: 640px;
             border-radius: 14px;
             box-shadow: 0 20px 40px rgba(0, 0, 0, 0.2);
             overflow: visible;
@@ -738,6 +924,13 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
         </div>
     @endif
 
+    @if($isCustomSeries)
+        <div style="padding: 14px 18px; background-color: #fffbeb; color: #b45309; border: 1px solid #fde68a; border-radius: 10px; margin-bottom: 20px; display: flex; align-items: center; gap: 12px; font-weight: 600; font-size: 14px; box-shadow: 0 2px 6px rgba(180,83,9,0.05);">
+            <svg style="width: 22px; height: 22px; fill: #b45309; flex-shrink: 0;" viewBox="0 0 24 24"><path d="M12 2L1 21h22L12 2zm1 14h-2v-2h2v2zm0-4h-2V10h2v2z"/></svg>
+            <span>Notice: You inputted a non-predefined Record Series. Please set the Retention Period and its Remarks.</span>
+        </div>
+    @endif
+
     <div class="form-card">
         <!-- ===== Record Series Row ===== -->
         <div class="form-row-flex" style="align-items: center;">
@@ -787,10 +980,26 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
             @endif
         </div>
 
-        <!-- ===== Volume ===== -->
+        <!-- ===== Volume (Amount + Unit with Live Conversion Preview) ===== -->
         <div class="form-row-flex">
             <span class="form-label-bold">Volume:</span>
-            <input type="text" class="form-input-custom" wire:model="volume" placeholder="e.g., 5 boxes, 2.5 cubic meters">
+            <div style="display:flex; gap:10px; align-items:center; flex:1; flex-wrap:wrap;">
+                <input type="number" step="any" min="0" class="form-input-custom" wire:model.live="volume_amount" placeholder="Amount (e.g. 270)" style="max-width:180px;">
+                
+                <select class="form-input-custom" wire:model.live="volume_unit" style="max-width:180px;">
+                    <option value="" disabled>Select Unit...</option>
+                    @foreach($availableUnits as $unitItem)
+                        <option value="{{ $unitItem->volume_id }}">{{ $unitItem->value_standard }}</option>
+                    @endforeach
+                </select>
+
+                @if($volume_amount && $this->calculateFormattedVolume())
+                    <span style="font-size:13px; font-weight:700; color:#2563eb; background:#eff6ff; padding:6px 14px; border-radius:8px; border:1px solid #bfdbfe; display:inline-flex; align-items:center; gap:6px;">
+                        <span>Converted:</span>
+                        <strong style="color:#1d4ed8;">{{ $this->calculateFormattedVolume() }}</strong>
+                    </span>
+                @endif
+            </div>
         </div>
 
         <!-- ===== Records Medium ===== -->
@@ -860,10 +1069,10 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
             <input type="text" class="form-input-custom" wire:model="retention_period" placeholder="e.g. 5 Years Active, 10 Years Storage">
         </div>
 
-        <!-- ===== Disposition Provision ===== -->
+        <!-- ===== Remarks / Disposition Provision ===== -->
         <div class="form-row-flex">
-            <span class="form-label-bold">Disposition Provision:</span>
-            <input type="text" class="form-input-custom" wire:model="disposition_provision" placeholder="Enter disposition instructions or provisions...">
+            <span class="form-label-bold">Remarks:</span>
+            <input type="text" class="form-input-custom" wire:model="disposition_provision" placeholder="Enter disposition instructions or remarks...">
         </div>
 
         <!-- ===== File Attachment ===== -->
@@ -980,20 +1189,31 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
                 </div>
                 <div class="series-modal-body">
                     <div style="margin-bottom: 16px; font-size: 13px; color: #64748b;">
-                        Add one or multiple period ranges covered by this record (e.g. Jan 2026 - Jan 2027, Jan 2029 - Jan 2030).
+                        Add one or multiple period ranges covered by this record. Day input is optional.
                     </div>
 
                     @foreach($periodsCovered as $index => $period)
                         <div class="period-range-row">
-                            <div style="flex: 1;">
+                            <!-- Start Period with Optional Day -->
+                            <div style="flex: 1.2;">
                                 <label style="font-size: 11px; font-weight: 700; color: #475569; display: block; margin-bottom: 4px;">Start Month & Year:</label>
-                                <input type="month" class="modal-input-style" wire:model="periodsCovered.{{ $index }}.start_month">
+                                <div style="display: flex; gap: 6px;">
+                                    <input type="number" min="1" max="31" class="modal-input-style" style="width: 72px;" wire:model="periodsCovered.{{ $index }}.start_day" placeholder="Day">
+                                    <input type="month" class="modal-input-style" style="flex: 1;" wire:model="periodsCovered.{{ $index }}.start_month">
+                                </div>
                             </div>
+
                             <span style="font-weight: 700; color: #64748b; margin-top: 18px;">to</span>
-                            <div style="flex: 1;">
+
+                            <!-- End Period with Optional Day -->
+                            <div style="flex: 1.2;">
                                 <label style="font-size: 11px; font-weight: 700; color: #475569; display: block; margin-bottom: 4px;">End Month & Year:</label>
-                                <input type="month" class="modal-input-style" wire:model="periodsCovered.{{ $index }}.end_month">
+                                <div style="display: flex; gap: 6px;">
+                                    <input type="number" min="1" max="31" class="modal-input-style" style="width: 72px;" wire:model="periodsCovered.{{ $index }}.end_day" placeholder="Day">
+                                    <input type="month" class="modal-input-style" style="flex: 1;" wire:model="periodsCovered.{{ $index }}.end_month">
+                                </div>
                             </div>
+
                             <button type="button" class="btn-remove-sub" style="margin-top: 18px;" wire:click="removePeriodRange({{ $index }})" title="Remove Period">&times;</button>
                         </div>
                     @endforeach

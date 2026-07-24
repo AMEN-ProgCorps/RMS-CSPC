@@ -62,8 +62,11 @@ Route::middleware(['auth'])
         Volt::route('/admin/dts/action-options', 'pages.admin.dts.action-options')->name('admin.dts.action-options');
         Volt::route('/admin/dts/transaction-flows', 'pages.admin.dts.transaction-flows')->name('admin.dts.transaction-flows');
 
+        Route::redirect('/admin/rdp', '/admin/rdp/records-logs')->name('admin.rdp.index');
         Volt::route('/admin/rdp/records-logs', 'pages.admin.rdp.records-logs')->name('admin.rdp.records-logs');
         Volt::route('/admin/rdp/update-logs', 'pages.admin.rdp.update-logs')->name('admin.rdp.update-logs');
+        Volt::route('/admin/rdp/conversions', 'pages.admin.rdp.conversions')->name('admin.rdp.conversions');
+        Volt::route('/admin/rdp/record-series', 'pages.admin.rdp.record-series')->name('admin.rdp.record-series');
 
         Volt::route('/admin/subsystems/add', 'pages.admin.subsystems.add')->name('admin.subsystems.add');
         Volt::route('/admin/subsystems/activate', 'pages.admin.subsystems.activate')->name('admin.subsystems.activate');

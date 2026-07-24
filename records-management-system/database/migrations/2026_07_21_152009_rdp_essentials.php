@@ -25,10 +25,11 @@ return new class extends Migration
             $table->string('series_title')->nullable();
             $table->unsignedBigInteger('parent_id')->nullable();
             $table->unsignedBigInteger('retention_period')->nullable();
-            $table->boolean('is_retention_period_active')->default(false);
-            $table->boolean('is_active')->default(false);
+            $table->boolean('is_retention_period_permanent')->default(false);
             $table->string('remarks')->nullable();
             $table->string('recorded_at_office')->nullable();
+            $table->boolean('is_verified')->default(false);
+            $table->boolean('is_active')->default(true);
             $table->foreign('parent_id')->references('id')->on('rdp_record_series')->onDelete('cascade');
             $table->foreign('retention_period')->references('id')->on('rdp_retention_period')->onDelete('cascade');
             $table->foreign('recorded_at_office')->references('office_code')->on('office')->onDelete('cascade');

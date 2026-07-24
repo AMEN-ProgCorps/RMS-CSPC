@@ -208,6 +208,10 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Cockpit File
         .cockpit-wrapper {
             font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
             color: #1e293b;
+            padding: 24px;
+            box-sizing: border-box;
+            max-width: 1400px;
+            margin: 0 auto;
         }
         .cockpit-header {
             display: flex;

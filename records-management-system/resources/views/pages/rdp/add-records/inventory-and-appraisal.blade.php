@@ -43,11 +43,68 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
     public ?string $time_value = null;
     public ?int $utility_value = null;
     public string $retention_period = '';
+    public bool $is_permanent = false;
+    public string $active_period = '';
+    public string $storage_period = '';
     public string $disposition_provision = '';
     
     public $uploadedFile = null;
     public ?string $successMessage = null;
     public ?string $errorMessage = null;
+
+    public function computeTotalPeriod(?string $active, ?string $storage, bool $isPermanent): string
+    {
+        if ($isPermanent) {
+            return 'Permanent';
+        }
+
+        $active = trim($active ?? '');
+        $storage = trim($storage ?? '');
+
+        if (empty($active) && empty($storage)) {
+            return '';
+        }
+
+        if (empty($active)) {
+            return $storage;
+        }
+
+        if (empty($storage)) {
+            return $active;
+        }
+
+        $parseTime = function(string $str) {
+            $years = 0;
+            $months = 0;
+            if (preg_match('/(\d+)\s*(?:year|yr|y)s?/i', $str, $m)) {
+                $years = (int)$m[1];
+            }
+            if (preg_match('/(\d+)\s*(?:month|mo|m)s?/i', $str, $m)) {
+                $months = (int)$m[1];
+            }
+            return [$years, $months];
+        };
+
+        [$aYears, $aMonths] = $parseTime($active);
+        [$sYears, $sMonths] = $parseTime($storage);
+
+        if (($aYears > 0 || $aMonths > 0) && ($sYears > 0 || $sMonths > 0)) {
+            $totalMonths = ($aYears * 12 + $aMonths) + ($sYears * 12 + $sMonths);
+            $tYears = intdiv($totalMonths, 12);
+            $remMonths = $totalMonths % 12;
+
+            $parts = [];
+            if ($tYears > 0) {
+                $parts[] = $tYears . ' ' . ($tYears === 1 ? 'Year' : 'Years');
+            }
+            if ($remMonths > 0) {
+                $parts[] = $remMonths . ' ' . ($remMonths === 1 ? 'Month' : 'Months');
+            }
+            return implode(' ', $parts);
+        }
+
+        return $active . ' + ' . $storage;
+    }
 
     public function mount(): void
     {
@@ -69,6 +126,33 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
         $this->showSeriesModal = false;
         $this->showParentDropdown = false;
         $this->activeSubDropdownIndex = null;
+    }
+
+    public function getSubSuggestions(int $index): \Illuminate\Support\Collection
+    {
+        $parentTitle = ($index === 0) ? trim($this->parentSeriesTitle) : trim($this->subsections[$index - 1] ?? '');
+        if (empty($parentTitle)) {
+            return collect();
+        }
+
+        $query = DB::table('rdp_record_series');
+
+        $parentRecord = DB::table('rdp_record_series')
+            ->where('series_title', $parentTitle)
+            ->first();
+
+        if ($parentRecord) {
+            $query->where('parent_id', $parentRecord->id);
+        } else {
+            return collect();
+        }
+
+        $currentSubInput = trim($this->subsections[$index] ?? '');
+        if (!empty($currentSubInput)) {
+            $query->where('series_title', 'ilike', '%' . $currentSubInput . '%');
+        }
+
+        return $query->select('series_title')->distinct()->limit(10)->get();
     }
 
     public function selectParentSuggestion(string $title): void
@@ -135,12 +219,16 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
                     ->first();
             }
 
+            $isPermFlag = (bool)($foundSeries->is_retention_period_permanent ?? false);
             $isActivePermanent = $retention && strtolower($retention->active_period ?? '') === 'permanent';
             $isTotalPermanent  = $retention && strtolower($retention->total_period ?? '') === 'permanent';
             $isTitlePermanent  = str_contains(strtolower($leafTitle), 'permanent');
 
-            if ($isActivePermanent || $isTotalPermanent || $isTitlePermanent) {
+            if ($isPermFlag || $isActivePermanent || $isTotalPermanent || $isTitlePermanent) {
                 // Permanent retention binding: Auto-set Retention, Time Value (Permanent), and Utility Value (Archival)
+                $this->is_permanent = true;
+                $this->active_period = '';
+                $this->storage_period = '';
                 $this->retention_period = 'Permanent';
                 $this->time_value = 'P';
 
@@ -157,16 +245,10 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
                 }
             } else {
                 // Predefined non-permanent retention binding: Auto-set active/storage period
-                if ($retention) {
-                    $parts = [];
-                    if (!empty($retention->active_period)) {
-                        $parts[] = 'Active: ' . $retention->active_period;
-                    }
-                    if (!empty($retention->storage_period)) {
-                        $parts[] = 'Storage: ' . $retention->storage_period;
-                    }
-                    $this->retention_period = !empty($parts) ? implode(', ', $parts) : ($retention->total_period ?? '');
-                }
+                $this->is_permanent = false;
+                $this->active_period = $retention->active_period ?? '';
+                $this->storage_period = $retention->storage_period ?? '';
+                $this->retention_period = $this->computeTotalPeriod($this->active_period, $this->storage_period, false);
 
                 if ($foundSeries->remarks) {
                     $this->disposition_provision = $foundSeries->remarks;
@@ -334,16 +416,11 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
 
     public function with(): array
     {
-        $parentSuggestions = DB::table('rdp_record_series')
-            ->select('series_title')
-            ->whereNull('parent_id')
-            ->when(!empty($this->parentSeriesTitle), function ($q) {
-                $q->where('series_title', 'like', '%' . $this->parentSeriesTitle . '%');
-            })
-            ->distinct()
-            ->orderBy('series_title', 'asc')
-            ->limit(8)
-            ->get();
+        $parentQuery = DB::table('rdp_record_series')->whereNull('parent_id');
+        if (!empty(trim($this->parentSeriesTitle))) {
+            $parentQuery->where('series_title', 'ilike', '%' . trim($this->parentSeriesTitle) . '%');
+        }
+        $parentSuggestions = $parentQuery->select('series_title')->distinct()->orderBy('series_title', 'asc')->limit(10)->get();
 
         $allSeriesSuggestions = DB::table('rdp_record_series')
             ->select('series_title')
@@ -373,6 +450,12 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
     {
         if (empty($this->selectedSeriesTitle)) {
             $this->errorMessage = 'Please select or configure a Record Series first.';
+            return;
+        }
+
+        $requiredUpload = DB::table('system_settings')->where('key', 'rdp_required_upload_file')->value('value') === 'true';
+        if ($requiredUpload && !$this->uploadedFile) {
+            $this->errorMessage = 'Uploading a file is required to create a record according to system settings.';
             return;
         }
 
@@ -443,11 +526,16 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
 
             // 3. Retention Period
             $periodId = null;
-            if (!empty($this->retention_period)) {
+            $computedTotal = $this->computeTotalPeriod($this->active_period, $this->storage_period, $this->is_permanent);
+            $activePeriod = $this->is_permanent ? 'Permanent' : (trim($this->active_period) ?: null);
+            $storagePeriod = $this->is_permanent ? 'Permanent' : (trim($this->storage_period) ?: null);
+            $totalPeriod = $computedTotal ?: (trim($this->retention_period) ?: null);
+
+            if ($this->is_permanent || !empty($activePeriod) || !empty($storagePeriod) || !empty($totalPeriod)) {
                 $periodId = DB::table('rdp_retention_period')->insertGetId([
-                    'active_period'  => $this->retention_period,
-                    'storage_period' => null,
-                    'total_period'   => $this->retention_period,
+                    'active_period'  => $activePeriod,
+                    'storage_period' => $storagePeriod,
+                    'total_period'   => $totalPeriod,
                     'created_at'     => now(),
                     'updated_at'     => now(),
                 ]);
@@ -522,7 +610,7 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
             DB::commit();
 
             $this->successMessage = 'Record created successfully!';
-            $this->reset(['description', 'volume', 'volume_amount', 'uploadedFile', 'retention_period', 'disposition_provision', 'record_series_id', 'selectedSeriesTitle', 'parentSeriesTitle', 'subsections', 'periodsCovered', 'isCustomSeries']);
+            $this->reset(['description', 'volume', 'volume_amount', 'uploadedFile', 'retention_period', 'active_period', 'storage_period', 'is_permanent', 'disposition_provision', 'record_series_id', 'selectedSeriesTitle', 'parentSeriesTitle', 'subsections', 'periodsCovered', 'isCustomSeries']);
 
         } catch (\Exception $e) {
             DB::rollBack();
@@ -532,6 +620,12 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
 
     public function saveDraft(): void
     {
+        $requiredUpload = DB::table('system_settings')->where('key', 'rdp_required_upload_file')->value('value') === 'true';
+        if ($requiredUpload && !$this->uploadedFile) {
+            $this->errorMessage = 'Uploading a file is required to save a draft according to system settings.';
+            return;
+        }
+
         try {
             DB::beginTransaction();
 
@@ -1065,8 +1159,31 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
 
         <!-- ===== Retention Period ===== -->
         <div class="form-row-flex">
-            <span class="form-label-bold">Retention Period:</span>
-            <input type="text" class="form-input-custom" wire:model="retention_period" placeholder="e.g. 5 Years Active, 10 Years Storage">
+            <span class="form-label-bold">Permanent Record:</span>
+            <div style="flex: 1; display: flex; align-items: center; gap: 8px;">
+                <label style="display: flex; align-items: center; gap: 8px; font-size: 14px; font-weight: 700; color: #1e40af; cursor: pointer;">
+                    <input type="checkbox" wire:model.live="is_permanent" style="width: 18px; height: 18px; cursor: pointer; accent-color: #2563eb;">
+                    Permanent Record Series
+                </label>
+                <span style="font-size: 12.5px; color: #64748b; margin-left: 8px;">(Disables period inputs and sets retention to Permanent)</span>
+            </div>
+        </div>
+
+        <div class="form-row-flex" style="{{ $is_permanent ? 'opacity: 0.4; pointer-events: none; user-select: none; transition: all 0.2s;' : 'transition: all 0.2s;' }}">
+            <span class="form-label-bold">Active Period:</span>
+            <input type="text" class="form-input-custom" wire:model.live.debounce.200ms="active_period" placeholder="e.g. 6 Months, 1 Year, 3 Years" {{ $is_permanent ? 'disabled' : '' }}>
+        </div>
+
+        <div class="form-row-flex" style="{{ $is_permanent ? 'opacity: 0.4; pointer-events: none; user-select: none; transition: all 0.2s;' : 'transition: all 0.2s;' }}">
+            <span class="form-label-bold">Storage Period:</span>
+            <input type="text" class="form-input-custom" wire:model.live.debounce.200ms="storage_period" placeholder="e.g. 1 Year, 4 Years, 2 Years" {{ $is_permanent ? 'disabled' : '' }}>
+        </div>
+
+        <div class="form-row-flex" style="{{ $is_permanent ? 'opacity: 0.4; pointer-events: none; user-select: none;' : '' }}">
+            <span class="form-label-bold">Total Period:</span>
+            <div style="flex: 1; padding: 10px 14px; background: #f8fafc; border: 1px solid #cbd5e1; border-radius: 8px; font-weight: 700; font-size: 14px; color: #1e40af;">
+                {{ $this->computeTotalPeriod($active_period, $storage_period, $is_permanent) ?: '— (Auto-calculated from Active & Storage)' }}
+            </div>
         </div>
 
         <!-- ===== Remarks / Disposition Provision ===== -->
@@ -1075,17 +1192,27 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
             <input type="text" class="form-input-custom" wire:model="disposition_provision" placeholder="Enter disposition instructions or remarks...">
         </div>
 
-        <!-- ===== File Attachment ===== -->
-        <div class="form-row-flex">
-            <span class="form-label-bold">Attach File:</span>
-            <div style="flex:1;">
-                <input type="file" wire:model="uploadedFile" style="font-size:13px;">
-                <div wire:loading wire:target="uploadedFile" style="font-size:12px; color:#2563eb; margin-top:4px;">Uploading file...</div>
-            </div>
-        </div>
-
         <!-- Action Buttons Bar -->
-        <div class="actions-bar">
+        <div class="actions-bar" style="display: flex; gap: 12px; align-items: center; flex-wrap: wrap;">
+            <input type="file" id="rdp-file-input" wire:model="uploadedFile" style="display: none;">
+            
+            <div style="display: flex; align-items: center; gap: 6px;">
+                <label for="rdp-file-input" class="btn" style="cursor: pointer; display: inline-flex; align-items: center; gap: 8px; margin: 0; padding: 10px 18px; background: {{ $uploadedFile ? '#16a34a' : '#475569' }}; color: #ffffff; border-radius: 6px; font-weight: 700; font-size: 13px; transition: all 0.2s;">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+                    @if($uploadedFile)
+                        <span>File: {{ $uploadedFile->getClientOriginalName() }}</span>
+                    @else
+                        <span>UPLOAD FILE</span>
+                    @endif
+                </label>
+
+                @if($uploadedFile)
+                    <button type="button" wire:click="$set('uploadedFile', null)" title="Remove attached file" style="background: #ef4444; color: white; border: none; border-radius: 6px; padding: 10px 12px; cursor: pointer; font-size: 13px; font-weight: 700;">
+                        ✕
+                    </button>
+                @endif
+            </div>
+
             <button type="button" class="btn btn-primary" wire:click="saveDraft">
                 SAVE DRAFT
             </button>
@@ -1093,6 +1220,10 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
             <button type="button" class="btn btn-primary" wire:click="createRecord">
                 CREATE RECORD
             </button>
+
+            <div wire:loading wire:target="uploadedFile" style="font-size: 12px; color: #2563eb; font-weight: 600; width: 100%;">
+                Uploading file...
+            </div>
         </div>
     </div>
 
@@ -1127,15 +1258,15 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
                         @endif
                     </div>
 
-                    <!-- Dynamic Subsections with DTS-style Autocomplete Dropdowns -->
+                    <!-- Dynamic Subsections with DTS-style Cascading Autocomplete Dropdowns -->
                     @foreach($subsections as $index => $sub)
                         <div class="form-group-modal" 
                              wire:click.outside="$set('activeSubDropdownIndex', null)"
-                             style="margin-left: {{ min(($index + 1) * 16, 64) }}px; border-left: 3px solid #2563eb; padding-left: 12px; margin-bottom: 14px;">
+                             style="margin-left: {{ min(($index + 1) * 16, 64) }}px; border-left: 3px solid #2563eb; padding-left: 12px; margin-bottom: 14px; position: relative;">
                             <label style="font-size: 11px; color: #2563eb;">
                                 Subsection #{{ $index + 1 }} (Child of {{ $index === 0 ? ($parentSeriesTitle ?: 'Parent') : 'Subsection #' . $index }}):
                             </label>
-                            <div style="display: flex; gap: 8px;">
+                            <div style="display: flex; gap: 8px; position: relative;">
                                 <input type="text" 
                                        id="subsection_{{ $index }}" 
                                        class="modal-input-style" 
@@ -1146,9 +1277,13 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
                                 <button type="button" class="btn-remove-sub" wire:click="removeSubsection({{ $index }})" title="Remove Subsection">&times;</button>
                             </div>
 
-                            @if($activeSubDropdownIndex === $index && count($allSeriesSuggestions) > 0)
+                            @php
+                                $currentSubSuggestions = $this->getSubSuggestions($index);
+                            @endphp
+
+                            @if($activeSubDropdownIndex === $index && count($currentSubSuggestions) > 0)
                                 <div class="dts-autocomplete-dropdown">
-                                    @foreach($allSeriesSuggestions as $suggestion)
+                                    @foreach($currentSubSuggestions as $suggestion)
                                         <div class="dts-autocomplete-item" wire:click="selectSubSuggestion({{ $index }}, '{{ addslashes($suggestion->series_title) }}')">
                                             {{ $suggestion->series_title }}
                                         </div>

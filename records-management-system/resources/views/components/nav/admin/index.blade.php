@@ -161,6 +161,7 @@
         <div class="function-button {{ request()->routeIs('admin.rdp.records-logs') ? 'force-active' : '' }}" onclick="proccedto('{{ route('admin.rdp.records-logs') }}')">Records Logs</div>
         <div class="function-button {{ request()->routeIs('admin.rdp.update-logs') ? 'force-active' : '' }}" onclick="proccedto('{{ route('admin.rdp.update-logs') }}')">Update Logs</div>
         <div class="function-button {{ request()->routeIs('admin.rdp.conversions') ? 'force-active' : '' }}" onclick="proccedto('{{ route('admin.rdp.conversions') }}')">Volume Conversions</div>
+        <div class="function-button {{ request()->routeIs('admin.rdp.record-series') ? 'force-active' : '' }}" onclick="proccedto('{{ route('admin.rdp.record-series') }}')">Record Series</div>
     </div>
 </div>
 @endif

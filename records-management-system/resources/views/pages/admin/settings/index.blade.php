@@ -11,6 +11,8 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - System Settings')] class
     public bool $emailAccessRequiredApplication = true;
     public bool $emailAccessRequiredInternal = false;
     public bool $allowManualCompletionButton = false;
+    public bool $rdpRequiredUploadFile = false;
+    public bool $dtsRequiredUploadFile = false;
     public string $successMessage = '';
     public string $errorMessage = '';
 
@@ -36,6 +38,12 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - System Settings')] class
 
         $manual = \DB::table('system_settings')->where('key', 'dts_allow_manual_completion_button')->value('value');
         $this->allowManualCompletionButton = ($manual === 'true');
+
+        $rdpReq = \DB::table('system_settings')->where('key', 'rdp_required_upload_file')->value('value');
+        $this->rdpRequiredUploadFile = ($rdpReq === 'true');
+
+        $dtsReq = \DB::table('system_settings')->where('key', 'dts_required_upload_file')->value('value');
+        $this->dtsRequiredUploadFile = ($dtsReq === 'true');
     }
 
     public function saveSettings(): void
@@ -85,13 +93,31 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - System Settings')] class
                     ]
                 );
 
+                \DB::table('system_settings')->updateOrInsert(
+                    ['key' => 'rdp_required_upload_file'],
+                    [
+                        'value' => $this->rdpRequiredUploadFile ? 'true' : 'false',
+                        'updated_at' => now(),
+                    ]
+                );
+
+                \DB::table('system_settings')->updateOrInsert(
+                    ['key' => 'dts_required_upload_file'],
+                    [
+                        'value' => $this->dtsRequiredUploadFile ? 'true' : 'false',
+                        'updated_at' => now(),
+                    ]
+                );
+
                 // Log activity
                 \DB::table('admin_logs')->insert([
                     'changes' => "Updated system settings. Prewarming: " . ($this->pagePrewarmingEnabled ? 'true' : 'false') . 
                                  ", Email Access External: " . ($this->emailAccessRequiredExternal ? 'true' : 'false') . 
                                  ", Email Access Application: " . ($this->emailAccessRequiredApplication ? 'true' : 'false') . 
                                  ", Email Access Internal: " . ($this->emailAccessRequiredInternal ? 'true' : 'false') .
-                                 ", Allow Manual Completion Button: " . ($this->allowManualCompletionButton ? 'true' : 'false'),
+                                 ", Allow Manual Completion Button: " . ($this->allowManualCompletionButton ? 'true' : 'false') .
+                                 ", Required Upload File for Record System: " . ($this->rdpRequiredUploadFile ? 'true' : 'false') .
+                                 ", Required Upload File for Document Tracking System: " . ($this->dtsRequiredUploadFile ? 'true' : 'false'),
                     'admin_id' => auth()->id(),
                     'what_system' => 3, // Admin Console
                     'when_changes' => now(),
@@ -294,6 +320,34 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - System Settings')] class
                 </div>
                 <label class="switch">
                     <input type="checkbox" wire:model="allowManualCompletionButton">
+                    <span class="slider"></span>
+                </label>
+            </div>
+
+            <!-- Setting: required upload file for Record System -->
+            <div class="setting-item">
+                <div class="setting-details">
+                    <span class="setting-title">required upload file for Record System</span>
+                    <span class="setting-desc">
+                        Enforces that users creating or saving a record in the Records Disposition Program (RDP) must upload/attach a document file.
+                    </span>
+                </div>
+                <label class="switch">
+                    <input type="checkbox" wire:model="rdpRequiredUploadFile">
+                    <span class="slider"></span>
+                </label>
+            </div>
+
+            <!-- Setting: required upload file for Document Tracking System -->
+            <div class="setting-item">
+                <div class="setting-details">
+                    <span class="setting-title">required upload file for Document Tracking System</span>
+                    <span class="setting-desc">
+                        Enforces that users uploading or attaching files in the Document Tracking System (DTS) must provide a document file. When disabled (default), file uploads remain optional.
+                    </span>
+                </div>
+                <label class="switch">
+                    <input type="checkbox" wire:model="dtsRequiredUploadFile">
                     <span class="slider"></span>
                 </label>
             </div>

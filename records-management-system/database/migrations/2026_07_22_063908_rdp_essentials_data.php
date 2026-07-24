@@ -187,7 +187,7 @@ return new class extends Migration
                 [
                     'parent_id'                  => null,
                     'retention_period'           => $retentionId,
-                    'is_retention_period_active' => true,
+                    'is_retention_period_permanent' => strtolower($seriesData['active_period']) === 'permanent',
                     'remarks'                    => $seriesData['remarks'],
                     'created_at'                 => now(),
                     'updated_at'                 => now(),

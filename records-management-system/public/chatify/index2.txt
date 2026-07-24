@@ -5655,10 +5655,14 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
       sendButton.textContent = "...";
       sendButton.disabled = true;
 
-      // Clear input immediately and reset textarea to single-line height
+      // Clear input immediately and reset textarea to single-line height.
+      // Note: overflow-y is intentionally left alone here — it's controlled
+      // entirely by CSS (overflow-y: scroll, scrollbar visually hidden via
+      // scrollbar-width/::-webkit-scrollbar). Setting it inline to 'hidden'
+      // used to permanently override that CSS rule after the first send,
+      // silently breaking scroll on every long message typed afterward.
       messageInput.value = "";
       messageInput.style.height = 'auto';
-      messageInput.style.overflowY = 'hidden';
 
       // iOS: snap footer back to its default (single-line) position right away.
       // Double-rAF ensures the browser has reflowed the collapsed textarea before
@@ -5759,8 +5763,14 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
               `.message-container[data-msg-id="${editingMsgId}"]`
             );
             if (editedContainer) {
+              const editedBubble = editedContainer.querySelector('.message-bubble');
               const contentEl = editedContainer.querySelector('.message-bubble .message-content');
               if (contentEl) contentEl.textContent = message;
+              // Re-evaluate emoji-only styling since editing can change whether
+              // the message is now (or is no longer) emoji-only.
+              if (editedBubble) {
+                editedBubble.classList.toggle('emoji-only', isEmojiOnly(message));
+              }
 
               // Inject "edited" label if not already present
               const bubbleWrapper = editedContainer.querySelector('.bubble-wrapper');
@@ -5806,11 +5816,12 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
                 const senderLabel = (name || 'you').toLowerCase();
 
                 sendingBubble.className = 'message-container sent';
+                const emojiOnlyClass = isEmojiOnly(msgContent) ? ' emoji-only' : '';
                 sendingBubble.innerHTML = `
                   <div class="message-avatar">${getInitials(name)}</div>
                   <div class="bubble-wrapper">
                     <div class="message-click-timestamp">${fullTimeDisplay}</div>
-                    <div class="message-bubble">
+                    <div class="message-bubble${emojiOnlyClass}">
                       <div class="message-content">${escapeHtml(msgContent)}</div>
                       <div class="message-info"><span class="message-sender">${senderLabel}</span></div>
                     </div>

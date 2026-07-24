@@ -19,7 +19,7 @@ const METRICS_INTERVAL_MS = 60000;
 // and at a few thousand concurrent sockets that CPU cost is what actually
 // limits how many connections one process can serve.
 const MAX_PAYLOAD_BYTES = 32 * 1024; // 32KB ceiling — plenty for chat/typing/control JSON
-const MAX_CONNECTIONS = parseInt(process.env.MAX_CONNECTIONS || '5000', 10);
+const MAX_CONNECTIONS = parseInt(process.env.MAX_CONNECTIONS || '10000', 10);
 
 // ── Logging ──────────────────────────────────────────────────────────────
 // Debug-level logs (one per message/typing/auth event) are gated off in

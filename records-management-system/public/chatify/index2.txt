@@ -725,6 +725,17 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
       vertical-align: middle;
       display: inline-block;
       flex-shrink: 0;
+      /* Prevent dragging the logo out (e.g. to open cspc.png directly in a
+         new tab) and prevent it from being selected like text/an image. */
+      -webkit-user-drag: none;
+      -khtml-user-drag: none;
+      -moz-user-drag: none;
+      -o-user-drag: none;
+      user-drag: none;
+      -webkit-user-select: none;
+      -moz-user-select: none;
+      -ms-user-select: none;
+      user-select: none;
     }
 
     .header-buttons {
@@ -799,10 +810,12 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
       transform: scale(0.97);
     }
 
-    /* Burger menu button: plain black lines, no circle/pill container */
+    /* Burger menu button: plain lines, no circle/pill container.
+       Uses --text-primary so it flips to white automatically in dark mode
+       (was hardcoded #000000 before, which never adapted). */
     #burgerButton {
       background: transparent;
-      color: #000000;
+      color: var(--text-primary);
       border-radius: 0;
       min-width: auto;
       padding: 0;
@@ -2532,7 +2545,7 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
           <button id="backButton" class="clear-button" style="display:none;margin-right:10px;padding:0 10px;min-width:auto;">
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="19" y1="12" x2="5" y2="12"></line><polyline points="12 19 5 12 12 5"></polyline></svg>
           </button>
-          <img src="cspc.png" alt="GhostLAN ghost logo" class="header-logo">
+          <img src="cspc.png" alt="GhostLAN ghost logo" class="header-logo" draggable="false" ondragstart="return false;">
           <h1 id="chatHeaderTitle"></h1>
         </div>
       
@@ -2641,8 +2654,7 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
         <h3>Clear All Messages</h3>
       </div>
       <div class="modal-body">
-        <p>WARNING: You are about to permanently delete all message history.</p>
-        <p>This operation cannot be undone.</p>
+        <p>WARNING: You are about to permanently delete all message history. This operation cannot be undone.</p>
         <label for="secretInput" style="display:block;margin-top:10px;">Enter secret key to confirm:</label>
         <input type="password" id="secretInput" autocomplete="off" class="secret-key-input" />
         <div id="secretError" style="color:#b00;font-size:12px;display:none;margin-top:5px;text-align:center;">Invalid secret key.</div>
@@ -4893,6 +4905,10 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
       const bubble = e.target.closest('.message-bubble, .message-media');
       if (!bubble) return;
 
+      // Image/audio messages always show their timestamp permanently —
+      // clicking the image should never hide it, so skip the toggle entirely.
+      if (bubble.classList.contains('message-media')) return;
+
       if (clickTimeout) {
         clearTimeout(clickTimeout);
         clickTimeout = null;
@@ -5131,6 +5147,9 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
     }
 
     // Walk all rendered bubbles and apply / remove the emoji-only class.
+    // Also force image/audio (.message-media) timestamps to stay permanently
+    // visible — unlike text bubbles, their date/time should never be hidden
+    // by the click-to-toggle behavior below.
     function applyEmojiOnly() {
       chatBox.querySelectorAll('.message-bubble').forEach(function(bubble) {
         const contentEl = bubble.querySelector('.message-content');
@@ -5142,6 +5161,12 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
         } else {
           bubble.classList.remove('emoji-only');
         }
+      });
+
+      chatBox.querySelectorAll('.message-media').forEach(function(media) {
+        const wrapper = media.closest('.bubble-wrapper');
+        const timestamp = wrapper && wrapper.querySelector('.message-click-timestamp');
+        if (timestamp) timestamp.classList.add('show-timestamp');
       });
     }
 

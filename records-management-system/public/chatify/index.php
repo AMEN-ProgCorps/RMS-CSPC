@@ -3684,10 +3684,12 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
         if (backdrop) backdrop.classList.remove('visible');
         burgerButton.style.display = 'none';
         backButton.style.display = 'inline-flex';
+      } else {
+        // Desktop only: auto-focus the message input so the cursor is ready
+        // without an extra click. Skipped on mobile so opening a conversation
+        // doesn't immediately pop the on-screen keyboard over half the chat.
+        setTimeout(() => messageInput.focus(), 0);
       }
-
-      // Auto-focus the message input so the cursor is ready without an extra click
-      setTimeout(() => messageInput.focus(), 0);
     }
 
     function selectGlobalChat() {
@@ -3732,10 +3734,12 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
         if (backdrop) backdrop.classList.remove('visible');
         burgerButton.style.display = 'none';
         backButton.style.display = 'inline-flex';
+      } else {
+        // Desktop only: auto-focus the message input so the cursor is ready
+        // without an extra click. Skipped on mobile so opening a conversation
+        // doesn't immediately pop the on-screen keyboard over half the chat.
+        setTimeout(() => messageInput.focus(), 0);
       }
-
-      // Auto-focus the message input so the cursor is ready without an extra click
-      setTimeout(() => messageInput.focus(), 0);
     }
 
     // Track whether older messages are available for the current chat

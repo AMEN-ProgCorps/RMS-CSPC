@@ -2939,6 +2939,16 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
             } else if (activeDM && activeDMAccountId === Number(data.sender_id)) {
               loadChat(true);
             }
+            // Admin spy mode: keep the "X msgs · last message" counts in the
+            // conversations list live instead of only updating on the next manual search.
+            if (isAdminAllChatsView && adminSpyType === 'conversations' && adminSpyTargetUser) {
+              const spyId = Number(adminSpyTargetUser.account_id);
+              const s2 = Number(data.sender_id);
+              const r2 = Number(data.recipient_id);
+              if (s2 === spyId || r2 === spyId) {
+                fetchAdminConvs('', 0, false, spyId);
+              }
+            }
             fetchNotifications();
             fetchUsers();
           }
@@ -2970,6 +2980,20 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
             }
             if (activeDM && (activeDMAccountId === a || activeDMAccountId === b)) {
               loadChat(true);
+            }
+          }
+          // Admin spy mode: keep the "X msgs · last message" counts in the
+          // conversations list live when a conversation is cleared.
+          if (isAdminAllChatsView && adminSpyType === 'conversations' && adminSpyTargetUser) {
+            const spyId = Number(adminSpyTargetUser.account_id);
+            let touchesSpyTarget = false;
+            if (data.chat_type === 'private') {
+              touchesSpyTarget = (Number(data.sender_id) === spyId || Number(data.recipient_id) === spyId);
+            } else if (data.chat_type === 'admin_conv') {
+              touchesSpyTarget = (Number(data.user_a) === spyId || Number(data.user_b) === spyId);
+            }
+            if (touchesSpyTarget) {
+              fetchAdminConvs('', 0, false, spyId);
             }
           }
           fetchNotifications();
@@ -6616,6 +6640,11 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
         sidebarPollInterval = setInterval(function() {
           if (document.hidden) return;
           fetchUsers();
+          // Fallback safety net: keep admin spy-mode message counts fresh even
+          // if a WebSocket push was missed (e.g. brief reconnect gap).
+          if (isAdminAllChatsView && adminSpyType === 'conversations' && adminSpyTargetUser) {
+            fetchAdminConvs('', 0, false, adminSpyTargetUser.account_id);
+          }
           // Re-evaluate interval length each tick so it adapts when WS state changes
           const nowAlive = ws && ws.readyState === WebSocket.OPEN;
           if (nowAlive !== wsAlive) startSidebarPoll(); // restart with new delay

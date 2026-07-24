@@ -725,6 +725,20 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
       vertical-align: middle;
       display: inline-block;
       flex-shrink: 0;
+      /* Prevent dragging the logo out (e.g. to open cspc.png directly in a
+         new tab) and prevent it from being selected like text/an image. */
+      -webkit-user-drag: none;
+      -khtml-user-drag: none;
+      -moz-user-drag: none;
+      -o-user-drag: none;
+      user-drag: none;
+      -webkit-user-select: none;
+      -moz-user-select: none;
+      -ms-user-select: none;
+      user-select: none;
+      /* iOS Safari: block the long-press callout menu (Save Image / Open in
+         New Tab / Copy) that would otherwise appear even with the above rules. */
+      -webkit-touch-callout: none;
     }
 
     .header-buttons {
@@ -799,10 +813,12 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
       transform: scale(0.97);
     }
 
-    /* Burger menu button: plain black lines, no circle/pill container */
+    /* Burger menu button: plain lines, no circle/pill container.
+       Uses --text-primary so it flips to white automatically in dark mode
+       (was hardcoded #000000 before, which never adapted). */
     #burgerButton {
       background: transparent;
-      color: #000000;
+      color: var(--text-primary);
       border-radius: 0;
       min-width: auto;
       padding: 0;
@@ -1862,46 +1878,19 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
       }
 
 
-      /* Header must always stay at top, never pushed off-screen by keyboard */
+      /* Header must always stay at top, never pushed off-screen by keyboard.
+         Size (padding/logo/title/buttons) intentionally stays the same as
+         desktop — only the top offset gets the safe-area inset added. */
       .header {
         flex-shrink: 0;
         position: relative;
         top: auto;
         z-index: 100;
-        padding: 10px 10px;
-        padding-top: max(10px, env(safe-area-inset-top, 0px));
-        gap: 12px;
-      }
-
-      .header-logo {
-        height: 24px;
-        width: 24px;
-        margin-right: 8px;
-      }
-
-      .header h1 {
-        font-size: 16px;
+        padding-top: max(12px, env(safe-area-inset-top, 0px));
       }
 
       .header-buttons {
-        gap: 6px;
         flex-shrink: 0;
-      }
-
-      .clear-button, .darkmode-button {
-        min-width: 0;
-        height: 32px;
-        padding: 0 10px;
-        font-size: 12px;
-      }
-
-      .darkmode-button {
-        padding: 0 8px;
-      }
-
-      .darkmode-button svg {
-        width: 15px;
-        height: 15px;
       }
 
       #chat-box {
@@ -2032,33 +2021,8 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
     .reaction-picker-btn:active {
       transform: scale(1.35);
     }
-    /* On very small screens, shrink emoji buttons a bit */
+    /* On very small screens, shrink emoji buttons a bit (header size stays constant) */
     @media (max-width: 360px) {
-      .header {
-        padding-left: 8px;
-        padding-right: 8px;
-      }
-
-      .header h1 {
-        font-size: 14px;
-      }
-
-      .header-logo {
-        height: 20px;
-        width: 20px;
-        margin-right: 6px;
-      }
-
-      .header-buttons {
-        gap: 4px;
-      }
-
-      .clear-button, .darkmode-button {
-        padding: 0 8px;
-        font-size: 11px;
-        height: 30px;
-      }
-
       .reaction-picker-btn {
         font-size: 20px;
         width: 32px;
@@ -2532,7 +2496,7 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
           <button id="backButton" class="clear-button" style="display:none;margin-right:10px;padding:0 10px;min-width:auto;">
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="19" y1="12" x2="5" y2="12"></line><polyline points="12 19 5 12 12 5"></polyline></svg>
           </button>
-          <img src="cspc.png" alt="GhostLAN ghost logo" class="header-logo">
+          <img src="cspc.png" alt="GhostLAN ghost logo" class="header-logo" draggable="false" ondragstart="return false;" oncontextmenu="return false;">
           <h1 id="chatHeaderTitle"></h1>
         </div>
       
@@ -2547,9 +2511,11 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
             </svg>
           </button>
 
+        <?php // Delete All button remains removed from header — "/delete all" command only.
+              // Clear Chat button is admin-only and shown/hidden dynamically by JS:
+              // visible only while Super Admin is spying on a specific conversation. ?>
         <?php if ($is_admin): ?>
-          <button class="clear-button" id="clearButton" title="Clear specific chat">Clear Chat</button>
-          <button class="clear-button" id="deleteAllButton" title="Delete ALL messages in entire system" style="background:#1b74e4;color:#fff;border-color:#c0392b;">Delete All</button>
+        <button id="clearChatHeaderBtn" class="clear-button" style="display:none;" title="Clear this conversation" onclick="showModal()">Clear Chat</button>
         <?php endif; ?>
       </div>
     </div>
@@ -2641,8 +2607,7 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
         <h3>Clear All Messages</h3>
       </div>
       <div class="modal-body">
-        <p>WARNING: You are about to permanently delete all message history.</p>
-        <p>This operation cannot be undone.</p>
+        <p>WARNING: You are about to permanently delete all message history. This operation cannot be undone.</p>
         <label for="secretInput" style="display:block;margin-top:10px;">Enter secret key to confirm:</label>
         <input type="password" id="secretInput" autocomplete="off" class="secret-key-input" />
         <div id="secretError" style="color:#b00;font-size:12px;display:none;margin-top:5px;text-align:center;">Invalid secret key.</div>
@@ -2787,7 +2752,7 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
     const nameInput       = document.getElementById("nameInput");
     const messageInput    = document.getElementById("messageInput");
     const sendButton      = document.getElementById("sendButton");
-    const clearButton     = document.getElementById("clearButton");
+    const clearButton     = document.getElementById("clearButton"); // removed from header; now null, kept for legacy references
     const confirmModal    = document.getElementById("confirmModal");
     const cancelClear     = document.getElementById("cancelClear");
     const confirmClear    = document.getElementById("confirmClear");
@@ -3012,6 +2977,7 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
         } else if (data.type === 'all_cleared') {
           console.log('Received WebSocket real-time update notice:', data);
           activeDM = null; activeAdminConv = null; isGlobalChat = false;
+          updateClearChatButtonVisibility();
           gcCursor = ''; dmCursor = '';
           gcViewingOlder = false; dmViewingOlder = false;
           allConvsData = [];
@@ -3673,6 +3639,7 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
       activeDM = u.username;
       activeDMAccountId = Number(u.account_id);
       activeAdminConv = null;
+      updateClearChatButtonVisibility();
       dmCursor = '';
       dmHasMore = false;
       dmViewingOlder = false;
@@ -3725,6 +3692,7 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
       activeDM = null;
       activeDMAccountId = null;
       activeAdminConv = null;
+      updateClearChatButtonVisibility();
       gcCursor = '';
       gcHasMore = false;
       gcViewingOlder = false;
@@ -4182,6 +4150,17 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
 
 
     let activeAdminConv = null; // convId string when admin is spying
+
+    // ── Contextual "Clear Chat" header button (Super Admin Spy Mode only) ──────
+    // Visible only while isAdmin is true AND a specific spied conversation is
+    // loaded (activeAdminConv set). Hidden for the all-conversations list view,
+    // when no conversation is selected, and for non-admins. Call this any time
+    // activeAdminConv changes so the button stays in sync without a refresh.
+    function updateClearChatButtonVisibility() {
+      const btn = document.getElementById('clearChatHeaderBtn');
+      if (!btn) return;
+      btn.style.display = (typeof isAdmin !== 'undefined' && isAdmin && !!activeAdminConv) ? 'inline-flex' : 'none';
+    }
     let adminConvCursor = '';
     let adminConvHasMore = false;
     let adminConvViewingOlder = false; // true once the user has loaded an older window
@@ -4337,6 +4316,7 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
 
     function openAdminConv(c) {
       activeAdminConv = c.convId;
+      updateClearChatButtonVisibility();
       isGlobalChat = false; // must reset — otherwise polling/visibilitychange keep re-loading Global Chat over the spy view
       
       adminConvCursor = '';
@@ -4405,6 +4385,7 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
       activeDM = null;
       activeDMAccountId = null;
       activeAdminConv = null;
+      updateClearChatButtonVisibility();
       isGlobalChat = false;
       
       // Reset local typing indicator state
@@ -4513,6 +4494,7 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
           activeDMAccountId = null;
           isGlobalChat = false;
           activeAdminConv = null;
+          updateClearChatButtonVisibility();
           localStorage.removeItem('activeSpyConv');
           
           chatHeaderTitle.textContent = '';
@@ -4529,6 +4511,7 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
           isAdminAllChatsView = false;
           localStorage.setItem('__adminAllChatsView__', '0');
           activeAdminConv = null;
+          updateClearChatButtonVisibility();
           localStorage.removeItem('activeSpyConv');
 
           // Wipe chatBox innerHTML so reconcilePoll doesn't retain old spy-mode DOM nodes ("one liner")
@@ -4592,6 +4575,7 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
     }
     if (!isAdmin) isAdminAllChatsView = false;
     applyAdminAllChatsView();
+    updateClearChatButtonVisibility(); // activeAdminConv is always null at this point (never persisted across refresh), so this hides the button by default
 
     // ── Admin: Secret Key Change Modal & Handler ──────────────────────────────
     const adminKeyModal = document.getElementById('adminKeyModal');
@@ -4893,6 +4877,10 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
       const bubble = e.target.closest('.message-bubble, .message-media');
       if (!bubble) return;
 
+      // Image/audio messages always show their timestamp permanently —
+      // clicking the image should never hide it, so skip the toggle entirely.
+      if (bubble.classList.contains('message-media')) return;
+
       if (clickTimeout) {
         clearTimeout(clickTimeout);
         clickTimeout = null;
@@ -5131,6 +5119,9 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
     }
 
     // Walk all rendered bubbles and apply / remove the emoji-only class.
+    // Also force image/audio (.message-media) timestamps to stay permanently
+    // visible — unlike text bubbles, their date/time should never be hidden
+    // by the click-to-toggle behavior below.
     function applyEmojiOnly() {
       chatBox.querySelectorAll('.message-bubble').forEach(function(bubble) {
         const contentEl = bubble.querySelector('.message-content');
@@ -5142,6 +5133,12 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
         } else {
           bubble.classList.remove('emoji-only');
         }
+      });
+
+      chatBox.querySelectorAll('.message-media').forEach(function(media) {
+        const wrapper = media.closest('.bubble-wrapper');
+        const timestamp = wrapper && wrapper.querySelector('.message-click-timestamp');
+        if (timestamp) timestamp.classList.add('show-timestamp');
       });
     }
 
@@ -5633,6 +5630,29 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
     document.getElementById("chatForm").addEventListener("submit", function (e) {
       e.preventDefault();
 
+      // ── Super Admin chat commands: "/clear" and "/delete all" ──────────────
+      // These are intercepted before anything else (including the admin-spy-mode
+      // early return below) so that "/clear" works while Spy Mode is open on a
+      // conversation. Commands are never sent as messages, never appended to
+      // history, and never broadcast — they just open the existing confirmation
+      // modals. All real permission checks still happen server-side exactly as
+      // before (validate_secret.php / clear_all_dm.php / delete_dm.php via
+      // Auth::isAdmin()); this is purely an alternate way to trigger the modals.
+      if (isAdmin) {
+        const cmd = messageInput.value.trim().toLowerCase();
+        if (cmd === '/clear' || cmd === '/delete all') {
+          messageInput.value = '';
+          messageInput.style.height = 'auto';
+          messageInput.style.color = '';
+          if (cmd === '/clear') {
+            showModal();
+          } else {
+            openDeleteAllModal();
+          }
+          return;
+        }
+      }
+
       if (isAdminAllChatsView || activeAdminConv) {
         return;
       }
@@ -5655,10 +5675,14 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
       sendButton.textContent = "...";
       sendButton.disabled = true;
 
-      // Clear input immediately and reset textarea to single-line height
+      // Clear input immediately and reset textarea to single-line height.
+      // Note: overflow-y is intentionally left alone here — it's controlled
+      // entirely by CSS (overflow-y: scroll, scrollbar visually hidden via
+      // scrollbar-width/::-webkit-scrollbar). Setting it inline to 'hidden'
+      // used to permanently override that CSS rule after the first send,
+      // silently breaking scroll on every long message typed afterward.
       messageInput.value = "";
       messageInput.style.height = 'auto';
-      messageInput.style.overflowY = 'hidden';
 
       // iOS: snap footer back to its default (single-line) position right away.
       // Double-rAF ensures the browser has reflowed the collapsed textarea before
@@ -5759,8 +5783,14 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
               `.message-container[data-msg-id="${editingMsgId}"]`
             );
             if (editedContainer) {
+              const editedBubble = editedContainer.querySelector('.message-bubble');
               const contentEl = editedContainer.querySelector('.message-bubble .message-content');
               if (contentEl) contentEl.textContent = message;
+              // Re-evaluate emoji-only styling since editing can change whether
+              // the message is now (or is no longer) emoji-only.
+              if (editedBubble) {
+                editedBubble.classList.toggle('emoji-only', isEmojiOnly(message));
+              }
 
               // Inject "edited" label if not already present
               const bubbleWrapper = editedContainer.querySelector('.bubble-wrapper');
@@ -5806,11 +5836,12 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
                 const senderLabel = (name || 'you').toLowerCase();
 
                 sendingBubble.className = 'message-container sent';
+                const emojiOnlyClass = isEmojiOnly(msgContent) ? ' emoji-only' : '';
                 sendingBubble.innerHTML = `
                   <div class="message-avatar">${getInitials(name)}</div>
                   <div class="bubble-wrapper">
                     <div class="message-click-timestamp">${fullTimeDisplay}</div>
-                    <div class="message-bubble">
+                    <div class="message-bubble${emojiOnlyClass}">
                       <div class="message-content">${escapeHtml(msgContent)}</div>
                       <div class="message-info"><span class="message-sender">${senderLabel}</span></div>
                     </div>
@@ -5882,6 +5913,22 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
       setTimeout(() => { touchFired = false; }, 500);
     }, {passive: false});
 
+    // Super Admin command visual indicator: while typing exactly "/clear" or
+    // "/delete all" (case-insensitive), color the whole input red so it's clear
+    // it will be treated as a command. Purely cosmetic — has no bearing on
+    // whether the command actually executes (that's still gated by isAdmin
+    // above and by server-side Auth::isAdmin() checks on every endpoint).
+    if (isAdmin) {
+      messageInput.addEventListener('input', function() {
+        const cmd = this.value.trim().toLowerCase();
+        if (cmd === '/clear' || cmd === '/delete all') {
+          this.style.color = '#e74c3c';
+        } else {
+          this.style.color = '';
+        }
+      });
+    }
+
     // Auto-expand textarea + typing indicator dispatch
     messageInput.addEventListener('input', function() {
       this.style.height = 'auto';
@@ -5934,8 +5981,9 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
       }
     });
 
-    // Only setup clear functionality if user is admin and modal exists
-    if (isAdmin && clearButton && confirmModal && cancelClear && confirmClear && secretInput) {
+    // Only setup clear functionality if user is admin and modal exists.
+    // (No longer gated on a header button — /clear command calls showModal() directly.)
+    if (isAdmin && confirmModal && cancelClear && confirmClear && secretInput) {
       // Secret key validation (AJAX to validate_secret.php)
       secretInput.addEventListener('input', function() {
         if (secretInput.value.length === 0) {
@@ -5991,7 +6039,6 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
         }
       });
 
-      clearButton.addEventListener("click", showModal);
       cancelClear.addEventListener("click", closeModal);
       confirmClear.addEventListener("click", function() {
         if (confirmClear.disabled) {
@@ -6065,8 +6112,7 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
       document.body.style.overflow = '';
     }
 
-    if (isAdmin && deleteAllButton && deleteAllModal) {
-      deleteAllButton.addEventListener('click', openDeleteAllModal);
+    if (isAdmin && deleteAllModal) {
       cancelDeleteAll && cancelDeleteAll.addEventListener('click', closeDeleteAllModal);
       deleteAllModal.addEventListener('click', e => { if (e.target === deleteAllModal) closeDeleteAllModal(); });
 
@@ -6132,6 +6178,7 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
               closeDeleteAllModal();
               // Reset all chat state
               activeDM = null; activeAdminConv = null; isGlobalChat = false;
+              updateClearChatButtonVisibility();
               gcCursor = ''; dmCursor = '';
               gcViewingOlder = false; dmViewingOlder = false;
               allConvsData = [];

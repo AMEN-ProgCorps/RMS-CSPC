@@ -1,4 +1,5 @@
 const WebSocket = require('ws');
+const http = require('http');
 const crypto = require('crypto');
 let monitorEventLoopDelay;
 try {
@@ -10,6 +11,13 @@ try {
 const PORT = process.env.PORT || 8080;
 // Fallback key matches public/chatify/config/db.php CHAT_SHARED_SECRET default
 const CHAT_SHARED_SECRET = process.env.CHAT_SHARED_SECRET || '7f5b84c8a2bf6d91cd4a9c68aef2bc7e4c925d8864b85abef95a720cf12a32cd';
+
+// Secret PHP uses to authenticate server-to-server pushes (see handleInternalPush
+// below). Defaults to the same shared secret as client auth for convenience, but
+// set INTERNAL_PUSH_SECRET separately in production if you want to be able to
+// rotate them independently.
+const INTERNAL_PUSH_SECRET = process.env.INTERNAL_PUSH_SECRET || CHAT_SHARED_SECRET;
+const INTERNAL_PUSH_MAX_BODY_BYTES = 64 * 1024;
 
 const AUTH_TIMEOUT_MS = 10000;
 const HEARTBEAT_INTERVAL_MS = 30000;
@@ -33,15 +41,26 @@ function logError(...args) {
   console.error(...args);
 }
 
+// Plain HTTP server that the WS upgrade attaches to. We also use it to expose
+// a small internal-only POST endpoint (/internal/push) that PHP calls to push
+// events — session kicks, name changes, notifications — straight to a user's
+// already-open socket instead of the client having to poll for them.
+const httpServer = http.createServer((req, res) => {
+  handleInternalPush(req, res);
+});
+
 const wss = new WebSocket.Server({
-  port: PORT,
+  server: httpServer,
   perMessageDeflate: false,
   maxPayload: MAX_PAYLOAD_BYTES,
   // We maintain our own richer tracking (clients/accountSockets below), so
   // we don't need the library's built-in wss.clients bookkeeping too.
   clientTracking: false
 });
-console.log(`WebSocket server starting on port ${PORT} (max connections: ${MAX_CONNECTIONS})...`);
+
+httpServer.listen(PORT, () => {
+  console.log(`WebSocket server starting on port ${PORT} (max connections: ${MAX_CONNECTIONS})...`);
+});
 
 // Map of ws -> { accountId, name, authenticated }
 const clients = new Map();
@@ -186,6 +205,95 @@ function broadcastToAll(payloadStr, excludeAccountId) {
     if (excludeAccountId !== undefined && clientState.accountId === excludeAccountId) continue;
     safeSend(clientWs, payloadStr);
   }
+}
+
+// ── Internal push endpoint ───────────────────────────────────────────────
+// PHP calls this (server-to-server, not exposed to browsers) right after it
+// does its own DB write, so the change reaches an already-open socket
+// immediately instead of the client having to poll for it. Expected JSON
+// body: { secret, type, account_id (or account_ids: []), data: {...} }.
+// `type` + `data` are merged into the payload sent to the client's existing
+// ws.onmessage handler, so add a matching `data.type === '...'` case there
+// for anything new pushed through here.
+function handleInternalPush(req, res) {
+  if (req.method !== 'POST' || req.url !== '/internal/push') {
+    res.writeHead(404);
+    res.end();
+    return;
+  }
+
+  let body = '';
+  let rejected = false;
+  req.on('data', (chunk) => {
+    if (rejected) return;
+    body += chunk;
+    if (body.length > INTERNAL_PUSH_MAX_BODY_BYTES) {
+      rejected = true;
+      res.writeHead(413);
+      res.end('Payload too large');
+      req.destroy();
+    }
+  });
+
+  req.on('end', () => {
+    if (rejected) return;
+
+    let payload;
+    try {
+      payload = JSON.parse(body);
+    } catch (e) {
+      res.writeHead(400);
+      res.end('Invalid JSON');
+      return;
+    }
+
+    if (!timingSafeEqual(String(payload.secret || ''), INTERNAL_PUSH_SECRET)) {
+      log('Rejected internal push: bad or missing secret');
+      res.writeHead(403);
+      res.end('Forbidden');
+      return;
+    }
+
+    const { type, account_id, account_ids, broadcast, data: eventData } = payload;
+    if (!type) {
+      res.writeHead(400);
+      res.end('Missing "type"');
+      return;
+    }
+
+    const outPayloadStr = JSON.stringify(Object.assign({ type }, eventData || {}));
+
+    if (broadcast === true) {
+      // System-wide sidebar-affecting event (e.g. account created/deleted)
+      // that isn't scoped to a specific recipient.
+      broadcastToAll(outPayloadStr);
+      log(`Internal push relayed: type=${type}, targets=all`);
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ ok: true, delivered_to: 'all' }));
+      return;
+    }
+
+    const targets = Array.isArray(account_ids)
+      ? account_ids.map(Number)
+      : (account_id !== undefined ? [Number(account_id)] : []);
+
+    if (targets.length === 0) {
+      res.writeHead(400);
+      res.end('Missing "account_id", "account_ids", or "broadcast: true"');
+      return;
+    }
+
+    broadcastToAccounts(targets, outPayloadStr);
+    log(`Internal push relayed: type=${type}, targets=${targets.join(',')}`);
+
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ ok: true, delivered_to: targets }));
+  });
+
+  req.on('error', () => {
+    // Client hung up mid-request — nothing to clean up, the 'end' handler
+    // above simply never fires.
+  });
 }
 
 wss.on('connection', (ws) => {

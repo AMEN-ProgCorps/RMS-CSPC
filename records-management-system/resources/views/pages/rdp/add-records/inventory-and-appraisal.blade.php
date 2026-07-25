@@ -106,6 +106,48 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
         return $active . ' + ' . $storage;
     }
 
+    public function updatedTimeValue($val): void
+    {
+        if ($val === 'P') {
+            $this->is_permanent = true;
+            $this->active_period = '';
+            $this->storage_period = '';
+            $this->retention_period = 'Permanent';
+
+            $archivalId = DB::table('rdp_utility_medium')
+                ->where('utility_name', 'like', '%Archival%')
+                ->value('id');
+
+            if ($archivalId) {
+                $this->utility_value = $archivalId;
+            }
+        } elseif ($val === 'T') {
+            $this->is_permanent = false;
+            $this->retention_period = $this->computeTotalPeriod($this->active_period, $this->storage_period, false);
+        }
+    }
+
+    public function updatedIsPermanent($val): void
+    {
+        if ($val) {
+            $this->time_value = 'P';
+            $this->active_period = '';
+            $this->storage_period = '';
+            $this->retention_period = 'Permanent';
+
+            $archivalId = DB::table('rdp_utility_medium')
+                ->where('utility_name', 'like', '%Archival%')
+                ->value('id');
+
+            if ($archivalId) {
+                $this->utility_value = $archivalId;
+            }
+        } else {
+            $this->time_value = 'T';
+            $this->retention_period = $this->computeTotalPeriod($this->active_period, $this->storage_period, false);
+        }
+    }
+
     public function mount(): void
     {
         // Default volume_unit to Pages if available
@@ -244,11 +286,12 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
                     $this->disposition_provision = $foundSeries->remarks;
                 }
             } else {
-                // Predefined non-permanent retention binding: Auto-set active/storage period
+                // Predefined non-permanent retention binding: Auto-set active/storage period & Temporary Time Value
                 $this->is_permanent = false;
                 $this->active_period = $retention->active_period ?? '';
                 $this->storage_period = $retention->storage_period ?? '';
                 $this->retention_period = $this->computeTotalPeriod($this->active_period, $this->storage_period, false);
+                $this->time_value = 'T';
 
                 if ($foundSeries->remarks) {
                     $this->disposition_provision = $foundSeries->remarks;
@@ -1135,10 +1178,18 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
             </select>
         </div>
 
+        @php
+            $isPredefinedSelected = (!$isCustomSeries && !empty($selectedSeriesTitle));
+            $disableTimeValue     = $isPredefinedSelected || $is_permanent;
+            $disableUtilityValue  = ($isPredefinedSelected && $is_permanent) || $is_permanent || $time_value === 'P';
+            $disablePermanentCb   = $isPredefinedSelected || ($isCustomSeries && $time_value === 'T');
+            $disablePeriods       = $isPredefinedSelected || $is_permanent || $time_value === 'P';
+        @endphp
+
         <!-- ===== Time Value ===== -->
-        <div class="form-row-flex">
+        <div class="form-row-flex" style="{{ $disableTimeValue ? 'opacity: 0.4; pointer-events: none; user-select: none; transition: all 0.2s;' : 'transition: all 0.2s;' }}">
             <span class="form-label-bold">Time Value:</span>
-            <select class="form-input-custom" wire:model="time_value">
+            <select class="form-input-custom" wire:model.live="time_value" {{ $disableTimeValue ? 'disabled' : '' }}>
                 <option value="" selected disabled>Select Time Value...</option>
                 @foreach($timeValuesList as $tv)
                     <option value="{{ $tv->char_value }}">{{ $tv->char_value }} - {{ $tv->description }}</option>
@@ -1147,9 +1198,9 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
         </div>
 
         <!-- ===== Utility Value ===== -->
-        <div class="form-row-flex">
+        <div class="form-row-flex" style="{{ $disableUtilityValue ? 'opacity: 0.4; pointer-events: none; user-select: none; transition: all 0.2s;' : 'transition: all 0.2s;' }}">
             <span class="form-label-bold">Utility Value:</span>
-            <select class="form-input-custom" wire:model="utility_value">
+            <select class="form-input-custom" wire:model.live="utility_value" {{ $disableUtilityValue ? 'disabled' : '' }}>
                 <option value="" selected disabled>Select Utility Value...</option>
                 @foreach($utilityValuesList as $uv)
                     <option value="{{ $uv->id }}">{{ $uv->utility_name }} ({{ $uv->description }})</option>
@@ -1158,28 +1209,28 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
         </div>
 
         <!-- ===== Retention Period ===== -->
-        <div class="form-row-flex">
+        <div class="form-row-flex" style="{{ $disablePermanentCb ? 'opacity: 0.4; pointer-events: none; user-select: none; transition: all 0.2s;' : 'transition: all 0.2s;' }}">
             <span class="form-label-bold">Permanent Record:</span>
             <div style="flex: 1; display: flex; align-items: center; gap: 8px;">
-                <label style="display: flex; align-items: center; gap: 8px; font-size: 14px; font-weight: 700; color: #1e40af; cursor: pointer;">
-                    <input type="checkbox" wire:model.live="is_permanent" style="width: 18px; height: 18px; cursor: pointer; accent-color: #2563eb;">
+                <label style="display: flex; align-items: center; gap: 8px; font-size: 14px; font-weight: 700; color: #1e40af; cursor: {{ $disablePermanentCb ? 'not-allowed' : 'pointer' }};">
+                    <input type="checkbox" wire:model.live="is_permanent" {{ $disablePermanentCb ? 'disabled' : '' }} style="width: 18px; height: 18px; cursor: pointer; accent-color: #2563eb;">
                     Permanent Record Series
                 </label>
                 <span style="font-size: 12.5px; color: #64748b; margin-left: 8px;">(Disables period inputs and sets retention to Permanent)</span>
             </div>
         </div>
 
-        <div class="form-row-flex" style="{{ $is_permanent ? 'opacity: 0.4; pointer-events: none; user-select: none; transition: all 0.2s;' : 'transition: all 0.2s;' }}">
+        <div class="form-row-flex" style="{{ $disablePeriods ? 'opacity: 0.4; pointer-events: none; user-select: none; transition: all 0.2s;' : 'transition: all 0.2s;' }}">
             <span class="form-label-bold">Active Period:</span>
-            <input type="text" class="form-input-custom" wire:model.live.debounce.200ms="active_period" placeholder="e.g. 6 Months, 1 Year, 3 Years" {{ $is_permanent ? 'disabled' : '' }}>
+            <input type="text" class="form-input-custom" wire:model.live.debounce.200ms="active_period" placeholder="e.g. 6 Months, 1 Year, 3 Years" {{ $disablePeriods ? 'disabled' : '' }}>
         </div>
 
-        <div class="form-row-flex" style="{{ $is_permanent ? 'opacity: 0.4; pointer-events: none; user-select: none; transition: all 0.2s;' : 'transition: all 0.2s;' }}">
+        <div class="form-row-flex" style="{{ $disablePeriods ? 'opacity: 0.4; pointer-events: none; user-select: none; transition: all 0.2s;' : 'transition: all 0.2s;' }}">
             <span class="form-label-bold">Storage Period:</span>
-            <input type="text" class="form-input-custom" wire:model.live.debounce.200ms="storage_period" placeholder="e.g. 1 Year, 4 Years, 2 Years" {{ $is_permanent ? 'disabled' : '' }}>
+            <input type="text" class="form-input-custom" wire:model.live.debounce.200ms="storage_period" placeholder="e.g. 1 Year, 4 Years, 2 Years" {{ $disablePeriods ? 'disabled' : '' }}>
         </div>
 
-        <div class="form-row-flex" style="{{ $is_permanent ? 'opacity: 0.4; pointer-events: none; user-select: none;' : '' }}">
+        <div class="form-row-flex" style="{{ $disablePeriods ? 'opacity: 0.4; pointer-events: none; user-select: none;' : '' }}">
             <span class="form-label-bold">Total Period:</span>
             <div style="flex: 1; padding: 10px 14px; background: #f8fafc; border: 1px solid #cbd5e1; border-radius: 8px; font-weight: 700; font-size: 14px; color: #1e40af;">
                 {{ $this->computeTotalPeriod($active_period, $storage_period, $is_permanent) ?: '— (Auto-calculated from Active & Storage)' }}

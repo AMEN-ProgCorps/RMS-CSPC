@@ -96,17 +96,102 @@ return new class extends Migration
             );
         }
 
-        // 6. Volume Conversions (rdp_volume_conversion)
-        $conversions = [
-            ['value_standard' => '1 Cubic Meter', 'value_converted' => '35.315 Cubic Feet', 'is_active' => true],
-            ['value_standard' => '1 Archival Box', 'value_converted' => '1.5 Cubic Feet', 'is_active' => true],
-            ['value_standard' => '1 Transfer Box', 'value_converted' => '1.0 Cubic Feet', 'is_active' => true],
+        // 6. Volume Values & Conversions (rdp_volume_value & rdp_volume_conversion)
+        $volumeUnits = [
+            'Pages', 'Folder', 'Box', 'Cubic Meter', 'Cubic Feet', 'Archival Box', 'Transfer Box'
         ];
 
-        foreach ($conversions as $conv) {
-            DB::table('rdp_volume_conversion')->updateOrInsert(
-                ['value_standard' => $conv['value_standard']],
-                array_merge($conv, ['created_at' => now(), 'updated_at' => now()])
+        $unitIds = [];
+        foreach ($volumeUnits as $unitName) {
+            $existing = DB::table('rdp_volume_value')->where('value_standard', $unitName)->first();
+            if ($existing) {
+                $unitIds[$unitName] = $existing->volume_id;
+            } else {
+                $unitIds[$unitName] = DB::table('rdp_volume_value')->insertGetId([
+                    'value_standard'     => $unitName,
+                    'cur_used_standard'  => false,
+                    'cur_used_converted' => false,
+                    'is_active'          => true,
+                    'created_at'         => now(),
+                    'updated_at'         => now(),
+                ], 'volume_id');
+            }
+        }
+
+        // Seed 100 Pages = 1 Folder Rule
+        if (isset($unitIds['Pages'], $unitIds['Folder'])) {
+            $convId = DB::table('rdp_volume_conversion')->insertGetId([
+                'amount_standard' => 100,
+                'value_standard'  => $unitIds['Pages'],
+                'amount_converted'=> 1,
+                'value_converted' => $unitIds['Folder'],
+                'is_active'       => true,
+                'created_at'      => now(),
+                'updated_at'      => now(),
+            ]);
+
+            DB::table('rdp_volume_value')->where('volume_id', $unitIds['Pages'])->update(['cur_used_standard' => true]);
+            DB::table('rdp_volume_value')->where('volume_id', $unitIds['Folder'])->update(['cur_used_converted' => true]);
+        }
+
+        // 7. Seed Predefined Record Series with Retention Periods
+        $predefinedSeries = [
+            [
+                'series_title'   => 'Gate Passes',
+                'active_period'  => '6 Months',
+                'storage_period' => '1 Year',
+                'total_period'   => '1 Year 6 Months',
+                'remarks'        => 'Dispose after retention',
+            ],
+            [
+                'series_title'   => 'Receipts',
+                'active_period'  => '1 Year',
+                'storage_period' => '4 Years',
+                'total_period'   => '5 Years',
+                'remarks'        => 'Audit required before disposal',
+            ],
+            [
+                'series_title'   => 'Financial Statements',
+                'active_period'  => 'Permanent',
+                'storage_period' => 'Permanent',
+                'total_period'   => 'Permanent',
+                'remarks'        => 'Permanent record',
+            ],
+            [
+                'series_title'   => 'Minutes of Meetings',
+                'active_period'  => 'Permanent',
+                'storage_period' => 'Permanent',
+                'total_period'   => 'Permanent',
+                'remarks'        => 'Permanent record',
+            ],
+            [
+                'series_title'   => 'Appraisal Records',
+                'active_period'  => '3 Years',
+                'storage_period' => '2 Years',
+                'total_period'   => '5 Years',
+                'remarks'        => 'Review upon expiration',
+            ],
+        ];
+
+        foreach ($predefinedSeries as $seriesData) {
+            $retentionId = DB::table('rdp_retention_period')->insertGetId([
+                'active_period'  => $seriesData['active_period'],
+                'storage_period' => $seriesData['storage_period'],
+                'total_period'   => $seriesData['total_period'],
+                'created_at'     => now(),
+                'updated_at'     => now(),
+            ]);
+
+            DB::table('rdp_record_series')->updateOrInsert(
+                ['series_title' => $seriesData['series_title']],
+                [
+                    'parent_id'                  => null,
+                    'retention_period'           => $retentionId,
+                    'is_retention_period_permanent' => strtolower($seriesData['active_period']) === 'permanent',
+                    'remarks'                    => $seriesData['remarks'],
+                    'created_at'                 => now(),
+                    'updated_at'                 => now(),
+                ]
             );
         }
     }
@@ -135,8 +220,11 @@ return new class extends Migration
             'Administrative', 'Archival', 'Fiscal', 'Legal'
         ])->delete();
 
-        DB::table('rdp_volume_conversion')->whereIn('value_standard', [
-            '1 Cubic Meter', '1 Archival Box', '1 Transfer Box'
+        DB::table('rdp_volume_conversion')->truncate();
+        DB::table('rdp_volume_value')->truncate();
+
+        DB::table('rdp_record_series')->whereIn('series_title', [
+            'Gate Passes', 'Receipts', 'Financial Statements', 'Minutes of Meetings', 'Appraisal Records'
         ])->delete();
     }
 };

@@ -20,6 +20,21 @@ Volt::route('/tracked', 'pages.portal.tracked')
 Route::middleware(['auth'])
     ->group(function () {
     Route::get('/open-chat', [ChatController::class, 'openChat'])->name('open-chat');
+    Route::get('/chat/unread-count', function () {
+        $userId = Auth::id();
+        if (!$userId) {
+            return response()->json(['unread' => 0]);
+        }
+        try {
+            $totalUnread = \Illuminate\Support\Facades\DB::table('view_user_unread_chats')
+                ->where('account_id', $userId)
+                ->value('total_unread');
+            return response()->json(['unread' => (int) ($totalUnread ?? 0)]);
+        } catch (\Throwable $e) {
+            return response()->json(['unread' => 0]);
+        }
+    })->name('chat.unread-count');
+
 
     Volt::route('/portal', 'pages.portal.access-page')
         ->name('portal');
@@ -39,6 +54,7 @@ Route::middleware(['auth'])
 
         Volt::route('/admin/activity/logins', 'pages.admin.activity.logins')->name('admin.activity.logins');
         Volt::route('/admin/activity/account-changes', 'pages.admin.activity.account-changes')->name('admin.activity.account-changes');
+        Volt::route('/admin/activity/file-uploads', 'pages.admin.activity.file-uploads')->name('admin.activity.file-uploads');
         Volt::route('/admin/activity/notifications', 'pages.admin.activity.notifications')->name('admin.activity.notifications');
         Volt::route('/admin/activity/dts/transaction-logs', 'pages.admin.activity.dts.transaction-logs')->name('admin.activity.dts.transaction-logs');
         Volt::route('/admin/activity/dts/update-logs', 'pages.admin.activity.dts.update-logs')->name('admin.activity.dts.update-logs');
@@ -47,8 +63,13 @@ Route::middleware(['auth'])
         Volt::route('/admin/dts/action-options', 'pages.admin.dts.action-options')->name('admin.dts.action-options');
         Volt::route('/admin/dts/transaction-flows', 'pages.admin.dts.transaction-flows')->name('admin.dts.transaction-flows');
 
+        Route::redirect('/admin/rdp', '/admin/rdp/records-logs')->name('admin.rdp.index');
         Volt::route('/admin/rdp/records-logs', 'pages.admin.rdp.records-logs')->name('admin.rdp.records-logs');
+        Volt::route('/admin/rdp/volume-conversion-logs', 'pages.admin.rdp.update-logs')->name('admin.rdp.volume-conversion-logs');
         Volt::route('/admin/rdp/update-logs', 'pages.admin.rdp.update-logs')->name('admin.rdp.update-logs');
+        Volt::route('/admin/rdp/record-series-logs', 'pages.admin.rdp.record-series-logs')->name('admin.rdp.record-series-logs');
+        Volt::route('/admin/rdp/conversions', 'pages.admin.rdp.conversions')->name('admin.rdp.conversions');
+        Volt::route('/admin/rdp/record-series', 'pages.admin.rdp.record-series')->name('admin.rdp.record-series');
 
         Volt::route('/admin/subsystems/add', 'pages.admin.subsystems.add')->name('admin.subsystems.add');
         Volt::route('/admin/subsystems/activate', 'pages.admin.subsystems.activate')->name('admin.subsystems.activate');

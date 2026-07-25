@@ -7,7 +7,7 @@ use Livewire\Attributes\Layout;
 use Livewire\Attributes\Title;
 use Livewire\Volt\Component;
 
-new #[Layout('layouts.portal')] #[Title('Login')] class extends Component
+new #[Layout('layouts.portal')] #[Title('RMS CSPC Login')] class extends Component
 {
     public string $username = '';
 

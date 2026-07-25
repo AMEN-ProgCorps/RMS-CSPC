@@ -378,8 +378,15 @@ new #[Layout('layouts.dts')] #[Title('DTS - External Transactions')] class exten
     public function handleUploadFile(): void
     {
         $this->uploadErrorMessage = '';
-        if (!$this->uploadedFile) {
+
+        $requiredUpload = DB::table('system_settings')->where('key', 'dts_required_upload_file')->value('value') === 'true';
+        if ($requiredUpload && !$this->uploadedFile) {
             $this->uploadErrorMessage = 'Please select a PDF file to upload.';
+            return;
+        }
+
+        if (!$this->uploadedFile) {
+            $this->showUploadModal = false;
             return;
         }
 

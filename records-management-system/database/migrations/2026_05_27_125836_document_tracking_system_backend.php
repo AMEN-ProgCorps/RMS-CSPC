@@ -42,10 +42,12 @@ return new class extends Migration
             $table->string('document_path')->nullable()->unique();
             $table->unsignedInteger('uploaded_by')->nullable();
             $table->string('user_office')->nullable();
+            $table->string('file_size')->nullable();
+            $table->string('file_type')->nullable();
+            $table->boolean('is_active')->default(true);
             $table->timestamp('date_added')->index()->notNull();
             $table->timestamp('date_modified')->index()->notNull();
             $table->timestamp('date_deleted')->index()->notNull();
-
             $table->foreign('uploaded_by')->references('id')->on('account')->onDelete('set null');
             $table->foreign('user_office')->references('office_code')->on('office')->onDelete('set null');
         });

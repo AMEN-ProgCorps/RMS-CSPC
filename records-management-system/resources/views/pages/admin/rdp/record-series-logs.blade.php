@@ -6,7 +6,7 @@ use Livewire\Volt\Component;
 use Livewire\WithPagination;
 use Illuminate\Support\Facades\DB;
 
-new #[Layout('layouts.admin')] #[Title('Admin Console - Volume Conversion Logs')] class extends Component {
+new #[Layout('layouts.admin')] #[Title('Admin Console - Record Series Audit Logs')] class extends Component {
     use WithPagination;
 
     public string $search = '';
@@ -44,6 +44,10 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Volume Conversion Logs')
             ->leftJoin('account', 'admin_logs.admin_id', '=', 'account.id')
             ->leftJoin('account_details', 'account.id', '=', 'account_details.account_id')
             ->where('admin_logs.what_system', 2) // RDP Subsystem
+            ->where(function ($q) {
+                $q->where('admin_logs.changes', 'like', '%Series%')
+                  ->orWhere('admin_logs.changes', 'like', '%Record Series%');
+            })
             ->select([
                 'admin_logs.*',
                 'account.username',
@@ -65,17 +69,17 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Volume Conversion Logs')
             $query->whereDate('admin_logs.when_changes', $this->dateFilter);
         }
 
-        $totalLogs = DB::table('admin_logs')->where('what_system', 2)->count();
-        $conversionLogs = DB::table('admin_logs')->where('what_system', 2)->where('changes', 'like', '%Conversion%')->count();
-        $unitLogs = DB::table('admin_logs')->where('what_system', 2)->where('changes', 'like', '%Unit%')->count();
-        $recent24hLogs = DB::table('admin_logs')->where('what_system', 2)->where('when_changes', '>=', now()->subHours(24))->count();
+        $totalSeriesLogs = DB::table('admin_logs')->where('what_system', 2)->where('changes', 'like', '%Series%')->count();
+        $addedSeriesLogs = DB::table('admin_logs')->where('what_system', 2)->where('changes', 'like', '%Added Record Series%')->count();
+        $updatedSeriesLogs = DB::table('admin_logs')->where('what_system', 2)->where('changes', 'like', '%Updated Record Series%')->count();
+        $recent24hLogs = DB::table('admin_logs')->where('what_system', 2)->where('changes', 'like', '%Series%')->where('when_changes', '>=', now()->subHours(24))->count();
 
         return [
-            'logs'           => $query->orderBy('admin_logs.when_changes', 'desc')->paginate(15),
-            'totalLogs'      => $totalLogs,
-            'conversionLogs' => $conversionLogs,
-            'unitLogs'       => $unitLogs,
-            'recent24hLogs'  => $recent24hLogs,
+            'logs'              => $query->orderBy('admin_logs.when_changes', 'desc')->paginate(15),
+            'totalSeriesLogs'   => $totalSeriesLogs,
+            'addedSeriesLogs'   => $addedSeriesLogs,
+            'updatedSeriesLogs' => $updatedSeriesLogs,
+            'recent24hLogs'     => $recent24hLogs,
         ];
     }
 };
@@ -88,8 +92,8 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Volume Conversion Logs')
 <div class="activity-logs-container">
     <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 24px; flex-wrap: wrap; gap: 12px;">
         <div>
-            <h1 style="font-size: 24px; font-weight: 800; color: #0f172a; margin: 0;">Volume Conversion Logs</h1>
-            <p style="font-size: 14px; color: #64748b; margin: 4px 0 0 0;">Audit log of administrative volume conversion rule updates, ratio edits, and volume unit standard modifications.</p>
+            <h1 style="font-size: 24px; font-weight: 800; color: #0f172a; margin: 0;">Record Series Audit Logs</h1>
+            <p style="font-size: 14px; color: #64748b; margin: 4px 0 0 0;">Audit log of record series additions, updates, hierarchy modifications, and schedule deletions.</p>
         </div>
         <div style="display: flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 700; color: #16a34a; background: #f0fdf4; padding: 6px 14px; border-radius: 20px; border: 1px solid #bbf7d0;">
             <span style="width: 8px; height: 8px; border-radius: 50%; background: #16a34a; display: inline-block;"></span>
@@ -101,31 +105,31 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Volume Conversion Logs')
     <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 16px; margin-bottom: 24px;">
         <div style="background: #ffffff; border: 1px solid #e2e8f0; border-radius: 12px; padding: 20px; box-shadow: 0 4px 12px rgba(0,0,0,0.02); display: flex; align-items: center; gap: 16px;">
             <div style="width: 48px; height: 48px; border-radius: 12px; background: #eff6ff; color: #2563eb; display: flex; align-items: center; justify-content: center; font-size: 20px; font-weight: 800;">
-                📜
+                📁
             </div>
             <div>
-                <div style="font-size: 22px; font-weight: 800; color: #0f172a;">{{ number_format($totalLogs) }}</div>
-                <div style="font-size: 13px; font-weight: 600; color: #64748b;">Total RDP System Logs</div>
+                <div style="font-size: 22px; font-weight: 800; color: #0f172a;">{{ number_format($totalSeriesLogs) }}</div>
+                <div style="font-size: 13px; font-weight: 600; color: #64748b;">Total Record Series Logs</div>
             </div>
         </div>
 
         <div style="background: #ffffff; border: 1px solid #e2e8f0; border-radius: 12px; padding: 20px; box-shadow: 0 4px 12px rgba(0,0,0,0.02); display: flex; align-items: center; gap: 16px;">
             <div style="width: 48px; height: 48px; border-radius: 12px; background: #f0fdf4; color: #16a34a; display: flex; align-items: center; justify-content: center; font-size: 20px; font-weight: 800;">
-                🔄
+                ➕
             </div>
             <div>
-                <div style="font-size: 22px; font-weight: 800; color: #0f172a;">{{ number_format($conversionLogs) }}</div>
-                <div style="font-size: 13px; font-weight: 600; color: #64748b;">Conversion Rule Changes</div>
+                <div style="font-size: 22px; font-weight: 800; color: #0f172a;">{{ number_format($addedSeriesLogs) }}</div>
+                <div style="font-size: 13px; font-weight: 600; color: #64748b;">Added Series</div>
             </div>
         </div>
 
         <div style="background: #ffffff; border: 1px solid #e2e8f0; border-radius: 12px; padding: 20px; box-shadow: 0 4px 12px rgba(0,0,0,0.02); display: flex; align-items: center; gap: 16px;">
             <div style="width: 48px; height: 48px; border-radius: 12px; background: #faf5ff; color: #9333ea; display: flex; align-items: center; justify-content: center; font-size: 20px; font-weight: 800;">
-                📦
+                ✏️
             </div>
             <div>
-                <div style="font-size: 22px; font-weight: 800; color: #0f172a;">{{ number_format($unitLogs) }}</div>
-                <div style="font-size: 13px; font-weight: 600; color: #64748b;">Volume Unit Updates</div>
+                <div style="font-size: 22px; font-weight: 800; color: #0f172a;">{{ number_format($updatedSeriesLogs) }}</div>
+                <div style="font-size: 13px; font-weight: 600; color: #64748b;">Updated Series</div>
             </div>
         </div>
 
@@ -199,7 +203,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Volume Conversion Logs')
                 @empty
                     <tr>
                         <td colspan="4" style="padding: 32px; text-align: center; color: #64748b;">
-                            No update logs found matching criteria.
+                            No record series audit logs found matching criteria.
                         </td>
                     </tr>
                 @endforelse

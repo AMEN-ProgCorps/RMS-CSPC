@@ -549,22 +549,14 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
 
             $this->record_series_id = $lastSeriesId;
 
-            // 2. File Upload Handling
+            // 2. File Upload Handling via DocumentStorageService (Organized Google Drive + Local Cache)
             if ($this->uploadedFile) {
-                $documentIdHandler = 'DOC-' . strtoupper(Str::random(10));
-                $originalName = $this->uploadedFile->getClientOriginalName();
-                $storedPath = $this->uploadedFile->store('rdp_documents', 'local');
-
-                DB::table('document_data')->insert([
-                    'document_id'   => $documentIdHandler,
-                    'document_name' => $originalName,
-                    'document_path' => $storedPath,
-                    'uploaded_by'   => $user?->id,
-                    'user_office'   => $userOfficeCode,
-                    'date_added'    => now(),
-                    'date_modified' => now(),
-                    'date_deleted'  => now(),
-                ]);
+                $uploadResult = \App\Services\DocumentStorageService::storeUpload(
+                    $this->uploadedFile,
+                    'RDP',
+                    $user
+                );
+                $documentIdHandler = $uploadResult['document_id'];
             }
 
             // 3. Retention Period

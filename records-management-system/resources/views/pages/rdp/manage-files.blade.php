@@ -62,8 +62,28 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Cockpit File
         $user = Auth::user();
         $perms = $user?->permissions;
         
-        $canViewAll = $perms && ($perms->is_sadm || !empty($perms->rdp_view_all_files));
+        $isSuperAdmin = $perms && !empty($perms->is_sadm);
+        $isAdmin = $user && ($user->account_role == 1 || $isSuperAdmin);
+        $canViewAll = $isSuperAdmin || $isAdmin || ($perms && !empty($perms->rdp_view_all_files));
         $userOfficeCode = $user?->details?->office?->office_code;
+        $hasOfficeAccess = !empty($userOfficeCode) || $canViewAll;
+
+        if (!$hasOfficeAccess) {
+            return [
+                'files' => new \Illuminate\Pagination\LengthAwarePaginator([], 0, $this->perPage),
+                'offices' => [],
+                'canViewAll' => false,
+                'userOfficeCode' => null,
+                'selectedFile' => null,
+                'hasOfficeAccess' => false,
+                'stats' => [
+                    'total' => 0,
+                    'dts' => 0,
+                    'rdp' => 0,
+                    'shared' => 0,
+                ]
+            ];
+        }
 
         $offices = [];
         if ($canViewAll) {
@@ -192,6 +212,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Cockpit File
             'canViewAll' => $canViewAll,
             'userOfficeCode' => $userOfficeCode,
             'selectedFile' => $selectedFile,
+            'hasOfficeAccess' => true,
             'stats' => [
                 'total' => $totalFilesCount,
                 'dts' => $dtsFilesCount,
@@ -203,6 +224,27 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Cockpit File
 };
 ?>
 
+@if(isset($hasOfficeAccess) && !$hasOfficeAccess)
+<div class="rms-container cockpit-wrapper">
+    <div style="background: #ffffff; border: 2px dashed #cbd5e1; border-radius: 16px; padding: 48px 32px; text-align: center; margin: 40px auto; max-width: 620px; box-shadow: 0 10px 25px -5px rgba(0,0,0,0.05);">
+        <div style="width: 64px; height: 64px; background: #fee2e2; border-radius: 50%; display: flex; align-items: center; justify-content: center; margin: 0 auto 20px auto;">
+            <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="#dc2626" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect>
+                <path d="M7 11V7a5 5 0 0 1 10 0v4"></path>
+            </svg>
+        </div>
+        <h3 style="font-size: 22px; font-weight: 800; color: #0f172a; margin: 0 0 10px 0;">Manage Files Access Restricted</h3>
+        <p style="font-size: 14px; color: #64748b; margin: 0 0 24px 0; line-height: 1.6;">
+            Your user account is currently not assigned to any office. Access to Manage Files is restricted until an administrator assigns your account to an office.
+        </p>
+        <div style="display: flex; gap: 12px; justify-content: center;">
+            <a href="{{ route('rdp') }}" style="display: inline-flex; align-items: center; gap: 8px; background: #2563eb; color: #ffffff; padding: 12px 22px; border-radius: 10px; font-weight: 700; text-decoration: none; font-size: 14px; transition: all 0.2s;">
+                Return to RDP Dashboard
+            </a>
+        </div>
+    </div>
+</div>
+@else
 <div class="rms-container cockpit-wrapper">
     <style>
         .cockpit-wrapper {
@@ -968,3 +1010,4 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Cockpit File
         @endif
     </div>
 </div>
+@endif

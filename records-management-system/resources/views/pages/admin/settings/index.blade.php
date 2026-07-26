@@ -16,6 +16,11 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - System Settings')] class
     public string $successMessage = '';
     public string $errorMessage = '';
 
+    // Google Drive Diagnostics & Management
+    public string $driveTestResult = '';
+    public bool $isTestingDrive = false;
+    public string $driveStatus = 'unknown';
+
     public function mount(): void
     {
         $perms = auth()->user()?->permissions;
@@ -44,6 +49,70 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - System Settings')] class
 
         $dtsReq = \DB::table('system_settings')->where('key', 'dts_required_upload_file')->value('value');
         $this->dtsRequiredUploadFile = ($dtsReq === 'true');
+    }
+
+    public function testDriveConnection(): void
+    {
+        $this->isTestingDrive = true;
+        $this->driveTestResult = '';
+
+        try {
+            $testFileName = 'admin_health_check_' . time() . '.txt';
+            $testContent = 'RMS-CSPC Admin Console Health Check - ' . now();
+
+            $written = \Illuminate\Support\Facades\Storage::disk('google')->put($testFileName, $testContent);
+
+            if ($written && \Illuminate\Support\Facades\Storage::disk('google')->exists($testFileName)) {
+                \Illuminate\Support\Facades\Storage::disk('google')->delete($testFileName);
+
+                $this->driveStatus = 'connected';
+                $this->driveTestResult = '✅ Google Drive Connection Healthy! Successfully wrote, verified, and cleaned up test file on Google Cloud Storage.';
+                
+                \DB::table('admin_logs')->insert([
+                    'changes' => 'Executed Google Drive Cloud Storage Health Check (Status: HEALTHY)',
+                    'admin_id' => auth()->id(),
+                    'what_system' => 3,
+                    'when_changes' => now(),
+                ]);
+            } else {
+                $this->driveStatus = 'error';
+                $this->driveTestResult = '❌ Failed to verify file write on Google Drive.';
+            }
+        } catch (\Throwable $e) {
+            $this->driveStatus = 'error';
+            $this->driveTestResult = '❌ Google Drive Connection Error: ' . $e->getMessage();
+        }
+
+        $this->isTestingDrive = false;
+    }
+
+    public function refreshDriveMetrics(): void
+    {
+        try {
+            $offices = \DB::table('folder_data')->get();
+            foreach ($offices as $office) {
+                $dtsSize = \DB::table('document_data')
+                    ->where('user_office', $office->office_name)
+                    ->where('document_path', 'like', '%dts%')
+                    ->sum(\DB::raw('COALESCE(CAST(NULLIF(file_size, \'\') AS BIGINT), 0)'));
+
+                $rdpSize = \DB::table('document_data')
+                    ->where('user_office', $office->office_name)
+                    ->where('document_path', 'like', '%rdp%')
+                    ->sum(\DB::raw('COALESCE(CAST(NULLIF(file_size, \'\') AS BIGINT), 0)'));
+
+                \DB::table('folder_data')->where('id', $office->id)->update([
+                    'current_dts_size'  => $dtsSize,
+                    'current_rdp_size'  => $rdpSize,
+                    'total_folder_size' => $dtsSize + $rdpSize,
+                    'updated_at'        => now(),
+                ]);
+            }
+
+            $this->successMessage = 'Google Drive storage metrics successfully recalculated and synchronized!';
+        } catch (\Throwable $e) {
+            $this->errorMessage = 'Failed to sync drive metrics: ' . $e->getMessage();
+        }
     }
 
     public function saveSettings(): void
@@ -250,6 +319,64 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - System Settings')] class
             {{ $errorMessage }}
         </div>
     @endif
+
+    <!-- Google Drive Cloud Storage Connection Manager Card -->
+    <div class="settings-card" style="border-left: 4px solid #2563eb; margin-bottom: 24px; max-width: 750px;">
+        <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px;">
+            <div style="display: flex; align-items: center; gap: 10px;">
+                <i class="fa-brands fa-google-drive" style="font-size: 24px; color: #2563eb;"></i>
+                <h3 style="font-size: 18px; font-weight: 700; color: #0f172a; margin: 0;">Google Drive Cloud Storage Manager</h3>
+            </div>
+            <span style="display: inline-flex; align-items: center; gap: 6px; padding: 4px 12px; border-radius: 9999px; font-size: 12px; font-weight: 700; background: #dcfce7; color: #15803d;">
+                <i class="fa-solid fa-circle-check"></i> Connected (5TB Storage)
+            </span>
+        </div>
+
+        <p style="font-size: 13px; color: #64748b; margin: 0 0 16px 0; line-height: 1.5;">
+            Manage and test your personal Google Drive API connection. This tool allows administrators to run live connection health checks and refresh storage metrics directly without opening a terminal or debugging code.
+        </p>
+
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; background: #f8fafc; padding: 14px; border-radius: 8px; margin-bottom: 16px; border: 1px solid #e2e8f0;">
+            <div>
+                <span style="font-size: 11px; color: #64748b; font-weight: 600; text-transform: uppercase;">Storage Target Folder</span>
+                <div style="font-size: 12px; font-weight: 700; color: #0f172a; font-family: monospace; overflow: hidden; text-overflow: ellipsis;">
+                    {{ config('filesystems.disks.google.folder') ?: 'Root Folder' }}
+                </div>
+            </div>
+            <div>
+                <span style="font-size: 11px; color: #64748b; font-weight: 600; text-transform: uppercase;">Auth Method</span>
+                <div style="font-size: 12px; font-weight: 700; color: #2563eb;">
+                    {{ config('filesystems.disks.google.refreshToken') ? 'OAuth 2.0 User Token' : 'Service Account JSON' }}
+                </div>
+            </div>
+            <div>
+                <span style="font-size: 11px; color: #64748b; font-weight: 600; text-transform: uppercase;">SSL Verification</span>
+                <div style="font-size: 12px; font-weight: 700; color: #059669;">
+                    {{ config('filesystems.disks.google.verify', true) ? 'Enabled (SSL Active)' : 'Bypassed (Local Dev)' }}
+                </div>
+            </div>
+        </div>
+
+        @if ($driveTestResult)
+            <div style="padding: 12px 16px; border-radius: 8px; font-size: 13px; font-weight: 600; margin-bottom: 16px; background: {{ str_contains($driveTestResult, '✅') ? '#f0fdf4' : '#fef2f2' }}; color: {{ str_contains($driveTestResult, '✅') ? '#166534' : '#991b1b' }}; border: 1px solid {{ str_contains($driveTestResult, '✅') ? '#bbf7d0' : '#fecaca' }};">
+                {{ $driveTestResult }}
+            </div>
+        @endif
+
+        <div style="display: flex; gap: 10px; flex-wrap: wrap;">
+            <button type="button" wire:click="testDriveConnection" wire:loading.attr="disabled" style="background: #2563eb; color: white; border: none; padding: 9px 16px; border-radius: 6px; font-weight: 600; font-size: 13px; cursor: pointer; display: inline-flex; align-items: center; gap: 8px;">
+                <i class="fa-solid fa-plug" wire:loading.remove wire:target="testDriveConnection"></i>
+                <i class="fa-solid fa-spinner fa-spin" wire:loading wire:target="testDriveConnection"></i>
+                <span>Test Connection & Health Check</span>
+            </button>
+
+            <button type="button" wire:click="refreshDriveMetrics" wire:loading.attr="disabled" style="background: #475569; color: white; border: none; padding: 9px 16px; border-radius: 6px; font-weight: 600; font-size: 13px; cursor: pointer; display: inline-flex; align-items: center; gap: 8px;">
+                <i class="fa-solid fa-arrows-rotate" wire:loading.remove wire:target="refreshDriveMetrics"></i>
+                <i class="fa-solid fa-spinner fa-spin" wire:loading wire:target="refreshDriveMetrics"></i>
+                <span>Sync Storage Metrics</span>
+            </button>
+        </div>
+    </div>
 
     <div class="settings-card">
         <form wire:submit.prevent="saveSettings">

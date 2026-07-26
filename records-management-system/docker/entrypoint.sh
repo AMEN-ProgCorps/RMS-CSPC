@@ -22,6 +22,12 @@ if [ -z "$APP_KEY" ]; then
     echo ""
 fi
 
+# ── Google Drive credentials warning ──────────────────────────────────────────
+if [ ! -f "storage/app/google-drive-service-account.json" ]; then
+    echo "  ℹ  Google Drive Service Account key not found at storage/app/google-drive-service-account.json"
+    echo "     To enable Google Drive cloud storage, place your JSON key file at that path."
+fi
+
 # ── Wait for DB and run migrations ───────────────────────────────────────────
 echo "[2/5] Waiting for database..."
 until php artisan migrate --force 2>/dev/null; do

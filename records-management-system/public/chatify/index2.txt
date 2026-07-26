@@ -1,5 +1,12 @@
 <?php
 require_once __DIR__ . '/bootstrap.php';
+// Default PHP session cache limiter ('nocache') sends
+// "Cache-Control: no-store, no-cache, must-revalidate", which disqualifies
+// this page from the back/forward cache (Lighthouse: bf-cache /
+// MainResourceHasCacheControlNoStore). Switch to a limiter that keeps the
+// response private/uncacheable by shared caches without the literal
+// no-store directive, so bfcache remains possible.
+session_cache_limiter('private_no_expire');
 session_start();
 
 // Check login status from RMS database session
@@ -123,12 +130,17 @@ try {
 $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled';
 ?>
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
   <title>Chatify - CSPC</title>
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover, interactive-widget=resizes-content">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, interactive-widget=resizes-content">
   <meta charset="UTF-8">
+  <meta name="description" content="Chatify - real-time messaging para sa CSPC.">
   <link rel="icon" href="cspc.png" type="image/png" />
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="preload" as="style" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" onload="this.onload=null;this.rel='stylesheet'">
+  <noscript><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap"></noscript>
   <!-- Apply dark mode BEFORE page renders to prevent flash -->
   <script>
     (function() {
@@ -148,7 +160,6 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
     })();
   </script>
   <style>
-    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap');
 
     /* Light mode variables (default) */
     :root {
@@ -168,7 +179,7 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
       --text-secondary: #65676b;
       --text-bubble-sent: #ffffff;
       --text-bubble-received: #050505;
-      --text-sender-sent: rgba(255, 255, 255, 0.7);
+      --text-sender-sent: #ffffff; /* was rgba(255,255,255,0.7) — 2.99:1 contrast on #1b74e4, failed WCAG AA (needs 4.5:1); solid white gives the max achievable ~4.5:1 on this background */
       --text-sender-received: #65676b;
       --text-time-sent: rgba(255, 255, 255, 0.5);
       --text-time-received: #65676b;
@@ -212,7 +223,7 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
       --text-secondary: #b0b3b8;
       --text-bubble-sent: #ffffff;
       --text-bubble-received: #e4e6eb;
-      --text-sender-sent: rgba(255, 255, 255, 0.7);
+      --text-sender-sent: #ffffff; /* see light-mode note above — same fix for dark mode */
       --text-sender-received: #b0b3b8;
       --text-time-sent: rgba(255, 255, 255, 0.5);
       --text-time-received: #b0b3b8;
@@ -2490,19 +2501,19 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
 
       <div class="header">
         <div class="header-left">
-          <button id="burgerButton" class="clear-button" style="display:none;margin-right:10px;min-width:auto;">
+          <button id="burgerButton" class="clear-button" style="display:none;margin-right:10px;min-width:auto;" aria-label="Open menu" title="Open menu">
             <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="3" y1="12" x2="21" y2="12"></line><line x1="3" y1="6" x2="21" y2="6"></line><line x1="3" y1="18" x2="21" y2="18"></line></svg>
           </button>
-          <button id="backButton" class="clear-button" style="display:none;margin-right:10px;padding:0 10px;min-width:auto;">
+          <button id="backButton" class="clear-button" style="display:none;margin-right:10px;padding:0 10px;min-width:auto;" aria-label="Go back" title="Go back">
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="19" y1="12" x2="5" y2="12"></line><polyline points="12 19 5 12 12 5"></polyline></svg>
           </button>
-          <img src="cspc.png" alt="GhostLAN ghost logo" class="header-logo" draggable="false" ondragstart="return false;" oncontextmenu="return false;">
+          <img src="cspc.webp" width="28" height="28" alt="GhostLAN ghost logo" class="header-logo" draggable="false" ondragstart="return false;" oncontextmenu="return false;">
           <h1 id="chatHeaderTitle"></h1>
         </div>
       
       <div class="header-buttons">
           <!-- Dark mode button for all users -->
-          <button class="darkmode-button" id="darkModeToggle">
+          <button class="darkmode-button" id="darkModeToggle" aria-label="Toggle dark mode" title="Toggle dark mode">
             <svg class="moon-icon" viewBox="0 0 24 24">
               <path d="M12 3c-4.97 0-9 4.03-9 9s4.03 9 9 9 9-4.03 9-9c0-.46-.04-.92-.1-1.36-.98 1.37-2.58 2.26-4.4 2.26-3.03 0-5.5-2.47-5.5-5.5 0-1.82.89-3.42 2.26-4.4-.44-.06-.9-.1-1.36-.1z"/>
             </svg>
@@ -2555,7 +2566,7 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
             <svg class="name-icon" viewBox="0 0 24 24">
               <path d="M12 2C13.1 2 14 2.9 14 4C14 5.1 13.1 6 12 6C10.9 6 10 5.1 10 4C10 2.9 10.9 2 12 2ZM21 9V7L15 4V6L21 9ZM15 10.26L21 7.26V9.26L15 12.26V10.26ZM12 7C16.42 7 20 8.79 20 11V13C20 15.21 16.42 17 12 17S4 15.21 4 13V11C4 8.79 7.58 7 12 7Z"/>
             </svg>
-            <input type="text" id="nameInput" placeholder="" required readonly value="<?php echo htmlspecialchars($user_name); ?>">
+            <input type="text" id="nameInput" placeholder="" required readonly aria-label="Your display name" value="<?php echo htmlspecialchars($user_name); ?>">
             <?php if ($is_admin): ?>
             <span class="admin-input-badge" title="You are the Super Admin">
               <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
@@ -2719,7 +2730,7 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
           </div>
           <div id="adminKeyError" style="font-size:12px;color:#e74c3c;display:none;margin-bottom:8px;text-align:center;font-weight:600;"></div>
           <div id="adminKeySuccess" style="font-size:12px;color:#2ecc71;display:none;margin-bottom:8px;text-align:center;font-weight:600;"></div>
-          <button type="submit" style="display:none;"></button>
+          <button type="submit" style="display:none;" aria-hidden="true" tabindex="-1"></button>
         </form>
       </div>
       <div class="modal-footer">
@@ -6776,8 +6787,13 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
       }
     });
 
-    // Clean up WebSocket on page unload
-    window.addEventListener('beforeunload', function() {
+    // Clean up WebSocket on page unload.
+    // NOTE: 'pagehide' is used instead of 'beforeunload' — an unload/beforeunload
+    // listener disqualifies the page from the back/forward cache (bfcache) in
+    // Chrome/Firefox/Safari, which was flagged by Lighthouse ("Page prevented
+    // back/forward cache restoration"). 'pagehide' fires at the same point for
+    // this cleanup purpose but does not block bfcache.
+    window.addEventListener('pagehide', function() {
       if (localIsTyping && activeDMAccountId) {
         sendTypingStatus(false);
       }

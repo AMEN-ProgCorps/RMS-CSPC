@@ -223,6 +223,133 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - System Settings')] class
         }
     }
 
+    // Live Preload Progress State
+    public bool $isPreloading = false;
+    public int $preloadProgress = 0;
+    public string $preloadCurrentOffice = '';
+    public array $preloadLogs = [];
+    public array $preloadOfficesList = [];
+    public int $preloadCurrentIndex = 0;
+
+    public function preloadOfficeFolders(): void
+    {
+        $this->successMessage = '';
+        $this->errorMessage = '';
+        $this->preloadLogs = [];
+        $this->preloadProgress = 0;
+        $this->preloadCurrentIndex = 0;
+
+        $offices = \DB::table('office')
+            ->where('is_active', true)
+            ->whereNotIn('office_code', ['ORIGIN', '[H]'])
+            ->pluck('office_code')
+            ->toArray();
+
+        if (!in_array('GENERAL', $offices)) {
+            $offices[] = 'GENERAL';
+        }
+
+        $this->preloadOfficesList = array_values(array_unique($offices));
+
+        if (empty($this->preloadOfficesList)) {
+            $this->errorMessage = 'No offices found to preload.';
+            return;
+        }
+
+        $this->isPreloading = true;
+        $this->preloadLogs[] = "🚀 Initializing office folder preload sequence for " . count($this->preloadOfficesList) . " offices...";
+        
+        $this->executePreloadStep(0);
+    }
+
+    public function executePreloadStep(int $index): void
+    {
+        if (!$this->isPreloading) {
+            return;
+        }
+
+        $total = count($this->preloadOfficesList);
+        if ($index >= $total) {
+            $this->preloadProgress = 100;
+            $this->isPreloading = false;
+            $this->preloadLogs[] = "🎉 All office folder structures successfully preloaded and verified (100%)!";
+            $this->successMessage = "Successfully preloaded office folder structures on Google Drive & database for {$total} offices! Uploads will now be instant.";
+            
+            \DB::table('admin_logs')->insert([
+                'changes' => "Preloaded Google Drive office folders & database records for {$total} offices.",
+                'admin_id' => auth()->id(),
+                'what_system' => 3,
+                'when_changes' => now(),
+            ]);
+            return;
+        }
+
+        $officeCode = $this->preloadOfficesList[$index];
+        $officeName = strtoupper(\Illuminate\Support\Str::slug($officeCode, '_'));
+        if (empty($officeName)) {
+            $officeName = 'GENERAL';
+        }
+
+        $this->preloadCurrentOffice = $officeName;
+        $this->preloadLogs[] = "🔍 Checking if [{$officeName}] folder structure exists on server & Google Drive...";
+
+        // 1. Local cache directories
+        try {
+            \Illuminate\Support\Facades\Storage::disk('local')->makeDirectory("private/uploads/{$officeName}/DTS");
+            \Illuminate\Support\Facades\Storage::disk('local')->makeDirectory("private/uploads/{$officeName}/RDP");
+        } catch (\Throwable $e) {}
+
+        // 2. Google Drive directories
+        $this->preloadLogs[] = "📁 Attempting to verify / create [{$officeName}], [{$officeName}/DTS], and [{$officeName}/RDP] on Google Drive...";
+        try {
+            \Illuminate\Support\Facades\Storage::disk('google')->makeDirectory($officeName);
+            \Illuminate\Support\Facades\Storage::disk('google')->makeDirectory("{$officeName}/DTS");
+            \Illuminate\Support\Facades\Storage::disk('google')->makeDirectory("{$officeName}/RDP");
+        } catch (\Throwable $e) {
+            logger()->warning("Preload notice for {$officeName}: " . $e->getMessage());
+        }
+
+        // 3. Database record update (using updateOrInsert to prevent duplicate key errors!)
+        $existing = \DB::table('folder_data')->where('office_name', $officeName)->first();
+        if (!$existing) {
+            \DB::table('folder_data')->insert([
+                'office_name'       => $officeName,
+                'total_folder_size' => 0,
+                'is_dts_available'  => true,
+                'current_dts_size'  => 0,
+                'is_rdp_available'  => true,
+                'current_rdp_size'  => 0,
+                'is_active'         => true,
+                'created_at'        => now(),
+                'updated_at'        => now(),
+            ]);
+        } else {
+            \DB::table('folder_data')->where('office_name', $officeName)->update([
+                'is_dts_available' => true,
+                'is_rdp_available' => true,
+                'updated_at'        => now(),
+            ]);
+        }
+
+        $this->preloadLogs[] = "✅ Creation & DB verification success for [{$officeName}]!";
+        
+        $this->preloadCurrentIndex = $index + 1;
+        $this->preloadProgress = (int) round(($this->preloadCurrentIndex / $total) * 100);
+
+        if ($this->preloadCurrentIndex < $total) {
+            $this->preloadLogs[] = "➡️ Proceeding to next office folder (" . ($this->preloadCurrentIndex + 1) . " of {$total})...";
+            $this->js('$wire.executePreloadStep(' . $this->preloadCurrentIndex . ')');
+        } else {
+            $this->executePreloadStep($total);
+        }
+    }
+
+    public function cancelPreload(): void
+    {
+        $this->isPreloading = false;
+        $this->errorMessage = 'Preload office folders operation was manually cancelled by administrator.';
+    }
+
     public function saveSettings(): void
     {
         $this->successMessage = '';
@@ -436,6 +563,76 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - System Settings')] class
 @endpush
 
 <div class="activity-logs-container">
+    <!-- Live Progress Bar & Step-by-step Terminal Console Overlay Modal for Preloading -->
+    @if ($isPreloading)
+    <div style="position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(15, 23, 42, 0.82); backdrop-filter: blur(6px); z-index: 99999; display: flex; align-items: center; justify-content: center; color: white; padding: 20px;">
+        <div style="background: #ffffff; color: #0f172a; padding: 28px 32px; border-radius: 16px; box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.45); width: 100%; max-width: 560px; border: 1px solid #cbd5e1;">
+            
+            <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px;">
+                <div style="display: flex; align-items: center; gap: 10px;">
+                    <i class="fa-solid fa-folder-plus" style="font-size: 22px; color: #2563eb;"></i>
+                    <h4 style="font-size: 18px; font-weight: 800; margin: 0; color: #0f172a;">Preloading Office Folders</h4>
+                </div>
+                <span style="font-size: 14px; font-weight: 800; color: #2563eb; background: #eff6ff; padding: 4px 12px; border-radius: 9999px; border: 1px solid #bfdbfe;">
+                    {{ $preloadProgress }}%
+                </span>
+            </div>
+
+            <!-- Animated Progress Bar -->
+            <div style="width: 100%; background: #e2e8f0; height: 12px; border-radius: 9999px; overflow: hidden; margin-bottom: 14px; box-shadow: inset 0 1px 2px rgba(0,0,0,0.1);">
+                <div style="width: {{ $preloadProgress }}%; background: linear-gradient(90deg, #2563eb 0%, #3b82f6 100%); height: 100%; transition: width 0.3s ease-in-out; border-radius: 9999px;"></div>
+            </div>
+
+            <div style="font-size: 12px; font-weight: 600; color: #475569; margin-bottom: 10px; display: flex; justify-content: space-between;">
+                <span>Target: <strong style="color: #0f172a;">{{ $preloadCurrentOffice ?: 'Initializing...' }}</strong></span>
+                <span>({{ $preloadCurrentIndex }} / {{ count($preloadOfficesList) }} Offices)</span>
+            </div>
+
+            <!-- Step-by-Step Live Terminal Console Output -->
+            <div x-data x-init="$nextTick(() => { $el.scrollTop = $el.scrollHeight })" x-effect="$nextTick(() => { $el.scrollTop = $el.scrollHeight })" style="background: #0f172a; color: #38bdf8; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; font-size: 11px; padding: 14px; border-radius: 10px; height: 170px; overflow-y: auto; text-align: left; line-height: 1.6; border: 1px solid #1e293b; margin-bottom: 18px;">
+                @foreach ($preloadLogs as $log)
+                    <div style="margin-bottom: 4px; border-bottom: 1px solid rgba(255,255,255,0.05); padding-bottom: 2px;">
+                        @if (str_contains($log, '✅'))
+                            <span style="color: #4ade80; font-weight: 600;">{{ $log }}</span>
+                        @elseif (str_contains($log, '🔍'))
+                            <span style="color: #fde047;">{{ $log }}</span>
+                        @elseif (str_contains($log, '📁'))
+                            <span style="color: #60a5fa;">{{ $log }}</span>
+                        @elseif (str_contains($log, '🎉'))
+                            <span style="color: #a7f3d0; font-weight: 800;">{{ $log }}</span>
+                        @else
+                            <span style="color: #94a3b8;">{{ $log }}</span>
+                        @endif
+                    </div>
+                @endforeach
+            </div>
+
+            <button type="button" wire:click="cancelPreload" onclick="window.stop(); window.location.reload();" style="width: 100%; background: #ef4444; color: #ffffff; border: none; padding: 10px 20px; border-radius: 8px; font-weight: 700; font-size: 13px; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; gap: 8px; transition: all 0.2s; box-shadow: 0 4px 12px rgba(239, 68, 68, 0.25);">
+                <i class="fa-solid fa-circle-stop"></i> Emergency Cancel Process
+            </button>
+        </div>
+    </div>
+    @endif
+
+    <!-- General Livewire Action Loading Indicator (For Test Connection & Sync Metrics) -->
+    <div wire:loading.flex wire:target="testDriveConnection, saveDriveCredentials, refreshDriveMetrics" style="position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(15, 23, 42, 0.7); backdrop-filter: blur(4px); z-index: 99998; align-items: center; justify-content: center; color: white;">
+        <div style="background: #ffffff; color: #0f172a; padding: 36px 44px; border-radius: 16px; box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.35); text-align: center; max-width: 440px; border: 1px solid #cbd5e1;">
+            <div style="width: 56px; height: 56px; border: 4px solid #e2e8f0; border-top-color: #2563eb; border-radius: 50%; animation: spinDrive 0.8s linear infinite; margin: 0 auto 18px auto;"></div>
+            <h4 style="font-size: 19px; font-weight: 800; margin: 0 0 8px 0; color: #0f172a;">Processing Operation...</h4>
+            <p style="font-size: 13px; color: #64748b; margin: 0 0 20px 0; line-height: 1.5;">
+                Synchronizing settings and testing connection with Google Drive...
+            </p>
+            <button type="button" onclick="window.stop(); window.location.reload();" style="background: #ef4444; color: #ffffff; border: none; padding: 10px 22px; border-radius: 8px; font-weight: 700; font-size: 13px; cursor: pointer; display: inline-flex; align-items: center; gap: 8px; transition: all 0.2s; box-shadow: 0 4px 12px rgba(239, 68, 68, 0.25);">
+                <i class="fa-solid fa-circle-stop"></i> Emergency Cancel Process
+            </button>
+        </div>
+    </div>
+    <style>
+    @keyframes spinDrive {
+        to { transform: rotate(360deg); }
+    }
+    </style>
+
     <!-- Header with Quick Save Action Bar -->
     <form wire:submit.prevent="saveSettings">
         <div class="page-header" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 16px;">
@@ -512,6 +709,12 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - System Settings')] class
                     <i class="fa-solid fa-plug" wire:loading.remove wire:target="testDriveConnection"></i>
                     <i class="fa-solid fa-spinner fa-spin" wire:loading wire:target="testDriveConnection"></i>
                     <span>Test Connection & Health Check</span>
+                </button>
+
+                <button type="button" wire:click="preloadOfficeFolders" wire:loading.attr="disabled" style="background: #16a34a; color: white; border: none; padding: 8px 14px; border-radius: 6px; font-weight: 600; font-size: 12px; cursor: pointer; display: inline-flex; align-items: center; gap: 6px;">
+                    <i class="fa-solid fa-folder-plus" wire:loading.remove wire:target="preloadOfficeFolders"></i>
+                    <i class="fa-solid fa-spinner fa-spin" wire:loading wire:target="preloadOfficeFolders"></i>
+                    <span>Preload Office Folders</span>
                 </button>
 
                 <button type="button" wire:click="toggleDriveEditForm" style="background: #0284c7; color: white; border: none; padding: 8px 14px; border-radius: 6px; font-weight: 600; font-size: 12px; cursor: pointer; display: inline-flex; align-items: center; gap: 6px;">

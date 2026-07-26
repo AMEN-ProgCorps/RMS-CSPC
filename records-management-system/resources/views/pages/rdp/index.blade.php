@@ -90,8 +90,8 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Landing Page
         $permanentPercent = $totalSeries > 0 ? round(($permanentSeries / $totalSeries) * 100) : 0;
         $temporaryPercent = $totalSeries > 0 ? round(($temporarySeries / $totalSeries) * 100) : 0;
 
-        // Total managed files
-        $totalFiles = DB::table('files')->count();
+        // Total managed document files
+        $totalFiles = DB::table('document_data')->count();
 
         // Parent options for create modal
         $parentOptions = DB::table('rdp_record_series')
@@ -129,13 +129,6 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Landing Page
             ->limit(10)
             ->get();
 
-        // Recent Managed Files Feed
-        $recentFiles = DB::table('files')
-            ->select('id', 'title', 'file_type', 'file_size', 'created_at')
-            ->orderBy('id', 'DESC')
-            ->limit(5)
-            ->get();
-
         return [
             'totalSeries'      => $totalSeries,
             'verifiedSeries'   => $verifiedSeries,
@@ -147,7 +140,6 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Landing Page
             'totalFiles'       => $totalFiles,
             'parentOptions'    => $parentOptions,
             'seriesList'       => $seriesList,
-            'recentFiles'      => $recentFiles,
             'userName'         => $user?->details?->first_name ?: ($user->username ?? 'Officer'),
             'userOffice'       => $user?->details?->office?->office_name ?: 'Records & Freedom of Info Office',
         ];
@@ -161,13 +153,28 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Landing Page
 
 <div style="padding: 28px; background: #f8fafc; min-height: 100vh; font-family: 'Inter', system-ui, -apple-system, sans-serif;">
     <style>
+        /* Monochromatic Blue Design Tokens */
+        :root {
+            --blue-900: #0f172a;
+            --blue-800: #1e3a8a;
+            --blue-700: #1d4ed8;
+            --blue-600: #2563eb;
+            --blue-500: #3b82f6;
+            --blue-400: #60a5fa;
+            --blue-300: #93c5fd;
+            --blue-200: #bfdbfe;
+            --blue-100: #dbeafe;
+            --blue-50:  #eff6ff;
+            --blue-ice: #f0f9ff;
+        }
+
         .rdp-hero-banner {
-            background: linear-gradient(135deg, #0f172a 0%, #1e3a8a 50%, #2563eb 100%);
-            border-radius: 20px;
+            background: linear-gradient(135deg, #0f172a 0%, #1e3a8a 55%, #2563eb 100%);
+            border-radius: 18px;
             padding: 32px 36px;
             color: #ffffff;
-            box-shadow: 0 20px 40px -15px rgba(37, 99, 235, 0.35);
-            margin-bottom: 28px;
+            box-shadow: 0 16px 36px -10px rgba(30, 58, 138, 0.35);
+            margin-bottom: 24px;
             display: flex;
             justify-content: space-between;
             align-items: center;
@@ -184,7 +191,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Landing Page
             right: -10%;
             width: 360px;
             height: 360px;
-            background: rgba(255, 255, 255, 0.08);
+            background: rgba(255, 255, 255, 0.07);
             border-radius: 50%;
             pointer-events: none;
         }
@@ -193,8 +200,8 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Landing Page
             display: inline-flex;
             align-items: center;
             gap: 8px;
-            padding: 12px 22px;
-            border-radius: 12px;
+            padding: 11px 20px;
+            border-radius: 10px;
             font-weight: 700;
             font-size: 13.5px;
             cursor: pointer;
@@ -209,7 +216,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Landing Page
             box-shadow: 0 4px 12px rgba(0,0,0,0.1);
         }
         .hero-btn-light:hover {
-            background: #f8fafc;
+            background: #eff6ff;
             transform: translateY(-2px);
         }
 
@@ -227,52 +234,53 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Landing Page
         .stat-grid {
             display: grid;
             grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-            gap: 20px;
-            margin-bottom: 28px;
+            gap: 18px;
+            margin-bottom: 24px;
         }
 
         .stat-card {
             background: #ffffff;
             border: 1px solid #e2e8f0;
-            border-radius: 16px;
-            padding: 22px 24px;
-            box-shadow: 0 4px 14px rgba(0, 0, 0, 0.02);
+            border-radius: 14px;
+            padding: 20px 22px;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.02);
             transition: all 0.25s ease;
             display: flex;
             align-items: center;
-            gap: 18px;
+            gap: 16px;
         }
 
         .stat-card:hover {
             transform: translateY(-3px);
-            box-shadow: 0 12px 24px -6px rgba(0, 0, 0, 0.08);
-            border-color: #cbd5e1;
+            box-shadow: 0 10px 20px -5px rgba(37, 99, 235, 0.1);
+            border-color: #bfdbfe;
         }
 
         .stat-icon {
-            width: 52px;
-            height: 52px;
-            border-radius: 14px;
+            width: 48px;
+            height: 48px;
+            border-radius: 12px;
             display: flex;
             align-items: center;
             justify-content: center;
-            font-size: 22px;
+            font-size: 20px;
             flex-shrink: 0;
         }
 
         .modules-grid {
             display: grid;
             grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
-            gap: 20px;
-            margin-bottom: 28px;
+            gap: 18px;
+            margin-bottom: 24px;
         }
 
+        /* Clean uniform Module Card with no top border line */
         .module-card {
             background: #ffffff;
             border: 1px solid #e2e8f0;
-            border-radius: 16px;
-            padding: 24px;
-            box-shadow: 0 4px 14px rgba(0, 0, 0, 0.02);
+            border-radius: 14px;
+            padding: 22px;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.02);
             transition: all 0.25s ease;
             text-decoration: none;
             color: inherit;
@@ -282,18 +290,18 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Landing Page
         }
 
         .module-card:hover {
-            transform: translateY(-4px);
-            box-shadow: 0 14px 28px -6px rgba(37, 99, 235, 0.12);
+            transform: translateY(-3px);
+            box-shadow: 0 12px 24px -5px rgba(37, 99, 235, 0.12);
             border-color: #93c5fd;
         }
 
         .dashboard-section {
             background: #ffffff;
             border: 1px solid #e2e8f0;
-            border-radius: 16px;
-            padding: 24px;
-            box-shadow: 0 4px 14px rgba(0, 0, 0, 0.02);
-            margin-bottom: 28px;
+            border-radius: 14px;
+            padding: 22px;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.02);
+            margin-bottom: 24px;
         }
 
         .data-table {
@@ -307,12 +315,12 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Landing Page
             background: #f8fafc;
             padding: 12px 16px;
             font-weight: 700;
-            color: #475569;
+            color: #334155;
             border-bottom: 2px solid #e2e8f0;
         }
 
         .data-table td {
-            padding: 14px 16px;
+            padding: 13px 16px;
             border-bottom: 1px solid #f1f5f9;
             vertical-align: middle;
             color: #0f172a;
@@ -326,11 +334,11 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Landing Page
         .modal-overlay { position: fixed; inset: 0; background: rgba(15, 23, 42, 0.65); backdrop-filter: blur(4px); z-index: 9999; display: flex; align-items: center; justify-content: center; padding: 20px; }
         .modal-dialog { background: #ffffff; width: 100%; max-width: 580px; border-radius: 16px; box-shadow: 0 20px 40px rgba(0,0,0,0.2); padding: 24px; }
         
-        .nap-btn { padding: 7px 14px; border-radius: 8px; font-weight: 700; font-size: 12.5px; cursor: pointer; border: none; transition: all 0.2s; display: inline-flex; align-items: center; gap: 6px; text-decoration: none; }
+        .nap-btn { padding: 8px 16px; border-radius: 8px; font-weight: 700; font-size: 12.5px; cursor: pointer; border: none; transition: all 0.2s; display: inline-flex; align-items: center; gap: 6px; text-decoration: none; }
         .nap-btn-primary { background: #2563eb; color: #ffffff; }
         .nap-btn-primary:hover { background: #1d4ed8; }
-        .nap-btn-secondary { background: #f1f5f9; color: #475569; border: 1px solid #cbd5e1; }
-        .nap-btn-secondary:hover { background: #e2e8f0; }
+        .nap-btn-secondary { background: #eff6ff; color: #1e40af; border: 1px solid #bfdbfe; }
+        .nap-btn-secondary:hover { background: #dbeafe; }
 
         /* FAB Bar */
         .rdp-fab-nav {
@@ -348,11 +356,11 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Landing Page
             align-items: center;
             gap: 8px;
             padding: 10px 18px;
-            background: #1e293b;
+            background: #1e3a8a;
             color: #ffffff;
             border-radius: 12px;
-            box-shadow: 0 8px 20px rgba(15, 23, 42, 0.25);
-            border: 1px solid rgba(255, 255, 255, 0.1);
+            box-shadow: 0 8px 20px rgba(30, 58, 138, 0.25);
+            border: 1px solid rgba(255, 255, 255, 0.15);
             cursor: pointer;
             font-weight: 700;
             font-size: 13px;
@@ -371,14 +379,14 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Landing Page
     <div class="rdp-hero-banner">
         <div style="position: relative; z-index: 2; max-width: 650px;">
             <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 8px;">
-                <span style="background: rgba(255, 255, 255, 0.2); backdrop-filter: blur(8px); padding: 4px 12px; border-radius: 20px; font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px;">
+                <span style="background: rgba(255, 255, 255, 0.18); backdrop-filter: blur(8px); padding: 4px 12px; border-radius: 20px; font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px;">
                     Records Disposition Command Center
                 </span>
             </div>
             <h1 style="font-size: 28px; font-weight: 800; margin: 0 0 8px 0; letter-spacing: -0.5px; line-height: 1.2;">
                 Records Disposition Program (RDP)
             </h1>
-            <p style="font-size: 14.5px; opacity: 0.92; margin: 0; line-height: 1.5;">
+            <p style="font-size: 14px; opacity: 0.92; margin: 0; line-height: 1.5;">
                 Welcome, <strong>{{ $userName }}</strong>. Primary portal for records appraisal schedules, inventory classification, and official National Archives disposition reports.
             </p>
         </div>
@@ -396,56 +404,56 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Landing Page
     <!-- Live Statistics Cards -->
     <div class="stat-grid">
         <div class="stat-card">
-            <div class="stat-icon" style="background: #eff6ff; color: #2563eb;">
+            <div class="stat-icon" style="background: #eff6ff; color: #1d4ed8;">
                 📁
             </div>
             <div>
                 <div style="font-size: 24px; font-weight: 800; color: #0f172a; line-height: 1.1;">
                     {{ number_format($totalSeries) }}
                 </div>
-                <div style="font-size: 12.5px; font-weight: 600; color: #64748b; margin-top: 4px;">
+                <div style="font-size: 12px; font-weight: 600; color: #64748b; margin-top: 4px;">
                     Total Record Series
                 </div>
             </div>
         </div>
 
         <div class="stat-card">
-            <div class="stat-icon" style="background: #f0fdf4; color: #16a34a;">
+            <div class="stat-icon" style="background: #dbeafe; color: #1e40af;">
                 ✅
             </div>
             <div>
                 <div style="font-size: 24px; font-weight: 800; color: #0f172a; line-height: 1.1;">
                     {{ number_format($verifiedSeries) }}
                 </div>
-                <div style="font-size: 12.5px; font-weight: 600; color: #64748b; margin-top: 4px;">
+                <div style="font-size: 12px; font-weight: 600; color: #64748b; margin-top: 4px;">
                     Verified Series (GRDS)
                 </div>
             </div>
         </div>
 
         <div class="stat-card">
-            <div class="stat-icon" style="background: #fef2f2; color: #dc2626;">
-                ⚠️
+            <div class="stat-icon" style="background: #e0f2fe; color: #0369a1;">
+                ℹ️
             </div>
             <div>
                 <div style="font-size: 24px; font-weight: 800; color: #0f172a; line-height: 1.1;">
                     {{ number_format($unverifiedSeries) }}
                 </div>
-                <div style="font-size: 12.5px; font-weight: 600; color: #64748b; margin-top: 4px;">
+                <div style="font-size: 12px; font-weight: 600; color: #64748b; margin-top: 4px;">
                     Unverified Series
                 </div>
             </div>
         </div>
 
         <div class="stat-card">
-            <div class="stat-icon" style="background: #faf5ff; color: #9333ea;">
+            <div class="stat-icon" style="background: #f1f5f9; color: #1e293b;">
                 💻
             </div>
             <div>
                 <div style="font-size: 24px; font-weight: 800; color: #0f172a; line-height: 1.1;">
                     {{ number_format($totalFiles) }}
                 </div>
-                <div style="font-size: 12.5px; font-weight: 600; color: #64748b; margin-top: 4px;">
+                <div style="font-size: 12px; font-weight: 600; color: #64748b; margin-top: 4px;">
                     Repository Files
                 </div>
             </div>
@@ -461,30 +469,30 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Landing Page
                 </h3>
                 <span style="font-size: 12.5px; color: #64748b;">Permanent vs. Temporary record series classification ratio.</span>
             </div>
-            <div style="font-size: 13px; font-weight: 700; color: #475569;">
+            <div style="font-size: 13px; font-weight: 700; color: #1e3a8a;">
                 {{ $permanentSeries }} Permanent &nbsp;|&nbsp; {{ $temporarySeries }} Temporary
             </div>
         </div>
 
-        <!-- Progress Bar -->
-        <div style="width: 100%; height: 16px; background: #fff7ed; border-radius: 10px; overflow: hidden; display: flex; box-shadow: inset 0 1px 3px rgba(0,0,0,0.05); margin-bottom: 12px;">
-            <div style="width: {{ $permanentPercent }}%; background: linear-gradient(90deg, #2563eb, #3b82f6); height: 100%; transition: width 0.5s ease;" title="Permanent Series ({{ $permanentPercent }}%)"></div>
-            <div style="width: {{ $temporaryPercent }}%; background: linear-gradient(90deg, #f97316, #ea580c); height: 100%; transition: width 0.5s ease;" title="Temporary Series ({{ $temporaryPercent }}%)"></div>
+        <!-- Progress Bar (Blue Tones) -->
+        <div style="width: 100%; height: 14px; background: #e0f2fe; border-radius: 10px; overflow: hidden; display: flex; box-shadow: inset 0 1px 3px rgba(0,0,0,0.05); margin-bottom: 12px;">
+            <div style="width: {{ $permanentPercent }}%; background: linear-gradient(90deg, #1d4ed8, #3b82f6); height: 100%; transition: width 0.5s ease;" title="Permanent Series ({{ $permanentPercent }}%)"></div>
+            <div style="width: {{ $temporaryPercent }}%; background: linear-gradient(90deg, #60a5fa, #93c5fd); height: 100%; transition: width 0.5s ease;" title="Temporary Series ({{ $temporaryPercent }}%)"></div>
         </div>
 
         <div style="display: flex; gap: 24px; font-size: 12.5px; font-weight: 600;">
             <div style="display: flex; align-items: center; gap: 8px;">
-                <span style="width: 12px; height: 12px; border-radius: 3px; background: #2563eb; display: inline-block;"></span>
+                <span style="width: 12px; height: 12px; border-radius: 3px; background: #1d4ed8; display: inline-block;"></span>
                 <span>Permanent Retention: <strong>{{ $permanentPercent }}%</strong> ({{ $permanentSeries }} Series)</span>
             </div>
             <div style="display: flex; align-items: center; gap: 8px;">
-                <span style="width: 12px; height: 12px; border-radius: 3px; background: #ea580c; display: inline-block;"></span>
+                <span style="width: 12px; height: 12px; border-radius: 3px; background: #60a5fa; display: inline-block;"></span>
                 <span>Temporary Retention: <strong>{{ $temporaryPercent }}%</strong> ({{ $temporarySeries }} Series)</span>
             </div>
         </div>
     </div>
 
-    <!-- Core Functional Modules & Reports Grid -->
+    <!-- Core Functional Modules & Reports Grid (Clean Cards Without Top Border Line) -->
     <div style="margin-bottom: 14px;">
         <h3 style="font-size: 17px; font-weight: 800; color: #0f172a; margin: 0 0 16px 0; display: flex; align-items: center; gap: 8px;">
             🚀 Primary RDP Modules & Official Reports
@@ -493,10 +501,10 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Landing Page
 
     <div class="modules-grid">
         <!-- NAP Form 1 -->
-        <div class="module-card" style="border-top: 4px solid #2563eb;">
+        <div class="module-card">
             <div>
                 <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 12px;">
-                    <span style="font-size: 11px; font-weight: 800; color: #2563eb; background: #eff6ff; padding: 4px 10px; border-radius: 6px; text-transform: uppercase;">
+                    <span style="font-size: 11px; font-weight: 800; color: #1e40af; background: #eff6ff; padding: 4px 10px; border-radius: 6px; text-transform: uppercase;">
                         NAP FORM 1
                     </span>
                     <span style="font-size: 11px; color: #64748b; font-weight: 600;">Landscape Layout</span>
@@ -519,10 +527,10 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Landing Page
         </div>
 
         <!-- NAP Form 2 -->
-        <div class="module-card" style="border-top: 4px solid #16a34a;">
+        <div class="module-card">
             <div>
                 <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 12px;">
-                    <span style="font-size: 11px; font-weight: 800; color: #16a34a; background: #f0fdf4; padding: 4px 10px; border-radius: 6px; text-transform: uppercase;">
+                    <span style="font-size: 11px; font-weight: 800; color: #1d4ed8; background: #dbeafe; padding: 4px 10px; border-radius: 6px; text-transform: uppercase;">
                         NAP FORM 2
                     </span>
                     <span style="font-size: 11px; color: #64748b; font-weight: 600;">Verified Series Only</span>
@@ -538,17 +546,17 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Landing Page
                 <a href="{{ route('rdp.add-records.records-and-disposition-schedule') }}" class="nap-btn nap-btn-secondary" style="flex: 1; justify-content: center;">
                     ⏳ Schedule
                 </a>
-                <a href="{{ route('rdp.reports.nap-form-2') }}" class="nap-btn nap-btn-primary" style="flex: 1; justify-content: center; background: #16a34a;">
+                <a href="{{ route('rdp.reports.nap-form-2') }}" class="nap-btn nap-btn-primary" style="flex: 1; justify-content: center;">
                     🖨️ Print Form 2
                 </a>
             </div>
         </div>
 
         <!-- NAP Form 3 -->
-        <div class="module-card" style="border-top: 4px solid #ea580c;">
+        <div class="module-card">
             <div>
                 <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 12px;">
-                    <span style="font-size: 11px; font-weight: 800; color: #ea580c; background: #fff7ed; padding: 4px 10px; border-radius: 6px; text-transform: uppercase;">
+                    <span style="font-size: 11px; font-weight: 800; color: #0369a1; background: #e0f2fe; padding: 4px 10px; border-radius: 6px; text-transform: uppercase;">
                         NAP FORM 3
                     </span>
                     <span style="font-size: 11px; color: #64748b; font-weight: 600;">Unverified Request</span>
@@ -561,17 +569,17 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Landing Page
                 </p>
             </div>
             <div style="display: flex; gap: 8px; margin-top: 20px;">
-                <a href="{{ route('rdp.reports.nap-form-3') }}" class="nap-btn nap-btn-primary" style="width: 100%; justify-content: center; background: #ea580c;">
+                <a href="{{ route('rdp.reports.nap-form-3') }}" class="nap-btn nap-btn-primary" style="width: 100%; justify-content: center;">
                     🖨️ Open NAP Form 3 Hub
                 </a>
             </div>
         </div>
 
         <!-- Manage Files -->
-        <div class="module-card" style="border-top: 4px solid #9333ea;">
+        <div class="module-card">
             <div>
                 <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 12px;">
-                    <span style="font-size: 11px; font-weight: 800; color: #9333ea; background: #faf5ff; padding: 4px 10px; border-radius: 6px; text-transform: uppercase;">
+                    <span style="font-size: 11px; font-weight: 800; color: #0f172a; background: #f1f5f9; padding: 4px 10px; border-radius: 6px; text-transform: uppercase;">
                         FILE REPOSITORY
                     </span>
                     <span style="font-size: 11px; color: #64748b; font-weight: 600;">Cloud & Office Files</span>
@@ -584,7 +592,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Landing Page
                 </p>
             </div>
             <div style="display: flex; gap: 8px; margin-top: 20px;">
-                <a href="{{ route('rdp.manage-files') }}" class="nap-btn nap-btn-primary" style="width: 100%; justify-content: center; background: #9333ea;">
+                <a href="{{ route('rdp.manage-files') }}" class="nap-btn nap-btn-primary" style="width: 100%; justify-content: center;">
                     📂 Manage Repository
                 </a>
             </div>
@@ -643,7 +651,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Landing Page
                             </td>
                             <td style="text-align: center;">
                                 @if($isPerm)
-                                    <span style="padding: 3px 10px; background: #eff6ff; color: #1e40af; border: 1px solid #bfdbfe; border-radius: 12px; font-weight: 800; font-size: 11.5px;">
+                                    <span style="padding: 3px 10px; background: #dbeafe; color: #1e40af; border: 1px solid #bfdbfe; border-radius: 12px; font-weight: 800; font-size: 11.5px;">
                                         PERMANENT
                                     </span>
                                 @else
@@ -654,17 +662,17 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Landing Page
                             </td>
                             <td style="text-align: center;">
                                 @if($series->is_verified)
-                                    <span style="padding: 3px 10px; background: #f0fdf4; color: #16a34a; border: 1px solid #bbf7d0; border-radius: 12px; font-weight: 800; font-size: 11.5px;">
+                                    <span style="padding: 3px 10px; background: #eff6ff; color: #1e40af; border: 1px solid #bfdbfe; border-radius: 12px; font-weight: 800; font-size: 11.5px;">
                                         VERIFIED
                                     </span>
                                 @else
-                                    <span style="padding: 3px 10px; background: #fef2f2; color: #dc2626; border: 1px solid #fca5a5; border-radius: 12px; font-weight: 800; font-size: 11.5px;">
+                                    <span style="padding: 3px 10px; background: #f0f9ff; color: #0369a1; border: 1px solid #bae6fd; border-radius: 12px; font-weight: 800; font-size: 11.5px;">
                                         UNVERIFIED
                                     </span>
                                 @endif
                             </td>
                             <td style="text-align: right; white-space: nowrap;">
-                                <a href="{{ route('rdp.add-records.inventory-and-appraisal') }}" class="nap-btn nap-btn-secondary" style="padding: 4px 8px; font-size: 12px;">
+                                <a href="{{ route('rdp.add-records.inventory-and-appraisal') }}" class="nap-btn nap-btn-secondary" style="padding: 5px 10px; font-size: 12px;">
                                     Edit in Appraisal ➔
                                 </a>
                             </td>

@@ -52,6 +52,21 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
     public ?string $successMessage = null;
     public ?string $errorMessage = null;
 
+    public function updatedUploadedFile(): void
+    {
+        if (!$this->uploadedFile) return;
+
+        $ext = strtolower($this->uploadedFile->getClientOriginalExtension());
+        $allowedDocs = ['pdf', 'doc', 'docx', 'xls', 'xlsx', 'ppt', 'pptx', 'txt', 'csv', 'rtf', 'odt', 'ods'];
+
+        if (!in_array($ext, $allowedDocs, true)) {
+            $this->errorMessage = 'Invalid file type (.'.$ext.'). Only document files (.pdf, .docx, .doc, .xlsx, .pptx, .txt, .csv) are allowed.';
+            $this->uploadedFile = null;
+        } else {
+            $this->errorMessage = null;
+        }
+    }
+
     public function computeTotalPeriod(?string $active, ?string $storage, bool $isPermanent): string
     {
         if ($isPermanent) {
@@ -510,7 +525,7 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
             'frequence_use'    => 'nullable|string',
             'time_value'       => 'nullable|string',
             'utility_value'    => 'nullable|integer',
-            'uploadedFile'     => 'nullable|file|max:20480',
+            'uploadedFile'     => 'nullable|file|mimes:pdf,doc,docx,xls,xlsx,ppt,pptx,txt,csv,rtf,odt,ods|max:20480',
         ]);
 
         try {
@@ -1237,7 +1252,7 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
 
         <!-- Action Buttons Bar -->
         <div class="actions-bar" style="display: flex; gap: 12px; align-items: center; flex-wrap: wrap;">
-            <input type="file" id="rdp-file-input" wire:model="uploadedFile" style="display: none;">
+            <input type="file" id="rdp-file-input" wire:model="uploadedFile" accept=".pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.csv,.rtf,.odt,.ods" style="display: none;">
             
             <div style="display: flex; align-items: center; gap: 6px;">
                 <label for="rdp-file-input" class="btn" style="cursor: pointer; display: inline-flex; align-items: center; gap: 8px; margin: 0; padding: 10px 18px; background: {{ $uploadedFile ? '#16a34a' : '#475569' }}; color: #ffffff; border-radius: 6px; font-weight: 700; font-size: 13px; transition: all 0.2s;">

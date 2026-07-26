@@ -17,7 +17,7 @@ if (!Auth::check()) {
   <head>
     <title>Access Denied</title>
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <link rel="icon" type="image/png" href="cspc.png">
+    <link rel="icon" type="image/png" href="cspc.webp">
     <style>
       html, body {
         margin: 0;
@@ -136,7 +136,7 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, interactive-widget=resizes-content">
   <meta charset="UTF-8">
   <meta name="description" content="Chatify - real-time messaging para sa CSPC.">
-  <link rel="icon" href="cspc.png" type="image/png" />
+  <link rel="icon" href="cspc.webp" type="image/png" />
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link rel="preload" as="style" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" onload="this.onload=null;this.rel='stylesheet'">
@@ -736,7 +736,7 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
       vertical-align: middle;
       display: inline-block;
       flex-shrink: 0;
-      /* Prevent dragging the logo out (e.g. to open cspc.png directly in a
+      /* Prevent dragging the logo out (e.g. to open cspc.webp directly in a
          new tab) and prevent it from being selected like text/an image. */
       -webkit-user-drag: none;
       -khtml-user-drag: none;

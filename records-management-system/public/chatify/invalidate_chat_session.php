@@ -45,4 +45,12 @@ try {
     // Non-fatal
 }
 
+// Force-disconnect any live WebSocket for this account right now. This is
+// the piece that was missing entirely before: RMS calling this endpoint on
+// logout used to only flip a presence flag — it never actually told the
+// ws-server (or the client) that the session was gone, so an already-open
+// Chatify tab kept working exactly as before until its own local session
+// timer or ws token happened to expire on its own.
+WsPush::forceDisconnect($accountId, 'logged_out');
+
 echo json_encode(['ok' => true, 'purged_account_id' => $accountId]);

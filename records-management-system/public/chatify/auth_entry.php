@@ -42,53 +42,8 @@ if (Auth::check()) {
 // Validate the HMAC token
 // ------------------------------------------------------------------
 if (!Auth::validateToken($accountId, $expires, $token)) {
-    http_response_code(403);
-    // Show a user-friendly error page
-    ?><!DOCTYPE html>
-<html lang="en">
-<head>
-    <title>Chatlify - CSPC</title>
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <link rel="icon" type="image/png" href="cspc.png">
-    <style>
-      html, body {
-        margin: 0;
-        padding: 0;
-        height: 100%;
-        overflow: hidden; 
-      }
-
-      body {
-        background: #111;
-        color: #ff4d4d;
-        display: flex;
-        justify-content: center;
-        align-items: center;
-        font-family: 'Courier New', monospace;
-        text-align: center;
-        user-select: none;
-      }
-
-      h1 {
-        font-size: clamp(30px, 8vw, 50px); 
-        animation: flicker 1.5s infinite;
-        margin: 0; 
-      }
-
-      @keyframes flicker {
-        0%, 19%, 21%, 23%, 25%, 54%, 56%, 100% { opacity: 1; }
-        20%, 22%, 24%, 55% { opacity: 0.3; }
-      }
-    </style>
-  </head>
-<body>
-    <div class="box">
-        <h1>Access Denied</h1>
-    </div>
-</body>
-</html>
-<?php
-    exit;
+    // Shared component — see core/AuthRedirect.php.
+    AuthRedirect::toLogin();
 }
 
 // ------------------------------------------------------------------

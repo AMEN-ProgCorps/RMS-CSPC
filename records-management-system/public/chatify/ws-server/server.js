@@ -263,6 +263,26 @@ function handleInternalPush(req, res) {
 
     const outPayloadStr = JSON.stringify(Object.assign({ type }, eventData || {}));
 
+    // force_disconnect=true means "this account's RMS session is gone —
+    // don't just notify the client, make sure the socket can't be used
+    // again." Used for explicit logout and session-kick events. The
+    // message is still sent first so the client can show a friendly
+    // overlay before the socket goes away out from under it.
+    const shouldForceDisconnect = payload.force_disconnect === true;
+
+    function closeTargets(accountIds) {
+      const seen = new Set();
+      for (const id of accountIds) {
+        if (seen.has(id)) continue;
+        seen.add(id);
+        const set = accountSockets.get(id);
+        if (!set) continue;
+        for (const clientWs of Array.from(set)) {
+          try { clientWs.close(4002, 'Session invalidated'); } catch (e) {}
+        }
+      }
+    }
+
     if (broadcast === true) {
       // System-wide sidebar-affecting event (e.g. account created/deleted)
       // that isn't scoped to a specific recipient.
@@ -285,6 +305,14 @@ function handleInternalPush(req, res) {
 
     broadcastToAccounts(targets, outPayloadStr);
     log(`Internal push relayed: type=${type}, targets=${targets.join(',')}`);
+
+    if (shouldForceDisconnect) {
+      // Small delay so the message above has a chance to reach the client
+      // before the socket disappears — the overlay is cosmetic, but the
+      // disconnect itself must happen regardless of whether the client
+      // reacts to the message.
+      setTimeout(() => closeTargets(targets), 250);
+    }
 
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({ ok: true, delivered_to: targets }));
@@ -354,7 +382,8 @@ wss.on('connection', (ws) => {
         clients.set(ws, {
           accountId,
           name: name || `User ${account_id}`,
-          authenticated: true
+          authenticated: true,
+          expires: parseInt(expires, 10) // re-checked continuously, see sweep below
         });
         indexSocket(ws, accountId);
         log(`Client authenticated: account_id=${account_id}, name="${name}"`);
@@ -370,6 +399,25 @@ wss.on('connection', (ws) => {
     // Reject all other messages if the connection has not authenticated yet
     if (!state.authenticated) {
       log('Ignored message from unauthenticated socket.');
+      return;
+    }
+
+    // 1b. Reauth — the client re-runs Auth::check() server-side (via
+    // refresh_ws_token.php) every few minutes and pushes the freshly
+    // minted token here to extend the socket's validity. If the RMS
+    // session is gone, the client never gets a fresh token to send, the
+    // old one simply expires, and the sweep below closes the socket.
+    // If someone sends a bad/forged token here, close immediately —
+    // same treatment as a failed initial handshake.
+    if (data.type === 'reauth') {
+      const { account_id, expires, token } = data;
+      if (Number(account_id) === state.accountId && verifyToken(account_id, expires, token)) {
+        state.expires = parseInt(expires, 10);
+        log(`Reauth OK: account_id=${state.accountId}, new expiry=${state.expires}`);
+      } else {
+        log(`Reauth failed: account_id=${state.accountId} — closing socket.`);
+        ws.close(4003, 'Invalid Reauth Token');
+      }
       return;
     }
 
@@ -551,6 +599,25 @@ const heartbeatTimer = setInterval(() => {
   }
 }, HEARTBEAT_INTERVAL_MS);
 
+// ── Token-expiry sweep ────────────────────────────────────────────────────
+// Enforces the 'expires' claim on an ongoing basis instead of only at the
+// initial handshake. A socket whose token has lapsed without a successful
+// 'reauth' (see message handler above) means the client either went dark
+// or its RMS session stopped validating — either way this connection must
+// not be trusted to keep sending/receiving chat traffic.
+const EXPIRY_SWEEP_INTERVAL_MS = 30000;
+const expirySweepTimer = setInterval(() => {
+  const nowSec = Math.floor(Date.now() / 1000);
+  for (const [clientWs, clientState] of clients.entries()) {
+    if (!clientState.authenticated || !clientState.expires) continue;
+    if (nowSec > clientState.expires) {
+      log(`Token expired without reauth: account_id=${clientState.accountId} — forcing disconnect.`);
+      safeSend(clientWs, JSON.stringify({ type: 'session_kicked', reason: 'expired' }));
+      try { clientWs.close(4002, 'Session expired'); } catch (e) {}
+    }
+  }
+}, EXPIRY_SWEEP_INTERVAL_MS);
+
 // ── Metrics: periodic operational snapshot ──────────────────────────────
 // Cheap enough to always run (even in production) — this is exactly what
 // you want in server logs to catch a memory leak or event-loop stall
@@ -590,12 +657,14 @@ const metricsTimer = setInterval(() => {
 wss.on('close', () => {
   clearInterval(heartbeatTimer);
   clearInterval(metricsTimer);
+  clearInterval(expirySweepTimer);
   if (eventLoopMonitor) eventLoopMonitor.disable();
 });
 
 process.on('SIGTERM', () => {
   clearInterval(heartbeatTimer);
   clearInterval(metricsTimer);
+  clearInterval(expirySweepTimer);
   wss.close(() => process.exit(0));
 });
 

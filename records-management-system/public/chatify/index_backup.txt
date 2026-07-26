@@ -1,62 +1,61 @@
 <?php
 require_once __DIR__ . '/bootstrap.php';
-// Default PHP session cache limiter ('nocache') sends
-// "Cache-Control: no-store, no-cache, must-revalidate", which disqualifies
-// this page from the back/forward cache (Lighthouse: bf-cache /
-// MainResourceHasCacheControlNoStore). Switch to a limiter that keeps the
-// response private/uncacheable by shared caches without the literal
-// no-store directive, so bfcache remains possible.
-session_cache_limiter('private_no_expire');
+// IMPORTANT: this page is dynamic and session-gated (see the Auth::check()
+// gate below) — it must NEVER be replayable from the browser's ordinary
+// HTTP disk cache once the session that produced it is gone.
+//
+// A previous version of this file switched the session cache limiter to
+// 'private_no_expire' to satisfy a Lighthouse bfcache warning about
+// 'no-store' blocking back/forward-cache restoration. That "fix" was based
+// on an outdated assumption: 'private_no_expire' sends
+// "Cache-Control: private, max-age=<N>" with NO Expires/no-store, which
+// makes this already-authenticated HTML a normal cacheable resource for
+// up to session.cache_expire minutes (180 by default). Result: simply
+// revisiting the URL (typing it again, a bookmark, a link) after logout/
+// session expiry could be served straight from disk cache — no network
+// request, no PHP execution, no Auth::check() — while the "bfcache guard"
+// below (event.persisted) never fires, because that flag is only true for
+// an actual back/forward-cache restore, not a plain disk-cache hit. AJAX
+// endpoints (send.php, check_session.php, ...) always hit the network and
+// correctly deny access, which is exactly the "UI still shows but can't
+// send" symptom this produced.
+//
+// Back to explicit no-store: modern Chrome (96+), Firefox, and Safari all
+// support bfcache for pages sent with Cache-Control: no-store, so the
+// original Lighthouse concern no longer requires trading real cache safety
+// away. The pageshow/event.persisted reload below is kept as defense in
+// depth for the (rare) bfcache-restore path.
+header('Cache-Control: no-store, no-cache, must-revalidate, max-age=0');
+header('Pragma: no-cache');
+session_cache_limiter('nocache');
 session_start();
 
-// Check login status from RMS database session
+// ─────────────────────────────────────────────────────────────────────────
+// SERVER-SIDE RMS SESSION GATE — must run before ANY output (HTML/JS/CSS).
+// This is the ONLY authentication decision for this page. There is no
+// client-side/JS fallback, and Chatify never mints or reuses a session of
+// its own: Auth::check() must validate the request against the live RMS
+// server-side session record (DB-backed), not merely the presence of a
+// PHP $_SESSION array Chatify itself could have populated.
+// ─────────────────────────────────────────────────────────────────────────
 if (!Auth::check()) {
-    http_response_code(403);
-    ?><!DOCTYPE html>
-<html lang="en">
-  <head>
-    <title>Access Denied</title>
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <link rel="icon" type="image/png" href="cspc.png">
-    <style>
-      html, body {
-        margin: 0;
-        padding: 0;
-        height: 100%;
-        overflow: hidden; 
-      }
+    // Defense-in-depth: if any Chatify-local session keys survived (e.g. a
+    // stale session file from a previous request), wipe them so nothing
+    // downstream can ever be reconstructed from them. Chatify must never
+    // recreate or resurrect a session on its own once RMS says it's gone.
+    $_SESSION = [];
+    if (session_id() !== '') {
+        session_unset();
+        session_destroy();
+    }
+    if (ini_get('session.use_cookies')) {
+        $params = session_get_cookie_params();
+        setcookie(session_name(), '', time() - 42000, $params['path'], $params['domain'], $params['secure'], $params['httponly']);
+    }
 
-      body {
-        background: #111;
-        color: #ff4d4d;
-        display: flex;
-        justify-content: center;
-        align-items: center;
-        font-family: 'Courier New', monospace;
-        text-align: center;
-        user-select: none;
-      }
-
-      h1 {
-        font-size: clamp(30px, 8vw, 50px); 
-        animation: flicker 1.5s infinite;
-        margin: 0; 
-      }
-
-      @keyframes flicker {
-        0%, 19%, 21%, 23%, 25%, 54%, 56%, 100% { opacity: 1; }
-        20%, 22%, 24%, 55% { opacity: 0.3; }
-      }
-    </style>
-  </head>
-<body>
-    <div class="box">
-        <h1>Access Denied</h1>
-    </div>
-</body>
-</html>
-<?php
-    exit();
+    // Shared component — see core/AuthRedirect.php. Sets its own no-cache
+    // headers, redirects to the RMS login page, and exits.
+    AuthRedirect::toLogin();
 }
 
 // Get the user's name from session
@@ -136,7 +135,7 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, interactive-widget=resizes-content">
   <meta charset="UTF-8">
   <meta name="description" content="Chatify - real-time messaging para sa CSPC.">
-  <link rel="icon" href="cspc.png" type="image/png" />
+  <link rel="icon" href="cspc.webp" type="image/png" />
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link rel="preload" as="style" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" onload="this.onload=null;this.rel='stylesheet'">
@@ -736,7 +735,7 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
       vertical-align: middle;
       display: inline-block;
       flex-shrink: 0;
-      /* Prevent dragging the logo out (e.g. to open cspc.png directly in a
+      /* Prevent dragging the logo out (e.g. to open cspc.webp directly in a
          new tab) and prevent it from being selected like text/an image. */
       -webkit-user-drag: none;
       -khtml-user-drag: none;
@@ -2742,8 +2741,17 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
   <?php endif; ?>
 
   <?php
-  // Generate HMAC SHA256 token for WebSocket authentication
-  $ws_expires = time() + 86400; // 24 hours
+  // Generate HMAC SHA256 token for WebSocket authentication.
+  //
+  // SECURITY NOTE: this token is only ever minted here, immediately after
+  // the top-of-file Auth::check() gate has already confirmed a live RMS
+  // session. Its lifetime is intentionally short (15 min, not 24h) because
+  // the WS server has no direct access to the RMS session store — the
+  // "expires" claim, plus the periodic reauth below, is the only thing
+  // standing between "RMS session died" and "socket stays open anyway".
+  // A 24h token meant a socket authenticated once would stay authenticated
+  // for a full day even if the person logged out five minutes later.
+  $ws_expires = time() + 900; // 15 minutes — must be re-authenticated via reauth below
   $ws_payload = $_current_account_id . '|' . $ws_expires;
   $ws_token = hash_hmac('sha256', $ws_payload, CHAT_SHARED_SECRET);
   ?>
@@ -2754,6 +2762,48 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
       expires: <?php echo $ws_expires; ?>,
       token: <?php echo json_encode($ws_token); ?>
     };
+
+    // ── Periodic WS reauth ───────────────────────────────────────────────
+    // Every 5 minutes (well inside the 15-minute token lifetime), re-run
+    // the *server-side* RMS check by calling refresh_ws_token.php, which
+    // re-executes Auth::check() against the live RMS session before
+    // minting anything. If the RMS session is gone, this call fails and we
+    // treat it exactly like a forced session-kick: tear down the socket
+    // and send the person to login. If it succeeds, we push the fresh
+    // token to the already-open socket so the server extends its validity
+    // — the socket is never trusted indefinitely off a single handshake.
+    function reauthWebSocket() {
+      if (!ws || ws.readyState !== WebSocket.OPEN) return;
+      fetch('refresh_ws_token.php', { credentials: 'same-origin' })
+        .then(function (res) {
+          if (!res.ok) throw new Error('refresh failed: ' + res.status);
+          return res.json();
+        })
+        .then(function (data) {
+          if (!data || !data.token) throw new Error('malformed refresh response');
+          wsConfig.expires = data.expires;
+          wsConfig.token = data.token;
+          if (ws && ws.readyState === WebSocket.OPEN) {
+            ws.send(JSON.stringify({
+              type: 'reauth',
+              account_id: wsConfig.accountId,
+              expires: wsConfig.expires,
+              token: wsConfig.token
+            }));
+          }
+        })
+        .catch(function () {
+          // RMS session is gone (401/expired) or the request itself
+          // failed — do not keep the socket alive on the old token.
+          // Reuse the same overlay path as an explicit session kick.
+          if (typeof showSessionKickedOverlay === 'function') {
+            showSessionKickedOverlay('expired');
+          } else {
+            window.location.href = 'logout.php';
+          }
+        });
+    }
+    setInterval(reauthWebSocket, 5 * 60 * 1000);
   </script>
 
   <script>
@@ -6799,6 +6849,24 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
       }
       if (ws) {
         try { ws.close(1000, 'Page unload'); } catch(e) {}
+      }
+    });
+
+    // ── bfcache re-validation guard ────────────────────────────────────────
+    // This page deliberately uses a cache-control limiter that allows
+    // back/forward-cache restoration (see the comment at the top of this
+    // file). bfcache restores the DOM exactly as it was WITHOUT re-running
+    // any PHP on the server — so navigating back to this tab after logging
+    // out of RMS in another tab/step could otherwise redisplay the last
+    // authenticated view straight from the browser's cache.
+    // event.persisted === true means this load came from bfcache rather
+    // than a real network request, so we force a real reload, which goes
+    // through the server-side Auth::check() gate at the very top of this
+    // file again. The reload — not this listener — is what makes the
+    // authentication decision; JS here only forces the real check to run.
+    window.addEventListener('pageshow', function(event) {
+      if (event.persisted) {
+        window.location.reload();
       }
     });
 

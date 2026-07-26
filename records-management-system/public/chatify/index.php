@@ -3613,12 +3613,26 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
       if (u) u.unreadCount = 0;
       renderSidebarUsers();
 
+      function notifyParentBadge() {
+        try {
+          if (window.parent && window.parent !== window) {
+            window.parent.postMessage({ type: 'CHATIFY_MARK_READ' }, '*');
+          }
+        } catch (e) {}
+      }
+
+      notifyParentBadge();
+
       // Persist to server
       const xhr = new XMLHttpRequest();
       xhr.open('POST', 'mark_read.php', true);
       xhr.setRequestHeader('Content-type', 'application/x-www-form-urlencoded');
+      xhr.onload = function() {
+        notifyParentBadge();
+      };
       xhr.send('target_id=' + encodeURIComponent(activeDMAccountId || 0) + '&target_user=' + encodeURIComponent(targetUsername));
     }
+
 
     // State for global chat
     let isGlobalChat = false;

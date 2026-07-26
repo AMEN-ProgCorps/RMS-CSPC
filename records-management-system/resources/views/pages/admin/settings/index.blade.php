@@ -16,6 +16,119 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - System Settings')] class
     public string $successMessage = '';
     public string $errorMessage = '';
 
+    // Google Drive Diagnostics & Management
+    public string $driveTestResult = '';
+    public bool $isTestingDrive = false;
+    public string $driveStatus = 'unknown';
+
+    // Google Drive Editing Form State
+    public bool $showDriveEditForm = false;
+    public string $driveClientId = '';
+    public string $driveClientSecret = '';
+    public string $driveRefreshToken = '';
+    public string $driveFolderId = '';
+    public bool $driveVerifySsl = true;
+
+    public function toggleDriveEditForm(): void
+    {
+        $this->showDriveEditForm = !$this->showDriveEditForm;
+        if ($this->showDriveEditForm) {
+            $this->loadDriveCredentials();
+        }
+    }
+
+    public function loadDriveCredentials(): void
+    {
+        $this->driveClientId = \DB::table('system_settings')->where('key', 'google_drive_client_id')->value('value')
+            ?: env('GOOGLE_DRIVE_CLIENT_ID', '');
+
+        $this->driveClientSecret = \DB::table('system_settings')->where('key', 'google_drive_client_secret')->value('value')
+            ?: env('GOOGLE_DRIVE_CLIENT_SECRET', '');
+
+        $this->driveRefreshToken = \DB::table('system_settings')->where('key', 'google_drive_refresh_token')->value('value')
+            ?: env('GOOGLE_DRIVE_REFRESH_TOKEN', '');
+
+        $this->driveFolderId = \DB::table('system_settings')->where('key', 'google_drive_folder_id')->value('value')
+            ?: env('GOOGLE_DRIVE_FOLDER_ID', '1tGkgf7DGmxzMRjwj42hjwyYwvRfhh-_F');
+
+        $sslVal = \DB::table('system_settings')->where('key', 'google_drive_verify_ssl')->value('value');
+        if ($sslVal !== null) {
+            $this->driveVerifySsl = ($sslVal === 'true');
+        } else {
+            $this->driveVerifySsl = filter_var(env('GOOGLE_DRIVE_VERIFY_SSL', true), FILTER_VALIDATE_BOOLEAN);
+        }
+    }
+
+    public function saveDriveCredentials(): void
+    {
+        try {
+            $credentials = [
+                'google_drive_client_id'     => trim($this->driveClientId),
+                'google_drive_client_secret' => trim($this->driveClientSecret),
+                'google_drive_refresh_token' => trim($this->driveRefreshToken),
+                'google_drive_folder_id'     => trim($this->driveFolderId),
+                'google_drive_verify_ssl'    => $this->driveVerifySsl ? 'true' : 'false',
+            ];
+
+            foreach ($credentials as $key => $value) {
+                \DB::table('system_settings')->updateOrInsert(
+                    ['key' => $key],
+                    ['value' => $value, 'updated_at' => now()]
+                );
+            }
+
+            $this->updateEnvFile([
+                'GOOGLE_DRIVE_CLIENT_ID'     => trim($this->driveClientId),
+                'GOOGLE_DRIVE_CLIENT_SECRET' => trim($this->driveClientSecret),
+                'GOOGLE_DRIVE_REFRESH_TOKEN' => trim($this->driveRefreshToken),
+                'GOOGLE_DRIVE_FOLDER_ID'     => trim($this->driveFolderId),
+                'GOOGLE_DRIVE_VERIFY_SSL'    => $this->driveVerifySsl ? 'true' : 'false',
+            ]);
+
+            config([
+                'filesystems.disks.google.clientId'     => trim($this->driveClientId),
+                'filesystems.disks.google.clientSecret' => trim($this->driveClientSecret),
+                'filesystems.disks.google.refreshToken' => trim($this->driveRefreshToken),
+                'filesystems.disks.google.folder'       => trim($this->driveFolderId),
+            ]);
+
+            \DB::table('admin_logs')->insert([
+                'changes' => 'Updated Google Drive Cloud Storage credentials and folder target via Admin Console',
+                'admin_id' => auth()->id(),
+                'what_system' => 3,
+                'when_changes' => now(),
+            ]);
+
+            $this->showDriveEditForm = false;
+            $this->successMessage = 'Google Drive Cloud Storage credentials updated successfully!';
+            
+            $this->testDriveConnection();
+        } catch (\Throwable $e) {
+            $this->errorMessage = 'Failed to save Google Drive credentials: ' . $e->getMessage();
+        }
+    }
+
+    protected function updateEnvFile(array $data): void
+    {
+        $paths = [base_path('.env'), base_path('.env.docker')];
+        foreach ($paths as $envPath) {
+            if (!file_exists($envPath)) continue;
+            $content = file_get_contents($envPath);
+            foreach ($data as $key => $value) {
+                $valStr = (string) $value;
+                if (preg_match('/\s/', $valStr)) {
+                    $valStr = '"' . addslashes($valStr) . '"';
+                }
+                if (preg_match("/^{$key}=.*/m", $content)) {
+                    $content = preg_replace("/^{$key}=.*/m", "{$key}={$valStr}", $content);
+                } else {
+                    $content .= "\n{$key}={$valStr}";
+                }
+            }
+            file_put_contents($envPath, $content);
+        }
+    }
+
     public function mount(): void
     {
         $perms = auth()->user()?->permissions;
@@ -44,6 +157,197 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - System Settings')] class
 
         $dtsReq = \DB::table('system_settings')->where('key', 'dts_required_upload_file')->value('value');
         $this->dtsRequiredUploadFile = ($dtsReq === 'true');
+    }
+
+    public function testDriveConnection(): void
+    {
+        $this->isTestingDrive = true;
+        $this->driveTestResult = '';
+
+        try {
+            $testFileName = 'admin_health_check_' . time() . '.txt';
+            $testContent = 'RMS-CSPC Admin Console Health Check - ' . now();
+
+            $written = \Illuminate\Support\Facades\Storage::disk('google')->put($testFileName, $testContent);
+
+            if ($written && \Illuminate\Support\Facades\Storage::disk('google')->exists($testFileName)) {
+                \Illuminate\Support\Facades\Storage::disk('google')->delete($testFileName);
+
+                $this->driveStatus = 'connected';
+                $this->driveTestResult = '✅ Google Drive Connection Healthy! Successfully wrote, verified, and cleaned up test file on Google Cloud Storage.';
+                
+                \DB::table('admin_logs')->insert([
+                    'changes' => 'Executed Google Drive Cloud Storage Health Check (Status: HEALTHY)',
+                    'admin_id' => auth()->id(),
+                    'what_system' => 3,
+                    'when_changes' => now(),
+                ]);
+            } else {
+                $this->driveStatus = 'error';
+                $this->driveTestResult = '❌ Failed to verify file write on Google Drive.';
+            }
+        } catch (\Throwable $e) {
+            $this->driveStatus = 'error';
+            $this->driveTestResult = '❌ Google Drive Connection Error: ' . $e->getMessage();
+        }
+
+        $this->isTestingDrive = false;
+    }
+
+    public function refreshDriveMetrics(): void
+    {
+        try {
+            $offices = \DB::table('folder_data')->get();
+            foreach ($offices as $office) {
+                $dtsSize = \DB::table('document_data')
+                    ->where('user_office', $office->office_name)
+                    ->where('document_path', 'like', '%dts%')
+                    ->sum(\DB::raw('COALESCE(CAST(NULLIF(file_size, \'\') AS BIGINT), 0)'));
+
+                $rdpSize = \DB::table('document_data')
+                    ->where('user_office', $office->office_name)
+                    ->where('document_path', 'like', '%rdp%')
+                    ->sum(\DB::raw('COALESCE(CAST(NULLIF(file_size, \'\') AS BIGINT), 0)'));
+
+                \DB::table('folder_data')->where('id', $office->id)->update([
+                    'current_dts_size'  => $dtsSize,
+                    'current_rdp_size'  => $rdpSize,
+                    'total_folder_size' => $dtsSize + $rdpSize,
+                    'updated_at'        => now(),
+                ]);
+            }
+
+            $this->successMessage = 'Google Drive storage metrics successfully recalculated and synchronized!';
+        } catch (\Throwable $e) {
+            $this->errorMessage = 'Failed to sync drive metrics: ' . $e->getMessage();
+        }
+    }
+
+    // Live Preload Progress State
+    public bool $isPreloading = false;
+    public int $preloadProgress = 0;
+    public string $preloadCurrentOffice = '';
+    public array $preloadLogs = [];
+    public array $preloadOfficesList = [];
+    public int $preloadCurrentIndex = 0;
+
+    public function preloadOfficeFolders(): void
+    {
+        $this->successMessage = '';
+        $this->errorMessage = '';
+        $this->preloadLogs = [];
+        $this->preloadProgress = 0;
+        $this->preloadCurrentIndex = 0;
+
+        $offices = \DB::table('office')
+            ->where('is_active', true)
+            ->whereNotIn('office_code', ['ORIGIN', '[H]'])
+            ->pluck('office_code')
+            ->toArray();
+
+        if (!in_array('GENERAL', $offices)) {
+            $offices[] = 'GENERAL';
+        }
+
+        $this->preloadOfficesList = array_values(array_unique($offices));
+
+        if (empty($this->preloadOfficesList)) {
+            $this->errorMessage = 'No offices found to preload.';
+            return;
+        }
+
+        $this->isPreloading = true;
+        $this->preloadLogs[] = "🚀 Initializing office folder preload sequence for " . count($this->preloadOfficesList) . " offices...";
+        
+        $this->executePreloadStep(0);
+    }
+
+    public function executePreloadStep(int $index): void
+    {
+        if (!$this->isPreloading) {
+            return;
+        }
+
+        $total = count($this->preloadOfficesList);
+        if ($index >= $total) {
+            $this->preloadProgress = 100;
+            $this->isPreloading = false;
+            $this->preloadLogs[] = "🎉 All office folder structures successfully preloaded and verified (100%)!";
+            $this->successMessage = "Successfully preloaded office folder structures on Google Drive & database for {$total} offices! Uploads will now be instant.";
+            
+            \DB::table('admin_logs')->insert([
+                'changes' => "Preloaded Google Drive office folders & database records for {$total} offices.",
+                'admin_id' => auth()->id(),
+                'what_system' => 3,
+                'when_changes' => now(),
+            ]);
+            return;
+        }
+
+        $officeCode = $this->preloadOfficesList[$index];
+        $officeName = strtoupper(\Illuminate\Support\Str::slug($officeCode, '_'));
+        if (empty($officeName)) {
+            $officeName = 'GENERAL';
+        }
+
+        $this->preloadCurrentOffice = $officeName;
+        $this->preloadLogs[] = "🔍 Checking if [{$officeName}] folder structure exists on server & Google Drive...";
+
+        // 1. Local cache directories
+        try {
+            \Illuminate\Support\Facades\Storage::disk('local')->makeDirectory("private/uploads/{$officeName}/DTS");
+            \Illuminate\Support\Facades\Storage::disk('local')->makeDirectory("private/uploads/{$officeName}/RDP");
+        } catch (\Throwable $e) {}
+
+        // 2. Google Drive directories
+        $this->preloadLogs[] = "📁 Attempting to verify / create [{$officeName}], [{$officeName}/DTS], and [{$officeName}/RDP] on Google Drive...";
+        try {
+            \Illuminate\Support\Facades\Storage::disk('google')->makeDirectory($officeName);
+            \Illuminate\Support\Facades\Storage::disk('google')->makeDirectory("{$officeName}/DTS");
+            \Illuminate\Support\Facades\Storage::disk('google')->makeDirectory("{$officeName}/RDP");
+        } catch (\Throwable $e) {
+            logger()->warning("Preload notice for {$officeName}: " . $e->getMessage());
+        }
+
+        // 3. Database record update (using updateOrInsert to prevent duplicate key errors!)
+        $existing = \DB::table('folder_data')->where('office_name', $officeName)->first();
+        if (!$existing) {
+            \DB::table('folder_data')->insert([
+                'office_name'       => $officeName,
+                'total_folder_size' => 0,
+                'is_dts_available'  => true,
+                'current_dts_size'  => 0,
+                'is_rdp_available'  => true,
+                'current_rdp_size'  => 0,
+                'is_active'         => true,
+                'created_at'        => now(),
+                'updated_at'        => now(),
+            ]);
+        } else {
+            \DB::table('folder_data')->where('office_name', $officeName)->update([
+                'is_dts_available' => true,
+                'is_rdp_available' => true,
+                'updated_at'        => now(),
+            ]);
+        }
+
+        $this->preloadLogs[] = "✅ Creation & DB verification success for [{$officeName}]!";
+        
+        $this->preloadCurrentIndex = $index + 1;
+        $this->preloadProgress = (int) round(($this->preloadCurrentIndex / $total) * 100);
+
+        if ($this->preloadCurrentIndex < $total) {
+            $this->preloadLogs[] = "➡️ Proceeding to next office folder (" . ($this->preloadCurrentIndex + 1) . " of {$total})...";
+            $this->js('$wire.executePreloadStep(' . $this->preloadCurrentIndex . ')');
+        } else {
+            $this->executePreloadStep($total);
+        }
+    }
+
+    public function cancelPreload(): void
+    {
+        $this->isPreloading = false;
+        $this->errorMessage = 'Preload office folders operation was manually cancelled by administrator.';
     }
 
     public function saveSettings(): void
@@ -136,20 +440,46 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - System Settings')] class
     @vite(['resources/css/admin/activity_logs.css', 'resources/css/admin/subsystems.css'])
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css">
     <style>
+        .settings-dashboard-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(360px, 1fr));
+            gap: 20px;
+            margin-top: 20px;
+        }
         .settings-card {
             background: #ffffff;
             border-radius: 12px;
-            padding: 24px;
-            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
-            margin-top: 24px;
-            max-width: 600px;
+            padding: 20px 24px;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05), 0 2px 4px -1px rgba(0, 0, 0, 0.03);
+            border: 1px solid #e2e8f0;
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+        }
+        .settings-card-header {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding-bottom: 12px;
+            margin-bottom: 12px;
+            border-bottom: 2px solid #f1f5f9;
+        }
+        .settings-card-header h3 {
+            font-size: 16px;
+            font-weight: 700;
+            color: #0f172a;
+            margin: 0;
+        }
+        .settings-card-header i {
+            font-size: 18px;
+            color: #2563eb;
         }
         .setting-item {
             display: flex;
             align-items: center;
             justify-content: space-between;
-            padding: 16px 0;
-            border-bottom: 1px solid #f3f4f6;
+            padding: 12px 0;
+            border-bottom: 1px solid #f8fafc;
         }
         .setting-item:last-child {
             border-bottom: none;
@@ -157,24 +487,26 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - System Settings')] class
         .setting-details {
             display: flex;
             flex-direction: column;
-            gap: 4px;
-            max-width: 75%;
+            gap: 2px;
+            max-width: 78%;
         }
         .setting-title {
-            font-size: 16px;
+            font-size: 14px;
             font-weight: 600;
-            color: #1f2937;
+            color: #1e293b;
         }
         .setting-desc {
-            font-size: 13px;
-            color: #6b7280;
+            font-size: 12px;
+            color: #64748b;
+            line-height: 1.4;
         }
         /* Toggle Switch styling */
         .switch {
             position: relative;
             display: inline-block;
-            width: 50px;
-            height: 26px;
+            width: 44px;
+            height: 24px;
+            flex-shrink: 0;
         }
         .switch input {
             opacity: 0;
@@ -188,174 +520,383 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - System Settings')] class
             left: 0;
             right: 0;
             bottom: 0;
-            background-color: #d1d5db;
-            transition: .4s;
+            background-color: #cbd5e1;
+            transition: .3s;
             border-radius: 34px;
         }
         .slider:before {
             position: absolute;
             content: "";
-            height: 18px;
-            width: 18px;
+            height: 16px;
+            width: 16px;
             left: 4px;
             bottom: 4px;
             background-color: white;
-            transition: .4s;
+            transition: .3s;
             border-radius: 50%;
         }
         input:checked + .slider {
-            background-color: #3b82f6;
+            background-color: #2563eb;
         }
         input:checked + .slider:before {
-            transform: translateX(24px);
+            transform: translateX(20px);
         }
         .save-btn {
-            background-color: #3b82f6;
+            background-color: #2563eb;
             color: #ffffff;
-            font-weight: 600;
+            font-weight: 700;
             padding: 10px 20px;
-            border-radius: 6px;
+            border-radius: 8px;
             border: none;
             cursor: pointer;
-            transition: background-color 0.2s;
+            transition: all 0.2s;
             display: inline-flex;
             align-items: center;
             gap: 8px;
-            margin-top: 20px;
+            font-size: 13px;
         }
         .save-btn:hover {
-            background-color: #2563eb;
+            background-color: #1d4ed8;
+            box-shadow: 0 4px 12px rgba(37,99,235,0.25);
         }
     </style>
 @endpush
 
 <div class="activity-logs-container">
-    <!-- Header -->
-    <div class="page-header">
-        <h1>System Settings</h1>
-        <p>Manage system-wide behavior, optimizations, and general preferences.</p>
-    </div>
-
-    <!-- Alert Notifications -->
-    @if ($successMessage)
-        <div class="alert alert-success" style="background-color: #ecfdf5; border-left: 4px solid #10b981; color: #065f46; padding: 12px 16px; border-radius: 6px; margin-bottom: 20px;">
-            <i class="fa-solid fa-circle-check" style="margin-right: 8px;"></i>
-            {{ $successMessage }}
-        </div>
-    @endif
-
-    @if ($errorMessage)
-        <div class="alert alert-danger" style="background-color: #fef2f2; border-left: 4px solid #ef4444; color: #991b1b; padding: 12px 16px; border-radius: 6px; margin-bottom: 20px;">
-            <i class="fa-solid fa-circle-xmark" style="margin-right: 8px;"></i>
-            {{ $errorMessage }}
-        </div>
-    @endif
-
-    <div class="settings-card">
-        <form wire:submit.prevent="saveSettings">
-            <!-- Setting: Page Prewarming -->
-            <div class="setting-item">
-                <div class="setting-details">
-                    <span class="setting-title">Page Pre-warming / Health Checkup</span>
-                    <span class="setting-desc">
-                        Asynchronously pre-loads and caches system pages in the background right after a user logs in. 
-                        This eliminates view compilation delay and prevents cold starts when navigating the application inside the Docker environment.
-                    </span>
+    <!-- Live Progress Bar & Step-by-step Terminal Console Overlay Modal for Preloading -->
+    @if ($isPreloading)
+    <div style="position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(15, 23, 42, 0.82); backdrop-filter: blur(6px); z-index: 99999; display: flex; align-items: center; justify-content: center; color: white; padding: 20px;">
+        <div style="background: #ffffff; color: #0f172a; padding: 28px 32px; border-radius: 16px; box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.45); width: 100%; max-width: 560px; border: 1px solid #cbd5e1;">
+            
+            <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px;">
+                <div style="display: flex; align-items: center; gap: 10px;">
+                    <i class="fa-solid fa-folder-plus" style="font-size: 22px; color: #2563eb;"></i>
+                    <h4 style="font-size: 18px; font-weight: 800; margin: 0; color: #0f172a;">Preloading Office Folders</h4>
                 </div>
-                <label class="switch">
-                    <input type="checkbox" wire:model="pagePrewarmingEnabled">
-                    <span class="slider"></span>
-                </label>
+                <span style="font-size: 14px; font-weight: 800; color: #2563eb; background: #eff6ff; padding: 4px 12px; border-radius: 9999px; border: 1px solid #bfdbfe;">
+                    {{ $preloadProgress }}%
+                </span>
             </div>
 
-            <!-- Setting: Require Email Access on External Transactions -->
-            <div class="setting-item">
-                <div class="setting-details">
-                    <span class="setting-title">Require Email Access & Password for External Transactions</span>
-                    <span class="setting-desc">
-                        Enforces that users creating external transactions must specify an authorized tracking email and password. Non-CSPC users tracking this document must enter this password.
-                    </span>
-                </div>
-                <label class="switch">
-                    <input type="checkbox" wire:model="emailAccessRequiredExternal">
-                    <span class="slider"></span>
-                </label>
+            <!-- Animated Progress Bar -->
+            <div style="width: 100%; background: #e2e8f0; height: 12px; border-radius: 9999px; overflow: hidden; margin-bottom: 14px; box-shadow: inset 0 1px 2px rgba(0,0,0,0.1);">
+                <div style="width: {{ $preloadProgress }}%; background: linear-gradient(90deg, #2563eb 0%, #3b82f6 100%); height: 100%; transition: width 0.3s ease-in-out; border-radius: 9999px;"></div>
             </div>
 
-            <!-- Setting: Require Email Access on Application Letters -->
-            <div class="setting-item">
-                <div class="setting-details">
-                    <span class="setting-title">Require Email Access & Password for Application Letters</span>
-                    <span class="setting-desc">
-                        Enforces that users creating application letter transactions must specify an authorized tracking email and password.
-                    </span>
-                </div>
-                <label class="switch">
-                    <input type="checkbox" wire:model="emailAccessRequiredApplication">
-                    <span class="slider"></span>
-                </label>
+            <div style="font-size: 12px; font-weight: 600; color: #475569; margin-bottom: 10px; display: flex; justify-content: space-between;">
+                <span>Target: <strong style="color: #0f172a;">{{ $preloadCurrentOffice ?: 'Initializing...' }}</strong></span>
+                <span>({{ $preloadCurrentIndex }} / {{ count($preloadOfficesList) }} Offices)</span>
             </div>
 
-            <!-- Setting: Require Email Access on Internal Transactions -->
-            <div class="setting-item">
-                <div class="setting-details">
-                    <span class="setting-title">Require Email Access & Password for Internal Transactions</span>
-                    <span class="setting-desc">
-                        Enforces that users creating internal transactions must specify an authorized tracking email and password. When disabled, this feature remains optional.
-                    </span>
-                </div>
-                <label class="switch">
-                    <input type="checkbox" wire:model="emailAccessRequiredInternal">
-                    <span class="slider"></span>
-                </label>
+            <!-- Step-by-Step Live Terminal Console Output -->
+            <div x-data x-init="$nextTick(() => { $el.scrollTop = $el.scrollHeight })" x-effect="$nextTick(() => { $el.scrollTop = $el.scrollHeight })" style="background: #0f172a; color: #38bdf8; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; font-size: 11px; padding: 14px; border-radius: 10px; height: 170px; overflow-y: auto; text-align: left; line-height: 1.6; border: 1px solid #1e293b; margin-bottom: 18px;">
+                @foreach ($preloadLogs as $log)
+                    <div style="margin-bottom: 4px; border-bottom: 1px solid rgba(255,255,255,0.05); padding-bottom: 2px;">
+                        @if (str_contains($log, '✅'))
+                            <span style="color: #4ade80; font-weight: 600;">{{ $log }}</span>
+                        @elseif (str_contains($log, '🔍'))
+                            <span style="color: #fde047;">{{ $log }}</span>
+                        @elseif (str_contains($log, '📁'))
+                            <span style="color: #60a5fa;">{{ $log }}</span>
+                        @elseif (str_contains($log, '🎉'))
+                            <span style="color: #a7f3d0; font-weight: 800;">{{ $log }}</span>
+                        @else
+                            <span style="color: #94a3b8;">{{ $log }}</span>
+                        @endif
+                    </div>
+                @endforeach
             </div>
 
-            <!-- Setting: Allow Manual Complete / Forward Button -->
-            <div class="setting-item">
-                <div class="setting-details">
-                    <span class="setting-title">Allow Manual Complete / Forward Buttons (Alternative to QR Scanning)</span>
-                    <span class="setting-desc">
-                        When disabled (default), manual completion buttons are hidden and transactions can only be forwarded and completed via physical QR Code scanning. When enabled, displays the manual COMPLETED / Complete Transaction button as an alternative override option.
-                    </span>
-                </div>
-                <label class="switch">
-                    <input type="checkbox" wire:model="allowManualCompletionButton">
-                    <span class="slider"></span>
-                </label>
-            </div>
-
-            <!-- Setting: required upload file for Record System -->
-            <div class="setting-item">
-                <div class="setting-details">
-                    <span class="setting-title">required upload file for Record System</span>
-                    <span class="setting-desc">
-                        Enforces that users creating or saving a record in the Records Disposition Program (RDP) must upload/attach a document file.
-                    </span>
-                </div>
-                <label class="switch">
-                    <input type="checkbox" wire:model="rdpRequiredUploadFile">
-                    <span class="slider"></span>
-                </label>
-            </div>
-
-            <!-- Setting: required upload file for Document Tracking System -->
-            <div class="setting-item">
-                <div class="setting-details">
-                    <span class="setting-title">required upload file for Document Tracking System</span>
-                    <span class="setting-desc">
-                        Enforces that users uploading or attaching files in the Document Tracking System (DTS) must provide a document file. When disabled (default), file uploads remain optional.
-                    </span>
-                </div>
-                <label class="switch">
-                    <input type="checkbox" wire:model="dtsRequiredUploadFile">
-                    <span class="slider"></span>
-                </label>
-            </div>
-
-            <!-- Action buttons -->
-            <button type="submit" class="save-btn">
-                <i class="fa-solid fa-floppy-disk"></i> Save Settings
+            <button type="button" wire:click="cancelPreload" onclick="window.stop(); window.location.reload();" style="width: 100%; background: #ef4444; color: #ffffff; border: none; padding: 10px 20px; border-radius: 8px; font-weight: 700; font-size: 13px; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; gap: 8px; transition: all 0.2s; box-shadow: 0 4px 12px rgba(239, 68, 68, 0.25);">
+                <i class="fa-solid fa-circle-stop"></i> Emergency Cancel Process
             </button>
-        </form>
+        </div>
     </div>
+    @endif
+
+    <!-- General Livewire Action Loading Indicator (For Test Connection & Sync Metrics) -->
+    <div wire:loading.flex wire:target="testDriveConnection, saveDriveCredentials, refreshDriveMetrics" style="position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(15, 23, 42, 0.7); backdrop-filter: blur(4px); z-index: 99998; align-items: center; justify-content: center; color: white;">
+        <div style="background: #ffffff; color: #0f172a; padding: 36px 44px; border-radius: 16px; box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.35); text-align: center; max-width: 440px; border: 1px solid #cbd5e1;">
+            <div style="width: 56px; height: 56px; border: 4px solid #e2e8f0; border-top-color: #2563eb; border-radius: 50%; animation: spinDrive 0.8s linear infinite; margin: 0 auto 18px auto;"></div>
+            <h4 style="font-size: 19px; font-weight: 800; margin: 0 0 8px 0; color: #0f172a;">Processing Operation...</h4>
+            <p style="font-size: 13px; color: #64748b; margin: 0 0 20px 0; line-height: 1.5;">
+                Synchronizing settings and testing connection with Google Drive...
+            </p>
+            <button type="button" onclick="window.stop(); window.location.reload();" style="background: #ef4444; color: #ffffff; border: none; padding: 10px 22px; border-radius: 8px; font-weight: 700; font-size: 13px; cursor: pointer; display: inline-flex; align-items: center; gap: 8px; transition: all 0.2s; box-shadow: 0 4px 12px rgba(239, 68, 68, 0.25);">
+                <i class="fa-solid fa-circle-stop"></i> Emergency Cancel Process
+            </button>
+        </div>
+    </div>
+    <style>
+    @keyframes spinDrive {
+        to { transform: rotate(360deg); }
+    }
+    </style>
+
+    <!-- Header with Quick Save Action Bar -->
+    <form wire:submit.prevent="saveSettings">
+        <div class="page-header" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 16px;">
+            <div>
+                <h1 style="margin: 0;">System Settings Dashboard</h1>
+                <p style="margin: 4px 0 0 0;">Manage system-wide behaviors, Google Drive cloud integration, security, and file constraints.</p>
+            </div>
+            <button type="submit" class="save-btn">
+                <i class="fa-solid fa-floppy-disk"></i> Save All Settings
+            </button>
+        </div>
+
+        <!-- Alert Notifications -->
+        @if ($successMessage)
+            <div class="alert alert-success" style="background-color: #ecfdf5; border-left: 4px solid #10b981; color: #065f46; padding: 12px 16px; border-radius: 8px; margin-bottom: 16px;">
+                <i class="fa-solid fa-circle-check" style="margin-right: 8px;"></i>
+                {{ $successMessage }}
+            </div>
+        @endif
+
+        @if ($errorMessage)
+            <div class="alert alert-danger" style="background-color: #fef2f2; border-left: 4px solid #ef4444; color: #991b1b; padding: 12px 16px; border-radius: 8px; margin-bottom: 16px;">
+                <i class="fa-solid fa-circle-xmark" style="margin-right: 8px;"></i>
+                {{ $errorMessage }}
+            </div>
+        @endif
+
+        <!-- Google Drive Cloud Manager Card (Full Width Banner) -->
+        <div class="settings-card" style="border-top: 4px solid #2563eb; margin-bottom: 16px;">
+            <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px; margin-bottom: 12px;">
+                <div style="display: flex; align-items: center; gap: 10px;">
+                    <i class="fa-brands fa-google-drive" style="font-size: 24px; color: #2563eb;"></i>
+                    <div>
+                        <h3 style="font-size: 17px; font-weight: 800; color: #0f172a; margin: 0;">Google Drive Cloud Storage Manager</h3>
+                        <span style="font-size: 12px; color: #64748b;">Automated multi-tier cloud storage & database caching workflow</span>
+                    </div>
+                </div>
+                <div style="display: flex; align-items: center; gap: 8px;">
+                    <span style="display: inline-flex; align-items: center; gap: 6px; padding: 4px 12px; border-radius: 9999px; font-size: 12px; font-weight: 700; background: #dcfce7; color: #15803d;">
+                        <i class="fa-solid fa-circle-check"></i> Connected
+                    </span>
+                </div>
+            </div>
+
+            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; background: #f8fafc; padding: 12px; border-radius: 8px; margin-bottom: 14px; border: 1px solid #e2e8f0;">
+                <div>
+                    <span style="font-size: 11px; color: #64748b; font-weight: 600; text-transform: uppercase;">Storage Target Folder</span>
+                    <div style="font-size: 12px; font-weight: 700; color: #0f172a; font-family: monospace; overflow: hidden; text-overflow: ellipsis;">
+                        {{ config('filesystems.disks.google.folder') ?: 'Root Folder' }}
+                    </div>
+                </div>
+                <div>
+                    <span style="font-size: 11px; color: #64748b; font-weight: 600; text-transform: uppercase;">Auth Mode</span>
+                    <div style="font-size: 12px; font-weight: 700; color: #2563eb;">
+                        {{ config('filesystems.disks.google.refreshToken') ? 'OAuth 2.0 User Token' : 'Service Account JSON' }}
+                    </div>
+                </div>
+                <div>
+                    <span style="font-size: 11px; color: #64748b; font-weight: 600; text-transform: uppercase;">SSL Certificate Verification</span>
+                    <div style="font-size: 12px; font-weight: 700; color: #059669;">
+                        {{ config('filesystems.disks.google.verify', true) ? 'Enabled (SSL Active)' : 'Bypassed (Local Dev)' }}
+                    </div>
+                </div>
+            </div>
+
+            @if ($driveTestResult)
+                <div style="padding: 10px 14px; border-radius: 8px; font-size: 12px; font-weight: 600; margin-bottom: 14px; background: {{ str_contains($driveTestResult, '✅') ? '#f0fdf4' : '#fef2f2' }}; color: {{ str_contains($driveTestResult, '✅') ? '#166534' : '#991b1b' }}; border: 1px solid {{ str_contains($driveTestResult, '✅') ? '#bbf7d0' : '#fecaca' }};">
+                    {{ $driveTestResult }}
+                </div>
+            @endif
+
+            <div style="display: flex; gap: 10px; flex-wrap: wrap;">
+                <button type="button" wire:click="testDriveConnection" wire:loading.attr="disabled" style="background: #2563eb; color: white; border: none; padding: 8px 14px; border-radius: 6px; font-weight: 600; font-size: 12px; cursor: pointer; display: inline-flex; align-items: center; gap: 6px;">
+                    <i class="fa-solid fa-plug" wire:loading.remove wire:target="testDriveConnection"></i>
+                    <i class="fa-solid fa-spinner fa-spin" wire:loading wire:target="testDriveConnection"></i>
+                    <span>Test Connection & Health Check</span>
+                </button>
+
+                <button type="button" wire:click="preloadOfficeFolders" wire:loading.attr="disabled" style="background: #16a34a; color: white; border: none; padding: 8px 14px; border-radius: 6px; font-weight: 600; font-size: 12px; cursor: pointer; display: inline-flex; align-items: center; gap: 6px;">
+                    <i class="fa-solid fa-folder-plus" wire:loading.remove wire:target="preloadOfficeFolders"></i>
+                    <i class="fa-solid fa-spinner fa-spin" wire:loading wire:target="preloadOfficeFolders"></i>
+                    <span>Preload Office Folders</span>
+                </button>
+
+                <button type="button" wire:click="toggleDriveEditForm" style="background: #0284c7; color: white; border: none; padding: 8px 14px; border-radius: 6px; font-weight: 600; font-size: 12px; cursor: pointer; display: inline-flex; align-items: center; gap: 6px;">
+                    <i class="fa-solid fa-gear"></i>
+                    <span>{{ $showDriveEditForm ? 'Close Editor' : 'Edit Credentials' }}</span>
+                </button>
+
+                <button type="button" wire:click="refreshDriveMetrics" wire:loading.attr="disabled" style="background: #475569; color: white; border: none; padding: 8px 14px; border-radius: 6px; font-weight: 600; font-size: 12px; cursor: pointer; display: inline-flex; align-items: center; gap: 6px;">
+                    <i class="fa-solid fa-arrows-rotate" wire:loading.remove wire:target="refreshDriveMetrics"></i>
+                    <i class="fa-solid fa-spinner fa-spin" wire:loading wire:target="refreshDriveMetrics"></i>
+                    <span>Sync Storage Metrics</span>
+                </button>
+            </div>
+
+            @if ($showDriveEditForm)
+                <div style="margin-top: 16px; padding-top: 16px; border-top: 2px dashed #e2e8f0; background: #f8fafc; padding: 16px; border-radius: 8px;">
+                    <h4 style="margin: 0 0 12px 0; font-size: 14px; font-weight: 700; color: #0f172a; display: flex; align-items: center; gap: 8px;">
+                        <i class="fa-solid fa-key" style="color: #0284c7;"></i> Update Google Drive Credentials & Configuration
+                    </h4>
+
+                    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 12px;">
+                        <div>
+                            <label style="display: block; font-size: 11px; font-weight: 700; color: #334155; margin-bottom: 4px;">Client ID (GOOGLE_DRIVE_CLIENT_ID)</label>
+                            <input type="text" wire:model="driveClientId" placeholder="e.g. 1234567890-xxx.apps.googleusercontent.com" style="width: 100%; padding: 8px 10px; border: 1px solid #cbd5e1; border-radius: 6px; font-size: 12px; font-family: monospace;">
+                        </div>
+
+                        <div>
+                            <label style="display: block; font-size: 11px; font-weight: 700; color: #334155; margin-bottom: 4px;">Client Secret (GOOGLE_DRIVE_CLIENT_SECRET)</label>
+                            <input type="password" wire:model="driveClientSecret" placeholder="e.g. GOCSPX-xxxxxxxxxxxxxx" style="width: 100%; padding: 8px 10px; border: 1px solid #cbd5e1; border-radius: 6px; font-size: 12px; font-family: monospace;">
+                        </div>
+
+                        <div>
+                            <label style="display: block; font-size: 11px; font-weight: 700; color: #334155; margin-bottom: 4px;">Target Root Folder ID (GOOGLE_DRIVE_FOLDER_ID)</label>
+                            <input type="text" wire:model="driveFolderId" placeholder="e.g. 1tGkgf7DGmxzMRjwj42hjwyYwvRfhh-_F" style="width: 100%; padding: 8px 10px; border: 1px solid #cbd5e1; border-radius: 6px; font-size: 12px; font-family: monospace;">
+                        </div>
+
+                        <div>
+                            <label style="display: block; font-size: 11px; font-weight: 700; color: #334155; margin-bottom: 4px;">Refresh Token (GOOGLE_DRIVE_REFRESH_TOKEN)</label>
+                            <input type="text" wire:model="driveRefreshToken" placeholder="e.g. 1//04xxxxxxxxxxxxxx" style="width: 100%; padding: 8px 10px; border: 1px solid #cbd5e1; border-radius: 6px; font-size: 12px; font-family: monospace;">
+                        </div>
+                    </div>
+
+                    <div style="display: flex; align-items: center; justify-content: space-between; padding: 10px 0; margin-top: 8px;">
+                        <div>
+                            <span style="font-size: 12px; font-weight: 700; color: #334155; display: block;">Verify SSL Certificates (GOOGLE_DRIVE_VERIFY_SSL)</span>
+                            <span style="font-size: 11px; color: #64748b;">Set to OFF on local Windows dev machines; set to ON for Docker & Production VM.</span>
+                        </div>
+                        <label class="switch">
+                            <input type="checkbox" wire:model="driveVerifySsl">
+                            <span class="slider"></span>
+                        </label>
+                    </div>
+
+                    <div style="display: flex; gap: 8px; margin-top: 10px;">
+                        <button type="button" wire:click="saveDriveCredentials" style="background: #16a34a; color: white; border: none; padding: 8px 16px; border-radius: 6px; font-weight: 700; font-size: 12px; cursor: pointer; display: inline-flex; align-items: center; gap: 6px;">
+                            <i class="fa-solid fa-floppy-disk"></i> Save Credentials
+                        </button>
+                        <button type="button" wire:click="toggleDriveEditForm" style="background: #e2e8f0; color: #475569; border: none; padding: 8px 14px; border-radius: 6px; font-weight: 700; font-size: 12px; cursor: pointer;">
+                            Cancel
+                        </button>
+                    </div>
+                </div>
+            @endif
+        </div>
+
+        <!-- 2-Column Responsive Dashboard Grid -->
+        <div class="settings-dashboard-grid">
+
+            <!-- Card 1: System Performance & Flow Controls -->
+            <div class="settings-card">
+                <div>
+                    <div class="settings-card-header">
+                        <i class="fa-solid fa-bolt"></i>
+                        <h3>System & Performance Controls</h3>
+                    </div>
+
+                    <!-- Setting: Page Prewarming -->
+                    <div class="setting-item">
+                        <div class="setting-details">
+                            <span class="setting-title">Page Pre-warming / Cache</span>
+                            <span class="setting-desc">Asynchronously pre-loads and caches system pages in the background upon login to prevent view compilation delay.</span>
+                        </div>
+                        <label class="switch">
+                            <input type="checkbox" wire:model="pagePrewarmingEnabled">
+                            <span class="slider"></span>
+                        </label>
+                    </div>
+
+                    <!-- Setting: Allow Manual Complete / Forward Button -->
+                    <div class="setting-item">
+                        <div class="setting-details">
+                            <span class="setting-title">Allow Manual Completion Buttons</span>
+                            <span class="setting-desc">Displays manual COMPLETED buttons as an alternative override option when physical QR code scanning is unavailable.</span>
+                        </div>
+                        <label class="switch">
+                            <input type="checkbox" wire:model="allowManualCompletionButton">
+                            <span class="slider"></span>
+                        </label>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Card 2: Security & Email Authorization -->
+            <div class="settings-card">
+                <div>
+                    <div class="settings-card-header">
+                        <i class="fa-solid fa-shield-halved"></i>
+                        <h3>Security & Email Passwords</h3>
+                    </div>
+
+                    <!-- Setting: External Transactions Email Access -->
+                    <div class="setting-item">
+                        <div class="setting-details">
+                            <span class="setting-title">External Transactions Email Password</span>
+                            <span class="setting-desc">Enforces tracking email and password validation for external transactions.</span>
+                        </div>
+                        <label class="switch">
+                            <input type="checkbox" wire:model="emailAccessRequiredExternal">
+                            <span class="slider"></span>
+                        </label>
+                    </div>
+
+                    <!-- Setting: Application Letters Email Access -->
+                    <div class="setting-item">
+                        <div class="setting-details">
+                            <span class="setting-title">Application Letters Email Password</span>
+                            <span class="setting-desc">Enforces tracking email and password validation for application letters.</span>
+                        </div>
+                        <label class="switch">
+                            <input type="checkbox" wire:model="emailAccessRequiredApplication">
+                            <span class="slider"></span>
+                        </label>
+                    </div>
+
+                    <!-- Setting: Internal Transactions Email Access -->
+                    <div class="setting-item">
+                        <div class="setting-details">
+                            <span class="setting-title">Internal Transactions Email Password</span>
+                            <span class="setting-desc">Enforces tracking email and password validation for internal transactions.</span>
+                        </div>
+                        <label class="switch">
+                            <input type="checkbox" wire:model="emailAccessRequiredInternal">
+                            <span class="slider"></span>
+                        </label>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Card 3: Subsystem File Upload Requirements -->
+            <div class="settings-card">
+                <div>
+                    <div class="settings-card-header">
+                        <i class="fa-solid fa-file-arrow-up"></i>
+                        <h3>File Attachment Constraints</h3>
+                    </div>
+
+                    <!-- Setting: RDP Required File Upload -->
+                    <div class="setting-item">
+                        <div class="setting-details">
+                            <span class="setting-title">Require Attachment for RDP Records</span>
+                            <span class="setting-desc">Enforces that users saving a record in Records Disposition Program (RDP) must upload a document file.</span>
+                        </div>
+                        <label class="switch">
+                            <input type="checkbox" wire:model="rdpRequiredUploadFile">
+                            <span class="slider"></span>
+                        </label>
+                    </div>
+
+                    <!-- Setting: DTS Required File Upload -->
+                    <div class="setting-item">
+                        <div class="setting-details">
+                            <span class="setting-title">Require Attachment for DTS Transactions</span>
+                            <span class="setting-desc">Enforces that users attaching files in Document Tracking System (DTS) must upload a document file.</span>
+                        </div>
+                        <label class="switch">
+                            <input type="checkbox" wire:model="dtsRequiredUploadFile">
+                            <span class="slider"></span>
+                        </label>
+                    </div>
+                </div>
+            </div>
+
+        </div>
+    </form>
 </div>

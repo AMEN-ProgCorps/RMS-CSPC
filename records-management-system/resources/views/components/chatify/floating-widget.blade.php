@@ -140,11 +140,22 @@
         .catch(() => {});
     }
 
+    window.updateChatifyUnreadBadge = updateUnreadBadge;
+
+    window.addEventListener('message', function(event) {
+        if (event.data && (event.data.type === 'CHATIFY_MARK_READ' || event.data.type === 'CHATIFY_REFRESH_BADGE')) {
+            updateUnreadBadge();
+            setTimeout(updateUnreadBadge, 500);
+        }
+    });
+
     window.toggleChatifyWidget = function() {
         isOpen = !isOpen;
         sessionStorage.setItem('chatify_widget_open', isOpen);
         setWidgetVisibility(isOpen, true);
-        setTimeout(updateUnreadBadge, 800);
+        updateUnreadBadge();
+        setTimeout(updateUnreadBadge, 500);
+        setTimeout(updateUnreadBadge, 1500);
     };
 
     window.reloadChatifyIframe = function() {
@@ -154,7 +165,10 @@
             if (loader) loader.style.display = 'flex';
             iframe.src = iframe.getAttribute('data-src') + '?t=' + new Date().getTime();
         }
-        setTimeout(updateUnreadBadge, 800);
+        updateUnreadBadge();
+        setTimeout(updateUnreadBadge, 400);
+        setTimeout(updateUnreadBadge, 1000);
+        setTimeout(updateUnreadBadge, 2000);
     };
 
     window.hideChatifyLoader = function() {
@@ -162,6 +176,8 @@
         if (loader) {
             loader.style.display = 'none';
         }
+        updateUnreadBadge();
+        setTimeout(updateUnreadBadge, 600);
     };
 
     function setWidgetVisibility(show, animate) {
@@ -216,6 +232,7 @@
     }
 })();
 </script>
+
 
 @endunless
 @endauth

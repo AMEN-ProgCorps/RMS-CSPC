@@ -1,28 +1,14 @@
 services:
 
-  # ── Nginx Web Server / Reverse Proxy ─────────────────────────────────────────
-  nginx:
-    image: nginx:alpine
-    container_name: rms_nginx
-    restart: unless-stopped
-    ports:
-      - "${HTTP_PORT:-80}:80"
-    volumes:
-      - .:/var/www/html:ro
-      - ./docker/nginx/default.conf:/etc/nginx/conf.d/default.conf:ro
-    depends_on:
-      - app
-      - websocket
-    networks:
-      - rms_net
-
-  # ── PHP Application (Laravel) ───────────────────────────────────────────────
+  # ── PHP Application (Laravel + Nginx Combined) ──────────────────────────────
   app:
     build:
       context: .
       dockerfile: Dockerfile
     container_name: rms_app
     restart: unless-stopped
+    ports:
+      - "${HTTP_PORT:-80}:80"
     env_file:
       - .env.docker
     volumes:

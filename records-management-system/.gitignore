@@ -27,3 +27,7 @@ Thumbs.db
 # WebSocket server packages
 /public/chatify/ws-server/node_modules
 
+# Google Drive Credentials
+/storage/app/*.json
+/storage/app/private/*.json
+google-drive-service-account.json

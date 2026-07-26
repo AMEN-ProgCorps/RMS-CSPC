@@ -5,6 +5,9 @@ echo "────────────────────────�
 echo "  RMS-CSPC — Container Startup"
 echo "──────────────────────────────────────────"
 
+# ── Ensure Nginx run dir exists ──────────────────────────────────────────────
+mkdir -p /run/nginx /var/log/nginx /var/log/supervisor
+
 # ── Install / sync PHP dependencies ─────────────────────────────────────────
 echo "[1/5] Running composer install..."
 composer install --no-interaction --prefer-dist --optimize-autoloader
@@ -17,6 +20,12 @@ if [ -z "$APP_KEY" ]; then
     echo "       docker compose exec app php artisan key:generate"
     echo "     Then copy the generated key into .env.docker as APP_KEY=..."
     echo ""
+fi
+
+# ── Google Drive credentials warning ──────────────────────────────────────────
+if [ ! -f "storage/app/google-drive-service-account.json" ]; then
+    echo "  ℹ  Google Drive Service Account key not found at storage/app/google-drive-service-account.json"
+    echo "     To enable Google Drive cloud storage, place your JSON key file at that path."
 fi
 
 # ── Wait for DB and run migrations ───────────────────────────────────────────

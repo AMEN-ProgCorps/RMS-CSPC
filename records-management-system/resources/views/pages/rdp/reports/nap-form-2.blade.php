@@ -31,20 +31,20 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 2')
     // Printable Custom Header & Signature Fields
     public string $agencyName = 'Camarines Sur Polytechnic Colleges';
     public string $agencyAddress = 'San Miguel, Nabua, Camarines Sur';
-    public string $scheduleNo = 'RDS-2026-001';
+    public string $scheduleNo = 'RDS-2024-001';
     public string $datePrepared = '';
 
-    // Bottom Signature Block Fields
+    // Signature Block Fields (Page 2 of Printout)
     public string $preparedBy = '';
-    public string $preparedPosition = 'Records Officer';
+    public string $preparedPosition = 'Records Officer / Custodian';
     public string $assistedBy = '';
-    public string $assistedPosition = 'Records Management Analyst';
+    public string $assistedPosition = 'NAP Records Management Analyst';
     public string $recommendingBy = '';
     public string $recommendingPosition = 'Vice President for Administration';
     public string $approvedBy = '';
     public string $approvedPosition = 'College President / Head of Agency';
     public string $committeeChairmanName = '';
-    public string $committeeChairmanTitle = 'Chairman, Records Management Evaluation Committee';
+    public string $committeeChairmanTitle = 'Chairman, Records Management Committee';
     public string $executiveDirectorName = '';
     public string $executiveDirectorTitle = 'Executive Director, National Archives of the Philippines';
 
@@ -386,49 +386,63 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 2')
         
         .modal-dialog { background: #ffffff; width: 100%; max-width: 580px; border-radius: 14px; box-shadow: 0 20px 40px rgba(0,0,0,0.2); padding: 24px; }
 
-        /* Printable Document Styling with BOLDER Outer Borders */
+        /* Printable Document Styling - Clean & Borderless Outer Page Container */
         .print-page { 
             width: 800px; 
             min-height: 1050px; 
             background: #ffffff; 
             border: none; 
-            margin: 0 auto; 
+            margin: 0 auto 30px auto; 
             box-shadow: 0 10px 25px rgba(0,0,0,0.12); 
-            padding: 40px 35px; 
+            padding: 45px 40px; 
             box-sizing: border-box;
             color: #000000;
             font-family: Arial, Helvetica, sans-serif;
             position: relative;
         }
 
+        .doc-top-labels { display: flex; justify-content: space-between; font-size: 8.5px; font-weight: bold; margin-bottom: 6px; }
+        
+        /* Outer Table Borders - Bold perimeter */
         .doc-table { width: 100%; border-collapse: collapse; border: 2.5px solid #000000; font-size: 10px; }
         .doc-table th, .doc-table td { border: 1px solid #000000; padding: 9px 8px; vertical-align: middle; line-height: 1.45; }
         
         /* Remove horizontal row borders exclusively inside data table body (<tbody>) */
         .doc-data-table tbody td { border-left: 1px solid #000000; border-right: 1px solid #000000; border-top: none; border-bottom: none; }
 
-        .header-cell { text-align: center; width: 45%; vertical-align: middle !important; padding: 10px !important; }
+        .header-cell { text-align: center; width: 50%; vertical-align: middle !important; padding: 12px !important; }
         .header-main-text { font-weight: bold; font-size: 11.5px; margin-top: 2px; }
-        .header-sub-text { font-style: italic; font-size: 9.5px; margin-bottom: 6px; }
-        .header-doc-title { font-weight: bold; font-size: 12.5px; }
+        .header-sub-text { font-style: italic; font-size: 9.5px; margin-bottom: 8px; }
+        .header-doc-title { font-weight: bold; font-size: 13px; line-height: 1.35; }
         .field-label { font-weight: bold; font-size: 9px; display: block; margin-bottom: 2px; color: #000; }
         .field-value { font-weight: bold; font-size: 11px; color: #000; }
         
-        .sub-header th { font-weight: bold; font-size: 8.5px; padding: 6px 6px; }
-        .important-note { font-size: 9.5px; margin-top: 14px; text-align: justify; line-height: 1.45; border: none; padding: 6px 0; }
+        .sub-header th { font-weight: bold; font-size: 8.5px; padding: 6px; text-align: center; }
 
-        .signatures-table { width: 100%; border-collapse: collapse; border: 2.5px solid #000000; font-size: 9.5px; margin-bottom: 20px; }
-        .signatures-table td { border: 1px solid #000000; padding: 14px 12px; width: 50%; vertical-align: top; height: 115px; }
+        /* Borderless Important Note Box */
+        .important-note { 
+            margin-top: 14px; 
+            font-size: 8px; 
+            line-height: 1.4; 
+            border: none; 
+            padding: 6px 0; 
+            text-align: justify;
+        }
+
+        .signatures-table { width: 100%; border-collapse: collapse; border: 2.5px solid #000000; font-size: 9px; margin-top: 10px; }
+        .signatures-table td { border: 1px solid #000000; padding: 12px 14px; width: 50%; vertical-align: top; height: 110px; }
         .sig-block { display: flex; flex-direction: column; align-items: center; margin-top: 35px; }
-        .sig-line { border-bottom: 1px solid #000; width: 80%; text-align: center; margin-bottom: 4px; font-size: 10.5px; font-weight: bold; padding-bottom: 1px; }
-        .sig-label { font-size: 9px; text-align: center; color: #1e293b; }
+        .sig-line { border-bottom: 1px solid #000; width: 85%; text-align: center; margin-bottom: 4px; font-size: 10px; font-weight: bold; padding-bottom: 1px; }
+        .sig-label { font-size: 8.5px; text-align: center; color: #1e293b; }
 
-        .nap-accomplish-section { border: 2.5px solid #000000; padding: 14px; font-size: 9.5px; min-height: 200px; }
-        .section-header { text-align: center; font-weight: bold; font-size: 9.5px; border-bottom: 1.5px solid #000000; margin: -14px -14px 12px -14px; padding: 7px; background: #f1f5f9; }
-        .checkbox-item { margin-bottom: 8px; display: flex; align-items: center; font-size: 9.5px; }
-        .checkbox { display: inline-block; width: 11px; height: 11px; border: 1px solid #000; margin-right: 7px; }
-        .approval-area { display: flex; justify-content: space-between; margin-top: 50px; padding: 0 30px; text-align: center; }
-        .approval-text { font-size: 9.5px; font-weight: bold; }
+        /* Borderless Section Box */
+        .nap-accomplish-section { 
+            border: 2.5px solid #000000; 
+            padding: 14px; 
+            margin-top: 14px; 
+            font-size: 9px; 
+            line-height: 1.4;
+        }
 
         @media print {
             body { background: #ffffff !important; margin: 0 !important; padding: 0 !important; }
@@ -451,7 +465,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 2')
     <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 24px; flex-wrap: wrap; gap: 16px;">
         <div>
             <h1 style="font-size: 24px; font-weight: 800; color: #0f172a; margin: 0;">NAP Form 2: Records Disposition Schedule</h1>
-            <p style="font-size: 14px; color: #64748b; margin: 4px 0 0 0;">Audit report & schedule management for predefined and custom record series.</p>
+            <p style="font-size: 14px; color: #64748b; margin: 4px 0 0 0;">Official audit report & disposition retention schedule for verified record series.</p>
         </div>
         <div style="display: flex; gap: 10px; flex-wrap: wrap;">
             <button type="button" wire:click="openPrintModal" class="nap-btn nap-btn-primary">
@@ -715,7 +729,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 2')
         </div>
     @endif
 
-    <!-- PRINT MODAL (NAP FORM 2 OFFICIAL LAYOUT WITH CUSTOMIZABLE METADATA & SIGNATURE INPUTS) -->
+    <!-- PRINT MODAL (NAP FORM 2 OFFICIAL DISPOSITION SCHEDULE LAYOUT) -->
     @if($showPrintModal)
         <div class="modal-overlay" wire:click.self="closePrintModal">
             <div class="modal-content">
@@ -737,7 +751,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 2')
                     <div style="font-weight: 800; font-size: 14px; color: #1e293b; border-bottom: 2px solid #e2e8f0; padding-bottom: 8px;">
                         📝 TOP HEADER METADATA
                     </div>
-                    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px;">
+                    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px;">
                         <div>
                             <label style="font-size: 11.5px; font-weight: 700; color: #475569; display: block; margin-bottom: 4px;">1. AGENCY NAME:</label>
                             <input type="text" wire:model.live="agencyName" style="width: 100%; padding: 8px 12px; border: 1px solid #cbd5e1; border-radius: 6px; font-size: 12.5px; box-sizing: border-box;">
@@ -757,7 +771,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 2')
                     </div>
 
                     <div style="font-weight: 800; font-size: 14px; color: #1e293b; border-bottom: 2px solid #e2e8f0; padding-bottom: 8px; margin-top: 8px;">
-                        ✍️ BOTTOM SIGNATURES & APPROVALS
+                        ✍️ SIGNATURES & APPROVALS (PAGE 2)
                     </div>
                     <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px;">
                         <div>
@@ -771,34 +785,42 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 2')
                             <input type="text" wire:model.live="assistedPosition" placeholder="Position" style="width: 100%; padding: 7px 10px; border: 1px solid #cbd5e1; border-radius: 6px; font-size: 12px; box-sizing: border-box;">
                         </div>
                         <div>
-                            <label style="font-size: 11.5px; font-weight: 700; color: #475569; display: block; margin-bottom: 4px;">11. RECOMMENDING APPROVAL:</label>
+                            <label style="font-size: 11.5px; font-weight: 700; color: #475569; display: block; margin-bottom: 4px;">11. RECOMMENDING APPROVAL (Name & Position):</label>
                             <input type="text" wire:model.live="recommendingBy" placeholder="Name" style="width: 100%; padding: 7px 10px; border: 1px solid #cbd5e1; border-radius: 6px; font-size: 12px; margin-bottom: 4px; box-sizing: border-box;">
                             <input type="text" wire:model.live="recommendingPosition" placeholder="Position" style="width: 100%; padding: 7px 10px; border: 1px solid #cbd5e1; border-radius: 6px; font-size: 12px; box-sizing: border-box;">
                         </div>
                         <div>
-                            <label style="font-size: 11.5px; font-weight: 700; color: #475569; display: block; margin-bottom: 4px;">12. APPROVED (Head of Agency):</label>
+                            <label style="font-size: 11.5px; font-weight: 700; color: #475569; display: block; margin-bottom: 4px;">12. APPROVED (Name & Position):</label>
                             <input type="text" wire:model.live="approvedBy" placeholder="Name" style="width: 100%; padding: 7px 10px; border: 1px solid #cbd5e1; border-radius: 6px; font-size: 12px; margin-bottom: 4px; box-sizing: border-box;">
                             <input type="text" wire:model.live="approvedPosition" placeholder="Position" style="width: 100%; padding: 7px 10px; border: 1px solid #cbd5e1; border-radius: 6px; font-size: 12px; box-sizing: border-box;">
                         </div>
-                    </div>
-
-                    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; margin-top: 4px;">
                         <div>
-                            <label style="font-size: 11.5px; font-weight: 700; color: #475569; display: block; margin-bottom: 4px;">NATIONAL ARCHIVES CHAIRMAN:</label>
-                            <input type="text" wire:model.live="committeeChairmanName" placeholder="Chairman Name (e.g. HON. JUAN DELA CRUZ)" style="width: 100%; padding: 7px 10px; border: 1px solid #cbd5e1; border-radius: 6px; font-size: 12px; margin-bottom: 4px; box-sizing: border-box;">
-                            <input type="text" wire:model.live="committeeChairmanTitle" placeholder="Title/Position" style="width: 100%; padding: 7px 10px; border: 1px solid #cbd5e1; border-radius: 6px; font-size: 12px; box-sizing: border-box;">
+                            <label style="font-size: 11.5px; font-weight: 700; color: #475569; display: block; margin-bottom: 4px;">RECORD MANAGEMENT CHAIRMAN:</label>
+                            <input type="text" wire:model.live="committeeChairmanName" placeholder="Chairman Name" style="width: 100%; padding: 7px 10px; border: 1px solid #cbd5e1; border-radius: 6px; font-size: 12px; margin-bottom: 4px; box-sizing: border-box;">
+                            <input type="text" wire:model.live="committeeChairmanTitle" placeholder="Title" style="width: 100%; padding: 7px 10px; border: 1px solid #cbd5e1; border-radius: 6px; font-size: 12px; box-sizing: border-box;">
                         </div>
                         <div>
-                            <label style="font-size: 11.5px; font-weight: 700; color: #475569; display: block; margin-bottom: 4px;">NATIONAL ARCHIVES EXECUTIVE DIRECTOR:</label>
-                            <input type="text" wire:model.live="executiveDirectorName" placeholder="Executive Director Name (e.g. VICTORINO MAPA MANALO)" style="width: 100%; padding: 7px 10px; border: 1px solid #cbd5e1; border-radius: 6px; font-size: 12px; margin-bottom: 4px; box-sizing: border-box;">
-                            <input type="text" wire:model.live="executiveDirectorTitle" placeholder="Title/Position" style="width: 100%; padding: 7px 10px; border: 1px solid #cbd5e1; border-radius: 6px; font-size: 12px; box-sizing: border-box;">
+                            <label style="font-size: 11.5px; font-weight: 700; color: #475569; display: block; margin-bottom: 4px;">EXECUTIVE DIRECTOR (NAP):</label>
+                            <input type="text" wire:model.live="executiveDirectorName" placeholder="Director Name" style="width: 100%; padding: 7px 10px; border: 1px solid #cbd5e1; border-radius: 6px; font-size: 12px; margin-bottom: 4px; box-sizing: border-box;">
+                            <input type="text" wire:model.live="executiveDirectorTitle" placeholder="Title" style="width: 100%; padding: 7px 10px; border: 1px solid #cbd5e1; border-radius: 6px; font-size: 12px; box-sizing: border-box;">
                         </div>
                     </div>
                 </div>
 
-                <!-- PAGE 1: RECORD DISPOSITION SCHEDULE -->
+                <!-- PAGE 1: OFFICIAL TABLE PREVIEW -->
                 <div class="print-page">
                     <div style="margin-top: 4px; width: 100%;">
+                        
+                        <div class="doc-top-labels">
+                            <div>
+                                NAP Form No. 2<br>
+                                Revised 2009
+                            </div>
+                            <div style="text-align: right;">
+                                Page 1 of 2 Pages
+                            </div>
+                        </div>
+
                         <table class="doc-table">
                             <tr>
                                 <td rowspan="2" class="header-cell">
@@ -810,17 +832,15 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 2')
                                     <span class="field-label">1. AGENCY NAME:</span>
                                     <div class="field-value">{{ $agencyName }}</div>
                                 </td>
+                                <td>
+                                    <span class="field-label">3. SCHEDULE NO.</span>
+                                    <div class="field-value">{{ $scheduleNo }}</div>
+                                </td>
                             </tr>
                             <tr>
                                 <td>
                                     <span class="field-label">2. ADDRESS:</span>
                                     <div class="field-value">{{ $agencyAddress }}</div>
-                                </td>
-                            </tr>
-                            <tr>
-                                <td>
-                                    <span class="field-label">3. SCHEDULE NO.:</span>
-                                    <div class="field-value">{{ $scheduleNo }}</div>
                                 </td>
                                 <td>
                                     <span class="field-label">4. DATE PREPARED:</span>
@@ -834,13 +854,13 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 2')
                                 <tr>
                                     <th rowspan="2" style="width: 10%;">5. ITEM NO.</th>
                                     <th rowspan="2" style="width: 44%;">6. RECORD SERIES TITLE AND DESCRIPTION</th>
-                                    <th colspan="3">7. RETENTION PERIOD</th>
-                                    <th rowspan="2" style="width: 22%;">8. REMARKS</th>
+                                    <th colspan="3" style="width: 28%;">7. RETENTION PERIOD</th>
+                                    <th rowspan="2" style="width: 18%;">8. REMARKS</th>
                                 </tr>
                                 <tr class="sub-header">
-                                    <th style="width: 8%;">Active</th>
-                                    <th style="width: 8%;">Storage</th>
-                                    <th style="width: 8%;">Total</th>
+                                    <th style="width: 9%;">Active</th>
+                                    <th style="width: 9%;">Storage</th>
+                                    <th style="width: 10%;">Total</th>
                                 </tr>
                             </thead>
                             <tbody>
@@ -849,10 +869,9 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 2')
                                         $isPermSeries = (bool)($pItem->effective_is_permanent) || 
                                                         (strtolower(trim($pItem->effective_total ?? '')) === 'permanent') ||
                                                         (strtolower(trim($pItem->effective_active ?? '')) === 'permanent' && strtolower(trim($pItem->effective_storage ?? '')) === 'permanent');
-                                        $isChild = (($pItem->depth ?? 0) > 0);
                                     @endphp
                                     <tr>
-                                        <td style="text-align: center; font-weight: bold;">
+                                        <td style="text-align: center; font-weight: bold; color: #000;">
                                             @if(!empty($pItem->is_root_parent) && !empty($pItem->display_item_no))
                                                 {{ $pItem->display_item_no }}
                                             @endif
@@ -864,13 +883,13 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 2')
                                             {{ $pItem->series_title }}
                                         </td>
                                         @if($isPermSeries)
-                                            <td colspan="3" style="text-align: center; font-weight: bold; font-size: 9px;">
+                                            <td colspan="3" style="text-align: center; font-weight: bold; font-size: 8.5px; color: #000;">
                                                 PERMANENT
                                             </td>
                                         @else
-                                            <td style="text-align: center;">{{ $pItem->effective_active ?: '' }}</td>
-                                            <td style="text-align: center;">{{ $pItem->effective_storage ?: '' }}</td>
-                                            <td style="text-align: center; font-weight: bold;">{{ $pItem->effective_total ?: '' }}</td>
+                                            <td style="text-align: center; color: #000;">{{ $pItem->effective_active ?: '' }}</td>
+                                            <td style="text-align: center; color: #000;">{{ $pItem->effective_storage ?: '' }}</td>
+                                            <td style="text-align: center; font-weight: bold; color: #000;">{{ $pItem->effective_total ?: '' }}</td>
                                         @endif
                                         <td style="font-size: 8.5px; color: #000;">{{ $pItem->remarks ?: '' }}</td>
                                     </tr>
@@ -931,32 +950,55 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 2')
                         </table>
 
                         <div class="nap-accomplish-section">
-                            <div class="section-header">TO BE ACCOMPLISHED BY THE NATIONAL ARCHIVES OF THE PHILIPPINES</div>
-                            
-                            <div style="margin-bottom: 10px; font-weight: bold;">This Records Disposition Schedule:</div>
-                            <div class="checkbox-item"><span class="checkbox"></span> is being returned for improvement / correction</div>
-                            <div class="checkbox-item"><span class="checkbox"></span> is being recommended for approval</div>
+                            <div style="font-weight: bold; font-size: 10px; margin-bottom: 12px; text-transform: uppercase;">
+                                ACCOMPLISHED BY THE NATIONAL ARCHIVES OF THE PHILIPPINES:
+                            </div>
 
-                            <div class="approval-area">
-                                <div class="approval-text">
-                                    <br>
-                                    @if(!empty($committeeChairmanName))
-                                        <div style="font-weight: bold; font-size: 10px; text-transform: uppercase; margin-bottom: 2px;">{{ $committeeChairmanName }}</div>
-                                    @endif
-                                    <div style="border-top: 1px solid #000; padding-top: 4px; width: 200px; margin: 0 auto;">{{ $committeeChairmanTitle ?: 'Chairman, Records Management Evaluation Committee' }}</div>
-                                    <div style="margin-top: 8px;">Date: __________________</div>
+                            <div style="display: flex; flex-direction: column; gap: 14px; margin-bottom: 25px;">
+                                <div>
+                                    <span style="font-weight: bold;">13. Evaluated by:</span>
+                                    <div style="border-bottom: 1px dashed #000; height: 18px; margin-top: 2px;"></div>
                                 </div>
 
-                                <div class="approval-text">
-                                    <div style="text-align: left; margin-bottom: 8px;">APPROVED:</div>
-                                    @if(!empty($executiveDirectorName))
-                                        <div style="font-weight: bold; font-size: 10px; text-transform: uppercase; margin-bottom: 2px;">{{ $executiveDirectorName }}</div>
-                                    @endif
-                                    <div style="border-top: 1px solid #000; padding-top: 4px; width: 200px; margin: 0 auto;">{{ $executiveDirectorTitle ?: 'Executive Director, National Archives of the Philippines' }}</div>
-                                    <div style="margin-top: 8px;">Date: __________________</div>
+                                <div style="display: flex; gap: 20px;">
+                                    <div style="flex: 1;">
+                                        <span style="font-weight: bold;">14. Date Received:</span>
+                                        <div style="border-bottom: 1px dashed #000; height: 18px; margin-top: 2px;"></div>
+                                    </div>
+                                    <div style="flex: 1;">
+                                        <span style="font-weight: bold;">15. Schedule No.:</span>
+                                        <div style="border-bottom: 1px dashed #000; height: 18px; margin-top: 2px;"></div>
+                                    </div>
+                                </div>
+
+                                <div>
+                                    <span style="font-weight: bold;">16. Confirmation / Action Taken:</span>
+                                    <div style="border-bottom: 1px dashed #000; height: 18px; margin-top: 2px;"></div>
+                                    <div style="border-bottom: 1px dashed #000; height: 18px; margin-top: 6px;"></div>
+                                </div>
+                            </div>
+
+                            <div style="margin-top: 40px; text-align: center;">
+                                @if(!empty($committeeChairmanName))
+                                    <div style="font-weight: bold; font-size: 11px; text-transform: uppercase;">{{ $committeeChairmanName }}</div>
+                                @endif
+                                <div style="border-bottom: 1px solid #000; width: 280px; margin: 0 auto 4px auto;"></div>
+                                <div style="font-size: 9px; font-weight: bold; text-transform: uppercase;">
+                                    {{ $committeeChairmanTitle }}
+                                </div>
+                            </div>
+
+                            <div style="margin-top: 35px; text-align: center;">
+                                @if(!empty($executiveDirectorName))
+                                    <div style="font-weight: bold; font-size: 11px; text-transform: uppercase;">{{ $executiveDirectorName }}</div>
+                                @endif
+                                <div style="border-bottom: 1px solid #000; width: 320px; margin: 0 auto 4px auto;"></div>
+                                <div style="font-size: 9px; font-weight: bold; text-transform: uppercase;">
+                                    {{ $executiveDirectorTitle }}
                                 </div>
                             </div>
                         </div>
+
                     </div>
 
                     <div style="position: absolute; bottom: 15px; right: 35px; font-size: 9px; color: #333;">Page 2 of 2 Pages</div>

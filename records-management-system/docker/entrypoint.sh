@@ -5,6 +5,9 @@ echo "────────────────────────�
 echo "  RMS-CSPC — Container Startup"
 echo "──────────────────────────────────────────"
 
+# ── Ensure Nginx run dir exists ──────────────────────────────────────────────
+mkdir -p /run/nginx /var/log/nginx /var/log/supervisor
+
 # ── Install / sync PHP dependencies ─────────────────────────────────────────
 echo "[1/5] Running composer install..."
 composer install --no-interaction --prefer-dist --optimize-autoloader

@@ -14,11 +14,11 @@ return new class extends Migration
         Schema::create('folder_data', function (Blueprint $table) {
             $table->id();
             $table->string('office_name')->unique();
-            $table->bigunsignedinteger('total_folder_size')->default(0);
+            $table->unsignedBigInteger('total_folder_size')->default(0);
             $table->boolean('is_dts_available')->default(false);
-            $table->bigunsignedinteger('current_dts_size')->default(0);
+            $table->unsignedBigInteger('current_dts_size')->default(0);
             $table->boolean('is_rdp_available')->default(false);
-            $table->bigunsignedinteger('current_rdp_size')->default(0);
+            $table->unsignedBigInteger('current_rdp_size')->default(0);
             $table->boolean('is_active')->default(true);
             $table->timestamps();
         });

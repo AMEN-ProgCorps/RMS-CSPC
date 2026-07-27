@@ -173,7 +173,7 @@ new #[Layout('layouts.portal')] #[Title('RMS CSPC Portal')] class extends Compon
         </a>
         @endif
         @if($chatifyActive)
-        <a href="/open-chat" target="_blank" rel="noopener noreferrer" class="system-con" id="chatify">
+        <a href="{{ route('open-chat') }}" target="_blank" rel="noopener noreferrer" class="system-con" id="chatify">
             <div class="display-box">
                 <span>Chatify</span>
             </div>

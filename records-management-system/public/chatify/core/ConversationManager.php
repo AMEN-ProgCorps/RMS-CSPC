@@ -430,12 +430,18 @@ class ConversationManager
     // Read Markers & Unread Counters
     // -------------------------------------------------------------------------
 
-    public static function markRead(string $convId, int $accountId): void
+    /**
+     * Marks every message in $convId as read up to the newest one, for $accountId.
+     * Returns the msg_uuid that is now the "read up to" watermark for that account
+     * (null if the conversation has no messages yet / on failure), so callers can
+     * push a real-time "seen" event without a second round-trip to the DB.
+     */
+    public static function markRead(string $convId, int $accountId): ?string
     {
         try {
             $pdo = Database::getConnection();
 
-            $pdo->prepare(
+            $stmt = $pdo->prepare(
                 'INSERT INTO chat_read_markers (conv_id, account_id, last_msg_uuid, updated_at)
                  SELECT :conv_id,
                         :account_id,
@@ -446,12 +452,16 @@ class ConversationManager
                         NOW()
                  ON CONFLICT (conv_id, account_id)
                  DO UPDATE SET last_msg_uuid = EXCLUDED.last_msg_uuid,
-                               updated_at    = NOW()'
-            )->execute([
+                               updated_at    = NOW()
+                 RETURNING last_msg_uuid'
+            );
+            $stmt->execute([
                 ':conv_id'    => $convId,
                 ':account_id' => $accountId,
                 ':conv_id2'   => $convId,
             ]);
+            $lastMsgUuid = $stmt->fetchColumn();
+            $lastMsgUuid = ($lastMsgUuid !== false && $lastMsgUuid !== null) ? (string) $lastMsgUuid : null;
 
             // Zero out unread counter in chat_conversations metadata
             try {
@@ -468,8 +478,36 @@ class ConversationManager
                     ':conv_id' => $convId,
                 ]);
             } catch (Throwable $t) {}
+
+            return $lastMsgUuid;
         } catch (PDOException $e) {
             error_log('ConversationManager::markRead() — ' . $e->getMessage());
+            return null;
+        }
+    }
+
+    /**
+     * Returns the msg_uuid of the newest message $accountId has read in $convId
+     * (i.e. the Messenger-style "seen up to" watermark), or null if they haven't
+     * read anything in this conversation yet.
+     */
+    public static function getReadMarker(string $convId, int $accountId): ?string
+    {
+        try {
+            $pdo  = Database::getConnection();
+            $stmt = $pdo->prepare(
+                'SELECT last_msg_uuid FROM chat_read_markers
+                 WHERE conv_id = :conv_id AND account_id = :account_id'
+            );
+            $stmt->execute([
+                ':conv_id'    => $convId,
+                ':account_id' => $accountId,
+            ]);
+            $val = $stmt->fetchColumn();
+            return ($val !== false && $val !== null) ? (string) $val : null;
+        } catch (PDOException $e) {
+            error_log('ConversationManager::getReadMarker() — ' . $e->getMessage());
+            return null;
         }
     }
 

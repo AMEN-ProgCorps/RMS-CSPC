@@ -30,6 +30,28 @@ class WsPush
         ]);
     }
 
+    /**
+     * Generic best-effort push to one or more accounts' already-open sockets.
+     * `type` + `data` are merged and handed straight to the client's
+     * ws.onmessage handler (see ws-server/server.js handleInternalPush).
+     *
+     * Fire-and-forget: failures here must never break the calling request.
+     */
+    public static function push(array $accountIds, string $type, array $data = []): void
+    {
+        $accountIds = array_values(array_unique(array_map('intval', $accountIds)));
+        if (empty($accountIds)) {
+            return;
+        }
+
+        self::send([
+            'secret'      => INTERNAL_PUSH_SECRET,
+            'type'        => $type,
+            'account_ids' => $accountIds,
+            'data'        => $data,
+        ]);
+    }
+
     private static function send(array $payload): void
     {
         $body = json_encode($payload);

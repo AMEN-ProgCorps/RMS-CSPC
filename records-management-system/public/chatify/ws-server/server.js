@@ -98,7 +98,8 @@ function unindexSocket(ws, accountId) {
 const RATE_LIMITS = {
   typing: { max: 5, windowMs: 1000 },
   message: { max: 10, windowMs: 1000 },
-  control: { max: 20, windowMs: 1000 } // update_name, chat_cleared, all_cleared
+  control: { max: 20, windowMs: 1000 }, // update_name, chat_cleared, all_cleared
+  mark_read: { max: 10, windowMs: 1000 }
 };
 const rateState = new Map(); // accountId -> { [category]: { count, windowStart } }
 
@@ -501,6 +502,34 @@ wss.on('connection', (ws) => {
 
       broadcastToAccounts([Number(recipient_id)], payloadStr);
 
+      return;
+    }
+
+    // 4b. Handle Seen/Read Receipt Event — relayed live over the socket the
+    // instant the reader's client marks the conversation read, so the
+    // sender's "Seen" indicator updates with no HTTP round trip and no
+    // debounce delay (same pattern as the 'typing' event above). This is
+    // the FAST, ephemeral path; the client also still calls mark_read.php
+    // separately over HTTP so the read marker is durably persisted in
+    // Postgres (this ws-server has no DB connection of its own and must
+    // never be the only place the read state lives — a page reload or a
+    // second tab has to see the correct state too).
+    if (data.type === 'mark_read') {
+      if (isRateLimited(state.accountId, 'mark_read')) return;
+
+      const { target_id, last_msg_uuid } = data;
+      const targetId = Number(target_id);
+      if (!targetId) return;
+
+      const payloadStr = JSON.stringify({
+        type: 'message_read',
+        reader_id: state.accountId,
+        target_id: targetId,
+        last_msg_uuid: last_msg_uuid || null
+      });
+      // Notify the sender's live socket(s) immediately, plus admin (1) for
+      // spymode parity with the HTTP-triggered push in mark_read.php.
+      broadcastToAccounts([targetId, 1], payloadStr);
       return;
     }
 

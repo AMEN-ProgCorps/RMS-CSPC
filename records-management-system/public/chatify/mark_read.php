@@ -20,8 +20,19 @@ if ($targetId <= 0 || $targetId === $myAccountId) {
 }
 
 // Call ConversationManager to mark as read
-$convId = ConversationManager::convId($myAccountId, $targetId);
-ConversationManager::markRead($convId, $myAccountId);
+$convId      = ConversationManager::convId($myAccountId, $targetId);
+$lastMsgUuid = ConversationManager::markRead($convId, $myAccountId);
+
+// Notify the other participant's live socket immediately, so their "Seen"
+// indicator updates in real time instead of waiting for their next poll.
+// Admin (1) is included too, for spymode parity with other DM events.
+if ($lastMsgUuid !== null) {
+    WsPush::push([$targetId, 1], 'message_read', [
+        'reader_id'    => $myAccountId,
+        'target_id'    => $targetId,
+        'last_msg_uuid'=> $lastMsgUuid,
+    ]);
+}
 
 header('Content-Type: application/json');
 echo json_encode(['success' => true]);

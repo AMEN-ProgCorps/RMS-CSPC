@@ -76,6 +76,10 @@ if ($sinceUuid !== null) {
 $pageUuids = array_column($rawMessages, 'id');
 $reactions = ConversationManager::loadReactions($convId, $pageUuids);
 
+// How far the OTHER participant has read — drives the Messenger-style
+// "Seen" indicator under the last message of mine they've actually read.
+$readUpTo = ConversationManager::getReadMarker($convId, $targetId);
+
 // Cursor for the next "load older" request = UUID of the now-oldest shown message.
 $nextCursor = !empty($rawMessages) ? $rawMessages[0]['id'] : null;
 
@@ -323,4 +327,5 @@ echo json_encode([
     'html'       => $html,
     'hasMore'    => $hasMore,
     'nextCursor' => $nextCursor,   // pass as before_uuid for next "load older" request
+    'readUpTo'   => $readUpTo,     // other participant's last-read msg_uuid, or null
 ]);

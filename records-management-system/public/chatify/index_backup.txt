@@ -3028,6 +3028,14 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
               }
             } else if (activeDM && activeDMAccountId === Number(data.sender_id)) {
               scheduleDmReload();
+              // Real-time "Seen": the recipient's chat with this sender is
+              // already open and visible right now, so mark it read the
+              // instant the message arrives instead of waiting for the
+              // debounced reload + DOM reconcile to finish. That round trip
+              // could take 350ms+ before mark_read.php ever fires; firing it
+              // here means the sender sees "Seen" appear essentially
+              // instantly, with no dependency on how loadChat() reconciles.
+              if (!document.hidden) markRead(activeDM);
             }
             // Admin spy mode: keep the "X msgs · last message" counts in the
             // conversations list live instead of only updating on the next manual search.
@@ -3057,6 +3065,32 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
         } else if (data.type === 'typing') {
           if (activeDM && activeDMAccountId === Number(data.sender_id)) {
             showTypingIndicator(data.sender_name, data.is_typing);
+          }
+        } else if (data.type === 'message_read') {
+          // The other participant just read up through data.last_msg_uuid —
+          // update the Messenger-style "Seen" indicator instantly, no poll needed.
+          if (activeDM && activeDMAccountId === Number(data.reader_id)) {
+            if (data.last_msg_uuid) {
+              // DB-confirmed value (arrived via the HTTP-persisted path) —
+              // always authoritative.
+              dmReadUpTo = data.last_msg_uuid;
+            } else {
+              // Instant WS-only ping, sent with no id attached (see
+              // markRead() above) — the other participant is actively here
+              // right now, so flag whatever we've most recently sent as
+              // seen using OUR OWN chatBox (accurate on this side), rather
+              // than waiting for the slower DB round trip to confirm it.
+              // Read state only ever moves forward, never backward.
+              let newestSentId = null;
+              chatBox.querySelectorAll('.message-container.sent[data-msg-id]').forEach(el => {
+                const id = el.getAttribute('data-msg-id');
+                if (id && (!newestSentId || id > newestSentId)) newestSentId = id;
+              });
+              if (newestSentId && (!dmReadUpTo || newestSentId > dmReadUpTo)) {
+                dmReadUpTo = newestSentId;
+              }
+            }
+            updateSeenIndicator();
           }
         } else if (data.type === 'chat_cleared') {
           console.log('Received WebSocket real-time update notice:', data);
@@ -3754,11 +3788,60 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
       if (u) u.unreadCount = 0;
       renderSidebarUsers();
 
-      // Persist to server
+      const targetId = activeDMAccountId || 0;
+
+      // Fast path: relay over the already-open WebSocket, same as typing
+      // indicators — no new HTTP connection, no debounce, delivered to the
+      // other participant's live socket the instant this fires. Deliberately
+      // sends no last_msg_uuid: trying to compute one here from our own
+      // chatBox is unreliable (e.g. right when a new message just arrived
+      // via WS it hasn't been rendered into the DOM yet, and right after
+      // selectDM() the previous conversation's messages are still on
+      // screen). The receiving side fills in the correct id from its own
+      // chatBox instead — see the 'message_read' handler below.
+      if (ws && ws.readyState === WebSocket.OPEN && targetId) {
+        ws.send(JSON.stringify({ type: 'mark_read', target_id: targetId }));
+      }
+
+      // Durable path: persist to Postgres via HTTP so the correct read
+      // marker survives reloads / other tabs / the WS relay above being
+      // missed during a brief reconnect gap. This also re-broadcasts
+      // 'message_read' with the DB-confirmed last_msg_uuid shortly after,
+      // which harmlessly reconciles the indicator if the optimistic
+      // WS-only value above ever guessed wrong.
       const xhr = new XMLHttpRequest();
       xhr.open('POST', 'mark_read.php', true);
       xhr.setRequestHeader('Content-type', 'application/x-www-form-urlencoded');
-      xhr.send('target_id=' + encodeURIComponent(activeDMAccountId || 0) + '&target_user=' + encodeURIComponent(targetUsername));
+      xhr.send('target_id=' + encodeURIComponent(targetId) + '&target_user=' + encodeURIComponent(targetUsername));
+    }
+
+    // Messenger-style "Seen" indicator: shown under the newest message WE sent
+    // that the other participant has actually read (dmReadUpTo). Re-run this
+    // any time dmReadUpTo changes or the message list is re-rendered — it's
+    // cheap (one DOM query over the currently-loaded page) and always fully
+    // recomputes rather than trying to patch the previous position, so it can
+    // never end up stuck under a stale message.
+    function updateSeenIndicator() {
+      const existing = chatBox.querySelector('.seen-indicator');
+      if (existing) existing.remove();
+
+      if (!dmReadUpTo || !activeDM || isGlobalChat) return;
+
+      // msg_uuid values are fixed-width hex ("msg_" + 10 hex ms + 6 hex rnd),
+      // so plain string comparison sorts them the same as chronological order.
+      const sentMessages = chatBox.querySelectorAll('.message-container.sent[data-msg-id]');
+      let target = null;
+      sentMessages.forEach(el => {
+        const id = el.getAttribute('data-msg-id');
+        if (id && id <= dmReadUpTo) target = el; // keep the newest qualifying one
+      });
+      if (!target) return;
+
+      const indicator = document.createElement('div');
+      indicator.className = 'seen-indicator';
+      indicator.textContent = 'Seen';
+      indicator.style.cssText = 'font-size:11px;color:var(--text-secondary);text-align:right;padding:2px 12px 6px 0;opacity:0.85;';
+      target.insertAdjacentElement('afterend', indicator);
     }
 
     // State for global chat
@@ -3774,6 +3857,9 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
     let dmCursor  = '';
     let dmHasMore = false;
     let dmViewingOlder = false; // true once the user has loaded an older window
+    // msg_uuid of the newest message the OTHER participant has read, or null.
+    // Drives the Messenger-style "Seen" indicator under our own last-read sent message.
+    let dmReadUpTo = null;
 
     function selectDM(u) {
       isGlobalChat = false;
@@ -3784,6 +3870,7 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
       dmCursor = '';
       dmHasMore = false;
       dmViewingOlder = false;
+      dmReadUpTo = null;
       clearSendingOverlay(); // drop any pending-send bubbles from the previous conversation
       hideEditBanner();
       
@@ -5540,6 +5627,7 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
         try { data = JSON.parse(this.responseText); } catch(e) { return; }
         const newHtml = data.html || '';
         dmHasMore = data.hasMore || false;
+        if (typeof data.readUpTo !== 'undefined') dmReadUpTo = data.readUpTo;
 
         if (loadOlderMode) {
           dmCursor = data.nextCursor || '';
@@ -5560,6 +5648,7 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
           trimWindowFromBottom(PAGE_SIZE);
           if (!dmHasMore) showNoMoreOlderNotice(); else if (!document.getElementById('loadOlderBtn')) insertLoadOlderBtn();
           applyAdminBadges(); applyEmojiOnly();
+          updateSeenIndicator();
           return;
         }
 
@@ -5582,6 +5671,14 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
         if (rec.type === 'nochange') {
           if (isFirstLoad) { isFirstLoad = false; handleFirstLoadScroll(); }
           if (dmHasMore && !document.getElementById('loadOlderBtn') && !document.getElementById('noMoreOlderNotice')) insertLoadOlderBtn();
+          // Safety net: even when nothing new rendered (e.g. this reload was
+          // triggered by the tab regaining visibility rather than a genuinely
+          // new message), still sync the read marker while the chat is open
+          // and visible — otherwise a read state bump can be missed whenever
+          // the WS-triggered markRead() above didn't fire for some reason
+          // (e.g. reconnect gap) and this poll finds no DOM diff to react to.
+          if (!document.hidden && activeDM) markRead(activeDM);
+          updateSeenIndicator();
           return;
         }
 
@@ -5611,6 +5708,7 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
           else showScrollIndicator(rec.items.filter(el => el.classList.contains('message-container')).length);
           applyAdminBadges(); applyEmojiOnly();
           if (!document.hidden && activeDM) markRead(activeDM);
+          updateSeenIndicator();
           if (dmHasMore && !document.getElementById('loadOlderBtn') && !document.getElementById('noMoreOlderNotice')) insertLoadOlderBtn();
           return;
         }
@@ -5649,6 +5747,7 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
         }
         applyAdminBadges(); applyEmojiOnly();
         if (!document.hidden && activeDM) markRead(activeDM);
+        updateSeenIndicator();
         // Chat was rebuilt from scratch (e.g. cleared), so pagination state no longer applies
         dmCursor = data.nextCursor || '';
         dmViewingOlder = false;
@@ -6810,6 +6909,11 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
           loadGlobalChat(false);
         } else if (activeDM) {
           loadChat(false);
+          // Don't wait on that fetch to resolve before syncing the read
+          // marker — the chat is visibly open again right now, so mark it
+          // read immediately (loadChat's own markRead calls further down
+          // will simply no-op/repeat harmlessly once it resolves).
+          markRead(activeDM);
         } else if (activeAdminConv) {
           loadAdminConv(activeAdminConv, false);
         }

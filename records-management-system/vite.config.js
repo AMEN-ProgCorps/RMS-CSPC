@@ -2,6 +2,10 @@ import { defineConfig } from 'vite';
 import laravel from 'laravel-vite-plugin';
 import tailwindcss from '@tailwindcss/vite';
 
+// Set DOCKER=true in docker-compose.yml (already done on the node service).
+// Locally, this env var is absent, so isDocker = false.
+const isDocker = process.env.DOCKER === 'true';
+
 export default defineConfig({
     plugins: [
         laravel({
@@ -33,19 +37,29 @@ export default defineConfig({
         tailwindcss(),
     ],
     server: {
-        host: '0.0.0.0',
+        // Docker: bind to all interfaces so the container exposes port 5173.
+        // Local:  bind to localhost only (default, faster).
+        host: isDocker ? '0.0.0.0' : 'localhost',
         port: 5173,
         strictPort: true,
         cors: true,
-        origin: 'http://localhost:5173',
-        hmr: {
-            host: 'localhost',
-            port: 5173,
-        },
-        watch: {
-            usePolling: true,
-            interval: 800,
-            ignored: ['**/storage/framework/views/**'],
-        },
+
+        // Docker-only overrides — not needed (and harmful) when running locally.
+        ...(isDocker && {
+            // 'origin' must match the URL the *browser* uses to reach Vite.
+            // On Docker + Windows the port is forwarded, so the browser hits localhost:5173.
+            origin: process.env.VITE_DEV_SERVER_URL ?? 'http://localhost:5173',
+            hmr: {
+                host: 'localhost',
+                port: 5173,
+                protocol: 'ws',
+            },
+            watch: {
+                // Polling is required on Docker + Windows (no inotify support).
+                usePolling: true,
+                interval: 500,
+                ignored: ['**/vendor/**', '**/storage/framework/views/**'],
+            },
+        }),
     },
 });

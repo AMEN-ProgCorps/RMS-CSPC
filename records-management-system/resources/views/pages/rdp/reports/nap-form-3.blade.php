@@ -10,11 +10,13 @@ use Carbon\Carbon;
 new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 3')] class extends Component {
     public string $search = '';
     public string $retentionFilter = ''; // 'all', 'permanent', 'temporary'
+    public string $officeFilter = ''; // '' for all, or office_code
     
     // Checkbox selections for printing
     public array $selectedIds = [];
     public bool $selectAll = false;
     public bool $showPrintModal = false;
+    public string $errorMessage = '';
 
     // View Modal Properties
     public bool $showViewModal = false;
@@ -51,6 +53,12 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 3')
     public function mount(): void
     {
         $user = Auth::user();
+        $perms = $user?->permissions;
+        // Access clearance check
+        if (!$perms || (!(bool)($perms->is_sadm ?? false) && !(bool)($perms->can_rdp_access_form_3 ?? true))) {
+            redirect()->route('rdp')->send();
+            return;
+        }
         $details = $user?->details;
         
         $this->datePrepared = Carbon::now()->format('F d, Y');
@@ -74,6 +82,11 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 3')
 
     public function openPrintModal(array $specificIds = []): void
     {
+        $perms = Auth::user()?->permissions;
+        if (!($perms->is_sadm ?? false) && !(bool)($perms->can_rdp_print_form_3 ?? true)) {
+            $this->errorMessage = 'You do not have clearance to print NAP Form 3.';
+            return;
+        }
         if (!empty($specificIds)) {
             $this->selectedIds = array_map('strval', $specificIds);
         }
@@ -128,8 +141,22 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 3')
 
     public function openEditModal(int $id): void
     {
+        $perms = Auth::user()?->permissions;
+        $isSadm = (bool)($perms->is_sadm ?? false);
+        // Modify clearance
+        if (!$isSadm && !(bool)($perms->can_rdp_modify_form_3 ?? true)) {
+            $this->errorMessage = 'You do not have clearance to edit records on NAP Form 3.';
+            return;
+        }
         $record = DB::table('rdp_record_series')->where('id', $id)->first();
         if ($record) {
+            // Edit-others clearance
+            $userOffice = Auth::user()?->details?->office_code ?? null;
+            $isOtherOffice = $userOffice && $record->recorded_at_office && $record->recorded_at_office !== $userOffice;
+            if (!$isSadm && $isOtherOffice && !(bool)($perms->can_rdp_edit_others_form_3 ?? false)) {
+                $this->errorMessage = 'You do not have clearance to edit records from another office on NAP Form 3.';
+                return;
+            }
             $this->editingSeriesId = $record->id;
             $this->editSeriesTitle = $record->series_title ?? '';
             $this->editItemNumber = $record->item_number !== null ? (string)$record->item_number : '';
@@ -274,14 +301,30 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 3')
         $query = DB::table('rdp_record_series')
             ->leftJoin('rdp_retention_period', 'rdp_record_series.retention_period', '=', 'rdp_retention_period.id')
             ->leftJoin('rdp_record_series as parent', 'rdp_record_series.parent_id', '=', 'parent.id')
+            ->leftJoin('office', 'rdp_record_series.recorded_at_office', '=', 'office.office_code')
             ->select([
                 'rdp_record_series.*',
                 'rdp_retention_period.active_period',
                 'rdp_retention_period.storage_period',
                 'rdp_retention_period.total_period',
                 'parent.series_title as parent_title',
+                'office.office_name as recorded_office_name',
             ])
             ->where('rdp_record_series.is_verified', false);
+
+        if (!empty($this->officeFilter)) {
+            $query->where('rdp_record_series.recorded_at_office', $this->officeFilter);
+        }
+
+        // View-others clearance
+        $authPerms = auth()->user()?->permissions;
+        $isSadm = (bool)($authPerms?->is_sadm ?? false);
+        if (!$isSadm && !(bool)($authPerms?->can_rdp_view_others_form_3 ?? false)) {
+            $userOffice = auth()->user()?->details?->office_code ?? null;
+            if ($userOffice) {
+                $query->where('rdp_record_series.recorded_at_office', $userOffice);
+            }
+        }
 
         if (!empty($this->search)) {
             $query->where(function ($q) {
@@ -298,7 +341,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 3')
             ->keyBy('id')
             ->all();
 
-        $fetchedUnverified = $query->orderBy('rdp_record_series.series_title', 'ASC')->get();
+        $fetchedUnverified = $query->orderByRaw('rdp_record_series.recorded_at_office ASC NULLS LAST, rdp_record_series.series_title ASC')->get();
         $treeOrdered = $this->buildTreeHierarchy($fetchedUnverified->all());
 
         foreach ($treeOrdered as $item) {
@@ -308,7 +351,8 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 3')
             $item->effective_total = $eff->total_period;
             $item->effective_is_permanent = $eff->is_retention_period_permanent;
             $item->is_inherited = $eff->inherited;
-            $item->is_root_parent = empty($item->parent_id);
+            // All items are regular rows; office grouping is handled by the template
+            $item->is_root_parent = false;
             $item->display_item_no = ''; // Unverified series have no assigned item number
         }
 
@@ -325,24 +369,39 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 3')
 
         // Selected items for print document
         $printItems = [];
+        // Print-others clearance
+        $canPrintOthers = $isSadm || (bool)($authPerms?->can_rdp_print_others_form_3 ?? false);
+        $userOfficeForPrint = auth()->user()?->details?->office_code ?? null;
+
         if (!empty($this->selectedIds)) {
             $selectedInts = array_map('intval', $this->selectedIds);
             foreach ($treeOrdered as $item) {
                 if (in_array((int)$item->id, $selectedInts, true)) {
+                    if (!$canPrintOthers && $userOfficeForPrint && $item->recorded_at_office !== $userOfficeForPrint) {
+                        continue;
+                    }
                     $printItems[] = $item;
                 }
             }
         } else {
-            $printItems = array_values($treeOrdered);
+            foreach ($treeOrdered as $item) {
+                if (!$canPrintOthers && $userOfficeForPrint && $item->recorded_at_office !== $userOfficeForPrint) {
+                    continue;
+                }
+                $printItems[] = $item;
+            }
         }
 
         $totalCount     = count($treeOrdered);
         $permanentCount = count(array_filter($treeOrdered, fn($i) => $i->effective_is_permanent || strtolower(trim($i->effective_total ?? '')) === 'permanent'));
         $temporaryCount = $totalCount - $permanentCount;
 
+        $officesList = DB::table('office')->where('is_active', true)->orderBy('office_name')->get();
+
         return [
             'recordSeriesList' => array_values($treeOrdered),
             'printItems'       => $printItems,
+            'officesList'      => $officesList,
             'totalCount'       => $totalCount,
             'permanentCount'   => $permanentCount,
             'temporaryCount'   => $temporaryCount,
@@ -511,7 +570,14 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 3')
                     <option value="temporary">Temporary Retention</option>
                 </select>
 
-                @if($search || $retentionFilter || count($selectedIds) > 0)
+                <select wire:model.live="officeFilter" style="padding: 9px 14px; border: 1px solid #cbd5e1; border-radius: 8px; font-size: 13px; background: #fff; outline: none; font-weight: 600; color: #0f172a;">
+                    <option value="">All Offices</option>
+                    @foreach($officesList as $off)
+                        <option value="{{ $off->office_code }}">{{ $off->office_name }} ({{ $off->office_code }})</option>
+                    @endforeach
+                </select>
+
+                @if($search || $retentionFilter || $officeFilter || count($selectedIds) > 0)
                     <button type="button" wire:click="clearFilters" class="nap-btn nap-btn-secondary">
                         Reset Filters
                     </button>
@@ -536,13 +602,23 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 3')
                     </tr>
                 </thead>
                 <tbody>
+                    @php $prevOfficeName = null; @endphp
                     @forelse($recordSeriesList as $idx => $item)
                         @php
                             $isPermSeries = (bool)($item->effective_is_permanent) || 
                                             (strtolower(trim($item->effective_total ?? '')) === 'permanent') ||
                                             (strtolower(trim($item->effective_active ?? '')) === 'permanent' && strtolower(trim($item->effective_storage ?? '')) === 'permanent');
                             $itemIdStr = (string)$item->id;
+                            $currentOfficeName = $item->recorded_office_name ?? $item->recorded_at_office ?? 'Unknown Office';
                         @endphp
+                        @if($currentOfficeName !== $prevOfficeName)
+                            <tr class="table-section-divider-row">
+                                <td colspan="8" style="background: #e2e8f0; color: #1e293b; font-weight: 800; text-align: center; text-transform: uppercase; letter-spacing: 0.6px; padding: 7px 12px; font-size: 11.5px; font-family: 'Inter', sans-serif; border-top: 2px solid #cbd5e1; border-bottom: 2px solid #cbd5e1;">
+                                    {{ strtoupper($currentOfficeName) }}
+                                </td>
+                            </tr>
+                            @php $prevOfficeName = $currentOfficeName; @endphp
+                        @endif
                         <tr style="{{ in_array($itemIdStr, $selectedIds) ? 'background: #eff6ff;' : '' }}">
                             <td style="text-align: center;">
                                 <input type="checkbox" wire:model.live="selectedIds" value="{{ $item->id }}" style="width: 16px; height: 16px; cursor: pointer; accent-color: #2563eb;">
@@ -833,12 +909,22 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 3')
                                 </tr>
                             </thead>
                             <tbody>
+                                @php $prevPrintOfficeName = null; @endphp
                                 @forelse($printItems as $pIdx => $pItem)
                                     @php
                                         $isPermSeries = (bool)($pItem->effective_is_permanent) || 
                                                         (strtolower(trim($pItem->effective_total ?? '')) === 'permanent') ||
                                                         (strtolower(trim($pItem->effective_active ?? '')) === 'permanent' && strtolower(trim($pItem->effective_storage ?? '')) === 'permanent');
+                                        $pOfficeName = $pItem->recorded_office_name ?? $pItem->recorded_at_office ?? 'Unknown Office';
                                     @endphp
+                                    @if($pOfficeName !== $prevPrintOfficeName)
+                                        <tr class="doc-section-divider">
+                                            <td colspan="6" style="background: #cbd5e1; color: #0f172a; font-weight: bold; text-align: center; text-transform: uppercase; letter-spacing: 0.5px; padding: 5px 8px; border: 1px solid #000000; font-size: 9.5px; -webkit-print-color-adjust: exact; print-color-adjust: exact;">
+                                                {{ strtoupper($pOfficeName) }}
+                                            </td>
+                                        </tr>
+                                        @php $prevPrintOfficeName = $pOfficeName; @endphp
+                                    @endif
                                     <tr>
                                         <td style="text-align: center; color: #94a3b8; font-style: italic;">
                                             —

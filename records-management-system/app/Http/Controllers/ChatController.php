@@ -13,7 +13,12 @@ class ChatController extends Controller
      */
     public function openChat()
     {
+        if (\App\Helpers\MobileHelper::isMobile(request())) {
+            return redirect()->route('portal');
+        }
+
         $user = Auth::user();
+
         if (!$user) {
             return redirect()->route('login');
         }

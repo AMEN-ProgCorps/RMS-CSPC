@@ -99,10 +99,10 @@ We track the progress of different modules using the completion ratios below (th
 pie title Project Status Breakdown
     "Document Tracking System (Completed)" : 17
     "Document Tracking System (In Progress)" : 13
-    "Records Disposition Program (Completed)" : 10
-    "Records Disposition Program (In Progress)" : 20
-    "Admin Console (Completed)" : 6.2
-    "Admin Console (In Progress)" : 3.8
+    "Records Disposition Program (Completed)" : 24
+    "Records Disposition Program (In Progress)" : 6
+    "Admin Console (Completed)" : 9
+    "Admin Console (In Progress)" : 1
     "Profile Manager (Completed)" : 10
     "Portal Access Pages (Completed)" : 18
     "Portal Access Pages (In Progress)" : 2
@@ -114,9 +114,19 @@ pie title Project Status Breakdown
 
 ```mermaid
 pie title Overall Project Completion
-    "Total Completed" : 70.2
-    "Total In Progress" : 39.8
+    "Total Completed" : 87
+    "Total In Progress" : 23
 ```
+
+---
+
+## ✨ Recent Key Features & Improvements
+
+- **RDP NAP Forms (Forms 1, 2 & 3):** Official report generation with office-based section dividers, print preview modals, and hierarchical record series rendering.
+- **Granular Role Clearances:** Added 18 individual per-form RDP clearances for NAP Forms 1, 2, and 3 (`access`, `modify`, `print`, `view_others`, `edit_others`, `print_others`), with admin-only toggles defaulting to `false` for security.
+- **Strict Document File Validation:** Enforced strict document-only upload restrictions (`.pdf`, `.doc`, `.docx`, `.xls`, `.xlsx`, `.ppt`, `.pptx`, `.txt`, `.csv`, `.rtf`, `.odt`, `.ods`) on RDP file upload pages.
+- **Docker & Vite HMR Optimization:** Enhanced HMR performance and asset resolution in Docker environments.
+- **Dashboard UI Enhancements:** Monochromatic blue color palette with fixed stat card flex alignment.
 
 ---
 

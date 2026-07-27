@@ -10,7 +10,11 @@ mkdir -p /run/nginx /var/log/nginx /var/log/supervisor
 
 # ── Install / sync PHP dependencies ─────────────────────────────────────────
 echo "[1/5] Running composer install..."
-composer install --no-interaction --prefer-dist --optimize-autoloader
+if [ ! -f "vendor/autoload.php" ]; then
+    composer install --no-interaction --prefer-dist --optimize-autoloader
+else
+    echo "  vendor/ already exists — skipping install."
+fi
 
 # ── Generate APP_KEY if not set ──────────────────────────────────────────────
 if [ -z "$APP_KEY" ]; then

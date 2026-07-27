@@ -415,9 +415,10 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - QR Code Scanner
     <!-- Back Button Header -->
     <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 24px; padding-bottom: 12px; border-bottom: 1px solid #374151;">
         <div style="display: flex; align-items: center; gap: 12px;">
-            <a href="{{ route('dts.receive') }}" style="display: flex; align-items: center; justify-content: center; width: 36px; height: 36px; background: #374151; color: white; border-radius: 8px; text-decoration: none; font-size: 16px; font-weight: bold; cursor: pointer; transition: all 0.2s;" title="Back to Receive Page">
+            <a href="{{ route('dts.receive') }}" onclick="if (window.innerWidth < 768) { window.location.href = '{{ route('portal') }}'; return false; }" style="display: flex; align-items: center; justify-content: center; width: 36px; height: 36px; background: #374151; color: white; border-radius: 8px; text-decoration: none; font-size: 16px; font-weight: bold; cursor: pointer; transition: all 0.2s;" title="Back">
                 <i class="fa-solid fa-arrow-left"></i>
             </a>
+
             <h1 style="font-size: 20px; font-weight: 700; color: #1e293b; margin: 0; font-family: Outfit, sans-serif;">DTS QR Code Scanner Console</h1>
         </div>
         <span style="font-size: 12px; font-weight: 600; padding: 4px 10px; background: #003699; color: #fff; border-radius: 20px;">Scanner Subsystem</span>

@@ -10,7 +10,12 @@ class CanAccessDts
 {
     public function handle(Request $request, Closure $next): Response
     {
+        if (\App\Helpers\MobileHelper::isMobile($request) && ! $request->is('dts/scanner')) {
+            return redirect()->route('portal');
+        }
+
         $perms = auth()->user()?->permissions;
+
 
         if (! $perms || (! $perms->is_sadm && ! $perms->can_access_dts)) {
             return redirect()->route('portal');

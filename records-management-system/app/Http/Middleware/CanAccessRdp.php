@@ -10,7 +10,12 @@ class CanAccessRdp
 {
     public function handle(Request $request, Closure $next): Response
     {
+        if (\App\Helpers\MobileHelper::isMobile($request)) {
+            return redirect()->route('portal');
+        }
+
         $perms = auth()->user()?->permissions;
+
 
         if (! $perms || (! $perms->is_sadm && ! $perms->can_access_rdp)) {
             return redirect()->route('portal');

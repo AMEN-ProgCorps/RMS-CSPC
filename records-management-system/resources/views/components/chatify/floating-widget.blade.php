@@ -69,6 +69,11 @@
 </div>
 
 <style>
+@media (max-width: 767px) {
+    #chatify-global-widget {
+        display: none !important;
+    }
+}
 @keyframes chatify-spin {
     0% { transform: rotate(0deg); }
     100% { transform: rotate(360deg); }
@@ -90,6 +95,12 @@
     }
 
     function initWidgetState() {
+        if (!isTabletOrDesktop()) {
+            isOpen = false;
+            setWidgetVisibility(false, false);
+            return;
+        }
+
         const storedState = sessionStorage.getItem('chatify_widget_open');
         if (storedState !== null) {
             isOpen = storedState === 'true';
@@ -150,6 +161,9 @@
     });
 
     window.toggleChatifyWidget = function() {
+        if (!isTabletOrDesktop()) {
+            return;
+        }
         isOpen = !isOpen;
         sessionStorage.setItem('chatify_widget_open', isOpen);
         setWidgetVisibility(isOpen, true);
@@ -189,6 +203,11 @@
 
         if (!card || !btn) return;
 
+        if (!isTabletOrDesktop()) {
+            card.style.display = 'none';
+            return;
+        }
+
         if (show) {
             if (iframe && !iframe.src) {
                 iframe.src = iframe.getAttribute('data-src');
@@ -225,6 +244,12 @@
         }
     }
 
+    window.addEventListener('resize', function() {
+        if (!isTabletOrDesktop()) {
+            setWidgetVisibility(false, false);
+        }
+    });
+
     if (document.readyState === 'loading') {
         document.addEventListener('DOMContentLoaded', initWidgetState);
     } else {
@@ -232,6 +257,7 @@
     }
 })();
 </script>
+
 
 
 @endunless

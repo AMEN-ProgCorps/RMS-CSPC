@@ -10,10 +10,15 @@ class CanAccessAdmin
 {
     public function handle(Request $request, Closure $next): Response
     {
+        if (\App\Helpers\MobileHelper::isMobile($request)) {
+            return redirect()->route('portal');
+        }
+
         $user = auth()->user();
         if (! $user) {
             return redirect()->route('login');
         }
+
 
         $perms = $user->permissions;
 

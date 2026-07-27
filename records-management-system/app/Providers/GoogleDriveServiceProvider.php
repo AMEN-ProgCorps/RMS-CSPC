@@ -27,7 +27,13 @@ class GoogleDriveServiceProvider extends ServiceProvider
             Storage::extend('google', function ($app, $config) {
                 $client = new \Google\Client();
 
-                // DB Overrides Check
+                // DB Overrides Check — read credentials from system_settings (set via Admin Console)
+                $dbClientId     = null;
+                $dbClientSecret = null;
+                $dbRefreshToken = null;
+                $dbFolderId     = null;
+                $dbVerifySsl    = null;
+
                 try {
                     $dbClientId     = \Illuminate\Support\Facades\DB::table('system_settings')->where('key', 'google_drive_client_id')->value('value');
                     $dbClientSecret = \Illuminate\Support\Facades\DB::table('system_settings')->where('key', 'google_drive_client_secret')->value('value');
@@ -41,7 +47,9 @@ class GoogleDriveServiceProvider extends ServiceProvider
                     if (!empty($dbFolderId))     $config['folder']       = $dbFolderId;
                 } catch (\Throwable $e) {}
 
-                $verifySsl = isset($dbVerifySsl) ? filter_var($dbVerifySsl, FILTER_VALIDATE_BOOLEAN) : filter_var(env('GOOGLE_DRIVE_VERIFY_SSL', false), FILTER_VALIDATE_BOOLEAN);
+                $verifySsl = ($dbVerifySsl !== null)
+                    ? filter_var($dbVerifySsl, FILTER_VALIDATE_BOOLEAN)
+                    : filter_var(env('GOOGLE_DRIVE_VERIFY_SSL', false), FILTER_VALIDATE_BOOLEAN);
                 $guzzleClient = new \GuzzleHttp\Client([
                     'verify' => $verifySsl,
                 ]);

@@ -609,8 +609,14 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - DTS Transaction Flows')]
         ]);
 
         try {
-            $path = $this->flowFile->getRealPath();
-            $content = file_get_contents($path);
+            $content = $this->flowFile->get();
+            if ($content === false || $content === null) {
+                $content = @file_get_contents($this->flowFile->getRealPath());
+            }
+
+            if ($content === false || $content === null) {
+                throw new \Exception('Could not read the uploaded text file content.');
+            }
 
             // Normalize line endings and split
             $rawLines = preg_split('/\r\n|\r|\n/', $content);

@@ -764,7 +764,7 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create Internal
                     $uploadResult = \App\Services\DocumentStorageService::storeUpload(
                         'Document placeholder content for ' . $this->type_of_document,
                         'DTS',
-                        $user,
+                        auth()->user(),
                         null,
                         Str::slug($this->type_of_document) . '.pdf'
                     );

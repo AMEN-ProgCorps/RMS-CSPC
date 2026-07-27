@@ -554,11 +554,12 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 1')
         .print-page { 
             width: 1020px; 
             min-height: 700px; 
+            height: auto;
             background: #ffffff; 
             border: none; 
-            margin: 0 auto; 
+            margin: 0 auto 30px auto; 
             box-shadow: 0 10px 25px rgba(0,0,0,0.12); 
-            padding: 30px 25px; 
+            padding: 24px 25px 50px 25px; 
             box-sizing: border-box;
             color: #000000;
             font-family: Arial, Helvetica, sans-serif;
@@ -566,27 +567,28 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 1')
         }
 
         .doc-table { width: 100%; border-collapse: collapse; border: 2.5px solid #000000; font-size: 9.5px; }
-        .doc-table th { border: 1px solid #000000; padding: 7px 6px; vertical-align: middle; line-height: 1.35; text-align: center; }
-        .doc-table td { border: 1px solid #000000; padding: 7px 6px; vertical-align: middle; line-height: 1.35; }
+        .doc-table th { border: 1px solid #000000; padding: 6px 5px; vertical-align: middle; line-height: 1.3; text-align: center; }
+        .doc-table td { border: 1px solid #000000; padding: 5px 5px; vertical-align: middle; line-height: 1.3; }
         
         /* Remove horizontal row borders exclusively inside data table body (<tbody>) */
-        .doc-data-table tbody td { border-left: 1px solid #000000; border-right: 1px solid #000000; border-top: none; border-bottom: none; }
+        .doc-data-table tbody td { border-left: 1px solid #000000; border-right: 1px solid #000000; border-top: none; border-bottom: none; padding: 4px 5px !important; }
 
-        .header-cell { text-align: center; width: 32%; vertical-align: middle !important; padding: 10px !important; }
+        .header-cell { text-align: center; width: 32%; vertical-align: middle !important; padding: 8px !important; }
         .header-main-text { font-weight: bold; font-size: 11px; margin-top: 2px; }
         .header-sub-text { font-style: italic; font-size: 9px; margin-bottom: 6px; }
         .header-doc-title { font-weight: bold; font-size: 12px; line-height: 1.3; }
         .field-label { font-weight: bold; font-size: 8.5px; display: block; margin-bottom: 2px; color: #000; }
         .field-value { font-weight: bold; font-size: 10.5px; color: #000; }
         
-        .sub-header th { font-weight: bold; font-size: 8px; padding: 5px 4px; }
+        .sub-header th { font-weight: bold; font-size: 8px; padding: 4px 3px; }
         
         /* Borderless Legend Section */
-        .footer-legend { font-size: 8.5px; font-weight: bold; margin-top: 14px; margin-bottom: 16px; border: none; padding: 6px 0; }
+        .footer-legend { font-size: 8.5px; font-weight: bold; margin-top: 12px; margin-bottom: 12px; border: none; padding: 4px 0; }
         
-        .signatures-table { width: 100%; border-collapse: collapse; border: 2.5px solid #000000; font-size: 9px; margin-bottom: 16px; }
-        .signatures-table td { border: 1px solid #000000; padding: 14px 12px; width: 33.33%; vertical-align: top; height: 110px; }
-        .sig-block { display: flex; flex-direction: column; align-items: center; margin-top: 35px; }
+        .signatures-wrapper { page-break-inside: avoid; break-inside: avoid; }
+        .signatures-table { width: 100%; border-collapse: collapse; border: 2.5px solid #000000; font-size: 9px; margin-bottom: 16px; page-break-inside: avoid; break-inside: avoid; }
+        .signatures-table td { border: 1px solid #000000; padding: 10px 12px; width: 33.33%; vertical-align: top; height: 95px; }
+        .sig-block { display: flex; flex-direction: column; align-items: center; margin-top: 25px; }
         .sig-line { border-bottom: 1px solid #000; width: 85%; text-align: center; margin-bottom: 4px; font-size: 10px; font-weight: bold; padding-bottom: 1px; }
         .sig-label { font-size: 8.5px; text-align: center; color: #1e293b; }
 
@@ -598,28 +600,53 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 1')
             print-color-adjust: exact;
         }
 
-        /* Force Landscape Print Orientation for NAP Form 1 */
+        /* Force Legal Landscape Print Orientation and 0.5in Margins */
         @page {
-            size: A4 landscape;
-            margin: 6mm 8mm;
+            size: legal landscape;
+            margin: 0.5in;
         }
 
         @media print {
+            /* Hide everything on the page except the print modal content */
             body { background: #ffffff !important; margin: 0 !important; padding: 0 !important; }
-            .no-print, .toolbar, .nap-card, header, nav, sidebar, footer, .modal-header-actions { display: none !important; }
-            .modal-overlay { position: static !important; background: none !important; padding: 0 !important; }
-            .modal-content { background: none !important; max-width: 100% !important; padding: 0 !important; box-shadow: none !important; }
+            header, #navigation, .no-print, .toolbar, .nap-card, .nap-btn,
+            footer, .modal-header-actions, .chatify-widget, #chatify-global-widget,
+            #chatify-widget-card, #chatify-widget-btn, [id^="chatify"], .rdp-fab-nav { display: none !important; opacity: 0 !important; visibility: hidden !important; }
+            /* Hide the main page content (article-container) */
+            #article-container > div > *:not(.modal-overlay) { display: none !important; }
+            /* Make modal print inline (not fixed-positioned overlay) */
+            .modal-overlay { 
+                position: static !important; 
+                background: none !important; 
+                padding: 0 !important; 
+                display: block !important;
+            }
+            .modal-content { 
+                background: none !important; 
+                max-width: 100% !important; 
+                max-height: none !important;
+                padding: 0 !important; 
+                box-shadow: none !important;
+                overflow: visible !important;
+            }
             .print-page { 
                 box-shadow: none !important; 
                 border: none !important; 
                 width: 100% !important; 
+                max-width: 100% !important;
+                min-height: auto !important;
+                height: auto !important;
                 margin: 0 !important; 
-                padding: 4mm 6mm !important; 
-                page-break-after: always;
+                padding: 0 !important; 
+                page-break-after: auto;
             }
             .print-page:last-child { page-break-after: auto; }
+            .doc-table tr { page-break-inside: avoid !important; break-inside: avoid !important; }
             .print-retention-red { color: #dc2626 !important; font-weight: bold !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
             .table-section-divider-row { background: #e2e8f0 !important; -webkit-print-color-adjust: exact; }
+            .signatures-wrapper { page-break-before: always !important; break-before: page !important; page-break-inside: avoid !important; break-inside: avoid !important; margin-top: 20px !important; }
+            .signatures-table { page-break-inside: avoid !important; break-inside: avoid !important; }
+            .signatures-table tr, .signatures-table td { page-break-inside: avoid !important; break-inside: avoid !important; }
         }
     </style>
 
@@ -1176,35 +1203,37 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 1')
                             </tbody>
                         </table>
 
-                        <div class="footer-legend">
-                            <strong>LEGEND:</strong> TIME VALUE: T-Temporary P-Permanent &nbsp;|&nbsp; UTILITY VALUE: Adm-Administrative F-Fiscal L-Legal Arc-Archival
-                        </div>
+                        <div class="signatures-wrapper">
+                            <div class="footer-legend">
+                                <strong>LEGEND:</strong> TIME VALUE: T-Temporary P-Permanent &nbsp;|&nbsp; UTILITY VALUE: Adm-Administrative F-Fiscal L-Legal Arc-Archival
+                            </div>
 
-                        <table class="signatures-table">
-                            <tr>
-                                <td>
-                                    <span class="field-label">PREPARED BY:</span>
-                                    <div class="sig-block">
-                                        <div class="sig-line">{{ $preparedBy ?: '___________________' }}</div>
-                                        <div class="sig-label">{{ $preparedPosition }}</div>
-                                    </div>
-                                </td>
-                                <td>
-                                    <span class="field-label">ASSISTED BY:</span>
-                                    <div class="sig-block">
-                                        <div class="sig-line">{{ $assistedBy ?: '___________________' }}</div>
-                                        <div class="sig-label">{{ $assistedPosition ?: 'NAP Records Management Analyst' }}</div>
-                                    </div>
-                                </td>
-                                <td>
-                                    <span class="field-label">APPROVED BY:</span>
-                                    <div class="sig-block">
-                                        <div class="sig-line">{{ $approvedBy ?: '___________________' }}</div>
-                                        <div class="sig-label">{{ $approvedPosition ?: 'Chief of Division / Department Head' }}</div>
-                                    </div>
-                                </td>
-                            </tr>
-                        </table>
+                            <table class="signatures-table">
+                                <tr>
+                                    <td>
+                                        <span class="field-label">PREPARED BY:</span>
+                                        <div class="sig-block">
+                                            <div class="sig-line">{{ $preparedBy ?: '___________________' }}</div>
+                                            <div class="sig-label">{{ $preparedPosition }}</div>
+                                        </div>
+                                    </td>
+                                    <td>
+                                        <span class="field-label">ASSISTED BY:</span>
+                                        <div class="sig-block">
+                                            <div class="sig-line">{{ $assistedBy ?: '___________________' }}</div>
+                                            <div class="sig-label">{{ $assistedPosition ?: 'NAP Records Management Analyst' }}</div>
+                                        </div>
+                                    </td>
+                                    <td>
+                                        <span class="field-label">APPROVED BY:</span>
+                                        <div class="sig-block">
+                                            <div class="sig-line">{{ $approvedBy ?: '___________________' }}</div>
+                                            <div class="sig-label">{{ $approvedPosition ?: 'Chief of Division / Department Head' }}</div>
+                                        </div>
+                                    </td>
+                                </tr>
+                            </table>
+                        </div>
 
                     </div>
                 </div>

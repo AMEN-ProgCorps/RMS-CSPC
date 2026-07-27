@@ -69,6 +69,17 @@
 </div>
 
 <style>
+@media print {
+    #chatify-global-widget,
+    #chatify-widget-card,
+    #chatify-widget-btn,
+    .chatify-widget,
+    [id^="chatify"] {
+        display: none !important;
+        visibility: hidden !important;
+        opacity: 0 !important;
+    }
+}
 @media (max-width: 767px) {
     #chatify-global-widget {
         display: none !important;

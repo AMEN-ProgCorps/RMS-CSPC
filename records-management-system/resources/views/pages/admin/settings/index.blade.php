@@ -101,7 +101,12 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - System Settings')] class
 
             $this->showDriveEditForm = false;
             $this->successMessage = 'Google Drive Cloud Storage credentials updated successfully!';
-            
+
+            // Purge the resolved disk instance so the next usage rebuilds with fresh credentials from DB
+            try {
+                \Illuminate\Support\Facades\Storage::forgetDisk('google');
+            } catch (\Throwable) {}
+
             $this->testDriveConnection();
         } catch (\Throwable $e) {
             $this->errorMessage = 'Failed to save Google Drive credentials: ' . $e->getMessage();

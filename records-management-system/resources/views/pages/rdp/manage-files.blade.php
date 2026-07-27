@@ -2,6 +2,7 @@
 
 use Livewire\Attributes\Layout;
 use Livewire\Attributes\Title;
+use Livewire\Attributes\Url;
 use Livewire\Volt\Component;
 use Livewire\WithPagination;
 use Illuminate\Support\Facades\DB;
@@ -10,6 +11,7 @@ use Illuminate\Support\Facades\Auth;
 new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Cockpit File Manager')] class extends Component {
     use WithPagination;
 
+    #[Url]
     public string $activeTab = 'dts'; // 'dts', 'rdp', 'shared'
     public string $viewMode = 'grid'; // 'grid' or 'list'
     public int $perPage = 12; // Dynamic pagination size
@@ -37,6 +39,10 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Cockpit File
     {
         $this->resetPage();
     }
+
+    public function updatedSearch(): void    { $this->resetPage(); }
+    public function updatedSelectedOffice(): void { $this->resetPage(); }
+    public function updatedSortBy(): void    { $this->resetPage(); }
 
     public function toggleDirection(): void
     {

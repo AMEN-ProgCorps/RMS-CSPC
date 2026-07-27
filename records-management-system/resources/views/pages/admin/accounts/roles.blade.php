@@ -69,6 +69,11 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Roles')] class extends C
     public bool $canAccessSettings = false;
     public bool $canAccessRecycleBin = false;
 
+    // RDP Specific Clearance flags
+    public bool $rdpViewAllFiles = false;
+    public bool $canRdpModifySeries = true;
+    public bool $canRdpGenerateReports = true;
+
     // Toast notifications
     public string $successMessage = '';
     public string $errorMessage = '';
@@ -131,6 +136,9 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Roles')] class extends C
         $this->canDtsUseIssuance = false;
         $this->canDtsUserReceived = false;
         $this->canDtsModifyTransaction = false;
+        $this->rdpViewAllFiles = false;
+        $this->canRdpModifySeries = true;
+        $this->canRdpGenerateReports = true;
         
         $this->showVerificationModal = false;
         $this->verifyUsername = '';
@@ -195,6 +203,11 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Roles')] class extends C
                 $this->canAccessRdpAdmin = (bool) ($perms->can_access_rdp_admin ?? false);
                 $this->canAccessSettings = (bool) ($perms->can_access_settings ?? false);
                 $this->canAccessRecycleBin = (bool) ($perms->can_access_recycle_bin ?? false);
+
+                // RDP Clearances
+                $this->rdpViewAllFiles = (bool) ($perms->rdp_view_all_files ?? false);
+                $this->canRdpModifySeries = (bool) ($perms->can_rdp_modify_series ?? true);
+                $this->canRdpGenerateReports = (bool) ($perms->can_rdp_generate_reports ?? true);
             }
         }
     }
@@ -394,6 +407,11 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Roles')] class extends C
         $perms->can_access_rdp_admin = $this->canAccessRdpAdmin;
         $perms->can_access_settings = $this->canAccessSettings;
         $perms->can_access_recycle_bin = $this->canAccessRecycleBin;
+
+        // RDP Clearances (View All Office Files is strictly for admin roles)
+        $perms->rdp_view_all_files = ($this->isSadm || $this->isAdmin) ? $this->rdpViewAllFiles : false;
+        $perms->can_rdp_modify_series = $this->canRdpModifySeries;
+        $perms->can_rdp_generate_reports = $this->canRdpGenerateReports;
     }
 
     /**
@@ -410,6 +428,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Roles')] class extends C
             $this->canModifyAccountlist = false;
             $this->canModifyPass = false;
             $this->canDtsModifyTransaction = false;
+            $this->rdpViewAllFiles = false;
         }
     }
 
@@ -874,6 +893,57 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Roles')] class extends C
                                         </div>
                                         <label class="switch">
                                             <input type="checkbox" wire:model="canDtsModifyControlNo">
+                                            <span class="slider"></span>
+                                        </label>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- Category: RDP Clearances -->
+                            <div class="permissions-section-card">
+                                <span class="permissions-section-title"><i class="fa-solid fa-folder-tree"></i> Records Disposition Program (RDP) Clearances</span>
+                                <div class="permissions-grid-layout">
+                                    <!-- RDP Subsystem Clearance -->
+                                    <div class="permission-toggle-row">
+                                        <div class="permission-toggle-info">
+                                            <span class="permission-toggle-title">Access RDP Portal</span>
+                                            <span class="permission-toggle-desc">General clearance to access the Records Disposition Program subsystem.</span>
+                                        </div>
+                                        <label class="switch">
+                                            <input type="checkbox" wire:model="canAccessArchv">
+                                            <span class="slider"></span>
+                                        </label>
+                                    </div>
+                                    <!-- View All Office Files -->
+                                    <div class="permission-toggle-row" style="{{ (!$isSadm && !$isAdmin) ? 'opacity: 0.5; transition: opacity 0.2s ease;' : '' }}">
+                                        <div class="permission-toggle-info">
+                                            <span class="permission-toggle-title">View All Office Files</span>
+                                            <span class="permission-toggle-desc">Clearance to search and inspect repository document files across all college offices.</span>
+                                        </div>
+                                        <label class="switch">
+                                            <input type="checkbox" wire:model="rdpViewAllFiles" {{ (!$isSadm && !$isAdmin) ? 'disabled' : '' }}>
+                                            <span class="slider"></span>
+                                        </label>
+                                    </div>
+                                    <!-- Modify Record Series & Appraisal -->
+                                    <div class="permission-toggle-row">
+                                        <div class="permission-toggle-info">
+                                            <span class="permission-toggle-title">Modify Record Series & Appraisal</span>
+                                            <span class="permission-toggle-desc">Clearance to add, edit, or update record series, inventory appraisal schedules, and retention values.</span>
+                                        </div>
+                                        <label class="switch">
+                                            <input type="checkbox" wire:model="canRdpModifySeries">
+                                            <span class="slider"></span>
+                                        </label>
+                                    </div>
+                                    <!-- Generate & Print NAP Reports -->
+                                    <div class="permission-toggle-row">
+                                        <div class="permission-toggle-info">
+                                            <span class="permission-toggle-title">Generate & Print NAP Reports</span>
+                                            <span class="permission-toggle-desc">Clearance to configure metadata, signature blocks, and print official NAP Form 1, Form 2, and Form 3 documents.</span>
+                                        </div>
+                                        <label class="switch">
+                                            <input type="checkbox" wire:model="canRdpGenerateReports">
                                             <span class="slider"></span>
                                         </label>
                                     </div>

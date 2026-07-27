@@ -45,11 +45,11 @@ class role_permission extends Model
         'can_access_rdp_admin',
         'can_access_settings',
         'can_access_recycle_bin',
+        'rdp_view_all_files',
+        'can_rdp_modify_series',
+        'can_rdp_generate_reports',
     ];
-    /*
-     * The attributes here will be change in the future if there's more permissions to be added, 
-     * but for now these are the only permissions that we have in the system.
-     */
+
     protected $casts = [
         'key_id' => 'integer',
         'is_sadm' => 'boolean',
@@ -78,5 +78,8 @@ class role_permission extends Model
         'can_access_rdp_admin' => 'boolean',
         'can_access_settings' => 'boolean',
         'can_access_recycle_bin' => 'boolean',
+        'rdp_view_all_files' => 'boolean',
+        'can_rdp_modify_series' => 'boolean',
+        'can_rdp_generate_reports' => 'boolean',
     ];
 }

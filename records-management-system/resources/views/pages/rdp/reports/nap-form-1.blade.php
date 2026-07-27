@@ -10,6 +10,7 @@ use Carbon\Carbon;
 new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 1')] class extends Component {
     public string $search = '';
     public string $retentionFilter = ''; // 'all', 'permanent', 'temporary'
+    public string $officeFilter = ''; // '' for all, or office_code
     
     // Checkbox selections for printing
     public array $selectedIds = [];
@@ -369,6 +370,10 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 1')
                 'rdp_period_covered.ends_at as rec_ends_at',
             ]);
 
+        if (!empty($this->officeFilter)) {
+            $query->where('rdp_record_series.recorded_at_office', $this->officeFilter);
+        }
+
         if (!empty($this->search)) {
             $query->where(function ($q) {
                 $q->where('rdp_record_series.series_title', 'ilike', '%' . $this->search . '%')
@@ -388,7 +393,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 1')
 
         $treeOrdered = $this->buildTreeHierarchy($allFetched->all());
 
-        $rootCounter = 1;
+        $childCounter = 1;
         foreach ($treeOrdered as $item) {
             $eff = $this->resolveEffectiveRetention($allFetchedMap, $item);
             $item->effective_active = $eff->active_period;
@@ -402,15 +407,15 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 1')
             $item->is_root_parent = $isRoot;
 
             if ($isRoot) {
+                $childCounter = 1;
+                $item->display_item_no = '';
+            } else {
                 if (!empty($item->item_number)) {
                     $item->display_item_no = (string)$item->item_number;
                 } else {
-                    $item->display_item_no = (string)$rootCounter;
+                    $item->display_item_no = (string)$childCounter;
+                    $childCounter++;
                 }
-                $rootCounter++;
-            } else {
-                // Subsections / Children do NOT have an assigned item number
-                $item->display_item_no = '';
             }
 
             // Description formatting
@@ -462,9 +467,12 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 1')
         $permanentCount = count(array_filter($treeOrdered, fn($i) => $i->effective_is_permanent || strtolower(trim($i->effective_total ?? '')) === 'permanent'));
         $temporaryCount = $totalCount - $permanentCount;
 
+        $officesList = DB::table('office')->where('is_active', true)->orderBy('office_name')->get();
+
         return [
             'recordSeriesList' => array_values($treeOrdered),
             'printItems'       => $printItems,
+            'officesList'      => $officesList,
             'totalCount'       => $totalCount,
             'permanentCount'   => $permanentCount,
             'temporaryCount'   => $temporaryCount,
@@ -564,6 +572,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 1')
             }
             .print-page:last-child { page-break-after: auto; }
             .print-retention-red { color: #dc2626 !important; font-weight: bold !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+            .table-section-divider-row { background: #e2e8f0 !important; -webkit-print-color-adjust: exact; }
         }
     </style>
 
@@ -625,7 +634,14 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 1')
                     <option value="temporary">Temporary Retention</option>
                 </select>
 
-                @if($search || $retentionFilter || count($selectedIds) > 0)
+                <select wire:model.live="officeFilter" style="padding: 9px 14px; border: 1px solid #cbd5e1; border-radius: 8px; font-size: 13px; background: #fff; outline: none; font-weight: 600; color: #0f172a;">
+                    <option value="">All Offices</option>
+                    @foreach($officesList as $off)
+                        <option value="{{ $off->office_code }}">{{ $off->office_name }} ({{ $off->office_code }})</option>
+                    @endforeach
+                </select>
+
+                @if($search || $retentionFilter || $officeFilter || count($selectedIds) > 0)
                     <button type="button" wire:click="clearFilters" class="nap-btn nap-btn-secondary">
                         Reset Filters
                     </button>
@@ -659,14 +675,19 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 1')
                                             (strtolower(trim($item->effective_active ?? '')) === 'permanent' && strtolower(trim($item->effective_storage ?? '')) === 'permanent');
                             $itemIdStr = (string)$item->id;
                         @endphp
-                        <tr style="{{ in_array($itemIdStr, $selectedIds) ? 'background: #eff6ff;' : '' }}">
+                        @if(!empty($item->is_root_parent))
+                            <tr class="table-section-divider-row">
+                                <td colspan="10" style="background: #e2e8f0; color: #1e293b; font-weight: 800; text-align: center; text-transform: uppercase; letter-spacing: 0.6px; padding: 7px 12px; font-size: 11.5px; font-family: 'Inter', sans-serif; border-top: 2px solid #cbd5e1; border-bottom: 2px solid #cbd5e1;">
+                                    {{ strtoupper($item->series_title) }}
+                                </td>
+                            </tr>
+                        @else
+                            <tr style="{{ in_array($itemIdStr, $selectedIds) ? 'background: #eff6ff;' : '' }}">
                             <td style="text-align: center;">
                                 <input type="checkbox" wire:model.live="selectedIds" value="{{ $item->id }}" style="width: 16px; height: 16px; cursor: pointer; accent-color: #2563eb;">
                             </td>
                             <td style="text-align: center; font-weight: 700; color: #475569;">
-                                @if(!empty($item->is_root_parent) && !empty($item->display_item_no))
-                                    {{ $item->display_item_no }}
-                                @endif
+                                {{ $item->display_item_no }}
                             </td>
                             <td style="padding-left: {{ (($item->depth ?? 0) * 16) + 14 }}px; font-weight: 700; color: #0f172a;">
                                 @if(($item->depth ?? 0) > 0)
@@ -715,6 +736,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 1')
                                 </button>
                             </td>
                         </tr>
+                        @endif
                     @empty
                         <tr>
                             <td colspan="10" style="padding: 32px; text-align: center; color: #64748b;">
@@ -1052,7 +1074,14 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 1')
                                                         (strtolower(trim($pItem->effective_total ?? '')) === 'permanent') ||
                                                         (strtolower(trim($pItem->effective_active ?? '')) === 'permanent' && strtolower(trim($pItem->effective_storage ?? '')) === 'permanent');
                                     @endphp
-                                    <tr>
+                                    @if(!empty($pItem->is_root_parent))
+                                        <tr class="doc-section-divider">
+                                            <td colspan="13" style="background: #cbd5e1; color: #0f172a; font-weight: bold; text-align: center; text-transform: uppercase; letter-spacing: 0.5px; padding: 5px 8px; border: 1px solid #000000; font-size: 9.5px; -webkit-print-color-adjust: exact; print-color-adjust: exact;">
+                                                {{ strtoupper($pItem->series_title) }}
+                                            </td>
+                                        </tr>
+                                    @else
+                                        <tr>
                                         <td style="text-align: center; font-weight: bold; color: #000;">
                                             @if(!empty($pItem->is_root_parent) && !empty($pItem->display_item_no))
                                                 {{ $pItem->display_item_no }}
@@ -1087,6 +1116,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 1')
                                         @endif
                                         <td style="font-size: 8.5px; color: #000;">{{ $pItem->remarks ?: '' }}</td>
                                     </tr>
+                                    @endif
                                 @empty
                                     <tr>
                                         <td colspan="13" style="text-align: center; padding: 20px; font-style: italic;">

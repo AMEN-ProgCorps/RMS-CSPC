@@ -1190,6 +1190,7 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
 
     .message-sender {
       font-weight: 500;
+      display: none; 
     }
 
     .sent .message-sender {
@@ -6083,7 +6084,6 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
                     <div class="message-click-timestamp">${fullTimeDisplay}</div>
                     <div class="message-bubble${emojiOnlyClass}">
                       <div class="message-content">${escapeHtml(msgContent)}</div>
-                      <div class="message-info"><span class="message-sender">${senderLabel}</span></div>
                     </div>
                   </div>
                 `;

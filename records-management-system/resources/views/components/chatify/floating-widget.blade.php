@@ -36,7 +36,7 @@
                 <div style="width: 28px; height: 28px; border: 3px solid rgba(255,255,255,0.1); border-top-color: #3b82f6; border-radius: 50%; animation: chatify-spin 0.8s linear infinite;"></div>
                 <span>Connecting to Chatify...</span>
             </div>
-            <iframe id="chatify-iframe" data-src="{{ route('open-chat') }}" style="width: 100%; height: 100%; border: none; display: block;" onload="hideChatifyLoader()" allow="autoplay; clipboard-write"></iframe>
+            <iframe id="chatify-iframe" data-src="{{ route('open-chat') }}" style="width: 100%; height: 100%; border: none; display: block;" onload="typeof hideChatifyLoader === 'function' && hideChatifyLoader()" allow="autoplay; clipboard-write"></iframe>
         </div>
     </div>
 

@@ -13,9 +13,11 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Landing Page
     // Add New Series Quick Modal
     public bool $showAddSeriesModal = false;
     public string $newSeriesTitle = '';
-    public ?string $newItemNumber = '';
+    public array $newSubsections = [];
+    public string $newActivePeriod = '';
+    public string $newStoragePeriod = '';
+    public bool $newIsPermanent = false;
     public string $newRemarks = '';
-    public ?int $newParentId = null;
 
     public function openAddSeriesModal(): void
     {
@@ -26,46 +28,208 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Landing Page
     {
         $this->showAddSeriesModal = false;
         $this->newSeriesTitle = '';
-        $this->newItemNumber = '';
+        $this->newSubsections = [];
+        $this->newActivePeriod = '';
+        $this->newStoragePeriod = '';
+        $this->newIsPermanent = false;
         $this->newRemarks = '';
-        $this->newParentId = null;
+    }
+
+    public function addSubsection(): void
+    {
+        $this->newSubsections[] = '';
+    }
+
+    public function removeSubsection(int $index): void
+    {
+        if (isset($this->newSubsections[$index])) {
+            unset($this->newSubsections[$index]);
+            $this->newSubsections = array_values($this->newSubsections);
+        }
+    }
+
+    public function computeTotalPeriod(?string $active, ?string $storage, bool $isPermanent): string
+    {
+        if ($isPermanent) {
+            return 'Permanent';
+        }
+
+        $active = trim($active ?? '');
+        $storage = trim($storage ?? '');
+
+        if (empty($active) && empty($storage)) {
+            return '';
+        }
+
+        if (empty($active)) {
+            return $storage;
+        }
+
+        if (empty($storage)) {
+            return $active;
+        }
+
+        $parseTime = function(string $str) {
+            $years = 0;
+            $months = 0;
+            if (preg_match('/(\d+)\s*(?:year|yr|y)s?/i', $str, $m)) {
+                $years = (int)$m[1];
+            }
+            if (preg_match('/(\d+)\s*(?:month|mo|m)s?/i', $str, $m)) {
+                $months = (int)$m[1];
+            }
+            return [$years, $months];
+        };
+
+        [$aYears, $aMonths] = $parseTime($active);
+        [$sYears, $sMonths] = $parseTime($storage);
+
+        if (($aYears > 0 || $aMonths > 0) && ($sYears > 0 || $sMonths > 0)) {
+            $totalMonths = ($aYears * 12 + $aMonths) + ($sYears * 12 + $sMonths);
+            $tYears = intdiv($totalMonths, 12);
+            $remMonths = $totalMonths % 12;
+
+            $parts = [];
+            if ($tYears > 0) {
+                $parts[] = $tYears . ' ' . ($tYears === 1 ? 'Year' : 'Years');
+            }
+            if ($remMonths > 0) {
+                $parts[] = $remMonths . ' ' . ($remMonths === 1 ? 'Month' : 'Months');
+            }
+            return implode(' ', $parts);
+        }
+
+        return $active . ' + ' . $storage;
     }
 
     public function saveNewSeries(): void
     {
-        if (empty(trim($this->newSeriesTitle))) return;
+        $parentTitle = trim($this->newSeriesTitle);
+        if (empty($parentTitle)) return;
 
-        $itemNum = trim((string)$this->newItemNumber) !== '' ? (int)$this->newItemNumber : null;
-        $isVerified = !is_null($itemNum) && empty($this->newParentId);
+        $allTitles = [$parentTitle];
+        foreach ($this->newSubsections as $sub) {
+            if (!empty(trim($sub))) {
+                $allTitles[] = trim($sub);
+            }
+        }
 
-        $id = DB::table('rdp_record_series')->insertGetId([
-            'series_title' => trim($this->newSeriesTitle),
-            'parent_id'    => $this->newParentId ?: null,
-            'item_number'  => $isVerified ? $itemNum : null,
-            'is_verified'  => $isVerified,
-            'remarks'      => trim($this->newRemarks) ?: null,
-        ]);
+        $retentionId = null;
+        if ($this->newIsPermanent || !empty(trim($this->newActivePeriod)) || !empty(trim($this->newStoragePeriod))) {
+            $active = $this->newIsPermanent ? 'Permanent' : (trim($this->newActivePeriod) ?: null);
+            $storage = $this->newIsPermanent ? 'Permanent' : (trim($this->newStoragePeriod) ?: null);
+            $computedTotal = $this->computeTotalPeriod($this->newActivePeriod, $this->newStoragePeriod, $this->newIsPermanent);
 
-        // Create associated rdp_record default row
-        DB::table('rdp_record')->insert([
-            'record_series_id' => $id,
-            'volume'           => '0.5 cu. m.',
-            'records_location' => 'Records Office',
-            'frequence_use'    => 'Monthly',
-            'time_value'       => 'T',
-            'created_at'       => now(),
-            'updated_at'       => now(),
-        ]);
+            $retentionId = DB::table('rdp_retention_period')->insertGetId([
+                'active_period'  => $active,
+                'storage_period' => $storage,
+                'total_period'   => $computedTotal ?: null,
+                'created_at'     => now(),
+                'updated_at'     => now(),
+            ]);
+        }
+
+        $userOfficeCode = auth()->user()?->details?->office?->office_code;
+        $currentParentId = null;
+
+        foreach ($allTitles as $idx => $t) {
+            $isLeaf = ($idx === count($allTitles) - 1);
+
+            $existing = DB::table('rdp_record_series')
+                ->where('series_title', $t)
+                ->where(function($q) use ($currentParentId) {
+                    if (is_null($currentParentId)) {
+                        $q->whereNull('parent_id');
+                    } else {
+                        $q->where('parent_id', $currentParentId);
+                    }
+                })
+                ->first();
+
+            if ($existing) {
+                $currentParentId = $existing->id;
+                if ($isLeaf) {
+                    $updateData = [
+                        'updated_at' => now(),
+                    ];
+                    if ($retentionId) {
+                        $updateData['retention_period'] = $retentionId;
+                        $updateData['is_retention_period_permanent'] = $this->newIsPermanent;
+                    }
+                    if (!empty(trim($this->newRemarks))) {
+                        $updateData['remarks'] = trim($this->newRemarks);
+                    }
+                    DB::table('rdp_record_series')->where('id', $existing->id)->update($updateData);
+                }
+            } else {
+                $currentParentId = DB::table('rdp_record_series')->insertGetId([
+                    'series_title'                  => $t,
+                    'parent_id'                     => $currentParentId,
+                    'retention_period'              => $isLeaf ? $retentionId : null,
+                    'is_retention_period_permanent' => $isLeaf ? $this->newIsPermanent : false,
+                    'recorded_at_office'            => $userOfficeCode,
+                    'is_verified'                   => false,
+                    'remarks'                       => $isLeaf ? (trim($this->newRemarks) ?: null) : null,
+                    'created_at'                    => now(),
+                    'updated_at'                    => now(),
+                ]);
+
+                if ($isLeaf) {
+                    DB::table('rdp_record')->insert([
+                        'record_series_id' => $currentParentId,
+                        'volume'           => '0.5 cu. m.',
+                        'records_location' => 'Records Office',
+                        'frequence_use'    => 'Monthly',
+                        'time_value'       => 'T',
+                        'created_at'       => now(),
+                        'updated_at'       => now(),
+                    ]);
+                }
+            }
+        }
 
         // Audit Log
         DB::table('admin_logs')->insert([
             'admin_id'    => auth()->id() ?? 1,
-            'changes'     => 'Added new Record Series via RDP Landing Page: "' . $this->newSeriesTitle . '"',
+            'changes'     => 'Added new Record Series via RDP Landing Page: "' . $parentTitle . '"',
             'what_system' => 2,
             'when_changes'=> now(),
         ]);
 
         $this->closeAddSeriesModal();
+    }
+
+    private function buildTreeHierarchy(array $records): array
+    {
+        $byParent = [];
+        foreach ($records as $r) {
+            $pId = $r->parent_id ?? 0;
+            $byParent[$pId][] = $r;
+        }
+
+        $ordered = [];
+        $flatten = function ($parentId, $depth) use (&$flatten, &$ordered, $byParent) {
+            if (!isset($byParent[$parentId])) {
+                return;
+            }
+            foreach ($byParent[$parentId] as $item) {
+                $item->depth = $depth;
+                $ordered[] = $item;
+                $flatten($item->id, $depth + 1);
+            }
+        };
+
+        $flatten(0, 0);
+
+        $addedIds = array_column($ordered, 'id');
+        foreach ($records as $r) {
+            if (!in_array($r->id, $addedIds, true)) {
+                $r->depth = 0;
+                $ordered[] = $r;
+            }
+        }
+
+        return $ordered;
     }
 
     public function with(): array
@@ -125,9 +289,11 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Landing Page
             });
         }
 
-        $seriesList = $seriesQuery->orderByRaw('rdp_record_series.item_number ASC NULLS LAST, rdp_record_series.series_title ASC')
-            ->limit(10)
+        $rawFetched = $seriesQuery->orderByRaw('rdp_record_series.item_number ASC NULLS LAST, rdp_record_series.series_title ASC')
             ->get();
+
+        $treeOrdered = $this->buildTreeHierarchy($rawFetched->all());
+        $seriesList = array_slice($treeOrdered, 0, 20);
 
         return [
             'totalSeries'      => $totalSeries,
@@ -344,8 +510,8 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Landing Page
         /* FAB Bar */
         .rdp-fab-nav {
             position: fixed;
-            right: 32px;
-            bottom: 32px;
+            right: 96px;
+            bottom: 24px;
             display: flex;
             gap: 12px;
             z-index: 1100;
@@ -623,13 +789,16 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Landing Page
             <table class="data-table">
                 <thead>
                     <tr>
-                        <th style="width: 80px; text-align: center;">ITEM NO.</th>
-                        <th>RECORD SERIES TITLE</th>
-                        <th>PARENT SERIES</th>
-                        <th style="text-align: center;">LOCATION</th>
-                        <th style="text-align: center;">RETENTION</th>
-                        <th style="text-align: center;">STATUS</th>
-                        <th style="text-align: right;">ACTION</th>
+                        <th rowspan="2" style="width: 80px; text-align: center; vertical-align: middle;">ITEM NO.</th>
+                        <th rowspan="2" style="vertical-align: middle;">RECORD SERIES TITLE & DESCRIPTION</th>
+                        <th colspan="3" style="text-align: center;">RETENTION PERIOD</th>
+                        <th rowspan="2" style="vertical-align: middle;">REMARKS / LOCATION</th>
+                        <th rowspan="2" style="text-align: right; vertical-align: middle;">ACTION</th>
+                    </tr>
+                    <tr style="background: #f8fafc; font-size: 11.5px; border-bottom: 2px solid #cbd5e1;">
+                        <th style="text-align: center; width: 90px; padding: 6px 8px;">Active</th>
+                        <th style="text-align: center; width: 90px; padding: 6px 8px;">Storage</th>
+                        <th style="text-align: center; width: 100px; padding: 6px 8px;">Total</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -641,36 +810,31 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Landing Page
                             <td style="text-align: center; font-weight: 700; color: #475569;">
                                 {{ $series->item_number ? (string)$series->item_number : '—' }}
                             </td>
-                            <td style="font-weight: 700; color: #0f172a;">
+                            <td style="padding-left: {{ (($series->depth ?? 0) * 20) + 12 }}px; font-weight: 700; color: #0f172a;">
+                                @if(($series->depth ?? 0) > 0)
+                                    <span style="color: #2563eb; font-weight: 800; margin-right: 4px;">└─</span>
+                                @endif
                                 {{ $series->series_title }}
                             </td>
-                            <td style="color: #64748b; font-size: 12.5px;">
-                                {{ $series->parent_title ?: '— (Root Series)' }}
-                            </td>
-                            <td style="text-align: center; font-size: 12.5px; color: #475569;">
-                                {{ $series->rec_location ?: 'Records Office' }}
-                            </td>
-                            <td style="text-align: center;">
-                                @if($isPerm)
-                                    <span style="padding: 3px 10px; background: #dbeafe; color: #1e40af; border: 1px solid #bfdbfe; border-radius: 12px; font-weight: 800; font-size: 11.5px;">
+                            @if($isPerm)
+                                <td colspan="3" style="text-align: center;">
+                                    <span style="padding: 3px 12px; background: #dbeafe; color: #1e40af; border: 1px solid #bfdbfe; border-radius: 12px; font-weight: 800; font-size: 11.5px;">
                                         PERMANENT
                                     </span>
-                                @else
-                                    <span style="padding: 3px 8px; background: #f8fafc; color: #0f172a; border: 1px solid #cbd5e1; border-radius: 6px; font-weight: 700; font-size: 12px;">
-                                        {{ $series->total_period ?: '—' }}
-                                    </span>
-                                @endif
-                            </td>
-                            <td style="text-align: center;">
-                                @if($series->is_verified)
-                                    <span style="padding: 3px 10px; background: #eff6ff; color: #1e40af; border: 1px solid #bfdbfe; border-radius: 12px; font-weight: 800; font-size: 11.5px;">
-                                        VERIFIED
-                                    </span>
-                                @else
-                                    <span style="padding: 3px 10px; background: #f0f9ff; color: #0369a1; border: 1px solid #bae6fd; border-radius: 12px; font-weight: 800; font-size: 11.5px;">
-                                        UNVERIFIED
-                                    </span>
-                                @endif
+                                </td>
+                            @else
+                                <td style="text-align: center; font-size: 12.5px; color: #475569;">
+                                    {{ $series->active_period ?: '—' }}
+                                </td>
+                                <td style="text-align: center; font-size: 12.5px; color: #475569;">
+                                    {{ $series->storage_period ?: '—' }}
+                                </td>
+                                <td style="text-align: center; font-weight: 700; font-size: 12.5px; color: #0f172a;">
+                                    {{ $series->total_period ?: '—' }}
+                                </td>
+                            @endif
+                            <td style="font-size: 12.5px; color: #475569;">
+                                {{ $series->remarks ?: ($series->rec_location ?: 'Records Office') }}
                             </td>
                             <td style="text-align: right; white-space: nowrap;">
                                 <a href="{{ route('rdp.add-records.inventory-and-appraisal') }}" class="nap-btn nap-btn-secondary" style="padding: 5px 10px; font-size: 12px;">
@@ -705,22 +869,37 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Landing Page
                         <input type="text" wire:model="newSeriesTitle" placeholder="e.g. Budget Estimates, Travel Orders" style="width: 100%; padding: 10px 14px; border: 1px solid #cbd5e1; border-radius: 8px; font-size: 13.5px; outline: none; box-sizing: border-box;" required>
                     </div>
 
-                    <div>
-                        <label style="font-size: 13px; font-weight: 700; color: #334155; display: block; margin-bottom: 6px;">Parent Series (Optional for Subsections)</label>
-                        <select wire:model="newParentId" style="width: 100%; padding: 10px 14px; border: 1px solid #cbd5e1; border-radius: 8px; font-size: 13.5px; background: #fff; outline: none; box-sizing: border-box;">
-                            <option value="">None (Top-Level Root Parent Series)</option>
-                            @foreach($parentOptions as $parent)
-                                <option value="{{ $parent->id }}">Parent: {{ $parent->series_title }} {{ $parent->item_number ? '(Item #'.$parent->item_number.')' : '' }}</option>
-                            @endforeach
-                        </select>
+                    <!-- Dynamic Subsections (Hierarchy) -->
+                    @foreach($newSubsections as $index => $sub)
+                        <div style="margin-left: {{ min(($index + 1) * 16, 64) }}px; border-left: 3px solid #2563eb; padding-left: 10px; display: flex; gap: 8px; align-items: center;">
+                            <input type="text" 
+                                   wire:model.live="newSubsections.{{ $index }}" 
+                                   placeholder="Subsection #{{ $index + 1 }} (Child of {{ $index === 0 ? ($newSeriesTitle ?: 'Parent') : 'Subsection #' . $index }})" 
+                                   style="flex: 1; padding: 8px 12px; border: 1px solid #cbd5e1; border-radius: 8px; font-size: 13px; outline: none; box-sizing: border-box;">
+                            <button type="button" wire:click="removeSubsection({{ $index }})" style="background: #fee2e2; color: #dc2626; border: 1px solid #fca5a5; border-radius: 6px; padding: 6px 10px; font-weight: 700; cursor: pointer; font-size: 12px;">✕</button>
+                        </div>
+                    @endforeach
+
+                    <button type="button" wire:click="addSubsection" style="align-self: flex-start; background: #eff6ff; color: #2563eb; border: 1px dashed #93c5fd; border-radius: 8px; padding: 6px 14px; font-size: 12.5px; font-weight: 700; cursor: pointer;">
+                        + Add Subsection (Child Series)
+                    </button>
+
+                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
+                        <div>
+                            <label style="font-size: 13px; font-weight: 700; color: #334155; display: block; margin-bottom: 6px;">Active Period</label>
+                            <input type="text" wire:model="newActivePeriod" placeholder="e.g. 2 Years" style="width: 100%; padding: 10px 14px; border: 1px solid #cbd5e1; border-radius: 8px; font-size: 13.5px; outline: none; box-sizing: border-box;" @if($newIsPermanent) disabled @endif>
+                        </div>
+                        <div>
+                            <label style="font-size: 13px; font-weight: 700; color: #334155; display: block; margin-bottom: 6px;">Storage Period</label>
+                            <input type="text" wire:model="newStoragePeriod" placeholder="e.g. 3 Years" style="width: 100%; padding: 10px 14px; border: 1px solid #cbd5e1; border-radius: 8px; font-size: 13.5px; outline: none; box-sizing: border-box;" @if($newIsPermanent) disabled @endif>
+                        </div>
                     </div>
 
-                    <div>
-                        <label style="font-size: 13px; font-weight: 700; color: #334155; display: block; margin-bottom: 4px;">
-                            Item Number
-                            <span style="font-size: 11.5px; color: #64748b; margin-left: 6px;">(Assigning an Item Number marks a root series as Verified)</span>
+                    <div style="display: flex; align-items: center; gap: 8px;">
+                        <input type="checkbox" id="newIsPermanent" wire:model.live="newIsPermanent" style="width: 16px; height: 16px; accent-color: #2563eb; cursor: pointer;">
+                        <label for="newIsPermanent" style="font-size: 13px; font-weight: 700; color: #dc2626; cursor: pointer;">
+                            Permanent Record Series (No destruction allowed)
                         </label>
-                        <input type="number" wire:model="newItemNumber" placeholder="e.g. 1, 2, 15 (Leave blank if unverified)" style="width: 100%; padding: 10px 14px; border: 1px solid #cbd5e1; border-radius: 8px; font-size: 13.5px; outline: none; box-sizing: border-box;">
                     </div>
 
                     <div>

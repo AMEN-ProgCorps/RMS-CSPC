@@ -293,7 +293,8 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Cockpit File
             box-shadow: 0 4px 12px rgba(0, 0, 0, 0.03);
             display: flex;
             align-items: center;
-            justify-content: space-between;
+            justify-content: flex-start !important;
+            gap: 16px;
             transition: transform 0.2s, box-shadow 0.2s;
         }
         .stat-card:hover {

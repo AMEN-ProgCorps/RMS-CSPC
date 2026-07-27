@@ -247,6 +247,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Landing Page
             transition: all 0.25s ease;
             display: flex;
             align-items: center;
+            justify-content: flex-start !important;
             gap: 16px;
         }
 

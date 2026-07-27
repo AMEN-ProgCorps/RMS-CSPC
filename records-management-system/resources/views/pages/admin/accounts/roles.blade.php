@@ -74,6 +74,27 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Roles')] class extends C
     public bool $canRdpModifySeries = true;
     public bool $canRdpGenerateReports = true;
 
+    // RDP Per-Form Clearances
+    public bool $canRdpAccessForm1 = true;
+    public bool $canRdpAccessForm2 = true;
+    public bool $canRdpAccessForm3 = true;
+    public bool $canRdpModifyForm1 = true;
+    public bool $canRdpModifyForm2 = true;
+    public bool $canRdpModifyForm3 = true;
+    public bool $canRdpPrintForm1 = true;
+    public bool $canRdpPrintForm2 = true;
+    public bool $canRdpPrintForm3 = true;
+    // Admin-only (default false so only granted roles can access other offices' data)
+    public bool $canRdpViewOthersForm1 = false;
+    public bool $canRdpViewOthersForm2 = false;
+    public bool $canRdpViewOthersForm3 = false;
+    public bool $canRdpEditOthersForm1 = false;
+    public bool $canRdpEditOthersForm2 = false;
+    public bool $canRdpEditOthersForm3 = false;
+    public bool $canRdpPrintOthersForm1 = false;
+    public bool $canRdpPrintOthersForm2 = false;
+    public bool $canRdpPrintOthersForm3 = false;
+
     // Toast notifications
     public string $successMessage = '';
     public string $errorMessage = '';
@@ -139,6 +160,13 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Roles')] class extends C
         $this->rdpViewAllFiles = false;
         $this->canRdpModifySeries = true;
         $this->canRdpGenerateReports = true;
+        // Per-form clearances
+        $this->canRdpAccessForm1 = true;   $this->canRdpAccessForm2 = true;   $this->canRdpAccessForm3 = true;
+        $this->canRdpModifyForm1 = true;   $this->canRdpModifyForm2 = true;   $this->canRdpModifyForm3 = true;
+        $this->canRdpPrintForm1  = true;   $this->canRdpPrintForm2  = true;   $this->canRdpPrintForm3  = true;
+        $this->canRdpViewOthersForm1 = false; $this->canRdpViewOthersForm2 = false; $this->canRdpViewOthersForm3 = false;
+        $this->canRdpEditOthersForm1 = false; $this->canRdpEditOthersForm2 = false; $this->canRdpEditOthersForm3 = false;
+        $this->canRdpPrintOthersForm1= false; $this->canRdpPrintOthersForm2= false; $this->canRdpPrintOthersForm3= false;
         
         $this->showVerificationModal = false;
         $this->verifyUsername = '';
@@ -208,6 +236,25 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Roles')] class extends C
                 $this->rdpViewAllFiles = (bool) ($perms->rdp_view_all_files ?? false);
                 $this->canRdpModifySeries = (bool) ($perms->can_rdp_modify_series ?? true);
                 $this->canRdpGenerateReports = (bool) ($perms->can_rdp_generate_reports ?? true);
+                // Per-form clearances
+                $this->canRdpAccessForm1        = (bool) ($perms->can_rdp_access_form_1 ?? true);
+                $this->canRdpAccessForm2        = (bool) ($perms->can_rdp_access_form_2 ?? true);
+                $this->canRdpAccessForm3        = (bool) ($perms->can_rdp_access_form_3 ?? true);
+                $this->canRdpModifyForm1        = (bool) ($perms->can_rdp_modify_form_1 ?? true);
+                $this->canRdpModifyForm2        = (bool) ($perms->can_rdp_modify_form_2 ?? true);
+                $this->canRdpModifyForm3        = (bool) ($perms->can_rdp_modify_form_3 ?? true);
+                $this->canRdpPrintForm1         = (bool) ($perms->can_rdp_print_form_1 ?? true);
+                $this->canRdpPrintForm2         = (bool) ($perms->can_rdp_print_form_2 ?? true);
+                $this->canRdpPrintForm3         = (bool) ($perms->can_rdp_print_form_3 ?? true);
+                $this->canRdpViewOthersForm1    = (bool) ($perms->can_rdp_view_others_form_1 ?? false);
+                $this->canRdpViewOthersForm2    = (bool) ($perms->can_rdp_view_others_form_2 ?? false);
+                $this->canRdpViewOthersForm3    = (bool) ($perms->can_rdp_view_others_form_3 ?? false);
+                $this->canRdpEditOthersForm1    = (bool) ($perms->can_rdp_edit_others_form_1 ?? false);
+                $this->canRdpEditOthersForm2    = (bool) ($perms->can_rdp_edit_others_form_2 ?? false);
+                $this->canRdpEditOthersForm3    = (bool) ($perms->can_rdp_edit_others_form_3 ?? false);
+                $this->canRdpPrintOthersForm1   = (bool) ($perms->can_rdp_print_others_form_1 ?? false);
+                $this->canRdpPrintOthersForm2   = (bool) ($perms->can_rdp_print_others_form_2 ?? false);
+                $this->canRdpPrintOthersForm3   = (bool) ($perms->can_rdp_print_others_form_3 ?? false);
             }
         }
     }
@@ -408,10 +455,31 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Roles')] class extends C
         $perms->can_access_settings = $this->canAccessSettings;
         $perms->can_access_recycle_bin = $this->canAccessRecycleBin;
 
-        // RDP Clearances (View All Office Files is strictly for admin roles)
-        $perms->rdp_view_all_files = ($this->isSadm || $this->isAdmin) ? $this->rdpViewAllFiles : false;
-        $perms->can_rdp_modify_series = $this->canRdpModifySeries;
-        $perms->can_rdp_generate_reports = $this->canRdpGenerateReports;
+        // RDP Clearances
+        $perms->rdp_view_all_files        = ($this->isSadm || $this->isAdmin) ? $this->rdpViewAllFiles : false;
+        $perms->can_rdp_modify_series     = $this->canRdpModifySeries;
+        $perms->can_rdp_generate_reports  = $this->canRdpGenerateReports;
+        // Per-form clearances
+        $perms->can_rdp_access_form_1     = $this->canRdpAccessForm1;
+        $perms->can_rdp_access_form_2     = $this->canRdpAccessForm2;
+        $perms->can_rdp_access_form_3     = $this->canRdpAccessForm3;
+        $perms->can_rdp_modify_form_1     = $this->canRdpModifyForm1;
+        $perms->can_rdp_modify_form_2     = $this->canRdpModifyForm2;
+        $perms->can_rdp_modify_form_3     = $this->canRdpModifyForm3;
+        $perms->can_rdp_print_form_1      = $this->canRdpPrintForm1;
+        $perms->can_rdp_print_form_2      = $this->canRdpPrintForm2;
+        $perms->can_rdp_print_form_3      = $this->canRdpPrintForm3;
+        // Admin-only others permissions (default false for safety)
+        $isAdminEditor = $this->isSadm || $this->isAdmin;
+        $perms->can_rdp_view_others_form_1  = $isAdminEditor ? $this->canRdpViewOthersForm1  : ($perms->can_rdp_view_others_form_1  ?? false);
+        $perms->can_rdp_view_others_form_2  = $isAdminEditor ? $this->canRdpViewOthersForm2  : ($perms->can_rdp_view_others_form_2  ?? false);
+        $perms->can_rdp_view_others_form_3  = $isAdminEditor ? $this->canRdpViewOthersForm3  : ($perms->can_rdp_view_others_form_3  ?? false);
+        $perms->can_rdp_edit_others_form_1  = $isAdminEditor ? $this->canRdpEditOthersForm1  : false;
+        $perms->can_rdp_edit_others_form_2  = $isAdminEditor ? $this->canRdpEditOthersForm2  : false;
+        $perms->can_rdp_edit_others_form_3  = $isAdminEditor ? $this->canRdpEditOthersForm3  : false;
+        $perms->can_rdp_print_others_form_1 = $isAdminEditor ? $this->canRdpPrintOthersForm1 : ($perms->can_rdp_print_others_form_1 ?? false);
+        $perms->can_rdp_print_others_form_2 = $isAdminEditor ? $this->canRdpPrintOthersForm2 : ($perms->can_rdp_print_others_form_2 ?? false);
+        $perms->can_rdp_print_others_form_3 = $isAdminEditor ? $this->canRdpPrintOthersForm3 : ($perms->can_rdp_print_others_form_3 ?? false);
     }
 
     /**
@@ -947,6 +1015,97 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Roles')] class extends C
                                             <span class="slider"></span>
                                         </label>
                                     </div>
+                                </div>
+                            </div>
+
+                            <!-- Category: RDP Per-Form Report Clearances -->
+                            <div class="permissions-section-card">
+                                <span class="permissions-section-title"><i class="fa-solid fa-file-contract"></i> RDP Report Form Clearances</span>
+                                <p style="font-size: 12px; color: #64748b; margin: 0 0 12px 0; font-style: italic;">
+                                    Controls per-form access for NAP Form 1 (Inventory &amp; Appraisal), Form 2 (Records Disposition Schedule), and Form 3 (Unverified Series).
+                                    <strong style="color: #b45309;">🔒 Admin-only</strong> items can only be changed by Admins or Super Admins.
+                                </p>
+
+                                <!-- Table-style per-form grid -->
+                                <div style="overflow-x: auto;">
+                                    <table style="width: 100%; border-collapse: collapse; font-size: 13px;">
+                                        <thead>
+                                            <tr style="background: #f1f5f9; border-bottom: 2px solid #cbd5e1;">
+                                                <th style="text-align: left; padding: 8px 12px; font-weight: 700; color: #334155; width: 38%;">Permission</th>
+                                                <th style="text-align: center; padding: 8px 12px; font-weight: 700; color: #1d4ed8; width: 20%;">NAP Form 1</th>
+                                                <th style="text-align: center; padding: 8px 12px; font-weight: 700; color: #0e7490; width: 20%;">NAP Form 2</th>
+                                                <th style="text-align: center; padding: 8px 12px; font-weight: 700; color: #7c3aed; width: 20%;">NAP Form 3</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            <!-- Access -->
+                                            <tr style="border-bottom: 1px solid #e2e8f0;">
+                                                <td style="padding: 10px 12px;">
+                                                    <span style="font-weight: 600; color: #0f172a; display: block;">Access Form</span>
+                                                    <span style="font-size: 11px; color: #64748b;">Can open and view this form page.</span>
+                                                </td>
+                                                <td style="text-align: center; padding: 10px 12px;"><label class="switch"><input type="checkbox" wire:model="canRdpAccessForm1"><span class="slider"></span></label></td>
+                                                <td style="text-align: center; padding: 10px 12px;"><label class="switch"><input type="checkbox" wire:model="canRdpAccessForm2"><span class="slider"></span></label></td>
+                                                <td style="text-align: center; padding: 10px 12px;"><label class="switch"><input type="checkbox" wire:model="canRdpAccessForm3"><span class="slider"></span></label></td>
+                                            </tr>
+                                            <!-- Modify -->
+                                            <tr style="border-bottom: 1px solid #e2e8f0;">
+                                                <td style="padding: 10px 12px;">
+                                                    <span style="font-weight: 600; color: #0f172a; display: block;">Modify Records on Form</span>
+                                                    <span style="font-size: 11px; color: #64748b;">Can edit and save record series entries on this form.</span>
+                                                </td>
+                                                <td style="text-align: center; padding: 10px 12px;"><label class="switch"><input type="checkbox" wire:model="canRdpModifyForm1"><span class="slider"></span></label></td>
+                                                <td style="text-align: center; padding: 10px 12px;"><label class="switch"><input type="checkbox" wire:model="canRdpModifyForm2"><span class="slider"></span></label></td>
+                                                <td style="text-align: center; padding: 10px 12px;"><label class="switch"><input type="checkbox" wire:model="canRdpModifyForm3"><span class="slider"></span></label></td>
+                                            </tr>
+                                            <!-- Print -->
+                                            <tr style="border-bottom: 1px solid #e2e8f0;">
+                                                <td style="padding: 10px 12px;">
+                                                    <span style="font-weight: 600; color: #0f172a; display: block;">Print Form</span>
+                                                    <span style="font-size: 11px; color: #64748b;">Can open print preview and generate the official document.</span>
+                                                </td>
+                                                <td style="text-align: center; padding: 10px 12px;"><label class="switch"><input type="checkbox" wire:model="canRdpPrintForm1"><span class="slider"></span></label></td>
+                                                <td style="text-align: center; padding: 10px 12px;"><label class="switch"><input type="checkbox" wire:model="canRdpPrintForm2"><span class="slider"></span></label></td>
+                                                <td style="text-align: center; padding: 10px 12px;"><label class="switch"><input type="checkbox" wire:model="canRdpPrintForm3"><span class="slider"></span></label></td>
+                                            </tr>
+                                            <!-- Divider row -->
+                                            <tr style="background: #fef9c3; border-top: 2px solid #fde047; border-bottom: 1px solid #fde047;">
+                                                <td colspan="4" style="padding: 6px 12px; font-size: 11.5px; font-weight: 700; color: #92400e;">
+                                                    🔒 Admin-Only Clearances — controls cross-office data access
+                                                </td>
+                                            </tr>
+                                            <!-- View Others -->
+                                            <tr style="border-bottom: 1px solid #e2e8f0; {{ (!$isSadm && !$isAdmin) ? 'opacity: 0.5;' : '' }}">
+                                                <td style="padding: 10px 12px;">
+                                                    <span style="font-weight: 600; color: #0f172a; display: block;">View Other Offices' Records</span>
+                                                    <span style="font-size: 11px; color: #64748b;">Can see record series belonging to other offices on this form.</span>
+                                                </td>
+                                                <td style="text-align: center; padding: 10px 12px;"><label class="switch"><input type="checkbox" wire:model="canRdpViewOthersForm1" {{ (!$isSadm && !$isAdmin) ? 'disabled' : '' }}><span class="slider"></span></label></td>
+                                                <td style="text-align: center; padding: 10px 12px;"><label class="switch"><input type="checkbox" wire:model="canRdpViewOthersForm2" {{ (!$isSadm && !$isAdmin) ? 'disabled' : '' }}><span class="slider"></span></label></td>
+                                                <td style="text-align: center; padding: 10px 12px;"><label class="switch"><input type="checkbox" wire:model="canRdpViewOthersForm3" {{ (!$isSadm && !$isAdmin) ? 'disabled' : '' }}><span class="slider"></span></label></td>
+                                            </tr>
+                                            <!-- Edit Others -->
+                                            <tr style="border-bottom: 1px solid #e2e8f0; {{ (!$isSadm && !$isAdmin) ? 'opacity: 0.5;' : '' }}">
+                                                <td style="padding: 10px 12px;">
+                                                    <span style="font-weight: 600; color: #0f172a; display: block;">Edit Other Offices' Records</span>
+                                                    <span style="font-size: 11px; color: #64748b;">Can modify record series entries that belong to other offices.</span>
+                                                </td>
+                                                <td style="text-align: center; padding: 10px 12px;"><label class="switch"><input type="checkbox" wire:model="canRdpEditOthersForm1" {{ (!$isSadm && !$isAdmin) ? 'disabled' : '' }}><span class="slider"></span></label></td>
+                                                <td style="text-align: center; padding: 10px 12px;"><label class="switch"><input type="checkbox" wire:model="canRdpEditOthersForm2" {{ (!$isSadm && !$isAdmin) ? 'disabled' : '' }}><span class="slider"></span></label></td>
+                                                <td style="text-align: center; padding: 10px 12px;"><label class="switch"><input type="checkbox" wire:model="canRdpEditOthersForm3" {{ (!$isSadm && !$isAdmin) ? 'disabled' : '' }}><span class="slider"></span></label></td>
+                                            </tr>
+                                            <!-- Print Others -->
+                                            <tr style="{{ (!$isSadm && !$isAdmin) ? 'opacity: 0.5;' : '' }}">
+                                                <td style="padding: 10px 12px;">
+                                                    <span style="font-weight: 600; color: #0f172a; display: block;">Print Other Offices' Records</span>
+                                                    <span style="font-size: 11px; color: #64748b;">Can include other offices' records when printing the official document.</span>
+                                                </td>
+                                                <td style="text-align: center; padding: 10px 12px;"><label class="switch"><input type="checkbox" wire:model="canRdpPrintOthersForm1" {{ (!$isSadm && !$isAdmin) ? 'disabled' : '' }}><span class="slider"></span></label></td>
+                                                <td style="text-align: center; padding: 10px 12px;"><label class="switch"><input type="checkbox" wire:model="canRdpPrintOthersForm2" {{ (!$isSadm && !$isAdmin) ? 'disabled' : '' }}><span class="slider"></span></label></td>
+                                                <td style="text-align: center; padding: 10px 12px;"><label class="switch"><input type="checkbox" wire:model="canRdpPrintOthersForm3" {{ (!$isSadm && !$isAdmin) ? 'disabled' : '' }}><span class="slider"></span></label></td>
+                                            </tr>
+                                        </tbody>
+                                    </table>
                                 </div>
                             </div>
 

@@ -78,5 +78,5 @@ define('LARAVEL_PATH', realpath(__DIR__ . '/../../..'));
 
 // Ensure the uploads directory exists (all that is still needed on disk)
 if (!is_dir(UPLOADS_DIR)) {
-    mkdir(UPLOADS_DIR, 0755, true);
+    @mkdir(UPLOADS_DIR, 0777, true);
 }

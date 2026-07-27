@@ -7,8 +7,8 @@ echo "────────────────────────�
 
 # ── Ensure Nginx run dir & Laravel storage directories exist with permissions ─
 mkdir -p /run/nginx /var/log/nginx /var/log/supervisor
-mkdir -p storage/framework/views storage/framework/sessions storage/framework/cache/data storage/logs bootstrap/cache
-chmod -R 777 storage bootstrap/cache
+mkdir -p storage/framework/views storage/framework/sessions storage/framework/cache/data storage/logs bootstrap/cache public/chatify/uploads public/chatify/storage
+chmod -R 777 storage bootstrap/cache public/chatify/uploads public/chatify/storage
 
 # ── Install / sync PHP dependencies ─────────────────────────────────────────
 echo "[1/5] Running composer install..."

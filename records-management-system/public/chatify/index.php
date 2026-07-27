@@ -2712,7 +2712,7 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
       </div>
       <div class="modal-body" style="padding:16px;">
         <p style="font-size:12px;color:var(--subtext-color);margin-bottom:12px;text-align:left;line-height:1.4;">
-          Update the secret key used for deleting conversations and wiping chat history in PostgreSQL.
+          Update the secret key used for deleting conversations and wiping chat history.
         </p>
         <form id="adminKeyForm" onsubmit="handleSecretKeyUpdate(event)">
           <div style="margin-bottom:10px;text-align:left;">

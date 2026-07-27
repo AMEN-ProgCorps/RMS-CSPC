@@ -1190,7 +1190,7 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
 
     .message-sender {
       font-weight: 500;
-      display: none; 
+      display: none;
     }
 
     .sent .message-sender {
@@ -3497,9 +3497,18 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
 
         if (activeDM === u.username && chatHeaderTitle.textContent !== u.name) {
           chatHeaderTitle.textContent = u.name;
+          applyHeaderAdminBadge();
         }
 
         const targetIsAdmin = Number(u.account_id) === 1;
+
+        // Verified badge next to the super admin's name in the sidebar
+        const sidebarBadge = nameEl.querySelector('.verified-badge');
+        if (targetIsAdmin) {
+          if (!sidebarBadge) injectBadge(nameEl);
+        } else if (sidebarBadge) {
+          sidebarBadge.remove();
+        }
 
         if (officeEl) {
           const newOffice = u.office_name ? u.office_name : 'No office assigned';
@@ -3883,6 +3892,7 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
       isFirstLoad = true; // snap straight to bottom once the new conversation's messages arrive
       localStorage.setItem('activeDM', u.username);
       chatHeaderTitle.textContent = u.name;
+      applyHeaderAdminBadge();
       // Note: we deliberately don't blank chatBox here. The previous chat's
       // messages stay on screen (harmlessly) until loadChat's diff logic swaps
       // them out the instant the new conversation's data arrives. Clearing it
@@ -4927,6 +4937,21 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
         <path d="M7 12.5l3.5 3.5 6.5-7" stroke="#fff" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
       </svg>`;
       el.appendChild(badge);
+    }
+
+    // ── Verified badge on the chat header (1-on-1 DM title) ──
+    // Whenever the header title is set to the name of the person being
+    // chatted with, show the blue checkmark next to it if that person is
+    // the super admin. Re-checks every time so switching between an admin
+    // DM and a regular-user DM correctly adds/removes the badge.
+    function applyHeaderAdminBadge() {
+      const existing = chatHeaderTitle.querySelector('.verified-badge');
+      if (existing) existing.remove();
+      if (!adminNames || adminNames.length === 0) return;
+      const headerText = chatHeaderTitle.textContent.trim().toLowerCase();
+      if (headerText && adminNames.includes(headerText)) {
+        injectBadge(chatHeaderTitle);
+      }
     }
     
     // Logout modal DOM refs

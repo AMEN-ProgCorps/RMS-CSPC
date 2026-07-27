@@ -496,11 +496,18 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 2')
             line-height: 1.4;
         }
 
+        /* Force Legal Landscape Print Orientation and 0.5in Margins */
+        @page {
+            size: legal landscape;
+            margin: 0.5in;
+        }
+
         @media print {
             /* Hide everything on the page except the print modal content */
             body { background: #ffffff !important; margin: 0 !important; padding: 0 !important; }
             header, #navigation, .no-print, .toolbar, .nap-card, .nap-btn,
-            footer, .modal-header-actions, .chatify-widget { display: none !important; }
+            footer, .modal-header-actions, .chatify-widget, #chatify-global-widget,
+            #chatify-widget-card, #chatify-widget-btn, [id^="chatify"], .rdp-fab-nav { display: none !important; opacity: 0 !important; visibility: hidden !important; }
             /* Hide the main page content (article-container) */
             #article-container > div > *:not(.modal-overlay) { display: none !important; }
             /* Make modal print inline (not fixed-positioned overlay) */

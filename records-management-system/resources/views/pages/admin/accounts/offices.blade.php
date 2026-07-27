@@ -144,8 +144,14 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Offices & Clusters')] cl
         ]);
 
         try {
-            $path = $this->officeFile->getRealPath();
-            $content = file_get_contents($path);
+            $content = $this->officeFile->get();
+            if ($content === false || $content === null) {
+                $content = @file_get_contents($this->officeFile->getRealPath());
+            }
+
+            if ($content === false || $content === null) {
+                throw new \Exception('Could not read the uploaded text file content.');
+            }
 
             // Normalize line endings and split
             $rawLines = preg_split('/\r\n|\r|\n/', $content);
@@ -911,8 +917,14 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Offices & Clusters')] cl
         ]);
 
         try {
-            $path = $this->clusterFile->getRealPath();
-            $content = file_get_contents($path);
+            $content = $this->clusterFile->get();
+            if ($content === false || $content === null) {
+                $content = @file_get_contents($this->clusterFile->getRealPath());
+            }
+
+            if ($content === false || $content === null) {
+                throw new \Exception('Could not read the uploaded text file content.');
+            }
 
             $rawLines = preg_split('/\r\n|\r|\n/', $content);
             $lines = [];

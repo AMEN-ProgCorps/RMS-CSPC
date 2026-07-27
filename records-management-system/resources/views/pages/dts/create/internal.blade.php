@@ -761,16 +761,14 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create Internal
                 if ($existingDoc) {
                     $docDir = $existingDoc->document_path;
                 } else {
-                    $docId = 'DOC-' . strtoupper(Str::random(8));
-                    $docDir = 'docs/' . Str::slug($this->type_of_document) . '-' . time() . '.pdf';
-                    DB::table('document_data')->insert([
-                        'document_id' => $docId,
-                        'document_name' => $this->type_of_document,
-                        'document_path' => $docDir,
-                        'date_added' => now(),
-                        'date_modified' => now(),
-                        'date_deleted' => now(),
-                    ]);
+                    $uploadResult = \App\Services\DocumentStorageService::storeUpload(
+                        'Document placeholder content for ' . $this->type_of_document,
+                        'DTS',
+                        $user,
+                        null,
+                        Str::slug($this->type_of_document) . '.pdf'
+                    );
+                    $docDir = $uploadResult['document_path'];
                 }
             }
 

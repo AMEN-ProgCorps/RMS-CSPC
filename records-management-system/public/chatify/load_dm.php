@@ -56,6 +56,11 @@ $sinceUuid  = isset($_GET['since_uuid'])  && $_GET['since_uuid']  !== '' ? (stri
 // ── Load data ────────────────────────────────────────────────────────────────────
 $convId = ConversationManager::convId($myAccountId, $targetId);
 
+if ($beforeUuid === null && $sinceUuid === null) {
+    // Mark conversation as read on initial view
+    ConversationManager::markRead($convId, $myAccountId);
+}
+
 if ($sinceUuid !== null) {
     // Incremental update: fetch only messages created AFTER sinceUuid
     $rawMessages = ConversationManager::loadIncrementalRaw($convId, $sinceUuid, $limit);
@@ -71,6 +76,7 @@ if ($sinceUuid !== null) {
     // DB returns newest-first; flip for chronological display.
     $rawMessages = array_reverse($rawMessages);
 }
+
 
 // Scope reaction loading to just this page's UUIDs.
 $pageUuids = array_column($rawMessages, 'id');

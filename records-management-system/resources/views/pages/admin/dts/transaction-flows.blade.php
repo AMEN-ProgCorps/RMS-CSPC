@@ -601,11 +601,11 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - DTS Transaction Flows')]
         $this->clearMessages();
 
         $this->validate([
-            'flowFile' => 'required|file|mimes:txt|max:1024',
+            'flowFile' => 'required|file|extensions:txt,text|max:2048',
         ], [
             'flowFile.required' => 'Please select a text file to upload.',
-            'flowFile.mimes' => 'The file must be a plain text file (.txt).',
-            'flowFile.max' => 'The file size must be less than 1MB.',
+            'flowFile.extensions' => 'The file must be a plain text file (.txt).',
+            'flowFile.max' => 'The file size must be less than 2MB.',
         ]);
 
         try {

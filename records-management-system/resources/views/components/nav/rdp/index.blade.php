@@ -11,19 +11,6 @@
     </div>
 </div>
 
-<div id="rdp-manage-files-id" class="button-section-container">
-    <div class="button-container {{ request()->routeIs('rdp.manage-files') ? 'force-active' : '' }}" onclick="proccedto('{{ route('rdp.manage-files') }}')">
-        <div class="button-icon">
-            <svg xmlns="http://www.w3.org/2000/svg" width="29" height="29" viewBox="0 0 24 24" fill="none">
-                <path d="M19 3H5C3.89 3 3 3.89 3 5V19C3 20.1 3.89 21 5 21H19C20.1 21 21 20.1 21 19V5C21 3.89 20.1 3 19 3ZM19 19H5V5H19V19ZM17 14H12V17H17V14ZM10 17H7V7H10V17ZM17 11H12V7H17V11Z" fill="#4F4F4F"/>
-            </svg>
-        </div>
-        <div class="button-label">
-            <span>Manage Files</span>
-        </div>
-    </div>
-</div>
-
 <div id="rdp-add-records-id" class="button-section-container {{ request()->routeIs('rdp.add-records.*') ? 'show' : '' }}">
     <div class="button-container {{ request()->routeIs('rdp.add-records.*') ? 'force-active' : '' }}" onclick="showButtonSection('rdp-add-records-id')">
         <div class="button-icon">
@@ -76,3 +63,18 @@
         <div class="function-button {{ request()->routeIs('rdp.reports.nap-form-3') ? 'force-active' : '' }}" onclick="proccedto('{{ route('rdp.reports.nap-form-3') }}')">NAP Form 3</div>
     </div>
 </div>
+
+
+<div id="rdp-manage-files-id" class="button-section-container">
+    <div class="button-container {{ request()->routeIs('rdp.manage-files') ? 'force-active' : '' }}" onclick="proccedto('{{ route('rdp.manage-files') }}')">
+        <div class="button-icon">
+            <svg xmlns="http://www.w3.org/2000/svg" width="29" height="29" viewBox="0 0 24 24" fill="none">
+                <path d="M19 3H5C3.89 3 3 3.89 3 5V19C3 20.1 3.89 21 5 21H19C20.1 21 21 20.1 21 19V5C21 3.89 20.1 3 19 3ZM19 19H5V5H19V19ZM17 14H12V17H17V14ZM10 17H7V7H10V17ZM17 11H12V7H17V11Z" fill="#4F4F4F"/>
+            </svg>
+        </div>
+        <div class="button-label">
+            <span>Manage Files</span>
+        </div>
+    </div>
+</div>
+

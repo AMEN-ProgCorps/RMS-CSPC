@@ -3844,6 +3844,7 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
       target.insertAdjacentElement('afterend', indicator);
     }
 
+
     // State for global chat
     let isGlobalChat = false;
     // How many messages are fetched per page AND how many are kept on screen at

@@ -4,13 +4,13 @@ Progress Notes for RMS ver2 development
 PROJECT STATUS SUMMARY (Ratios / Tasks Completed)
 ==================================================
 - Document Tracking System: 17/30 (Completed), 13/30 (In Progress)
-- Records Disposition Program: 10/30 (Completed), 20/30 (In Progress)
-- Admin Console: 6.2/10 (Completed), 3.8/10 (In Progress)
+- Records Disposition Program: 24/30 (Completed), 6/30 (In Progress)
+- Admin Console: 9.0/10 (Completed), 1.0/10 (In Progress)
 - Profile Manager: 10/10 (Completed)
 - Portal Access Pages: 18/20 (Completed), 2/20 (In Progress)
 - External Tracking: 9/10 (Completed), 1/10 (In Progress)
 
-Overall Completion: 70.2 / 110 tasks completed (64%)
+Overall Completion: 87.0 / 110 tasks completed (79.1%)
 ==================================================
 
 Database Structure Development Starts on [ February 4, 2026]
@@ -27,9 +27,9 @@ Database Structure Development Starts on [ February 4, 2026]
         L ended on [ February 26, 2026 ]
             L its almost finished but new data will be included due to another system
     L RDP section 
-        L Starts in [ TBA ]
-        L status [ pending ]
-        L ended on [  ]
+        L Starts in [ July 2026 ]
+        L status [ Active Development ]
+        L ended on [ Ongoing ]
 
 Architecture: Laravel v13.0.0
 Front-end Architecture: livewire v0.6.1
@@ -67,7 +67,7 @@ Website Development Starts[ May 1, 2026 ]
             L soft deactivation triggers, dynamic lists, dual-pane layout, soft delete action, bulk import via text file parser with optional active status
         L Roles & Clearances Module
             L status [ Completed ]
-            L permission toggles matrix, soft deactivation triggers, dual-pane layout, soft delete action
+            L permission toggles matrix, 18 granular per-form RDP role clearances (access, modify, print, view-others, edit-others, print-others for NAP Forms 1, 2, 3), admin-only lock triggers
         L Accounts Users Module
             L status [ Completed ]
             L user creation validation, dual-sorting selectors, sidebar routing, soft delete action
@@ -97,11 +97,11 @@ Website Development Starts[ May 1, 2026 ]
 
     L Records Disposition Platform section
         L Main Landing Module
-            L status [ partially ]
-            L assigned to Magbanua
+            L status [ Completed ]
+            L live statistics cards, quick add series modal, fixed flex alignment bug
         L Add Records Module
-            L status [ Partially ]
-            L assigned to Lagriada
+            L status [ Completed ]
+            L Inventory & Appraisal, Records Disposition Schedule, document-only upload restrictions (.pdf, .docx, .xlsx, etc.)
         L Reports Module
-            L status [ Partially ]
-            L assigned to Luceña
+            L status [ Completed ]
+            L NAP Form 1, Form 2, and Form 3 report generation with office-based section dividers, print preview modals, and 18 per-form role clearances

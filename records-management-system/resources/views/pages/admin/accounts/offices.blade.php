@@ -136,11 +136,11 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Offices & Clusters')] cl
         $this->clearMessages();
 
         $this->validate([
-            'officeFile' => 'required|file|mimes:txt|max:1024',
+            'officeFile' => 'required|file|extensions:txt,text|max:2048',
         ], [
             'officeFile.required' => 'Please select a text file to upload.',
-            'officeFile.mimes' => 'The file must be a plain text file (.txt).',
-            'officeFile.max' => 'The file size must be less than 1MB.',
+            'officeFile.extensions' => 'The file must be a plain text file (.txt).',
+            'officeFile.max' => 'The file size must be less than 2MB.',
         ]);
 
         try {
@@ -903,11 +903,11 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Offices & Clusters')] cl
         $this->clearMessages();
 
         $this->validate([
-            'clusterFile' => 'required|file|mimes:txt|max:1024',
+            'clusterFile' => 'required|file|extensions:txt,text|max:2048',
         ], [
             'clusterFile.required' => 'Please select a text file to upload.',
-            'clusterFile.mimes' => 'The file must be a plain text file (.txt).',
-            'clusterFile.max' => 'The file size must be less than 1MB.',
+            'clusterFile.extensions' => 'The file must be a plain text file (.txt).',
+            'clusterFile.max' => 'The file size must be less than 2MB.',
         ]);
 
         try {
@@ -1298,8 +1298,11 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Offices & Clusters')] cl
                                 <input type="file" 
                                        id="officeFileInput" 
                                        wire:model="officeFile" 
-                                       accept=".txt" 
+                                       accept=".txt,text/plain" 
                                        style="padding: 8px; border: 1px solid #cbd5e1; border-radius: 6px; width: 100%; font-size: 13px; font-family: 'Inter', sans-serif;">
+                                <div wire:loading wire:target="officeFile" style="font-size: 12px; color: #0284c7; margin-top: 6px; font-weight: 600;">
+                                    <i class="fa-solid fa-spinner fa-spin"></i> Uploading file... Please wait.
+                                </div>
                                 @error('officeFile') <span style="color:#ef4444; font-size:11px; margin-top:4px; display:block;">{{ $message }}</span> @enderror
                                 
                                 <p style="font-size: 12.5px; color: #64748b; margin-top: 12px; line-height: 1.5; font-family: 'Inter', sans-serif;">
@@ -1316,8 +1319,16 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Offices & Clusters')] cl
                         <!-- Footer Actions -->
                         <div class="details-footer">
                             <button type="button" class="btn-cancel" wire:click="cancelSelection">Cancel</button>
-                            <button type="button" class="btn-save" style="background-color: #0284c7; border-color: #0284c7;" wire:click="importOffices">
-                                <i class="fa-solid fa-file-import"></i> Extract Office Data
+                            <button type="button" class="btn-save" style="background-color: #0284c7; border-color: #0284c7;" 
+                                    wire:click="importOffices" 
+                                    wire:loading.attr="disabled" 
+                                    wire:target="officeFile, importOffices">
+                                <span wire:loading.remove wire:target="officeFile, importOffices">
+                                    <i class="fa-solid fa-file-import"></i> Extract Office Data
+                                </span>
+                                <span wire:loading wire:target="officeFile, importOffices">
+                                    <i class="fa-solid fa-spinner fa-spin"></i> Processing...
+                                </span>
                             </button>
                         </div>
                     @else
@@ -1535,8 +1546,11 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Offices & Clusters')] cl
                                 <input type="file" 
                                        id="clusterFileInput" 
                                        wire:model="clusterFile" 
-                                       accept=".txt" 
+                                       accept=".txt,text/plain" 
                                        style="padding: 8px; border: 1px solid #cbd5e1; border-radius: 6px; width: 100%; font-size: 13px; font-family: 'Inter', sans-serif;">
+                                <div wire:loading wire:target="clusterFile" style="font-size: 12px; color: #0284c7; margin-top: 6px; font-weight: 600;">
+                                    <i class="fa-solid fa-spinner fa-spin"></i> Uploading file... Please wait.
+                                </div>
                                 @error('clusterFile') <span style="color:#ef4444; font-size:11px; margin-top:4px; display:block;">{{ $message }}</span> @enderror
                                 
                                 <p style="font-size: 12.5px; color: #64748b; margin-top: 12px; line-height: 1.5; font-family: 'Inter', sans-serif;">
@@ -1553,8 +1567,16 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Offices & Clusters')] cl
                         <!-- Footer Actions -->
                         <div class="details-footer">
                             <button type="button" class="btn-cancel" wire:click="cancelSelection">Cancel</button>
-                            <button type="button" class="btn-save" style="background-color: #0284c7; border-color: #0284c7;" wire:click="importClusters">
-                                <i class="fa-solid fa-file-import"></i> Extract Cluster Data
+                            <button type="button" class="btn-save" style="background-color: #0284c7; border-color: #0284c7;" 
+                                    wire:click="importClusters" 
+                                    wire:loading.attr="disabled" 
+                                    wire:target="clusterFile, importClusters">
+                                <span wire:loading.remove wire:target="clusterFile, importClusters">
+                                    <i class="fa-solid fa-file-import"></i> Extract Cluster Data
+                                </span>
+                                <span wire:loading wire:target="clusterFile, importClusters">
+                                    <i class="fa-solid fa-spinner fa-spin"></i> Processing...
+                                </span>
                             </button>
                         </div>
                     @else

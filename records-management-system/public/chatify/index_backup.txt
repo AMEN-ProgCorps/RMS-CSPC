@@ -6087,6 +6087,7 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
                     </div>
                   </div>
                 `;
+                  applyAdminBadges();
                   if (isAtBottom()) scrollToBottom(true, true);
                 }
               }

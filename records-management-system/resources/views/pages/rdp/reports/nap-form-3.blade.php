@@ -491,10 +491,27 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 3')
         }
 
         @media print {
+            /* Hide everything on the page except the print modal content */
             body { background: #ffffff !important; margin: 0 !important; padding: 0 !important; }
-            .no-print, .toolbar, .nap-card, header, nav, sidebar, footer, .modal-header-actions { display: none !important; }
-            .modal-overlay { position: static !important; background: none !important; padding: 0 !important; }
-            .modal-content { background: none !important; max-width: 100% !important; padding: 0 !important; box-shadow: none !important; }
+            header, #navigation, .no-print, .toolbar, .nap-card, .nap-btn,
+            footer, .modal-header-actions, .chatify-widget { display: none !important; }
+            /* Hide the main page content (article-container) */
+            #article-container > div > *:not(.modal-overlay) { display: none !important; }
+            /* Make modal print inline (not fixed-positioned overlay) */
+            .modal-overlay { 
+                position: static !important; 
+                background: none !important; 
+                padding: 0 !important; 
+                display: block !important;
+            }
+            .modal-content { 
+                background: none !important; 
+                max-width: 100% !important; 
+                max-height: none !important;
+                padding: 0 !important; 
+                box-shadow: none !important;
+                overflow: visible !important;
+            }
             .print-page { 
                 box-shadow: none !important; 
                 border: none !important; 

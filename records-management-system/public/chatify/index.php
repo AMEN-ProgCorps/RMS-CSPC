@@ -3375,9 +3375,9 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
     const sidebarUserItems = new Map(); // username -> item element
     let latestTotalUnread = 0;
 
-    // Patches one sidebar row in-place (unread badge, last message preview,
-    // move-to-top ordering) using data we already have from a WS event or
-    // our own just-sent message — no fetch_users_dm.php round trip needed.
+    // Patches one sidebar row in-place (unread badge, move-to-top ordering)
+    // using data we already have from a WS event or our own just-sent
+    // message — no fetch_users_dm.php round trip needed.
     // Returns false if that user isn't in the currently loaded/filtered
     // list, so the caller can fall back to a real fetch in that one case.
     function bumpSidebarUser(username, opts) {
@@ -3386,7 +3386,6 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
       if (idx === -1) return false;
 
       const u = allUsersData[idx];
-      if (opts.lastMessage !== undefined) u.lastMessage = opts.lastMessage;
       if (opts.incrementUnread && activeDM !== username) {
         u.unreadCount = (u.unreadCount || 0) + 1;
       }
@@ -3431,7 +3430,7 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
         seen.add(u.username);
 
         let item = sidebarUserItems.get(u.username);
-        let avatar, dot, info, nameRow, nameEl, officeEl, msgEl, actionsRight;
+        let avatar, dot, info, nameRow, nameEl, officeEl, actionsRight;
 
         if (!item) {
           item = document.createElement('div');
@@ -3456,10 +3455,6 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
           officeEl.className = 'user-office';
           info.appendChild(officeEl);
 
-          msgEl = document.createElement('div');
-          msgEl.className = 'user-last-msg';
-          info.appendChild(msgEl);
-
           actionsRight = document.createElement('div');
           actionsRight.className = 'user-actions-right';
 
@@ -3473,7 +3468,6 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
           item._dot = dot;
           item._nameEl = nameEl;
           item._officeEl = officeEl;
-          item._msgEl = msgEl;
           item._actionsRight = actionsRight;
 
           sidebarUserItems.set(u.username, item);
@@ -3482,7 +3476,6 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
           dot = item._dot || item.querySelector('.status-dot');
           nameEl = item._nameEl || item.querySelector('.user-name');
           officeEl = item._officeEl || item.querySelector('.user-office');
-          msgEl = item._msgEl || item.querySelector('.user-last-msg');
           actionsRight = item._actionsRight || item.querySelector('.user-actions-right');
           item.onclick = () => selectDM(u);
         }
@@ -3506,9 +3499,6 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
         }
 
         const targetIsAdmin = Number(u.account_id) === 1;
-
-        const newMsg = u.lastMessage || 'No messages yet';
-        if (msgEl.textContent !== newMsg) msgEl.textContent = newMsg;
 
         if (officeEl) {
           const newOffice = u.office_name ? u.office_name : 'No office assigned';

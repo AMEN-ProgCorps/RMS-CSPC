@@ -106,14 +106,34 @@ class Auth
     /**
      * Return the session check result for check_session.php.
      *
+     * IMPORTANT: this used to only look at Chatify's own local
+     * `chat_authenticated`/`chat_expires` session keys — a check that
+     * never asked Laravel/RMS anything. That made it a Chatify-only
+     * session check: once minted, it stayed "valid" for the full
+     * CHAT_SESSION_LIFETIME (8h) even if the RMS session behind it was
+     * destroyed a minute later by a normal 120-minute RMS timeout, an
+     * admin-forced logout, or anything else that didn't go through this
+     * app's own logout.php. It now delegates to check(), which re-queries
+     * Laravel's live `sessions` table on every single call — so a dead
+     * RMS session is caught on the very next poll, not up to 8 hours later.
+     *
      * @return array{valid: bool, reason?: string}
      */
     public static function status(): array
     {
-        if (!isset($_SESSION['chat_authenticated']) || $_SESSION['chat_authenticated'] !== true) {
-            return ['valid' => false, 'reason' => 'no_session'];
+        if (!self::check()) {
+            // check() already destroyed the local session if it found the
+            // RMS session gone. Report the most useful reason we can.
+            if (!isset($_SESSION['chat_authenticated'])) {
+                return ['valid' => false, 'reason' => 'no_session'];
+            }
+            return ['valid' => false, 'reason' => 'expired'];
         }
 
+        // Belt-and-suspenders: also honor Chatify's own local expiry clock
+        // even though check() just proved the RMS session is still alive —
+        // this bounds how long a single Chatify session can live even
+        // under an RMS session that never seems to expire.
         if (!isset($_SESSION['chat_expires']) || time() > $_SESSION['chat_expires']) {
             self::destroy();
             return ['valid' => false, 'reason' => 'expired'];
@@ -249,8 +269,19 @@ class Auth
         }
 
         $cookieVal = $_COOKIE[$cookieName];
-        $laravel_path = defined('LARAVEL_PATH') ? LARAVEL_PATH : 'C:/Users/Finnapple/Downloads/RMS-CSPC/records-management-system';
-        
+
+        // LARAVEL_PATH must be a real, environment-provided path (see
+        // config/db.php: realpath(__DIR__ . '/../../..')). There is
+        // deliberately NO hardcoded fallback path here anymore — a
+        // hardcoded dev-machine path silently papering over a missing
+        // config value is exactly the kind of thing that looks harmless
+        // until it quietly resolves to nothing in production and the code
+        // below falls through to a guessed key instead of failing loudly.
+        if (!defined('LARAVEL_PATH') || !LARAVEL_PATH) {
+            return null;
+        }
+        $laravel_path = LARAVEL_PATH;
+
         // 1. Try reading key from bootstrap/cache/config.php first
         $key = null;
         $cache_file = $laravel_path . '/bootstrap/cache/config.php';
@@ -260,7 +291,7 @@ class Auth
                 $key = base64_decode(str_replace('base64:', '', $matches[1]));
             }
         }
-        
+
         // 2. Try reading from .env file
         if (!$key) {
             $env_file = $laravel_path . '/.env';
@@ -274,19 +305,35 @@ class Auth
             }
         }
 
-        // Fallback key
+        // SECURITY: no fallback key. A hardcoded APP_KEY committed to
+        // source is a permanent secret leak — anyone with read access to
+        // this repository (which is exactly how this review started, via
+        // an uploaded zip) would be able to decrypt, and potentially forge,
+        // Laravel session cookies for ANY account. If the real key can't
+        // be resolved, treat this as "no RMS session" rather than guessing.
         if (!$key) {
-            $key = base64_decode('7Xz7bTGkQF61JHx19uC+1fxt+u/1skGv2SnJ2FfjDk8=');
+            return null;
         }
 
         try {
             $data = json_decode(base64_decode($cookieVal), true);
-            if (!$data || !isset($data['iv']) || !isset($data['value'])) {
+            if (!$data || !isset($data['iv'], $data['value'], $data['mac'])) {
                 return null;
             }
 
-            $iv = base64_decode($data['iv']);
+            $iv              = base64_decode($data['iv']);
             $encrypted_value = base64_decode($data['value']);
+
+            // Verify the MAC BEFORE decrypting — this is what Laravel's
+            // own Encrypter does, and the previous version of this code
+            // skipped it entirely. Without this check, an attacker who can
+            // modify the cookie's ciphertext/IV (e.g. via an XSS that can
+            // set cookies, or a MITM without TLS) gets fed straight into
+            // openssl_decrypt with no integrity check first.
+            $expectedMac = hash_hmac('sha256', $data['iv'] . $data['value'], $key);
+            if (!hash_equals($expectedMac, (string) $data['mac'])) {
+                return null;
+            }
 
             $decrypted = openssl_decrypt($encrypted_value, 'AES-256-CBC', $key, OPENSSL_RAW_DATA, $iv);
             if ($decrypted === false) {
@@ -319,8 +366,11 @@ class Auth
             $stmt->execute([':id' => $sessionId]);
             $row = $stmt->fetch();
             if ($row) {
-                // Lifetime of session (120 minutes)
-                $lifetime = 120 * 60;
+                // Mirror Laravel's own SESSION_LIFETIME (minutes) config
+                // rather than guessing — a stale hardcoded value here could
+                // let Chatify treat a session as alive/dead in a way that
+                // doesn't actually match RMS's own idea of session validity.
+                $lifetime = ((int) getEnvValue('SESSION_LIFETIME', '120')) * 60;
                 if (time() - (int)$row['last_activity'] > $lifetime) {
                     return null;
                 }

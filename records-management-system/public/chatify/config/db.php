@@ -56,6 +56,18 @@ define('LARAVEL_DB_PASS',    getEnvValue('DB_PASSWORD', 'admin'));
 // Generate a strong one: php -r "echo bin2hex(random_bytes(32));"
 // -----------------------------------------------------------------------------
 define('CHAT_SHARED_SECRET', getEnvValue('CHAT_SHARED_SECRET', '7f5b84c8a2bf6d91cd4a9c68aef2bc7e4c925d8864b85abef95a720cf12a32cd'));
+// SECURITY: change this in your actual .env in every environment. The value
+// above is a public default shared by this codebase's docs/example config —
+// if it's still in effect in production, anyone can forge a valid ws_token
+// for any account_id. Treat this exactly like a leaked secret until rotated.
+
+// -----------------------------------------------------------------------------
+// ws-server internal push endpoint — lets PHP force-disconnect an account's
+// live WebSocket the instant its RMS session is invalidated (logout, admin
+// kick, etc.) instead of waiting for the socket's own token to expire.
+// -----------------------------------------------------------------------------
+define('WS_INTERNAL_PUSH_URL', getEnvValue('WS_INTERNAL_PUSH_URL', 'http://127.0.0.1:8080/internal/push'));
+define('INTERNAL_PUSH_SECRET', getEnvValue('INTERNAL_PUSH_SECRET', CHAT_SHARED_SECRET));
 
 // -----------------------------------------------------------------------------
 // Token TTL - how many seconds a Laravel-issued entry token remains valid
@@ -75,6 +87,17 @@ define('CHAT_SESSION_LIFETIME', 28800);     // 8 hours in seconds
 define('STORAGE_ROOT', __DIR__ . '/../storage');
 define('UPLOADS_DIR',  __DIR__ . '/../uploads');
 define('LARAVEL_PATH', realpath(__DIR__ . '/../../..'));
+
+// -----------------------------------------------------------------------------
+// Where to send anyone Auth::check() rejects (no session, expired session,
+// destroyed session, invalid/missing SSO token, direct URL access, etc).
+// Matches logout.php's existing "Location: /" target so behavior is
+// identical whether the user logged out on purpose or Chatify caught a dead
+// session on its own. Override with RMS_LOGIN_URL in .env if your Laravel
+// login route lives somewhere other than the guest-redirected root (e.g.
+// '/login').
+// -----------------------------------------------------------------------------
+define('RMS_LOGIN_URL', getEnvValue('RMS_LOGIN_URL', '/'));
 
 // Ensure the uploads directory exists (all that is still needed on disk)
 if (!is_dir(UPLOADS_DIR)) {

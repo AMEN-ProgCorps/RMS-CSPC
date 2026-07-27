@@ -18,5 +18,7 @@ require_once __DIR__ . '/core/Encryption.php';
 require_once __DIR__ . '/core/Database.php';
 require_once __DIR__ . '/core/UserResolver.php';
 require_once __DIR__ . '/core/Auth.php';
+require_once __DIR__ . '/core/AuthRedirect.php';
+require_once __DIR__ . '/core/WsPush.php';
 require_once __DIR__ . '/core/GlobalChatManager.php';
 require_once __DIR__ . '/core/ConversationManager.php';

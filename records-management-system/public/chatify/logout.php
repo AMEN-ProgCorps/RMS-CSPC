@@ -29,6 +29,13 @@ if ($laravelSessionId) {
     }
 }
 
+// Force-disconnect any live WebSocket(s) for this account right now —
+// don't wait for the socket's own token to lapse or for check_session.php's
+// next poll. Covers other open tabs/devices for the same account too.
+if ($myAccountId ?? null) {
+    WsPush::forceDisconnect($myAccountId, 'logged_out');
+}
+
 // Clear PHP session and cookies
 Auth::destroy();
 

@@ -1,4 +1,5 @@
 const WebSocket = require('ws');
+const http = require('http');
 const crypto = require('crypto');
 let monitorEventLoopDelay;
 try {
@@ -10,6 +11,13 @@ try {
 const PORT = process.env.PORT || 8080;
 // Fallback key matches public/chatify/config/db.php CHAT_SHARED_SECRET default
 const CHAT_SHARED_SECRET = process.env.CHAT_SHARED_SECRET || '7f5b84c8a2bf6d91cd4a9c68aef2bc7e4c925d8864b85abef95a720cf12a32cd';
+
+// Secret PHP uses to authenticate server-to-server pushes (see handleInternalPush
+// below). Defaults to the same shared secret as client auth for convenience, but
+// set INTERNAL_PUSH_SECRET separately in production if you want to be able to
+// rotate them independently.
+const INTERNAL_PUSH_SECRET = process.env.INTERNAL_PUSH_SECRET || CHAT_SHARED_SECRET;
+const INTERNAL_PUSH_MAX_BODY_BYTES = 64 * 1024;
 
 const AUTH_TIMEOUT_MS = 10000;
 const HEARTBEAT_INTERVAL_MS = 30000;
@@ -33,15 +41,26 @@ function logError(...args) {
   console.error(...args);
 }
 
+// Plain HTTP server that the WS upgrade attaches to. We also use it to expose
+// a small internal-only POST endpoint (/internal/push) that PHP calls to push
+// events — session kicks, name changes, notifications — straight to a user's
+// already-open socket instead of the client having to poll for them.
+const httpServer = http.createServer((req, res) => {
+  handleInternalPush(req, res);
+});
+
 const wss = new WebSocket.Server({
-  port: PORT,
+  server: httpServer,
   perMessageDeflate: false,
   maxPayload: MAX_PAYLOAD_BYTES,
   // We maintain our own richer tracking (clients/accountSockets below), so
   // we don't need the library's built-in wss.clients bookkeeping too.
   clientTracking: false
 });
-console.log(`WebSocket server starting on port ${PORT} (max connections: ${MAX_CONNECTIONS})...`);
+
+httpServer.listen(PORT, () => {
+  console.log(`WebSocket server starting on port ${PORT} (max connections: ${MAX_CONNECTIONS})...`);
+});
 
 // Map of ws -> { accountId, name, authenticated }
 const clients = new Map();
@@ -79,7 +98,8 @@ function unindexSocket(ws, accountId) {
 const RATE_LIMITS = {
   typing: { max: 5, windowMs: 1000 },
   message: { max: 10, windowMs: 1000 },
-  control: { max: 20, windowMs: 1000 } // update_name, chat_cleared, all_cleared
+  control: { max: 20, windowMs: 1000 }, // update_name, chat_cleared, all_cleared
+  mark_read: { max: 10, windowMs: 1000 }
 };
 const rateState = new Map(); // accountId -> { [category]: { count, windowStart } }
 
@@ -188,6 +208,123 @@ function broadcastToAll(payloadStr, excludeAccountId) {
   }
 }
 
+// ── Internal push endpoint ───────────────────────────────────────────────
+// PHP calls this (server-to-server, not exposed to browsers) right after it
+// does its own DB write, so the change reaches an already-open socket
+// immediately instead of the client having to poll for it. Expected JSON
+// body: { secret, type, account_id (or account_ids: []), data: {...} }.
+// `type` + `data` are merged into the payload sent to the client's existing
+// ws.onmessage handler, so add a matching `data.type === '...'` case there
+// for anything new pushed through here.
+function handleInternalPush(req, res) {
+  if (req.method !== 'POST' || req.url !== '/internal/push') {
+    res.writeHead(404);
+    res.end();
+    return;
+  }
+
+  let body = '';
+  let rejected = false;
+  req.on('data', (chunk) => {
+    if (rejected) return;
+    body += chunk;
+    if (body.length > INTERNAL_PUSH_MAX_BODY_BYTES) {
+      rejected = true;
+      res.writeHead(413);
+      res.end('Payload too large');
+      req.destroy();
+    }
+  });
+
+  req.on('end', () => {
+    if (rejected) return;
+
+    let payload;
+    try {
+      payload = JSON.parse(body);
+    } catch (e) {
+      res.writeHead(400);
+      res.end('Invalid JSON');
+      return;
+    }
+
+    if (!timingSafeEqual(String(payload.secret || ''), INTERNAL_PUSH_SECRET)) {
+      log('Rejected internal push: bad or missing secret');
+      res.writeHead(403);
+      res.end('Forbidden');
+      return;
+    }
+
+    const { type, account_id, account_ids, broadcast, data: eventData } = payload;
+    if (!type) {
+      res.writeHead(400);
+      res.end('Missing "type"');
+      return;
+    }
+
+    const outPayloadStr = JSON.stringify(Object.assign({ type }, eventData || {}));
+
+    // force_disconnect=true means "this account's RMS session is gone —
+    // don't just notify the client, make sure the socket can't be used
+    // again." Used for explicit logout and session-kick events. The
+    // message is still sent first so the client can show a friendly
+    // overlay before the socket goes away out from under it.
+    const shouldForceDisconnect = payload.force_disconnect === true;
+
+    function closeTargets(accountIds) {
+      const seen = new Set();
+      for (const id of accountIds) {
+        if (seen.has(id)) continue;
+        seen.add(id);
+        const set = accountSockets.get(id);
+        if (!set) continue;
+        for (const clientWs of Array.from(set)) {
+          try { clientWs.close(4002, 'Session invalidated'); } catch (e) {}
+        }
+      }
+    }
+
+    if (broadcast === true) {
+      // System-wide sidebar-affecting event (e.g. account created/deleted)
+      // that isn't scoped to a specific recipient.
+      broadcastToAll(outPayloadStr);
+      log(`Internal push relayed: type=${type}, targets=all`);
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ ok: true, delivered_to: 'all' }));
+      return;
+    }
+
+    const targets = Array.isArray(account_ids)
+      ? account_ids.map(Number)
+      : (account_id !== undefined ? [Number(account_id)] : []);
+
+    if (targets.length === 0) {
+      res.writeHead(400);
+      res.end('Missing "account_id", "account_ids", or "broadcast: true"');
+      return;
+    }
+
+    broadcastToAccounts(targets, outPayloadStr);
+    log(`Internal push relayed: type=${type}, targets=${targets.join(',')}`);
+
+    if (shouldForceDisconnect) {
+      // Small delay so the message above has a chance to reach the client
+      // before the socket disappears — the overlay is cosmetic, but the
+      // disconnect itself must happen regardless of whether the client
+      // reacts to the message.
+      setTimeout(() => closeTargets(targets), 250);
+    }
+
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ ok: true, delivered_to: targets }));
+  });
+
+  req.on('error', () => {
+    // Client hung up mid-request — nothing to clean up, the 'end' handler
+    // above simply never fires.
+  });
+}
+
 wss.on('connection', (ws) => {
   // ── Connection cap ── reject new sockets once at capacity, so a bug or
   // an attack can't OOM the process. Existing users keep working; new
@@ -246,7 +383,8 @@ wss.on('connection', (ws) => {
         clients.set(ws, {
           accountId,
           name: name || `User ${account_id}`,
-          authenticated: true
+          authenticated: true,
+          expires: parseInt(expires, 10) // re-checked continuously, see sweep below
         });
         indexSocket(ws, accountId);
         log(`Client authenticated: account_id=${account_id}, name="${name}"`);
@@ -262,6 +400,25 @@ wss.on('connection', (ws) => {
     // Reject all other messages if the connection has not authenticated yet
     if (!state.authenticated) {
       log('Ignored message from unauthenticated socket.');
+      return;
+    }
+
+    // 1b. Reauth — the client re-runs Auth::check() server-side (via
+    // refresh_ws_token.php) every few minutes and pushes the freshly
+    // minted token here to extend the socket's validity. If the RMS
+    // session is gone, the client never gets a fresh token to send, the
+    // old one simply expires, and the sweep below closes the socket.
+    // If someone sends a bad/forged token here, close immediately —
+    // same treatment as a failed initial handshake.
+    if (data.type === 'reauth') {
+      const { account_id, expires, token } = data;
+      if (Number(account_id) === state.accountId && verifyToken(account_id, expires, token)) {
+        state.expires = parseInt(expires, 10);
+        log(`Reauth OK: account_id=${state.accountId}, new expiry=${state.expires}`);
+      } else {
+        log(`Reauth failed: account_id=${state.accountId} — closing socket.`);
+        ws.close(4003, 'Invalid Reauth Token');
+      }
       return;
     }
 
@@ -345,6 +502,34 @@ wss.on('connection', (ws) => {
 
       broadcastToAccounts([Number(recipient_id)], payloadStr);
 
+      return;
+    }
+
+    // 4b. Handle Seen/Read Receipt Event — relayed live over the socket the
+    // instant the reader's client marks the conversation read, so the
+    // sender's "Seen" indicator updates with no HTTP round trip and no
+    // debounce delay (same pattern as the 'typing' event above). This is
+    // the FAST, ephemeral path; the client also still calls mark_read.php
+    // separately over HTTP so the read marker is durably persisted in
+    // Postgres (this ws-server has no DB connection of its own and must
+    // never be the only place the read state lives — a page reload or a
+    // second tab has to see the correct state too).
+    if (data.type === 'mark_read') {
+      if (isRateLimited(state.accountId, 'mark_read')) return;
+
+      const { target_id, last_msg_uuid } = data;
+      const targetId = Number(target_id);
+      if (!targetId) return;
+
+      const payloadStr = JSON.stringify({
+        type: 'message_read',
+        reader_id: state.accountId,
+        target_id: targetId,
+        last_msg_uuid: last_msg_uuid || null
+      });
+      // Notify the sender's live socket(s) immediately, plus admin (1) for
+      // spymode parity with the HTTP-triggered push in mark_read.php.
+      broadcastToAccounts([targetId, 1], payloadStr);
       return;
     }
 
@@ -443,6 +628,25 @@ const heartbeatTimer = setInterval(() => {
   }
 }, HEARTBEAT_INTERVAL_MS);
 
+// ── Token-expiry sweep ────────────────────────────────────────────────────
+// Enforces the 'expires' claim on an ongoing basis instead of only at the
+// initial handshake. A socket whose token has lapsed without a successful
+// 'reauth' (see message handler above) means the client either went dark
+// or its RMS session stopped validating — either way this connection must
+// not be trusted to keep sending/receiving chat traffic.
+const EXPIRY_SWEEP_INTERVAL_MS = 30000;
+const expirySweepTimer = setInterval(() => {
+  const nowSec = Math.floor(Date.now() / 1000);
+  for (const [clientWs, clientState] of clients.entries()) {
+    if (!clientState.authenticated || !clientState.expires) continue;
+    if (nowSec > clientState.expires) {
+      log(`Token expired without reauth: account_id=${clientState.accountId} — forcing disconnect.`);
+      safeSend(clientWs, JSON.stringify({ type: 'session_kicked', reason: 'expired' }));
+      try { clientWs.close(4002, 'Session expired'); } catch (e) {}
+    }
+  }
+}, EXPIRY_SWEEP_INTERVAL_MS);
+
 // ── Metrics: periodic operational snapshot ──────────────────────────────
 // Cheap enough to always run (even in production) — this is exactly what
 // you want in server logs to catch a memory leak or event-loop stall
@@ -482,12 +686,14 @@ const metricsTimer = setInterval(() => {
 wss.on('close', () => {
   clearInterval(heartbeatTimer);
   clearInterval(metricsTimer);
+  clearInterval(expirySweepTimer);
   if (eventLoopMonitor) eventLoopMonitor.disable();
 });
 
 process.on('SIGTERM', () => {
   clearInterval(heartbeatTimer);
   clearInterval(metricsTimer);
+  clearInterval(expirySweepTimer);
   wss.close(() => process.exit(0));
 });
 

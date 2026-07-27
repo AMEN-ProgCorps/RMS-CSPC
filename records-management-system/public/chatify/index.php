@@ -1,55 +1,61 @@
 <?php
 require_once __DIR__ . '/bootstrap.php';
+// IMPORTANT: this page is dynamic and session-gated (see the Auth::check()
+// gate below) — it must NEVER be replayable from the browser's ordinary
+// HTTP disk cache once the session that produced it is gone.
+//
+// A previous version of this file switched the session cache limiter to
+// 'private_no_expire' to satisfy a Lighthouse bfcache warning about
+// 'no-store' blocking back/forward-cache restoration. That "fix" was based
+// on an outdated assumption: 'private_no_expire' sends
+// "Cache-Control: private, max-age=<N>" with NO Expires/no-store, which
+// makes this already-authenticated HTML a normal cacheable resource for
+// up to session.cache_expire minutes (180 by default). Result: simply
+// revisiting the URL (typing it again, a bookmark, a link) after logout/
+// session expiry could be served straight from disk cache — no network
+// request, no PHP execution, no Auth::check() — while the "bfcache guard"
+// below (event.persisted) never fires, because that flag is only true for
+// an actual back/forward-cache restore, not a plain disk-cache hit. AJAX
+// endpoints (send.php, check_session.php, ...) always hit the network and
+// correctly deny access, which is exactly the "UI still shows but can't
+// send" symptom this produced.
+//
+// Back to explicit no-store: modern Chrome (96+), Firefox, and Safari all
+// support bfcache for pages sent with Cache-Control: no-store, so the
+// original Lighthouse concern no longer requires trading real cache safety
+// away. The pageshow/event.persisted reload below is kept as defense in
+// depth for the (rare) bfcache-restore path.
+header('Cache-Control: no-store, no-cache, must-revalidate, max-age=0');
+header('Pragma: no-cache');
+session_cache_limiter('nocache');
 session_start();
 
-// Check login status from RMS database session
+// ─────────────────────────────────────────────────────────────────────────
+// SERVER-SIDE RMS SESSION GATE — must run before ANY output (HTML/JS/CSS).
+// This is the ONLY authentication decision for this page. There is no
+// client-side/JS fallback, and Chatify never mints or reuses a session of
+// its own: Auth::check() must validate the request against the live RMS
+// server-side session record (DB-backed), not merely the presence of a
+// PHP $_SESSION array Chatify itself could have populated.
+// ─────────────────────────────────────────────────────────────────────────
 if (!Auth::check()) {
-    http_response_code(403);
-    ?><!DOCTYPE html>
-<html lang="en">
-  <head>
-    <title>Access Denied</title>
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <link rel="icon" type="image/png" href="cspc.png">
-    <style>
-      html, body {
-        margin: 0;
-        padding: 0;
-        height: 100%;
-        overflow: hidden; 
-      }
+    // Defense-in-depth: if any Chatify-local session keys survived (e.g. a
+    // stale session file from a previous request), wipe them so nothing
+    // downstream can ever be reconstructed from them. Chatify must never
+    // recreate or resurrect a session on its own once RMS says it's gone.
+    $_SESSION = [];
+    if (session_id() !== '') {
+        session_unset();
+        session_destroy();
+    }
+    if (ini_get('session.use_cookies')) {
+        $params = session_get_cookie_params();
+        setcookie(session_name(), '', time() - 42000, $params['path'], $params['domain'], $params['secure'], $params['httponly']);
+    }
 
-      body {
-        background: #111;
-        color: #ff4d4d;
-        display: flex;
-        justify-content: center;
-        align-items: center;
-        font-family: 'Courier New', monospace;
-        text-align: center;
-        user-select: none;
-      }
-
-      h1 {
-        font-size: clamp(30px, 8vw, 50px); 
-        animation: flicker 1.5s infinite;
-        margin: 0; 
-      }
-
-      @keyframes flicker {
-        0%, 19%, 21%, 23%, 25%, 54%, 56%, 100% { opacity: 1; }
-        20%, 22%, 24%, 55% { opacity: 0.3; }
-      }
-    </style>
-  </head>
-<body>
-    <div class="box">
-        <h1>Access Denied</h1>
-    </div>
-</body>
-</html>
-<?php
-    exit();
+    // Shared component — see core/AuthRedirect.php. Sets its own no-cache
+    // headers, redirects to the RMS login page, and exits.
+    AuthRedirect::toLogin();
 }
 
 // Get the user's name from session
@@ -123,12 +129,17 @@ try {
 $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled';
 ?>
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
   <title>Chatify - CSPC</title>
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover, interactive-widget=resizes-content">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, interactive-widget=resizes-content">
   <meta charset="UTF-8">
-  <link rel="icon" href="cspc.png" type="image/png" />
+  <meta name="description" content="Chatify - real-time messaging para sa CSPC.">
+  <link rel="icon" href="cspc.webp" type="image/png" />
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="preload" as="style" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" onload="this.onload=null;this.rel='stylesheet'">
+  <noscript><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap"></noscript>
   <!-- Apply dark mode BEFORE page renders to prevent flash -->
   <script>
     (function() {
@@ -148,7 +159,6 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
     })();
   </script>
   <style>
-    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap');
 
     /* Light mode variables (default) */
     :root {
@@ -168,7 +178,7 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
       --text-secondary: #65676b;
       --text-bubble-sent: #ffffff;
       --text-bubble-received: #050505;
-      --text-sender-sent: rgba(255, 255, 255, 0.7);
+      --text-sender-sent: #ffffff; /* was rgba(255,255,255,0.7) — 2.99:1 contrast on #1b74e4, failed WCAG AA (needs 4.5:1); solid white gives the max achievable ~4.5:1 on this background */
       --text-sender-received: #65676b;
       --text-time-sent: rgba(255, 255, 255, 0.5);
       --text-time-received: #65676b;
@@ -212,7 +222,7 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
       --text-secondary: #b0b3b8;
       --text-bubble-sent: #ffffff;
       --text-bubble-received: #e4e6eb;
-      --text-sender-sent: rgba(255, 255, 255, 0.7);
+      --text-sender-sent: #ffffff; /* see light-mode note above — same fix for dark mode */
       --text-sender-received: #b0b3b8;
       --text-time-sent: rgba(255, 255, 255, 0.5);
       --text-time-received: #b0b3b8;
@@ -725,7 +735,7 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
       vertical-align: middle;
       display: inline-block;
       flex-shrink: 0;
-      /* Prevent dragging the logo out (e.g. to open cspc.png directly in a
+      /* Prevent dragging the logo out (e.g. to open cspc.webp directly in a
          new tab) and prevent it from being selected like text/an image. */
       -webkit-user-drag: none;
       -khtml-user-drag: none;
@@ -1180,6 +1190,7 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
 
     .message-sender {
       font-weight: 500;
+      display: none;
     }
 
     .sent .message-sender {
@@ -2490,19 +2501,19 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
 
       <div class="header">
         <div class="header-left">
-          <button id="burgerButton" class="clear-button" style="display:none;margin-right:10px;min-width:auto;">
+          <button id="burgerButton" class="clear-button" style="display:none;margin-right:10px;min-width:auto;" aria-label="Open menu" title="Open menu">
             <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="3" y1="12" x2="21" y2="12"></line><line x1="3" y1="6" x2="21" y2="6"></line><line x1="3" y1="18" x2="21" y2="18"></line></svg>
           </button>
-          <button id="backButton" class="clear-button" style="display:none;margin-right:10px;padding:0 10px;min-width:auto;">
+          <button id="backButton" class="clear-button" style="display:none;margin-right:10px;padding:0 10px;min-width:auto;" aria-label="Go back" title="Go back">
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="19" y1="12" x2="5" y2="12"></line><polyline points="12 19 5 12 12 5"></polyline></svg>
           </button>
-          <img src="cspc.png" alt="GhostLAN ghost logo" class="header-logo" draggable="false" ondragstart="return false;" oncontextmenu="return false;">
+          <img src="cspc.webp" width="28" height="28" alt="GhostLAN ghost logo" class="header-logo" draggable="false" ondragstart="return false;" oncontextmenu="return false;">
           <h1 id="chatHeaderTitle"></h1>
         </div>
       
       <div class="header-buttons">
           <!-- Dark mode button for all users -->
-          <button class="darkmode-button" id="darkModeToggle">
+          <button class="darkmode-button" id="darkModeToggle" aria-label="Toggle dark mode" title="Toggle dark mode">
             <svg class="moon-icon" viewBox="0 0 24 24">
               <path d="M12 3c-4.97 0-9 4.03-9 9s4.03 9 9 9 9-4.03 9-9c0-.46-.04-.92-.1-1.36-.98 1.37-2.58 2.26-4.4 2.26-3.03 0-5.5-2.47-5.5-5.5 0-1.82.89-3.42 2.26-4.4-.44-.06-.9-.1-1.36-.1z"/>
             </svg>
@@ -2555,7 +2566,7 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
             <svg class="name-icon" viewBox="0 0 24 24">
               <path d="M12 2C13.1 2 14 2.9 14 4C14 5.1 13.1 6 12 6C10.9 6 10 5.1 10 4C10 2.9 10.9 2 12 2ZM21 9V7L15 4V6L21 9ZM15 10.26L21 7.26V9.26L15 12.26V10.26ZM12 7C16.42 7 20 8.79 20 11V13C20 15.21 16.42 17 12 17S4 15.21 4 13V11C4 8.79 7.58 7 12 7Z"/>
             </svg>
-            <input type="text" id="nameInput" placeholder="" required readonly value="<?php echo htmlspecialchars($user_name); ?>">
+            <input type="text" id="nameInput" placeholder="" required readonly aria-label="Your display name" value="<?php echo htmlspecialchars($user_name); ?>">
             <?php if ($is_admin): ?>
             <span class="admin-input-badge" title="You are the Super Admin">
               <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
@@ -2702,7 +2713,7 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
       </div>
       <div class="modal-body" style="padding:16px;">
         <p style="font-size:12px;color:var(--subtext-color);margin-bottom:12px;text-align:left;line-height:1.4;">
-          Update the secret key used for deleting conversations and wiping chat history in PostgreSQL.
+          Update the secret key used for deleting conversations and wiping chat history.
         </p>
         <form id="adminKeyForm" onsubmit="handleSecretKeyUpdate(event)">
           <div style="margin-bottom:10px;text-align:left;">
@@ -2719,7 +2730,7 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
           </div>
           <div id="adminKeyError" style="font-size:12px;color:#e74c3c;display:none;margin-bottom:8px;text-align:center;font-weight:600;"></div>
           <div id="adminKeySuccess" style="font-size:12px;color:#2ecc71;display:none;margin-bottom:8px;text-align:center;font-weight:600;"></div>
-          <button type="submit" style="display:none;"></button>
+          <button type="submit" style="display:none;" aria-hidden="true" tabindex="-1"></button>
         </form>
       </div>
       <div class="modal-footer">
@@ -2731,8 +2742,17 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
   <?php endif; ?>
 
   <?php
-  // Generate HMAC SHA256 token for WebSocket authentication
-  $ws_expires = time() + 86400; // 24 hours
+  // Generate HMAC SHA256 token for WebSocket authentication.
+  //
+  // SECURITY NOTE: this token is only ever minted here, immediately after
+  // the top-of-file Auth::check() gate has already confirmed a live RMS
+  // session. Its lifetime is intentionally short (15 min, not 24h) because
+  // the WS server has no direct access to the RMS session store — the
+  // "expires" claim, plus the periodic reauth below, is the only thing
+  // standing between "RMS session died" and "socket stays open anyway".
+  // A 24h token meant a socket authenticated once would stay authenticated
+  // for a full day even if the person logged out five minutes later.
+  $ws_expires = time() + 900; // 15 minutes — must be re-authenticated via reauth below
   $ws_payload = $_current_account_id . '|' . $ws_expires;
   $ws_token = hash_hmac('sha256', $ws_payload, CHAT_SHARED_SECRET);
   ?>
@@ -2743,6 +2763,48 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
       expires: <?php echo $ws_expires; ?>,
       token: <?php echo json_encode($ws_token); ?>
     };
+
+    // ── Periodic WS reauth ───────────────────────────────────────────────
+    // Every 5 minutes (well inside the 15-minute token lifetime), re-run
+    // the *server-side* RMS check by calling refresh_ws_token.php, which
+    // re-executes Auth::check() against the live RMS session before
+    // minting anything. If the RMS session is gone, this call fails and we
+    // treat it exactly like a forced session-kick: tear down the socket
+    // and send the person to login. If it succeeds, we push the fresh
+    // token to the already-open socket so the server extends its validity
+    // — the socket is never trusted indefinitely off a single handshake.
+    function reauthWebSocket() {
+      if (!ws || ws.readyState !== WebSocket.OPEN) return;
+      fetch('refresh_ws_token.php', { credentials: 'same-origin' })
+        .then(function (res) {
+          if (!res.ok) throw new Error('refresh failed: ' + res.status);
+          return res.json();
+        })
+        .then(function (data) {
+          if (!data || !data.token) throw new Error('malformed refresh response');
+          wsConfig.expires = data.expires;
+          wsConfig.token = data.token;
+          if (ws && ws.readyState === WebSocket.OPEN) {
+            ws.send(JSON.stringify({
+              type: 'reauth',
+              account_id: wsConfig.accountId,
+              expires: wsConfig.expires,
+              token: wsConfig.token
+            }));
+          }
+        })
+        .catch(function () {
+          // RMS session is gone (401/expired) or the request itself
+          // failed — do not keep the socket alive on the old token.
+          // Reuse the same overlay path as an explicit session kick.
+          if (typeof showSessionKickedOverlay === 'function') {
+            showSessionKickedOverlay('expired');
+          } else {
+            window.location.href = 'logout.php';
+          }
+        });
+    }
+    setInterval(reauthWebSocket, 5 * 60 * 1000);
   </script>
 
   <script>
@@ -2842,6 +2904,35 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
     let localTypingHeartbeat = null;
     let typingTimer = null;
 
+    // Debounce timers for coalescing bursts of incoming WS 'message' events
+    // (e.g. someone sending several messages in quick succession) into a
+    // single load_dm.php / loadAdminConv fetch instead of one HTTP round
+    // trip per message. Without this, N messages arriving within a few
+    // hundred ms triggers N full loadChat(true) calls (each pulling the
+    // whole recent window AND firing mark_read.php) — needless load on the
+    // server for something that only needs to happen once per burst.
+    let dmLoadDebounceTimer = null;
+    let adminConvLoadDebounceTimer = null;
+    const WS_LOAD_DEBOUNCE_MS = 350;
+
+    function scheduleDmReload() {
+      if (dmLoadDebounceTimer) return; // a reload is already queued for this burst
+      dmLoadDebounceTimer = setTimeout(function() {
+        dmLoadDebounceTimer = null;
+        loadChat(true);
+      }, WS_LOAD_DEBOUNCE_MS);
+    }
+
+    function scheduleAdminConvReload(convKey) {
+      if (adminConvLoadDebounceTimer) return;
+      adminConvLoadDebounceTimer = setTimeout(function() {
+        adminConvLoadDebounceTimer = null;
+        // Guard against the admin having switched conversations while this
+        // was queued.
+        if (activeAdminConv === convKey) loadAdminConv(convKey, true);
+      }, WS_LOAD_DEBOUNCE_MS);
+    }
+
 
     // Exponential backoff state
     let wsAttempts = 0;
@@ -2926,18 +3017,26 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
             if (isGlobalChat) {
               loadGlobalChat(true);
             }
-            fetchNotifications();
-            fetchUsers();
+            // Global messages don't touch any per-user sidebar row, so no
+            // fetch_users_dm.php round trip needed here.
           } else if (data.chat_type === 'private') {
             if (activeAdminConv) {
               const parts = activeAdminConv.split('_').map(Number);
               const s = Number(data.sender_id);
               const r = Number(data.recipient_id);
               if ((s === parts[0] && r === parts[1]) || (s === parts[1] && r === parts[0])) {
-                loadAdminConv(activeAdminConv, true);
+                scheduleAdminConvReload(activeAdminConv);
               }
             } else if (activeDM && activeDMAccountId === Number(data.sender_id)) {
-              loadChat(true);
+              scheduleDmReload();
+              // Real-time "Seen": the recipient's chat with this sender is
+              // already open and visible right now, so mark it read the
+              // instant the message arrives instead of waiting for the
+              // debounced reload + DOM reconcile to finish. That round trip
+              // could take 350ms+ before mark_read.php ever fires; firing it
+              // here means the sender sees "Seen" appear essentially
+              // instantly, with no dependency on how loadChat() reconciles.
+              if (!document.hidden) markRead(activeDM);
             }
             // Admin spy mode: keep the "X msgs · last message" counts in the
             // conversations list live instead of only updating on the next manual search.
@@ -2949,12 +3048,50 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
                 fetchAdminConvs('', 0, false, spyId);
               }
             }
-            fetchNotifications();
-            fetchUsers();
+            // Our own just-sent messages are already patched into the
+            // sidebar directly by the send handler below — this branch only
+            // needs to react when someone else's message just came in.
+            if (Number(data.sender_id) !== wsConfig.accountId) {
+              const otherUser = allUsersData.find(u => Number(u.account_id) === Number(data.sender_id));
+              if (otherUser) {
+                bumpSidebarUser(otherUser.username, { incrementUnread: true });
+              } else {
+                // Sender isn't in the currently loaded/filtered sidebar list
+                // (e.g. a brand-new contact) — the one case that still needs
+                // a real fetch.
+                fetchUsers();
+              }
+            }
           }
         } else if (data.type === 'typing') {
           if (activeDM && activeDMAccountId === Number(data.sender_id)) {
             showTypingIndicator(data.sender_name, data.is_typing);
+          }
+        } else if (data.type === 'message_read') {
+          // The other participant just read up through data.last_msg_uuid —
+          // update the Messenger-style "Seen" indicator instantly, no poll needed.
+          if (activeDM && activeDMAccountId === Number(data.reader_id)) {
+            if (data.last_msg_uuid) {
+              // DB-confirmed value (arrived via the HTTP-persisted path) —
+              // always authoritative.
+              dmReadUpTo = data.last_msg_uuid;
+            } else {
+              // Instant WS-only ping, sent with no id attached (see
+              // markRead() above) — the other participant is actively here
+              // right now, so flag whatever we've most recently sent as
+              // seen using OUR OWN chatBox (accurate on this side), rather
+              // than waiting for the slower DB round trip to confirm it.
+              // Read state only ever moves forward, never backward.
+              let newestSentId = null;
+              chatBox.querySelectorAll('.message-container.sent[data-msg-id]').forEach(el => {
+                const id = el.getAttribute('data-msg-id');
+                if (id && (!newestSentId || id > newestSentId)) newestSentId = id;
+              });
+              if (newestSentId && (!dmReadUpTo || newestSentId > dmReadUpTo)) {
+                dmReadUpTo = newestSentId;
+              }
+            }
+            updateSeenIndicator();
           }
         } else if (data.type === 'chat_cleared') {
           console.log('Received WebSocket real-time update notice:', data);
@@ -2996,7 +3133,6 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
               fetchAdminConvs('', 0, false, spyId);
             }
           }
-          fetchNotifications();
           fetchUsers();
         } else if (data.type === 'all_cleared') {
           console.log('Received WebSocket real-time update notice:', data);
@@ -3013,7 +3149,29 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
           chatBox.innerHTML = '<div class="empty-chat"><p>All messages deleted.</p></div>';
           renderSidebarUsers();
           if (serverIsAdmin) renderAdminConvs();
-          fetchNotifications();
+          fetchUsers();
+        } else if (data.type === 'notify') {
+          // Pushed directly by the server the instant someone notifies/mentions
+          // us. This is the only delivery path now — no HTTP fallback poll.
+          console.log('Received WebSocket real-time update notice:', data);
+          showNotifyToast(data);
+        } else if (data.type === 'session_kicked') {
+          // Pushed by the server the instant another device logs into this
+          // account — no more waiting on the 5s checkSession() poll.
+          console.log('Received WebSocket real-time update notice:', data);
+          showSessionKickedOverlay(data.reason || 'kicked');
+        } else if (data.type === 'name_updated') {
+          // Pushed by the server the instant this account's name changes
+          // elsewhere — no more waiting on the 5s refreshOwnName() poll.
+          console.log('Received WebSocket real-time update notice:', data);
+          applyOwnNameUpdate(data.name);
+        } else if (data.type === 'users_changed') {
+          // Pushed by the server whenever something outside the chat itself
+          // affects the sidebar list — account created/deleted, visibility
+          // changed, etc. Message-driven sidebar refreshes already happen
+          // via the 'message'/'chat_cleared'/'all_cleared' cases above; this
+          // covers everything else without needing a blind poll for it.
+          console.log('Received WebSocket real-time update notice:', data);
           fetchUsers();
         }
       };
@@ -3193,45 +3351,52 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
       xhr.send();
     }
 
-    // Reopens the conversation the person had open before a refresh. Looked
-    // up directly by username via its own request (rather than relying on
-    // allUsersData, which may currently be narrowed by an unrelated, restored
-    // sidebar search filter) so the restore works no matter what's typed in
-    // the search box.
+    // Reopens the conversation the person had open before a refresh. This is
+    // called from inside fetchUsers()'s own onload, right after allUsersData
+    // has just been populated from an unfiltered (q='') request — so the
+    // match is looked up directly in that in-memory list instead of firing
+    // a second, duplicate fetch_users_dm.php request for the same data.
     function restoreActiveConversation(savedActiveDM) {
       if (savedActiveDM === '__global__') {
         selectGlobalChat();
         return;
       }
 
-      const xhr = new XMLHttpRequest();
-      xhr.open('GET', 'fetch_users_dm.php?q=' + encodeURIComponent(savedActiveDM), true);
-      xhr.onload = function() {
-        let matchedUser = null;
-        if (this.status === 200) {
-          try {
-            const data = JSON.parse(this.responseText);
-            const list = Array.isArray(data) ? data : (data.users || []);
-            matchedUser = list.find(u => u.username === savedActiveDM) || null;
-          } catch (e) { console.error('restoreActiveConversation parse error', e); }
-        }
-        if (matchedUser) {
-          selectDM(matchedUser);
-        } else {
-          // The saved conversation partner no longer exists / isn't reachable
-          // anymore — don't keep pointing at a chat we can't reopen.
-          localStorage.removeItem('activeDM');
-          chatBox.innerHTML = '<div class="empty-chat"><p>Camarines Sur Polytechnic Colleges</p></div>';
-        }
-      };
-      xhr.onerror = function() {
+      const matchedUser = allUsersData.find(u => u.username === savedActiveDM) || null;
+      if (matchedUser) {
+        selectDM(matchedUser);
+      } else {
+        // The saved conversation partner no longer exists / isn't reachable
+        // anymore — don't keep pointing at a chat we can't reopen.
+        localStorage.removeItem('activeDM');
         chatBox.innerHTML = '<div class="empty-chat"><p>Camarines Sur Polytechnic Colleges</p></div>';
-      };
-      xhr.send();
+      }
     }
 
     const sidebarUserItems = new Map(); // username -> item element
     let latestTotalUnread = 0;
+
+    // Patches one sidebar row in-place (unread badge, move-to-top ordering)
+    // using data we already have from a WS event or our own just-sent
+    // message — no fetch_users_dm.php round trip needed.
+    // Returns false if that user isn't in the currently loaded/filtered
+    // list, so the caller can fall back to a real fetch in that one case.
+    function bumpSidebarUser(username, opts) {
+      opts = opts || {};
+      const idx = allUsersData.findIndex(u => u.username === username);
+      if (idx === -1) return false;
+
+      const u = allUsersData[idx];
+      if (opts.incrementUnread && activeDM !== username) {
+        u.unreadCount = (u.unreadCount || 0) + 1;
+      }
+      if (idx > 0) {
+        allUsersData.splice(idx, 1);
+        allUsersData.unshift(u);
+      }
+      renderSidebarUsers();
+      return true;
+    }
 
     function renderSidebarUsers() {
       const query = searchInput ? searchInput.value.toLowerCase().trim() : '';
@@ -3266,7 +3431,7 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
         seen.add(u.username);
 
         let item = sidebarUserItems.get(u.username);
-        let avatar, dot, info, nameRow, nameEl, officeEl, msgEl, actionsRight;
+        let avatar, dot, info, nameRow, nameEl, officeEl, actionsRight;
 
         if (!item) {
           item = document.createElement('div');
@@ -3291,10 +3456,6 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
           officeEl.className = 'user-office';
           info.appendChild(officeEl);
 
-          msgEl = document.createElement('div');
-          msgEl.className = 'user-last-msg';
-          info.appendChild(msgEl);
-
           actionsRight = document.createElement('div');
           actionsRight.className = 'user-actions-right';
 
@@ -3308,7 +3469,6 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
           item._dot = dot;
           item._nameEl = nameEl;
           item._officeEl = officeEl;
-          item._msgEl = msgEl;
           item._actionsRight = actionsRight;
 
           sidebarUserItems.set(u.username, item);
@@ -3317,7 +3477,6 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
           dot = item._dot || item.querySelector('.status-dot');
           nameEl = item._nameEl || item.querySelector('.user-name');
           officeEl = item._officeEl || item.querySelector('.user-office');
-          msgEl = item._msgEl || item.querySelector('.user-last-msg');
           actionsRight = item._actionsRight || item.querySelector('.user-actions-right');
           item.onclick = () => selectDM(u);
         }
@@ -3338,12 +3497,18 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
 
         if (activeDM === u.username && chatHeaderTitle.textContent !== u.name) {
           chatHeaderTitle.textContent = u.name;
+          applyHeaderAdminBadge();
         }
 
         const targetIsAdmin = Number(u.account_id) === 1;
 
-        const newMsg = u.lastMessage || 'No messages yet';
-        if (msgEl.textContent !== newMsg) msgEl.textContent = newMsg;
+        // Verified badge next to the super admin's name in the sidebar
+        const sidebarBadge = nameEl.querySelector('.verified-badge');
+        if (targetIsAdmin) {
+          if (!sidebarBadge) injectBadge(nameEl);
+        } else if (sidebarBadge) {
+          sidebarBadge.remove();
+        }
 
         if (officeEl) {
           const newOffice = u.office_name ? u.office_name : 'No office assigned';
@@ -3524,20 +3689,6 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
       xhr.send('recipient_id=' + encodeURIComponent(notifyTargetUser.account_id) + '&message=' + encodeURIComponent(message));
     });
 
-    // ── Poll for incoming "someone notified you" toasts ──
-    function fetchNotifications() {
-      const xhr = new XMLHttpRequest();
-      xhr.open('GET', 'fetch_notifications.php', true);
-      xhr.onload = function() {
-        if (this.status !== 200) return;
-        try {
-          const data = JSON.parse(this.responseText);
-          (data.notifications || []).forEach(showNotifyToast);
-        } catch (e) { console.error('fetchNotifications parse error', e); }
-      };
-      xhr.send();
-    }
-
     // Max characters to show in the toast preview before truncating with "..."
     const TOAST_PREVIEW_LIMIT = 80;
 
@@ -3637,24 +3788,60 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
       if (u) u.unreadCount = 0;
       renderSidebarUsers();
 
-      function notifyParentBadge() {
-        try {
-          if (window.parent && window.parent !== window) {
-            window.parent.postMessage({ type: 'CHATIFY_MARK_READ' }, '*');
-          }
-        } catch (e) {}
+      const targetId = activeDMAccountId || 0;
+
+      // Fast path: relay over the already-open WebSocket, same as typing
+      // indicators — no new HTTP connection, no debounce, delivered to the
+      // other participant's live socket the instant this fires. Deliberately
+      // sends no last_msg_uuid: trying to compute one here from our own
+      // chatBox is unreliable (e.g. right when a new message just arrived
+      // via WS it hasn't been rendered into the DOM yet, and right after
+      // selectDM() the previous conversation's messages are still on
+      // screen). The receiving side fills in the correct id from its own
+      // chatBox instead — see the 'message_read' handler below.
+      if (ws && ws.readyState === WebSocket.OPEN && targetId) {
+        ws.send(JSON.stringify({ type: 'mark_read', target_id: targetId }));
       }
 
-      notifyParentBadge();
-
-      // Persist to server
+      // Durable path: persist to Postgres via HTTP so the correct read
+      // marker survives reloads / other tabs / the WS relay above being
+      // missed during a brief reconnect gap. This also re-broadcasts
+      // 'message_read' with the DB-confirmed last_msg_uuid shortly after,
+      // which harmlessly reconciles the indicator if the optimistic
+      // WS-only value above ever guessed wrong.
       const xhr = new XMLHttpRequest();
       xhr.open('POST', 'mark_read.php', true);
       xhr.setRequestHeader('Content-type', 'application/x-www-form-urlencoded');
-      xhr.onload = function() {
-        notifyParentBadge();
-      };
-      xhr.send('target_id=' + encodeURIComponent(activeDMAccountId || 0) + '&target_user=' + encodeURIComponent(targetUsername));
+      xhr.send('target_id=' + encodeURIComponent(targetId) + '&target_user=' + encodeURIComponent(targetUsername));
+    }
+
+    // Messenger-style "Seen" indicator: shown under the newest message WE sent
+    // that the other participant has actually read (dmReadUpTo). Re-run this
+    // any time dmReadUpTo changes or the message list is re-rendered — it's
+    // cheap (one DOM query over the currently-loaded page) and always fully
+    // recomputes rather than trying to patch the previous position, so it can
+    // never end up stuck under a stale message.
+    function updateSeenIndicator() {
+      const existing = chatBox.querySelector('.seen-indicator');
+      if (existing) existing.remove();
+
+      if (!dmReadUpTo || !activeDM || isGlobalChat) return;
+
+      // msg_uuid values are fixed-width hex ("msg_" + 10 hex ms + 6 hex rnd),
+      // so plain string comparison sorts them the same as chronological order.
+      const sentMessages = chatBox.querySelectorAll('.message-container.sent[data-msg-id]');
+      let target = null;
+      sentMessages.forEach(el => {
+        const id = el.getAttribute('data-msg-id');
+        if (id && id <= dmReadUpTo) target = el; // keep the newest qualifying one
+      });
+      if (!target) return;
+
+      const indicator = document.createElement('div');
+      indicator.className = 'seen-indicator';
+      indicator.textContent = 'Seen';
+      indicator.style.cssText = 'font-size:11px;color:var(--text-secondary);text-align:right;padding:2px 12px 6px 0;opacity:0.85;';
+      target.insertAdjacentElement('afterend', indicator);
     }
 
 
@@ -3671,6 +3858,9 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
     let dmCursor  = '';
     let dmHasMore = false;
     let dmViewingOlder = false; // true once the user has loaded an older window
+    // msg_uuid of the newest message the OTHER participant has read, or null.
+    // Drives the Messenger-style "Seen" indicator under our own last-read sent message.
+    let dmReadUpTo = null;
 
     function selectDM(u) {
       isGlobalChat = false;
@@ -3681,6 +3871,7 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
       dmCursor = '';
       dmHasMore = false;
       dmViewingOlder = false;
+      dmReadUpTo = null;
       clearSendingOverlay(); // drop any pending-send bubbles from the previous conversation
       hideEditBanner();
       
@@ -3702,6 +3893,7 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
       isFirstLoad = true; // snap straight to bottom once the new conversation's messages arrive
       localStorage.setItem('activeDM', u.username);
       chatHeaderTitle.textContent = u.name;
+      applyHeaderAdminBadge();
       // Note: we deliberately don't blank chatBox here. The previous chat's
       // messages stay on screen (harmlessly) until loadChat's diff logic swaps
       // them out the instant the new conversation's data arrives. Clearing it
@@ -4747,6 +4939,21 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
       </svg>`;
       el.appendChild(badge);
     }
+
+    // ── Verified badge on the chat header (1-on-1 DM title) ──
+    // Whenever the header title is set to the name of the person being
+    // chatted with, show the blue checkmark next to it if that person is
+    // the super admin. Re-checks every time so switching between an admin
+    // DM and a regular-user DM correctly adds/removes the badge.
+    function applyHeaderAdminBadge() {
+      const existing = chatHeaderTitle.querySelector('.verified-badge');
+      if (existing) existing.remove();
+      if (!adminNames || adminNames.length === 0) return;
+      const headerText = chatHeaderTitle.textContent.trim().toLowerCase();
+      if (headerText && adminNames.includes(headerText)) {
+        injectBadge(chatHeaderTitle);
+      }
+    }
     
     // Logout modal DOM refs
     const logoutModal = document.getElementById("logoutModal");
@@ -5437,6 +5644,7 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
         try { data = JSON.parse(this.responseText); } catch(e) { return; }
         const newHtml = data.html || '';
         dmHasMore = data.hasMore || false;
+        if (typeof data.readUpTo !== 'undefined') dmReadUpTo = data.readUpTo;
 
         if (loadOlderMode) {
           dmCursor = data.nextCursor || '';
@@ -5457,6 +5665,7 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
           trimWindowFromBottom(PAGE_SIZE);
           if (!dmHasMore) showNoMoreOlderNotice(); else if (!document.getElementById('loadOlderBtn')) insertLoadOlderBtn();
           applyAdminBadges(); applyEmojiOnly();
+          updateSeenIndicator();
           return;
         }
 
@@ -5479,6 +5688,14 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
         if (rec.type === 'nochange') {
           if (isFirstLoad) { isFirstLoad = false; handleFirstLoadScroll(); }
           if (dmHasMore && !document.getElementById('loadOlderBtn') && !document.getElementById('noMoreOlderNotice')) insertLoadOlderBtn();
+          // Safety net: even when nothing new rendered (e.g. this reload was
+          // triggered by the tab regaining visibility rather than a genuinely
+          // new message), still sync the read marker while the chat is open
+          // and visible — otherwise a read state bump can be missed whenever
+          // the WS-triggered markRead() above didn't fire for some reason
+          // (e.g. reconnect gap) and this poll finds no DOM diff to react to.
+          if (!document.hidden && activeDM) markRead(activeDM);
+          updateSeenIndicator();
           return;
         }
 
@@ -5508,6 +5725,7 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
           else showScrollIndicator(rec.items.filter(el => el.classList.contains('message-container')).length);
           applyAdminBadges(); applyEmojiOnly();
           if (!document.hidden && activeDM) markRead(activeDM);
+          updateSeenIndicator();
           if (dmHasMore && !document.getElementById('loadOlderBtn') && !document.getElementById('noMoreOlderNotice')) insertLoadOlderBtn();
           return;
         }
@@ -5546,6 +5764,7 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
         }
         applyAdminBadges(); applyEmojiOnly();
         if (!document.hidden && activeDM) markRead(activeDM);
+        updateSeenIndicator();
         // Chat was rebuilt from scratch (e.g. cleared), so pagination state no longer applies
         dmCursor = data.nextCursor || '';
         dmViewingOlder = false;
@@ -5891,10 +6110,10 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
                     <div class="message-click-timestamp">${fullTimeDisplay}</div>
                     <div class="message-bubble${emojiOnlyClass}">
                       <div class="message-content">${escapeHtml(msgContent)}</div>
-                      <div class="message-info"><span class="message-sender">${senderLabel}</span></div>
                     </div>
                   </div>
                 `;
+                  applyAdminBadges();
                   if (isAtBottom()) scrollToBottom(true, true);
                 }
               }
@@ -5928,8 +6147,19 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
             else loadChatForced();
           }
 
-          // Refresh sidebar user positions and unread status
-          fetchUsers();
+          // Patch the sidebar locally instead of re-fetching the whole user
+          // list — we already know exactly what changed: this conversation
+          // moves to the top and shows this message as its preview. No
+          // fetch_users_dm.php round trip needed for our own sent messages.
+          if (!isGlobalChat && activeDM) {
+            const sentText = (confirmedMsg && confirmedMsg.plaintext) ? confirmedMsg.plaintext : message;
+            if (!bumpSidebarUser(activeDM, { lastMessage: sentText })) {
+              // Conversation partner isn't in the currently loaded/filtered
+              // sidebar list (e.g. still under a search filter) — the one
+              // case that still needs a real fetch.
+              fetchUsers();
+            }
+          }
         } else {
           // Server error — remove only THIS send's optimistic bubble
           if (sendIndId) {
@@ -6644,13 +6874,16 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
 
       // ── Adaptive sidebar polling ──────────────────────────────────────────────
       // • Poll every 3 s  when WebSocket is disconnected (fallback mode).
-      // • Poll every 10 s when WebSocket is live (WS already pushes new msgs).
+      // • Poll every 60 s when WebSocket is live — real-time refreshes now
+      //   come from the 'message'/'chat_cleared'/'all_cleared'/'users_changed'
+      //   WS pushes; this tick is just a rarely-needed safety net, not the
+      //   primary path, so it doesn't need to run every few seconds anymore.
       // • Skip the tick entirely while the tab is hidden to save CPU/battery.
       let sidebarPollInterval = null;
       function startSidebarPoll() {
         if (sidebarPollInterval) clearInterval(sidebarPollInterval);
         const wsAlive = ws && ws.readyState === WebSocket.OPEN;
-        const delay   = wsAlive ? 10000 : 3000;
+        const delay   = wsAlive ? 60000 : 3000;
         sidebarPollInterval = setInterval(function() {
           if (document.hidden) return;
           fetchUsers();
@@ -6669,12 +6902,10 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
       startSidebarPoll();
       fetchUsers();
 
-      // Poll for incoming notify/mention toasts every 4 seconds
-      setInterval(function() {
-        if (document.hidden) return;
-        fetchNotifications();
-      }, 4000);
-      fetchNotifications();
+      // One-shot catch-up for any notify/mention toasts that arrived while we
+      // were offline (e.g. a missed WS push before this tab connected). Live
+      // delivery from here on is the server's 'notify' WS push (see
+      // ws.onmessage above) — no more blind 4s polling.
     });
     
     // Handle page visibility change
@@ -6695,12 +6926,22 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
           loadGlobalChat(false);
         } else if (activeDM) {
           loadChat(false);
+          // Don't wait on that fetch to resolve before syncing the read
+          // marker — the chat is visibly open again right now, so mark it
+          // read immediately (loadChat's own markRead calls further down
+          // will simply no-op/repeat harmlessly once it resolves).
+          markRead(activeDM);
         } else if (activeAdminConv) {
           loadAdminConv(activeAdminConv, false);
         }
 
         // 3. Also refresh sidebar so unread badges are current
         fetchUsers();
+
+        // 3b. Catch up immediately on session validity + own-name changes,
+        // since checkSession()/refreshOwnName() now skip ticks while hidden.
+        checkSession();
+        refreshOwnName();
 
         // 4. Resume the fallback poll if WebSocket is still down
         if (!ws || ws.readyState !== WebSocket.OPEN) {
@@ -6717,8 +6958,13 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
       }
     });
 
-    // Clean up WebSocket on page unload
-    window.addEventListener('beforeunload', function() {
+    // Clean up WebSocket on page unload.
+    // NOTE: 'pagehide' is used instead of 'beforeunload' — an unload/beforeunload
+    // listener disqualifies the page from the back/forward cache (bfcache) in
+    // Chrome/Firefox/Safari, which was flagged by Lighthouse ("Page prevented
+    // back/forward cache restoration"). 'pagehide' fires at the same point for
+    // this cleanup purpose but does not block bfcache.
+    window.addEventListener('pagehide', function() {
       if (localIsTyping && activeDMAccountId) {
         sendTypingStatus(false);
       }
@@ -6727,64 +6973,91 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
       }
     });
 
+    // ── bfcache re-validation guard ────────────────────────────────────────
+    // This page deliberately uses a cache-control limiter that allows
+    // back/forward-cache restoration (see the comment at the top of this
+    // file). bfcache restores the DOM exactly as it was WITHOUT re-running
+    // any PHP on the server — so navigating back to this tab after logging
+    // out of RMS in another tab/step could otherwise redisplay the last
+    // authenticated view straight from the browser's cache.
+    // event.persisted === true means this load came from bfcache rather
+    // than a real network request, so we force a real reload, which goes
+    // through the server-side Auth::check() gate at the very top of this
+    // file again. The reload — not this listener — is what makes the
+    // authentication decision; JS here only forces the real check to run.
+    window.addEventListener('pageshow', function(event) {
+      if (event.persisted) {
+        window.location.reload();
+      }
+    });
 
-    // Check session validity every 5 seconds.
-    // If another device logs in on the same account, reason = 'kicked' → show overlay then redirect.
+
+    // ── Session kick / expiry overlay ─────────────────────────────────────
+    // Primary path: the server pushes a 'session_kicked' WS event the instant
+    // another device logs into this account (see ws.onmessage above) — this
+    // fires immediately, no polling needed. checkSession() below is kept only
+    // as an HTTP fallback for the window where the WS itself is down.
     let sessionKicked = false;
+    function showSessionKickedOverlay(reason) {
+      if (sessionKicked) return;
+      sessionKicked = true;
+      const isKicked = reason === 'kicked';
+      const title = isKicked ? 'Logged in on another device' : 'Session expired';
+      const body  = isKicked
+      ? 'Your account has been logged in on another device or browser. You will be automatically redirected to the login page.'
+      : 'Your session has expired. Please log in again.';
+
+      // Dismiss virtual keyboard on Android & iOS before showing overlay.
+      // Blurring the active element forces the keyboard to retract immediately.
+      if (document.activeElement && typeof document.activeElement.blur === 'function') {
+        document.activeElement.blur();
+      }
+      // iOS Safari extra: move focus to body so keyboard fully collapses
+      document.body.focus();
+
+      // Show overlay
+      const overlay = document.createElement('div');
+      overlay.style.cssText = `
+        position:fixed;inset:0;z-index:99999;
+        background:rgba(0,0,0,0.72);
+        display:flex;align-items:center;justify-content:center;
+        font-family:'Inter',sans-serif;
+      `;
+      overlay.innerHTML = `
+        <div style="
+          background:var(--bg-secondary,#fff);
+          border-radius:14px;padding:32px 28px;
+          max-width:320px;width:90%;
+          text-align:center;
+          box-shadow:0 8px 32px rgba(0,0,0,0.28);
+        ">
+          <div style="font-size:38px;margin-bottom:12px;">⚠️</div>
+          <div style="font-size:16px;font-weight:700;color:var(--text-primary,#050505);margin-bottom:8px;">${title}</div>
+          <div style="font-size:13px;color:var(--text-secondary,#65676b);margin-bottom:22px;line-height:1.5;">${body}</div>
+          <button onclick="window.location.href='logout.php'" style="
+            background:#1b74e4;color:#fff;border:none;border-radius:8px;
+            padding:10px 28px;font-size:14px;font-weight:600;cursor:pointer;
+            font-family:'Inter',sans-serif;width:100%;
+          ">OK</button>
+        </div>
+      `;
+      document.body.appendChild(overlay);
+
+      // Auto-redirect after 8 seconds — no need to wait for user to tap OK
+      setTimeout(() => { window.location.href = 'logout.php'; }, 8000);
+    }
+
     function checkSession() {
       if (sessionKicked) return;
+      if (document.hidden) return; // don't poll while tab is in background
       const xhr = new XMLHttpRequest();
       xhr.open('GET', 'check_session.php', true);
       xhr.onload = function() {
         if (this.status === 200) {
           try {
             const response = JSON.parse(this.responseText);
-            if (!response.valid && !sessionKicked) {
-              sessionKicked = true;
-              const isKicked = response.reason === 'kicked';
-              const title = isKicked ? 'Logged in on another device' : 'Session expired';
-              const body  = isKicked
-              ? 'Your account has been logged in on another device or browser. You will be automatically redirected to the login page.'
-              : 'Your session has expired. Please log in again.';
-
-              // Dismiss virtual keyboard on Android & iOS before showing overlay.
-              // Blurring the active element forces the keyboard to retract immediately.
-              if (document.activeElement && typeof document.activeElement.blur === 'function') {
-                document.activeElement.blur();
-              }
-              // iOS Safari extra: move focus to body so keyboard fully collapses
-              document.body.focus();
-
-              // Show overlay
-              const overlay = document.createElement('div');
-              overlay.style.cssText = `
-                position:fixed;inset:0;z-index:99999;
-                background:rgba(0,0,0,0.72);
-                display:flex;align-items:center;justify-content:center;
-                font-family:'Inter',sans-serif;
-              `;
-              overlay.innerHTML = `
-                <div style="
-                  background:var(--bg-secondary,#fff);
-                  border-radius:14px;padding:32px 28px;
-                  max-width:320px;width:90%;
-                  text-align:center;
-                  box-shadow:0 8px 32px rgba(0,0,0,0.28);
-                ">
-                  <div style="font-size:38px;margin-bottom:12px;">⚠️</div>
-                  <div style="font-size:16px;font-weight:700;color:var(--text-primary,#050505);margin-bottom:8px;">${title}</div>
-                  <div style="font-size:13px;color:var(--text-secondary,#65676b);margin-bottom:22px;line-height:1.5;">${body}</div>
-                  <button onclick="window.location.href='logout.php'" style="
-                    background:#1b74e4;color:#fff;border:none;border-radius:8px;
-                    padding:10px 28px;font-size:14px;font-weight:600;cursor:pointer;
-                    font-family:'Inter',sans-serif;width:100%;
-                  ">OK</button>
-                </div>
-              `;
-              document.body.appendChild(overlay);
-
-              // Auto-redirect after 3 seconds — no need to wait for user to tap OK
-              setTimeout(() => { window.location.href = 'logout.php'; }, 8000);
+            if (!response.valid) {
+              showSessionKickedOverlay(response.reason);
             }
           } catch (e) {
             console.error('Error checking session:', e);
@@ -6794,33 +7067,49 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
       xhr.send();
     }
 
-    // Poll every 5 seconds so kicked sessions are detected quickly
-    setInterval(checkSession, 5000);
+    // Fallback-only poll: the server pushes 'session_kicked' over WS in real
+    // time now, so this just catches the rare case where the WS connection
+    // itself is down. Slow interval since it's a safety net, not the primary path.
+    setInterval(function() {
+      const wsAlive = ws && ws.readyState === WebSocket.OPEN;
+      if (!wsAlive) checkSession();
+    }, 15000);
 
     // ── Live-refresh the logged-in user's own name (no page reload needed) ───
-    // If a user's name is changed in the main system while this tab stays
-    // open, poll a small endpoint and push the fresh name into the UI/WS
-    // config as soon as it changes, instead of waiting for the next reload.
-    // Applies to every user, not just the Super Admin.
+    // Primary path: the server pushes a 'name_updated' WS event the instant
+    // this account's name changes elsewhere (see ws.onmessage above).
+    // refreshOwnName() below is kept only as an HTTP fallback for when the WS
+    // connection is down. Applies to every user, not just the Super Admin.
+    function applyOwnNameUpdate(newName) {
+      if (!newName || newName === wsConfig.name) return; // unchanged
+
+      wsConfig.name = newName;
+      if (nameInput) nameInput.value = newName;
+
+      // Push the updated name to the WS server so the typing indicator
+      // (which reads from the server-side cached name) stays current.
+      if (ws && ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify({ type: 'update_name', name: newName }));
+      }
+    }
+
     function refreshOwnName() {
+      if (document.hidden) return; // don't poll while tab is in background
       fetch('get_current_name.php', { credentials: 'same-origin' })
         .then(function (res) { return res.ok ? res.json() : null; })
         .then(function (data) {
           if (!data || !data.name) return;
-          if (data.name === wsConfig.name) return; // unchanged
-
-          wsConfig.name = data.name;
-          if (nameInput) nameInput.value = data.name;
-
-          // Push the updated name to the WS server so the typing indicator
-          // (which reads from the server-side cached name) stays current.
-          if (ws && ws.readyState === WebSocket.OPEN) {
-            ws.send(JSON.stringify({ type: 'update_name', name: data.name }));
-          }
+          applyOwnNameUpdate(data.name);
         })
         .catch(function () { /* silent — keep last known name */ });
     }
-    setInterval(refreshOwnName, 5000);
+
+    // Fallback-only poll: same reasoning as checkSession above — the WS push
+    // is the primary path, this just covers the WS-down window.
+    setInterval(function() {
+      const wsAlive = ws && ws.readyState === WebSocket.OPEN;
+      if (!wsAlive) refreshOwnName();
+    }, 15000);
 
   </script>
 </body>

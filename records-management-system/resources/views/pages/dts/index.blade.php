@@ -494,9 +494,10 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
     {
         $this->selectedTransaction = DB::table('dts_transactions as dt')
             ->join('dts_transaction_details as dtd', 'dtd.id', '=', 'dt.transaction_id')
+            ->leftJoin('office as originated_office', 'originated_office.office_code', '=', 'dtd.originated_from')
             ->leftJoin('dts_email_access as dea', 'dea.id', '=', 'dtd.email_access')
             ->where('dt.transaction_id', $this->selectedTransactionId)
-            ->select('dt.*', 'dtd.*', 'dea.email as access_email')
+            ->select('dt.*', 'dtd.*', 'dea.email as access_email', 'originated_office.office_name as originated_office_name')
             ->first();
 
         if ($this->selectedTransaction) {
@@ -1476,25 +1477,30 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
                             </div>
                         @endif
 
-                        <!-- Transaction Flow field -->
+                        <!-- Document Type field (formerly Flow) -->
                         <div class="receive-field-row" style="align-items: center;">
-                            <span class="receive-field-label">Flow:</span>
+                            <span class="receive-field-label">Document Type:</span>
                             @if ($editingAll)
                                 @php
                                     $availableFlows = DB::table('dts_transaction_flow')
                                         ->where('is_active', true)
+                                        ->where('flow_name', 'not like', 'Flow for %')
                                         ->orWhere('flow_code', $transactionFlow)
                                         ->orderBy('flow_name', 'asc')
                                         ->get();
                                 @endphp
                                 <select class="receive-field-input" wire:model.live="transactionFlow" style="height: 38px; padding: 0 10px; border-radius: 6px; border: 1px solid #cbd5e1; outline: none; background: #fff;">
                                     @foreach ($availableFlows as $f)
-                                        <option value="{{ $f->flow_code }}">{{ $f->flow_name }}</option>
+                                        <option value="{{ $f->flow_code }}">{{ $f->referenced_flow ?: $f->flow_name }}</option>
                                     @endforeach
                                 </select>
                             @else
                                 @php
-                                    $flowName = DB::table('dts_transaction_flow')->where('flow_code', $transactionFlow)->value('flow_name') ?? $transactionFlow;
+                                    $flowRow = DB::table('dts_transaction_flow')->where('flow_code', $transactionFlow)->first();
+                                    $flowName = $flowRow?->referenced_flow ?: ($flowRow?->flow_name ?: $transactionFlow);
+                                    if (!empty($flowName) && str_starts_with($flowName, 'Flow for ')) {
+                                        $flowName = ucfirst($selectedTransaction->trans_type ?? 'Internal');
+                                    }
                                 @endphp
                                 <input type="text" class="receive-field-input" value="{{ $flowName }}" readonly style="background-color: #f8fafc; color: #64748b;">
                             @endif
@@ -1522,6 +1528,10 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
                         @if ($showMoreDetails)
                             <div style="border-top: 1.5px dashed #e2e8f0; padding-top: 12px; margin-top: 6px;">
                                 <div class="receive-field-row" style="grid-template-columns: 180px 1fr; margin-bottom: 12px; align-items: center;">
+                                    <span class="receive-field-label" style="font-weight: 600; color: #475569; white-space: nowrap;">Originator:</span>
+                                    <input type="text" class="receive-field-input" value="{{ $selectedTransaction->originated_office_name ?? 'N/A' }}" readonly style="background-color: #f8fafc; color: #64748b;">
+                                </div>
+                                <div class="receive-field-row" style="grid-template-columns: 180px 1fr; margin-bottom: 12px; align-items: center;">
                                     <span class="receive-field-label" style="font-weight: 600; color: #475569; white-space: nowrap;">Requestor Name:</span>
                                     @if ($editingAll)
                                         <input type="text" class="receive-field-input" wire:model="requestorName">
@@ -1543,28 +1553,32 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
                                         <input type="text" class="receive-field-input" value="{{ $fileCode ?: 'N/A' }}" readonly style="background-color: #f8fafc; color: #64748b;">
                                     </div>
                                 @endif
-                                <div class="receive-field-row" style="grid-template-columns: 180px 1fr; margin-bottom: 12px; align-items: center;">
-                                    <span class="receive-field-label" style="font-weight: 600; color: #475569; white-space: nowrap;">Email Access:</span>
-                                    @if ($editingAll)
-                                        <input type="email" class="receive-field-input" wire:model="emailAccess">
-                                    @else
-                                        <input type="text" class="receive-field-input" value="{{ $emailAccess ?: 'N/A' }}" readonly style="background-color: #f8fafc; color: #64748b;">
-                                    @endif
-                                </div>
-                                <div class="receive-field-row" style="grid-template-columns: 180px 1fr; margin-bottom: 4px; align-items: center;">
-                                    <span class="receive-field-label" style="font-weight: 600; color: #475569; white-space: nowrap;">Document Password:</span>
-                                    <div style="display: flex; gap: 8px; width: 100%; align-items: center;">
+                                @if ($editingAll || (!empty(trim($emailAccess ?? '')) && $emailAccess !== 'N/A'))
+                                    <div class="receive-field-row" style="grid-template-columns: 180px 1fr; margin-bottom: 12px; align-items: center;">
+                                        <span class="receive-field-label" style="font-weight: 600; color: #475569; white-space: nowrap;">Email Access:</span>
                                         @if ($editingAll)
-                                            <input type="text" class="receive-field-input" wire:model="docPassword" style="flex: 1;">
+                                            <input type="email" class="receive-field-input" wire:model="emailAccess">
                                         @else
-                                            <input type="{{ $showPassword ? 'text' : 'password' }}" class="receive-field-input" value="{{ $docPassword ?: 'N/A' }}" readonly style="background-color: #f8fafc; color: #64748b; flex: 1;">
-                                            <button type="button" wire:click="$toggle('showPassword')" style="background: #e2e8f0; border: 1px solid #cbd5e1; color: #475569; border-radius: 6px; padding: 8px 12px; font-size: 13px; font-weight: 600; cursor: pointer; display: inline-flex; align-items: center; gap: 6px; outline: none; transition: all 0.2s ease; height: 38px;">
-                                                <i class="fa-solid {{ $showPassword ? 'fa-eye-slash' : 'fa-eye' }}"></i>
-                                                {{ $showPassword ? 'Hide' : 'Show' }}
-                                            </button>
+                                            <input type="text" class="receive-field-input" value="{{ $emailAccess }}" readonly style="background-color: #f8fafc; color: #64748b;">
                                         @endif
                                     </div>
-                                </div>
+                                @endif
+                                @if ($editingAll || (!empty(trim($docPassword ?? '')) && $docPassword !== 'N/A'))
+                                    <div class="receive-field-row" style="grid-template-columns: 180px 1fr; margin-bottom: 4px; align-items: center;">
+                                        <span class="receive-field-label" style="font-weight: 600; color: #475569; white-space: nowrap;">Document Password:</span>
+                                        <div style="display: flex; gap: 8px; width: 100%; align-items: center;">
+                                            @if ($editingAll)
+                                                <input type="text" class="receive-field-input" wire:model="docPassword" style="flex: 1;">
+                                            @else
+                                                <input type="{{ $showPassword ? 'text' : 'password' }}" class="receive-field-input" value="{{ $docPassword }}" readonly style="background-color: #f8fafc; color: #64748b; flex: 1;">
+                                                <button type="button" wire:click="$toggle('showPassword')" style="background: #e2e8f0; border: 1px solid #cbd5e1; color: #475569; border-radius: 6px; padding: 8px 12px; font-size: 13px; font-weight: 600; cursor: pointer; display: inline-flex; align-items: center; gap: 6px; outline: none; transition: all 0.2s ease; height: 38px;">
+                                                    <i class="fa-solid {{ $showPassword ? 'fa-eye-slash' : 'fa-eye' }}"></i>
+                                                    {{ $showPassword ? 'Hide' : 'Show' }}
+                                                </button>
+                                            @endif
+                                        </div>
+                                    </div>
+                                @endif
                             </div>
                         @endif
                     </div>

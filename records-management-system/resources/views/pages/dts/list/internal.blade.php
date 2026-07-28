@@ -144,7 +144,7 @@ new #[Layout('layouts.dts')] #[Title('DTS - Internal Transactions')] class exten
             'dtd.subject',
             'dtd.classification',
             'dtd.date_created',
-            'flow.flow_name as doc_type_name',
+            DB::raw("COALESCE(NULLIF(flow.referenced_flow, ''), flow.flow_name) as doc_type_name"),
             'originated_office.office_name as originated_office_name',
             'current_office.office_name as current_office_name',
             'doc.document_name'
@@ -765,7 +765,7 @@ new #[Layout('layouts.dts')] #[Title('DTS - Internal Transactions')] class exten
                             <td>{{ $t->qr_code }}</td>
                             <td>{{ $t->originated_office_name }}</td>
                             <td>{{ $t->subject }}</td>
-                            <td>{{ $t->doc_type_name ?? ucfirst($t->classification ?: 'Internal') }}</td>
+                            <td>{{ (!empty($t->doc_type_name) && !str_starts_with($t->doc_type_name, 'Flow for ')) ? $t->doc_type_name : ucfirst($t->classification ?: 'Internal') }}</td>
                             <td>{{ \Carbon\Carbon::parse($t->date_created)->format('Y-m-d H:i') }}</td>
                             <td>{{ $t->current_office_name }}</td>
                             <td style="text-align: center;">

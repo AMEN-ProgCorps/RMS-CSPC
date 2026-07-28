@@ -164,7 +164,7 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
             'dtd.classification',
             'dtd.action_needed',
             'dtd.date_created',
-            'flow.flow_name as doc_type_name',
+            DB::raw("COALESCE(NULLIF(flow.referenced_flow, ''), flow.flow_name) as doc_type_name"),
             'originated_office.office_name as originated_office_name',
             'current_office.office_name as current_office_name',
             'doc.document_name'
@@ -1039,6 +1039,8 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
                             'added_by' => auth()->id() ?? 1,
                             'date_added' => now(),
                             'flow_use' => 'none',
+                            'flow_for' => 'system',
+                            'referenced_flow' => $flow ? ($flow->referenced_flow ?? $flow->flow_name) : null,
                         ]);
 
                         foreach ($this->flowOffices as $rank => $officeData) {
@@ -1241,7 +1243,7 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
                                          @endif
                                      </td>
                                     <td style="font-weight: 600; color: #1e40af; text-align: center;">{{ $t->control_number }}</td>
-                                    <td>{{ $t->doc_type_name ?? ucfirst($t->trans_type) }}</td>
+                                    <td>{{ (!empty($t->doc_type_name) && !str_starts_with($t->doc_type_name, 'Flow for ')) ? $t->doc_type_name : ucfirst($t->trans_type) }}</td>
                                     <td>{{ $t->originated_office_name ?? 'N/A' }}</td>
                                     <td>{{ $t->date_received ? \Carbon\Carbon::parse($t->date_received)->format('Y-m-d H:i') : 'N/A' }}</td>
                                     <td>{{ $t->next_office_name }}</td>
@@ -1274,7 +1276,7 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
                                      @endif
                                  </td>
                                 <td style="font-weight: 600; color: #1e40af; text-align: center;">{{ $t->control_number }}</td>
-                                <td>{{ $t->doc_type_name ?? ucfirst($t->trans_type) }}</td>
+                                <td>{{ (!empty($t->doc_type_name) && !str_starts_with($t->doc_type_name, 'Flow for ')) ? $t->doc_type_name : ucfirst($t->trans_type) }}</td>
                                 <td>{{ $t->originated_office_name ?? 'N/A' }}</td>
                                 <td>{{ $t->date_received ? \Carbon\Carbon::parse($t->date_received)->format('Y-m-d H:i') : 'N/A' }}</td>
                                 <td>{{ $t->next_office_name }}</td>
@@ -1349,7 +1351,7 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
                                 <div style="margin-bottom: 6px;"><strong>Unit/College:</strong> {{ $t->originated_office_name }}</div>
                                 <div style="margin-bottom: 6px;"><strong>Name of Requestor:</strong> {{ $t->requestor_name }} @if(!empty($t->requestor_label)) <span style="font-size: 12px; color: #6b7280; font-weight: normal;">({{ $t->requestor_label }})</span> @endif</div>
                                 <div style="margin-bottom: 6px;"><strong>Control Number:</strong> <span style="font-weight: 600; color: #1e40af;">{{ $t->control_number }}</span></div>
-                                <div style="margin-bottom: 14px;"><strong>Type of Document:</strong> {{ $t->doc_type_name ?? ucfirst($t->trans_type) }}</div>
+                                <div style="margin-bottom: 14px;"><strong>Type of Document:</strong> {{ (!empty($t->doc_type_name) && !str_starts_with($t->doc_type_name, 'Flow for ')) ? $t->doc_type_name : ucfirst($t->trans_type) }}</div>
 
                                 <div style="margin-bottom: 6px;"><strong>Originator:</strong> <span style="color: #ef4444; font-weight: 500;">{{ $t->originated_office_name ?? 'N/A' }}</span></div>
                                 <div style="margin-bottom: 14px;"><strong>Receive Date:</strong> {{ $t->date_received ? \Carbon\Carbon::parse($t->date_received)->format('Y-m-d H:i') : 'N/A' }}</div>
@@ -1400,7 +1402,7 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
                             <div style="margin-bottom: 6px;"><strong>Unit/College:</strong> {{ $t->originated_office_name }}</div>
                             <div style="margin-bottom: 6px;"><strong>Name of Requestor:</strong> {{ $t->requestor_name }} @if(!empty($t->requestor_label)) <span style="font-size: 12px; color: #6b7280; font-weight: normal;">({{ $t->requestor_label }})</span> @endif</div>
                             <div style="margin-bottom: 6px;"><strong>Control Number:</strong> <span style="font-weight: 600; color: #1e40af;">{{ $t->control_number }}</span></div>
-                            <div style="margin-bottom: 14px;"><strong>Type of Document:</strong> {{ $t->doc_type_name ?? ucfirst($t->trans_type) }}</div>
+                            <div style="margin-bottom: 14px;"><strong>Type of Document:</strong> {{ (!empty($t->doc_type_name) && !str_starts_with($t->doc_type_name, 'Flow for ')) ? $t->doc_type_name : ucfirst($t->trans_type) }}</div>
 
                             <div style="margin-bottom: 6px;"><strong>Originator:</strong> <span style="color: #ef4444; font-weight: 500;">{{ $t->originated_office_name ?? 'N/A' }}</span></div>
                             <div style="margin-bottom: 14px;"><strong>Receive Date:</strong> {{ $t->date_received ? \Carbon\Carbon::parse($t->date_received)->format('Y-m-d H:i') : 'N/A' }}</div>

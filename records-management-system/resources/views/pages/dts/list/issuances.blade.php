@@ -146,7 +146,7 @@ new #[Layout('layouts.dts')] #[Title('DTS - Issuances')] class extends Component
             'dtd.classification',
             'dtd.action_needed',
             'dtd.date_created',
-            'flow.flow_name as doc_type_name',
+            DB::raw("COALESCE(NULLIF(flow.referenced_flow, ''), flow.flow_name) as doc_type_name"),
             'originated_office.office_name as originated_office_name',
             'current_office.office_name as current_office_name',
             'doc.document_name'

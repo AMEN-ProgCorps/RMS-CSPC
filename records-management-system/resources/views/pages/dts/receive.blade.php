@@ -1098,6 +1098,8 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Receive Transac
                             'added_by' => auth()->id() ?? 1,
                             'date_added' => now(),
                             'flow_use' => 'none',
+                            'flow_for' => 'system',
+                            'referenced_flow' => $flow ? ($flow->referenced_flow ?? $flow->flow_name) : null,
                         ]);
 
                         foreach ($this->flowOffices as $rank => $officeData) {

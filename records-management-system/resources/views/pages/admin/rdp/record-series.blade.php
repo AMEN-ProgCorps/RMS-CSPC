@@ -457,6 +457,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Record Series')] class e
         $query = DB::table('rdp_record_series')
             ->leftJoin('rdp_retention_period', 'rdp_record_series.retention_period', '=', 'rdp_retention_period.id')
             ->leftJoin('rdp_record_series as parent', 'rdp_record_series.parent_id', '=', 'parent.id')
+            ->where('rdp_record_series.is_verified', true)
             ->select([
                 'rdp_record_series.*',
                 'rdp_retention_period.active_period',
@@ -477,10 +478,10 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Record Series')] class e
             $query->where('rdp_record_series.is_active', $this->statusFilter === '1');
         }
 
-        $totalSeries = DB::table('rdp_record_series')->count();
-        $activeSeries = DB::table('rdp_record_series')->where('is_active', true)->count();
-        $inactiveSeries = DB::table('rdp_record_series')->where('is_active', false)->count();
-        $withRetention = DB::table('rdp_record_series')->where('is_retention_period_permanent', true)->count();
+        $totalSeries = DB::table('rdp_record_series')->where('is_verified', true)->count();
+        $activeSeries = DB::table('rdp_record_series')->where('is_verified', true)->where('is_active', true)->count();
+        $inactiveSeries = DB::table('rdp_record_series')->where('is_verified', true)->where('is_active', false)->count();
+        $withRetention = DB::table('rdp_record_series')->where('is_verified', true)->where('is_retention_period_permanent', true)->count();
 
         // Get all series for parent dropdown
         $allFetched = $query->orderByRaw('rdp_record_series.item_number ASC NULLS LAST, rdp_record_series.series_title ASC')->get();
@@ -513,6 +514,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Record Series')] class e
         );
 
         $allSeries = DB::table('rdp_record_series')
+            ->where('is_verified', true)
             ->select('id', 'series_title')
             ->orderBy('series_title', 'asc')
             ->get();

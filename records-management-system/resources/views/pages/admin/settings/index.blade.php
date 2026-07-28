@@ -118,19 +118,25 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - System Settings')] class
         $paths = [base_path('.env'), base_path('.env.docker')];
         foreach ($paths as $envPath) {
             if (!file_exists($envPath)) continue;
-            $content = file_get_contents($envPath);
-            foreach ($data as $key => $value) {
-                $valStr = (string) $value;
-                if (preg_match('/\s/', $valStr)) {
-                    $valStr = '"' . addslashes($valStr) . '"';
+            try {
+                $content = @file_get_contents($envPath);
+                if ($content === false) continue;
+                foreach ($data as $key => $value) {
+                    $valStr = (string) $value;
+                    if (preg_match('/\s/', $valStr)) {
+                        $valStr = '"' . addslashes($valStr) . '"';
+                    }
+                    if (preg_match("/^{$key}=.*/m", $content)) {
+                        $content = preg_replace("/^{$key}=.*/m", "{$key}={$valStr}", $content);
+                    } else {
+                        $content .= "\n{$key}={$valStr}";
+                    }
                 }
-                if (preg_match("/^{$key}=.*/m", $content)) {
-                    $content = preg_replace("/^{$key}=.*/m", "{$key}={$valStr}", $content);
-                } else {
-                    $content .= "\n{$key}={$valStr}";
-                }
+                @file_put_contents($envPath, $content);
+            } catch (\Throwable) {
+                // If .env or .env.docker is read-only for the webserver in Docker,
+                // the system_settings DB table handles credential persistence.
             }
-            file_put_contents($envPath, $content);
         }
     }
 

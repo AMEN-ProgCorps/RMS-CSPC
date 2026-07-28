@@ -2827,19 +2827,6 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
     const searchInput     = document.getElementById('searchInput');
     const adminSearchInput = document.getElementById('adminSearchInput');
 
-    // ── Persist search box contents across tab refreshes ─────────────────────
-    // Previously the search text lived only in the input's live DOM value, so
-    // refreshing the tab silently wiped it out. Restore whatever was typed
-    // last (per-tab, via localStorage) before anything else on init reads
-    // these inputs' .value (e.g. fetchUsers(), applyAdminAllChatsView()).
-    if (searchInput) {
-      const savedSearchQuery = localStorage.getItem('__searchQuery__');
-      if (savedSearchQuery) searchInput.value = savedSearchQuery;
-    }
-    if (adminSearchInput) {
-      const savedAdminSearchQuery = localStorage.getItem('__adminSearchQuery__');
-      if (savedAdminSearchQuery) adminSearchInput.value = savedAdminSearchQuery;
-    }
     const chatHeaderTitle = document.getElementById('chatHeaderTitle');
     const sidebar         = document.getElementById('sidebar');
     const backButton      = document.getElementById('backButton');
@@ -3844,6 +3831,7 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
       target.insertAdjacentElement('afterend', indicator);
     }
 
+
     // State for global chat
     let isGlobalChat = false;
     // How many messages are fetched per page AND how many are kept on screen at
@@ -4373,13 +4361,6 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
         adminSpyTargetUser = null; // Reset user selection when typing new search
         const query = adminSearchInput.value.trim();
 
-        // Keep the search box's contents across refreshes
-        if (query === '') {
-          localStorage.removeItem('__adminSearchQuery__');
-        } else {
-          localStorage.setItem('__adminSearchQuery__', query);
-        }
-
         adminSearchTimeout = setTimeout(() => {
           fetchAdminConvs(query, 0, false, 0);
         }, 250);
@@ -4603,13 +4584,6 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
     searchInput.addEventListener('input', () => {
       if (searchTimeout) clearTimeout(searchTimeout);
       const query = searchInput.value.trim();
-
-      // Keep the search box's contents across refreshes
-      if (query === '') {
-        localStorage.removeItem('__searchQuery__');
-      } else {
-        localStorage.setItem('__searchQuery__', query);
-      }
 
       if (query === '') {
         fetchUsers();
@@ -7109,7 +7083,6 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
       const wsAlive = ws && ws.readyState === WebSocket.OPEN;
       if (!wsAlive) refreshOwnName();
     }, 15000);
-
   </script>
 </body>
 </html>

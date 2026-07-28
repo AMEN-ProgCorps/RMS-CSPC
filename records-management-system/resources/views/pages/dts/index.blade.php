@@ -85,9 +85,9 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
 
     public function getTransactionsProperty()
     {
-        $userOfficeCode = auth()->user()?->details?->office?->office_code;
-        $canViewAll = auth()->user()?->permissions?->is_sadm || auth()->user()?->permissions?->can_dts_view_all_current_trans;
-        if (!$userOfficeCode && !$canViewAll) {
+        $userOfficeCode = auth()->user()?->details?->office?->office_code 
+            ?? \App\Services\DocumentStorageService::resolveOfficeCode(auth()->user());
+        if (!$userOfficeCode) {
             return new \Illuminate\Pagination\LengthAwarePaginator([], 0, $this->perPage);
         }
 
@@ -95,8 +95,11 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
             ->join('dts_transaction_details as dtd', 'dtd.id', '=', 'dt.transaction_id')
             ->leftJoin('office as originated_office', 'originated_office.office_code', '=', 'dtd.originated_from')
             ->leftJoin('office as current_office', 'current_office.office_code', '=', 'dt.current_office')
+            ->leftJoin('dts_transaction_flow as flow', 'flow.flow_code', '=', 'dtd.transaction_flow')
             ->leftJoin('document_data as doc', 'doc.document_path', '=', 'dt.doc_dir')
-            ->where('dtd.is_active', 1);
+            ->where('dtd.is_active', 1)
+            ->where('dt.current_office', $userOfficeCode)
+            ->whereNotIn('dt.status', ['completed', 'cancelled']);
 
         $perms = auth()->user()?->permissions;
         if ($perms && !$perms->is_sadm) {
@@ -119,29 +122,6 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
             } else {
                 $query->whereIn('dt.trans_type', $allowedTypes);
             }
-        }
-
-        if (!$canViewAll) {
-            $query->where(function($q) use ($userOfficeCode) {
-                $q->where('dt.current_office', $userOfficeCode)
-                  ->orWhere('dtd.originated_from', $userOfficeCode)
-                  ->orWhereExists(function($subQuery) use ($userOfficeCode) {
-                      $subQuery->select(DB::raw(1))
-                          ->from('sub_document_tracking_system_logs')
-                          ->whereColumn('transaction_id', 'dt.transaction_id')
-                          ->where('office_code', $userOfficeCode);
-                  })
-                  ->orWhereExists(function($subQuery) use ($userOfficeCode) {
-                      $subQuery->select(DB::raw(1))
-                          ->from('dts_copy_filled_transaction as cf')
-                          ->join('dts_copy_filled_to_office as cfo', 'cf.assign_offices_id', '=', 'cfo.control_id')
-                          ->whereColumn('cf.id', 'dtd.copy_filled_id')
-                          ->where(function($cfq) use ($userOfficeCode) {
-                              $cfq->where('cfo.office_code', $userOfficeCode)
-                                  ->orWhere('cfo.office_code', 'ALL');
-                          });
-                  });
-            });
         }
 
         // Tab filters
@@ -184,6 +164,7 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
             'dtd.classification',
             'dtd.action_needed',
             'dtd.date_created',
+            'flow.flow_name as doc_type_name',
             'originated_office.office_name as originated_office_name',
             'current_office.office_name as current_office_name',
             'doc.document_name'
@@ -634,19 +615,17 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
         }
 
         try {
-            $filename = 'docs/dts-' . time() . '-' . Str::random(6) . '.pdf';
-            $path = $this->uploadedFile->storeAs('public', $filename);
-            $docPath = 'storage/' . $filename;
-
             $docId = 'DOC-' . strtoupper(Str::random(8));
-            DB::table('document_data')->insert([
-                'document_id' => $docId,
-                'document_name' => $this->selectedTransaction->subject ? (Str::limit($this->selectedTransaction->subject, 50) . ' PDF') : 'Attached Document PDF',
-                'document_path' => $docPath,
-                'date_added' => now(),
-                'date_modified' => now(),
-                'date_deleted' => now(),
-            ]);
+            $originalName = $this->uploadedFile->getClientOriginalName() ?: 'attached_document.pdf';
+
+            $uploadResult = \App\Services\DocumentStorageService::storeUpload(
+                $this->uploadedFile,
+                'DTS',
+                auth()->user(),
+                $docId,
+                $originalName
+            );
+            $docPath = $uploadResult['document_path'];
 
             $assignOfficesId = (DB::table('dts_copy_filled_transaction')->max('assign_offices_id') ?? 1000) + 1;
             $codeNum = trim($this->uploadFileCode) ?: ('FC-' . strtoupper(Str::random(6)));
@@ -1216,7 +1195,7 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
                         <th>REQUESTOR</th>
                         <th>CONTROL NO.</th>
                         <th>DOC TYPE</th>
-                        <th>FROM OFFICE</th>
+                        <th>ORIGINATOR</th>
                         <th>RECEIVED</th>
                         <th>NEXT OFFICE</th>
                         <th>ACTION NEEDED</th>
@@ -1262,8 +1241,8 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
                                          @endif
                                      </td>
                                     <td style="font-weight: 600; color: #1e40af; text-align: center;">{{ $t->control_number }}</td>
-                                    <td>{{ $t->document_name ?? ucfirst($t->trans_type) }}</td>
-                                    <td>{{ $t->from_office }}</td>
+                                    <td>{{ $t->doc_type_name ?? ucfirst($t->trans_type) }}</td>
+                                    <td>{{ $t->originated_office_name ?? 'N/A' }}</td>
                                     <td>{{ $t->date_received ? \Carbon\Carbon::parse($t->date_received)->format('Y-m-d H:i') : 'N/A' }}</td>
                                     <td>{{ $t->next_office_name }}</td>
                                     <td style="color: #16a34a; font-weight: 500;">{{ $t->action_needed ?? 'For action' }}</td>
@@ -1295,8 +1274,8 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
                                      @endif
                                  </td>
                                 <td style="font-weight: 600; color: #1e40af; text-align: center;">{{ $t->control_number }}</td>
-                                <td>{{ $t->document_name ?? ucfirst($t->trans_type) }}</td>
-                                <td>{{ $t->from_office }}</td>
+                                <td>{{ $t->doc_type_name ?? ucfirst($t->trans_type) }}</td>
+                                <td>{{ $t->originated_office_name ?? 'N/A' }}</td>
                                 <td>{{ $t->date_received ? \Carbon\Carbon::parse($t->date_received)->format('Y-m-d H:i') : 'N/A' }}</td>
                                 <td>{{ $t->next_office_name }}</td>
                                 <td style="color: #16a34a; font-weight: 500;">{{ $t->action_needed ?? 'For action' }}</td>
@@ -1370,9 +1349,9 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
                                 <div style="margin-bottom: 6px;"><strong>Unit/College:</strong> {{ $t->originated_office_name }}</div>
                                 <div style="margin-bottom: 6px;"><strong>Name of Requestor:</strong> {{ $t->requestor_name }} @if(!empty($t->requestor_label)) <span style="font-size: 12px; color: #6b7280; font-weight: normal;">({{ $t->requestor_label }})</span> @endif</div>
                                 <div style="margin-bottom: 6px;"><strong>Control Number:</strong> <span style="font-weight: 600; color: #1e40af;">{{ $t->control_number }}</span></div>
-                                <div style="margin-bottom: 14px;"><strong>Type of Document:</strong> {{ $t->document_name ?? ucfirst($t->trans_type) }}</div>
+                                <div style="margin-bottom: 14px;"><strong>Type of Document:</strong> {{ $t->doc_type_name ?? ucfirst($t->trans_type) }}</div>
 
-                                <div style="margin-bottom: 6px;"><strong>Receive From:</strong> <span style="color: #ef4444; font-weight: 500;">{{ $t->from_office }}</span></div>
+                                <div style="margin-bottom: 6px;"><strong>Originator:</strong> <span style="color: #ef4444; font-weight: 500;">{{ $t->originated_office_name ?? 'N/A' }}</span></div>
                                 <div style="margin-bottom: 14px;"><strong>Receive Date:</strong> {{ $t->date_received ? \Carbon\Carbon::parse($t->date_received)->format('Y-m-d H:i') : 'N/A' }}</div>
 
                                 <div style="margin-bottom: 14px;"><strong>Current Office:</strong> {{ $t->current_office_name }}</div>
@@ -1421,9 +1400,9 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
                             <div style="margin-bottom: 6px;"><strong>Unit/College:</strong> {{ $t->originated_office_name }}</div>
                             <div style="margin-bottom: 6px;"><strong>Name of Requestor:</strong> {{ $t->requestor_name }} @if(!empty($t->requestor_label)) <span style="font-size: 12px; color: #6b7280; font-weight: normal;">({{ $t->requestor_label }})</span> @endif</div>
                             <div style="margin-bottom: 6px;"><strong>Control Number:</strong> <span style="font-weight: 600; color: #1e40af;">{{ $t->control_number }}</span></div>
-                            <div style="margin-bottom: 14px;"><strong>Type of Document:</strong> {{ $t->document_name ?? ucfirst($t->trans_type) }}</div>
+                            <div style="margin-bottom: 14px;"><strong>Type of Document:</strong> {{ $t->doc_type_name ?? ucfirst($t->trans_type) }}</div>
 
-                            <div style="margin-bottom: 6px;"><strong>Receive From:</strong> <span style="color: #ef4444; font-weight: 500;">{{ $t->from_office }}</span></div>
+                            <div style="margin-bottom: 6px;"><strong>Originator:</strong> <span style="color: #ef4444; font-weight: 500;">{{ $t->originated_office_name ?? 'N/A' }}</span></div>
                             <div style="margin-bottom: 14px;"><strong>Receive Date:</strong> {{ $t->date_received ? \Carbon\Carbon::parse($t->date_received)->format('Y-m-d H:i') : 'N/A' }}</div>
 
                             <div style="margin-bottom: 14px;"><strong>Current Office:</strong> {{ $t->current_office_name }}</div>

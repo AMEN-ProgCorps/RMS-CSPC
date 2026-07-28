@@ -664,19 +664,17 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Receive Transac
         }
 
         try {
-            $filename = 'docs/dts-' . time() . '-' . Str::random(6) . '.pdf';
-            $path = $this->uploadedFile->storeAs('public', $filename);
-            $docPath = 'storage/' . $filename;
-
             $docId = 'DOC-' . strtoupper(Str::random(8));
-            DB::table('document_data')->insert([
-                'document_id' => $docId,
-                'document_name' => $this->selectedTransaction->subject ? (Str::limit($this->selectedTransaction->subject, 50) . ' PDF') : 'Attached Document PDF',
-                'document_path' => $docPath,
-                'date_added' => now(),
-                'date_modified' => now(),
-                'date_deleted' => now(),
-            ]);
+            $originalName = $this->uploadedFile->getClientOriginalName() ?: 'attached_document.pdf';
+
+            $uploadResult = \App\Services\DocumentStorageService::storeUpload(
+                $this->uploadedFile,
+                'DTS',
+                auth()->user(),
+                $docId,
+                $originalName
+            );
+            $docPath = $uploadResult['document_path'];
 
             $assignOfficesId = (DB::table('dts_copy_filled_transaction')->max('assign_offices_id') ?? 1000) + 1;
             $codeNum = trim($this->uploadFileCode) ?: ('FC-' . strtoupper(Str::random(6)));

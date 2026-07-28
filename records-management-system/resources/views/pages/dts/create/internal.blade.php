@@ -752,25 +752,8 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create Internal
 
             $qrCodeId = $this->generatedQrCode;
 
-            // Create document data record if type of document is provided
+            // Initial document path is null until transaction is completed/uploaded
             $docDir = null;
-            if (!empty($this->type_of_document)) {
-                $existingDoc = DB::table('document_data')
-                    ->where('document_name', $this->type_of_document)
-                    ->first();
-                if ($existingDoc) {
-                    $docDir = $existingDoc->document_path;
-                } else {
-                    $uploadResult = \App\Services\DocumentStorageService::storeUpload(
-                        'Document placeholder content for ' . $this->type_of_document,
-                        'DTS',
-                        auth()->user(),
-                        null,
-                        Str::slug($this->type_of_document) . '.pdf'
-                    );
-                    $docDir = $uploadResult['document_path'];
-                }
-            }
 
             $transactionId = 'TRANS-' . strtoupper(Str::random(10));
 

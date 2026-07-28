@@ -97,17 +97,20 @@ new #[Layout('layouts.dts')] #[Title('DTS - External Transactions')] class exten
 
     public function getTransactionsProperty()
     {
-        $userId = auth()->id();
+        $userOfficeCode = auth()->user()?->details?->office?->office_code 
+            ?? \App\Services\DocumentStorageService::resolveOfficeCode(auth()->user());
+
         $query = DB::table('dts_transactions as dt')
             ->join('dts_transaction_details as dtd', 'dtd.id', '=', 'dt.transaction_id')
             ->leftJoin('office as originated_office', 'originated_office.office_code', '=', 'dtd.originated_from')
             ->leftJoin('office as current_office', 'current_office.office_code', '=', 'dt.current_office')
+            ->leftJoin('dts_transaction_flow as flow', 'flow.flow_code', '=', 'dtd.transaction_flow')
             ->leftJoin('document_data as doc', 'doc.document_path', '=', 'dt.doc_dir')
             ->where('dt.trans_type', 'external');
 
         $canViewAll = auth()->user()?->permissions?->is_sadm || auth()->user()?->permissions?->can_dts_view_all_list;
         if (!$canViewAll) {
-            $query->where('dtd.created_by', $userId);
+            $query->where('dtd.originated_from', $userOfficeCode);
         }
 
         if ($this->selectedPriority !== 'all') {
@@ -143,6 +146,7 @@ new #[Layout('layouts.dts')] #[Title('DTS - External Transactions')] class exten
             'dtd.requestor_name',
             'dtd.action_needed',
             'dtd.date_created',
+            'flow.flow_name as doc_type_name',
             'originated_office.office_name as originated_office_name',
             'current_office.office_name as current_office_name',
             'doc.document_name'
@@ -397,19 +401,17 @@ new #[Layout('layouts.dts')] #[Title('DTS - External Transactions')] class exten
         }
 
         try {
-            $filename = 'docs/dts-' . time() . '-' . Str::random(6) . '.pdf';
-            $path = $this->uploadedFile->storeAs('public', $filename);
-            $docPath = 'storage/' . $filename;
-
             $docId = 'DOC-' . strtoupper(Str::random(8));
-            DB::table('document_data')->insert([
-                'document_id' => $docId,
-                'document_name' => $this->selectedTransaction->subject ? (Str::limit($this->selectedTransaction->subject, 50) . ' PDF') : 'Attached Document PDF',
-                'document_path' => $docPath,
-                'date_added' => now(),
-                'date_modified' => now(),
-                'date_deleted' => now(),
-            ]);
+            $originalName = $this->uploadedFile->getClientOriginalName() ?: 'attached_document.pdf';
+
+            $uploadResult = \App\Services\DocumentStorageService::storeUpload(
+                $this->uploadedFile,
+                'DTS',
+                auth()->user(),
+                $docId,
+                $originalName
+            );
+            $docPath = $uploadResult['document_path'];
 
             $assignOfficesId = (DB::table('dts_copy_filled_transaction')->max('assign_offices_id') ?? 1000) + 1;
             $codeNum = trim($this->uploadFileCode) ?: ('FC-' . strtoupper(Str::random(6)));
@@ -765,7 +767,7 @@ new #[Layout('layouts.dts')] #[Title('DTS - External Transactions')] class exten
                             <td>{{ $t->qr_code }}</td>
                             <td>{{ $t->originated_office_name }}</td>
                             <td>{{ $t->subject }}</td>
-                            <td>{{ $t->document_name ?? ucfirst($t->classification ?: 'external') }}</td>
+                            <td>{{ $t->doc_type_name ?? ucfirst($t->classification ?: 'External') }}</td>
                             <td>{{ \Carbon\Carbon::parse($t->date_created)->format('Y-m-d H:i') }}</td>
                             <td>{{ $t->current_office_name }}</td>
                             <td style="text-align: center;">

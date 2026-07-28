@@ -57,10 +57,6 @@ class ConversationManager
                 ");
 
                 try {
-                    $pdo->exec("ALTER TABLE chat_conversations ADD COLUMN IF NOT EXISTS msg_count INTEGER NOT NULL DEFAULT 1");
-                } catch (Throwable $t) {}
-
-                try {
                     $pdo->exec("CREATE INDEX IF NOT EXISTS idx_chat_conv_user1 ON chat_conversations (user_1, last_message_time DESC)");
                     $pdo->exec("CREATE INDEX IF NOT EXISTS idx_chat_conv_user2 ON chat_conversations (user_2, last_message_time DESC)");
                 } catch (Throwable $t) {}
@@ -90,6 +86,21 @@ class ConversationManager
             } catch (Throwable $t) {
                 error_log('ConversationManager::ensureConversationsTable() create fail — ' . $t->getMessage());
             }
+        }
+
+        // Self-heal schema drift: chat_conversations can already exist from an
+        // older version of the table (as it does in production) that predates
+        // the msg_count column. That ALTER used to live only inside the
+        // "table didn't exist yet" branch above, so on a pre-existing table it
+        // never ran. Every insertMessage() upsert then silently failed with
+        // "column msg_count does not exist" (caught as non-fatal and logged),
+        // so chat_conversations was NEVER inserted/updated — meaning nobody's
+        // sidebar ever reflected new or existing conversations. Run this
+        // unconditionally so it self-heals no matter which branch above ran.
+        try {
+            $pdo->exec("ALTER TABLE chat_conversations ADD COLUMN IF NOT EXISTS msg_count INTEGER NOT NULL DEFAULT 1");
+        } catch (Throwable $t) {
+            error_log('ConversationManager::ensureConversationsTable() msg_count backfill fail — ' . $t->getMessage());
         }
     }
 

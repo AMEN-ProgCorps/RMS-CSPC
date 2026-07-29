@@ -3034,7 +3034,10 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
         } else if (data.type === 'messages_response') {
           if (data.chat_type === 'global' && isGlobalChat) {
             processGlobalChatData(data.data || {});
-          } else if (data.chat_type === 'private' && activeDMAccountId === Number(data.target_id)) {
+          } else if (data.chat_type === 'private' && activeDM && (
+            (activeDMAccountId && Number(data.target_id) > 0 && activeDMAccountId === Number(data.target_id)) ||
+            (data.target_user && data.target_user === activeDM)
+          )) {
             processChatData(data.data || {}, activeDM);
           }
         } else if (data.type === 'message_edited') {
@@ -3078,9 +3081,16 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
               if ((s === parts[0] && r === parts[1]) || (s === parts[1] && r === parts[0])) {
                 scheduleAdminConvReload(activeAdminConv);
               }
-            } else if (activeDM && activeDMAccountId === Number(data.sender_id)) {
-              renderAndAppendWsMessage(data);
-              if (!document.hidden) markRead(activeDM);
+            } else if (activeDM) {
+              const sender = Number(data.sender_id);
+              const recip  = Number(data.recipient_id);
+              const isForThisConv =
+                (activeDMAccountId && (activeDMAccountId === sender || activeDMAccountId === recip));
+              if (isForThisConv && sender !== wsConfig.accountId) {
+                // Incoming message from the other person in the active DM
+                renderAndAppendWsMessage(data);
+                if (!document.hidden) markRead(activeDM);
+              }
             }
             // Admin spy mode: keep conversations list live
             if (isAdminAllChatsView && adminSpyType === 'conversations' && adminSpyTargetUser) {
@@ -3133,12 +3143,13 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
         } else if (data.type === 'chat_cleared') {
           console.log('Received WebSocket real-time update notice:', data);
           if (data.chat_type === 'private') {
-            if (activeDM && activeDMAccountId === Number(data.sender_id)) {
-              loadChat(true);
-            } else if (activeAdminConv) {
+            const s = Number(data.sender_id);
+            const r = Number(data.recipient_id);
+            if (activeDM && (activeDMAccountId === s || activeDMAccountId === r)) {
+              loadChat(false, false, true);
+            }
+            if (activeAdminConv) {
               const parts = activeAdminConv.split('_').map(Number);
-              const s = Number(data.sender_id);
-              const r = Number(data.recipient_id);
               if ((s === parts[0] && r === parts[1]) || (s === parts[1] && r === parts[0])) {
                 loadAdminConv(activeAdminConv, true);
               }
@@ -3153,7 +3164,7 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
               }
             }
             if (activeDM && (activeDMAccountId === a || activeDMAccountId === b)) {
-              loadChat(true);
+              loadChat(false, false, true);
             }
           }
           // Admin spy mode: keep the "X msgs · last message" counts in the
@@ -3173,8 +3184,6 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
           fetchUsers();
         } else if (data.type === 'all_cleared') {
           console.log('Received WebSocket real-time update notice:', data);
-          activeDM = null; activeAdminConv = null; isGlobalChat = false;
-          updateClearChatButtonVisibility();
           gcCursor = ''; dmCursor = '';
           gcViewingOlder = false; dmViewingOlder = false;
           allConvsData = [];
@@ -3183,7 +3192,15 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
           removePaginationBtn();
           const gcItem = document.getElementById('globalChatItem');
           if (gcItem) gcItem.classList.remove('active');
-          chatBox.innerHTML = '<div class="empty-chat"><p>All messages deleted.</p></div>';
+          if (isGlobalChat) {
+            // If viewing global chat, reload it (now empty)
+            loadGlobalChat(false);
+          } else {
+            activeDM = null; activeAdminConv = null; isGlobalChat = false;
+            updateClearChatButtonVisibility();
+            chatBox.innerHTML = '<div class="empty-chat"><p>All messages deleted.</p></div>';
+          }
+          allUsersData = [];
           renderSidebarUsers();
           if (serverIsAdmin) renderAdminConvs();
           fetchUsers();
@@ -3375,21 +3392,14 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
       const currentInput = searchInput ? searchInput.value.trim() : '';
       const q = query !== '' ? query : currentInput;
 
-      if (q === '' && ws && ws.readyState === WebSocket.OPEN) {
-        ws.send(JSON.stringify({
-          type: 'fetch_users_dm',
-          req_id: 'fu_' + Date.now(),
-          q: ''
-        }));
-        return;
-      }
-
+      // Always use XHR for reliability — WS real-time events (message,
+      // chat_cleared, all_cleared, users_changed) trigger fetchUsers() which
+      // then does a fresh XHR pull.  We do NOT go via the WS internal-fetch
+      // bridge here because that path depends on internalFetchPhp successfully
+      // reaching the PHP server, which can fail silently.
       const xhr = new XMLHttpRequest();
-      let url = "fetch_users_dm.php";
-      if (q !== '') {
-        url += "?q=" + encodeURIComponent(q);
-      }
-      xhr.open("GET", url, true);
+      const url = q !== '' ? 'fetch_users_dm.php?q=' + encodeURIComponent(q) : 'fetch_users_dm.php';
+      xhr.open('GET', url, true);
       xhr.onload = function() {
         if (this.status === 200) {
           try {
@@ -4649,6 +4659,9 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
       const query = searchInput.value.trim();
 
       if (query === '') {
+        // Immediately clear stale search results so sidebar shows loading state
+        allUsersData = [];
+        renderSidebarUsers();
         fetchUsers();
       } else {
         searchTimeout = setTimeout(() => {
@@ -5607,18 +5620,6 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
       if (isAutoPoll && !loadOlderMode && gcViewingOlder) return;
       isLoadingGC = true;
 
-      // Prefer WebSocket for initial/live chat loading
-      if (ws && ws.readyState === WebSocket.OPEN && !loadOlderMode) {
-        ws.send(JSON.stringify({
-          type: 'fetch_messages',
-          req_id: 'fgc_' + Date.now(),
-          chat_type: 'global',
-          before_uuid: ''
-        }));
-        isLoadingGC = false;
-        return;
-      }
-
       const cursor = loadOlderMode ? gcCursor : '';
 
       const xhr = new XMLHttpRequest();
@@ -5771,21 +5772,6 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
       isLoadingChat = true;
 
       const requestedUser = activeDM;
-
-      // Prefer WebSocket for initial/live chat loading
-      if (ws && ws.readyState === WebSocket.OPEN && !loadOlderMode) {
-        ws.send(JSON.stringify({
-          type: 'fetch_messages',
-          req_id: 'fdm_' + Date.now(),
-          chat_type: 'private',
-          target_id: activeDMAccountId || 0,
-          target_user: activeDM,
-          before_uuid: ''
-        }));
-        isLoadingChat = false;
-        return;
-      }
-
       const cursor = loadOlderMode ? dmCursor : '';
       const url = 'load_dm.php?target_id=' + encodeURIComponent(activeDMAccountId || 0) + '&target_user=' + encodeURIComponent(activeDM) + '&before_uuid=' + encodeURIComponent(cursor);
 

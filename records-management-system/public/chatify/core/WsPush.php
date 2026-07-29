@@ -52,6 +52,19 @@ class WsPush
         ]);
     }
 
+    /**
+     * System-wide broadcast to all connected WebSocket clients.
+     */
+    public static function broadcast(string $type, array $data = []): void
+    {
+        self::send([
+            'secret'    => INTERNAL_PUSH_SECRET,
+            'type'      => $type,
+            'broadcast' => true,
+            'data'      => $data,
+        ]);
+    }
+
     private static function send(array $payload): void
     {
         $body = json_encode($payload);

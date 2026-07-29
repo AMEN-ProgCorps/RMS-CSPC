@@ -3085,7 +3085,7 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
               const sender = Number(data.sender_id);
               const recip  = Number(data.recipient_id);
               const isForThisConv =
-                (activeDMAccountId && (activeDMAccountId === sender || activeDMAccountId === recip));
+                (activeDMAccountId && ((sender === wsConfig.accountId && recip === activeDMAccountId) || (sender === activeDMAccountId && recip === wsConfig.accountId)));
               if (isForThisConv && sender !== wsConfig.accountId) {
                 // Incoming message from the other person in the active DM
                 renderAndAppendWsMessage(data);
@@ -3101,7 +3101,7 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
                 fetchAdminConvs('', 0, false, spyId);
               }
             }
-            if (Number(data.sender_id) !== wsConfig.accountId) {
+            if (Number(data.recipient_id) === wsConfig.accountId && Number(data.sender_id) !== wsConfig.accountId) {
               const otherUser = allUsersData.find(u => Number(u.account_id) === Number(data.sender_id));
               if (otherUser) {
                 bumpSidebarUser(otherUser.username, { incrementUnread: true, lastMessage: data.message });
@@ -3111,7 +3111,7 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
             }
           }
         } else if (data.type === 'typing') {
-          if (activeDM && activeDMAccountId === Number(data.sender_id)) {
+          if (activeDM && activeDMAccountId === Number(data.sender_id) && (!data.recipient_id || Number(data.recipient_id) === wsConfig.accountId)) {
             showTypingIndicator(data.sender_name, data.is_typing);
           }
         } else if (data.type === 'message_read') {
@@ -3145,7 +3145,7 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
           if (data.chat_type === 'private') {
             const s = Number(data.sender_id);
             const r = Number(data.recipient_id);
-            if (activeDM && (activeDMAccountId === s || activeDMAccountId === r)) {
+            if (activeDM && activeDMAccountId && ((s === wsConfig.accountId && r === activeDMAccountId) || (s === activeDMAccountId && r === wsConfig.accountId))) {
               loadChat(false, false, true);
             }
             if (activeAdminConv) {
@@ -3163,7 +3163,7 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
                 loadAdminConv(activeAdminConv, true);
               }
             }
-            if (activeDM && (activeDMAccountId === a || activeDMAccountId === b)) {
+            if (activeDM && activeDMAccountId && ((a === wsConfig.accountId && b === activeDMAccountId) || (b === wsConfig.accountId && a === activeDMAccountId))) {
               loadChat(false, false, true);
             }
           }
@@ -3362,6 +3362,12 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
 
     let userSearchHasMore = false;
 
+    // Username to restore as a DM after the next fetchUsers() populates
+    // allUsersData.  Set by the spy-mode exit handler when allUsersData was
+    // empty at exit time (spy mode hides the regular sidebar so allUsersData
+    // is never populated while spy mode is active).
+    let pendingRestoreDM = null;
+
     function processUsersDmPayload(data) {
       if (Array.isArray(data)) {
         allUsersData = data;
@@ -3372,6 +3378,21 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
         serverIsAdmin = !!(data.currentUser && data.currentUser.is_admin);
       }
       renderSidebarUsers();
+
+      // Deferred restore: spy-mode exit sets this when allUsersData was empty at
+      // exit time.  Now that we have a fresh user list, open the DM immediately.
+      if (pendingRestoreDM) {
+        const pending = pendingRestoreDM;
+        pendingRestoreDM = null;
+        const matchedUser = allUsersData.find(u => u.username === pending);
+        if (matchedUser) {
+          selectDM(matchedUser);
+          return;
+        }
+        // User genuinely not in the list — show empty state
+        chatBox.innerHTML = '<div class="empty-chat"><p>Camarines Sur Polytechnic Colleges</p></div>';
+        return;
+      }
 
       if (!hasAutoSelected) {
         hasAutoSelected = true;
@@ -4609,6 +4630,8 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
 
     function openAdminConv(c) {
       activeAdminConv = c.convId;
+      activeDM = null;
+      activeDMAccountId = null;
       updateClearChatButtonVisibility();
       isGlobalChat = false; // must reset — otherwise polling/visibilitychange keep re-loading Global Chat over the spy view
       
@@ -4795,7 +4818,11 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
           applyAdminAllChatsView();
         } else {
           // Leaving spy view — restore the admin's conversation
-          const currentSpyConv = activeAdminConv || localStorage.getItem('activeSpyConv');
+
+          // Abort any in-flight spy-conv XHR so its response cannot
+          // reach the DOM after we switch back to normal mode.
+          if (adminConvXhr) { try { adminConvXhr.abort(); } catch(e){} adminConvXhr = null; }
+          isLoadingAdminConv = false;
 
           isAdminAllChatsView = false;
           localStorage.setItem('__adminAllChatsView__', '0');
@@ -4803,32 +4830,33 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
           updateClearChatButtonVisibility();
           localStorage.removeItem('activeSpyConv');
 
-          // Wipe chatBox innerHTML so reconcilePoll doesn't retain old spy-mode DOM nodes ("one liner")
+          // Reset all admin spy mode state & search inputs fully
+          adminSpyType = 'none';
+          adminSpyTargetUser = null;
+          adminSpyUsers = [];
+          adminSpyConvs = [];
+          adminSpyHasMore = false;
+          adminSpyOffset = 0;
+          adminSpyIsLoading = false;
+          if (adminSearchInput) adminSearchInput.value = '';
+          if (adminSearchTimeout) { clearTimeout(adminSearchTimeout); adminSearchTimeout = null; }
+
+          // Wipe chatBox innerHTML so reconcilePoll doesn't retain old spy-mode DOM nodes
           chatBox.innerHTML = '';
           isFirstLoad = true;
 
           applyAdminAllChatsView();
 
-          let savedAdminDM = preSpyDM || localStorage.getItem('__preSpyDM__');
-          let savedIsGlobal = preSpyIsGlobal || (localStorage.getItem('__preSpyIsGlobal__') === '1');
+          // Determine which conversation to restore.
+          // Priority: in-memory preSpyDM → localStorage activeDM → nothing.
+          // The old "currentSpyConv" fallback that tried to guess from the
+          // spied conv's participant IDs was the root cause of the bug: it
+          // was opening the SPIED user's conversation instead of the admin's.
+          let savedAdminDM = preSpyDM || null;
+          let savedIsGlobal = preSpyIsGlobal || false;
 
-          // Fallback: If no preSpyDM was set, but admin was viewing a spied conversation in spy mode
-          if (!savedAdminDM && !savedIsGlobal && currentSpyConv) {
-            const parts = String(currentSpyConv).split('_').map(Number);
-            if (parts.length === 2) {
-              const spiedUser = (allUsersData || []).find(u => 
-                (Number(u.account_id) === parts[0] || Number(u.account_id) === parts[1]) &&
-                Number(u.account_id) !== Number(myAccountId || 0)
-              );
-              if (spiedUser) {
-                savedAdminDM = spiedUser.username;
-              }
-            }
-          }
-
-          // Fallback: check activeDM in localStorage if not starting with __admin__
           if (!savedAdminDM && !savedIsGlobal) {
-            let locDM = localStorage.getItem('activeDM');
+            const locDM = localStorage.getItem('activeDM');
             if (locDM === '__global__') savedIsGlobal = true;
             else if (locDM && !locDM.startsWith('__admin__')) savedAdminDM = locDM;
           }
@@ -4840,11 +4868,10 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
             if (matchedUser) {
               selectDM(matchedUser);
             } else {
-              activeDM = null; activeDMAccountId = null;
-              localStorage.removeItem('activeDM');
-              chatHeaderTitle.textContent = '';
-              removePaginationBtn();
-              chatBox.innerHTML = '<div class="empty-chat"><p>Camarines Sur Polytechnic Colleges</p></div>';
+              // allUsersData is empty — defer until fetchUsers() repopulates it
+              pendingRestoreDM = savedAdminDM;
+              chatBox.innerHTML = '<div class="empty-chat"><p>Loading...</p></div>';
+              fetchUsers();
             }
           } else {
             activeDM = null; activeDMAccountId = null;

@@ -156,6 +156,15 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Receive Transac
             $this->errorMessage = "Warning: This transaction is currently at '{$currentOfficeName}'. Your office cannot receive or forward it at this stage.";
         }
 
+        // Check if already received at current office
+        $currentLog = DB::table('sub_document_tracking_system_logs')
+            ->where('transaction_id', $transaction->transaction_id)
+            ->where('office_code', $userOfficeCode)
+            ->orderBy('id', 'desc')
+            ->first();
+
+        $transaction->is_received = $currentLog && ($currentLog->type === 'received' || (!empty($currentLog->date_in) && $currentLog->type !== 'forwarded'));
+
         // Pre-resolve name of the next destination office in sequence
         $nextOfficeName = 'N/A';
         $flow = DB::table('dts_transaction_flow')->where('flow_code', $transaction->transaction_flow)->first();
@@ -188,6 +197,72 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Receive Transac
     }
 
     /**
+     * Mark the active transaction as RECEIVED (resets diff_in_minutes timer).
+     */
+    public function receiveTransaction(): void
+    {
+        $this->clearMessages();
+        if (!$this->activeTransaction) {
+            return;
+        }
+
+        $userOfficeCode = auth()->user()?->details?->office?->office_code;
+        if ($this->activeTransaction['current_office'] !== $userOfficeCode) {
+            $this->errorMessage = 'Unauthorized: This transaction is not currently at your office.';
+            return;
+        }
+
+        try {
+            DB::transaction(function () use ($userOfficeCode) {
+                $log = DB::table('sub_document_tracking_system_logs')
+                    ->where('transaction_id', $this->activeTransaction['transaction_id'])
+                    ->where('office_code', $userOfficeCode)
+                    ->orderBy('id', 'desc')
+                    ->first();
+
+                if ($log) {
+                    DB::table('sub_document_tracking_system_logs')
+                        ->where('id', $log->id)
+                        ->update([
+                            'type' => 'received',
+                            'date_in' => now(),
+                            'performed_by' => auth()->id(),
+                        ]);
+                } else {
+                    DB::table('sub_document_tracking_system_logs')->insert([
+                        'transaction_id' => $this->activeTransaction['transaction_id'],
+                        'office_code' => $userOfficeCode,
+                        'type' => 'received',
+                        'date_in' => now(),
+                        'date_out' => null,
+                        'notes' => 'Received via Scanner/Input',
+                        'performed_by' => auth()->id(),
+                    ]);
+                }
+
+                $flow = DB::table('dts_transaction_flow')
+                    ->where('flow_code', $this->activeTransaction['transaction_flow'])
+                    ->first();
+
+                if ($flow) {
+                    DB::table('dts_sequence_list')
+                        ->where('control_id', $flow->id)
+                        ->where('sequence_ranking', $this->activeTransaction['sequence'])
+                        ->update([
+                            'date_in' => now(),
+                            'scanned_id' => true,
+                        ]);
+                }
+
+                $this->successMessage = "Transaction {$this->activeTransaction['control_number']} has been successfully RECEIVED at your office. Timer reset to 0.";
+                $this->activeTransaction['is_received'] = true;
+            });
+        } catch (\Exception $e) {
+            $this->errorMessage = 'Failed to receive transaction: ' . $e->getMessage();
+        }
+    }
+
+    /**
      * Run routing forward transition for the loaded transaction.
      */
     public function proceedTransaction(): void
@@ -213,38 +288,38 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Receive Transac
                     throw new \Exception('Transaction flow not found.');
                 }
 
-                // Compute time duration
-                $duration = null;
+                // If not yet marked as received, set date_in now
                 $currentStep = DB::table('dts_sequence_list')
                     ->where('control_id', $flow->id)
                     ->where('sequence_ranking', $this->activeTransaction['sequence'])
                     ->first();
 
-                if ($currentStep && $currentStep->date_in) {
-                    $dateIn = Carbon::parse($currentStep->date_in);
-                    $dateOut = now();
-                    $diff = $dateIn->diff($dateOut);
-                    $parts = [];
-                    if ($diff->d > 0) {
-                        $parts[] = $diff->d . ' ' . Str::plural('day', $diff->d);
-                    }
-                    if ($diff->h > 0) {
-                        $parts[] = $diff->h . ' ' . Str::plural('hour', $diff->h);
-                    }
-                    if ($diff->i > 0) {
-                        $parts[] = $diff->i . ' ' . Str::plural('minute', $diff->i);
-                    }
-                    if (empty($parts)) {
-                        $parts[] = 'less than a minute';
-                    }
-                    $duration = implode(' ', $parts);
+                $dateInTime = ($currentStep && $currentStep->date_in) ? Carbon::parse($currentStep->date_in) : now();
+
+                // Compute time duration
+                $dateOut = now();
+                $diff = $dateInTime->diff($dateOut);
+                $parts = [];
+                if ($diff->d > 0) {
+                    $parts[] = $diff->d . ' ' . Str::plural('day', $diff->d);
                 }
+                if ($diff->h > 0) {
+                    $parts[] = $diff->h . ' ' . Str::plural('hour', $diff->h);
+                }
+                if ($diff->i > 0) {
+                    $parts[] = $diff->i . ' ' . Str::plural('minute', $diff->i);
+                }
+                if (empty($parts)) {
+                    $parts[] = 'less than a minute';
+                }
+                $duration = implode(' ', $parts);
 
                 // Update sequence step details - AND flag scanned_id as true
                 DB::table('dts_sequence_list')
                     ->where('control_id', $flow->id)
                     ->where('sequence_ranking', $this->activeTransaction['sequence'])
                     ->update([
+                        'date_in' => $currentStep->date_in ?? now(),
                         'date_out' => now(),
                         'action_needed' => $this->actionNeeded,
                         'note' => $this->notes,
@@ -294,30 +369,18 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Receive Transac
                             'status' => 'ongoing',
                         ]);
 
-                    // Update sequence step
-                    DB::table('dts_sequence_list')
-                        ->where('control_id', $flow->id)
-                        ->where('sequence_ranking', $this->activeTransaction['sequence'] + 1)
-                        ->update([
-                            'date_in' => now(),
-                            'date_out' => null,
-                            'action_needed' => null,
-                            'note' => null,
-                            'total_time_completed' => null,
-                        ]);
-
-                    // Log next step
+                    // Create log for next office (date_in remains null until received at next office)
                     DB::table('sub_document_tracking_system_logs')->insert([
                         'transaction_id' => $this->activeTransaction['transaction_id'],
                         'office_code' => $destOfficeCode,
                         'type' => 'forwarded',
-                        'date_in' => now(),
+                        'date_in' => null,
                         'date_out' => null,
                         'notes' => 'Forwarded from ' . (auth()->user()?->details?->office?->office_name ?: $userOfficeCode),
                         'performed_by' => auth()->id(),
                     ]);
 
-                    $this->successMessage = "Transaction {$this->activeTransaction['control_number']} successfully received and forwarded to {$this->activeTransaction['next_office_name']}.";
+                    $this->successMessage = "Transaction {$this->activeTransaction['control_number']} successfully forwarded to {$this->activeTransaction['next_office_name']}.";
                 } else {
                     // Final step completion
                     DB::table('dts_transactions')
@@ -491,10 +554,12 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Receive Transac
 
                 <!-- Loaded transaction display form -->
                 @if ($activeTransaction)
-                    <div style="background: #fff; border: 1.5px solid #3b82f6; border-radius: 12px; padding: 24px; box-shadow: 0 10px 15px -3px rgba(0,0,0,0.05); display: flex; flex-direction: column; gap: 16px;">
+                    <div style="background: #fff; border: 1.5px solid {{ $activeTransaction['is_received'] ? '#059669' : '#f59e0b' }}; border-radius: 12px; padding: 24px; box-shadow: 0 10px 15px -3px rgba(0,0,0,0.05); display: flex; flex-direction: column; gap: 16px;">
                         <div>
                             <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px;">
-                                <span style="font-size: 11px; font-weight: 700; text-transform: uppercase; color: #2563eb; letter-spacing: 0.05em;">Scanned Document Details</span>
+                                <span style="font-size: 11px; font-weight: 700; text-transform: uppercase; color: {{ $activeTransaction['is_received'] ? '#059669' : '#d97706' }}; letter-spacing: 0.05em;">
+                                    {{ $activeTransaction['is_received'] ? 'Status: Received (In Process)' : 'Status: Pending Receive' }}
+                                </span>
                                 <span style="font-size: 11px; font-weight: 600; padding: 2px 8px; background: #eff6ff; color: #2563eb; border-radius: 12px; text-transform: capitalize;">{{ $activeTransaction['type'] }}</span>
                             </div>
                             <h2 style="margin: 0; font-size: 16px; font-weight: 700; color: #1e293b; line-height: 1.4;">{{ $activeTransaction['subject'] }}</h2>
@@ -519,25 +584,40 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Receive Transac
                             </div>
                         </div>
 
-                        <!-- Forward routing actions -->
+                        <!-- Routing Action Buttons -->
                         <div style="display: flex; flex-direction: column; gap: 12px;">
-                            <div>
-                                <label style="display: block; font-size: 12px; font-weight: 600; color: #475569; margin-bottom: 6px;">Action Needed:</label>
-                                <select wire:model="actionNeeded" style="width: 100%; background: #f8fafc; color: #1e293b; border: 1.5px solid #cbd5e1; border-radius: 8px; padding: 10px; font-size: 13px; outline: none; cursor: pointer;">
-                                    @foreach(DB::table('dts_action_options')->orderBy('option_name', 'asc')->pluck('option_name') as $opt)
-                                        <option value="{{ $opt }}">{{ $opt }}</option>
-                                    @endforeach
-                                </select>
-                            </div>
+                            @if (!$activeTransaction['is_received'])
+                                <div style="background: #fffbeb; border: 1px solid #fef3c7; border-radius: 8px; padding: 10px 14px; color: #92400e; font-size: 12px;">
+                                    <i class="fa-solid fa-circle-info" style="margin-right: 6px;"></i> Click <strong>Receive Transaction</strong> to confirm arrival and start the timer.
+                                </div>
 
-                            <div>
-                                <label style="display: block; font-size: 12px; font-weight: 600; color: #475569; margin-bottom: 6px;">Notes (Optional):</label>
-                                <input type="text" wire:model="notes" placeholder="Type notes for the next stop..." style="width: 100%; background: #f8fafc; color: #1e293b; border: 1.5px solid #cbd5e1; border-radius: 8px; padding: 10px; font-size: 13px; outline: none;" />
-                            </div>
+                                <div style="display: flex; gap: 10px;">
+                                    <button type="button" wire:click="receiveTransaction" style="flex: 1; padding: 12px; background: #16a34a; color: white; border: none; border-radius: 8px; font-weight: 700; font-size: 13.5px; cursor: pointer; transition: all 0.2s; display: flex; align-items: center; justify-content: center; gap: 8px; box-shadow: 0 4px 6px -1px rgba(22,163,74,0.25);">
+                                        <i class="fa-solid fa-download"></i> Receive Transaction
+                                    </button>
+                                    <button type="button" wire:click="proceedTransaction" style="flex: 1; padding: 12px; background: #2563eb; color: white; border: none; border-radius: 8px; font-weight: 700; font-size: 13.5px; cursor: pointer; transition: all 0.2s; display: flex; align-items: center; justify-content: center; gap: 8px; box-shadow: 0 4px 6px -1px rgba(37,99,235,0.25);">
+                                        <i class="fa-solid fa-paper-plane"></i> Receive & Forward
+                                    </button>
+                                </div>
+                            @else
+                                <div>
+                                    <label style="display: block; font-size: 12px; font-weight: 600; color: #475569; margin-bottom: 6px;">Action Needed:</label>
+                                    <select wire:model="actionNeeded" style="width: 100%; background: #f8fafc; color: #1e293b; border: 1.5px solid #cbd5e1; border-radius: 8px; padding: 10px; font-size: 13px; outline: none; cursor: pointer;">
+                                        @foreach(DB::table('dts_action_options')->orderBy('option_name', 'asc')->pluck('option_name') as $opt)
+                                            <option value="{{ $opt }}">{{ $opt }}</option>
+                                        @endforeach
+                                    </select>
+                                </div>
 
-                            <button type="button" wire:click="proceedTransaction" style="width: 100%; padding: 12px; background: #059669; color: white; border: none; border-radius: 8px; font-weight: 700; font-size: 14px; cursor: pointer; transition: all 0.2s; display: flex; align-items: center; justify-content: center; gap: 8px; margin-top: 8px; box-shadow: 0 4px 6px -1px rgba(5,150,105,0.25);">
-                                <i class="fa-solid fa-circle-check"></i> Receive & Forward Transaction
-                            </button>
+                                <div>
+                                    <label style="display: block; font-size: 12px; font-weight: 600; color: #475569; margin-bottom: 6px;">Notes (Optional):</label>
+                                    <input type="text" wire:model="notes" placeholder="Type notes for the next stop..." style="width: 100%; background: #f8fafc; color: #1e293b; border: 1.5px solid #cbd5e1; border-radius: 8px; padding: 10px; font-size: 13px; outline: none;" />
+                                </div>
+
+                                <button type="button" wire:click="proceedTransaction" style="width: 100%; padding: 12px; background: #059669; color: white; border: none; border-radius: 8px; font-weight: 700; font-size: 14px; cursor: pointer; transition: all 0.2s; display: flex; align-items: center; justify-content: center; gap: 8px; margin-top: 8px; box-shadow: 0 4px 6px -1px rgba(5,150,105,0.25);">
+                                    <i class="fa-solid fa-paper-plane"></i> Forward Transaction
+                                </button>
+                            @endif
                         </div>
                     </div>
                 @else

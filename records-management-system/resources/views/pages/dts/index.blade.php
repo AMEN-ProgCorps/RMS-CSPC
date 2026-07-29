@@ -181,7 +181,17 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
                 ->orderBy('id', 'desc')
                 ->first();
 
-            $dateReceived = $currentLog ? ($currentLog->date_in ?? $t->date_created) : $t->date_created;
+            $isReceived = $currentLog && ($currentLog->type === 'received' || (!empty($currentLog->date_in) && $currentLog->type !== 'forwarded'));
+
+            if ($isReceived && !empty($currentLog->date_in)) {
+                $dateReceived = $currentLog->date_in;
+                $t->diff_in_minutes = (int) abs(now()->diffInMinutes(\Carbon\Carbon::parse($dateReceived)));
+                $t->is_received = true;
+            } else {
+                $dateReceived = $currentLog?->created_at ?? $t->date_created;
+                $t->diff_in_minutes = 0; // Reset timer to 0 until received at current office!
+                $t->is_received = false;
+            }
             $t->date_received = $dateReceived;
 
             // Check if transaction has been forwarded from originating office
@@ -351,7 +361,7 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
         return DB::table('dts_sequence_list as seq')
             ->leftJoin('office', 'office.office_code', '=', 'seq.office_code')
             ->where('seq.control_id', $flow->id)
-            ->select('seq.sequence_ranking', 'office.office_name', 'seq.office_code')
+            ->select('seq.*', 'office.office_name')
             ->orderBy('seq.sequence_ranking', 'asc')
             ->get()
             ->map(function ($step) use ($originOfficeCode, $originOfficeName, $clusterHeadCode, $clusterHeadName) {
@@ -366,35 +376,6 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
                     $step->office_name = $off ? $off->office_name : $step->office_code;
                 }
 
-                // Check actual execution log for this step in sub_document_tracking_system_logs
-                $log = DB::table('sub_document_tracking_system_logs')
-                    ->where('transaction_id', $this->selectedTransactionId)
-                    ->where('office_code', $step->office_code)
-                    ->orderBy('id', 'desc')
-                    ->first();
-
-                if ($log) {
-                    $step->date_in = $log->date_in;
-                    $step->date_out = $log->date_out;
-                    $step->note = $log->notes ?? null;
-                    $step->action_needed = $log->type ?? null;
-
-                    if (!empty($log->date_in) && !empty($log->date_out)) {
-                        $diffInMinutes = \Carbon\Carbon::parse($log->date_in)->diffInMinutes(\Carbon\Carbon::parse($log->date_out));
-                        $hours = floor($diffInMinutes / 60);
-                        $mins = $diffInMinutes % 60;
-                        $step->total_time_completed = $hours > 0 ? "{$hours}h {$mins}m" : "{$mins}m";
-                    } else {
-                        $step->total_time_completed = null;
-                    }
-                } else {
-                    $step->date_in = null;
-                    $step->date_out = null;
-                    $step->note = null;
-                    $step->action_needed = null;
-                    $step->total_time_completed = null;
-                }
-
                 $step->is_active_step = (
                     $step->office_code === auth()->user()?->details?->office?->office_code
                     && $step->office_code === $this->selectedTransaction->current_office
@@ -403,7 +384,7 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
                     && !is_null($step->date_in)
                 );
                 $step->description = $step->note ?: 'Pending office flow step.';
-                $step->type = $step->action_needed ?: 'pending';
+                $step->type = $step->action_needed ?: ($step->date_in ? 'Received' : 'Pending');
                 $step->notes = $step->note ?: '';
                 return $step;
             });
@@ -686,6 +667,88 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
             $this->uploadedFile = null;
         } catch (\Exception $e) {
             $this->uploadErrorMessage = 'Upload failed: ' . $e->getMessage();
+        }
+    }
+
+    public function isTransactionReceived(): bool
+    {
+        if (!$this->selectedTransactionId || !$this->selectedTransaction) {
+            return false;
+        }
+
+        $log = DB::table('sub_document_tracking_system_logs')
+            ->where('transaction_id', $this->selectedTransactionId)
+            ->where('office_code', $this->selectedTransaction->current_office)
+            ->orderBy('id', 'desc')
+            ->first();
+
+        return $log && ($log->type === 'received' || (!empty($log->date_in) && $log->type !== 'forwarded'));
+    }
+
+    public function receiveTransaction(?string $transId = null): void
+    {
+        $perms = auth()->user()?->permissions;
+        if ($perms && !$perms->is_sadm && !$perms->can_dts_user_received) {
+            return;
+        }
+
+        $targetId = $transId ?: $this->selectedTransactionId;
+        if (!$targetId) {
+            return;
+        }
+
+        $userOfficeCode = auth()->user()?->details?->office?->office_code;
+        $trans = DB::table('dts_transactions as dt')
+            ->join('dts_transaction_details as dtd', 'dtd.id', '=', 'dt.transaction_id')
+            ->where('dt.transaction_id', $targetId)
+            ->select('dt.*', 'dtd.transaction_flow', 'dtd.originated_from')
+            ->first();
+
+        if (!$trans || $trans->current_office !== $userOfficeCode) {
+            return;
+        }
+
+        DB::transaction(function () use ($targetId, $userOfficeCode, $trans) {
+            $log = DB::table('sub_document_tracking_system_logs')
+                ->where('transaction_id', $targetId)
+                ->where('office_code', $userOfficeCode)
+                ->orderBy('id', 'desc')
+                ->first();
+
+            if ($log) {
+                DB::table('sub_document_tracking_system_logs')
+                    ->where('id', $log->id)
+                    ->update([
+                        'type' => 'received',
+                        'date_in' => now(),
+                        'performed_by' => auth()->id(),
+                    ]);
+            } else {
+                DB::table('sub_document_tracking_system_logs')->insert([
+                    'transaction_id' => $targetId,
+                    'office_code' => $userOfficeCode,
+                    'type' => 'received',
+                    'date_in' => now(),
+                    'date_out' => null,
+                    'notes' => 'Received at office',
+                    'performed_by' => auth()->id(),
+                ]);
+            }
+
+            $flow = DB::table('dts_transaction_flow')->where('flow_code', $trans->transaction_flow)->first();
+            if ($flow) {
+                DB::table('dts_sequence_list')
+                    ->where('control_id', $flow->id)
+                    ->where('sequence_ranking', $trans->sequence)
+                    ->update([
+                        'date_in' => now(),
+                        'scanned_id' => true,
+                    ]);
+            }
+        });
+
+        if ($this->selectedTransactionId === $targetId) {
+            $this->loadSelectedTransaction();
         }
     }
 
@@ -1402,7 +1465,12 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
                             </div>
 
                             <!-- Card Footer action -->
-                            <div style="display: flex; justify-content: flex-end; margin-top: 16px;">
+                            <div style="display: flex; justify-content: flex-end; align-items: center; gap: 8px; margin-top: 16px;">
+                                @if (!$t->is_received && $t->current_office === auth()->user()?->details?->office?->office_code && $canProcess)
+                                    <button type="button" wire:click="receiveTransaction('{{ $t->transaction_id }}')" style="background: #16a34a; color: white; border: none; border-radius: 6px; padding: 6px 14px; font-size: 12px; font-weight: 600; cursor: pointer; display: inline-flex; align-items: center; gap: 6px;">
+                                        <i class="fa-solid fa-download"></i> Receive
+                                    </button>
+                                @endif
                                 <button type="button" wire:click="openTransaction('{{ $t->transaction_id }}')" class="rms-select" style="text-decoration: none; display: inline-block; border: none; background: transparent; cursor: pointer; color: #043899; font-weight: 500;">View</button>
                             </div>
                         </div>
@@ -1821,25 +1889,38 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
                             </button>
                         @endif
 
-                        <!-- COMPLETED / UPLOAD FILE -->
+                        <!-- RECEIVE / FORWARD / COMPLETE / UPLOAD -->
                         @php
                             $allowManualComplete = \DB::table('system_settings')->where('key', 'dts_allow_manual_completion_button')->value('value') === 'true';
+                            $isReceivedState = $this->isTransactionReceived();
                         @endphp
-                        @if ($selectedTransaction->current_office === auth()->user()?->details?->office?->office_code && $canProcess)
-                            @if ($this->isLastStep() && $allowManualComplete && $selectedTransaction->status !== 'completed')
-                                <button type="button" class="receive-action-btn" wire:click="triggerCompletionConfirm" style="background-color: #16a34a;">
+                        @if ($selectedTransaction->current_office === auth()->user()?->details?->office?->office_code && $canProcess && $selectedTransaction->status !== 'completed')
+                            @if (!$isReceivedState)
+                                <button type="button" class="receive-action-btn" wire:click="receiveTransaction" style="background-color: #16a34a;">
                                     <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-                                        <polyline points="20 6 9 17 4 12"/>
+                                        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+                                        <polyline points="7 10 12 15 17 10"/>
+                                        <line x1="12" y1="15" x2="12" y2="3"/>
                                     </svg>
-                                    Complete Transaction
+                                    RECEIVE TRANSACTION
                                 </button>
-                            @elseif ($allowManualComplete && $selectedTransaction->status !== 'completed')
-                                <button type="button" class="receive-action-btn" wire:click="completeTransaction">
-                                    <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-                                        <polyline points="20 6 9 17 4 12"/>
-                                    </svg>
-                                    COMPLETED
-                                </button>
+                            @else
+                                @if ($this->isLastStep() && $allowManualComplete)
+                                    <button type="button" class="receive-action-btn" wire:click="triggerCompletionConfirm" style="background-color: #16a34a;">
+                                        <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                                            <polyline points="20 6 9 17 4 12"/>
+                                        </svg>
+                                        Complete Transaction
+                                    </button>
+                                @elseif ($allowManualComplete)
+                                    <button type="button" class="receive-action-btn" wire:click="completeTransaction" style="background-color: #2563eb;">
+                                        <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                                            <line x1="5" y1="12" x2="19" y2="12"/>
+                                            <polyline points="12 5 19 12 12 19"/>
+                                        </svg>
+                                        FORWARD TRANSACTION
+                                    </button>
+                                @endif
                             @endif
                         @endif
 

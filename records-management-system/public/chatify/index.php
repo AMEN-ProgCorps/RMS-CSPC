@@ -1661,12 +1661,15 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
     }
 
     .modal-button.modal-close-btn {
-      color: var(--text-primary);
+      flex: 0 0 auto;
+      color: #1b74e4;
       border-right: none;
+      padding: 8px 20px;
+      border-radius: 6px;
     }
 
     .modal-button.modal-close-btn:hover {
-      background-color: var(--button-hover, rgba(0, 0, 0, 0.06));
+      background-color: rgba(27, 116, 228, 0.12);
     }
 
     .modal-button:active {
@@ -2804,16 +2807,16 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
 
   <!-- File Uploading Progress Modal -->
   <div class="modal" id="uploadingModal" aria-hidden="true" style="display:none;align-items:center;justify-content:center;z-index:99999;">
-    <div class="modal-content" style="max-width:400px;">
+    <div class="modal-content" style="max-width:320px;min-height:0;">
       <div class="modal-header">
         <h3>Uploading File...</h3>
       </div>
-      <div class="modal-body" style="text-align:center;">
-        <div style="margin-bottom:14px;display:flex;justify-content:center;align-items:center;">
-          <div class="upload-spinner" style="width:40px;height:40px;border:4px solid rgba(27,116,228,0.2);border-top-color:#1b74e4;border-radius:50%;animation:uploadSpin 0.8s linear infinite;"></div>
+      <div class="modal-body" style="text-align:center;padding:14px 16px;">
+        <div style="margin-bottom:10px;display:flex;justify-content:center;align-items:center;">
+          <div class="upload-spinner" style="width:32px;height:32px;border:3px solid rgba(27,116,228,0.2);border-top-color:#1b74e4;border-radius:50%;animation:uploadSpin 0.8s linear infinite;"></div>
         </div>
-        <p id="uploadingFileName" style="margin:0 0 14px 0;font-size:13px;color:var(--text-secondary);word-break:break-all;line-height:1.4;">Preparing upload...</p>
-        <div style="width:100%;height:8px;background:var(--border-color, #e4e6eb);border-radius:4px;overflow:hidden;margin-bottom:6px;">
+        <p id="uploadingFileName" style="margin:0 0 10px 0;font-size:13px;color:var(--text-secondary);word-break:break-all;line-height:1.4;max-height:calc(1.4em * 2);overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;">Preparing upload...</p>
+        <div style="width:100%;height:6px;background:var(--border-color, #e4e6eb);border-radius:4px;overflow:hidden;margin-bottom:4px;">
           <div id="uploadProgressBar" style="width:0%;height:100%;background:linear-gradient(90deg, #1b74e4, #00c3ff);transition:width 0.15s ease;border-radius:4px;"></div>
         </div>
         <div id="uploadProgressText" style="font-size:12px;font-weight:600;color:#1b74e4;text-align:right;">0%</div>
@@ -2823,15 +2826,15 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
 
   <!-- Upload Error Modal -->
   <div class="modal" id="uploadErrorModal" aria-hidden="true" style="display:none;align-items:center;justify-content:center;z-index:99999;">
-    <div class="modal-content" style="max-width:400px;">
+    <div class="modal-content" style="max-width:320px;min-height:0;">
       <div class="modal-header">
         <h3 style="color:#c0392b;">Upload Failed</h3>
       </div>
       <div class="modal-body" id="uploadErrorList">
         An unexpected error occurred while uploading.
       </div>
-      <div class="modal-footer">
-        <button type="button" class="modal-button modal-close-btn" id="uploadErrorCloseBtn" onclick="closeUploadErrorModal()">Close</button>
+      <div style="display:flex;justify-content:center;padding:10px 14px;border-top:1px solid var(--border-color);border-bottom-left-radius:12px;border-bottom-right-radius:12px;overflow:hidden;">
+        <button type="button" id="uploadErrorCloseBtn" onclick="closeUploadErrorModal()" style="background:transparent;border:none;cursor:pointer;color:#1b74e4;font-size:14px;font-weight:600;font-family:'Inter',sans-serif;padding:7px 18px;border-radius:6px;outline:none;transition:background-color 0.2s ease;line-height:1;width:auto;" onmouseover="this.style.backgroundColor='rgba(27,116,228,0.12)'" onmouseout="this.style.backgroundColor='transparent'" onmousedown="this.style.opacity='0.7'" onmouseup="this.style.opacity='1'">Close</button>
       </div>
     </div>
   </div>
@@ -6746,12 +6749,27 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
 
 
     // ── Upload Progress & Error Modal Controls ────────────────────────────────
-    function showUploadingModal(fileNamesText) {
+    function showUploadingModal(names) {
       const modal = document.getElementById('uploadingModal');
       const nameEl = document.getElementById('uploadingFileName');
       const bar = document.getElementById('uploadProgressBar');
       const text = document.getElementById('uploadProgressText');
-      if (nameEl) nameEl.textContent = fileNamesText || 'Uploading file...';
+
+      // Keep this label short and fixed-size no matter how many files were
+      // selected or how long their names are — never join/list every name,
+      // that's what was making the modal grow.
+      let label = 'Uploading file...';
+      if (Array.isArray(names) && names.length > 0) {
+        if (names.length === 1) {
+          const n = names[0] || '';
+          label = 'Uploading ' + (n.length > 60 ? n.substring(0, 60).trim() + '...' : n);
+        } else {
+          label = 'Uploading ' + names.length + ' files...';
+        }
+      } else if (typeof names === 'string' && names.trim() !== '') {
+        label = names.length > 60 ? names.substring(0, 60).trim() + '...' : names;
+      }
+      if (nameEl) nameEl.textContent = label;
       if (bar) bar.style.width = '0%';
       if (text) text.textContent = '0%';
       if (modal) {
@@ -6784,17 +6802,34 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
       return str;
     }
 
+    // Keeps the modal a fixed, predictable size no matter how many errors
+    // come back or how long a filename is. If the error list would be too
+    // long/verbose to show cleanly, we collapse it to one short generic
+    // line instead of letting the modal grow or silently clipping items.
+    const UPLOAD_ERROR_MAX_ITEMS = 3;       // max individual lines to list
+    const UPLOAD_ERROR_MAX_CHARS = 200;     // combined chars before we collapse
+
     function showUploadErrorModal(errors) {
       closeUploadingModal();
       const modal = document.getElementById('uploadErrorModal');
       const listEl = document.getElementById('uploadErrorList');
       if (listEl) {
-        if (Array.isArray(errors) && errors.length > 0) {
-          listEl.innerHTML = errors.map(e => `<div class="upload-error-item">${escapeHtml(formatErrorMessage(e))}</div>`).join('');
-        } else if (typeof errors === 'string') {
-          listEl.innerHTML = `<div class="upload-error-item">${escapeHtml(formatErrorMessage(errors))}</div>`;
-        } else {
+        let items = [];
+        if (Array.isArray(errors)) {
+          items = errors.map(e => (e || '').toString().trim()).filter(Boolean);
+        } else if (typeof errors === 'string' && errors.trim() !== '') {
+          items = [errors.trim()];
+        }
+
+        const combinedLength = items.reduce((sum, e) => sum + e.length, 0);
+        const tooMuch = items.length > UPLOAD_ERROR_MAX_ITEMS || combinedLength > UPLOAD_ERROR_MAX_CHARS;
+
+        if (items.length === 0) {
           listEl.textContent = 'Failed to upload file(s). Please try again.';
+        } else if (tooMuch) {
+          listEl.innerHTML = `<div class="upload-error-item">File is too large.</div>`;
+        } else {
+          listEl.innerHTML = items.map(e => `<div class="upload-error-item">${escapeHtml(formatErrorMessage(e))}</div>`).join('');
         }
       }
       if (modal) {
@@ -6884,7 +6919,7 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
         names.push(file.name);
       }
 
-      showUploadingModal(names.join(', '));
+      showUploadingModal(names);
 
       // POST to upload.php
       const xhr = new XMLHttpRequest();

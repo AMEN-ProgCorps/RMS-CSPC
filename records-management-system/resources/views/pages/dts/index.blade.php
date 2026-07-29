@@ -181,7 +181,7 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
                 ->orderBy('id', 'desc')
                 ->first();
 
-            $dateReceived = $currentLog ? $currentLog->date_in : $t->date_created;
+            $dateReceived = $currentLog ? ($currentLog->date_in ?? $t->date_created) : $t->date_created;
             $t->date_received = $dateReceived;
 
             // Check if transaction has been forwarded from originating office
@@ -195,11 +195,12 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
             if ($hasBeenForwarded) {
                 $startDate = \Carbon\Carbon::parse($firstLog->date_out ?? $firstLog->date_in ?? $t->date_created);
                 $t->elapsed_days = (int) abs(now()->diffInDays($startDate)) + 1;
-                $t->diff_in_minutes = (int) abs(now()->diffInMinutes($startDate));
             } else {
                 $t->elapsed_days = 0;
-                $t->diff_in_minutes = 0;
             }
+
+            // Calculate actual elapsed minutes since arrival/creation at current office
+            $t->diff_in_minutes = (int) abs(now()->diffInMinutes(\Carbon\Carbon::parse($dateReceived)));
 
             // Previous office (from office)
             $prevLog = DB::table('sub_document_tracking_system_logs as log')
@@ -348,9 +349,9 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
         }
 
         return DB::table('dts_sequence_list as seq')
-            ->join('office', 'office.office_code', '=', 'seq.office_code')
+            ->leftJoin('office', 'office.office_code', '=', 'seq.office_code')
             ->where('seq.control_id', $flow->id)
-            ->select('seq.sequence_ranking', 'office.office_name', 'seq.office_code', 'seq.date_in', 'seq.date_out', 'seq.action_needed', 'seq.note', 'seq.total_time_completed')
+            ->select('seq.sequence_ranking', 'office.office_name', 'seq.office_code')
             ->orderBy('seq.sequence_ranking', 'asc')
             ->get()
             ->map(function ($step) use ($originOfficeCode, $originOfficeName, $clusterHeadCode, $clusterHeadName) {
@@ -360,12 +361,44 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
                 } elseif ($step->office_code === '[H]') {
                     $step->office_code = $clusterHeadCode;
                     $step->office_name = $clusterHeadName;
+                } elseif (empty($step->office_name)) {
+                    $off = DB::table('office')->where('office_code', $step->office_code)->first();
+                    $step->office_name = $off ? $off->office_name : $step->office_code;
+                }
+
+                // Check actual execution log for this step in sub_document_tracking_system_logs
+                $log = DB::table('sub_document_tracking_system_logs')
+                    ->where('transaction_id', $this->selectedTransactionId)
+                    ->where('office_code', $step->office_code)
+                    ->orderBy('id', 'desc')
+                    ->first();
+
+                if ($log) {
+                    $step->date_in = $log->date_in;
+                    $step->date_out = $log->date_out;
+                    $step->note = $log->notes ?? null;
+                    $step->action_needed = $log->type ?? null;
+
+                    if (!empty($log->date_in) && !empty($log->date_out)) {
+                        $diffInMinutes = \Carbon\Carbon::parse($log->date_in)->diffInMinutes(\Carbon\Carbon::parse($log->date_out));
+                        $hours = floor($diffInMinutes / 60);
+                        $mins = $diffInMinutes % 60;
+                        $step->total_time_completed = $hours > 0 ? "{$hours}h {$mins}m" : "{$mins}m";
+                    } else {
+                        $step->total_time_completed = null;
+                    }
+                } else {
+                    $step->date_in = null;
+                    $step->date_out = null;
+                    $step->note = null;
+                    $step->action_needed = null;
+                    $step->total_time_completed = null;
                 }
 
                 $step->is_active_step = (
                     $step->office_code === auth()->user()?->details?->office?->office_code
                     && $step->office_code === $this->selectedTransaction->current_office
-                    && $step->sequence_ranking === $this->selectedTransaction->sequence
+                    && $step->sequence_ranking == $this->selectedTransaction->sequence
                     && in_array($this->selectedTransaction->status, ['ongoing', 'revision'])
                     && !is_null($step->date_in)
                 );
@@ -1194,7 +1227,6 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
                 <thead>
                     <tr>
                         <th>SUBJECT</th>
-                        <th>UNIT/COLLEGE</th>
                         <th>REQUESTOR</th>
                         <th>CONTROL NO.</th>
                         <th>DOC TYPE</th>
@@ -1215,7 +1247,7 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
                         @endphp
                         @forelse ($groupedTransactions as $officeName => $items)
                             <tr class="office-divider-row">
-                                <td colspan="12" style="padding: 14px 12px; background: #f8fafc; font-weight: 700; color: #475569; letter-spacing: 0.05em; font-size: 12px; font-family: 'Inter', sans-serif;">
+                                <td colspan="11" style="padding: 14px 12px; background: #f8fafc; font-weight: 700; color: #475569; letter-spacing: 0.05em; font-size: 12px; font-family: 'Inter', sans-serif;">
                                     <div style="display: flex; align-items: center; justify-content: center; gap: 14px;">
                                         <div style="flex: 1; height: 1px; background: #cbd5e1;"></div>
                                         <div style="text-transform: uppercase; display: flex; align-items: center; gap: 8px;">
@@ -1236,7 +1268,6 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
                             @foreach ($sortedItems as $t)
                                 <tr>
                                     <td style="max-width: 300px; white-space: normal; word-break: break-word;">{{ $t->subject }}</td>
-                                    <td>{{ $t->originated_office_name }}</td>
                                      <td style="white-space: nowrap;">
                                          {{ $t->requestor_name }}
                                          @if(!empty($t->requestor_label))
@@ -1262,14 +1293,13 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
                             @endforeach
                         @empty
                             <tr>
-                                <td class="rms-no-data" colspan="12">No records found.</td>
+                                <td class="rms-no-data" colspan="11">No records found.</td>
                             </tr>
                         @endforelse
                     @else
                         @forelse ($this->transactions as $t)
                             <tr>
                                 <td style="max-width: 300px; white-space: normal; word-break: break-word;">{{ $t->subject }}</td>
-                                <td>{{ $t->originated_office_name }}</td>
                                  <td style="white-space: nowrap;">
                                      {{ $t->requestor_name }}
                                      @if(!empty($t->requestor_label))
@@ -1294,7 +1324,7 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
                             </tr>
                         @empty
                             <tr>
-                                <td class="rms-no-data" colspan="12">No records found.</td>
+                                <td class="rms-no-data" colspan="11">No records found.</td>
                             </tr>
                         @endforelse
                     @endif
@@ -1326,30 +1356,38 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
                     @endphp
                     @foreach ($sortedItems as $t)
                         <div class="dts-box-card" style="background: white; border: 1.5px solid var(--border-gray); border-radius: 12px; padding: 24px; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.05); display: flex; flex-direction: column; justify-content: space-between; position: relative;">
-                            <!-- Top Right Info & Icon -->
-                            <div style="position: absolute; top: 16px; right: 16px; display: flex; align-items: center; gap: 8px; font-size: 11px; color: #6b7280;">
+                        @php
+                            $minutes = $t->diff_in_minutes ?? 0;
+                            if ($minutes <= 10) {
+                                $indicatorColor = '#10b981'; // Green: 0s -> 10m
+                                $indicatorTitle = 'New (0 - 10 mins)';
+                            } elseif ($minutes <= 60) {
+                                $indicatorColor = '#f59e0b'; // Yellow: >10m -> 1h
+                                $indicatorTitle = 'Pending (10 mins - 1 hr)';
+                            } else {
+                                $indicatorColor = '#ef4444'; // Red: >1h
+                                $indicatorTitle = 'Urgent (More than 1 hr)';
+                            }
+                        @endphp
+                        <!-- Top Header: Indicator + Elapsed Time on Left, QR Code on Far Right -->
+                        <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px;">
+                            <div style="display: flex; align-items: center; gap: 8px; font-size: 12px; color: #6b7280; font-weight: 500;">
+                                <span style="display: inline-flex; width: 18px; height: 18px; background-color: {{ $indicatorColor }}; transform: rotate(45deg); align-items: center; justify-content: center; border-radius: 3px; flex-shrink: 0;" title="{{ $indicatorTitle }}">
+                                    <span style="transform: rotate(-45deg); color: white; font-size: 10px; font-weight: bold;">!</span>
+                                </span>
                                 <span>{{ \Carbon\Carbon::parse($t->date_received)->diffForHumans(null, true) }} ago</span>
-                                @if ($t->current_office === auth()->user()?->details?->office?->office_code)
-                                    @if ($t->diff_in_minutes < 10)
-                                        <span style="display: inline-block; width: 14px; height: 14px; background-color: #10b981; transform: rotate(45deg); display: flex; align-items: center; justify-content: center; border-radius: 2px;" title="New (Less than 10 mins)">
-                                            <span style="transform: rotate(-45deg); color: white; font-size: 9px; font-weight: bold;">!</span>
-                                        </span>
-                                    @elseif ($t->diff_in_minutes <= 60)
-                                        <span style="display: inline-block; width: 14px; height: 14px; background-color: #f59e0b; transform: rotate(45deg); display: flex; align-items: center; justify-content: center; border-radius: 2px;" title="Pending (Over 10 mins)">
-                                            <span style="transform: rotate(-45deg); color: white; font-size: 9px; font-weight: bold;">!</span>
-                                        </span>
-                                    @else
-                                        <span style="display: inline-block; width: 14px; height: 14px; background-color: #ef4444; transform: rotate(45deg); display: flex; align-items: center; justify-content: center; border-radius: 2px;" title="Urgent (Over an hour)">
-                                            <span style="transform: rotate(-45deg); color: white; font-size: 9px; font-weight: bold;">!</span>
-                                        </span>
-                                    @endif
-                                @endif
                             </div>
+
+                            @if(!empty($t->qr_code))
+                                <div style="font-size: 11px; font-weight: 700; color: #1e40af; background: #eff6ff; padding: 3px 8px; border-radius: 6px; border: 1px solid #bfdbfe; font-family: monospace;" title="QR Code">
+                                    <i class="fa-solid fa-qrcode" style="margin-right: 4px;"></i>{{ $t->qr_code }}
+                                </div>
+                            @endif
+                        </div>
 
                             <!-- Card Body contents -->
                             <div style="font-size: 13px; color: #4b5563; line-height: 1.6; margin-top: 12px; font-family: Roboto, sans-serif;">
                                 <div style="margin-bottom: 6px; word-break: break-word; overflow-wrap: break-word; white-space: normal;"><strong>Subject:</strong> {{ $t->subject }}</div>
-                                <div style="margin-bottom: 6px;"><strong>Unit/College:</strong> {{ $t->originated_office_name }}</div>
                                 <div style="margin-bottom: 6px;"><strong>Name of Requestor:</strong> {{ $t->requestor_name }} @if(!empty($t->requestor_label)) <span style="font-size: 12px; color: #6b7280; font-weight: normal;">({{ $t->requestor_label }})</span> @endif</div>
                                 <div style="margin-bottom: 6px;"><strong>Control Number:</strong> <span style="font-weight: 600; color: #1e40af;">{{ $t->control_number }}</span></div>
                                 <div style="margin-bottom: 14px;"><strong>Type of Document:</strong> {{ (!empty($t->doc_type_name) && !str_starts_with($t->doc_type_name, 'Flow for ')) ? $t->doc_type_name : ucfirst($t->trans_type) }}</div>
@@ -1377,30 +1415,38 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
             @else
                 @forelse ($this->transactions as $t)
                     <div class="dts-box-card" style="background: white; border: 1.5px solid var(--border-gray); border-radius: 12px; padding: 24px; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.05); display: flex; flex-direction: column; justify-content: space-between; position: relative;">
-                        <!-- Top Right Info & Icon -->
-                        <div style="position: absolute; top: 16px; right: 16px; display: flex; align-items: center; gap: 8px; font-size: 11px; color: #6b7280;">
-                            <span>{{ \Carbon\Carbon::parse($t->date_received)->diffForHumans(null, true) }} ago</span>
-                            @if ($t->current_office === auth()->user()?->details?->office?->office_code)
-                                @if ($t->diff_in_minutes < 10)
-                                    <span style="display: inline-block; width: 14px; height: 14px; background-color: #10b981; transform: rotate(45deg); display: flex; align-items: center; justify-content: center; border-radius: 2px;" title="New (Less than 10 mins)">
-                                        <span style="transform: rotate(-45deg); color: white; font-size: 9px; font-weight: bold;">!</span>
-                                    </span>
-                                @elseif ($t->diff_in_minutes <= 60)
-                                    <span style="display: inline-block; width: 14px; height: 14px; background-color: #f59e0b; transform: rotate(45deg); display: flex; align-items: center; justify-content: center; border-radius: 2px;" title="Pending (Over 10 mins)">
-                                        <span style="transform: rotate(-45deg); color: white; font-size: 9px; font-weight: bold;">!</span>
-                                    </span>
-                                @else
-                                    <span style="display: inline-block; width: 14px; height: 14px; background-color: #ef4444; transform: rotate(45deg); display: flex; align-items: center; justify-content: center; border-radius: 2px;" title="Urgent (Over an hour)">
-                                        <span style="transform: rotate(-45deg); color: white; font-size: 9px; font-weight: bold;">!</span>
-                                    </span>
-                                @endif
+                        @php
+                            $minutes = $t->diff_in_minutes ?? 0;
+                            if ($minutes <= 10) {
+                                $indicatorColor = '#10b981'; // Green: 0s -> 10m
+                                $indicatorTitle = 'New (0 - 10 mins)';
+                            } elseif ($minutes <= 60) {
+                                $indicatorColor = '#f59e0b'; // Yellow: >10m -> 1h
+                                $indicatorTitle = 'Pending (10 mins - 1 hr)';
+                            } else {
+                                $indicatorColor = '#ef4444'; // Red: >1h
+                                $indicatorTitle = 'Urgent (More than 1 hr)';
+                            }
+                        @endphp
+                        <!-- Top Header: Indicator + Elapsed Time on Left, QR Code on Far Right -->
+                        <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px;">
+                            <div style="display: flex; align-items: center; gap: 8px; font-size: 12px; color: #6b7280; font-weight: 500;">
+                                <span style="display: inline-flex; width: 18px; height: 18px; background-color: {{ $indicatorColor }}; transform: rotate(45deg); align-items: center; justify-content: center; border-radius: 3px; flex-shrink: 0;" title="{{ $indicatorTitle }}">
+                                    <span style="transform: rotate(-45deg); color: white; font-size: 10px; font-weight: bold;">!</span>
+                                </span>
+                                <span>{{ \Carbon\Carbon::parse($t->date_received)->diffForHumans(null, true) }} ago</span>
+                            </div>
+
+                            @if(!empty($t->qr_code))
+                                <div style="font-size: 11px; font-weight: 700; color: #1e40af; background: #eff6ff; padding: 3px 8px; border-radius: 6px; border: 1px solid #bfdbfe; font-family: monospace;" title="QR Code">
+                                    <i class="fa-solid fa-qrcode" style="margin-right: 4px;"></i>{{ $t->qr_code }}
+                                </div>
                             @endif
                         </div>
 
                         <!-- Card Body contents -->
                         <div style="font-size: 13px; color: #4b5563; line-height: 1.6; margin-top: 12px; font-family: Roboto, sans-serif;">
                             <div style="margin-bottom: 6px; word-break: break-word; overflow-wrap: break-word; white-space: normal;"><strong>Subject:</strong> {{ $t->subject }}</div>
-                            <div style="margin-bottom: 6px;"><strong>Unit/College:</strong> {{ $t->originated_office_name }}</div>
                             <div style="margin-bottom: 6px;"><strong>Name of Requestor:</strong> {{ $t->requestor_name }} @if(!empty($t->requestor_label)) <span style="font-size: 12px; color: #6b7280; font-weight: normal;">({{ $t->requestor_label }})</span> @endif</div>
                             <div style="margin-bottom: 6px;"><strong>Control Number:</strong> <span style="font-weight: 600; color: #1e40af;">{{ $t->control_number }}</span></div>
                             <div style="margin-bottom: 14px;"><strong>Type of Document:</strong> {{ (!empty($t->doc_type_name) && !str_starts_with($t->doc_type_name, 'Flow for ')) ? $t->doc_type_name : ucfirst($t->trans_type) }}</div>
@@ -1694,8 +1740,8 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
                                             <td class="office-cell">
                                                 <strong>{{ $step->office_code }}</strong> - {{ $step->office_name }}
                                             </td>
-                                            <td>{{ $step->date_in ? \Carbon\Carbon::parse($step->date_in)->format('Y-m-d') : 'N/A' }}</td>
-                                            <td>{{ $step->date_out ? \Carbon\Carbon::parse($step->date_out)->format('Y-m-d') : ($step->date_in ? 'Pending' : 'N/A') }}</td>
+                                            <td>{{ $step->date_in ? \Carbon\Carbon::parse($step->date_in)->format('Y-m-d h:i A') : 'N/A' }}</td>
+                                            <td>{{ $step->date_out ? \Carbon\Carbon::parse($step->date_out)->format('Y-m-d h:i A') : ($step->date_in ? 'Pending' : 'N/A') }}</td>
                                             <td>{{ $step->total_time_completed ?: '-' }}</td>
                                             <td>
                                                 @if ($step->is_active_step && $canProcess)
@@ -1775,38 +1821,37 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
                             </button>
                         @endif
 
-                        <!-- COMPLETED / REAFFIRM / UPLOAD -->
+                        <!-- COMPLETED / UPLOAD FILE -->
                         @php
                             $allowManualComplete = \DB::table('system_settings')->where('key', 'dts_allow_manual_completion_button')->value('value') === 'true';
                         @endphp
                         @if ($selectedTransaction->current_office === auth()->user()?->details?->office?->office_code && $canProcess)
-                            @if ($this->isLastStep())
-                                @if ($allowManualComplete)
-                                    <button type="button" class="receive-action-btn" wire:click="triggerCompletionConfirm" style="background-color: #16a34a;">
-                                        <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-                                            <polyline points="20 6 9 17 4 12"/>
-                                        </svg>
-                                        Complete Transaction
-                                    </button>
-                                @endif
-                                <button type="button" class="receive-action-btn" wire:click="triggerUploadFileModal" style="background-color: #0284c7;">
+                            @if ($this->isLastStep() && $allowManualComplete && $selectedTransaction->status !== 'completed')
+                                <button type="button" class="receive-action-btn" wire:click="triggerCompletionConfirm" style="background-color: #16a34a;">
                                     <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-                                        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
-                                        <polyline points="17 8 12 3 7 8"/>
-                                        <line x1="12" y1="3" x2="12" y2="15"/>
+                                        <polyline points="20 6 9 17 4 12"/>
                                     </svg>
-                                    Upload File
+                                    Complete Transaction
                                 </button>
-                            @else
-                                @if ($allowManualComplete)
-                                    <button type="button" class="receive-action-btn" wire:click="completeTransaction">
-                                        <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-                                            <polyline points="20 6 9 17 4 12"/>
-                                        </svg>
-                                        COMPLETED
-                                    </button>
-                                @endif
+                            @elseif ($allowManualComplete && $selectedTransaction->status !== 'completed')
+                                <button type="button" class="receive-action-btn" wire:click="completeTransaction">
+                                    <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                                        <polyline points="20 6 9 17 4 12"/>
+                                    </svg>
+                                    COMPLETED
+                                </button>
                             @endif
+                        @endif
+
+                        @if ($selectedTransaction->status === 'completed' || $showUploadModal)
+                            <button type="button" class="receive-action-btn" wire:click="triggerUploadFileModal" style="background-color: #0284c7;">
+                                <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+                                    <polyline points="17 8 12 3 7 8"/>
+                                    <line x1="12" y1="3" x2="12" y2="15"/>
+                                </svg>
+                                UPLOAD FILE
+                            </button>
                         @endif
 
                         <!-- EDIT / SAVE toggle -->

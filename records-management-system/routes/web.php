@@ -96,7 +96,7 @@ Route::middleware(['auth'])
     Route::middleware(['can.access.dts'])->group(function () {
         Volt::route('/dts', 'pages.dts.index')->name('dts');
         Volt::route('/dts/receive', 'pages.dts.receive')->name('dts.receive');
-        Volt::route('/dts/scanner', 'pages.dts.scanner')->name('dts.scanner');
+        Route::get('/dts/scanner', fn () => redirect()->route('dts.receive'))->name('dts.scanner');
         // Sub-filter pages merged into index; these redirect to keep old links working
         Route::get('/dts/internal', fn () => redirect()->route('dts'))->name('dts.internal');
         Route::get('/dts/external', fn () => redirect()->route('dts'))->name('dts.external');

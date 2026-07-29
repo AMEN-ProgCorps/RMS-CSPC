@@ -951,8 +951,8 @@ new #[Layout('layouts.dts')] #[Title('DTS - Internal Transactions')] class exten
                                     <tr>
                                         <td>{{ $step->sequence_ranking ?? ($index + 1) }}</td>
                                         <td class="office-cell">{{ $step->office_name }}</td>
-                                        <td>{{ $step->date_in ? \Carbon\Carbon::parse($step->date_in)->format('Y-m-d') : 'N/A' }}</td>
-                                        <td>{{ $step->date_out ? \Carbon\Carbon::parse($step->date_out)->format('Y-m-d') : ($step->date_in ? 'Pending' : 'N/A') }}</td>
+                                        <td>{{ $step->date_in ? \Carbon\Carbon::parse($step->date_in)->format('Y-m-d h:i A') : 'N/A' }}</td>
+                                        <td>{{ $step->date_out ? \Carbon\Carbon::parse($step->date_out)->format('Y-m-d h:i A') : ($step->date_in ? 'Pending' : 'N/A') }}</td>
                                         <td>{{ $step->total_time_completed ?: '-' }}</td>
                                         <td>
                                             @if ($step->is_active_step)

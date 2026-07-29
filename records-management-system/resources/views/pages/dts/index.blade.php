@@ -91,6 +91,14 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
             return new \Illuminate\Pagination\LengthAwarePaginator([], 0, $this->perPage);
         }
 
+        // Auto-heal any legacy records where current_office was saved as 'ORIGIN'
+        try {
+            DB::table('dts_transactions as dt')
+                ->join('dts_transaction_details as dtd', 'dtd.id', '=', 'dt.transaction_id')
+                ->where('dt.current_office', 'ORIGIN')
+                ->update(['dt.current_office' => DB::raw('dtd.originated_from')]);
+        } catch (\Throwable $e) {}
+
         $query = DB::table('dts_transactions as dt')
             ->join('dts_transaction_details as dtd', 'dtd.id', '=', 'dt.transaction_id')
             ->leftJoin('office as originated_office', 'originated_office.office_code', '=', 'dtd.originated_from')
@@ -98,7 +106,13 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
             ->leftJoin('dts_transaction_flow as flow', 'flow.flow_code', '=', 'dtd.transaction_flow')
             ->leftJoin('document_data as doc', 'doc.document_path', '=', 'dt.doc_dir')
             ->where('dtd.is_active', 1)
-            ->where('dt.current_office', $userOfficeCode)
+            ->where(function($q) use ($userOfficeCode) {
+                $q->where('dt.current_office', $userOfficeCode)
+                  ->orWhere(function($sub) use ($userOfficeCode) {
+                      $sub->where('dt.current_office', 'ORIGIN')
+                          ->where('dtd.originated_from', $userOfficeCode);
+                  });
+            })
             ->whereNotIn('dt.status', ['completed', 'cancelled']);
 
         $perms = auth()->user()?->permissions;
@@ -590,7 +604,32 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
     public function confirmAndCompleteTransaction(): void
     {
         $this->showCompletionConfirmModal = false;
-        $this->completeTransaction();
+
+        if (!$this->selectedTransactionId || !$this->selectedTransaction) {
+            return;
+        }
+
+        $userOfficeCode = auth()->user()?->details?->office?->office_code;
+
+        DB::transaction(function () use ($userOfficeCode) {
+            DB::table('dts_transactions')
+                ->where('transaction_id', $this->selectedTransactionId)
+                ->update([
+                    'status' => 'completed',
+                ]);
+
+            DB::table('sub_document_tracking_system_logs')->insert([
+                'transaction_id' => $this->selectedTransactionId,
+                'office_code' => $userOfficeCode,
+                'type' => 'completed',
+                'date_in' => now(),
+                'date_out' => now(),
+                'notes' => 'Completed transaction flow.',
+                'performed_by' => auth()->id(),
+            ]);
+        });
+
+        $this->closeTransaction();
     }
 
     public function triggerUploadFileModal(): void
@@ -875,54 +914,55 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
                 ]);
 
             if ($nextSequence) {
+                // Resolve destination office code if special symbol (ORIGIN or [H])
+                $destOfficeCode = $nextSequence->office_code;
+                $originatedFrom = $this->selectedTransaction->originated_from;
+                if ($destOfficeCode === 'ORIGIN') {
+                    $destOfficeCode = $originatedFrom;
+                } elseif ($destOfficeCode === '[H]') {
+                    $originOffice = DB::table('office')->where('office_code', $originatedFrom)->first();
+                    if ($originOffice && $originOffice->cluster) {
+                        $cluster = DB::table('cluster')->where('cluster_code', $originOffice->cluster)->first();
+                        if ($cluster && $cluster->cluster_head) {
+                            $destOfficeCode = $cluster->cluster_head;
+                        }
+                    }
+                }
+
                 // Route to next office
                 DB::table('dts_transactions')
                     ->where('transaction_id', $this->selectedTransactionId)
                     ->update([
-                        'current_office' => $nextSequence->office_code,
+                        'current_office' => $destOfficeCode,
                         'sequence' => $this->selectedTransaction->sequence + 1,
                         'status' => 'ongoing',
                     ]);
 
-                // Update next step in sequence list
+                // Update next step in sequence list (date_in remains null until received at next office)
                 DB::table('dts_sequence_list')
                     ->where('control_id', $flow->id)
                     ->where('sequence_ranking', $this->selectedTransaction->sequence + 1)
                     ->update([
-                        'date_in' => now(),
+                        'date_in' => null,
                         'date_out' => null,
                         'action_needed' => null,
                         'note' => null,
                         'total_time_completed' => null,
                     ]);
 
-                // Create next pending log
+                // Create next pending log (date_in remains null until received at next office)
                 DB::table('sub_document_tracking_system_logs')->insert([
                     'transaction_id' => $this->selectedTransactionId,
-                    'office_code' => $nextSequence->office_code,
+                    'office_code' => $destOfficeCode,
                     'type' => 'forwarded',
-                    'date_in' => now(),
+                    'date_in' => null,
                     'date_out' => null,
                     'notes' => 'Forwarded from ' . auth()->user()?->details?->office?->office_name,
                     'performed_by' => auth()->id(),
                 ]);
             } else {
-                // Completion of flow
-                DB::table('dts_transactions')
-                    ->where('transaction_id', $this->selectedTransactionId)
-                    ->update([
-                        'status' => 'completed',
-                    ]);
-
-                DB::table('sub_document_tracking_system_logs')->insert([
-                    'transaction_id' => $this->selectedTransactionId,
-                    'office_code' => $userOfficeCode,
-                    'type' => 'completed',
-                    'date_in' => now(),
-                    'date_out' => now(),
-                    'notes' => 'Completed transaction flow.',
-                    'performed_by' => auth()->id(),
-                ]);
+                // Flow sequence complete - keep transaction in Current Transactions for file upload
+                // User will explicitly finalize via Complete Transaction double-verification modal.
             }
         }
 
@@ -1905,14 +1945,14 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
                                     RECEIVE TRANSACTION
                                 </button>
                             @else
-                                @if ($this->isLastStep() && $allowManualComplete)
+                                @if ($this->isLastStep())
                                     <button type="button" class="receive-action-btn" wire:click="triggerCompletionConfirm" style="background-color: #16a34a;">
                                         <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
                                             <polyline points="20 6 9 17 4 12"/>
                                         </svg>
                                         Complete Transaction
                                     </button>
-                                @elseif ($allowManualComplete)
+                                @else
                                     <button type="button" class="receive-action-btn" wire:click="completeTransaction" style="background-color: #2563eb;">
                                         <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
                                             <line x1="5" y1="12" x2="19" y2="12"/>
@@ -1924,7 +1964,7 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
                             @endif
                         @endif
 
-                        @if ($selectedTransaction->status === 'completed' || $showUploadModal)
+                        @if ($selectedTransaction->status === 'completed' || $this->isLastStep() || $showUploadModal)
                             <button type="button" class="receive-action-btn" wire:click="triggerUploadFileModal" style="background-color: #0284c7;">
                                 <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
                                     <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
@@ -2008,30 +2048,101 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
                 </div>
 
                 <!-- Modal Body -->
-                <div style="padding: 24px;">
-                    <p style="margin: 0 0 12px 0; font-size: 14px; color: #334155; line-height: 1.5;">
-                        Are you sure you want to mark this transaction as <strong style="color: #15803d;">Completed</strong>?
+                <div style="padding: 24px; font-family: Roboto, sans-serif;">
+                    <p style="margin: 0 0 14px 0; font-size: 14px; font-weight: 600; color: #1e293b; line-height: 1.5;">
+                        Are you sure you want to complete this transaction?
                     </p>
+
+                    @php
+                        $hasUploadedFile = !empty($selectedTransaction->doc_dir) || !empty($selectedTransaction->copy_filled_id);
+                    @endphp
+
+                    @if (!$hasUploadedFile)
+                        <div style="background: #fffbeb; border: 1.5px solid #f59e0b; border-radius: 10px; padding: 12px 14px; color: #b45309; font-size: 13px; margin-bottom: 16px; display: flex; align-items: center; gap: 10px;">
+                            <i class="fa-solid fa-triangle-exclamation" style="font-size: 16px; color: #d97706; flex-shrink: 0;"></i>
+                            <span>This document still has no upload file bind to it.</span>
+                        </div>
+                    @else
+                        <div style="background: #f0fdf4; border: 1.5px solid #22c55e; border-radius: 10px; padding: 12px 14px; color: #15803d; font-size: 13px; margin-bottom: 16px; display: flex; align-items: center; gap: 10px;">
+                            <i class="fa-solid fa-circle-check" style="font-size: 16px; color: #16a34a; flex-shrink: 0;"></i>
+                            <span>Circulated document file is attached and bound.</span>
+                        </div>
+                    @endif
+
                     @if ($selectedTransaction)
-                        <div style="background: #f1f5f9; border-radius: 8px; padding: 12px 16px; font-size: 13px; color: #475569;">
-                            <div style="margin-bottom: 4px;"><strong>Control No:</strong> <span style="font-family: monospace; font-weight: 700; color: #0f172a;">{{ $selectedTransaction->control_number }}</span></div>
+                        <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 12px 16px; font-size: 12.5px; color: #475569;">
+                            <div style="margin-bottom: 4px;"><strong>Control No:</strong> <span style="font-family: monospace; font-weight: 700; color: #1e40af;">{{ $selectedTransaction->control_number }}</span></div>
                             <div><strong>Subject:</strong> {{ $selectedTransaction->subject }}</div>
                         </div>
                     @endif
-                    <p style="margin: 12px 0 0 0; font-size: 12px; color: #64748b; line-height: 1.4;">
-                        Once completed, the document tracking flow for this transaction will be closed.
-                    </p>
                 </div>
 
                 <!-- Modal Footer -->
                 <div style="padding: 16px 24px; background: #f8fafc; border-top: 1px solid #e2e8f0; display: flex; align-items: center; justify-content: flex-end; gap: 12px;">
-                    <button type="button" wire:click="cancelCompletionConfirm" style="padding: 9px 18px; border-radius: 8px; border: 1.5px solid #cbd5e1; background: #ffffff; color: #334155; font-size: 13px; font-weight: 600; cursor: pointer; transition: all 0.15s;" onmouseover="this.style.background='#f1f5f9'" onmouseout="this.style.background='#ffffff'">
+                    <button type="button" wire:click="cancelCompletionConfirm" style="padding: 9px 18px; border-radius: 8px; border: 1.5px solid #cbd5e1; background: #ffffff; color: #475569; font-size: 13px; font-weight: 600; cursor: pointer; transition: all 0.15s;" onmouseover="this.style.background='#f1f5f9'" onmouseout="this.style.background='#ffffff'">
                         Cancel
                     </button>
-                    <button type="button" wire:click="confirmAndCompleteTransaction" style="padding: 9px 20px; border-radius: 8px; border: none; background: #16a34a; color: #ffffff; font-size: 13px; font-weight: 600; cursor: pointer; display: flex; align-items: center; gap: 6px; box-shadow: 0 4px 10px rgba(22, 163, 74, 0.25); transition: background 0.15s;" onmouseover="this.style.backgroundColor='#15803d'" onmouseout="this.style.backgroundColor='#16a34a'">
-                        <i class="fa-solid fa-check"></i> Yes, Complete
+                    <button type="button" wire:click="confirmAndCompleteTransaction" style="padding: 9px 20px; border-radius: 8px; border: none; background: #16a34a; color: #ffffff; font-size: 13px; font-weight: 700; cursor: pointer; display: flex; align-items: center; gap: 6px; box-shadow: 0 4px 10px rgba(22, 163, 74, 0.25); transition: background 0.15s;" onmouseover="this.style.backgroundColor='#15803d'" onmouseout="this.style.backgroundColor='#16a34a'">
+                        <i class="fa-solid fa-check"></i> Yes
                     </button>
                 </div>
+
+            </div>
+        </div>
+    @endif
+
+    <!-- Upload File Modal -->
+    @if ($showUploadModal)
+        <div style="position: fixed; inset: 0; z-index: 99999; background: rgba(15, 23, 42, 0.6); backdrop-filter: blur(4px); display: flex; align-items: center; justify-content: center; padding: 16px;">
+            <div style="background: #ffffff; width: 100%; max-width: 500px; border-radius: 16px; box-shadow: 0 20px 25px -5px rgba(0,0,0,0.1), 0 8px 10px -6px rgba(0,0,0,0.1); overflow: hidden; font-family: 'Inter', sans-serif;">
+                
+                <!-- Header -->
+                <div style="padding: 20px 24px; background: #f8fafc; border-bottom: 1px solid #e2e8f0; display: flex; align-items: center; justify-content: space-between;">
+                    <div style="display: flex; align-items: center; gap: 12px;">
+                        <div style="width: 40px; height: 40px; border-radius: 10px; background: #e0f2fe; color: #0284c7; display: flex; align-items: center; justify-content: center; font-size: 18px;">
+                            <i class="fa-solid fa-file-arrow-up"></i>
+                        </div>
+                        <div>
+                            <h3 style="margin: 0; font-size: 16px; font-weight: 700; color: #0f172a;">Upload Circulated Document</h3>
+                            <span style="font-size: 12px; color: #64748b;">Attach PDF file for this transaction</span>
+                        </div>
+                    </div>
+                    <button type="button" wire:click="cancelUploadModal" style="background: none; border: none; font-size: 20px; color: #94a3b8; cursor: pointer; border-radius: 50%; width: 32px; height: 32px; display: flex; align-items: center; justify-content: center;" onmouseover="this.style.background='#e2e8f0'" onmouseout="this.style.background='transparent'">&times;</button>
+                </div>
+
+                <!-- Body -->
+                <form wire:submit.prevent="handleUploadFile">
+                    <div style="padding: 24px;">
+                        @if (!empty($uploadErrorMessage))
+                            <div style="background: #fef2f2; border: 1.5px solid #ef4444; border-radius: 8px; padding: 10px 14px; color: #dc2626; font-size: 13px; margin-bottom: 16px;">
+                                {{ $uploadErrorMessage }}
+                            </div>
+                        @endif
+
+                        <div style="margin-bottom: 16px;">
+                            <label style="display: block; font-size: 13px; font-weight: 600; color: #334155; margin-bottom: 6px;">File Code (Optional / Auto-generated):</label>
+                            <input type="text" wire:model="uploadFileCode" style="width: 100%; padding: 9px 12px; border: 1.5px solid #cbd5e1; border-radius: 8px; font-size: 13px; box-sizing: border-box;">
+                        </div>
+
+                        <div>
+                            <label style="display: block; font-size: 13px; font-weight: 600; color: #334155; margin-bottom: 6px;">Select Document PDF (*.pdf):</label>
+                            <input type="file" wire:model="uploadedFile" accept=".pdf" style="width: 100%; padding: 8px 12px; border: 1.5px dashed #0284c7; border-radius: 8px; font-size: 13px; background: #f0f9ff; cursor: pointer; box-sizing: border-box;">
+                            <div wire:loading wire:target="uploadedFile" style="margin-top: 6px; font-size: 12px; color: #0284c7; font-weight: 500;">
+                                Loading file...
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Footer -->
+                    <div style="padding: 16px 24px; background: #f8fafc; border-top: 1px solid #e2e8f0; display: flex; align-items: center; justify-content: flex-end; gap: 12px;">
+                        <button type="button" wire:click="cancelUploadModal" style="padding: 9px 18px; border-radius: 8px; border: 1.5px solid #cbd5e1; background: #ffffff; color: #475569; font-size: 13px; font-weight: 600; cursor: pointer;">
+                            Cancel
+                        </button>
+                        <button type="submit" style="padding: 9px 20px; border-radius: 8px; border: none; background: #0284c7; color: #ffffff; font-size: 13px; font-weight: 700; cursor: pointer; display: flex; align-items: center; gap: 6px; box-shadow: 0 4px 10px rgba(2, 132, 199, 0.25);">
+                            <i class="fa-solid fa-cloud-arrow-up"></i> Upload Document
+                        </button>
+                    </div>
+                </form>
 
             </div>
         </div>

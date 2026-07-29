@@ -192,6 +192,7 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Receive Transac
             }
         }
 
+        $transaction->is_last_step = empty($nextSequence);
         $transaction->next_office_name = $nextOfficeName;
         $this->activeTransaction = (array) $transaction;
     }
@@ -382,24 +383,8 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Receive Transac
 
                     $this->successMessage = "Transaction {$this->activeTransaction['control_number']} successfully forwarded to {$this->activeTransaction['next_office_name']}.";
                 } else {
-                    // Final step completion
-                    DB::table('dts_transactions')
-                        ->where('transaction_id', $this->activeTransaction['transaction_id'])
-                        ->update([
-                            'status' => 'completed',
-                        ]);
-
-                    DB::table('sub_document_tracking_system_logs')->insert([
-                        'transaction_id' => $this->activeTransaction['transaction_id'],
-                        'office_code' => $userOfficeCode,
-                        'type' => 'completed',
-                        'date_in' => now(),
-                        'date_out' => now(),
-                        'notes' => 'Completed transaction flow.',
-                        'performed_by' => auth()->id(),
-                    ]);
-
-                    $this->successMessage = "Transaction {$this->activeTransaction['control_number']} has reached the final step and is now COMPLETED.";
+                    // Final step sequence completion (keep in Current Transactions for document upload)
+                    $this->successMessage = "Transaction {$this->activeTransaction['control_number']} final routing step recorded. Please go to Current Transactions to upload circulated document and complete the transaction.";
                 }
 
                 // Record recent scan item in session
@@ -614,9 +599,15 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Receive Transac
                                     <input type="text" wire:model="notes" placeholder="Type notes for the next stop..." style="width: 100%; background: #f8fafc; color: #1e293b; border: 1.5px solid #cbd5e1; border-radius: 8px; padding: 10px; font-size: 13px; outline: none;" />
                                 </div>
 
-                                <button type="button" wire:click="proceedTransaction" style="width: 100%; padding: 12px; background: #059669; color: white; border: none; border-radius: 8px; font-weight: 700; font-size: 14px; cursor: pointer; transition: all 0.2s; display: flex; align-items: center; justify-content: center; gap: 8px; margin-top: 8px; box-shadow: 0 4px 6px -1px rgba(5,150,105,0.25);">
-                                    <i class="fa-solid fa-paper-plane"></i> Forward Transaction
-                                </button>
+                                @if (!empty($activeTransaction['is_last_step']))
+                                    <button type="button" wire:click="proceedTransaction" style="width: 100%; padding: 12px; background: #16a34a; color: white; border: none; border-radius: 8px; font-weight: 700; font-size: 14px; cursor: pointer; transition: all 0.2s; display: flex; align-items: center; justify-content: center; gap: 8px; margin-top: 8px; box-shadow: 0 4px 6px -1px rgba(22,163,74,0.25);">
+                                        <i class="fa-solid fa-circle-check"></i> Complete Sequence (Finish Final Step)
+                                    </button>
+                                @else
+                                    <button type="button" wire:click="proceedTransaction" style="width: 100%; padding: 12px; background: #059669; color: white; border: none; border-radius: 8px; font-weight: 700; font-size: 14px; cursor: pointer; transition: all 0.2s; display: flex; align-items: center; justify-content: center; gap: 8px; margin-top: 8px; box-shadow: 0 4px 6px -1px rgba(5,150,105,0.25);">
+                                        <i class="fa-solid fa-paper-plane"></i> Forward Transaction
+                                    </button>
+                                @endif
                             @endif
                         </div>
                     </div>

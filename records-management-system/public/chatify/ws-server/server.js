@@ -1,5 +1,7 @@
 const WebSocket = require('ws');
 const http = require('http');
+const https = require('https');
+const urlModule = require('url');
 const crypto = require('crypto');
 let monitorEventLoopDelay;
 try {
@@ -18,6 +20,91 @@ const CHAT_SHARED_SECRET = process.env.CHAT_SHARED_SECRET || '7f5b84c8a2bf6d91cd
 // rotate them independently.
 const INTERNAL_PUSH_SECRET = process.env.INTERNAL_PUSH_SECRET || CHAT_SHARED_SECRET;
 const INTERNAL_PUSH_MAX_BODY_BYTES = 64 * 1024;
+const PHP_APP_BASE_URL = process.env.PHP_APP_BASE_URL || 'http://127.0.0.1';
+
+function internalFetchPhp(endpointPath, queryParams, accountId, callback) {
+  let queryString = '';
+  if (queryParams && typeof queryParams === 'object') {
+    const params = new URLSearchParams();
+    for (const key in queryParams) {
+      if (queryParams[key] !== undefined && queryParams[key] !== null) {
+        params.append(key, queryParams[key]);
+      }
+    }
+    queryString = '?' + params.toString();
+  }
+
+  const pathsToTry = [
+    endpointPath,
+    '/chatify' + endpointPath,
+    '/public/chatify' + endpointPath
+  ];
+
+  let parsedUrl;
+  try {
+    parsedUrl = new urlModule.URL(PHP_APP_BASE_URL);
+  } catch (e) {
+    parsedUrl = new urlModule.URL('http://127.0.0.1');
+  }
+
+  const basePort = parsedUrl.port ? parseInt(parsedUrl.port, 10) : (parsedUrl.protocol === 'https:' ? 443 : 80);
+  const portsToTry = Array.from(new Set([basePort, 80, 8000, 8080, 3000]));
+
+  const targets = [];
+  for (const p of portsToTry) {
+    for (const path of pathsToTry) {
+      targets.push({ port: p, path: path });
+    }
+  }
+
+  function tryNextTarget(index) {
+    if (index >= targets.length) {
+      return callback(new Error('Internal PHP request failed for all target ports/paths'), null);
+    }
+
+    const t = targets[index];
+    const httpModule = parsedUrl.protocol === 'https:' ? https : http;
+    const reqOpts = {
+      hostname: parsedUrl.hostname,
+      port: t.port,
+      path: t.path + queryString,
+      method: 'GET',
+      headers: {
+        'X-Internal-Secret': INTERNAL_PUSH_SECRET,
+        'X-Internal-Account-Id': String(accountId),
+        'User-Agent': 'Chatify-WS-Server/1.0'
+      },
+      timeout: 2000
+    };
+
+    const req = httpModule.request(reqOpts, (res) => {
+      if ((res.statusCode === 404 || res.statusCode === 502 || res.statusCode === 503) && index < targets.length - 1) {
+        res.resume();
+        return tryNextTarget(index + 1);
+      }
+      let rawData = '';
+      res.setEncoding('utf8');
+      res.on('data', (chunk) => { rawData += chunk; });
+      res.on('end', () => {
+        if (res.statusCode !== 200) {
+          return tryNextTarget(index + 1);
+        }
+        try {
+          const parsed = JSON.parse(rawData);
+          callback(null, parsed);
+        } catch (e) {
+          callback(e, null);
+        }
+      });
+    });
+
+    req.on('error', () => { tryNextTarget(index + 1); });
+    req.on('timeout', () => { req.destroy(); tryNextTarget(index + 1); });
+    req.end();
+  }
+
+  tryNextTarget(0);
+}
 
 const AUTH_TIMEOUT_MS = 10000;
 const HEARTBEAT_INTERVAL_MS = 30000;
@@ -422,29 +509,70 @@ wss.on('connection', (ws) => {
       return;
     }
 
+    // 1c. WebSocket query for DM user list / sidebar
+    if (data.type === 'fetch_users_dm') {
+      const q = (data.q || '').trim();
+      internalFetchPhp('/fetch_users_dm.php', { q }, state.accountId, (err, resData) => {
+        if (err) {
+          logError('fetch_users_dm WS error:', err.message);
+          return;
+        }
+        safeSend(ws, JSON.stringify({
+          type: 'users_dm_response',
+          req_id: data.req_id || null,
+          data: resData
+        }));
+      });
+      return;
+    }
+
+    // 1d. WebSocket query for chat messages (global or DM)
+    if (data.type === 'fetch_messages') {
+      const chatType = data.chat_type || 'global';
+      const beforeUuid = data.before_uuid || '';
+      const endpoint = chatType === 'global' ? '/load.php' : '/load_dm.php';
+      const query = chatType === 'global'
+        ? { before_uuid: beforeUuid }
+        : { target_id: data.target_id || 0, target_user: data.target_user || '', before_uuid: beforeUuid };
+
+      internalFetchPhp(endpoint, query, state.accountId, (err, resData) => {
+        if (err) {
+          logError('fetch_messages WS error:', err.message);
+          return;
+        }
+        safeSend(ws, JSON.stringify({
+          type: 'messages_response',
+          req_id: data.req_id || null,
+          chat_type: chatType,
+          target_id: data.target_id || 0,
+          data: resData
+        }));
+      });
+      return;
+    }
+
     // 2. Handle Message Dispatched Event
     if (data.type === 'message') {
       if (isRateLimited(state.accountId, 'message')) return;
 
-      const { chat_type, recipient_id, msg_uuid } = data;
+      const { chat_type, recipient_id, msg_uuid, message, created_at } = data;
       log(`Broadcasting message event: type=${chat_type}, sender_id=${state.accountId}, msg_uuid=${msg_uuid || ''}`);
 
+      const payloadObj = {
+        type: 'message',
+        chat_type: chat_type || 'global',
+        sender_id: state.accountId,
+        sender_name: state.name,
+        recipient_id: recipient_id || null,
+        msg_uuid: msg_uuid || null,
+        message: message || '',
+        created_at: created_at || new Date().toISOString()
+      };
+      const payloadStr = JSON.stringify(payloadObj);
+
       if (chat_type === 'global') {
-        const payloadStr = JSON.stringify({
-          type: 'message',
-          chat_type: 'global',
-          sender_id: state.accountId,
-          msg_uuid: msg_uuid || null
-        });
         broadcastToAll(payloadStr, state.accountId);
       } else if (chat_type === 'private') {
-        const payloadStr = JSON.stringify({
-          type: 'message',
-          chat_type: 'private',
-          sender_id: state.accountId,
-          recipient_id: recipient_id,
-          msg_uuid: msg_uuid || null
-        });
         // Recipient, any other session of the sender, and admin (1) for spymode
         broadcastToAccounts([Number(recipient_id), state.accountId, 1], payloadStr);
       }

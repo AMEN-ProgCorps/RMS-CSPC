@@ -14,14 +14,22 @@
 
 require_once __DIR__ . '/bootstrap.php';
 
-session_start();
-Auth::require();
-session_write_close();
-
 header('Content-Type: application/json');
 
-$myAccountId = Auth::accountId();
-$isAdmin     = Auth::isAdmin();
+$internalSecret = $_SERVER['HTTP_X_INTERNAL_SECRET'] ?? '';
+$internalAccId  = (int) ($_SERVER['HTTP_X_INTERNAL_ACCOUNT_ID'] ?? 0);
+
+if ($internalSecret !== '' && hash_equals(INTERNAL_PUSH_SECRET, $internalSecret) && $internalAccId > 0) {
+    $myAccountId = $internalAccId;
+    $isAdmin     = ($myAccountId === 1);
+} else {
+    session_start();
+    Auth::require();
+    session_write_close();
+    $myAccountId = Auth::accountId();
+    $isAdmin     = Auth::isAdmin();
+}
+
 $searchQuery = trim($_GET['q'] ?? '');
 
 $sidebarUsers = [];

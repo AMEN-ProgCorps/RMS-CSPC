@@ -555,8 +555,8 @@ wss.on('connection', (ws) => {
     if (data.type === 'message') {
       if (isRateLimited(state.accountId, 'message')) return;
 
-      const { chat_type, recipient_id, msg_uuid, message, created_at } = data;
-      log(`Broadcasting message event: type=${chat_type}, sender_id=${state.accountId}, msg_uuid=${msg_uuid || ''}`);
+      const { chat_type, recipient_id, msg_uuid, message, created_at, has_upload } = data;
+      log(`Broadcasting message event: type=${chat_type}, sender_id=${state.accountId}, msg_uuid=${msg_uuid || ''}, has_upload=${has_upload || false}`);
 
       const payloadObj = {
         type: 'message',
@@ -566,7 +566,8 @@ wss.on('connection', (ws) => {
         recipient_id: recipient_id || null,
         msg_uuid: msg_uuid || null,
         message: message || '',
-        created_at: created_at || new Date().toISOString()
+        created_at: created_at || new Date().toISOString(),
+        has_upload: !!has_upload
       };
       const payloadStr = JSON.stringify(payloadObj);
 

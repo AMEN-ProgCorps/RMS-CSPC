@@ -658,13 +658,45 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
       }
     }
 
+    /* Hide scrollbars across all modals */
+    .modal, .modal-content, .modal-body, #notifyContentModal .modal-body, #uploadErrorList {
+      scrollbar-width: none !important;
+      -ms-overflow-style: none !important;
+    }
+    .modal::-webkit-scrollbar,
+    .modal-content::-webkit-scrollbar,
+    .modal-body::-webkit-scrollbar,
+    #notifyContentModal .modal-body::-webkit-scrollbar,
+    #uploadErrorList::-webkit-scrollbar {
+      display: none !important;
+    }
+
     /* Modal shown when a notification toast is clicked */
     #notifyContentModal .modal-body {
       white-space: pre-wrap;
       overflow-wrap: anywhere;
       word-break: break-word;
       max-height: 50vh;
-      overflow-y: auto;
+      overflow: hidden;
+    }
+
+    #uploadErrorList {
+      font-size: 14px;
+      color: var(--text-secondary);
+      line-height: 1.5;
+      max-height: 220px;
+      overflow: hidden;
+      word-break: break-word;
+      overflow-wrap: anywhere;
+    }
+
+    .upload-error-item {
+      padding: 2px 0;
+      display: -webkit-box;
+      -webkit-line-clamp: 4;
+      -webkit-box-orient: vertical;
+      overflow: hidden;
+      text-overflow: ellipsis;
     }
 
     .app-container {
@@ -1584,6 +1616,9 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
     .modal-footer {
       display: flex;
       border-top: 1px solid var(--border-color);
+      overflow: hidden;
+      border-bottom-left-radius: 12px;
+      border-bottom-right-radius: 12px;
     }
 
     .modal-button {
@@ -1595,17 +1630,26 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
       background: transparent;
       border: none;
       cursor: pointer;
-      transition: background-color 0.2s ease;
+      transition: background-color 0.2s ease, color 0.2s ease, opacity 0.2s ease;
       font-family: 'Inter', sans-serif;
       color: var(--text-primary);
+      outline: none;
+      user-select: none;
+      -webkit-tap-highlight-color: transparent;
+    }
+
+    .modal-button:focus,
+    .modal-button:focus-visible {
+      outline: none;
     }
 
     .cancel-button {
       border-right: 1px solid var(--border-color);
+      color: var(--text-primary);
     }
 
     .cancel-button:hover {
-      background-color: var(--button-hover);
+      background-color: var(--button-hover, rgba(0, 0, 0, 0.05));
     }
 
     .confirm-button {
@@ -1613,7 +1657,20 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
     }
 
     .confirm-button:hover {
-      background-color: rgba(27, 116, 228, 0.1);
+      background-color: rgba(27, 116, 228, 0.12);
+    }
+
+    .modal-button.modal-close-btn {
+      color: var(--text-primary);
+      border-right: none;
+    }
+
+    .modal-button.modal-close-btn:hover {
+      background-color: var(--button-hover, rgba(0, 0, 0, 0.06));
+    }
+
+    .modal-button:active {
+      opacity: 0.85;
     }
 
     .confirm-button:disabled {
@@ -2441,6 +2498,10 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
       0%, 80%, 100% { transform: translateY(0); }
       40% { transform: translateY(-4px); }
     }
+    @keyframes uploadSpin {
+      0% { transform: rotate(0deg); }
+      100% { transform: rotate(360deg); }
+    }
   </style>
 
 </head>
@@ -2740,6 +2801,40 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
     </div>
   </div>
   <?php endif; ?>
+
+  <!-- File Uploading Progress Modal -->
+  <div class="modal" id="uploadingModal" aria-hidden="true" style="display:none;align-items:center;justify-content:center;z-index:99999;">
+    <div class="modal-content" style="max-width:400px;">
+      <div class="modal-header">
+        <h3>Uploading File...</h3>
+      </div>
+      <div class="modal-body" style="text-align:center;">
+        <div style="margin-bottom:14px;display:flex;justify-content:center;align-items:center;">
+          <div class="upload-spinner" style="width:40px;height:40px;border:4px solid rgba(27,116,228,0.2);border-top-color:#1b74e4;border-radius:50%;animation:uploadSpin 0.8s linear infinite;"></div>
+        </div>
+        <p id="uploadingFileName" style="margin:0 0 14px 0;font-size:13px;color:var(--text-secondary);word-break:break-all;line-height:1.4;">Preparing upload...</p>
+        <div style="width:100%;height:8px;background:var(--border-color, #e4e6eb);border-radius:4px;overflow:hidden;margin-bottom:6px;">
+          <div id="uploadProgressBar" style="width:0%;height:100%;background:linear-gradient(90deg, #1b74e4, #00c3ff);transition:width 0.15s ease;border-radius:4px;"></div>
+        </div>
+        <div id="uploadProgressText" style="font-size:12px;font-weight:600;color:#1b74e4;text-align:right;">0%</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Upload Error Modal -->
+  <div class="modal" id="uploadErrorModal" aria-hidden="true" style="display:none;align-items:center;justify-content:center;z-index:99999;">
+    <div class="modal-content" style="max-width:400px;">
+      <div class="modal-header">
+        <h3 style="color:#c0392b;">Upload Failed</h3>
+      </div>
+      <div class="modal-body" id="uploadErrorList">
+        An unexpected error occurred while uploading.
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="modal-button modal-close-btn" id="uploadErrorCloseBtn" onclick="closeUploadErrorModal()">Close</button>
+      </div>
+    </div>
+  </div>
 
   <?php
   // Generate HMAC SHA256 token for WebSocket authentication.
@@ -3071,7 +3166,12 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
           }
           if (data.chat_type === 'global') {
             if (isGlobalChat) {
-              renderAndAppendWsMessage(data);
+              if (data.has_upload) {
+                isLoadingGC = false;
+                loadGlobalChat(false);
+              } else {
+                renderAndAppendWsMessage(data);
+              }
             }
           } else if (data.chat_type === 'private') {
             if (activeAdminConv) {
@@ -3088,7 +3188,11 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
                 (activeDMAccountId && ((sender === wsConfig.accountId && recip === activeDMAccountId) || (sender === activeDMAccountId && recip === wsConfig.accountId)));
               if (isForThisConv && sender !== wsConfig.accountId) {
                 // Incoming message from the other person in the active DM
-                renderAndAppendWsMessage(data);
+                if (data.has_upload) {
+                  loadChatForced();
+                } else {
+                  renderAndAppendWsMessage(data);
+                }
                 if (!document.hidden) markRead(activeDM);
               }
             }
@@ -5600,7 +5704,7 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
               if (isFirstLoad) { isFirstLoad = false; handleFirstLoadScroll(); }
               else if (wasAtBottom || shouldAutoScroll) requestAnimationFrame(() => requestAnimationFrame(() => scrollToBottom(true, false)));
               else showScrollIndicator(toInsert.filter(el => el.classList.contains('message-container')).length);
-              applyAdminBadges(); applyEmojiOnly();
+              applyAdminBadges(); applyEmojiOnly(); attachImageLoadListeners();
               if (gcHasMore && !document.getElementById('loadOlderBtn') && !document.getElementById('noMoreOlderNotice')) insertLoadOlderBtn();
             }
           }, delay);
@@ -5779,7 +5883,7 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
         isFirstLoad = false;
         if (genuinelyNewCountF > 0) showScrollIndicator(genuinelyNewCountF);
       }
-      applyAdminBadges(); applyEmojiOnly();
+      applyAdminBadges(); applyEmojiOnly(); attachImageLoadListeners();
       if (!document.hidden && activeDM) markRead(activeDM);
       updateSeenIndicator();
       dmCursor = data.nextCursor || '';
@@ -6641,6 +6745,85 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
     }
 
 
+    // ── Upload Progress & Error Modal Controls ────────────────────────────────
+    function showUploadingModal(fileNamesText) {
+      const modal = document.getElementById('uploadingModal');
+      const nameEl = document.getElementById('uploadingFileName');
+      const bar = document.getElementById('uploadProgressBar');
+      const text = document.getElementById('uploadProgressText');
+      if (nameEl) nameEl.textContent = fileNamesText || 'Uploading file...';
+      if (bar) bar.style.width = '0%';
+      if (text) text.textContent = '0%';
+      if (modal) {
+        modal.style.display = 'flex';
+        modal.classList.add('active');
+      }
+    }
+
+    function updateUploadProgress(percent) {
+      const bar = document.getElementById('uploadProgressBar');
+      const text = document.getElementById('uploadProgressText');
+      const p = Math.min(100, Math.max(0, Math.round(percent)));
+      if (bar) bar.style.width = p + '%';
+      if (text) text.textContent = p + '%';
+    }
+
+    function closeUploadingModal() {
+      const modal = document.getElementById('uploadingModal');
+      if (modal) {
+        modal.style.display = 'none';
+        modal.classList.remove('active');
+      }
+    }
+
+    function formatErrorMessage(str, maxLen = 160) {
+      str = (str || '').trim();
+      if (str.length > maxLen) {
+        return str.substring(0, maxLen).trim() + '.......';
+      }
+      return str;
+    }
+
+    function showUploadErrorModal(errors) {
+      closeUploadingModal();
+      const modal = document.getElementById('uploadErrorModal');
+      const listEl = document.getElementById('uploadErrorList');
+      if (listEl) {
+        if (Array.isArray(errors) && errors.length > 0) {
+          listEl.innerHTML = errors.map(e => `<div class="upload-error-item">${escapeHtml(formatErrorMessage(e))}</div>`).join('');
+        } else if (typeof errors === 'string') {
+          listEl.innerHTML = `<div class="upload-error-item">${escapeHtml(formatErrorMessage(errors))}</div>`;
+        } else {
+          listEl.textContent = 'Failed to upload file(s). Please try again.';
+        }
+      }
+      if (modal) {
+        modal.style.display = 'flex';
+        modal.classList.add('active');
+      }
+    }
+
+    function closeUploadErrorModal() {
+      const modal = document.getElementById('uploadErrorModal');
+      if (modal) {
+        modal.style.display = 'none';
+        modal.classList.remove('active');
+      }
+    }
+
+    function attachImageLoadListeners() {
+      if (!chatBox) return;
+      chatBox.querySelectorAll('img').forEach(img => {
+        if (img.dataset.scrollListener) return;
+        img.dataset.scrollListener = '1';
+        img.addEventListener('load', () => {
+          if (isAtBottom() || shouldAutoScroll) {
+            scrollToBottom(true, false);
+          }
+        });
+      });
+    }
+
     // ── Core upload handler ───────────────────────────────────────────────────
     function handleFileUploads(files) {
       if (isAdminAllChatsView || activeAdminConv) {
@@ -6663,7 +6846,11 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
         }
       }
 
-      // silently ignore rejected files
+      // If there are rejected files, inform the user via Error Modal
+      if (rejected.length > 0) {
+        showUploadErrorModal(rejected.map(f => `'${f}' was rejected: executable or script files are not allowed.`));
+        if (accepted.length === 0) return;
+      }
 
       // Split accepted files: images in one batch, other files individually
       const imageBatch = accepted.filter(f => IMAGE_EXTS.has((f.name.split('.').pop()||'').toLowerCase()));
@@ -6691,24 +6878,45 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
 
       // Build FormData
       const fd = new FormData();
+      const names = [];
       for (const file of fileList) {
         fd.append('files[]', file);
+        names.push(file.name);
       }
+
+      showUploadingModal(names.join(', '));
 
       // POST to upload.php
       const xhr = new XMLHttpRequest();
       xhr.open('POST', 'upload.php', true);
+
+      if (xhr.upload) {
+        xhr.upload.onprogress = function(e) {
+          if (e.lengthComputable) {
+            const percent = (e.loaded / e.total) * 85;
+            updateUploadProgress(percent);
+          }
+        };
+      }
+
       xhr.onload = function() {
         if (this.status !== 200) {
+          showUploadErrorModal('Server returned error status: ' + this.status);
           return;
         }
 
         let result;
         try { result = JSON.parse(this.responseText); } catch(e) {
+          showUploadErrorModal('Failed to parse server response.');
           return;
         }
 
-        if (!result.success || !result.uploaded || result.uploaded.length === 0) return;
+        if (!result.success || !result.uploaded || result.uploaded.length === 0) {
+          showUploadErrorModal(result.errors || 'File upload failed or was rejected by server.');
+          return;
+        }
+
+        updateUploadProgress(92);
 
         // Send the uploaded filenames as a message
         const uploadedFiles = result.uploaded;
@@ -6725,25 +6933,51 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
         }
 
         sendXhr.onload = function() {
+          updateUploadProgress(100);
+          setTimeout(closeUploadingModal, 300);
+
           if (this.status === 200) {
-            // Trigger WS broadcast so the other party refreshes
+            let msgUuid = null;
+            try {
+              const resData = JSON.parse(this.responseText);
+              if (resData && resData.message && resData.message.id) {
+                msgUuid = resData.message.id;
+              }
+            } catch(e) {}
+
+            // Trigger WS broadcast so recipient & other tabs refresh immediately with full image
             if (ws && ws.readyState === WebSocket.OPEN) {
               if (isGlobalChat) {
-                ws.send(JSON.stringify({ type: 'message', chat_type: 'global' }));
+                ws.send(JSON.stringify({ type: 'message', chat_type: 'global', sender_id: wsConfig.accountId, msg_uuid: msgUuid, has_upload: true }));
               } else {
-                ws.send(JSON.stringify({ type: 'message', chat_type: 'private', recipient_id: activeDMAccountId }));
+                ws.send(JSON.stringify({ type: 'message', chat_type: 'private', sender_id: wsConfig.accountId, recipient_id: activeDMAccountId, msg_uuid: msgUuid, has_upload: true }));
               }
             }
-            // Force a fresh chat load so the grid renders
-            isLoadingChat = false;
-            if (isGlobalChat) loadGlobalChat();
-            else if (activeDM) loadChat();
+            // Force a fresh chat load so the grid/image renders immediately
+            if (isGlobalChat) {
+              isLoadingGC = false;
+              loadGlobalChat(false);
+            } else if (activeDM) {
+              loadChatForced();
+            }
+          } else {
+            showUploadErrorModal('Failed to save uploaded file message.');
           }
         };
-        sendXhr.onerror = function() {};
+
+        sendXhr.onerror = function() {
+          closeUploadingModal();
+          showUploadErrorModal('Network error while saving message.');
+        };
+
         sendXhr.send(params);
       };
-      xhr.onerror = function() {};
+
+      xhr.onerror = function() {
+        closeUploadingModal();
+        showUploadErrorModal('Network error while uploading file(s).');
+      };
+
       xhr.send(fd);
     }
 

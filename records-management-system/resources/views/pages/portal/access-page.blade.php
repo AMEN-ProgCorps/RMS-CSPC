@@ -140,7 +140,7 @@ new #[Layout('layouts.portal')] #[Title('RMS CSPC Portal')] class extends Compon
         }
 
         // Dynamic subsystems in DB
-        $knownNames = ['Document Tracking System', 'Records Disposition Program', 'Admin Console', 'Chatify'];
+        $knownNames = ['Document Tracking System', 'Records Disposition Program', 'Admin Console', 'Chatify', 'Profile Manager'];
         $extraSubsystems = \DB::table('subsystems')
             ->where('is_active', true)
             ->whereNotIn('subsystem_name', $knownNames)
@@ -166,47 +166,50 @@ new #[Layout('layouts.portal')] #[Title('RMS CSPC Portal')] class extends Compon
             $containerClass = 'cols-3';
         }
 
-        // Interleave items for grid column pairing (Personal on left, Main on right)
+        // Interleave items for grid column pairing (Main Subsystems on Left, Personal/Admin on Right)
         $desktopItems = [];
         if ($containerClass === 'cols-2') {
             $pCount = count($personalItems);
             $mCount = count($mainItems);
             $maxRows = max($pCount, $mCount, (int)ceil($desktopCount / 2));
             for ($r = 0; $r < $maxRows; $r++) {
-                if (isset($personalItems[$r])) {
-                    $desktopItems[] = $personalItems[$r];
-                }
                 if (isset($mainItems[$r])) {
                     $desktopItems[] = $mainItems[$r];
                 }
+                if (isset($personalItems[$r])) {
+                    $desktopItems[] = $personalItems[$r];
+                }
             }
-            $remainingPersonal = array_slice($personalItems, $maxRows);
             $remainingMain = array_slice($mainItems, $maxRows);
-            $desktopItems = array_merge($desktopItems, $remainingPersonal, $remainingMain);
+            $remainingPersonal = array_slice($personalItems, $maxRows);
+            $desktopItems = array_merge($desktopItems, $remainingMain, $remainingPersonal);
         } elseif ($containerClass === 'cols-3') {
             $pCount = count($personalItems);
             $mCount = count($mainItems);
             $pIdx = 0;
             $mIdx = 0;
             while ($pIdx < $pCount || $mIdx < $mCount) {
+                // Col 1 (Left): Main subsystem first
+                if ($mIdx < $mCount) {
+                    $desktopItems[] = $mainItems[$mIdx++];
+                } elseif ($pIdx < $pCount) {
+                    $desktopItems[] = $personalItems[$pIdx++];
+                }
+                // Col 2 (Middle): Main subsystem next
+                if ($mIdx < $mCount) {
+                    $desktopItems[] = $mainItems[$mIdx++];
+                } elseif ($pIdx < $pCount) {
+                    $desktopItems[] = $personalItems[$pIdx++];
+                }
+                // Col 3 (Right): Personal item
                 if ($pIdx < $pCount) {
                     $desktopItems[] = $personalItems[$pIdx++];
                 } elseif ($mIdx < $mCount) {
                     $desktopItems[] = $mainItems[$mIdx++];
                 }
-                if ($mIdx < $mCount) {
-                    $desktopItems[] = $mainItems[$mIdx++];
-                } elseif ($pIdx < $pCount) {
-                    $desktopItems[] = $personalItems[$pIdx++];
-                }
-                if ($mIdx < $mCount) {
-                    $desktopItems[] = $mainItems[$mIdx++];
-                } elseif ($pIdx < $pCount) {
-                    $desktopItems[] = $personalItems[$pIdx++];
-                }
             }
         } else {
-            $desktopItems = array_merge($personalItems, $mainItems);
+            $desktopItems = array_merge($mainItems, $personalItems);
         }
 
         return [

@@ -3160,8 +3160,19 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
         applyReadMoreToElement(contentEl);
       }
 
+      const atBottomNow = isAtBottom();
+
+      // Cap the DOM at PAGE_SIZE (100) visible messages so real-time
+      // WebSocket pushes never grow the chat window without bound.
+      // Only trim while actively viewing the live/latest window —
+      // never while the user has paged back into older history.
+      const viewingOlderNow = isGlobalChat ? gcViewingOlder : dmViewingOlder;
+      if (!viewingOlderNow) {
+        trimChatMessages(PAGE_SIZE);
+      }
+
       applyAdminBadges();
-      if (isAtBottom() || isSentByMe) {
+      if (atBottomNow || isSentByMe) {
         scrollToBottom(true, true);
       } else {
         showScrollIndicator(1);
@@ -4401,6 +4412,43 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
       for (let i = 0; i < excess; i++) {
         const el = items[i];
         if (el && el.parentNode) el.parentNode.removeChild(el);
+      }
+    }
+
+    // Reusable real-time trim helper: caps the number of visible
+    // `.message-container` nodes in chatBox at `maxMessages`, always
+    // dropping the OLDEST ones from the top first so the newest message
+    // (the one that was just appended) stays visible.
+    //
+    // Call this right after appending a message that arrived via:
+    //   • auto-poll (since_uuid) updates
+    //   • WebSocket real-time pushes
+    //   • locally sent ("optimistic") messages
+    //
+    // Do NOT call this for "Load Older" / prepending historical messages
+    // or the initial conversation load — those flows intentionally grow
+    // the window from the opposite end (see trimWindowFromBottom).
+    //
+    // Scroll position is preserved: removing nodes from the top shrinks
+    // scrollHeight, so scrollTop is shifted by the exact delta, keeping
+    // whatever the user was looking at visually stable (no jump).
+    function trimChatMessages(maxMessages = 100) {
+      if (!chatBox) return;
+      const items = Array.from(chatBox.querySelectorAll('.message-container'));
+      const excess = items.length - maxMessages;
+      if (excess <= 0) return;
+
+      const prevScrollTop = chatBox.scrollTop;
+      const prevScrollHeight = chatBox.scrollHeight;
+
+      for (let i = 0; i < excess; i++) {
+        const el = items[i];
+        if (el && el.parentNode) el.parentNode.removeChild(el);
+      }
+
+      const scrollDelta = prevScrollHeight - chatBox.scrollHeight;
+      if (scrollDelta !== 0) {
+        chatBox.scrollTop = Math.max(0, prevScrollTop - scrollDelta);
       }
     }
 
@@ -6439,6 +6487,12 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
                     applyReadMoreToElement(contentEl);
                   }
                   applyAdminBadges();
+                  // The optimistic bubble just became a real, permanent
+                  // .message-container inside chatBox — cap the window at
+                  // PAGE_SIZE just like any other real-time append.
+                  if (!gcViewingOlder && !dmViewingOlder) {
+                    trimChatMessages(PAGE_SIZE);
+                  }
                   // Always scroll for the user's own confirmed message — see note
                   // above the optimistic-bubble scroll for why isAtBottom() is
                   // unreliable while the virtual keyboard is open.

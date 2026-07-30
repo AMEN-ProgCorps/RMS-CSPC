@@ -6305,8 +6305,11 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
         else chatBox.appendChild(sendingBubble);
         shouldAutoScroll = true;
         userScrolledUp = false;
-        // Only scroll if user was at bottom to avoid jarring jumps when overlay is used
-        if (isAtBottom()) scrollToBottom(true, true);
+        // Always scroll for the user's own outgoing message — isAtBottom() can read
+        // stale while the virtual keyboard is open (viewport/chatBox height is still
+        // reflowing), which silently blocked this scroll and left the new message
+        // hidden below the fold when the keyboard was up.
+        scrollToBottom(true, true);
       }
 
       const xhr = new XMLHttpRequest();
@@ -6436,7 +6439,10 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
                     applyReadMoreToElement(contentEl);
                   }
                   applyAdminBadges();
-                  if (isAtBottom()) scrollToBottom(true, true);
+                  // Always scroll for the user's own confirmed message — see note
+                  // above the optimistic-bubble scroll for why isAtBottom() is
+                  // unreliable while the virtual keyboard is open.
+                  scrollToBottom(true, true);
                 }
               }
             }

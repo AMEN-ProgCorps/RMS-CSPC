@@ -357,7 +357,7 @@ body {
 }
 
 /* ===========================
-   ERROR MESSAGES
+   ERROR MESSAGES & ALERTS
 =========================== */
 
 .form-error {
@@ -365,6 +365,87 @@ body {
     color: #FFD4D4;
     font-size: 12px;
     margin-top: -10px;
+}
+
+.login-alert-error {
+    width: 80%;
+    margin-top: 15px;
+    padding: 10px 14px;
+    background: rgba(255, 77, 77, 0.25);
+    border: 1px solid rgba(255, 77, 77, 0.6);
+    border-radius: 6px;
+    color: #FFD4D4;
+    font-size: 13px;
+    text-align: center;
+    backdrop-filter: blur(4px);
+}
+
+/* ===========================
+   OR DIVIDER
+=========================== */
+
+.or-divider {
+    width: 80%;
+    margin: 20px 0 15px 0;
+    display: flex;
+    align-items: center;
+    text-align: center;
+}
+
+.or-divider::before,
+.or-divider::after {
+    content: '';
+    flex: 1;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.35);
+}
+
+.or-divider span {
+    padding: 0 12px;
+    color: #E0E0E0;
+    font-size: 13px;
+    font-weight: 600;
+    letter-spacing: 1px;
+}
+
+/* ===========================
+   GOOGLE LOGIN BUTTON
+=========================== */
+
+.google-login-con {
+    width: 80%;
+    display: flex;
+    justify-content: center;
+    margin-bottom: 10px;
+}
+
+.google-button {
+    width: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 12px;
+    padding: 11px 16px;
+    background: #FFFFFF;
+    color: #3c4043;
+    border-radius: 6px;
+    text-decoration: none;
+    font-weight: 600;
+    font-size: 14px;
+    font-family: 'Roboto', 'Inter', sans-serif;
+    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.2);
+    transition: transform 0.2s ease, box-shadow 0.2s ease, background-color 0.2s ease;
+}
+
+.google-button:hover {
+    background: #F8F9FA;
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+}
+
+.google-icon {
+    width: 20px;
+    height: 20px;
+    flex-shrink: 0;
 }
 
 /* ===========================

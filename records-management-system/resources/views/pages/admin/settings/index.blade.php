@@ -425,14 +425,16 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - System Settings')] class
                 );
 
                 // Log activity
+                $logText = "Updated system settings. Prewarming: " . ($this->pagePrewarmingEnabled ? 'true' : 'false') . 
+                             ", ExtEmail: " . ($this->emailAccessRequiredExternal ? 'true' : 'false') . 
+                             ", AppEmail: " . ($this->emailAccessRequiredApplication ? 'true' : 'false') . 
+                             ", IntEmail: " . ($this->emailAccessRequiredInternal ? 'true' : 'false') .
+                             ", ManualBtn: " . ($this->allowManualCompletionButton ? 'true' : 'false') .
+                             ", RDPReq: " . ($this->rdpRequiredUploadFile ? 'true' : 'false') .
+                             ", DTSReq: " . ($this->dtsRequiredUploadFile ? 'true' : 'false');
+
                 \DB::table('admin_logs')->insert([
-                    'changes' => "Updated system settings. Prewarming: " . ($this->pagePrewarmingEnabled ? 'true' : 'false') . 
-                                 ", Email Access External: " . ($this->emailAccessRequiredExternal ? 'true' : 'false') . 
-                                 ", Email Access Application: " . ($this->emailAccessRequiredApplication ? 'true' : 'false') . 
-                                 ", Email Access Internal: " . ($this->emailAccessRequiredInternal ? 'true' : 'false') .
-                                 ", Allow Manual Completion Button: " . ($this->allowManualCompletionButton ? 'true' : 'false') .
-                                 ", Required Upload File for Record System: " . ($this->rdpRequiredUploadFile ? 'true' : 'false') .
-                                 ", Required Upload File for Document Tracking System: " . ($this->dtsRequiredUploadFile ? 'true' : 'false'),
+                    'changes' => \Illuminate\Support\Str::limit($logText, 250),
                     'admin_id' => auth()->id(),
                     'what_system' => 3, // Admin Console
                     'when_changes' => now(),

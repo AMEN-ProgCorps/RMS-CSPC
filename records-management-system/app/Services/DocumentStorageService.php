@@ -76,6 +76,18 @@ class DocumentStorageService
         }
 
         // 6. Insert / Update document_data Record
+        // Ensure document_name is unique if another record already has it
+        $nameConflict = DB::table('document_data')
+            ->where('document_name', $originalName)
+            ->where('document_id', '!=', $documentId)
+            ->first();
+
+        if ($nameConflict) {
+            $ext = pathinfo($originalName, PATHINFO_EXTENSION);
+            $base = pathinfo($originalName, PATHINFO_FILENAME);
+            $originalName = "{$base}_" . strtoupper(Str::random(4)) . ($ext ? ".{$ext}" : "");
+        }
+
         $existingDoc = DB::table('document_data')->where('document_id', $documentId)->first();
 
         if ($existingDoc) {
@@ -88,6 +100,7 @@ class DocumentStorageService
                 'file_type'     => $mimeType,
                 'is_active'     => true,
                 'date_modified' => now(),
+                'date_deleted'  => now(),
             ]);
         } else {
             DB::table('document_data')->insert([
@@ -114,6 +127,44 @@ class DocumentStorageService
             'file_size'     => $fileSize,
             'file_type'     => $mimeType,
         ];
+    }
+
+    /**
+     * Delete/Purge a document from Google Drive, Local Storage cache, and document_data database.
+     *
+     * @param string|null $relativePath Relative storage path e.g. "DEV/DTS/DOC-1234_filename.pdf"
+     */
+    public static function deleteDocument(?string $relativePath): void
+    {
+        if (empty($relativePath)) {
+            return;
+        }
+
+        try {
+            // 1. Delete from Google Drive Cloud Storage
+            if (Storage::disk('google')->exists($relativePath)) {
+                Storage::disk('google')->delete($relativePath);
+            }
+        } catch (\Throwable $e) {
+            logger()->error("Google Drive delete failed for {$relativePath}: " . $e->getMessage());
+        }
+
+        try {
+            // 2. Delete from Local Storage Cache
+            $localPath = "private/uploads/{$relativePath}";
+            if (Storage::disk('local')->exists($localPath)) {
+                Storage::disk('local')->delete($localPath);
+            }
+        } catch (\Throwable $e) {
+            logger()->error("Local storage delete failed for {$relativePath}: " . $e->getMessage());
+        }
+
+        try {
+            // 3. Delete / Purge record from document_data database table
+            DB::table('document_data')->where('document_path', $relativePath)->delete();
+        } catch (\Throwable $e) {
+            logger()->error("Database delete failed for document_data ({$relativePath}): " . $e->getMessage());
+        }
     }
 
     /**

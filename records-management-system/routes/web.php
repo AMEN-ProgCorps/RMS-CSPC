@@ -112,6 +112,23 @@ Route::middleware(['auth'])
         Volt::route('/dts/list/external', 'pages.dts.list.external')->name('dts.list.external');
         Volt::route('/dts/list/application-letters', 'pages.dts.list.application-letters')->name('dts.list.application-letters');
         Volt::route('/dts/list/issuances', 'pages.dts.list.issuances')->name('dts.list.issuances');
+
+        Route::get('/dts/view-document', function (\Illuminate\Http\Request $request) {
+            $path = $request->query('path');
+            if (!$path) {
+                abort(404);
+            }
+
+            $content = \App\Services\DocumentStorageService::getFileContent($path);
+            if (!$content) {
+                abort(404, 'Document file not found.');
+            }
+
+            $filename = basename($path);
+            return response($content, 200)
+                ->header('Content-Type', 'application/pdf')
+                ->header('Content-Disposition', 'inline; filename="' . $filename . '"');
+        })->name('dts.view-document');
     });
 
 });

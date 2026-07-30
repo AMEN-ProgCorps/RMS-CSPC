@@ -54,9 +54,12 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
     // Reaffirmation & Upload Modal properties
     public bool $showCompletionConfirmModal = false;
     public bool $showUploadModal = false;
+    public bool $showViewFileModal = false;
+    public bool $showPdfPreviewModal = false;
     public $uploadedFile = null;
-    public string $uploadFileCode = '';
+    public string $uploadFileName = '';
     public string $uploadErrorMessage = '';
+    public string $attachedDocName = '';
 
     public function toggleLayout(): void
     {
@@ -396,7 +399,25 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
                     && $step->sequence_ranking == $this->selectedTransaction->sequence
                     && in_array($this->selectedTransaction->status, ['ongoing', 'revision'])
                     && !is_null($step->date_in)
+                    && is_null($step->date_out)
                 );
+                
+                if (!empty($step->date_in) && empty($step->total_time_completed) && ($step->date_out || $this->selectedTransaction->status === 'completed')) {
+                    $dateIn = \Carbon\Carbon::parse($step->date_in);
+                    $dateOut = $step->date_out ? \Carbon\Carbon::parse($step->date_out) : now();
+                    $diff = $dateIn->diff($dateOut);
+                    $parts = [];
+                    if ($diff->d > 0) $parts[] = $diff->d . ' ' . \Illuminate\Support\Str::plural('day', $diff->d);
+                    if ($diff->h > 0) $parts[] = $diff->h . ' ' . \Illuminate\Support\Str::plural('hour', $diff->h);
+                    if ($diff->i > 0) $parts[] = $diff->i . ' ' . \Illuminate\Support\Str::plural('minute', $diff->i);
+                    if (empty($parts)) $parts[] = 'less than a minute';
+                    $step->total_time_completed = implode(' ', $parts);
+                }
+
+                if ($this->selectedTransaction->status === 'completed' && $step->sequence_ranking == $this->selectedTransaction->sequence) {
+                    $step->action_needed = $step->action_needed ?: 'Finished';
+                }
+
                 $step->description = $step->note ?: 'Pending office flow step.';
                 $step->type = $step->action_needed ?: ($step->date_in ? 'Received' : 'Pending');
                 $step->notes = $step->note ?: '';
@@ -531,6 +552,12 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
         if ($this->selectedTransaction) {
             $this->controlNumber = $this->selectedTransaction->control_number;
             $this->fileCode = $this->selectedTransaction->copy_filled_id ?: '';
+            // Fetch the attached document name
+            $this->attachedDocName = '';
+            if (!empty($this->selectedTransaction->doc_dir)) {
+                $docData = DB::table('document_data')->where('document_path', $this->selectedTransaction->doc_dir)->first();
+                $this->attachedDocName = $docData->document_name ?? basename($this->selectedTransaction->doc_dir);
+            }
             $this->particulars = $this->selectedTransaction->subject ?: '';
             $this->classification = $this->selectedTransaction->classification ?: '';
             $this->actionNeeded = $this->selectedTransaction->action_needed ?: '';
@@ -568,6 +595,39 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
                         ->where('control_id', $cfRecord->assign_offices_id)
                         ->pluck('office_code')
                         ->toArray();
+                }
+            }
+
+            // Auto-repair completed transaction steps if missing Finished action or elapsed time
+            if ($this->selectedTransaction && $this->selectedTransaction->status === 'completed') {
+                $flow = DB::table('dts_transaction_flow')->where('flow_code', $this->selectedTransaction->transaction_flow)->first();
+                if ($flow) {
+                    $lastSeq = DB::table('dts_sequence_list')
+                        ->where('control_id', $flow->id)
+                        ->where('sequence_ranking', $this->selectedTransaction->sequence)
+                        ->first();
+                    if ($lastSeq && ($lastSeq->action_needed !== 'Finished' || empty($lastSeq->total_time_completed))) {
+                        $duration = $lastSeq->total_time_completed;
+                        if (!$duration && $lastSeq->date_in) {
+                            $dateIn = \Carbon\Carbon::parse($lastSeq->date_in);
+                            $dateOut = $lastSeq->date_out ? \Carbon\Carbon::parse($lastSeq->date_out) : now();
+                            $diff = $dateIn->diff($dateOut);
+                            $parts = [];
+                            if ($diff->d > 0) $parts[] = $diff->d . ' ' . \Illuminate\Support\Str::plural('day', $diff->d);
+                            if ($diff->h > 0) $parts[] = $diff->h . ' ' . \Illuminate\Support\Str::plural('hour', $diff->h);
+                            if ($diff->i > 0) $parts[] = $diff->i . ' ' . \Illuminate\Support\Str::plural('minute', $diff->i);
+                            if (empty($parts)) $parts[] = 'less than a minute';
+                            $duration = implode(' ', $parts);
+                        }
+                        DB::table('dts_sequence_list')
+                            ->where('control_id', $flow->id)
+                            ->where('sequence_ranking', $this->selectedTransaction->sequence)
+                            ->update([
+                                'action_needed' => 'Finished',
+                                'date_out' => $lastSeq->date_out ?: now(),
+                                'total_time_completed' => $duration ?: 'less than a minute',
+                            ]);
+                    }
                 }
             }
         }
@@ -618,6 +678,36 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
                     'status' => 'completed',
                 ]);
 
+            $flow = DB::table('dts_transaction_flow')->where('flow_code', $this->selectedTransaction->transaction_flow)->first();
+            if ($flow) {
+                $lastSeq = DB::table('dts_sequence_list')
+                    ->where('control_id', $flow->id)
+                    ->where('sequence_ranking', $this->selectedTransaction->sequence)
+                    ->first();
+                if ($lastSeq) {
+                    $duration = $lastSeq->total_time_completed;
+                    if (!$duration && $lastSeq->date_in) {
+                        $dateIn = \Carbon\Carbon::parse($lastSeq->date_in);
+                        $dateOut = now();
+                        $diff = $dateIn->diff($dateOut);
+                        $parts = [];
+                        if ($diff->d > 0) $parts[] = $diff->d . ' ' . \Illuminate\Support\Str::plural('day', $diff->d);
+                        if ($diff->h > 0) $parts[] = $diff->h . ' ' . \Illuminate\Support\Str::plural('hour', $diff->h);
+                        if ($diff->i > 0) $parts[] = $diff->i . ' ' . \Illuminate\Support\Str::plural('minute', $diff->i);
+                        if (empty($parts)) $parts[] = 'less than a minute';
+                        $duration = implode(' ', $parts);
+                    }
+                    DB::table('dts_sequence_list')
+                        ->where('control_id', $flow->id)
+                        ->where('sequence_ranking', $this->selectedTransaction->sequence)
+                        ->update([
+                            'action_needed' => 'Finished',
+                            'date_out' => $lastSeq->date_out ?: now(),
+                            'total_time_completed' => $duration ?: 'less than a minute',
+                        ]);
+                }
+            }
+
             DB::table('sub_document_tracking_system_logs')->insert([
                 'transaction_id' => $this->selectedTransactionId,
                 'office_code' => $userOfficeCode,
@@ -634,10 +724,54 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
 
     public function triggerUploadFileModal(): void
     {
-        $this->uploadFileCode = 'FC-' . strtoupper(Str::random(6));
+        $this->uploadFileName = '';
         $this->uploadErrorMessage = '';
         $this->uploadedFile = null;
         $this->showUploadModal = true;
+    }
+
+    public function openViewFileModal(): void
+    {
+        $this->showViewFileModal = true;
+    }
+
+    public function closeViewFileModal(): void
+    {
+        $this->showViewFileModal = false;
+    }
+
+    public function openPdfPreviewModal(): void
+    {
+        $this->showPdfPreviewModal = true;
+    }
+
+    public function closePdfPreviewModal(): void
+    {
+        $this->showPdfPreviewModal = false;
+    }
+
+    public function removeUploadedFile(): void
+    {
+        if (!$this->selectedTransactionId || !$this->selectedTransaction) return;
+
+        $oldDocDir = $this->selectedTransaction->doc_dir ?? null;
+
+        DB::table('dts_transactions')
+            ->where('transaction_id', $this->selectedTransactionId)
+            ->update(['doc_dir' => null]);
+
+        if ($oldDocDir) {
+            \App\Services\DocumentStorageService::deleteDocument($oldDocDir);
+        }
+
+        $this->loadSelectedTransaction();
+        $this->showViewFileModal = false;
+    }
+
+    public function changeUploadedFile(): void
+    {
+        $this->showViewFileModal = false;
+        $this->triggerUploadFileModal();
     }
 
     public function cancelUploadModal(): void
@@ -682,7 +816,7 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
             $docPath = $uploadResult['document_path'];
 
             $assignOfficesId = (DB::table('dts_copy_filled_transaction')->max('assign_offices_id') ?? 1000) + 1;
-            $codeNum = trim($this->uploadFileCode) ?: ('FC-' . strtoupper(Str::random(6)));
+            $codeNum = trim($this->uploadFileName) ?: $originalName;
 
             $copyFilledId = DB::table('dts_copy_filled_transaction')->insertGetId([
                 'control_num' => $codeNum,
@@ -1233,8 +1367,9 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
     @php
         $perms = auth()->user()?->permissions;
         $isSadm = $perms?->is_sadm ?? false;
+        $canListModify = $isSadm || ($perms?->can_dts_list_modify_transaction ?? false) || ($perms?->can_dts_modify_transaction ?? false);
+        $canModifyTrans = $canListModify || (isset($this->selectedTransaction) && $this->selectedTransaction->status !== 'completed' && ($perms?->can_dts_modify_transaction ?? false));
         $canProcess = $isSadm || ($perms?->can_dts_user_received ?? false);
-        $canModifyTrans = $isSadm || ($perms?->can_dts_modify_transaction ?? false);
     @endphp
     <div class="dts-topbar">
         <div class="dts-nav-group">
@@ -1852,18 +1987,18 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
                                             <td>{{ $step->date_out ? \Carbon\Carbon::parse($step->date_out)->format('Y-m-d h:i A') : ($step->date_in ? 'Pending' : 'N/A') }}</td>
                                             <td>{{ $step->total_time_completed ?: '-' }}</td>
                                             <td>
-                                                @if ($step->is_active_step && $canProcess)
+                                                @if ($step->is_active_step && $canProcess && is_null($step->date_out) && $selectedTransaction->status !== 'completed')
                                                     <select wire:model="activeAction" class="receive-row-action-select" style="padding: 4px 8px; border: 1px solid #cbd5e1; border-radius: 6px; font-size: 12.5px; font-weight: 500;">
                                                         @foreach(DB::table('dts_action_options')->orderBy('option_name', 'asc')->pluck('option_name') as $opt)
                                                             <option value="{{ $opt }}">{{ $opt }}</option>
                                                         @endforeach
                                                     </select>
                                                 @else
-                                                    {{ $step->action_needed ?: ($step->date_in ? 'Ongoing' : 'Pending') }}
+                                                    {{ ($selectedTransaction->status === 'completed' || !is_null($step->date_out)) ? ($step->action_needed ?: 'Finished') : ($step->action_needed ?: ($step->date_in ? 'Ongoing' : 'Pending')) }}
                                                 @endif
                                             </td>
                                             <td>
-                                                @if ($step->is_active_step && $canProcess)
+                                                @if ($step->is_active_step && $canProcess && is_null($step->date_out) && $selectedTransaction->status !== 'completed')
                                                     <input type="text" wire:model="activeNotes" class="active-notes-input" placeholder="Type notes here...">
                                                 @else
                                                     {{ $step->note ?: '-' }}
@@ -1901,15 +2036,8 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
 
                     <!-- Popup Action Buttons -->
                     <div class="receive-actions">
-                        <!-- VIEW LISTED PATH / VIEW LOGS / VIEW COPY FURNISHED Toggle Buttons -->
+                        <!-- VIEW LISTED PATH / VIEW COPY FURNISHED Toggle Button -->
                         @if (!$showCopyFurnished)
-                            <button type="button" class="receive-action-btn" wire:click="toggleFullConfiguredPath">
-                                <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-                                    <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
-                                    <circle cx="12" cy="12" r="3"/>
-                                </svg>
-                                {{ $showFullConfiguredPath ? 'VIEW LOGS' : 'VIEW LISTED PATH' }}
-                            </button>
                             <button type="button" class="receive-action-btn" wire:click="$set('showCopyFurnished', true)">
                                 <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
                                     <rect x="3" y="3" width="18" height="18" rx="2" ry="2"/>
@@ -1965,14 +2093,24 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
                         @endif
 
                         @if ($selectedTransaction->status === 'completed' || $this->isLastStep() || $showUploadModal)
-                            <button type="button" class="receive-action-btn" wire:click="triggerUploadFileModal" style="background-color: #0284c7;">
-                                <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-                                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
-                                    <polyline points="17 8 12 3 7 8"/>
-                                    <line x1="12" y1="3" x2="12" y2="15"/>
-                                </svg>
-                                UPLOAD FILE
-                            </button>
+                            @if (!empty($selectedTransaction->doc_dir))
+                                <button type="button" class="receive-action-btn" wire:click="openPdfPreviewModal" style="background-color: #0891b2;" title="Directly preview attached document">
+                                    <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                                        <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
+                                        <circle cx="12" cy="12" r="3"/>
+                                    </svg>
+                                    VIEW FILE
+                                </button>
+                            @else
+                                <button type="button" class="receive-action-btn" wire:click="triggerUploadFileModal" style="background-color: #0284c7;">
+                                    <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                                        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+                                        <polyline points="17 8 12 3 7 8"/>
+                                        <line x1="12" y1="3" x2="12" y2="15"/>
+                                    </svg>
+                                    UPLOAD FILE
+                                </button>
+                            @endif
                         @endif
 
                         <!-- EDIT / SAVE toggle -->
@@ -2120,15 +2258,28 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
                         @endif
 
                         <div style="margin-bottom: 16px;">
-                            <label style="display: block; font-size: 13px; font-weight: 600; color: #334155; margin-bottom: 6px;">File Code (Optional / Auto-generated):</label>
-                            <input type="text" wire:model="uploadFileCode" style="width: 100%; padding: 9px 12px; border: 1.5px solid #cbd5e1; border-radius: 8px; font-size: 13px; box-sizing: border-box;">
+                            <label style="display: block; font-size: 13px; font-weight: 600; color: #334155; margin-bottom: 6px;">File Name (Optional):</label>
+                            <input type="text" wire:model="uploadFileName" placeholder="Auto-detected from file if left blank" style="width: 100%; padding: 9px 12px; border: 1.5px solid #cbd5e1; border-radius: 8px; font-size: 13px; box-sizing: border-box;">
                         </div>
 
-                        <div>
+                        <div x-data="{ uploading: false, progress: 0 }"
+                             x-on:livewire-upload-start="uploading = true; progress = 0"
+                             x-on:livewire-upload-finish="uploading = false; progress = 100"
+                             x-on:livewire-upload-cancel="uploading = false; progress = 0"
+                             x-on:livewire-upload-error="uploading = false; progress = 0"
+                             x-on:livewire-upload-progress="progress = $event.detail.progress">
                             <label style="display: block; font-size: 13px; font-weight: 600; color: #334155; margin-bottom: 6px;">Select Document PDF (*.pdf):</label>
                             <input type="file" wire:model="uploadedFile" accept=".pdf" style="width: 100%; padding: 8px 12px; border: 1.5px dashed #0284c7; border-radius: 8px; font-size: 13px; background: #f0f9ff; cursor: pointer; box-sizing: border-box;">
-                            <div wire:loading wire:target="uploadedFile" style="margin-top: 6px; font-size: 12px; color: #0284c7; font-weight: 500;">
-                                Loading file...
+                            
+                            <!-- Upload Progress Bar -->
+                            <div x-show="uploading" x-cloak style="margin-top: 10px;">
+                                <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 4px;">
+                                    <span style="font-size: 12px; font-weight: 600; color: #0284c7;">Uploading...</span>
+                                    <span style="font-size: 12px; font-weight: 700; color: #0284c7;" x-text="progress + '%'"></span>
+                                </div>
+                                <div style="width: 100%; height: 8px; background: #e0f2fe; border-radius: 99px; overflow: hidden;">
+                                    <div style="height: 100%; background: linear-gradient(90deg, #0284c7, #06b6d4); border-radius: 99px; transition: width 0.3s ease;" x-bind:style="'width: ' + progress + '%'"></div>
+                                </div>
                             </div>
                         </div>
                     </div>
@@ -2143,6 +2294,127 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
                         </button>
                     </div>
                 </form>
+
+            </div>
+        </div>
+    @endif
+
+    <!-- View File Modal -->
+    @if ($showViewFileModal && $selectedTransaction && !empty($selectedTransaction->doc_dir))
+        <div style="position: fixed; inset: 0; z-index: 99999; background: rgba(15, 23, 42, 0.6); backdrop-filter: blur(4px); display: flex; align-items: center; justify-content: center; padding: 16px;">
+            <div style="background: #ffffff; width: 100%; max-width: 460px; border-radius: 16px; box-shadow: 0 20px 25px -5px rgba(0,0,0,0.1), 0 8px 10px -6px rgba(0,0,0,0.1); overflow: hidden; font-family: 'Inter', sans-serif;">
+                
+                <!-- Header -->
+                <div style="padding: 20px 24px; background: #f8fafc; border-bottom: 1px solid #e2e8f0; display: flex; align-items: center; justify-content: space-between;">
+                    <div style="display: flex; align-items: center; gap: 12px;">
+                        <div style="width: 40px; height: 40px; border-radius: 10px; background: #f0fdf4; color: #16a34a; display: flex; align-items: center; justify-content: center; font-size: 18px;">
+                            <i class="fa-solid fa-file-pdf"></i>
+                        </div>
+                        <div>
+                            <h3 style="margin: 0; font-size: 16px; font-weight: 700; color: #0f172a;">Attached Document</h3>
+                            <span style="font-size: 12px; color: #64748b;">Manage the uploaded circulated document</span>
+                        </div>
+                    </div>
+                    <button type="button" wire:click="closeViewFileModal" style="background: none; border: none; font-size: 20px; color: #94a3b8; cursor: pointer; border-radius: 50%; width: 32px; height: 32px; display: flex; align-items: center; justify-content: center;" onmouseover="this.style.background='#e2e8f0'" onmouseout="this.style.background='transparent'">&times;</button>
+                </div>
+
+                <!-- Body -->
+                <div style="padding: 24px;">
+                    <!-- File Info Card -->
+                    <div style="background: #f8fafc; border: 1.5px solid #e2e8f0; border-radius: 12px; padding: 16px; margin-bottom: 20px; display: flex; align-items: center; gap: 14px;">
+                        <div style="width: 44px; height: 44px; border-radius: 10px; background: #fef2f2; color: #dc2626; display: flex; align-items: center; justify-content: center; font-size: 20px; flex-shrink: 0;">
+                            <i class="fa-solid fa-file-pdf"></i>
+                        </div>
+                        <div style="min-width: 0; flex: 1;">
+                            <div style="font-size: 14px; font-weight: 700; color: #0f172a; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">{{ $attachedDocName ?: 'Document' }}</div>
+                            <div style="font-size: 12px; color: #64748b; margin-top: 2px;">PDF Document</div>
+                        </div>
+                    </div>
+
+                    <!-- Action Buttons -->
+                    <div style="display: flex; flex-direction: column; gap: 10px;">
+                        <!-- View Document -->
+                        <button type="button" wire:click="openPdfPreviewModal" style="display: flex; align-items: center; gap: 12px; padding: 14px 16px; border-radius: 10px; border: 1.5px solid #e2e8f0; background: #ffffff; color: #334155; font-size: 13px; font-weight: 600; cursor: pointer; transition: all 0.15s; width: 100%; text-align: left;" onmouseover="this.style.background='#f0f9ff'; this.style.borderColor='#0284c7'" onmouseout="this.style.background='#ffffff'; this.style.borderColor='#e2e8f0'">
+                            <div style="width: 36px; height: 36px; border-radius: 8px; background: #e0f2fe; color: #0284c7; display: flex; align-items: center; justify-content: center; font-size: 15px; flex-shrink: 0;">
+                                <i class="fa-solid fa-eye"></i>
+                            </div>
+                            <div>
+                                <div style="font-weight: 700; color: #0f172a;">View Document</div>
+                                <div style="font-size: 11px; color: #64748b; margin-top: 1px;">Open PDF popout previewer directly in browser</div>
+                            </div>
+                        </button>
+
+                        @php
+                            $perms = auth()->user()?->permissions;
+                            $canListModify = $perms && ($perms->is_sadm || ($perms->can_dts_list_modify_transaction ?? false) || ($perms->can_dts_modify_transaction ?? false));
+                            $canModifyFile = ($selectedTransaction->status !== 'completed') || $canListModify;
+                        @endphp
+
+                        @if ($canModifyFile)
+                            <!-- Change File -->
+                            <button type="button" wire:click="changeUploadedFile" style="display: flex; align-items: center; gap: 12px; padding: 14px 16px; border-radius: 10px; border: 1.5px solid #e2e8f0; background: #ffffff; color: #334155; font-size: 13px; font-weight: 600; cursor: pointer; transition: all 0.15s; width: 100%; text-align: left;" onmouseover="this.style.background='#fffbeb'; this.style.borderColor='#f59e0b'" onmouseout="this.style.background='#ffffff'; this.style.borderColor='#e2e8f0'">
+                                <div style="width: 36px; height: 36px; border-radius: 8px; background: #fef3c7; color: #d97706; display: flex; align-items: center; justify-content: center; font-size: 15px; flex-shrink: 0;">
+                                    <i class="fa-solid fa-file-pen"></i>
+                                </div>
+                                <div>
+                                    <div style="font-weight: 700; color: #0f172a;">Change File</div>
+                                    <div style="font-size: 11px; color: #64748b; margin-top: 1px;">Replace with a different PDF document</div>
+                                </div>
+                            </button>
+
+                            <!-- Remove File -->
+                            <button type="button" wire:click="removeUploadedFile" onclick="return confirm('Are you sure you want to remove this uploaded document?')" style="display: flex; align-items: center; gap: 12px; padding: 14px 16px; border-radius: 10px; border: 1.5px solid #e2e8f0; background: #ffffff; color: #334155; font-size: 13px; font-weight: 600; cursor: pointer; transition: all 0.15s; width: 100%; text-align: left;" onmouseover="this.style.background='#fef2f2'; this.style.borderColor='#ef4444'" onmouseout="this.style.background='#ffffff'; this.style.borderColor='#e2e8f0'">
+                                <div style="width: 36px; height: 36px; border-radius: 8px; background: #fef2f2; color: #dc2626; display: flex; align-items: center; justify-content: center; font-size: 15px; flex-shrink: 0;">
+                                    <i class="fa-solid fa-trash-can"></i>
+                                </div>
+                                <div>
+                                    <div style="font-weight: 700; color: #0f172a;">Remove File</div>
+                                    <div style="font-size: 11px; color: #64748b; margin-top: 1px;">Detach and delete the uploaded document</div>
+                                </div>
+                            </button>
+                        @endif
+                    </div>
+                </div>
+
+                <!-- Footer -->
+                <div style="padding: 14px 24px; background: #f8fafc; border-top: 1px solid #e2e8f0; display: flex; justify-content: flex-end;">
+                    <button type="button" wire:click="closeViewFileModal" style="padding: 9px 18px; border-radius: 8px; border: 1.5px solid #cbd5e1; background: #ffffff; color: #475569; font-size: 13px; font-weight: 600; cursor: pointer;">
+                        Close
+                    </button>
+                </div>
+            </div>
+        </div>
+    @endif
+
+    <!-- PDF Preview Popout Modal -->
+    @if ($showPdfPreviewModal && $selectedTransaction && !empty($selectedTransaction->doc_dir))
+        <div style="position: fixed; inset: 0; z-index: 999999; background: rgba(15, 23, 42, 0.75); backdrop-filter: blur(6px); display: flex; align-items: center; justify-content: center; padding: 16px;">
+            <div style="background: #ffffff; width: 95%; max-width: 1000px; height: 90vh; border-radius: 16px; box-shadow: 0 25px 50px -12px rgba(0,0,0,0.25); overflow: hidden; display: flex; flex-direction: column; font-family: 'Inter', sans-serif;">
+                
+                <!-- Header -->
+                <div style="padding: 16px 24px; background: #f8fafc; border-bottom: 1px solid #e2e8f0; display: flex; align-items: center; justify-content: space-between;">
+                    <div style="display: flex; align-items: center; gap: 12px; min-width: 0;">
+                        <div style="width: 38px; height: 38px; border-radius: 10px; background: #e0f2fe; color: #0284c7; display: flex; align-items: center; justify-content: center; font-size: 18px; flex-shrink: 0;">
+                            <i class="fa-solid fa-file-pdf"></i>
+                        </div>
+                        <div style="min-width: 0;">
+                            <h3 style="margin: 0; font-size: 15px; font-weight: 700; color: #0f172a; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">{{ $attachedDocName ?: 'Document Preview' }}</h3>
+                            <span style="font-size: 11px; color: #64748b;">PDF Document Popout Viewer</span>
+                        </div>
+                    </div>
+                    
+                    <div style="display: flex; align-items: center; gap: 10px;">
+                        <a href="{{ route('dts.view-document', ['path' => $selectedTransaction->doc_dir]) }}" target="_blank" style="padding: 7px 14px; border-radius: 8px; border: 1.5px solid #cbd5e1; background: #ffffff; color: #0284c7; font-size: 12px; font-weight: 600; text-decoration: none; display: flex; align-items: center; gap: 6px; transition: all 0.15s;" onmouseover="this.style.background='#f0f9ff'" onmouseout="this.style.background='#ffffff'">
+                            <i class="fa-solid fa-arrow-up-right-from-square"></i> Open in New Tab
+                        </a>
+                        <button type="button" wire:click="closePdfPreviewModal" style="background: none; border: none; font-size: 22px; color: #94a3b8; cursor: pointer; border-radius: 50%; width: 32px; height: 32px; display: flex; align-items: center; justify-content: center;" onmouseover="this.style.background='#e2e8f0'" onmouseout="this.style.background='transparent'">&times;</button>
+                    </div>
+                </div>
+
+                <!-- Body (PDF Viewer IFrame) -->
+                <div style="flex: 1; background: #525659; width: 100%; height: 100%; position: relative;">
+                    <iframe src="{{ route('dts.view-document', ['path' => $selectedTransaction->doc_dir]) }}" style="width: 100%; height: 100%; border: none;"></iframe>
+                </div>
 
             </div>
         </div>

@@ -114,13 +114,29 @@ new #[Layout('layouts.portal')] #[Title('RMS CSPC Login')] class extends Compone
             @error('username')
                 <span class="form-error">{{ $message }}</span>
             @enderror
-            <div class="form-group">
+            <div class="form-group" x-data="{ show: false }">
                 <div class="icon-psk">
                     <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24">
                         <path fill="currentColor" d="M12,17A2,2 0 0,0 14,15C14,13.89 13.11,13 12,13A2,2 0 0,0 10,15A2,2 0 0,0 12,17M18,8A2,2 0 0,1 20,10V20A2,2 0 0,1 18,22H6A2,2 0 0,1 4,20V10C4,8.89 4.9,8 6,8H7V6A5,5 0 0,1 12,1A5,5 0 0,1 17,6V8H18M12,3A3,3 0 0,0 9,6V8H15V6A3,3 0 0,0 12,3Z" />
                     </svg>
                 </div>
-                <input wire:model="password" autocomplete="current-password" type="password" id="password" name="password" placeholder="Password" required>
+                <input wire:model="password" autocomplete="current-password" :type="show ? 'text' : 'password'" id="password" name="password" placeholder="Password" required>
+                <button type="button" class="toggle-password" @click="show = !show" :title="show ? 'Hide password' : 'Show password'" aria-label="Toggle password visibility">
+                    <template x-if="!show">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z"/>
+                            <circle cx="12" cy="12" r="3"/>
+                        </svg>
+                    </template>
+                    <template x-if="show">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M9.88 9.88a3 3 0 1 0 4.24 4.24"/>
+                            <path d="M10.73 5.08A10.43 10.43 0 0 1 12 5c7 0 10 7 10 7a13.16 13.16 0 0 1-1.67 2.68"/>
+                            <path d="M6.61 6.61A13.52 13.52 0 0 0 2 12s3 7 10 7a9.74 9.74 0 0 0 5.39-1.61"/>
+                            <line x1="2" y1="2" x2="22" y2="22"/>
+                        </svg>
+                    </template>
+                </button>
             </div>
             @error('password')
                 <span class="form-error">{{ $message }}</span>
@@ -130,6 +146,6 @@ new #[Layout('layouts.portal')] #[Title('RMS CSPC Login')] class extends Compone
                 <span wire:loading wire:target="login">Signing in…</span>
             </button>
         </form>
-        <span class="notice">RECORDS AND FREEDOM OF INFORMATION OFFICE</span>
+        <span class="notice">RECORDS AND FREEDOM OF INFORMATION UNIT</span>
     </div>
 </div>

@@ -223,10 +223,31 @@ body {
     color: #D3D3D3;
 }
 
+.toggle-password {
+    position: absolute;
+    top: 50%;
+    right: 10px;
+    transform: translateY(-50%);
+    background: transparent;
+    border: none;
+    cursor: pointer;
+    color: #D3D3D3;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 4px;
+    transition: color .2s ease, opacity .2s ease;
+    z-index: 10;
+}
+
+.toggle-password:hover {
+    color: #00A6FF;
+}
+
 .form-group input {
     width: 100%;
 
-    padding: 12px 12px 12px 40px;
+    padding: 12px 40px 12px 40px;
 
     background: transparent;
 

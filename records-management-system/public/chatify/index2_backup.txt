@@ -1188,6 +1188,7 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
       line-height: 1.4;
       margin-bottom: 2px;
       word-break: break-word;
+      white-space: pre-wrap;
     }
 
     .sent .message-content {
@@ -2658,7 +2659,7 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
       </div>
 
       <form id="chatForm" class="message-input-container">
-        <textarea id="messageInput" placeholder="Type a message..." required autocomplete="off" rows="1"></textarea>
+        <textarea id="messageInput" placeholder="Type a message..." required autocomplete="off" rows="1" enterkeyhint="enter"></textarea>
         <button type="submit" id="sendButton">Send</button>
       </form>
 
@@ -6408,9 +6409,25 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
     });
 
 
-    // Enter to send, Shift+Enter for new line
+    // Enter behavior differs by device:
+    //  - Desktop / physical keyboard: Enter sends the message (Shift+Enter
+    //    still makes a new line) — so a mouse click on Send isn't required.
+    //  - Mobile / touch virtual keyboard: Enter always inserts a new line;
+    //    sending only happens via a tap on the Send button. This avoids the
+    //    on-screen keyboard's "send"/"go" key accidentally firing sends, and
+    //    matches enterkeyhint="enter" set on the textarea above.
+    // Detected independently here (not reused from isIOS below) so it's
+    // available at the time this listener is registered, regardless of
+    // script order. Deliberately UA-based only (no pointer:coarse check) —
+    // many Windows laptops/2-in-1s report a coarse pointer even when used
+    // with a physical keyboard, which was wrongly disabling Enter-to-send
+    // on PCs.
+    var isMobileInputDevice =
+      /Android|iPhone|iPad|iPod|Mobile|Windows Phone/i.test(navigator.userAgent) ||
+      (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1); // iPadOS
+
     messageInput.addEventListener('keydown', function(e) {
-      if (e.key === 'Enter' && !e.shiftKey) {
+      if (e.key === 'Enter' && !e.shiftKey && !isMobileInputDevice) {
         e.preventDefault();
         document.getElementById('sendButton').click();
       }

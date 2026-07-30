@@ -7,6 +7,8 @@ use Livewire\Volt\Component;
 new #[Layout('layouts.admin')] #[Title('Admin Console - System Settings')] class extends Component {
     
     public bool $pagePrewarmingEnabled = true;
+    public bool $allowManualLogin = true;
+    public bool $allowGoogleLogin = true;
     public bool $emailAccessRequiredExternal = true;
     public bool $emailAccessRequiredApplication = true;
     public bool $emailAccessRequiredInternal = false;
@@ -150,6 +152,12 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - System Settings')] class
 
         $setting = \DB::table('system_settings')->where('key', 'page_prewarming_enabled')->value('value');
         $this->pagePrewarmingEnabled = ($setting === 'true');
+
+        $manualLog = \DB::table('system_settings')->where('key', 'allow_manual_login')->value('value');
+        $this->allowManualLogin = ($manualLog !== 'false');
+
+        $googleLog = \DB::table('system_settings')->where('key', 'allow_google_login')->value('value');
+        $this->allowGoogleLogin = ($googleLog !== 'false');
 
         $ext = \DB::table('system_settings')->where('key', 'dts_email_access_required_external')->value('value');
         $this->emailAccessRequiredExternal = ($ext !== 'false');
@@ -377,6 +385,22 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - System Settings')] class
                 );
 
                 \DB::table('system_settings')->updateOrInsert(
+                    ['key' => 'allow_manual_login'],
+                    [
+                        'value' => $this->allowManualLogin ? 'true' : 'false',
+                        'updated_at' => now(),
+                    ]
+                );
+
+                \DB::table('system_settings')->updateOrInsert(
+                    ['key' => 'allow_google_login'],
+                    [
+                        'value' => $this->allowGoogleLogin ? 'true' : 'false',
+                        'updated_at' => now(),
+                    ]
+                );
+
+                \DB::table('system_settings')->updateOrInsert(
                     ['key' => 'dts_email_access_required_external'],
                     [
                         'value' => $this->emailAccessRequiredExternal ? 'true' : 'false',
@@ -426,6 +450,8 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - System Settings')] class
 
                 // Log activity
                 $logText = "Updated system settings. Prewarming: " . ($this->pagePrewarmingEnabled ? 'true' : 'false') . 
+                             ", ManualLogin: " . ($this->allowManualLogin ? 'true' : 'false') .
+                             ", GoogleLogin: " . ($this->allowGoogleLogin ? 'true' : 'false') .
                              ", ExtEmail: " . ($this->emailAccessRequiredExternal ? 'true' : 'false') . 
                              ", AppEmail: " . ($this->emailAccessRequiredApplication ? 'true' : 'false') . 
                              ", IntEmail: " . ($this->emailAccessRequiredInternal ? 'true' : 'false') .
@@ -824,6 +850,40 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - System Settings')] class
                         </div>
                         <label class="switch">
                             <input type="checkbox" wire:model="allowManualCompletionButton">
+                            <span class="slider"></span>
+                        </label>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Card 2: Portal Authentication Methods -->
+            <div class="settings-card">
+                <div>
+                    <div class="settings-card-header">
+                        <i class="fa-solid fa-user-lock"></i>
+                        <h3>Portal Authentication Methods</h3>
+                    </div>
+
+                    <!-- Setting: Allow Manual Login -->
+                    <div class="setting-item">
+                        <div class="setting-details">
+                            <span class="setting-title">Manual Username & Password Logins</span>
+                            <span class="setting-desc">Enables traditional Username and Password authentication form on the Portal Login page.</span>
+                        </div>
+                        <label class="switch">
+                            <input type="checkbox" wire:model="allowManualLogin">
+                            <span class="slider"></span>
+                        </label>
+                    </div>
+
+                    <!-- Setting: Allow Google Login -->
+                    <div class="setting-item">
+                        <div class="setting-details">
+                            <span class="setting-title">Google Single Sign-On (SSO) Logins</span>
+                            <span class="setting-desc">Enables the "Sign in with Google" button for school and authorized Google accounts.</span>
+                        </div>
+                        <label class="switch">
+                            <input type="checkbox" wire:model="allowGoogleLogin">
                             <span class="slider"></span>
                         </label>
                     </div>

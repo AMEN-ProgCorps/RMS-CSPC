@@ -126,6 +126,16 @@ body {
     overflow: hidden;
 }
 
+.login-body-wrapper {
+    width: 100%;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    flex: 1;
+    margin: 15px 0;
+}
+
 /* ===========================
    LOGO
 =========================== */
@@ -424,28 +434,38 @@ body {
     align-items: center;
     justify-content: center;
     gap: 12px;
-    padding: 11px 16px;
-    background: #FFFFFF;
-    color: #3c4043;
-    border-radius: 6px;
+    padding: 13px 20px;
+    background: linear-gradient(135deg, #ffffff 0%, #f8fafc 100%);
+    color: #0f172a;
+    border-radius: 8px;
+    border: 1px solid rgba(255, 255, 255, 0.9);
     text-decoration: none;
-    font-weight: 600;
-    font-size: 14px;
-    font-family: 'Roboto', 'Inter', sans-serif;
-    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.2);
-    transition: transform 0.2s ease, box-shadow 0.2s ease, background-color 0.2s ease;
+    font-weight: 700;
+    font-size: 15px;
+    font-family: 'Inter', 'Roboto', sans-serif;
+    letter-spacing: 0.3px;
+    box-shadow: 
+        0 4px 15px rgba(0, 0, 0, 0.25),
+        inset 0 1px 0 rgba(255, 255, 255, 1);
+    transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+    position: relative;
 }
 
 .google-button:hover {
-    background: #F8F9FA;
-    transform: translateY(-2px);
-    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+    background: #ffffff;
+    color: #0059FF;
+    transform: translateY(-3px);
+    border-color: #00A6FF;
+    box-shadow: 
+        0 8px 25px rgba(0, 166, 255, 0.4),
+        0 0 15px rgba(255, 178, 0, 0.25);
 }
 
 .google-icon {
-    width: 20px;
-    height: 20px;
+    width: 22px;
+    height: 22px;
     flex-shrink: 0;
+    filter: drop-shadow(0 1px 1px rgba(0,0,0,0.1));
 }
 
 /* ===========================

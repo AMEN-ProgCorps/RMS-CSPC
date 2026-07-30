@@ -243,6 +243,9 @@ new #[Layout('layouts.portal')] #[Title('RMS CSPC Portal')] class extends Compon
             .mobile-only {
                 display: none !important;
             }
+            :root {
+                zoom: clamp(0.72, calc(100vw / 1920), 1);
+            }
         }
     </style>
 @endpush
@@ -250,7 +253,7 @@ new #[Layout('layouts.portal')] #[Title('RMS CSPC Portal')] class extends Compon
 <div class="livewire-root" wire:poll.5s="checkRoleUpdate">
 
 <header>
-    <span class="office-name">Records and Freedom of Information Office</span>
+    <span class="office-name">{{ auth()->user()?->details?->office?->office_name ?? 'Records and Freedom of Information Office' }}</span>
 </header>
 <section>
     <div class="logout-con">

@@ -82,11 +82,137 @@ new #[Layout('layouts.portal')] #[Title('RMS CSPC Portal')] class extends Compon
             ->pluck('subsystem_name')
             ->toArray();
 
+        $user = Auth::user();
+        $perms = $user?->permissions;
+
+        $dtsActive = in_array('Document Tracking System', $activeSubsystems);
+        $rdpActive = in_array('Records Disposition Program', $activeSubsystems);
+        $adminActive = in_array('Admin Console', $activeSubsystems);
+        $chatifyActive = in_array('Chatify', $activeSubsystems);
+
+        // Personal / Left-side subsystems
+        $personalItems = [];
+        $personalItems[] = [
+            'id' => 'profile',
+            'route' => route('profile'),
+            'label' => 'Profile',
+            'target' => '_self',
+            'is_desktop_only' => true,
+        ];
+        if ($chatifyActive) {
+            $personalItems[] = [
+                'id' => 'chatify',
+                'route' => route('open-chat'),
+                'label' => 'Chatify',
+                'target' => '_blank',
+                'is_desktop_only' => false,
+            ];
+        }
+        if ($perms?->is_sadm && $adminActive) {
+            $personalItems[] = [
+                'id' => 'admin',
+                'route' => '/admin/console/',
+                'label' => 'Admin Console',
+                'target' => '_self',
+                'is_desktop_only' => true,
+            ];
+        }
+
+        // Main / Right-side subsystems
+        $mainItems = [];
+        if (($perms?->is_sadm || $perms?->can_access_dts) && $dtsActive) {
+            $mainItems[] = [
+                'id' => 'dts',
+                'route' => route('dts'),
+                'label' => 'Document Tracking System',
+                'target' => '_self',
+                'is_desktop_only' => true,
+            ];
+        }
+        if (($perms?->is_sadm || $perms?->can_access_rdp) && $rdpActive) {
+            $mainItems[] = [
+                'id' => 'rdp',
+                'route' => route('rdp'),
+                'label' => 'Records Disposition Program',
+                'target' => '_self',
+                'is_desktop_only' => true,
+            ];
+        }
+
+        // Dynamic subsystems in DB
+        $knownNames = ['Document Tracking System', 'Records Disposition Program', 'Admin Console', 'Chatify'];
+        $extraSubsystems = \DB::table('subsystems')
+            ->where('is_active', true)
+            ->whereNotIn('subsystem_name', $knownNames)
+            ->get();
+
+        foreach ($extraSubsystems as $sub) {
+            $mainItems[] = [
+                'id' => \Str::slug($sub->subsystem_name),
+                'route' => $sub->url ?? '#',
+                'label' => $sub->subsystem_name,
+                'target' => '_self',
+                'is_desktop_only' => true,
+            ];
+        }
+
+        $desktopCount = count($personalItems) + count($mainItems);
+
+        if ($desktopCount <= 3) {
+            $containerClass = 'cols-1';
+        } elseif ($desktopCount <= 6) {
+            $containerClass = 'cols-2';
+        } else {
+            $containerClass = 'cols-3';
+        }
+
+        // Interleave items for grid column pairing (Personal on left, Main on right)
+        $desktopItems = [];
+        if ($containerClass === 'cols-2') {
+            $pCount = count($personalItems);
+            $mCount = count($mainItems);
+            $maxRows = max($pCount, $mCount, (int)ceil($desktopCount / 2));
+            for ($r = 0; $r < $maxRows; $r++) {
+                if (isset($personalItems[$r])) {
+                    $desktopItems[] = $personalItems[$r];
+                }
+                if (isset($mainItems[$r])) {
+                    $desktopItems[] = $mainItems[$r];
+                }
+            }
+            $remainingPersonal = array_slice($personalItems, $maxRows);
+            $remainingMain = array_slice($mainItems, $maxRows);
+            $desktopItems = array_merge($desktopItems, $remainingPersonal, $remainingMain);
+        } elseif ($containerClass === 'cols-3') {
+            $pCount = count($personalItems);
+            $mCount = count($mainItems);
+            $pIdx = 0;
+            $mIdx = 0;
+            while ($pIdx < $pCount || $mIdx < $mCount) {
+                if ($pIdx < $pCount) {
+                    $desktopItems[] = $personalItems[$pIdx++];
+                } elseif ($mIdx < $mCount) {
+                    $desktopItems[] = $mainItems[$mIdx++];
+                }
+                if ($mIdx < $mCount) {
+                    $desktopItems[] = $mainItems[$mIdx++];
+                } elseif ($pIdx < $pCount) {
+                    $desktopItems[] = $personalItems[$pIdx++];
+                }
+                if ($mIdx < $mCount) {
+                    $desktopItems[] = $mainItems[$mIdx++];
+                } elseif ($pIdx < $pCount) {
+                    $desktopItems[] = $personalItems[$pIdx++];
+                }
+            }
+        } else {
+            $desktopItems = array_merge($personalItems, $mainItems);
+        }
+
         return [
-            'dtsActive' => in_array('Document Tracking System', $activeSubsystems),
-            'rdpActive' => in_array('Records Disposition Program', $activeSubsystems),
-            'adminActive' => in_array('Admin Console', $activeSubsystems),
-            'chatifyActive' => in_array('Chatify', $activeSubsystems),
+            'desktopItems' => $desktopItems,
+            'containerClass' => $containerClass,
+            'canDtsScanner' => ($perms?->is_sadm || $perms?->can_dts_user_received) && $dtsActive,
         ];
     }
 };
@@ -138,44 +264,22 @@ new #[Layout('layouts.portal')] #[Title('RMS CSPC Portal')] class extends Compon
         </div>
         <span>Welcome, {{ $userNameDisplay }}</span>
     </div>
-    <div class="systems-container">
-        <a href="{{ route('profile') }}" class="system-con desktop-only" id="profile">
+    <div class="systems-container {{ $containerClass }}">
+        @foreach($desktopItems as $item)
+        <a href="{{ $item['route'] }}"
+           @if(($item['target'] ?? '_self') === '_blank') target="_blank" rel="noopener noreferrer" @endif
+           class="system-con @if($item['is_desktop_only']) desktop-only @endif"
+           id="{{ $item['id'] }}">
             <div class="display-box">
-                <span>Profile</span>
+                <span>{{ $item['label'] }}</span>
             </div>
         </a>
-        @if((auth()->user()?->permissions?->is_sadm || auth()->user()?->permissions?->can_access_dts) && $dtsActive)
-        <a href="{{ route('dts') }}" class="system-con desktop-only" id="dts">
-            <div class="display-box">
-                <span>Document Tracking System</span>
-            </div>
-        </a>
-        @if(auth()->user()?->permissions?->is_sadm || auth()->user()?->permissions?->can_dts_user_received)
+        @endforeach
+
+        @if($canDtsScanner)
         <a href="{{ route('dts.receive') }}" class="system-con mobile-only" id="dts-scanner">
             <div class="display-box">
                 <span>DTS QR Scanner</span>
-            </div>
-        </a>
-        @endif
-        @endif
-        @if(auth()->user()?->permissions?->is_sadm && $adminActive)
-        <a href="/admin/console/" class="system-con desktop-only" id="admin">
-            <div class="display-box">
-                <span>Admin Console</span>
-            </div>
-        </a>
-        @endif
-        @if((auth()->user()?->permissions?->is_sadm || auth()->user()?->permissions?->can_access_rdp) && $rdpActive)
-        <a href="{{ route('rdp') }}" class="system-con desktop-only" id="rdp">
-            <div class="display-box">
-                <span>Records Disposition Program</span>
-            </div>
-        </a>
-        @endif
-        @if($chatifyActive)
-        <a href="{{ route('open-chat') }}" target="_blank" rel="noopener noreferrer" class="system-con" id="chatify">
-            <div class="display-box">
-                <span>Chatify</span>
             </div>
         </a>
         @endif

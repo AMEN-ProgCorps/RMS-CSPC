@@ -1371,17 +1371,11 @@ new #[Layout('layouts.dts')] #[Title('DTS - Issuances')] class extends Component
                             @endif
                         </div>
 
-                        <!-- File Code / Copy Furnished field -->
-                        @if ($selectedTransaction && !empty($selectedTransaction->doc_dir) && !empty($fileCode) && $fileCode !== 'N/A')
-                            <div class="receive-field-row">
-                                <span class="receive-field-label">File Code:</span>
-                                @if ($editingAll)
-                                    <input type="text" class="receive-field-input" wire:model="fileCode">
-                                @else
-                                    <input type="text" class="receive-field-input" value="{{ $fileCode }}" readonly>
-                                @endif
-                            </div>
-                        @endif
+                        <!-- Originator field -->
+                        <div class="receive-field-row">
+                            <span class="receive-field-label">Originator:</span>
+                            <input type="text" class="receive-field-input" value="{{ $selectedTransaction->originated_office_name ?? 'N/A' }}" readonly style="background-color: #f8fafc; color: #64748b;">
+                        </div>
 
                         <!-- Document Type field (formerly Flow) -->
                         <div class="receive-field-row" style="align-items: center;">
@@ -1434,10 +1428,6 @@ new #[Layout('layouts.dts')] #[Title('DTS - Issuances')] class extends Component
                         @if ($showMoreDetails)
                             <div style="border-top: 1.5px dashed #e2e8f0; padding-top: 12px; margin-top: 6px;">
                                 <div class="receive-field-row" style="grid-template-columns: 180px 1fr; margin-bottom: 12px; align-items: center;">
-                                    <span class="receive-field-label" style="font-weight: 600; color: #475569; white-space: nowrap;">Originator:</span>
-                                    <input type="text" class="receive-field-input" value="{{ $selectedTransaction->originated_office_name ?? 'N/A' }}" readonly style="background-color: #f8fafc; color: #64748b;">
-                                </div>
-                                <div class="receive-field-row" style="grid-template-columns: 180px 1fr; margin-bottom: 12px; align-items: center;">
                                     <span class="receive-field-label" style="font-weight: 600; color: #475569; white-space: nowrap;">Requestor Name:</span>
                                     @if ($editingAll)
                                         <input type="text" class="receive-field-input" wire:model="requestorName">
@@ -1453,12 +1443,14 @@ new #[Layout('layouts.dts')] #[Title('DTS - Issuances')] class extends Component
                                         <input type="text" class="receive-field-input" value="{{ $requestorPosition ?: 'N/A' }}" readonly style="background-color: #f8fafc; color: #64748b;">
                                     @endif
                                 </div>
-                                @if ($selectedTransaction && !empty($selectedTransaction->doc_dir))
-                                    <div class="receive-field-row" style="grid-template-columns: 180px 1fr; margin-bottom: 12px; align-items: center;">
-                                        <span class="receive-field-label" style="font-weight: 600; color: #475569; white-space: nowrap;">Copy Furnished (CF) ID:</span>
+                                <div class="receive-field-row" style="grid-template-columns: 180px 1fr; margin-bottom: 12px; align-items: center;">
+                                    <span class="receive-field-label" style="font-weight: 600; color: #475569; white-space: nowrap;">File Code:</span>
+                                    @if ($editingAll)
+                                        <input type="text" class="receive-field-input" wire:model="fileCode">
+                                    @else
                                         <input type="text" class="receive-field-input" value="{{ $fileCode ?: 'N/A' }}" readonly style="background-color: #f8fafc; color: #64748b;">
-                                    </div>
-                                @endif
+                                    @endif
+                                </div>
                                 @if ($editingAll || (!empty(trim($emailAccess ?? '')) && $emailAccess !== 'N/A'))
                                     <div class="receive-field-row" style="grid-template-columns: 180px 1fr; margin-bottom: 12px; align-items: center;">
                                         <span class="receive-field-label" style="font-weight: 600; color: #475569; white-space: nowrap;">Email Access:</span>

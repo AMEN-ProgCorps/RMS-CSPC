@@ -18,15 +18,21 @@
 
 require_once __DIR__ . '/bootstrap.php';
 
-session_start();
-Auth::require();
-session_write_close();
-
 header('Content-Type: application/json');
 
-// ── Identity ──────────────────────────────────────────────────────────────────
-$myAccountId = Auth::accountId();
-$adminId     = Auth::adminAccountId(); // 1
+$internalSecret = $_SERVER['HTTP_X_INTERNAL_SECRET'] ?? '';
+$internalAccId  = (int) ($_SERVER['HTTP_X_INTERNAL_ACCOUNT_ID'] ?? 0);
+
+if ($internalSecret !== '' && hash_equals(INTERNAL_PUSH_SECRET, $internalSecret) && $internalAccId > 0) {
+    $myAccountId = $internalAccId;
+    $adminId     = 1;
+} else {
+    session_start();
+    Auth::require();
+    session_write_close();
+    $myAccountId = Auth::accountId();
+    $adminId     = Auth::adminAccountId(); // 1
+}
 
 // ── Target validation ─────────────────────────────────────────────────────────
 $targetId = isset($_GET['target_id']) ? (int) trim($_GET['target_id']) : 0;
@@ -213,7 +219,7 @@ foreach ($rawMessages as $msg) {
                             $wAttr = " width='{$info[0]}' height='{$info[1]}'";
                             $aspectRatioStyle = "aspect-ratio:{$info[0]}/{$info[1]};width:100%;height:auto;";
                         }
-                        $uploadBodyHtml .= "<a href='{$fnUrl}' target='_blank' style='display:block;'><img src='{$fnUrl}' alt='{$fnEsc}'{$wAttr} style='{$aspectRatioStyle}max-width:240px;max-height:240px;border-radius:12px;display:block;cursor:pointer;object-fit:cover;box-shadow:0 2px 8px rgba(0,0,0,0.18);' loading='lazy' onerror=\"this.closest('a').remove()\" /></a>";
+                        $uploadBodyHtml .= "<a href='{$fnUrl}' target='_blank' style='display:block;'><img src='{$fnUrl}' alt='{$fnEsc}' style='width:100%;max-width:240px;max-height:260px;height:auto;border-radius:12px;display:block;cursor:pointer;object-fit:cover;box-shadow:0 2px 8px rgba(0,0,0,0.18);' /></a>";
                     }
                     $uploadBodyHtml .= "<div class='message-info' style='padding:3px 2px;'><span class='message-sender'>{$senderLabel}{$adminBadge}</span></div>";
                     $uploadBodyHtml .= "</div>"; // .message-media
@@ -233,14 +239,7 @@ foreach ($rawMessages as $msg) {
                         if (!file_exists($uploadsDir . $fn)) {
                             continue; // deleted image — skip
                         }
-                        $wAttr = '';
-                        $aspectRatioStyle = '';
-                        $info = @getimagesize($uploadsDir . $fn);
-                        if ($info) {
-                            $wAttr = " width='{$info[0]}' height='{$info[1]}'";
-                            $aspectRatioStyle = "aspect-ratio:{$info[0]}/{$info[1]};width:100%;height:auto;";
-                        }
-                        $itemsHtml .= "<a href='{$fnUrl}' target='_blank'><img src='{$fnUrl}' alt='{$fnEsc}'{$wAttr} style='{$aspectRatioStyle}max-width:240px;max-height:240px;border-radius:12px;display:block;object-fit:cover;' loading='lazy' onerror=\"this.closest('a').remove()\" /></a>";
+                        $itemsHtml .= "<a href='{$fnUrl}' target='_blank'><img src='{$fnUrl}' alt='{$fnEsc}' style='width:100%;max-width:240px;max-height:260px;height:auto;border-radius:12px;display:block;object-fit:cover;' /></a>";
                     } else {
                         $itemsHtml .= "<a href='{$fnUrl}' target='_blank' rel='noopener' style='color:{$linkColor};text-decoration:underline;font-size:13px;word-break:break-all;'>{$fnEsc}</a>";
                     }
@@ -264,15 +263,8 @@ foreach ($rawMessages as $msg) {
 
             if (in_array($ext, $imageExts, true)) {
                 if (file_exists($uploadsDir . $file)) {
-                    $wAttr = '';
-                    $aspectRatioStyle = '';
-                    $info = @getimagesize($uploadsDir . $file);
-                    if ($info) {
-                        $wAttr = " width='{$info[0]}' height='{$info[1]}'";
-                        $aspectRatioStyle = "aspect-ratio:{$info[0]}/{$info[1]};width:100%;height:auto;";
-                    }
                     $uploadBodyHtml .= "<div class='message-media'>";
-                    $uploadBodyHtml .= "<a href='{$url}' target='_blank'><img src='{$url}' alt='{$fileEsc}'{$wAttr} style='{$aspectRatioStyle}max-width:240px;max-height:240px;border-radius:12px;display:block;cursor:pointer;object-fit:cover;box-shadow:0 2px 8px rgba(0,0,0,0.18);' loading='lazy' onerror=\"this.closest('.message-media').remove()\" /></a>";
+                    $uploadBodyHtml .= "<a href='{$url}' target='_blank'><img src='{$url}' alt='{$fileEsc}' style='width:100%;max-width:240px;max-height:260px;height:auto;border-radius:12px;display:block;cursor:pointer;object-fit:cover;box-shadow:0 2px 8px rgba(0,0,0,0.18);' /></a>";
                     $uploadBodyHtml .= "<div class='message-info' style='padding:3px 2px;'><span class='message-sender'>{$senderLabel}{$adminBadge}</span></div>";
                     $uploadBodyHtml .= "</div>";
                 }

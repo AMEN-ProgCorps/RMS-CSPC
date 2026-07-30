@@ -6,6 +6,7 @@
 // =============================================================================
 
 require_once __DIR__ . '/bootstrap.php';
+require_once __DIR__ . '/core/WsPush.php';
 
 session_start();
 Auth::require();
@@ -58,6 +59,9 @@ try {
 
     // 4. Instantaneous wipe using TRUNCATE CASCADE across chat messages, read markers, and conversations
     $pdo->exec("TRUNCATE TABLE chat_messages, chat_read_markers, chat_conversations CASCADE;");
+
+    // Real-time broadcast to all connected WebSocket clients
+    WsPush::broadcast('all_cleared', []);
 
     echo json_encode(['ok' => true, 'deleted_conversations' => $deletedConversations]);
 } catch (Throwable $e) {

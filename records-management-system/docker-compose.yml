@@ -66,7 +66,7 @@ services:
     container_name: rms_adminer
     restart: unless-stopped
     ports:
-      - "49180:8080"
+      - "8080:8080"
     networks:
       - rms_net
 

@@ -134,14 +134,7 @@ foreach ($rawMessages as $msg) {
                         $fn    = basename((string) $fn);
                         $fnUrl = 'uploads/' . rawurlencode($fn);
                         $fnEsc = htmlspecialchars($fn, ENT_QUOTES);
-                        $wAttr = '';
-                        $aspectRatioStyle = '';
-                        $info = @getimagesize($uploadsDir . $fn);
-                        if ($info) {
-                            $wAttr = " width='{$info[0]}' height='{$info[1]}'";
-                            $aspectRatioStyle = "aspect-ratio:{$info[0]}/{$info[1]};width:100%;height:auto;";
-                        }
-                        $bodyHtml .= "<a href='{$fnUrl}' target='_blank' style='display:block;'><img src='{$fnUrl}' alt='{$fnEsc}'{$wAttr} style='{$aspectRatioStyle}max-width:240px;max-height:240px;border-radius:12px;display:block;cursor:pointer;object-fit:cover;box-shadow:0 2px 8px rgba(0,0,0,0.18);' loading='lazy' onerror=\"this.closest('a').remove()\" /></a>";
+                        $bodyHtml .= "<a href='{$fnUrl}' target='_blank' style='display:block;'><img src='{$fnUrl}' alt='{$fnEsc}' style='width:100%;max-width:240px;max-height:260px;height:auto;border-radius:12px;display:block;cursor:pointer;object-fit:cover;box-shadow:0 2px 8px rgba(0,0,0,0.18);' /></a>";
                     }
                     $bodyHtml .= "<div class='message-info' style='padding:3px 2px;'><span class='message-sender'>{$senderLabel}</span></div>";
                     $bodyHtml .= "</div>"; // .message-media
@@ -160,14 +153,7 @@ foreach ($rawMessages as $msg) {
                         if (!file_exists($uploadsDir . $fn)) {
                             continue; // deleted image — skip
                         }
-                        $wAttr = '';
-                        $aspectRatioStyle = '';
-                        $info = @getimagesize($uploadsDir . $fn);
-                        if ($info) {
-                            $wAttr = " width='{$info[0]}' height='{$info[1]}'";
-                            $aspectRatioStyle = "aspect-ratio:{$info[0]}/{$info[1]};width:100%;height:auto;";
-                        }
-                        $itemsHtml .= "<a href='{$fnUrl}' target='_blank'><img src='{$fnUrl}' alt='{$fnEsc}'{$wAttr} style='{$aspectRatioStyle}max-width:240px;max-height:240px;border-radius:12px;display:block;object-fit:cover;' loading='lazy' onerror=\"this.closest('a').remove()\" /></a>";
+                        $itemsHtml .= "<a href='{$fnUrl}' target='_blank'><img src='{$fnUrl}' alt='{$fnEsc}' style='width:100%;max-width:240px;max-height:260px;height:auto;border-radius:12px;display:block;object-fit:cover;' /></a>";
                     } else {
                         $itemsHtml .= "<a href='{$fnUrl}' target='_blank' rel='noopener' style='color:#1b74e4;text-decoration:underline;font-size:13px;word-break:break-all;'>{$fnEsc}</a>";
                     }
@@ -191,15 +177,8 @@ foreach ($rawMessages as $msg) {
 
             if (in_array($ext, $imageExts, true)) {
                 if (file_exists($uploadsDir . $file)) {
-                    $wAttr = '';
-                    $aspectRatioStyle = '';
-                    $info = @getimagesize($uploadsDir . $file);
-                    if ($info) {
-                        $wAttr = " width='{$info[0]}' height='{$info[1]}'";
-                        $aspectRatioStyle = "aspect-ratio:{$info[0]}/{$info[1]};width:100%;height:auto;";
-                    }
                     $bodyHtml .= "<div class='message-media'>";
-                    $bodyHtml .= "<a href='{$url}' target='_blank'><img src='{$url}' alt='{$fileEsc}'{$wAttr} style='{$aspectRatioStyle}max-width:240px;max-height:240px;border-radius:12px;display:block;object-fit:cover;box-shadow:0 2px 8px rgba(0,0,0,0.18);' loading='lazy' onerror=\"this.closest('.message-media').remove()\" /></a>";
+                    $bodyHtml .= "<a href='{$url}' target='_blank'><img src='{$url}' alt='{$fileEsc}' style='width:100%;max-width:240px;max-height:260px;height:auto;border-radius:12px;display:block;object-fit:cover;box-shadow:0 2px 8px rgba(0,0,0,0.18);' /></a>";
                     $bodyHtml .= "<div class='message-info' style='padding:3px 2px;'><span class='message-sender'>{$senderLabel}</span></div>";
                     $bodyHtml .= "</div>";
                 }

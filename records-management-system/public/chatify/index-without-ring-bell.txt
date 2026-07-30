@@ -544,140 +544,16 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
       font-weight: 500;
     }
 
-    /* Notify button shown on each user-item (always visible/steady) */
-    .notify-btn {
-      flex-shrink: 0;
-      width: 32px;
-      height: 32px;
-      border-radius: 50%;
-      border: none;
-      background: transparent;
-      color: var(--icon-color);
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      cursor: pointer;
-      margin-left: 4px;
-      opacity: 0.75;
-      transition: background-color 0.15s ease, color 0.15s ease, opacity 0.15s ease;
-    }
-    .user-item:hover .notify-btn {
-      opacity: 1;
-    }
-    @media (hover: none) {
-      /* Touch devices have no hover — keep the button reachable */
-      .notify-btn { opacity: 0.75; }
-    }
-    .notify-btn:hover {
-      background-color: var(--button-hover);
-      color: #1b74e4;
-    }
-    .notify-btn svg { width: 17px; height: 17px; display: block; }
-
-    /* Notify modal specifics */
-    .notify-target {
-      font-weight: 600;
-      color: var(--text-primary);
-    }
-    .notify-textarea {
-      width: 100%;
-      margin-top: 10px;
-      resize: none;
-      border: 1px solid var(--border-input);
-      background: var(--bg-input);
-      color: var(--text-primary);
-      border-radius: 8px;
-      padding: 10px 12px;
-      font-family: 'Inter', sans-serif;
-      font-size: 14px;
-      line-height: 1.4;
-    }
-    .notify-textarea:focus { outline: none; border-color: #1b74e4; }
-    .notify-char-count {
-      text-align: right;
-      font-size: 11px;
-      color: var(--text-secondary);
-      margin-top: 4px;
-    }
-    .notify-char-count.limit-reached { color: #c0392b; }
-
-    /* Incoming notification toasts */
-    .notify-toast-container {
-      position: fixed;
-      top: 16px;
-      right: 16px;
-      left: auto;
-      z-index: 3000;
-      display: flex;
-      flex-direction: column;
-      gap: 10px;
-      width: 320px;
-      max-width: calc(100vw - 32px);
-      pointer-events: none;
-    }
-    .notify-toast {
-      background: var(--bg-modal);
-      color: var(--text-primary);
-      border-radius: 10px;
-      box-shadow: 0 4px 16px var(--shadow-color);
-      padding: 12px 14px;
-      font-size: 13px;
-      line-height: 1.4;
-      animation: notifyToastIn 0.25s ease;
-      cursor: pointer;
-      pointer-events: auto;
-      max-width: 100%;
-      box-sizing: border-box;
-      overflow-wrap: anywhere;
-      word-break: break-word;
-      overflow: hidden;
-      display: -webkit-box;
-      -webkit-line-clamp: 3;
-      -webkit-box-orient: vertical;
-    }
-    .notify-toast.hide {
-      animation: notifyToastOut 0.2s ease forwards;
-    }
-    @keyframes notifyToastIn {
-      from { transform: translateX(30px); opacity: 0; }
-      to   { transform: translateX(0); opacity: 1; }
-    }
-    @keyframes notifyToastOut {
-      from { transform: translateX(0); opacity: 1; }
-      to   { transform: translateX(30px); opacity: 0; }
-    }
-    .notify-toast strong { color: var(--text-primary); }
-
-    @media (max-width: 480px) {
-      .notify-toast-container {
-        top: 10px;
-        right: 10px;
-        left: 10px;
-        width: auto;
-        max-width: none;
-      }
-    }
-
     /* Hide scrollbars across all modals */
-    .modal, .modal-content, .modal-body, #notifyContentModal .modal-body, #uploadErrorList {
+    .modal, .modal-content, .modal-body, #uploadErrorList {
       scrollbar-width: none !important;
       -ms-overflow-style: none !important;
     }
     .modal::-webkit-scrollbar,
     .modal-content::-webkit-scrollbar,
     .modal-body::-webkit-scrollbar,
-    #notifyContentModal .modal-body::-webkit-scrollbar,
     #uploadErrorList::-webkit-scrollbar {
       display: none !important;
-    }
-
-    /* Modal shown when a notification toast is clicked */
-    #notifyContentModal .modal-body {
-      white-space: pre-wrap;
-      overflow-wrap: anywhere;
-      word-break: break-word;
-      max-height: 50vh;
-      overflow: hidden;
     }
 
     /* Modal shown when tapping "Read more..." on a long chat message —
@@ -2072,144 +1948,7 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
       opacity: 1;
     }
 
-    /* ── Emoji Reaction Picker ── */
-    .reaction-picker {
-      position: fixed;
-      z-index: 9999;
-      display: flex;
-      align-items: center;
-      gap: 2px;
-      background: var(--bg-secondary);
-      border-radius: 999px;
-      padding: 6px 10px;
-      box-shadow: 0 4px 24px rgba(0,0,0,0.22);
-      border: 1px solid var(--border-color);
-      opacity: 0;
-      transform: scale(0.7) translateY(6px);
-      pointer-events: none;
-      transition: opacity 0.15s ease, transform 0.15s cubic-bezier(0.34,1.56,0.64,1);
-      user-select: none;
-      /* Mobile: never overflow the screen */
-      max-width: calc(100vw - 16px);
-      box-sizing: border-box;
-      flex-wrap: nowrap;
-    }
-    .reaction-picker.visible {
-      opacity: 1;
-      transform: scale(1) translateY(0);
-      pointer-events: auto;
-    }
-    .reaction-picker-btn {
-      font-size: 24px;
-      line-height: 1;
-      cursor: pointer;
-      transition: transform 0.15s cubic-bezier(0.34,1.56,0.64,1);
-      border: none;
-      background: transparent;
-      padding: 0;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      width: 38px;
-      height: 38px;
-      border-radius: 50%;
-      flex-shrink: 0;
-    }
-    .reaction-picker-btn:hover,
-    .reaction-picker-btn:active {
-      transform: scale(1.35);
-    }
-    /* On very small screens, shrink emoji buttons a bit (header size stays constant) */
-    @media (max-width: 360px) {
-      .reaction-picker-btn {
-        font-size: 20px;
-        width: 32px;
-        height: 32px;
-      }
-      .reaction-picker {
-        padding: 4px 8px;
-        gap: 0px;
-      }
-    }
-
-    /* ── Reaction Badges on messages ── */
-    /* Reactions sit BELOW the bubble, inside bubble-wrapper */
-    .msg-reactions {
-      display: flex;
-      flex-direction: row;
-      flex-wrap: wrap;
-      gap: 2px;
-      margin-top: 3px;
-      padding: 0 2px;
-      /* Reset any positioning from old layout */
-      order: unset;
-      align-self: unset;
-      flex-shrink: unset;
-      padding-bottom: unset;
-    }
-    /* sent bubbles: reactions align to the right */
-    .sent .msg-reactions {
-      justify-content: flex-end;
-      margin-right: 0;
-      order: unset;
-    }
-    /* received bubbles: reactions align to the left */
-    .received .msg-reactions {
-      justify-content: flex-start;
-      margin-left: 0;
-      order: unset;
-    }
-    /* If msg-reactions is a direct child of message-container (server-rendered),
-       force it to break onto its own row below the bubble-wrapper */
-    .message-container > .msg-reactions {
-      width: 100%;
-      order: 10;
-    }
-    .sent.message-container > .msg-reactions {
-      justify-content: flex-end;
-      padding-right: 44px; /* offset for avatar width */
-    }
-    .received.message-container > .msg-reactions {
-      justify-content: flex-start;
-      padding-left: 44px; /* offset for avatar width */
-    }
-    /* Pure emoji badge — no background, no border, no pill */
-    .reaction-badge {
-      display: inline-flex;
-      align-items: center;
-      justify-content: center;
-      background: none;
-      border: none;
-      border-radius: 0;
-      padding: 0;
-      font-size: 18px;
-      line-height: 1;
-      cursor: pointer;
-      transition: transform 0.15s cubic-bezier(0.34,1.56,0.64,1);
-      box-shadow: none;
-      user-select: none;
-      /* hide the count number — emoji only */
-    }
-    .reaction-badge:hover {
-      transform: scale(1.3);
-    }
-    .reaction-badge:active {
-      transform: scale(0.85);
-    }
-    /* hide the count text node — show only emoji */
-    .reaction-badge::after {
-      display: none;
-    }
-
-    /* Long-press visual feedback — subtle highlight only, no scale/movement */
-    .message-bubble.longpress-active,
-    .message-media.longpress-active {
-      filter: brightness(0.92);
-      transition: filter 0.1s ease;
-    }
-
-    /* ── Hover Reaction Bar (desktop only) ── */
-    /* Wrapper to hold bubble + hover bar together */
+    /* Wrapper to hold message bubble content */
     .bubble-wrapper {
       position: relative;
       display: inline-flex;
@@ -2227,107 +1966,6 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
       order: 1;
     }
 
-    /* Hover reaction bar is hidden. Reactions are strictly right-click. */
-    .hover-reaction-bar {
-      display: none !important;
-    }
-
-    .hover-reaction-bar .hrb-btn {
-      font-size: 22px;
-      line-height: 1;
-      cursor: pointer;
-      border: none;
-      background: transparent;
-      padding: 0;
-      width: 34px;
-      height: 34px;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      border-radius: 50%;
-      transition: transform 0.13s cubic-bezier(0.34,1.56,0.64,1);
-      flex-shrink: 0;
-    }
-    .hover-reaction-bar .hrb-btn:hover {
-      transform: scale(1.35);
-    }
-    .hover-reaction-bar .hrb-btn:active {
-      transform: scale(0.9);
-    }
-
-    /* Copy button inside hover bar */
-    .hover-reaction-bar .hrb-copy {
-      font-size: 12px;
-      font-weight: 600;
-      color: var(--text-secondary);
-      cursor: pointer;
-      border: none;
-      background: transparent;
-      padding: 0 6px;
-      height: 34px;
-      display: flex;
-      align-items: center;
-      border-radius: 8px;
-      transition: color 0.12s, background 0.12s;
-      flex-shrink: 0;
-      white-space: nowrap;
-      font-family: 'Inter', sans-serif;
-    }
-    .hover-reaction-bar .hrb-copy:hover {
-      color: var(--text-primary);
-      background: var(--bg-input);
-    }
-
-    /* Divider between emojis and copy */
-    .hover-reaction-bar .hrb-divider {
-      width: 1px;
-      height: 20px;
-      background: var(--border-color);
-      margin: 0 4px;
-      flex-shrink: 0;
-    }
-
-    /* ── Mobile long-press: Copy button inside the fixed reaction picker ── */
-    .reaction-picker .rp-divider {
-      width: 1px;
-      height: 24px;
-      background: var(--border-color);
-      margin: 0 4px;
-      flex-shrink: 0;
-      align-self: center;
-    }
-    .reaction-picker .rp-copy {
-      font-size: 12px;
-      font-weight: 600;
-      color: var(--text-secondary);
-      cursor: pointer;
-      border: none;
-      background: transparent;
-      padding: 0 8px;
-      height: 40px;
-      display: flex;
-      align-items: center;
-      border-radius: 8px;
-      transition: color 0.12s, background 0.12s;
-      white-space: nowrap;
-      font-family: 'Inter', sans-serif;
-      flex-shrink: 0;
-    }
-    @media (max-width: 360px) {
-      .reaction-picker .rp-copy {
-        padding: 0 6px;
-        font-size: 11px;
-        height: 34px;
-      }
-      .reaction-picker .rp-divider {
-        margin: 0 2px;
-      }
-    }
-    .reaction-picker .rp-copy:hover,
-    .reaction-picker .rp-copy:active {
-      color: var(--text-primary);
-      background: var(--bg-input);
-    }
 
     /* ── Admin POV: verified badge inside name input ── */
     .name-input-wrapper.is-admin-user #nameInput {
@@ -2404,18 +2042,6 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
       opacity: 1;
     }
 
-    /* ── Reaction count next to emoji badge ── */
-    .reaction-badge {
-      display: inline-flex;
-      align-items: center;
-      gap: 3px;
-    }
-    .reaction-count {
-      font-size: 11px;
-      font-weight: 600;
-      line-height: 1;
-      min-width: 12px;
-    }
 
     /* ── @mention highlight in messages ── */
     .mention-tag {
@@ -2738,42 +2364,6 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
     </div>
   </div>
 
-  <!-- Notify Modal - available to every logged in user, including the admin -->
-  <div class="modal" id="notifyModal" aria-hidden="true">
-    <div class="modal-content">
-      <div class="modal-header">
-        <h3>Notify User</h3>
-      </div>
-      <div class="modal-body">
-        <p>This will mention <span class="notify-target" id="notifyTargetName"></span> and send them a notification.</p>
-        <textarea id="notifyMessageInput" class="notify-textarea" rows="3" maxlength="250" placeholder="Add a message (optional)..."></textarea>
-        <div class="notify-char-count" id="notifyCharCount">0/250</div>
-      </div>
-      <div class="modal-footer">
-        <button class="modal-button cancel-button" id="notifyCancel">Cancel</button>
-        <button class="modal-button confirm-button" id="notifySend">Send</button>
-      </div>
-    </div>
-  </div>
-
-  <!-- Container where incoming "someone notified you" toasts appear -->
-  <div class="notify-toast-container" id="notifyToastContainer"></div>
-
-  <!-- Modal shown when a notification toast is clicked, shows full (up to 250 char) content -->
-  <div class="modal" id="notifyContentModal" aria-hidden="true">
-    <div class="modal-content">
-      <div class="modal-header">
-        <h3 id="notifyContentTitle">Notification</h3>
-      </div>
-      <div class="modal-body">
-        <p id="notifyContentBody"></p>
-      </div>
-      <div class="modal-footer">
-        <button class="modal-button confirm-button" id="notifyContentClose" style="border-right:none;">Close</button>
-      </div>
-    </div>
-  </div>
-
   <!-- Modal shown when tapping "Read more..." on a long chat message.
        Same markup renders full messages from Global Chat and from Private
        (DM) chat — both funnel through the same #chatBox message bubbles. -->
@@ -3003,17 +2593,6 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
       if (xBtn) xBtn.style.display = 'none';
       if (inputActions) inputActions.style.width = ''; // back to auto (shrink-wrap)
     }
-    const notifyModal        = document.getElementById('notifyModal');
-    const notifyTargetName   = document.getElementById('notifyTargetName');
-    const notifyMessageInput = document.getElementById('notifyMessageInput');
-    const notifyCharCount    = document.getElementById('notifyCharCount');
-    const notifyCancel       = document.getElementById('notifyCancel');
-    const notifySend         = document.getElementById('notifySend');
-    const notifyToastContainer = document.getElementById('notifyToastContainer');
-    const notifyContentModal   = document.getElementById('notifyContentModal');
-    const notifyContentTitle   = document.getElementById('notifyContentTitle');
-    const notifyContentBody    = document.getElementById('notifyContentBody');
-    const notifyContentClose   = document.getElementById('notifyContentClose');
     const readMoreModal        = document.getElementById('readMoreModal');
     const readMoreModalBody    = document.getElementById('readMoreModalBody');
     const readMoreModalClose   = document.getElementById('readMoreModalClose');
@@ -3372,11 +2951,6 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
           renderSidebarUsers();
           if (serverIsAdmin) renderAdminConvs();
           fetchUsers();
-        } else if (data.type === 'notify') {
-          // Pushed directly by the server the instant someone notifies/mentions
-          // us. This is the only delivery path now — no HTTP fallback poll.
-          console.log('Received WebSocket real-time update notice:', data);
-          showNotifyToast(data);
         } else if (data.type === 'session_kicked') {
           // Pushed by the server the instant another device logs into this
           // account — no more waiting on the 5s checkSession() poll.
@@ -3774,17 +3348,11 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
           officeEl.style.display = 'block';
         }
 
-        // Unread badge and notify button rendering
+        // Unread badge rendering
         let badge = actionsRight.querySelector('.user-unread-badge');
         let adminBadgeWrapper = actionsRight.querySelector('.admin-badge-wrapper');
-        let notifyBtn = actionsRight.querySelector('.notify-btn');
 
         if (targetIsAdmin) {
-          if (notifyBtn) {
-            notifyBtn.remove();
-            notifyBtn = null;
-          }
-
           if (hasUnread) {
             if (!adminBadgeWrapper) {
               adminBadgeWrapper = document.createElement('div');
@@ -3835,20 +3403,6 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
             badge.remove();
             badge = null;
           }
-
-          if (!notifyBtn) {
-            notifyBtn = document.createElement('button');
-            notifyBtn.type = 'button';
-            notifyBtn.className = 'notify-btn';
-            notifyBtn.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"></path><path d="M13.73 21a2 2 0 0 1-3.46 0"></path></svg>';
-            actionsRight.appendChild(notifyBtn);
-          }
-          notifyBtn.title = 'Notify ' + u.name;
-          notifyBtn.setAttribute('aria-label', 'Notify ' + u.name);
-          notifyBtn.onclick = function(e) {
-            e.stopPropagation();
-            openNotifyModal(u);
-          };
         }
 
         if (sidebarUsers.children[index] !== item) {
@@ -3873,121 +3427,6 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
         notice.textContent = 'Showing the first 10 matches. Enter a more specific search term.';
         sidebarUsers.appendChild(notice);
       }
-    }
-
-    // ── Notify feature: mention + notify any user from the sidebar list ──
-    let notifyTargetUser = null; // { account_id, username, name, ... } — same shape as fetch_users_dm.php's user objects
-
-    function openNotifyModal(user) {
-      // Defense in depth: never allow the admin (account_id === 1) to be
-      // @mentioned/notified by a regular user, even if this gets called
-      // some other way besides the sidebar's notify button.
-      if (Number(user.account_id) === 1 && !serverIsAdmin) {
-        console.warn('Blocked attempt to notify/mention the admin.');
-        return;
-      }
-      notifyTargetUser = user;
-      notifyTargetName.textContent = '@' + user.username;
-      notifyMessageInput.value = '';
-      notifyCharCount.textContent = '0/250';
-      notifyCharCount.classList.remove('limit-reached');
-      notifyModal.classList.add('active');
-      notifyModal.setAttribute('aria-hidden', 'false');
-      setTimeout(() => notifyMessageInput.focus(), 50);
-    }
-
-    function closeNotifyModal() {
-      notifyModal.classList.remove('active');
-      notifyModal.setAttribute('aria-hidden', 'true');
-      notifyTargetUser = null;
-    }
-
-    notifyMessageInput.addEventListener('input', function() {
-      const len = notifyMessageInput.value.length;
-      notifyCharCount.textContent = len + '/250';
-      notifyCharCount.classList.toggle('limit-reached', len >= 250);
-    });
-
-    notifyCancel.addEventListener('click', closeNotifyModal);
-    notifyModal.addEventListener('click', function(e) {
-      if (e.target === notifyModal) closeNotifyModal();
-    });
-
-    notifySend.addEventListener('click', function() {
-      if (!notifyTargetUser) return;
-      const message = notifyMessageInput.value.slice(0, 250).trim();
-
-      notifySend.disabled = true;
-      const xhr = new XMLHttpRequest();
-      xhr.open('POST', 'notify.php', true);
-      xhr.setRequestHeader('Content-Type', 'application/x-www-form-urlencoded');
-      xhr.onload = function() {
-        notifySend.disabled = false;
-        // Whether it succeeds or fails, don't trap the user in the modal —
-        // just close it. Errors are logged for debugging.
-        if (this.status !== 200) {
-          console.error('Notify failed', this.status, this.responseText);
-        }
-        closeNotifyModal();
-      };
-      xhr.onerror = function() {
-        notifySend.disabled = false;
-        console.error('Notify request error');
-        closeNotifyModal();
-      };
-      xhr.send('recipient_id=' + encodeURIComponent(notifyTargetUser.account_id) + '&message=' + encodeURIComponent(message));
-    });
-
-    // Max characters to show in the toast preview before truncating with "..."
-    const TOAST_PREVIEW_LIMIT = 80;
-
-    function showNotifyToast(n) {
-      const toast = document.createElement('div');
-      toast.className = 'notify-toast';
-      if (n.message) {
-        const isLong = n.message.length > TOAST_PREVIEW_LIMIT;
-        const preview = isLong ? n.message.slice(0, TOAST_PREVIEW_LIMIT).trim() + '...' : n.message;
-        toast.innerHTML = '<strong>' + escapeHtml(n.sender) + '</strong> mentioned you: ' + escapeHtml(preview);
-      } else {
-        toast.innerHTML = '<strong>' + escapeHtml(n.sender) + '</strong> notified you';
-      }
-      const dismiss = () => {
-        toast.classList.add('hide');
-        setTimeout(() => toast.remove(), 200);
-      };
-      toast.onclick = () => {
-        showNotifyContentModal(n);
-        dismiss();
-      };
-      notifyToastContainer.appendChild(toast);
-      setTimeout(dismiss, 6000);
-    }
-
-    // ── Modal shown when a notification toast is clicked ──
-    function showNotifyContentModal(n) {
-      if (!notifyContentModal) return;
-      notifyContentTitle.textContent = n.sender ? (n.sender + ' notified you') : 'Notification';
-      const content = (n.message || '').slice(0, 250);
-      notifyContentBody.textContent = content || 'No message content.';
-      notifyContentModal.classList.add('active');
-      notifyContentModal.setAttribute('aria-hidden', 'false');
-      document.body.style.overflow = 'hidden';
-    }
-
-    function closeNotifyContentModal() {
-      if (!notifyContentModal) return;
-      notifyContentModal.classList.remove('active');
-      notifyContentModal.setAttribute('aria-hidden', 'true');
-      document.body.style.overflow = '';
-    }
-
-    if (notifyContentClose) {
-      notifyContentClose.addEventListener('click', closeNotifyContentModal);
-    }
-    if (notifyContentModal) {
-      notifyContentModal.addEventListener('click', function(e) {
-        if (e.target === notifyContentModal) closeNotifyContentModal();
-      });
     }
 
     // ── Modal shown when tapping "Read more..." on a long chat message ──
@@ -6895,9 +6334,6 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
         if (logoutModal && logoutModal.classList.contains('active')) {
           closeLogoutModal();
         }
-        if (notifyContentModal && notifyContentModal.classList.contains('active')) {
-          closeNotifyContentModal();
-        }
         if (readMoreModal && readMoreModal.classList.contains('active')) {
           closeReadMoreModal();
         }
@@ -7466,11 +6902,6 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
       window._startSidebarPoll = startSidebarPoll;
       startSidebarPoll();
       fetchUsers();
-
-      // One-shot catch-up for any notify/mention toasts that arrived while we
-      // were offline (e.g. a missed WS push before this tab connected). Live
-      // delivery from here on is the server's 'notify' WS push (see
-      // ws.onmessage above) — no more blind 4s polling.
     });
     
     // Handle page visibility change

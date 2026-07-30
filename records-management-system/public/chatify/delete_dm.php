@@ -4,6 +4,7 @@
 // =============================================================================
 
 require_once __DIR__ . '/bootstrap.php';
+require_once __DIR__ . '/core/WsPush.php';
 
 session_start();
 Auth::require();
@@ -70,6 +71,20 @@ if (!$isAdmin) {
 
 // ── Perform deletion via ConversationManager (PostgreSQL) ─────────────────────
 $deleted = ConversationManager::deleteConversation($convId, $myAccountId, $isAdmin);
+
+if ($deleted) {
+    $parts = explode('_', $convId);
+    $userA = isset($parts[0]) ? (int) $parts[0] : 0;
+    $userB = isset($parts[1]) ? (int) $parts[1] : 0;
+
+    WsPush::push([$userA, $userB, 1], 'chat_cleared', [
+        'chat_type'    => 'private',
+        'sender_id'    => $myAccountId,
+        'recipient_id' => ($myAccountId === $userA ? $userB : $userA),
+        'user_a'       => $userA,
+        'user_b'       => $userB,
+    ]);
+}
 
 if ($isAdmin) {
     echo $deleted ? 'Entire conversation deleted successfully' : 'Conversation cleared';

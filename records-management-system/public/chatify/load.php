@@ -16,15 +16,21 @@
 
 require_once __DIR__ . '/bootstrap.php';
 
-session_start();
-Auth::require();
-session_write_close();
-
 header('Content-Type: application/json');
 
-// ── Current user identity ────────────────────────────────────────────────────
-$myAccountId = Auth::accountId();
-$adminId     = Auth::adminAccountId(); // 1
+$internalSecret = $_SERVER['HTTP_X_INTERNAL_SECRET'] ?? '';
+$internalAccId  = (int) ($_SERVER['HTTP_X_INTERNAL_ACCOUNT_ID'] ?? 0);
+
+if ($internalSecret !== '' && hash_equals(INTERNAL_PUSH_SECRET, $internalSecret) && $internalAccId > 0) {
+    $myAccountId = $internalAccId;
+    $adminId     = 1;
+} else {
+    session_start();
+    Auth::require();
+    session_write_close();
+    $myAccountId = Auth::accountId();
+    $adminId     = Auth::adminAccountId(); // 1
+}
 
 // ── Pagination params ─────────────────────────────────────────────────────────
 $limit      = 100;
@@ -163,15 +169,8 @@ foreach ($rawMessages as $msg) {
                     $fn      = basename((string)$fn);
                     $fnUrl   = 'uploads/' . rawurlencode($fn);
                     $fnEsc   = htmlspecialchars($fn, ENT_QUOTES);
-                    $wAttr = '';
-                    $aspectRatioStyle = '';
-                    $info = @getimagesize($uploadsDir . $fn);
-                    if ($info) {
-                        $wAttr = " width='{$info[0]}' height='{$info[1]}'";
-                        $aspectRatioStyle = "aspect-ratio:{$info[0]}/{$info[1]};width:100%;height:auto;";
-                    }
                     $html   .= "<a href='{$fnUrl}' target='_blank' style='display:block;'>";
-                    $html   .= "<img src='{$fnUrl}' alt='{$fnEsc}'{$wAttr} style='{$aspectRatioStyle}max-width:240px;max-height:240px;border-radius:12px;display:block;cursor:pointer;object-fit:cover;box-shadow:0 2px 8px rgba(0,0,0,0.18);' loading='lazy' />";
+                    $html   .= "<img src='{$fnUrl}' alt='{$fnEsc}' style='width:100%;max-width:240px;max-height:260px;height:auto;border-radius:12px;display:block;cursor:pointer;object-fit:cover;box-shadow:0 2px 8px rgba(0,0,0,0.18);' />";
                     $html   .= "</a>";
                 }
                 $html .= "<div class='message-info' style='padding:3px 2px;'><span class='message-sender'>{$senderLabel}{$adminBadge}</span></div>";
@@ -187,7 +186,7 @@ foreach ($rawMessages as $msg) {
                     $fnEsc = htmlspecialchars($fn, ENT_QUOTES);
                     $fnExt = strtolower(pathinfo($fn, PATHINFO_EXTENSION));
                     if (in_array($fnExt, $imageExts, true)) {
-                        $html .= "<a href='{$fnUrl}' target='_blank'><img src='{$fnUrl}' alt='{$fnEsc}'{$wAttr} style='{$aspectRatioStyle}max-width:240px;max-height:240px;border-radius:12px;display:block;object-fit:cover;' loading='lazy' /></a>";
+                        $html .= "<a href='{$fnUrl}' target='_blank'><img src='{$fnUrl}' alt='{$fnEsc}' style='width:100%;max-width:240px;max-height:260px;height:auto;border-radius:12px;display:block;object-fit:cover;' /></a>";
                     } else {
                         $html .= "<a href='{$fnUrl}' target='_blank' rel='noopener' style='color:{$linkColor};text-decoration:underline;font-size:13px;word-break:break-all;'>{$fnEsc}</a>";
                     }
@@ -205,15 +204,8 @@ foreach ($rawMessages as $msg) {
             $fileEsc = htmlspecialchars($file, ENT_QUOTES);
 
             if (in_array($ext, $imageExts, true)) {
-                $wAttr = '';
-                $aspectRatioStyle = '';
-                $info = @getimagesize($uploadsDir . $file);
-                if ($info) {
-                    $wAttr = " width='{$info[0]}' height='{$info[1]}'";
-                    $aspectRatioStyle = "aspect-ratio:{$info[0]}/{$info[1]};width:100%;height:auto;";
-                }
                 $html .= "<div class='message-media'>";
-                $html .= "<a href='{$url}' target='_blank'><img src='{$url}' alt='{$fileEsc}'{$wAttr} style='{$aspectRatioStyle}max-width:240px;max-height:240px;border-radius:12px;display:block;cursor:pointer;object-fit:cover;box-shadow:0 2px 8px rgba(0,0,0,0.18);' loading='lazy' /></a>";
+                $html .= "<a href='{$url}' target='_blank'><img src='{$url}' alt='{$fileEsc}' style='width:100%;max-width:240px;max-height:260px;height:auto;border-radius:12px;display:block;cursor:pointer;object-fit:cover;box-shadow:0 2px 8px rgba(0,0,0,0.18);' /></a>";
                 $html .= "<div class='message-info' style='padding:3px 2px;'><span class='message-sender'>{$senderLabel}{$adminBadge}</span></div>";
                 $html .= "</div>";
 

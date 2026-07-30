@@ -38,6 +38,11 @@
             -ms-overflow-style: none !important;
             scrollbar-width: none !important;
         }
+        @media screen and (min-width: 769px) {
+            :root {
+                zoom: clamp(0.72, calc(100vw / 1920), 1);
+            }
+        }
     </style>
 
     @vite(['resources/css/dashboard.css', 'resources/css/notifications.css', 'resources/js/dashboard.js'])
@@ -56,7 +61,7 @@
         <div class="notification-container">
             <livewire:components.notification.notifications />
         </div>
-        <span class="office_name">Records and Freedom of Information Office</span>
+        <span class="office_name">{{ auth()->user()?->details?->office?->office_name ?? 'Records and Freedom of Information Office' }}</span>
         <x-actions.dropdown />
     </header>
     <section>
@@ -78,7 +83,6 @@
                 <div class="account-container">
                     <div class="account-label">
                         <span class="account-email">{{ auth()->user()?->details?->email }}</span>
-                        <span class="account-office">{{ auth()->user()?->details?->office?->office_name }}</span>
                     </div>
                 </div>
             </div>

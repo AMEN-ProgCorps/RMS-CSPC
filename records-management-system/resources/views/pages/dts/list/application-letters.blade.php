@@ -13,9 +13,31 @@ new #[Layout('layouts.dts')] #[Title('DTS - Application Letters')] class extends
 
     public bool $showCompletionConfirmModal = false;
     public bool $showUploadModal = false;
+    public bool $showViewFileModal = false;
+    public bool $showPdfPreviewModal = false;
+    public bool $editingAll = false;
+    public bool $showFullConfiguredPath = false;
+    public bool $showMoreDetails = false;
+    public bool $showPassword = false;
+
+    // Show More Details edit properties
+    public string $requestorName = '';
+    public string $requestorPosition = '';
+    public string $emailAccess = '';
+    public string $docPassword = '';
+    public string $transactionFlow = '';
+    public array $flowOffices = [];
+    public string $selectedFlowOfficeToAdd = '';
+
+    // Copy Furnished state properties
+    public bool $showCopyFurnished = false;
+    public array $cfSelectedOffices = [];
+    public string $selectedCfOfficeToAdd = '';
+
     public $uploadedFile = null;
-    public string $uploadFileCode = '';
+    public string $uploadFileName = '';
     public string $uploadErrorMessage = '';
+    public string $attachedDocName = '';
 
     public string $selectedPriority = 'all';
     public string $selectedStatus = 'all';
@@ -44,7 +66,6 @@ new #[Layout('layouts.dts')] #[Title('DTS - Application Letters')] class extends
     public bool $editingControl = false;
     public bool $editingFileCode = false;
     public bool $editingParticulars = false;
-    public bool $showFullConfiguredPath = false;
 
     // Selection state
     public array $selectedIds = [];
@@ -97,17 +118,20 @@ new #[Layout('layouts.dts')] #[Title('DTS - Application Letters')] class extends
 
     public function getTransactionsProperty()
     {
-        $userId = auth()->id();
+        $userOfficeCode = auth()->user()?->details?->office?->office_code 
+            ?? \App\Services\DocumentStorageService::resolveOfficeCode(auth()->user());
+
         $query = DB::table('dts_transactions as dt')
             ->join('dts_transaction_details as dtd', 'dtd.id', '=', 'dt.transaction_id')
             ->leftJoin('office as originated_office', 'originated_office.office_code', '=', 'dtd.originated_from')
             ->leftJoin('office as current_office', 'current_office.office_code', '=', 'dt.current_office')
+            ->leftJoin('dts_transaction_flow as flow', 'flow.flow_code', '=', 'dtd.transaction_flow')
             ->leftJoin('document_data as doc', 'doc.document_path', '=', 'dt.doc_dir')
             ->where('dt.trans_type', 'others');
 
         $canViewAll = auth()->user()?->permissions?->is_sadm || auth()->user()?->permissions?->can_dts_view_all_list;
         if (!$canViewAll) {
-            $query->where('dtd.created_by', $userId);
+            $query->where('dtd.originated_from', $userOfficeCode);
         } // 'others' trans_type maps to Application Letters
 
         if ($this->selectedPriority !== 'all') {
@@ -144,6 +168,7 @@ new #[Layout('layouts.dts')] #[Title('DTS - Application Letters')] class extends
             'dtd.classification',
             'dtd.action_needed',
             'dtd.date_created',
+            DB::raw("COALESCE(NULLIF(flow.referenced_flow, ''), flow.flow_name) as doc_type_name"),
             'originated_office.office_name as originated_office_name',
             'current_office.office_name as current_office_name',
             'doc.document_name'
@@ -282,7 +307,25 @@ new #[Layout('layouts.dts')] #[Title('DTS - Application Letters')] class extends
                     && $step->sequence_ranking === $this->selectedTransaction->sequence
                     && in_array($this->selectedTransaction->status, ['ongoing', 'revision'])
                     && !is_null($step->date_in)
+                    && is_null($step->date_out)
                 );
+
+                if (!empty($step->date_in) && empty($step->total_time_completed) && ($step->date_out || $this->selectedTransaction->status === 'completed')) {
+                    $dateIn = \Carbon\Carbon::parse($step->date_in);
+                    $dateOut = $step->date_out ? \Carbon\Carbon::parse($step->date_out) : now();
+                    $diff = $dateIn->diff($dateOut);
+                    $parts = [];
+                    if ($diff->d > 0) $parts[] = $diff->d . ' ' . \Illuminate\Support\Str::plural('day', $diff->d);
+                    if ($diff->h > 0) $parts[] = $diff->h . ' ' . \Illuminate\Support\Str::plural('hour', $diff->h);
+                    if ($diff->i > 0) $parts[] = $diff->i . ' ' . \Illuminate\Support\Str::plural('minute', $diff->i);
+                    if (empty($parts)) $parts[] = 'less than a minute';
+                    $step->total_time_completed = implode(' ', $parts);
+                }
+
+                if ($this->selectedTransaction->status === 'completed' && $step->sequence_ranking == $this->selectedTransaction->sequence) {
+                    $step->action_needed = $step->action_needed ?: 'Finished';
+                }
+
                 $step->description = $step->note ?: 'Pending office flow step.';
                 $step->type = $step->action_needed ?: 'pending';
                 $step->notes = $step->note ?: '';
@@ -311,18 +354,293 @@ new #[Layout('layouts.dts')] #[Title('DTS - Application Letters')] class extends
     {
         $this->selectedTransactionId = '';
         $this->selectedTransaction = null;
-        $this->editingControl = false;
-        $this->editingFileCode = false;
-        $this->editingParticulars = false;
         $this->showFullConfiguredPath = false;
+        $this->showMoreDetails = false;
+        $this->showPassword = false;
+        $this->showCopyFurnished = false;
+        $this->cfSelectedOffices = [];
+        $this->selectedCfOfficeToAdd = '';
+        $this->editingAll = false;
+        $this->requestorName = '';
+        $this->requestorPosition = '';
+        $this->emailAccess = '';
+        $this->docPassword = '';
+        $this->transactionFlow = '';
+    }
+
+    public function toggleMoreDetails(): void
+    {
+        $this->showMoreDetails = !$this->showMoreDetails;
+    }
+
+    public function toggleEditAll(): void
+    {
+        $perms = auth()->user()?->permissions;
+        $canListModify = $perms && ($perms->is_sadm || ($perms->can_dts_list_modify_transaction ?? false) || ($perms->can_dts_modify_transaction ?? false));
+        if (!$canListModify) {
+            return;
+        }
+        $this->editingAll = !$this->editingAll;
+    }
+
+    public function addCfOffice(): void
+    {
+        if (empty($this->selectedCfOfficeToAdd)) {
+            return;
+        }
+        if (!in_array($this->selectedCfOfficeToAdd, $this->cfSelectedOffices)) {
+            $this->cfSelectedOffices[] = $this->selectedCfOfficeToAdd;
+        }
+        $this->selectedCfOfficeToAdd = '';
+    }
+
+    public function removeCfOffice(string $officeCode): void
+    {
+        $this->cfSelectedOffices = array_values(array_diff($this->cfSelectedOffices, [$officeCode]));
+    }
+
+    public function addFlowOffice(): void
+    {
+        if ($this->selectedFlowOfficeToAdd) {
+            $this->flowOffices[] = [
+                'office_code' => $this->selectedFlowOfficeToAdd,
+                'is_locked' => false,
+            ];
+            $this->selectedFlowOfficeToAdd = '';
+        }
+    }
+
+    public function removeFlowOffice(int $index): void
+    {
+        if (isset($this->flowOffices[$index]) && !$this->flowOffices[$index]['is_locked']) {
+            unset($this->flowOffices[$index]);
+            $this->flowOffices = array_values($this->flowOffices);
+        }
+    }
+
+    public function moveFlowOfficeUp(int $index): void
+    {
+        if ($index > 0 && !$this->flowOffices[$index]['is_locked'] && !$this->flowOffices[$index - 1]['is_locked']) {
+            $temp = $this->flowOffices[$index];
+            $this->flowOffices[$index] = $this->flowOffices[$index - 1];
+            $this->flowOffices[$index - 1] = $temp;
+        }
+    }
+
+    public function moveFlowOfficeDown(int $index): void
+    {
+        if ($index < count($this->flowOffices) - 1 && !$this->flowOffices[$index]['is_locked'] && !$this->flowOffices[$index + 1]['is_locked']) {
+            $temp = $this->flowOffices[$index];
+            $this->flowOffices[$index] = $this->flowOffices[$index + 1];
+            $this->flowOffices[$index + 1] = $temp;
+        }
+    }
+
+    public function saveMetadataOnly(): void
+    {
+        $perms = auth()->user()?->permissions;
+        $canListModify = $perms && ($perms->is_sadm || ($perms->can_dts_list_modify_transaction ?? false) || ($perms->can_dts_modify_transaction ?? false));
+        if ($canListModify) {
+            $emailAccessId = null;
+            if ($this->emailAccess) {
+                $existingEmail = DB::table('dts_email_access')->where('email', $this->emailAccess)->first();
+                if (!$existingEmail) {
+                    $emailAccessId = DB::table('dts_email_access')->insertGetId([
+                        'email' => $this->emailAccess,
+                        'created_at' => now(),
+                        'updated_at' => now(),
+                    ]);
+                } else {
+                    $emailAccessId = $existingEmail->id;
+                }
+            }
+
+            $copyFilledId = $this->selectedTransaction->copy_filled_id;
+            if (count($this->cfSelectedOffices) > 0) {
+                if ($copyFilledId) {
+                    $cfRecord = DB::table('dts_copy_filled_transaction')->where('id', $copyFilledId)->first();
+                    if ($cfRecord) {
+                        DB::table('dts_copy_filled_transaction')
+                            ->where('id', $copyFilledId)
+                            ->update([
+                                'total_office' => count($this->cfSelectedOffices),
+                                'date_modified' => now(),
+                            ]);
+                        DB::table('dts_copy_filled_to_office')
+                            ->where('control_id', $cfRecord->assign_offices_id)
+                            ->delete();
+                        foreach ($this->cfSelectedOffices as $cfOffice) {
+                            DB::table('dts_copy_filled_to_office')->insert([
+                                'control_id' => $cfRecord->assign_offices_id,
+                                'office_code' => $cfOffice,
+                            ]);
+                        }
+                    }
+                } else {
+                    $assignOfficesId = (DB::table('dts_copy_filled_transaction')->max('assign_offices_id') ?? 1000) + 1;
+                    $copyFilledId = DB::table('dts_copy_filled_transaction')->insertGetId([
+                        'control_num' => $this->controlNumber,
+                        'total_office' => count($this->cfSelectedOffices),
+                        'assign_offices_id' => $assignOfficesId,
+                        'data_created' => now(),
+                        'date_modified' => now(),
+                    ]);
+                    foreach ($this->cfSelectedOffices as $cfOffice) {
+                        DB::table('dts_copy_filled_to_office')->insert([
+                            'control_id' => $assignOfficesId,
+                            'office_code' => $cfOffice,
+                        ]);
+                    }
+                }
+            } else {
+                if ($copyFilledId) {
+                    $cfRecord = DB::table('dts_copy_filled_transaction')->where('id', $copyFilledId)->first();
+                    if ($cfRecord) {
+                        DB::table('dts_copy_filled_to_office')->where('control_id', $cfRecord->assign_offices_id)->delete();
+                        DB::table('dts_copy_filled_transaction')->where('id', $copyFilledId)->delete();
+                    }
+                    $copyFilledId = null;
+                }
+            }
+
+            DB::table('dts_transaction_details')
+                ->where('id', $this->selectedTransactionId)
+                ->update([
+                    'control_number' => $this->controlNumber,
+                    'copy_filled_id' => $copyFilledId ?: null,
+                    'subject' => $this->particulars,
+                    'classification' => $this->classification ?: null,
+                    'action_needed' => $this->actionNeeded ?: null,
+                    'requestor_name' => $this->requestorName ?: null,
+                    'requestor_label' => $this->requestorPosition ?: null,
+                    'email_access' => $emailAccessId,
+                    'document_password' => $this->docPassword ?: null,
+                    'transaction_flow' => $this->transactionFlow,
+                ]);
+
+            $flow = DB::table('dts_transaction_flow')->where('flow_code', $this->transactionFlow)->first();
+            if ($flow) {
+                $originalSequence = DB::table('dts_sequence_list')
+                    ->where('control_id', $flow->id)
+                    ->orderBy('sequence_ranking', 'asc')
+                    ->get()
+                    ->keyBy('sequence_ranking')
+                    ->toArray();
+
+                if (str_starts_with($flow->flow_code, 'FLOW-CUSTOM-')) {
+                    DB::table('dts_sequence_list')->where('control_id', $flow->id)->delete();
+                    foreach ($this->flowOffices as $rank => $officeData) {
+                        $rank1 = $rank + 1;
+                        $officeCode = $officeData['office_code'];
+                        
+                        if ($officeData['is_locked'] && isset($originalSequence[$rank1])) {
+                            $orig = $originalSequence[$rank1];
+                            DB::table('dts_sequence_list')->insert([
+                                'control_id' => $flow->id,
+                                'sequence_ranking' => $rank1,
+                                'office_code' => $officeCode,
+                                'date_in' => $orig->date_in,
+                                'date_out' => $orig->date_out,
+                                'action_needed' => $orig->action_needed,
+                                'note' => $orig->note,
+                                'total_time_completed' => $orig->total_time_completed,
+                            ]);
+                        } else {
+                            DB::table('dts_sequence_list')->insert([
+                                'control_id' => $flow->id,
+                                'sequence_ranking' => $rank1,
+                                'office_code' => $officeCode,
+                                'date_in' => null,
+                                'date_out' => null,
+                                'action_needed' => null,
+                                'note' => null,
+                                'total_time_completed' => null,
+                            ]);
+                        }
+                    }
+                } else {
+                    $predefinedOffices = DB::table('dts_sequence_list')
+                        ->where('control_id', $flow->id)
+                        ->orderBy('sequence_ranking', 'asc')
+                        ->pluck('office_code')
+                        ->toArray();
+                    
+                    $currentOfficeCodes = array_map(fn($o) => $o['office_code'], $this->flowOffices);
+                    
+                    if ($predefinedOffices !== $currentOfficeCodes) {
+                        $newFlowCode = 'FLOW-CUSTOM-' . strtoupper(Str::random(10));
+                        $maxId = DB::table('dts_transaction_flow')->max('id') ?? 0;
+                        $newFlowId = $maxId + 1;
+                        
+                        DB::table('dts_transaction_flow')->insert([
+                            'flow_code' => $newFlowCode,
+                            'flow_name' => 'Flow for ' . $this->controlNumber . ' (' . $newFlowCode . ')',
+                            'id' => $newFlowId,
+                            'is_active' => 1,
+                            'added_by' => auth()->id() ?? 1,
+                            'date_added' => now(),
+                            'flow_use' => 'none',
+                            'flow_for' => 'system',
+                            'referenced_flow' => $flow ? ($flow->referenced_flow ?? $flow->flow_name) : null,
+                        ]);
+
+                        foreach ($this->flowOffices as $rank => $officeData) {
+                            $rank1 = $rank + 1;
+                            $officeCode = $officeData['office_code'];
+                            
+                            if ($officeData['is_locked'] && isset($originalSequence[$rank1])) {
+                                $orig = $originalSequence[$rank1];
+                                DB::table('dts_sequence_list')->insert([
+                                    'control_id' => $newFlowId,
+                                    'sequence_ranking' => $rank1,
+                                    'office_code' => $officeCode,
+                                    'date_in' => $orig->date_in,
+                                    'date_out' => $orig->date_out,
+                                    'action_needed' => $orig->action_needed,
+                                    'note' => $orig->note,
+                                    'total_time_completed' => $orig->total_time_completed,
+                                ]);
+                            } else {
+                                DB::table('dts_sequence_list')->insert([
+                                    'control_id' => $newFlowId,
+                                    'sequence_ranking' => $rank1,
+                                    'office_code' => $officeCode,
+                                    'date_in' => null,
+                                    'date_out' => null,
+                                    'action_needed' => null,
+                                    'note' => null,
+                                    'total_time_completed' => null,
+                                ]);
+                            }
+                        }
+                        $this->transactionFlow = $newFlowCode;
+                        
+                        DB::table('dts_transaction_details')
+                            ->where('id', $this->selectedTransactionId)
+                            ->update(['transaction_flow' => $newFlowCode]);
+                    }
+                }
+            }
+            $this->editingAll = false;
+            $this->loadSelectedTransaction();
+        }
     }
 
     public function loadSelectedTransaction(): void
     {
         $this->selectedTransaction = DB::table('dts_transactions as dt')
             ->join('dts_transaction_details as dtd', 'dtd.id', '=', 'dt.transaction_id')
+            ->leftJoin('office as originated_office', 'originated_office.office_code', '=', 'dtd.originated_from')
+            ->leftJoin('dts_email_access as dea', 'dea.id', '=', 'dtd.email_access')
             ->where('dt.transaction_id', $this->selectedTransactionId)
+            ->select('dt.*', 'dtd.*', 'dea.email as access_email', 'originated_office.office_name as originated_office_name')
             ->first();
+
+        $this->attachedDocName = '';
+        if ($this->selectedTransaction && !empty($this->selectedTransaction->doc_dir)) {
+            $docData = DB::table('document_data')->where('document_path', $this->selectedTransaction->doc_dir)->first();
+            $this->attachedDocName = $docData->document_name ?? basename($this->selectedTransaction->doc_dir);
+        }
 
         if ($this->selectedTransaction) {
             $this->controlNumber = $this->selectedTransaction->control_number;
@@ -331,6 +649,75 @@ new #[Layout('layouts.dts')] #[Title('DTS - Application Letters')] class extends
             $this->classification = $this->selectedTransaction->classification ?: '';
             $this->actionNeeded = $this->selectedTransaction->action_needed ?: '';
             $this->activeAction = DB::table('dts_action_options')->orderBy('option_name', 'asc')->value('option_name') ?: 'For Approval';
+
+            $this->requestorName = $this->selectedTransaction->requestor_name ?: '';
+            $this->requestorPosition = $this->selectedTransaction->requestor_label ?: '';
+            $this->emailAccess = $this->selectedTransaction->access_email ?: '';
+            $this->docPassword = $this->selectedTransaction->document_password ?: '';
+            $this->transactionFlow = $this->selectedTransaction->transaction_flow ?: '';
+
+            // Load Transaction Path offices for editing
+            $this->flowOffices = [];
+            $flow = DB::table('dts_transaction_flow')->where('flow_code', $this->transactionFlow)->first();
+            if ($flow) {
+                $currentSequenceNum = $this->selectedTransaction->sequence ?? 1;
+                $this->flowOffices = DB::table('dts_sequence_list')
+                    ->where('control_id', $flow->id)
+                    ->orderBy('sequence_ranking', 'asc')
+                    ->get()
+                    ->map(function ($seq) use ($currentSequenceNum) {
+                        return [
+                            'office_code' => $seq->office_code,
+                            'is_locked' => ($seq->sequence_ranking <= $currentSequenceNum) || !is_null($seq->date_in),
+                        ];
+                    })
+                    ->toArray();
+            }
+
+            // Load Copy Furnished offices
+            $this->cfSelectedOffices = [];
+            if ($this->selectedTransaction->copy_filled_id) {
+                $cfRecord = DB::table('dts_copy_filled_transaction')->where('id', $this->selectedTransaction->copy_filled_id)->first();
+                if ($cfRecord) {
+                    $this->cfSelectedOffices = DB::table('dts_copy_filled_to_office')
+                        ->where('control_id', $cfRecord->assign_offices_id)
+                        ->pluck('office_code')
+                        ->toArray();
+                }
+            }
+
+            // Auto-repair completed transaction steps if missing Finished action or elapsed time
+            if ($this->selectedTransaction && $this->selectedTransaction->status === 'completed') {
+                $flow = DB::table('dts_transaction_flow')->where('flow_code', $this->selectedTransaction->transaction_flow)->first();
+                if ($flow) {
+                    $lastSeq = DB::table('dts_sequence_list')
+                        ->where('control_id', $flow->id)
+                        ->where('sequence_ranking', $this->selectedTransaction->sequence)
+                        ->first();
+                    if ($lastSeq && ($lastSeq->action_needed !== 'Finished' || empty($lastSeq->total_time_completed))) {
+                        $duration = $lastSeq->total_time_completed;
+                        if (!$duration && $lastSeq->date_in) {
+                            $dateIn = \Carbon\Carbon::parse($lastSeq->date_in);
+                            $dateOut = $lastSeq->date_out ? \Carbon\Carbon::parse($lastSeq->date_out) : now();
+                            $diff = $dateIn->diff($dateOut);
+                            $parts = [];
+                            if ($diff->d > 0) $parts[] = $diff->d . ' ' . \Illuminate\Support\Str::plural('day', $diff->d);
+                            if ($diff->h > 0) $parts[] = $diff->h . ' ' . \Illuminate\Support\Str::plural('hour', $diff->h);
+                            if ($diff->i > 0) $parts[] = $diff->i . ' ' . \Illuminate\Support\Str::plural('minute', $diff->i);
+                            if (empty($parts)) $parts[] = 'less than a minute';
+                            $duration = implode(' ', $parts);
+                        }
+                        DB::table('dts_sequence_list')
+                            ->where('control_id', $flow->id)
+                            ->where('sequence_ranking', $this->selectedTransaction->sequence)
+                            ->update([
+                                'action_needed' => 'Finished',
+                                'date_out' => $lastSeq->date_out ?: now(),
+                                'total_time_completed' => $duration ?: 'less than a minute',
+                            ]);
+                    }
+                }
+            }
         }
     }
 
@@ -370,10 +757,54 @@ new #[Layout('layouts.dts')] #[Title('DTS - Application Letters')] class extends
 
     public function triggerUploadFileModal(): void
     {
-        $this->uploadFileCode = 'FC-' . strtoupper(Str::random(6));
+        $this->uploadFileName = '';
         $this->uploadErrorMessage = '';
         $this->uploadedFile = null;
         $this->showUploadModal = true;
+    }
+
+    public function openViewFileModal(): void
+    {
+        $this->showViewFileModal = true;
+    }
+
+    public function closeViewFileModal(): void
+    {
+        $this->showViewFileModal = false;
+    }
+
+    public function openPdfPreviewModal(): void
+    {
+        $this->showPdfPreviewModal = true;
+    }
+
+    public function closePdfPreviewModal(): void
+    {
+        $this->showPdfPreviewModal = false;
+    }
+
+    public function removeUploadedFile(): void
+    {
+        if (!$this->selectedTransactionId || !$this->selectedTransaction) return;
+
+        $oldDocDir = $this->selectedTransaction->doc_dir ?? null;
+
+        DB::table('dts_transactions')
+            ->where('transaction_id', $this->selectedTransactionId)
+            ->update(['doc_dir' => null]);
+
+        if ($oldDocDir) {
+            \App\Services\DocumentStorageService::deleteDocument($oldDocDir);
+        }
+
+        $this->loadSelectedTransaction();
+        $this->showViewFileModal = false;
+    }
+
+    public function changeUploadedFile(): void
+    {
+        $this->showViewFileModal = false;
+        $this->triggerUploadFileModal();
     }
 
     public function cancelUploadModal(): void
@@ -405,22 +836,20 @@ new #[Layout('layouts.dts')] #[Title('DTS - Application Letters')] class extends
         }
 
         try {
-            $filename = 'docs/dts-' . time() . '-' . Str::random(6) . '.pdf';
-            $path = $this->uploadedFile->storeAs('public', $filename);
-            $docPath = 'storage/' . $filename;
-
             $docId = 'DOC-' . strtoupper(Str::random(8));
-            DB::table('document_data')->insert([
-                'document_id' => $docId,
-                'document_name' => $this->selectedTransaction->subject ? (Str::limit($this->selectedTransaction->subject, 50) . ' PDF') : 'Attached Document PDF',
-                'document_path' => $docPath,
-                'date_added' => now(),
-                'date_modified' => now(),
-                'date_deleted' => now(),
-            ]);
+            $originalName = $this->uploadedFile->getClientOriginalName() ?: 'attached_document.pdf';
+
+            $uploadResult = \App\Services\DocumentStorageService::storeUpload(
+                $this->uploadedFile,
+                'DTS',
+                auth()->user(),
+                $docId,
+                $originalName
+            );
+            $docPath = $uploadResult['document_path'];
 
             $assignOfficesId = (DB::table('dts_copy_filled_transaction')->max('assign_offices_id') ?? 1000) + 1;
-            $codeNum = trim($this->uploadFileCode) ?: ('FC-' . strtoupper(Str::random(6)));
+            $codeNum = trim($this->uploadFileName) ?: $originalName;
 
             $copyFilledId = DB::table('dts_copy_filled_transaction')->insertGetId([
                 'control_num' => $codeNum,
@@ -445,6 +874,40 @@ new #[Layout('layouts.dts')] #[Title('DTS - Application Letters')] class extends
         } catch (\Exception $e) {
             $this->uploadErrorMessage = 'Upload failed: ' . $e->getMessage();
         }
+    }
+
+    public function reopenTransaction(): void
+    {
+        $perms = auth()->user()?->permissions;
+        if ($perms && !$perms->is_sadm && !$perms->can_dts_modify_transaction && !$perms->can_dts_user_received) {
+            return;
+        }
+
+        if (!$this->selectedTransactionId || !$this->selectedTransaction) {
+            return;
+        }
+
+        $userOfficeCode = auth()->user()?->details?->office?->office_code;
+
+        DB::transaction(function () use ($userOfficeCode) {
+            DB::table('dts_transactions')
+                ->where('transaction_id', $this->selectedTransactionId)
+                ->update([
+                    'status' => 'ongoing',
+                ]);
+
+            DB::table('sub_document_tracking_system_logs')->insert([
+                'transaction_id' => $this->selectedTransactionId,
+                'office_code' => $userOfficeCode ?: $this->selectedTransaction->current_office,
+                'type' => 'received',
+                'date_in' => now(),
+                'date_out' => null,
+                'notes' => 'Restored/Re-opened to Current Transactions for review.',
+                'performed_by' => auth()->id(),
+            ]);
+        });
+
+        $this->loadSelectedTransaction();
     }
 
     public function completeTransaction(): void
@@ -565,33 +1028,48 @@ new #[Layout('layouts.dts')] #[Title('DTS - Application Letters')] class extends
                 ]);
 
             if ($nextSequence) {
+                // Resolve destination office code if special symbol (ORIGIN or [H])
+                $destOfficeCode = $nextSequence->office_code;
+                $originatedFrom = $this->selectedTransaction->originated_from;
+                if ($destOfficeCode === 'ORIGIN') {
+                    $destOfficeCode = $originatedFrom;
+                } elseif ($destOfficeCode === '[H]') {
+                    $originOffice = DB::table('office')->where('office_code', $originatedFrom)->first();
+                    if ($originOffice && $originOffice->cluster) {
+                        $cluster = DB::table('cluster')->where('cluster_code', $originatedFrom)->first();
+                        if ($cluster && $cluster->cluster_head) {
+                            $destOfficeCode = $cluster->cluster_head;
+                        }
+                    }
+                }
+
                 // Route to next office
                 DB::table('dts_transactions')
                     ->where('transaction_id', $this->selectedTransactionId)
                     ->update([
-                        'current_office' => $nextSequence->office_code,
+                        'current_office' => $destOfficeCode,
                         'sequence' => $this->selectedTransaction->sequence + 1,
                         'status' => 'ongoing',
                     ]);
 
-                // Update next step in sequence list
+                // Update next step in sequence list (date_in remains null until received at next office)
                 DB::table('dts_sequence_list')
                     ->where('control_id', $flow->id)
                     ->where('sequence_ranking', $this->selectedTransaction->sequence + 1)
                     ->update([
-                        'date_in' => now(),
+                        'date_in' => null,
                         'date_out' => null,
                         'action_needed' => null,
                         'note' => null,
                         'total_time_completed' => null,
                     ]);
 
-                // Create next pending log
+                // Create next pending log (date_in remains null until received at next office)
                 DB::table('sub_document_tracking_system_logs')->insert([
                     'transaction_id' => $this->selectedTransactionId,
-                    'office_code' => $nextSequence->office_code,
+                    'office_code' => $destOfficeCode,
                     'type' => 'forwarded',
-                    'date_in' => now(),
+                    'date_in' => null,
                     'date_out' => null,
                     'notes' => 'Forwarded from ' . auth()->user()?->details?->office?->office_name,
                     'performed_by' => auth()->id(),
@@ -602,6 +1080,15 @@ new #[Layout('layouts.dts')] #[Title('DTS - Application Letters')] class extends
                     ->where('transaction_id', $this->selectedTransactionId)
                     ->update([
                         'status' => 'completed',
+                    ]);
+
+                DB::table('dts_sequence_list')
+                    ->where('control_id', $flow->id)
+                    ->where('sequence_ranking', $this->selectedTransaction->sequence)
+                    ->update([
+                        'action_needed' => 'Finished',
+                        'date_out' => now(),
+                        'total_time_completed' => $duration ?: 'less than a minute',
                     ]);
 
                 DB::table('sub_document_tracking_system_logs')->insert([
@@ -746,7 +1233,7 @@ new #[Layout('layouts.dts')] #[Title('DTS - Application Letters')] class extends
                         </th>
                         <th style="width: 60px;">Item No.</th>
                         <th>Control Number</th>
-                        <th>Barcode</th>
+                        <th>QR Code</th>
                         <th>Name of Applicant</th>
                         <th>Position</th>
                         <th>Unit/College</th>
@@ -872,143 +1359,313 @@ new #[Layout('layouts.dts')] #[Title('DTS - Application Letters')] class extends
                         <!-- Control Number field -->
                         <div class="receive-field-row">
                             <span class="receive-field-label">Control #:</span>
-                            @if ($editingControl)
-                                <div style="display: flex; gap: 8px; width: 100%;">
-                                    <input type="text" class="receive-field-input" wire:model="controlNumber">
-                                    <div class="receive-field-actions">
-                                        <button type="button" wire:click="saveField('control')">Save</button>
-                                    </div>
-                                </div>
+                            @if ($editingAll)
+                                <input type="text" class="receive-field-input" wire:model="controlNumber">
                             @else
                                 <input type="text" class="receive-field-input" value="{{ $controlNumber }}" readonly>
-                                @if (auth()->user()?->permissions?->is_sadm && $selectedTransaction->current_office === auth()->user()?->details?->office?->office_code)
-                                    <div class="receive-field-actions">
-                                        <button type="button" wire:click="startEdit('control')">Update</button>
-                                        <span>|</span>
-                                        <button type="button" wire:click="startEdit('control')">Edit</button>
-                                    </div>
-                                @endif
                             @endif
                         </div>
 
-                        <!-- File Code / Copy Furnished field -->
-                        @if ($selectedTransaction && !empty($selectedTransaction->doc_dir) && !empty($fileCode) && $fileCode !== 'N/A')
-                            <div class="receive-field-row">
-                                <span class="receive-field-label">File Code:</span>
-                                @if ($editingFileCode)
-                                    <div style="display: flex; gap: 8px; width: 100%;">
-                                        <input type="text" class="receive-field-input" wire:model="fileCode">
-                                        <div class="receive-field-actions">
-                                            <button type="button" wire:click="saveField('file_code')">Save</button>
-                                        </div>
-                                    </div>
-                                @else
-                                    <input type="text" class="receive-field-input" value="{{ $fileCode }}" readonly>
-                                    @if (auth()->user()?->permissions?->is_sadm && $selectedTransaction->current_office === auth()->user()?->details?->office?->office_code)
-                                        <div class="receive-field-actions">
-                                            <button type="button" wire:click="startEdit('file_code')">Update</button>
-                                            <span>|</span>
-                                            <button type="button" wire:click="startEdit('file_code')">Edit</button>
-                                        </div>
-                                    @endif
-                                @endif
-                            </div>
-                        @endif
+                        <!-- Originator field -->
+                        <div class="receive-field-row">
+                            <span class="receive-field-label">Originator:</span>
+                            <input type="text" class="receive-field-input" value="{{ $selectedTransaction->originated_office_name ?? 'N/A' }}" readonly style="background-color: #f8fafc; color: #64748b;">
+                        </div>
+
+                        <!-- Document Type field (formerly Flow) -->
+                        <div class="receive-field-row" style="align-items: center;">
+                            <span class="receive-field-label">Document Type:</span>
+                            @if ($editingAll)
+                                @php
+                                    $availableFlows = DB::table('dts_transaction_flow')
+                                        ->where('is_active', true)
+                                        ->where('flow_name', 'not like', 'Flow for %')
+                                        ->orWhere('flow_code', $transactionFlow)
+                                        ->orderBy('flow_name', 'asc')
+                                        ->get();
+                                @endphp
+                                <select class="receive-field-input" wire:model.live="transactionFlow" style="height: 38px; padding: 0 10px; border-radius: 6px; border: 1px solid #cbd5e1; outline: none; background: #fff;">
+                                    @foreach ($availableFlows as $f)
+                                        <option value="{{ $f->flow_code }}">{{ $f->referenced_flow ?: $f->flow_name }}</option>
+                                    @endforeach
+                                </select>
+                            @else
+                                @php
+                                    $flowRow = DB::table('dts_transaction_flow')->where('flow_code', $transactionFlow)->first();
+                                    $flowName = $flowRow?->referenced_flow ?: ($flowRow?->flow_name ?: $transactionFlow);
+                                    if (!empty($flowName) && str_starts_with($flowName, 'Flow for ')) {
+                                        $flowName = ucfirst($selectedTransaction->trans_type ?? 'Application Letters');
+                                    }
+                                @endphp
+                                <input type="text" class="receive-field-input" value="{{ $flowName }}" readonly style="background-color: #f8fafc; color: #64748b;">
+                            @endif
+                        </div>
 
                         <!-- Particulars / Subject field -->
                         <div class="receive-field-row receive-field-row--particulars">
                             <span class="receive-field-label">Particulars:</span>
-                            @if ($editingParticulars)
-                                <div style="display: flex; flex-direction: column; gap: 8px; width: 100%;">
-                                    <textarea class="receive-field-input" wire:model="particulars" style="min-height: 72px; resize: vertical;"></textarea>
-                                    <div class="receive-field-actions" style="justify-content: flex-end;">
-                                        <button type="button" wire:click="saveField('particulars')">Save</button>
-                                    </div>
-                                </div>
+                            @if ($editingAll)
+                                <textarea class="receive-field-input" wire:model="particulars" style="min-height: 72px; resize: vertical;"></textarea>
                             @else
-                                @if (auth()->user()?->permissions?->is_sadm && $selectedTransaction->current_office === auth()->user()?->details?->office?->office_code)
-                                    <div class="receive-particulars-display" wire:click="startEdit('particulars')" style="cursor: pointer; width: 100%;">
-                                        {{ $particulars ?: 'Click to add particulars...' }}
-                                    </div>
-                                @else
-                                    <div class="receive-particulars-display" style="width: 100%;">
-                                        {{ $particulars ?: 'No particulars provided.' }}
-                                    </div>
-                                @endif
+                                <div class="receive-particulars-display" style="width: 100%;">
+                                    {{ $particulars ?: 'No particulars provided.' }}
+                                </div>
                             @endif
                         </div>
+
+                        <!-- Show More Details Button -->
+                        <div style="margin: 14px 0 6px; display: flex; justify-content: flex-start; padding: 0 4px;">
+                            <button type="button" wire:click="toggleMoreDetails" style="background: none; border: none; color: #2563eb; font-weight: 600; font-size: 13px; cursor: pointer; padding: 0; outline: none; font-family: 'Inter', sans-serif;">
+                                {{ $showMoreDetails ? '▲ Hide Details' : '▼ Show More Details' }}
+                            </button>
+                        </div>
+
+                        @if ($showMoreDetails)
+                            <div style="border-top: 1.5px dashed #e2e8f0; padding-top: 12px; margin-top: 6px;">
+                                <div class="receive-field-row" style="grid-template-columns: 180px 1fr; margin-bottom: 12px; align-items: center;">
+                                    <span class="receive-field-label" style="font-weight: 600; color: #475569; white-space: nowrap;">Requestor Name:</span>
+                                    @if ($editingAll)
+                                        <input type="text" class="receive-field-input" wire:model="requestorName">
+                                    @else
+                                        <input type="text" class="receive-field-input" value="{{ $requestorName ?: 'N/A' }}" readonly style="background-color: #f8fafc; color: #64748b;">
+                                    @endif
+                                </div>
+                                <div class="receive-field-row" style="grid-template-columns: 180px 1fr; margin-bottom: 12px; align-items: center;">
+                                    <span class="receive-field-label" style="font-weight: 600; color: #475569; white-space: nowrap;">Requestor Position:</span>
+                                    @if ($editingAll)
+                                        <input type="text" class="receive-field-input" wire:model="requestorPosition">
+                                    @else
+                                        <input type="text" class="receive-field-input" value="{{ $requestorPosition ?: 'N/A' }}" readonly style="background-color: #f8fafc; color: #64748b;">
+                                    @endif
+                                </div>
+                                <div class="receive-field-row" style="grid-template-columns: 180px 1fr; margin-bottom: 12px; align-items: center;">
+                                    <span class="receive-field-label" style="font-weight: 600; color: #475569; white-space: nowrap;">File Code:</span>
+                                    @if ($editingAll)
+                                        <input type="text" class="receive-field-input" wire:model="fileCode">
+                                    @else
+                                        <input type="text" class="receive-field-input" value="{{ $fileCode ?: 'N/A' }}" readonly style="background-color: #f8fafc; color: #64748b;">
+                                    @endif
+                                </div>
+                                @if ($editingAll || (!empty(trim($emailAccess ?? '')) && $emailAccess !== 'N/A'))
+                                    <div class="receive-field-row" style="grid-template-columns: 180px 1fr; margin-bottom: 12px; align-items: center;">
+                                        <span class="receive-field-label" style="font-weight: 600; color: #475569; white-space: nowrap;">Email Access:</span>
+                                        @if ($editingAll)
+                                            <input type="email" class="receive-field-input" wire:model="emailAccess">
+                                        @else
+                                            <input type="text" class="receive-field-input" value="{{ $emailAccess }}" readonly style="background-color: #f8fafc; color: #64748b;">
+                                        @endif
+                                    </div>
+                                @endif
+                                @if ($editingAll || (!empty(trim($docPassword ?? '')) && $docPassword !== 'N/A'))
+                                    <div class="receive-field-row" style="grid-template-columns: 180px 1fr; margin-bottom: 4px; align-items: center;">
+                                        <span class="receive-field-label" style="font-weight: 600; color: #475569; white-space: nowrap;">Document Password:</span>
+                                        <div style="display: flex; gap: 8px; width: 100%; align-items: center;">
+                                            @if ($editingAll)
+                                                <input type="text" class="receive-field-input" wire:model="docPassword" style="flex: 1;">
+                                            @else
+                                                <input type="{{ $showPassword ? 'text' : 'password' }}" class="receive-field-input" value="{{ $docPassword }}" readonly style="background-color: #f8fafc; color: #64748b; flex: 1;">
+                                                <button type="button" wire:click="$toggle('showPassword')" style="background: #e2e8f0; border: 1px solid #cbd5e1; color: #475569; border-radius: 6px; padding: 8px 12px; font-size: 13px; font-weight: 600; cursor: pointer; display: inline-flex; align-items: center; gap: 6px; outline: none; transition: all 0.2s ease; height: 38px;">
+                                                    <i class="fa-solid {{ $showPassword ? 'fa-eye-slash' : 'fa-eye' }}"></i>
+                                                    {{ $showPassword ? 'Hide' : 'Show' }}
+                                                </button>
+                                            @endif
+                                        </div>
+                                    </div>
+                                @endif
+                            </div>
+                        @endif
                     </div>
 
                     <hr class="receive-divider">
 
-                    <!-- Transaction Path Section -->
-                    <h2 class="receive-title" style="font-size: 16px; margin-top: 10px;">Transaction Path</h2>
+                    @if ($showCopyFurnished)
+                        <!-- Copy Furnished Section -->
+                        <h2 class="receive-title" style="font-size: 16px; margin-top: 10px;">Copy Furnished Offices</h2>
+                        
+                        @if ($editingAll)
+                            <div style="display: flex; gap: 8px; margin-bottom: 12px; align-items: center; max-width: 500px;">
+                                <select class="receive-field-input" style="flex: 1; height: 38px; border: 1px solid #cbd5e1; border-radius: 6px; padding: 0 10px;" wire:model="selectedCfOfficeToAdd">
+                                    <option value="">-- Select Office to Add --</option>
+                                    @foreach(DB::table('office')->where('is_active', true)->whereNotIn('office_code', ['ORIGIN', '[H]'])->orderBy('office_name', 'asc')->get() as $off)
+                                        <option value="{{ $off->office_code }}">{{ $off->office_name }} ({{ $off->office_code }})</option>
+                                    @endforeach
+                                </select>
+                                <button type="button" class="receive-action-btn" wire:click="addCfOffice" style="padding: 8px 16px; height: 38px; white-space: nowrap; background-color: #2563eb; color: #fff;">
+                                    + Add Office
+                                </button>
+                            </div>
+                        @endif
 
-                    <div class="receive-table-wrap">
-                        <table class="receive-table">
-                            <thead>
-                                <tr>
-                                    <th>#</th>
-                                    <th>Office</th>
-                                    <th>Date In</th>
-                                    <th>Date Out</th>
-                                    <th>Total Time</th>
-                                    <th>Action Need</th>
-                                    <th>Notes</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                @forelse ($this->visiblePath as $index => $step)
+                        <div class="receive-table-wrap">
+                            <table class="receive-table">
+                                <thead>
                                     <tr>
-                                        <td>{{ $step->sequence_ranking ?? ($index + 1) }}</td>
-                                        <td class="office-cell">{{ $step->office_name }}</td>
-                                        <td>{{ $step->date_in ? \Carbon\Carbon::parse($step->date_in)->format('Y-m-d') : 'N/A' }}</td>
-                                        <td>{{ $step->date_out ? \Carbon\Carbon::parse($step->date_out)->format('Y-m-d') : ($step->date_in ? 'Pending' : 'N/A') }}</td>
-                                        <td>{{ $step->total_time_completed ?: '-' }}</td>
-                                        <td>
-                                            @if ($step->is_active_step)
-                                                <select wire:model="activeAction" class="receive-row-action-select" style="padding: 4px 8px; border: 1px solid #cbd5e1; border-radius: 6px; font-size: 12.5px; font-weight: 500;">
-                                                    @foreach(DB::table('dts_action_options')->orderBy('option_name', 'asc')->pluck('option_name') as $opt)
-                                                        <option value="{{ $opt }}">{{ $opt }}</option>
-                                                    @endforeach
-                                                </select>
-                                            @else
-                                                {{ $step->action_needed ?: ($step->date_in ? 'Ongoing' : 'Pending') }}
-                                            @endif
-                                        </td>
-                                        <td>
-                                            @if ($step->is_active_step)
-                                                <input type="text" wire:model="activeNotes" class="active-notes-input" placeholder="Type notes here...">
-                                            @else
-                                                {{ $step->note ?: '-' }}
-                                            @endif
-                                        </td>
+                                        <th style="width: 60px;">#</th>
+                                        <th>Office Code</th>
+                                        <th>Office Name</th>
+                                        @if ($editingAll)
+                                            <th style="width: 100px;">Actions</th>
+                                        @endif
                                     </tr>
-                                @empty
+                                </thead>
+                                <tbody>
+                                    @php
+                                        $cfOfficeDetails = collect($cfSelectedOffices)->map(function($code) {
+                                            $off = DB::table('office')->where('office_code', $code)->first();
+                                            return (object)[
+                                                'code' => $code,
+                                                'name' => $off ? $off->office_name : 'Unknown Office'
+                                            ];
+                                        });
+                                    @endphp
+                                    @forelse ($cfOfficeDetails as $index => $cf)
+                                        <tr>
+                                            <td>{{ $index + 1 }}</td>
+                                            <td style="font-weight: 600; color: #3b82f6;">{{ $cf->code }}</td>
+                                            <td class="office-cell">{{ $cf->name }}</td>
+                                            @if ($editingAll)
+                                                <td>
+                                                    <button type="button" class="receive-action-btn receive-action-btn--danger" wire:click="removeCfOffice('{{ $cf->code }}')" style="padding: 4px 8px; font-size: 11px;">
+                                                        Remove
+                                                    </button>
+                                                </td>
+                                            @endif
+                                        </tr>
+                                    @empty
+                                        <tr>
+                                            <td colspan="{{ $editingAll ? 4 : 3 }}" style="padding: 24px; color: #888; font-style: italic; text-align: center;">No copy furnished offices added to this transaction.</td>
+                                        </tr>
+                                    @endforelse
+                                </tbody>
+                            </table>
+                        </div>
+                    @else
+                        <!-- Transaction Path Section -->
+                        <h2 class="receive-title" style="font-size: 16px; margin-top: 10px;">Transaction Path</h2>
+
+                        @if ($editingAll)
+                            <div style="display: flex; gap: 8px; align-items: center; margin-bottom: 12px; max-width: 500px;">
+                                @php
+                                    $allSystemOffices = DB::table('office')
+                                        ->where('is_active', true)
+                                        ->whereNotIn('office_code', ['ORIGIN', '[H]'])
+                                        ->orderBy('office_name', 'asc')
+                                        ->get();
+                                @endphp
+                                <select class="receive-field-input" wire:model="selectedFlowOfficeToAdd" style="flex: 1; height: 38px; padding: 0 10px; border-radius: 6px; border: 1px solid #cbd5e1; outline: none; background: #fff;">
+                                    <option value="">Select Office to Add...</option>
+                                    <option value="ORIGIN">ORIGIN (Creator Office)</option>
+                                    <option value="[H]"> [H] (Cluster Head Office)</option>
+                                    @foreach ($allSystemOffices as $o)
+                                        <option value="{{ $o->office_code }}">{{ $o->office_name }} ({{ $o->office_code }})</option>
+                                    @endforeach
+                                </select>
+                                <button type="button" wire:click="addFlowOffice" style="background: #2563eb; color: #fff; border: none; padding: 8px 16px; border-radius: 6px; font-weight: 600; cursor: pointer; font-size: 13px;">Add Office</button>
+                            </div>
+                        @endif
+
+                        <div class="receive-table-wrap">
+                            <table class="receive-table">
+                                <thead>
                                     <tr>
-                                        <td colspan="7" style="padding: 24px; color: #888; font-style: italic;">No transaction paths listed.</td>
+                                        <th>#</th>
+                                        <th>Office</th>
+                                        <th>Date In</th>
+                                        <th>Date Out</th>
+                                        <th>Total Time</th>
+                                        <th>Action Need</th>
+                                        <th>Notes</th>
+                                        @if ($editingAll)
+                                            <th>Actions</th>
+                                        @endif
                                     </tr>
-                                @endforelse
-                            </tbody>
-                        </table>
-                    </div>
+                                </thead>
+                                <tbody>
+                                    @forelse ($this->visiblePath as $index => $step)
+                                        <tr>
+                                            <td>{{ $step->sequence_ranking ?? ($index + 1) }}</td>
+                                            <td class="office-cell">{{ $step->office_name }}</td>
+                                            <td>{{ $step->date_in ? \Carbon\Carbon::parse($step->date_in)->format('Y-m-d h:i A') : 'N/A' }}</td>
+                                            <td>{{ $step->date_out ? \Carbon\Carbon::parse($step->date_out)->format('Y-m-d h:i A') : ($step->date_in ? 'Pending' : 'N/A') }}</td>
+                                            <td>{{ $step->total_time_completed ?: '-' }}</td>
+                                            <td>
+                                                @if ($step->is_active_step && is_null($step->date_out) && $selectedTransaction->status !== 'completed')
+                                                    <select wire:model="activeAction" class="receive-row-action-select" style="padding: 4px 8px; border: 1px solid #cbd5e1; border-radius: 6px; font-size: 12.5px; font-weight: 500;">
+                                                        @foreach(DB::table('dts_action_options')->orderBy('option_name', 'asc')->pluck('option_name') as $opt)
+                                                            <option value="{{ $opt }}">{{ $opt }}</option>
+                                                        @endforeach
+                                                    </select>
+                                                @else
+                                                    {{ ($selectedTransaction->status === 'completed' || !is_null($step->date_out)) ? ($step->action_needed ?: 'Finished') : ($step->action_needed ?: ($step->date_in ? 'Ongoing' : 'Pending')) }}
+                                                @endif
+                                            </td>
+                                            <td>
+                                                @if ($step->is_active_step && is_null($step->date_out) && $selectedTransaction->status !== 'completed')
+                                                    <input type="text" wire:model="activeNotes" class="active-notes-input" placeholder="Type notes here...">
+                                                @else
+                                                    {{ $step->note ?: '-' }}
+                                                @endif
+                                            </td>
+                                            @if ($editingAll)
+                                                <td style="text-align: center; white-space: nowrap;">
+                                                    @if (!$step->is_locked)
+                                                        <div style="display: inline-flex; gap: 4px;">
+                                                            <button type="button" wire:click="moveFlowOfficeUp({{ $index }})" {{ $index === 0 || $flowOffices[$index - 1]['is_locked'] ? 'disabled' : '' }} style="border: none; background: #f1f5f9; color: {{ $index === 0 || $flowOffices[$index - 1]['is_locked'] ? '#cbd5e1' : '#475569' }}; padding: 6px 10px; border-radius: 4px; font-size: 11px; cursor: {{ $index === 0 || $flowOffices[$index - 1]['is_locked'] ? 'not-allowed' : 'pointer' }}; font-weight: bold;">
+                                                                <i class="fa-solid fa-arrow-up"></i>
+                                                            </button>
+                                                            <button type="button" wire:click="moveFlowOfficeDown({{ $index }})" {{ $index === count($flowOffices) - 1 ? 'disabled' : '' }} style="border: none; background: #f1f5f9; color: {{ $index === count($flowOffices) - 1 ? '#cbd5e1' : '#475569' }}; padding: 6px 10px; border-radius: 4px; font-size: 11px; cursor: {{ $index === count($flowOffices) - 1 ? 'not-allowed' : 'pointer' }}; font-weight: bold;">
+                                                                <i class="fa-solid fa-arrow-down"></i>
+                                                            </button>
+                                                            <button type="button" wire:click="removeFlowOffice({{ $index }})" style="border: none; background: #fee2e2; color: #dc2626; padding: 6px 10px; border-radius: 4px; font-size: 11px; cursor: pointer; font-weight: bold;">
+                                                                <i class="fa-solid fa-trash-can"></i>
+                                                            </button>
+                                                        </div>
+                                                    @else
+                                                        <span style="font-size: 11px; color: #94a3b8; font-style: italic;"><i class="fa-solid fa-lock" style="margin-right: 4px;"></i> Locked</span>
+                                                    @endif
+                                                </td>
+                                            @endif
+                                        </tr>
+                                    @empty
+                                        <tr>
+                                            <td colspan="7" style="padding: 24px; color: #888; font-style: italic;">No transaction paths listed.</td>
+                                        </tr>
+                                    @endforelse
+                                </tbody>
+                            </table>
+                        </div>
+                    @endif
 
                     <!-- Popup Action Buttons -->
                     <div class="receive-actions">
-                        <!-- VIEW LISTED PATH / VIEW LOGS Toggle -->
-                        <button type="button" class="receive-action-btn" wire:click="toggleFullConfiguredPath">
-                            <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-                                <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
-                                <circle cx="12" cy="12" r="3"/>
-                            </svg>
-                            {{ $showFullConfiguredPath ? 'VIEW LOGS' : 'VIEW LISTED PATH' }}
-                        </button>
+                        <!-- VIEW LISTED PATH / VIEW COPY FURNISHED Toggle Button -->
+                        @if (!$showCopyFurnished)
+                            <button type="button" class="receive-action-btn" wire:click="$set('showCopyFurnished', true)">
+                                <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                                    <rect x="3" y="3" width="18" height="18" rx="2" ry="2"/>
+                                    <line x1="9" y1="9" x2="15" y2="9"/>
+                                    <line x1="9" y1="13" x2="15" y2="13"/>
+                                    <line x1="9" y1="17" x2="15" y2="17"/>
+                                </svg>
+                                VIEW COPY FURNISHED
+                            </button>
+                        @else
+                            <button type="button" class="receive-action-btn" wire:click="$set('showCopyFurnished', false)">
+                                <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                                    <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
+                                    <circle cx="12" cy="12" r="3"/>
+                                </svg>
+                                VIEW LISTED PATH
+                            </button>
+                        @endif
 
                         <!-- COMPLETED / REAFFIRM / UPLOAD -->
                         @php
                             $allowManualComplete = \DB::table('system_settings')->where('key', 'dts_allow_manual_completion_button')->value('value') === 'true';
+                            $effectiveCurrentOffice = ($selectedTransaction->current_office === 'ORIGIN') ? $selectedTransaction->originated_from : $selectedTransaction->current_office;
+                            $isUserOffice = ($effectiveCurrentOffice === auth()->user()?->details?->office?->office_code);
                         @endphp
-                        @if ($selectedTransaction->current_office === auth()->user()?->details?->office?->office_code)
+                        @if ($isUserOffice && $selectedTransaction->status !== 'completed')
                             @if ($this->isLastStep())
                                 @if ($allowManualComplete)
                                     <button type="button" class="receive-action-btn" wire:click="triggerCompletionConfirm" style="background-color: #16a34a;">
@@ -1018,35 +1675,73 @@ new #[Layout('layouts.dts')] #[Title('DTS - Application Letters')] class extends
                                         Complete Transaction
                                     </button>
                                 @endif
+                            @else
+                                @if ($allowManualComplete)
+                                    <button type="button" class="receive-action-btn" wire:click="completeTransaction" style="background-color: #2563eb;">
+                                        <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                                            <line x1="5" y1="12" x2="19" y2="12"/>
+                                            <polyline points="12 5 19 12 12 19"/>
+                                        </svg>
+                                        FORWARD TRANSACTION
+                                    </button>
+                                @endif
+                            @endif
+                        @endif
+
+                        @if ($selectedTransaction->status === 'completed' || $this->isLastStep() || $showUploadModal)
+                            @if (!empty($selectedTransaction->doc_dir))
+                                <button type="button" class="receive-action-btn" wire:click="openPdfPreviewModal" style="background-color: #0891b2;" title="Directly preview attached document">
+                                    <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                                        <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
+                                        <circle cx="12" cy="12" r="3"/>
+                                    </svg>
+                                    VIEW FILE
+                                </button>
+                            @else
                                 <button type="button" class="receive-action-btn" wire:click="triggerUploadFileModal" style="background-color: #0284c7;">
                                     <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
                                         <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
                                         <polyline points="17 8 12 3 7 8"/>
                                         <line x1="12" y1="3" x2="12" y2="15"/>
                                     </svg>
-                                    Upload File
+                                    UPLOAD FILE
                                 </button>
-                            @else
-                                @if ($allowManualComplete)
-                                    <button type="button" class="receive-action-btn" wire:click="completeTransaction">
-                                        <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-                                            <polyline points="20 6 9 17 4 12"/>
-                                        </svg>
-                                        COMPLETED
-                                    </button>
-                                @endif
                             @endif
                         @endif
 
-                        <!-- EDIT (Save Metadata changes manually without completing) -->
-                        @if (auth()->user()?->permissions?->is_sadm && $selectedTransaction->current_office === auth()->user()?->details?->office?->office_code)
-                            <button type="button" class="receive-action-btn" wire:click="completeTransaction">
+                        @if ($selectedTransaction->status === 'completed' || $selectedTransaction->current_office === 'ORIGIN')
+                            <button type="button" class="receive-action-btn" wire:click="reopenTransaction" style="background-color: #ea580c;" title="Restore this transaction back to Current Transactions">
                                 <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-                                    <path d="M17 3l4 4-7 7H10v-4l7-7z"/>
-                                    <path d="M4 20h16"/>
+                                    <polyline points="1 4 1 10 7 10"/>
+                                    <path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"/>
                                 </svg>
-                                EDIT
+                                RESTORE TO ACTIVE
                             </button>
+                        @endif
+
+                        <!-- EDIT / SAVE toggle -->
+                        @php
+                            $perms = auth()->user()?->permissions;
+                            $canListModify = $perms && ($perms->is_sadm || ($perms->can_dts_list_modify_transaction ?? false) || ($perms->can_dts_modify_transaction ?? false));
+                            $canEditMetadata = ($selectedTransaction->status !== 'completed') || $canListModify;
+                        @endphp
+                        @if ($canEditMetadata)
+                            @if ($editingAll)
+                                <button type="button" class="receive-action-btn" wire:click="saveMetadataOnly" style="background-color: #16a34a;">
+                                    <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                                        <polyline points="20 6 9 17 4 12"/>
+                                    </svg>
+                                    SAVE
+                                </button>
+                            @else
+                                <button type="button" class="receive-action-btn" wire:click="toggleEditAll">
+                                    <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                                        <path d="M17 3l4 4-7 7H10v-4l7-7z"/>
+                                        <path d="M4 20h16"/>
+                                    </svg>
+                                    EDIT
+                                </button>
+                            @endif
                         @endif
 
                         <!-- DELETE (Creator and non-active/revised/amended/draft states only) -->
@@ -1066,22 +1761,16 @@ new #[Layout('layouts.dts')] #[Title('DTS - Application Letters')] class extends
                             </button>
                         @endif
 
-                        <!-- + ADD CF (Dummy link to edit File Code) -->
-                        @if (auth()->user()?->permissions?->is_sadm && $selectedTransaction->current_office === auth()->user()?->details?->office?->office_code)
-                            <button type="button" class="receive-action-btn" wire:click="startEdit('file_code')">
-                                <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-                                    <path d="M12 5v14M5 12h14"/>
-                                </svg>
-                                + ADD CF
-                            </button>
-                        @endif
 
-                        <!-- BARCODE (Alert control number info) -->
-                        <button type="button" class="receive-action-btn" onclick="alert('Barcode scan ID: ' + '{{ $selectedTransaction->qr_code ?? '' }}')">
+                        <!-- VIEW QRCODE (Modal control number info) -->
+                        <button type="button" class="receive-action-btn" onclick="openQrViewModal('{{ $selectedTransaction->qr_code ?? '' }}')">
                             <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-                                <path d="M3 5h2v14H3zM7 5h2v14H7zM11 5h2v14h-2zM15 5h2v14h-2zM19 5h2v14h-2z"/>
+                                <rect x="3" y="3" width="7" height="7"></rect>
+                                <rect x="14" y="3" width="7" height="7"></rect>
+                                <rect x="14" y="14" width="7" height="7"></rect>
+                                <rect x="3" y="14" width="7" height="7"></rect>
                             </svg>
-                            BARCODE
+                            VIEW QRCODE
                         </button>
                     </div>
                 </form>
@@ -1137,4 +1826,242 @@ new #[Layout('layouts.dts')] #[Title('DTS - Application Letters')] class extends
             </div>
         </div>
     @endif
+
+    <!-- Upload File Modal -->
+    @if ($showUploadModal)
+        <div style="position: fixed; inset: 0; z-index: 99999; background: rgba(15, 23, 42, 0.6); backdrop-filter: blur(4px); display: flex; align-items: center; justify-content: center; padding: 16px;">
+            <div style="background: #ffffff; width: 100%; max-width: 500px; border-radius: 16px; box-shadow: 0 20px 25px -5px rgba(0,0,0,0.1), 0 8px 10px -6px rgba(0,0,0,0.1); overflow: hidden; font-family: 'Inter', sans-serif;">
+                
+                <!-- Header -->
+                <div style="padding: 20px 24px; background: #f8fafc; border-bottom: 1px solid #e2e8f0; display: flex; align-items: center; justify-content: space-between;">
+                    <div style="display: flex; align-items: center; gap: 12px;">
+                        <div style="width: 40px; height: 40px; border-radius: 10px; background: #e0f2fe; color: #0284c7; display: flex; align-items: center; justify-content: center; font-size: 18px;">
+                            <i class="fa-solid fa-file-arrow-up"></i>
+                        </div>
+                        <div>
+                            <h3 style="margin: 0; font-size: 16px; font-weight: 700; color: #0f172a;">Upload Circulated Document</h3>
+                            <span style="font-size: 12px; color: #64748b;">Attach PDF file for this transaction</span>
+                        </div>
+                    </div>
+                    <button type="button" wire:click="cancelUploadModal" style="background: none; border: none; font-size: 20px; color: #94a3b8; cursor: pointer; border-radius: 50%; width: 32px; height: 32px; display: flex; align-items: center; justify-content: center;" onmouseover="this.style.background='#e2e8f0'" onmouseout="this.style.background='transparent'">&times;</button>
+                </div>
+
+                <!-- Body -->
+                <form wire:submit.prevent="handleUploadFile">
+                    <div style="padding: 24px;">
+                        @if (!empty($uploadErrorMessage))
+                            <div style="background: #fef2f2; border: 1.5px solid #ef4444; border-radius: 8px; padding: 10px 14px; color: #dc2626; font-size: 13px; margin-bottom: 16px;">
+                                {{ $uploadErrorMessage }}
+                            </div>
+                        @endif
+
+                        <div style="margin-bottom: 16px;">
+                            <label style="display: block; font-size: 13px; font-weight: 600; color: #334155; margin-bottom: 6px;">File Name (Optional):</label>
+                            <input type="text" wire:model="uploadFileName" placeholder="Auto-detected from file if left blank" style="width: 100%; padding: 9px 12px; border: 1.5px solid #cbd5e1; border-radius: 8px; font-size: 13px; box-sizing: border-box;">
+                        </div>
+
+                        <div x-data="{ uploading: false, progress: 0 }"
+                             x-on:livewire-upload-start="uploading = true; progress = 0"
+                             x-on:livewire-upload-finish="uploading = false; progress = 100"
+                             x-on:livewire-upload-cancel="uploading = false; progress = 0"
+                             x-on:livewire-upload-error="uploading = false; progress = 0"
+                             x-on:livewire-upload-progress="progress = $event.detail.progress">
+                            <label style="display: block; font-size: 13px; font-weight: 600; color: #334155; margin-bottom: 6px;">Select Document PDF (*.pdf):</label>
+                            <input type="file" wire:model="uploadedFile" accept=".pdf" style="width: 100%; padding: 8px 12px; border: 1.5px dashed #0284c7; border-radius: 8px; font-size: 13px; background: #f0f9ff; cursor: pointer; box-sizing: border-box;">
+                            
+                            <!-- Upload Progress Bar -->
+                            <div x-show="uploading" x-cloak style="margin-top: 10px;">
+                                <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 4px;">
+                                    <span style="font-size: 12px; font-weight: 600; color: #0284c7;">Uploading...</span>
+                                    <span style="font-size: 12px; font-weight: 700; color: #0284c7;" x-text="progress + '%'"></span>
+                                </div>
+                                <div style="width: 100%; height: 8px; background: #e0f2fe; border-radius: 99px; overflow: hidden;">
+                                    <div style="height: 100%; background: linear-gradient(90deg, #0284c7, #06b6d4); border-radius: 99px; transition: width 0.3s ease;" x-bind:style="'width: ' + progress + '%'"></div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Footer -->
+                    <div style="padding: 16px 24px; background: #f8fafc; border-top: 1px solid #e2e8f0; display: flex; align-items: center; justify-content: flex-end; gap: 12px;">
+                        <button type="button" wire:click="cancelUploadModal" style="padding: 9px 18px; border-radius: 8px; border: 1.5px solid #cbd5e1; background: #ffffff; color: #475569; font-size: 13px; font-weight: 600; cursor: pointer;">
+                            Cancel
+                        </button>
+                        <button type="submit" style="padding: 9px 20px; border-radius: 8px; border: none; background: #0284c7; color: #ffffff; font-size: 13px; font-weight: 700; cursor: pointer; display: flex; align-items: center; gap: 6px; box-shadow: 0 4px 10px rgba(2, 132, 199, 0.25);">
+                            <i class="fa-solid fa-cloud-arrow-up"></i> Upload Document
+                        </button>
+                    </div>
+                </form>
+
+            </div>
+        </div>
+    @endif
+
+    <!-- View File Modal -->
+    @if ($showViewFileModal && $selectedTransaction && !empty($selectedTransaction->doc_dir))
+        <div style="position: fixed; inset: 0; z-index: 99999; background: rgba(15, 23, 42, 0.6); backdrop-filter: blur(4px); display: flex; align-items: center; justify-content: center; padding: 16px;">
+            <div style="background: #ffffff; width: 100%; max-width: 460px; border-radius: 16px; box-shadow: 0 20px 25px -5px rgba(0,0,0,0.1), 0 8px 10px -6px rgba(0,0,0,0.1); overflow: hidden; font-family: 'Inter', sans-serif;">
+                
+                <!-- Header -->
+                <div style="padding: 20px 24px; background: #f8fafc; border-bottom: 1px solid #e2e8f0; display: flex; align-items: center; justify-content: space-between;">
+                    <div style="display: flex; align-items: center; gap: 12px;">
+                        <div style="width: 40px; height: 40px; border-radius: 10px; background: #f0fdf4; color: #16a34a; display: flex; align-items: center; justify-content: center; font-size: 18px;">
+                            <i class="fa-solid fa-file-pdf"></i>
+                        </div>
+                        <div>
+                            <h3 style="margin: 0; font-size: 16px; font-weight: 700; color: #0f172a;">Attached Document</h3>
+                            <span style="font-size: 12px; color: #64748b;">Manage the uploaded circulated document</span>
+                        </div>
+                    </div>
+                    <button type="button" wire:click="closeViewFileModal" style="background: none; border: none; font-size: 20px; color: #94a3b8; cursor: pointer; border-radius: 50%; width: 32px; height: 32px; display: flex; align-items: center; justify-content: center;" onmouseover="this.style.background='#e2e8f0'" onmouseout="this.style.background='transparent'">&times;</button>
+                </div>
+
+                <!-- Body -->
+                <div style="padding: 24px;">
+                    <!-- File Info Card -->
+                    <div style="background: #f8fafc; border: 1.5px solid #e2e8f0; border-radius: 12px; padding: 16px; margin-bottom: 20px; display: flex; align-items: center; gap: 14px;">
+                        <div style="width: 44px; height: 44px; border-radius: 10px; background: #fef2f2; color: #dc2626; display: flex; align-items: center; justify-content: center; font-size: 20px; flex-shrink: 0;">
+                            <i class="fa-solid fa-file-pdf"></i>
+                        </div>
+                        <div style="min-width: 0; flex: 1;">
+                            <div style="font-size: 14px; font-weight: 700; color: #0f172a; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">{{ $attachedDocName ?: 'Document' }}</div>
+                            <div style="font-size: 12px; color: #64748b; margin-top: 2px;">PDF Document</div>
+                        </div>
+                    </div>
+
+                    <!-- Action Buttons -->
+                    <div style="display: flex; flex-direction: column; gap: 10px;">
+                        <!-- View Document -->
+                        <button type="button" wire:click="openPdfPreviewModal" style="display: flex; align-items: center; gap: 12px; padding: 14px 16px; border-radius: 10px; border: 1.5px solid #e2e8f0; background: #ffffff; color: #334155; font-size: 13px; font-weight: 600; cursor: pointer; transition: all 0.15s; width: 100%; text-align: left;" onmouseover="this.style.background='#f0f9ff'; this.style.borderColor='#0284c7'" onmouseout="this.style.background='#ffffff'; this.style.borderColor='#e2e8f0'">
+                            <div style="width: 36px; height: 36px; border-radius: 8px; background: #e0f2fe; color: #0284c7; display: flex; align-items: center; justify-content: center; font-size: 15px; flex-shrink: 0;">
+                                <i class="fa-solid fa-eye"></i>
+                            </div>
+                            <div>
+                                <div style="font-weight: 700; color: #0f172a;">View Document</div>
+                                <div style="font-size: 11px; color: #64748b; margin-top: 1px;">Open PDF popout previewer directly in browser</div>
+                            </div>
+                        </button>
+
+                        @php
+                            $perms = auth()->user()?->permissions;
+                            $canListModify = $perms && ($perms->is_sadm || ($perms->can_dts_list_modify_transaction ?? false) || ($perms->can_dts_modify_transaction ?? false));
+                            $canModifyFile = ($selectedTransaction->status !== 'completed') || $canListModify;
+                        @endphp
+
+                        @if ($canModifyFile)
+                            <!-- Change File -->
+                            <button type="button" wire:click="changeUploadedFile" style="display: flex; align-items: center; gap: 12px; padding: 14px 16px; border-radius: 10px; border: 1.5px solid #e2e8f0; background: #ffffff; color: #334155; font-size: 13px; font-weight: 600; cursor: pointer; transition: all 0.15s; width: 100%; text-align: left;" onmouseover="this.style.background='#fffbeb'; this.style.borderColor='#f59e0b'" onmouseout="this.style.background='#ffffff'; this.style.borderColor='#e2e8f0'">
+                                <div style="width: 36px; height: 36px; border-radius: 8px; background: #fef3c7; color: #d97706; display: flex; align-items: center; justify-content: center; font-size: 15px; flex-shrink: 0;">
+                                    <i class="fa-solid fa-file-pen"></i>
+                                </div>
+                                <div>
+                                    <div style="font-weight: 700; color: #0f172a;">Change File</div>
+                                    <div style="font-size: 11px; color: #64748b; margin-top: 1px;">Replace with a different PDF document</div>
+                                </div>
+                            </button>
+
+                            <!-- Remove File -->
+                            <button type="button" wire:click="removeUploadedFile" onclick="return confirm('Are you sure you want to remove this uploaded document?')" style="display: flex; align-items: center; gap: 12px; padding: 14px 16px; border-radius: 10px; border: 1.5px solid #e2e8f0; background: #ffffff; color: #334155; font-size: 13px; font-weight: 600; cursor: pointer; transition: all 0.15s; width: 100%; text-align: left;" onmouseover="this.style.background='#fef2f2'; this.style.borderColor='#ef4444'" onmouseout="this.style.background='#ffffff'; this.style.borderColor='#e2e8f0'">
+                                <div style="width: 36px; height: 36px; border-radius: 8px; background: #fef2f2; color: #dc2626; display: flex; align-items: center; justify-content: center; font-size: 15px; flex-shrink: 0;">
+                                    <i class="fa-solid fa-trash-can"></i>
+                                </div>
+                                <div>
+                                    <div style="font-weight: 700; color: #0f172a;">Remove File</div>
+                                    <div style="font-size: 11px; color: #64748b; margin-top: 1px;">Detach and delete the uploaded document</div>
+                                </div>
+                            </button>
+                        @endif
+                    </div>
+                </div>
+
+                <!-- Footer -->
+                <div style="padding: 14px 24px; background: #f8fafc; border-top: 1px solid #e2e8f0; display: flex; justify-content: flex-end;">
+                    <button type="button" wire:click="closeViewFileModal" style="padding: 9px 18px; border-radius: 8px; border: 1.5px solid #cbd5e1; background: #ffffff; color: #475569; font-size: 13px; font-weight: 600; cursor: pointer;">
+                        Close
+                    </button>
+                </div>
+            </div>
+        </div>
+    @endif
+
+    <!-- PDF Preview Popout Modal -->
+    @if ($showPdfPreviewModal && $selectedTransaction && !empty($selectedTransaction->doc_dir))
+        <div style="position: fixed; inset: 0; z-index: 999999; background: rgba(15, 23, 42, 0.75); backdrop-filter: blur(6px); display: flex; align-items: center; justify-content: center; padding: 16px;">
+            <div style="background: #ffffff; width: 95%; max-width: 1000px; height: 90vh; border-radius: 16px; box-shadow: 0 25px 50px -12px rgba(0,0,0,0.25); overflow: hidden; display: flex; flex-direction: column; font-family: 'Inter', sans-serif;">
+                
+                <!-- Header -->
+                <div style="padding: 16px 24px; background: #f8fafc; border-bottom: 1px solid #e2e8f0; display: flex; align-items: center; justify-content: space-between;">
+                    <div style="display: flex; align-items: center; gap: 12px; min-width: 0;">
+                        <div style="width: 38px; height: 38px; border-radius: 10px; background: #e0f2fe; color: #0284c7; display: flex; align-items: center; justify-content: center; font-size: 18px; flex-shrink: 0;">
+                            <i class="fa-solid fa-file-pdf"></i>
+                        </div>
+                        <div style="min-width: 0;">
+                            <h3 style="margin: 0; font-size: 15px; font-weight: 700; color: #0f172a; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">{{ $attachedDocName ?: 'Document Preview' }}</h3>
+                            <span style="font-size: 11px; color: #64748b;">PDF Document Popout Viewer</span>
+                        </div>
+                    </div>
+                    
+                    <div style="display: flex; align-items: center; gap: 10px;">
+                        <a href="{{ route('dts.view-document', ['path' => $selectedTransaction->doc_dir]) }}" target="_blank" style="padding: 7px 14px; border-radius: 8px; border: 1.5px solid #cbd5e1; background: #ffffff; color: #0284c7; font-size: 12px; font-weight: 600; text-decoration: none; display: flex; align-items: center; gap: 6px; transition: all 0.15s;" onmouseover="this.style.background='#f0f9ff'" onmouseout="this.style.background='#ffffff'">
+                            <i class="fa-solid fa-arrow-up-right-from-square"></i> Open in New Tab
+                        </a>
+                        <button type="button" wire:click="closePdfPreviewModal" style="background: none; border: none; font-size: 22px; color: #94a3b8; cursor: pointer; border-radius: 50%; width: 32px; height: 32px; display: flex; align-items: center; justify-content: center;" onmouseover="this.style.background='#e2e8f0'" onmouseout="this.style.background='transparent'">&times;</button>
+                    </div>
+                </div>
+
+                <!-- Body (PDF Viewer IFrame) -->
+                <div style="flex: 1; background: #525659; width: 100%; height: 100%; position: relative;">
+                    <iframe src="{{ route('dts.view-document', ['path' => $selectedTransaction->doc_dir]) }}" style="width: 100%; height: 100%; border: none;"></iframe>
+                </div>
+
+            </div>
+        </div>
+    @endif
+
+    <!-- View QR Code Modal -->
+    <div id="dts-qr-view-modal" class="modal-backdrop" style="display: none; z-index: 1000000; align-items: center; justify-content: center;" onclick="closeQrViewModal()">
+        <div class="modal-content" style="max-width: 320px; padding: 24px; text-align: center; position: relative; border-radius: 12px; display: flex; flex-direction: column; align-items: center; gap: 16px;" onclick="event.stopPropagation()">
+            <button type="button" class="modal-close-btn" style="position: absolute; top: 12px; right: 16px; font-size: 20px; border: none; background: transparent; cursor: pointer; color: #94a3b8;" onclick="closeQrViewModal()">&times;</button>
+            <h3 style="margin: 0; font-family: Roboto, sans-serif; font-size: 16px; font-weight: 700; color: #043899; text-transform: uppercase;">QR Code Scan</h3>
+            
+            <div style="background: #f8fafc; padding: 16px; border-radius: 8px; border: 1.5px solid #cbd5e1; display: flex; align-items: center; justify-content: center; width: 182px; height: 182px; box-sizing: border-box; margin: 0 auto;">
+                <img id="dts-qr-image" src="" alt="QR Code" style="width: 150px; height: 150px; display: none;">
+                <div id="dts-qr-loading" style="font-family: Roboto, sans-serif; font-size: 13px; color: #64748b;">Generating...</div>
+            </div>
+
+            <div style="font-family: monospace; font-weight: 700; font-size: 14px; color: #1e293b; word-break: break-all; background: #f1f5f9; padding: 6px 12px; border-radius: 6px; border: 1px solid #e2e8f0; width: 100%; box-sizing: border-box;" id="dts-qr-code-text"></div>
+        </div>
+    </div>
+
+    <script>
+        function openQrViewModal(qrCode) {
+            const modal = document.getElementById('dts-qr-view-modal');
+            const img = document.getElementById('dts-qr-image');
+            const loading = document.getElementById('dts-qr-loading');
+            const text = document.getElementById('dts-qr-code-text');
+
+            if (!modal || !img || !loading || !text) return;
+
+            text.innerText = qrCode;
+            img.style.display = 'none';
+            loading.style.display = 'block';
+            modal.style.display = 'flex';
+
+            const qrData = btoa(qrCode);
+            const qrUrl = 'https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=' + encodeURIComponent(qrData);
+
+            img.src = qrUrl;
+            img.onload = function() {
+                loading.style.display = 'none';
+                img.style.display = 'block';
+            };
+        }
+
+        function closeQrViewModal() {
+            const modal = document.getElementById('dts-qr-view-modal');
+            if (modal) {
+                modal.style.display = 'none';
+            }
+        }
+    </script>
 </div>

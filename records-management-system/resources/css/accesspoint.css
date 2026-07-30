@@ -81,8 +81,31 @@ section{
             }
     .systems-container {
         display: flex;
-        flex-direction: column;
-        gap: 10px;            
+        flex-wrap: wrap;
+        justify-content: center;
+        align-items: center;
+        gap: 15px;
+        margin: 0 auto;
+        width: 100%;
+        transition: max-width 0.3s ease;
+    }
+    @media (min-width: 769px) {
+        .systems-container.cols-1 {
+            max-width: 310px;
+        }
+        .systems-container.cols-2 {
+            max-width: 635px;
+        }
+        .systems-container.cols-3 {
+            max-width: 960px;
+        }
+    }
+    @media (max-width: 768px) {
+        .systems-container {
+            flex-direction: column !important;
+            max-width: 320px !important;
+            gap: 10px;
+        }
     }
         .system-con {
             cursor: pointer;
@@ -96,6 +119,10 @@ section{
                 justify-content: center;    
             background-color: transparent;
             border: none;
+            transition: transform 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+        }
+        .system-con:hover {
+            transform: translateY(-3px);
         }
         .system-con .display-box {
             position: relative;

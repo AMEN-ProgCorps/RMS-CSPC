@@ -70,6 +70,7 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create Applicat
         $this->flows = DB::table('dts_transaction_flow')
             ->where('is_active', true)
             ->whereIn('flow_use', ['application', 'none'])
+            ->where('flow_name', 'not like', 'Flow for %')
             ->where(function($query) use ($userOfficeId) {
                 $query->where('flow_for', 'system')
                       ->orWhere(function($q) {
@@ -720,6 +721,8 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create Applicat
                      'added_by' => auth()->id() ?? 1,
                      'date_added' => now(),
                      'flow_use' => 'application',
+                     'flow_for' => 'system',
+                     'referenced_flow' => $flow ? ($flow->referenced_flow ?? $flow->flow_name) : ($this->type_of_document ?: null),
                  ]);
  
                  foreach ($this->flow_offices as $rank => $officeCode) {
@@ -747,27 +750,8 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create Applicat
 
             $qrCodeId = $this->generatedQrCode;
 
-            // Create document data record for type of document
+            // Initial document path is null until transaction is completed/uploaded
             $docDir = null;
-            if (!empty($this->type_of_document)) {
-                $existingDoc = DB::table('document_data')
-                    ->where('document_name', $this->type_of_document)
-                    ->first();
-                if ($existingDoc) {
-                    $docDir = $existingDoc->document_path;
-                } else {
-                    $docId = 'DOC-' . strtoupper(Str::random(8));
-                    $docDir = 'docs/' . Str::slug($this->type_of_document) . '-' . time() . '.pdf';
-                    DB::table('document_data')->insert([
-                        'document_id' => $docId,
-                        'document_name' => $this->type_of_document,
-                        'document_path' => $docDir,
-                        'date_added' => now(),
-                        'date_modified' => now(),
-                        'date_deleted' => now(),
-                    ]);
-                }
-            }
 
             $transactionId = 'TRANS-' . strtoupper(Str::random(10));
 

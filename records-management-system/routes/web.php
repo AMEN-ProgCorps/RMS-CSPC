@@ -10,6 +10,79 @@ Volt::route('/', 'pages.portal.login')
     ->name('login');
 Route::post('/', fn () => redirect()->route('login'));
 
+// Google OAuth SSO
+Route::get('/auth/google', function () {
+    $allowGoogleLogin = \Illuminate\Support\Facades\DB::table('system_settings')->where('key', 'allow_google_login')->value('value') !== 'false';
+    if (!$allowGoogleLogin) {
+        return redirect()->route('login')->with('error', 'Google Sign-In is currently disabled by administrator.');
+    }
+    $redirectUrl = config('services.google.redirect') ?: url('/auth/google/callback');
+    return \Laravel\Socialite\Facades\Socialite::driver('google')
+        ->redirectUrl($redirectUrl)
+        ->redirect();
+})->name('auth.google');
+
+Route::get('/auth/google/callback', function () {
+    try {
+        $redirectUrl = config('services.google.redirect') ?: url('/auth/google/callback');
+        $googleUser = \Laravel\Socialite\Facades\Socialite::driver('google')
+            ->redirectUrl($redirectUrl)
+            ->user();
+        $email = strtolower(trim($googleUser->getEmail()));
+
+        // Lookup account in account_details by email
+        $accountDetail = \Illuminate\Support\Facades\DB::table('account_details')->whereRaw('LOWER(email) = ?', [$email])->first();
+
+        if (!$accountDetail) {
+            \Illuminate\Support\Facades\DB::table('security_logs')->insert([
+                'status'      => 2, // Failed Login
+                'account'     => null,
+                'user_ipaddr' => \App\Helpers\NetworkHelper::getClientIp(),
+                'time'        => now(),
+            ]);
+
+            return redirect()->route('login')->with('error', "No registered RMS account found for '{$email}'. Please contact your administrator.");
+        }
+
+        // Verify account is active
+        $account = \Illuminate\Support\Facades\DB::table('account')->where('id', $accountDetail->account_id)->first();
+        if (!$account || !$account->account_active) {
+            \Illuminate\Support\Facades\DB::table('security_logs')->insert([
+                'status'      => 2, // Failed Login
+                'account'     => $accountDetail->account_id,
+                'user_ipaddr' => \App\Helpers\NetworkHelper::getClientIp(),
+                'time'        => now(),
+            ]);
+
+            return redirect()->route('login')->with('error', 'Your account is deactivated. Please contact your administrator.');
+        }
+
+        // Authenticate user
+        Auth::loginUsingId($accountDetail->account_id);
+        session()->regenerate();
+
+        // Log successful login
+        \Illuminate\Support\Facades\DB::table('security_logs')->insert([
+            'status'      => 1, // Login Successful
+            'account'     => $accountDetail->account_id,
+            'user_ipaddr' => \App\Helpers\NetworkHelper::getClientIp(),
+            'time'        => now(),
+        ]);
+
+        \Illuminate\Support\Facades\DB::table('account_details')
+            ->where('account_id', $accountDetail->account_id)
+            ->update([
+                'is_currently_online' => true,
+                'last_online_time'    => now(),
+            ]);
+
+        return redirect()->route('portal');
+    } catch (\Throwable $e) {
+        \Illuminate\Support\Facades\Log::error('Google Auth Error: ' . $e->getMessage());
+        return redirect()->route('login')->with('error', 'Google authentication failed or was cancelled.');
+    }
+})->name('auth.google.callback');
+
 // Public document tracking
 Volt::route('/track-document', 'pages.portal.track-document')
     ->name('track-document');
@@ -96,7 +169,7 @@ Route::middleware(['auth'])
     Route::middleware(['can.access.dts'])->group(function () {
         Volt::route('/dts', 'pages.dts.index')->name('dts');
         Volt::route('/dts/receive', 'pages.dts.receive')->name('dts.receive');
-        Volt::route('/dts/scanner', 'pages.dts.scanner')->name('dts.scanner');
+        Route::get('/dts/scanner', fn () => redirect()->route('dts.receive'))->name('dts.scanner');
         // Sub-filter pages merged into index; these redirect to keep old links working
         Route::get('/dts/internal', fn () => redirect()->route('dts'))->name('dts.internal');
         Route::get('/dts/external', fn () => redirect()->route('dts'))->name('dts.external');
@@ -112,6 +185,23 @@ Route::middleware(['auth'])
         Volt::route('/dts/list/external', 'pages.dts.list.external')->name('dts.list.external');
         Volt::route('/dts/list/application-letters', 'pages.dts.list.application-letters')->name('dts.list.application-letters');
         Volt::route('/dts/list/issuances', 'pages.dts.list.issuances')->name('dts.list.issuances');
+
+        Route::get('/dts/view-document', function (\Illuminate\Http\Request $request) {
+            $path = $request->query('path');
+            if (!$path) {
+                abort(404);
+            }
+
+            $content = \App\Services\DocumentStorageService::getFileContent($path);
+            if (!$content) {
+                abort(404, 'Document file not found.');
+            }
+
+            $filename = basename($path);
+            return response($content, 200)
+                ->header('Content-Type', 'application/pdf')
+                ->header('Content-Disposition', 'inline; filename="' . $filename . '"');
+        })->name('dts.view-document');
     });
 
 });

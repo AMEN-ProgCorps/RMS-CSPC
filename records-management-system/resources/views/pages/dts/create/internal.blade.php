@@ -73,6 +73,7 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create Internal
         $this->flows = DB::table('dts_transaction_flow')
             ->where('is_active', true)
             ->whereIn('flow_use', ['internal', 'none'])
+            ->where('flow_name', 'not like', 'Flow for %')
             ->where(function($query) use ($userOfficeId) {
                 $query->where('flow_for', 'system')
                       ->orWhere(function($q) {
@@ -725,6 +726,8 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create Internal
                     'added_by' => auth()->id() ?? 1,
                     'date_added' => now(),
                     'flow_use' => 'internal',
+                    'flow_for' => 'system',
+                    'referenced_flow' => $flow ? ($flow->referenced_flow ?? $flow->flow_name) : ($this->type_of_document ?: null),
                 ]);
 
                 foreach ($this->flow_offices as $rank => $officeCode) {
@@ -752,25 +755,8 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create Internal
 
             $qrCodeId = $this->generatedQrCode;
 
-            // Create document data record if type of document is provided
+            // Initial document path is null until transaction is completed/uploaded
             $docDir = null;
-            if (!empty($this->type_of_document)) {
-                $existingDoc = DB::table('document_data')
-                    ->where('document_name', $this->type_of_document)
-                    ->first();
-                if ($existingDoc) {
-                    $docDir = $existingDoc->document_path;
-                } else {
-                    $uploadResult = \App\Services\DocumentStorageService::storeUpload(
-                        'Document placeholder content for ' . $this->type_of_document,
-                        'DTS',
-                        auth()->user(),
-                        null,
-                        Str::slug($this->type_of_document) . '.pdf'
-                    );
-                    $docDir = $uploadResult['document_path'];
-                }
-            }
 
             $transactionId = 'TRANS-' . strtoupper(Str::random(10));
 

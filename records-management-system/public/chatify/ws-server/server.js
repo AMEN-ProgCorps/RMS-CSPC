@@ -19,7 +19,7 @@ const CHAT_SHARED_SECRET = process.env.CHAT_SHARED_SECRET || '7f5b84c8a2bf6d91cd
 // set INTERNAL_PUSH_SECRET separately in production if you want to be able to
 // rotate them independently.
 const INTERNAL_PUSH_SECRET = process.env.INTERNAL_PUSH_SECRET || CHAT_SHARED_SECRET;
-const INTERNAL_PUSH_MAX_BODY_BYTES = 64 * 1024;
+const INTERNAL_PUSH_MAX_BODY_BYTES = 2 * 1024 * 1024;
 const PHP_APP_BASE_URL = process.env.PHP_APP_BASE_URL || 'http://127.0.0.1';
 
 function internalFetchPhp(endpointPath, queryParams, accountId, callback) {
@@ -113,7 +113,7 @@ const METRICS_INTERVAL_MS = 60000;
 // the CPU cost of compressing every frame is worse than the bytes saved,
 // and at a few thousand concurrent sockets that CPU cost is what actually
 // limits how many connections one process can serve.
-const MAX_PAYLOAD_BYTES = 32 * 1024; // 32KB ceiling — plenty for chat/typing/control JSON
+const MAX_PAYLOAD_BYTES = 2 * 1024 * 1024; // 2MB ceiling — handles long text/conversations and control JSON
 const MAX_CONNECTIONS = parseInt(process.env.MAX_CONNECTIONS || '10000', 10);
 
 // ── Logging ──────────────────────────────────────────────────────────────

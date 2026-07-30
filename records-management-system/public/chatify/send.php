@@ -94,6 +94,15 @@ if (empty($errors)) {
     if ($msgData) {
         $msgData['plaintext'] = $message;
     }
+    if ($msgData && !empty($msgData['id'])) {
+        WsPush::broadcast('message', [
+            'chat_type'  => 'global',
+            'sender_id'  => $senderId,
+            'msg_uuid'   => $msgData['id'],
+            'message'    => $message,
+            'created_at' => date('c'),
+        ]);
+    }
     echo json_encode(['success' => true, 'message' => $msgData]);
 } else {
     http_response_code(500);

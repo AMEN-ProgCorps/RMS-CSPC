@@ -680,6 +680,32 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
       overflow: hidden;
     }
 
+    /* Modal shown when tapping "Read more..." on a long chat message —
+       scrollable since full messages can run much longer than a notification. */
+    #readMoreModal .modal-body {
+      white-space: pre-wrap;
+      overflow-wrap: anywhere;
+      word-break: break-word;
+      max-height: 60vh;
+      overflow-y: auto;
+      text-align: left;
+    }
+
+    /* Inline "Read more..." affordance appended to a truncated long message.
+       Uses currentColor (underline + bold only) so it stays legible on both
+       sent (blue) and received (white) bubbles without extra color logic. */
+    .message-content .read-more-link {
+      cursor: pointer;
+      font-weight: 700;
+      text-decoration: underline;
+      white-space: nowrap;
+      opacity: 0.85;
+    }
+    .message-content .read-more-link:hover,
+    .message-content .read-more-link:focus-visible {
+      opacity: 1;
+    }
+
     #uploadErrorList {
       font-size: 14px;
       color: var(--text-secondary);
@@ -2748,6 +2774,22 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
     </div>
   </div>
 
+  <!-- Modal shown when tapping "Read more..." on a long chat message.
+       Same markup renders full messages from Global Chat and from Private
+       (DM) chat — both funnel through the same #chatBox message bubbles. -->
+  <div class="modal" id="readMoreModal" aria-hidden="true">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h3>Full Message</h3>
+      </div>
+      <div class="modal-body" id="readMoreModalBody"></div>
+      <div class="modal-footer">
+        <button class="modal-button confirm-button" id="readMoreModalClose" style="border-right:none;">Close</button>
+      </div>
+    </div>
+  </div>
+
+
   <?php if ($is_admin): ?>
   <!-- Delete All Messages Modal (Admin only) -->
   <div class="modal" id="deleteAllModal" aria-hidden="true">
@@ -2972,6 +3014,9 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
     const notifyContentTitle   = document.getElementById('notifyContentTitle');
     const notifyContentBody    = document.getElementById('notifyContentBody');
     const notifyContentClose   = document.getElementById('notifyContentClose');
+    const readMoreModal        = document.getElementById('readMoreModal');
+    const readMoreModalBody    = document.getElementById('readMoreModalBody');
+    const readMoreModalClose   = document.getElementById('readMoreModalClose');
 
     // Eye icon used to mark admin "spy" conversations (avoid emoji rendering
     // inconsistently across OS/browsers — use a proper inline SVG instead).
@@ -3083,7 +3128,9 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
 
       const msgText = msgData.message || msgData.plaintext || '';
       const emojiOnlyClass = isEmojiOnly(msgText) ? ' emoji-only' : '';
-      const initials = getInitials(msgData.sender_name || (isSentByMe ? name : 'User'));
+      const senderUser = allUsersData.find(u => Number(u.account_id) === Number(msgData.sender_id));
+      const displayName = msgData.sender_name || (senderUser ? (senderUser.full_name || senderUser.username) : (isSentByMe ? name : 'User'));
+      const initials = getInitials(displayName);
 
       let timeDisplay = '';
       if (msgData.created_at) {
@@ -3110,6 +3157,7 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
       const contentEl = container.querySelector('.message-content');
       if (contentEl) {
         linkifyContent(contentEl);
+        applyReadMoreToElement(contentEl);
       }
 
       applyAdminBadges();
@@ -3151,6 +3199,7 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
               contentEl.textContent = data.message;
               delete contentEl.dataset.linkified;
               linkifyContent(contentEl);
+              reapplyReadMore(contentEl);
             }
 
             const bubbleWrapper = targetContainer.querySelector('.bubble-wrapper');
@@ -3928,6 +3977,112 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
       notifyContentModal.addEventListener('click', function(e) {
         if (e.target === notifyContentModal) closeNotifyContentModal();
       });
+    }
+
+    // ── Modal shown when tapping "Read more..." on a long chat message ──
+    // Renders the complete message (with clickable links) — used for both
+    // Global Chat and Private (DM) chat, since both feed the same bubbles.
+    function openReadMoreModal(fullText) {
+      if (!readMoreModal || !readMoreModalBody) return;
+      readMoreModalBody.textContent = fullText || '';
+      delete readMoreModalBody.dataset.linkified; // allow re-linkifying on every open
+      linkifyContent(readMoreModalBody);
+      readMoreModal.classList.add('active');
+      readMoreModal.setAttribute('aria-hidden', 'false');
+      document.body.style.overflow = 'hidden';
+    }
+
+    function closeReadMoreModal() {
+      if (!readMoreModal) return;
+      readMoreModal.classList.remove('active');
+      readMoreModal.setAttribute('aria-hidden', 'true');
+      document.body.style.overflow = '';
+    }
+
+    if (readMoreModalClose) {
+      readMoreModalClose.addEventListener('click', closeReadMoreModal);
+    }
+    if (readMoreModal) {
+      readMoreModal.addEventListener('click', function(e) {
+        if (e.target === readMoreModal) closeReadMoreModal();
+      });
+    }
+
+    // ── "Read more" truncation for long messages ──────────────────────────
+    // Applies uniformly to Global Chat and Private (DM) chat — both funnel
+    // into the same .message-content elements inside #chatBox. A message
+    // over the limits below gets visually truncated with a "Read more..."
+    // affordance; tapping it opens the modal above with the full text.
+    const READMORE_CHAR_LIMIT = 400;
+    const READMORE_LINE_LIMIT = 8;
+
+    function readMoreNeeded(text) {
+      if (!text) return false;
+      if (text.length > READMORE_CHAR_LIMIT) return true;
+      let lines = 1;
+      for (let i = 0; i < text.length; i++) {
+        if (text.charCodeAt(i) === 10) {
+          lines++;
+          if (lines > READMORE_LINE_LIMIT) return true;
+        }
+      }
+      return false;
+    }
+
+    function readMorePreview(text) {
+      let preview = text.split('\n').slice(0, READMORE_LINE_LIMIT).join('\n');
+      if (preview.length > READMORE_CHAR_LIMIT) {
+        preview = preview.slice(0, READMORE_CHAR_LIMIT);
+      }
+      return preview.replace(/\s+$/, '');
+    }
+
+    // Truncates contentEl's text in-place and appends a "Read more..." link
+    // if needed. Marks the element as checked so repeated calls (from every
+    // poll/reconcile) don't redo the work. Called from applyEmojiOnly() for
+    // bulk-rendered/polled messages, and directly wherever a message is
+    // rendered outside that path (live WS push, optimistic send bubble).
+    function applyReadMoreToElement(contentEl) {
+      if (!contentEl || contentEl.dataset.readmoreChecked === '1') return;
+      if (contentEl.classList.contains('sending-dots')) return; // "..." placeholder, not real text
+
+      const fullText = contentEl.textContent || '';
+      contentEl.dataset.readmoreChecked = '1';
+      if (!readMoreNeeded(fullText)) return;
+
+      contentEl.dataset.fullText = fullText;
+      contentEl.textContent = readMorePreview(fullText) + ' ';
+
+      const link = document.createElement('span');
+      link.className = 'read-more-link';
+      link.textContent = 'Read More...';
+      link.setAttribute('role', 'button');
+      link.setAttribute('tabindex', '0');
+      link.addEventListener('click', function(e) {
+        e.stopPropagation();
+        openReadMoreModal(contentEl.dataset.fullText || '');
+      });
+      link.addEventListener('keydown', function(e) {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          e.stopPropagation();
+          openReadMoreModal(contentEl.dataset.fullText || '');
+        }
+      });
+      contentEl.appendChild(link);
+
+      // Re-linkify just the (now truncated) visible text so any URL still
+      // shown in the preview stays clickable.
+      delete contentEl.dataset.linkified;
+      linkifyContent(contentEl);
+    }
+
+    // Re-checks a message-content element after its text changed (e.g. an
+    // edit) so a message that grows past the limit gets "Read more..." too,
+    // and one that shrinks below it loses a stale truncation.
+    function reapplyReadMore(contentEl) {
+      delete contentEl.dataset.readmoreChecked;
+      applyReadMoreToElement(contentEl);
     }
 
     function escapeHtml(str) {
@@ -5354,7 +5509,11 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
         return;
       }
       
-      const text = contentEl.textContent.trim();
+      // Use the original full message when this bubble was truncated by the
+      // "Read More..." feature — contentEl.textContent at this point would
+      // otherwise include the truncated preview plus the "Read More..." label
+      // itself, which must never end up inside the edit box.
+      const text = (contentEl.dataset.fullText || contentEl.textContent).trim();
       messageInput.value = text;
       editingMsgId = msgId;
 
@@ -5572,6 +5731,7 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
         } else {
           bubble.classList.remove('emoji-only');
         }
+        applyReadMoreToElement(contentEl);
       });
 
       chatBox.querySelectorAll('.message-media').forEach(function(media) {
@@ -6204,7 +6364,12 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
             if (editedContainer) {
               const editedBubble = editedContainer.querySelector('.message-bubble');
               const contentEl = editedContainer.querySelector('.message-bubble .message-content');
-              if (contentEl) contentEl.textContent = message;
+              if (contentEl) {
+                contentEl.textContent = message;
+                delete contentEl.dataset.linkified;
+                linkifyContent(contentEl);
+                reapplyReadMore(contentEl);
+              }
               // Re-evaluate emoji-only styling since editing can change whether
               // the message is now (or is no longer) emoji-only.
               if (editedBubble) {
@@ -6268,6 +6433,7 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
                   const contentEl = sendingBubble.querySelector('.message-content');
                   if (contentEl) {
                     linkifyContent(contentEl);
+                    applyReadMoreToElement(contentEl);
                   }
                   applyAdminBadges();
                   if (isAtBottom()) scrollToBottom(true, true);
@@ -6671,6 +6837,9 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
         }
         if (notifyContentModal && notifyContentModal.classList.contains('active')) {
           closeNotifyContentModal();
+        }
+        if (readMoreModal && readMoreModal.classList.contains('active')) {
+          closeReadMoreModal();
         }
       }
       

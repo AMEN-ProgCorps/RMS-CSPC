@@ -18,12 +18,10 @@ Route::get('/auth/google', function () {
     }
 
     $clientId = config('services.google.client_id')
-        ?: env('GOOGLE_CLIENT_ID')
-        ?: '459768812355-jlvlru3ns38l5qik5crla02qoelop2ic.apps.googleusercontent.com';
+        ?: env('GOOGLE_CLIENT_ID');
 
     $clientSecret = config('services.google.client_secret')
-        ?: env('GOOGLE_CLIENT_SECRET')
-        ?: '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';
+        ?: env('GOOGLE_CLIENT_SECRET');
 
     if (empty($clientId) || empty($clientSecret)) {
         return redirect('/')->with('error', 'Google Auth credentials (GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET) are missing in environment configuration.');
@@ -47,12 +45,10 @@ Route::get('/auth/google', function () {
 Route::get('/auth/google/callback', function () {
     try {
         $clientId = config('services.google.client_id')
-            ?: env('GOOGLE_CLIENT_ID')
-            ?: '459768812355-jlvlru3ns38l5qik5crla02qoelop2ic.apps.googleusercontent.com';
+            ?: env('GOOGLE_CLIENT_ID');
 
         $clientSecret = config('services.google.client_secret')
-            ?: env('GOOGLE_CLIENT_SECRET')
-            ?: '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';
+            ?: env('GOOGLE_CLIENT_SECRET');
         $envRedirect = env('GOOGLE_REDIRECT_URI');
         $redirectUrl = (!empty($envRedirect) && $envRedirect !== 'dynamic')
             ? $envRedirect

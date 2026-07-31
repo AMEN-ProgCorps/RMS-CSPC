@@ -101,7 +101,7 @@ return new class extends Migration
             $table->unsignedBigInteger('records_medium')->nullable();
             $table->char('time_value', 1)->nullable();
             $table->string('frequence_use')->nullable();
-            $table->unsignedBigInteger('utility_value')->nullable();
+            $table->integer('utility_value')->unique()->nullable();
             $table->unsignedInteger('user_own')->nullable();
             $table->string('office_own')->nullable();
             $table->string('upload_doc_id_handler')->unique()->nullable();
@@ -112,13 +112,22 @@ return new class extends Migration
             $table->foreign('records_medium')->references('id')->on('rdp_recorded_value')->onDelete('cascade');
             $table->foreign('time_value')->references('char_value')->on('rdp_time_value')->onDelete('cascade');
             $table->foreign('frequence_use')->references('freq_type')->on('rdp_frequence_use')->onDelete('cascade');
-            $table->foreign('utility_value')->references('id')->on('rdp_utility_medium')->onDelete('cascade');
             $table->foreign('user_own')->references('id')->on('account')->onDelete('cascade');
             $table->foreign('office_own')->references('office_code')->on('office')->onDelete('cascade');
             $table->foreign('upload_doc_id_handler')->references('document_id')->on('document_data')->onDelete('cascade');
             $table->timestamps();
         });
         
+        Schema::create('rdp_utility_manager', function (Blueprint $table) {
+            $table->id();
+            $table->integer('record_holder');
+            $table->unsignedBigInteger('utility_medium');
+            $table->boolean('is_active')->default(true);
+            $table->timestamps();
+            $table->foreign('record_holder')->references('utility_value')->on('rdp_record')->onDelete('cascade');
+            $table->foreign('utility_medium')->references('id')->on('rdp_utility_medium')->onDelete('cascade');
+        });
+
         Schema::create('rdp_duplication_section', function (Blueprint $table) {
             $table->id();
             $table->unsignedBigInteger('dup_id_manager');
@@ -155,6 +164,7 @@ return new class extends Migration
     public function down(): void
     {
         Schema::dropIfExists('rdp_document_record');
+        Schema::dropIfExists('rdp_utility_manager');
         Schema::dropIfExists('rdp_duplication_section');
         Schema::dropIfExists('rdp_period_covered');
         Schema::dropIfExists('rdp_record');

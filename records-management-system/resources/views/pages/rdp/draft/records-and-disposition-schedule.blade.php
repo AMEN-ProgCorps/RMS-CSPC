@@ -40,7 +40,15 @@ new #[Layout('layouts.rdp')] #[Title('Draft Records and Disposition Schedule')] 
             $series = DB::table('rdp_record_series')->where('id', $seriesId)->first();
             if (!$series) return;
 
-            $clusterId = DB::table('rdp_pending_record_series')->insertGetId([
+            $clusterId = DB::table('main_pending_id')->insertGetId([
+                'status'     => 'UNUSED',
+                'is_active'  => true,
+                'created_at' => now(),
+                'updated_at' => now(),
+            ]);
+
+            DB::table('rdp_pending_record_series')->insert([
+                'cluster_id'   => $clusterId,
                 'cluster_name' => 'Schedule Submission — ' . ($series->series_title ?? 'Series Cluster'),
                 'status_id'    => 1, // Pending Verification
                 'office'       => $userOffice,

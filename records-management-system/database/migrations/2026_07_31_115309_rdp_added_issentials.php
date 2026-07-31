@@ -39,7 +39,7 @@ return new class extends Migration
         Schema::create('rdp_pending_record_series', function (Blueprint $table) {
             $table->foreignId('cluster_id')->primary()->constrained('main_pending_id')->onDelete('cascade');
             $table->string('cluster_name');
-            $table->unsignedBigInteger('status_id');
+            $table->unsignedBigInteger('status_id')->nullable();
             $table->integer('group_id')->nullable();
             $table->string('office')->nullable();
             $table->unsignedBigInteger('created_by');
@@ -63,7 +63,7 @@ return new class extends Migration
         Schema::create('rdp_pending_record', function (Blueprint $table) {
             $table->foreignId('cluster_id')->primary()->constrained('main_pending_id')->onDelete('cascade');
             $table->string('cluster_name');
-            $table->unsignedBigInteger('status_id');
+            $table->unsignedBigInteger('status_id')->nullable();
             $table->integer('group_id')->nullable();
             $table->string('office')->nullable();
             $table->unsignedBigInteger('created_by');

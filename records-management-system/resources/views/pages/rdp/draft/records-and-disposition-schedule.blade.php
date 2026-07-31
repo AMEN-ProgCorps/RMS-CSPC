@@ -1,0 +1,288 @@
+<?php
+
+use Livewire\Attributes\Layout;
+use Livewire\Attributes\Title;
+use Livewire\Volt\Component;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Auth;
+
+new #[Layout('layouts.rdp')] #[Title('Draft Records and Disposition Schedule')] class extends Component {
+    public string $search = '';
+    public string $successMessage = '';
+    public string $errorMessage = '';
+
+    public function mount(): void
+    {
+        $perms = Auth::user()?->permissions;
+        if (!$perms || (!(bool)($perms->is_sadm ?? false) && !(bool)($perms->can_access_rdp ?? true))) {
+            redirect()->route('rdp')->send();
+            return;
+        }
+    }
+
+    public function deleteDraftSeries(int $seriesId): void
+    {
+        try {
+            DB::table('rdp_record_series')->where('id', $seriesId)->where('is_verified', false)->delete();
+            $this->successMessage = 'Draft schedule entry deleted successfully.';
+        } catch (\Exception $e) {
+            $this->errorMessage = 'Failed to delete draft: ' . $e->getMessage();
+        }
+    }
+
+    public function submitForApproval(int $seriesId): void
+    {
+        try {
+            $user = Auth::user();
+            $userOffice = $user?->details?->office_code;
+
+            // Create a pending cluster in rdp_pending_record_series
+            $series = DB::table('rdp_record_series')->where('id', $seriesId)->first();
+            if (!$series) return;
+
+            $clusterId = DB::table('rdp_pending_record_series')->insertGetId([
+                'cluster_name' => 'Schedule Submission — ' . ($series->series_title ?? 'Series Cluster'),
+                'status_id'    => 1, // Pending Verification
+                'office'       => $userOffice,
+                'created_by'   => $user->id,
+                'is_active'    => true,
+                'created_at'   => now(),
+                'updated_at'   => now(),
+            ]);
+
+            DB::table('rdp_grouped_record_series')->insert([
+                'group_head'       => $clusterId,
+                'record_series_id' => $seriesId,
+                'is_active'        => true,
+                'created_at'       => now(),
+                'updated_at'       => now(),
+            ]);
+
+            $this->successMessage = 'Draft schedule item submitted for evaluation & approval!';
+        } catch (\Exception $e) {
+            $this->errorMessage = 'Failed to submit draft: ' . $e->getMessage();
+        }
+    }
+
+    public function with(): array
+    {
+        $userOffice = Auth::user()?->details?->office_code;
+
+        $query = DB::table('rdp_record_series')
+            ->leftJoin('rdp_retention_period', 'rdp_record_series.retention_period', '=', 'rdp_retention_period.id')
+            ->leftJoin('rdp_record_series as parent', 'rdp_record_series.parent_id', '=', 'parent.id')
+            ->where('rdp_record_series.is_verified', false);
+
+        if ($userOffice) {
+            $query->where('rdp_record_series.recorded_at_office', $userOffice);
+        }
+
+        if (!empty(trim($this->search))) {
+            $term = '%' . trim($this->search) . '%';
+            $query->where(function($q) use ($term) {
+                $q->where('rdp_record_series.series_title', 'ILIKE', $term)
+                  ->orWhere('rdp_record_series.remarks', 'ILIKE', $term);
+            });
+        }
+
+        $draftSeries = $query->select([
+            'rdp_record_series.*',
+            'rdp_retention_period.active_period',
+            'rdp_retention_period.storage_period',
+            'rdp_retention_period.total_period',
+            'parent.series_title as parent_title'
+        ])
+        ->orderBy('rdp_record_series.updated_at', 'desc')
+        ->get();
+
+        return [
+            'draftSeries' => $draftSeries,
+        ];
+    }
+}; ?>
+
+<div class="draft-schedule-page">
+    <style>
+        .draft-schedule-page {
+            padding: 24px;
+            max-width: 1400px;
+            margin: 0 auto;
+        }
+        .header-card {
+            background: #ffffff;
+            border: 1px solid #e2e8f0;
+            border-radius: 12px;
+            padding: 24px;
+            margin-bottom: 24px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.02);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            flex-wrap: wrap;
+            gap: 16px;
+        }
+        .header-title h1 {
+            font-size: 22px;
+            font-weight: 700;
+            color: #0f172a;
+            margin: 0 0 6px 0;
+        }
+        .header-title p {
+            font-size: 14px;
+            color: #64748b;
+            margin: 0;
+        }
+        .search-input {
+            padding: 9px 14px;
+            border: 1px solid #cbd5e1;
+            border-radius: 8px;
+            font-size: 14px;
+            outline: none;
+            width: 300px;
+        }
+        .alert-msg {
+            padding: 12px 16px;
+            border-radius: 8px;
+            margin-bottom: 16px;
+            font-size: 14px;
+            font-weight: 500;
+        }
+        .alert-success { background: #dcfce7; color: #15803d; border: 1px solid #bbf7d0; }
+        .alert-error { background: #fee2e2; color: #b91c1c; border: 1px solid #fecaca; }
+
+        .draft-table-wrapper {
+            background: #ffffff;
+            border: 1px solid #cbd5e1;
+            border-radius: 12px;
+            overflow: hidden;
+            box-shadow: 0 4px 6px -1px rgba(0,0,0,0.05);
+        }
+        .draft-table {
+            width: 100%;
+            border-collapse: collapse;
+            text-align: left;
+            font-size: 14px;
+        }
+        .draft-table th {
+            background: #1e293b;
+            color: #ffffff;
+            font-weight: 600;
+            padding: 14px 16px;
+            border-right: 1px solid #334155;
+        }
+        .draft-table td {
+            padding: 14px 16px;
+            color: #334155;
+            border-bottom: 1px solid #e2e8f0;
+            border-right: 1px solid #f1f5f9;
+        }
+        .draft-badge {
+            background: #fef3c7;
+            color: #b45309;
+            border: 1px solid #fde68a;
+            padding: 4px 10px;
+            border-radius: 12px;
+            font-size: 12px;
+            font-weight: 600;
+        }
+        .btn-resume {
+            background: #eff6ff;
+            color: #2563eb;
+            border: 1px solid #bfdbfe;
+            padding: 6px 12px;
+            border-radius: 6px;
+            font-size: 13px;
+            font-weight: 600;
+            cursor: pointer;
+            margin-right: 4px;
+        }
+        .btn-submit {
+            background: #16a34a;
+            color: #ffffff;
+            border: none;
+            padding: 6px 12px;
+            border-radius: 6px;
+            font-size: 13px;
+            font-weight: 600;
+            cursor: pointer;
+            margin-right: 4px;
+        }
+        .btn-delete {
+            background: #fee2e2;
+            color: #dc2626;
+            border: 1px solid #fecaca;
+            padding: 6px 12px;
+            border-radius: 6px;
+            font-size: 13px;
+            font-weight: 600;
+            cursor: pointer;
+        }
+    </style>
+
+    <div class="header-card">
+        <div class="header-title">
+            <h1>Draft Records & Disposition Schedule</h1>
+            <p>View and manage unapproved NAP Form 2 record series schedule drafts saved by your office</p>
+        </div>
+        <div>
+            <input type="text" wire:model.live.debounce.250ms="search" class="search-input" placeholder="Search draft schedule items...">
+        </div>
+    </div>
+
+    @if(!empty($successMessage))
+        <div class="alert-msg alert-success">{{ $successMessage }}</div>
+    @endif
+    @if(!empty($errorMessage))
+        <div class="alert-msg alert-error">{{ $errorMessage }}</div>
+    @endif
+
+    <div class="draft-table-wrapper">
+        <table class="draft-table">
+            <thead>
+                <tr>
+                    <th style="width: 80px;">ID</th>
+                    <th>Record Series Title</th>
+                    <th style="width: 140px;">Retention</th>
+                    <th>Remarks / Guidance</th>
+                    <th style="width: 110px;">Status</th>
+                    <th style="width: 150px;">Last Modified</th>
+                    <th style="width: 260px; text-align: center;">Actions</th>
+                </tr>
+            </thead>
+            <tbody>
+                @forelse($draftSeries as $ds)
+                    <tr>
+                        <td><strong>#{{ $ds->id }}</strong></td>
+                        <td>
+                            <strong>{{ $ds->series_title }}</strong>
+                            @if(!empty($ds->parent_title))
+                                <div style="font-size: 11px; color: #64748b;">Sub-series of: {{ $ds->parent_title }}</div>
+                            @endif
+                        </td>
+                        <td>
+                            @if($ds->is_retention_period_permanent)
+                                <strong style="color: #166534;">Permanent</strong>
+                            @else
+                                {{ $ds->total_period ?? $ds->active_period ?? '—' }}
+                            @endif
+                        </td>
+                        <td>{{ $ds->remarks ?? '—' }}</td>
+                        <td><span class="draft-badge">Draft</span></td>
+                        <td>{{ \Carbon\Carbon::parse($ds->updated_at)->format('M d, Y g:i A') }}</td>
+                        <td style="text-align: center;">
+                            <button onclick="proccedto('{{ route('rdp.add-records.records-and-disposition-schedule') }}')" class="btn-resume">Edit</button>
+                            <button wire:click="submitForApproval({{ $ds->id }})" class="btn-submit">Submit for Approval</button>
+                            <button wire:click="deleteDraftSeries({{ $ds->id }})" wire:confirm="Delete this draft schedule entry?" class="btn-delete">Delete</button>
+                        </td>
+                    </tr>
+                @empty
+                    <tr>
+                        <td colspan="7" style="text-align: center; padding: 48px; color: #64748b;">
+                            No draft Records & Disposition Schedule items found.
+                        </td>
+                    </tr>
+                @endforelse
+            </tbody>
+        </table>
+    </div>
+</div>

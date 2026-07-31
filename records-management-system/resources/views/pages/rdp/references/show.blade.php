@@ -102,16 +102,10 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Reference Se
                 'parent.series_title as parent_title',
             ]);
 
-        // Filter by series_type id or fallback to CSPC default if series_type is unassigned
+        // Filter strictly by series_type id and verified status
         $typeId = $this->typeRecord->id;
-        if (strtoupper($this->typeRecord->shorted_type) === 'CSPC') {
-            $query->where(function($q) use ($typeId) {
-                $q->where('rdp_record_series.series_type', $typeId)
-                  ->orWhereNull('rdp_record_series.series_type');
-            });
-        } else {
-            $query->where('rdp_record_series.series_type', $typeId);
-        }
+        $query->where('rdp_record_series.series_type', $typeId)
+              ->where('rdp_record_series.is_verified', true);
 
         if (!empty(trim($this->search))) {
             $searchTerm = '%' . trim($this->search) . '%';

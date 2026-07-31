@@ -204,6 +204,14 @@ Route::middleware(['auth'])
         Volt::route('/rdp/reports/nap-form-3', 'pages.rdp.reports.nap-form-3')->name('rdp.reports.nap-form-3');
 
         Volt::route('/rdp/references/{type}', 'pages.rdp.references.show')->name('rdp.references.show');
+
+        // Pending Subsystem
+        Volt::route('/rdp/pending/list', 'pages.rdp.pending.list')->name('rdp.pending.list');
+        Volt::route('/rdp/pending/for-approval', 'pages.rdp.pending.for-approval')->name('rdp.pending.for-approval');
+
+        // Draft Subsystem
+        Volt::route('/rdp/draft/inventory-and-appraisal', 'pages.rdp.draft.inventory-and-appraisal')->name('rdp.draft.inventory-and-appraisal');
+        Volt::route('/rdp/draft/records-and-disposition-schedule', 'pages.rdp.draft.records-and-disposition-schedule')->name('rdp.draft.records-and-disposition-schedule');
     });
 
     // DTS — Document Tracking System (requires can_access_dts or is_sadm)

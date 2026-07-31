@@ -133,67 +133,6 @@ return new class extends Migration
             DB::table('rdp_volume_value')->where('volume_id', $unitIds['Pages'])->update(['cur_used_standard' => true]);
             DB::table('rdp_volume_value')->where('volume_id', $unitIds['Folder'])->update(['cur_used_converted' => true]);
         }
-
-        // 7. Seed Predefined Record Series with Retention Periods
-        $predefinedSeries = [
-            [
-                'series_title'   => 'Gate Passes',
-                'active_period'  => '6 Months',
-                'storage_period' => '1 Year',
-                'total_period'   => '1 Year 6 Months',
-                'remarks'        => 'Dispose after retention',
-            ],
-            [
-                'series_title'   => 'Receipts',
-                'active_period'  => '1 Year',
-                'storage_period' => '4 Years',
-                'total_period'   => '5 Years',
-                'remarks'        => 'Audit required before disposal',
-            ],
-            [
-                'series_title'   => 'Financial Statements',
-                'active_period'  => 'Permanent',
-                'storage_period' => 'Permanent',
-                'total_period'   => 'Permanent',
-                'remarks'        => 'Permanent record',
-            ],
-            [
-                'series_title'   => 'Minutes of Meetings',
-                'active_period'  => 'Permanent',
-                'storage_period' => 'Permanent',
-                'total_period'   => 'Permanent',
-                'remarks'        => 'Permanent record',
-            ],
-            [
-                'series_title'   => 'Appraisal Records',
-                'active_period'  => '3 Years',
-                'storage_period' => '2 Years',
-                'total_period'   => '5 Years',
-                'remarks'        => 'Review upon expiration',
-            ],
-        ];
-
-        foreach ($predefinedSeries as $seriesData) {
-            $retentionId = DB::table('rdp_retention_period')->insertGetId([
-                'active_period'  => $seriesData['active_period'],
-                'storage_period' => $seriesData['storage_period'],
-                'total_period'   => $seriesData['total_period'],
-                'created_at'     => now(),
-                'updated_at'     => now(),
-            ]);
-
-            DB::table('rdp_record_series')->updateOrInsert(
-                ['series_title' => $seriesData['series_title']],
-                [
-                    'parent_id'                  => null,
-                    'retention_period'           => $retentionId,
-                    'is_retention_period_permanent' => strtolower($seriesData['active_period']) === 'permanent',
-                    'remarks'                    => $seriesData['remarks'],
-                    'created_at'                 => now(),
-                    'updated_at'                 => now(),
-                ]
-            );
-        }
     }
 
     /**
@@ -222,9 +161,5 @@ return new class extends Migration
 
         DB::table('rdp_volume_conversion')->truncate();
         DB::table('rdp_volume_value')->truncate();
-
-        DB::table('rdp_record_series')->whereIn('series_title', [
-            'Gate Passes', 'Receipts', 'Financial Statements', 'Minutes of Meetings', 'Appraisal Records'
-        ])->delete();
     }
 };

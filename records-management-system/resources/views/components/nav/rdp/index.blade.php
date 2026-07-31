@@ -79,7 +79,7 @@
             </svg>
         </div>
         <div class="button-label">
-            <span>Reference Section</span>
+            <span>References</span>
         </div>
         <div class="show-arrow">
             <svg xmlns="http://www.w3.org/2000/svg" width="18" height="11" viewBox="0 0 18 11" fill="none">
@@ -100,6 +100,58 @@
                 {{ $typeItem->shorted_type }} ({{ $typeItem->type_name }})
             </div>
         @endforeach
+    </div>
+</div>
+
+<div id="rdp-pending-id" class="button-section-container {{ request()->routeIs('rdp.pending.*') ? 'show' : '' }}">
+    <div class="button-container {{ request()->routeIs('rdp.pending.*') ? 'force-active' : '' }}" onclick="showButtonSection('rdp-pending-id')">
+        <div class="button-icon">
+            <svg xmlns="http://www.w3.org/2000/svg" width="29" height="29" viewBox="0 0 24 24" fill="none">
+                <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 14h-2v-2h2v2zm0-4h-2V7h2v5z" fill="#4F4F4F"/>
+            </svg>
+        </div>
+        <div class="button-label">
+            <span>Pending</span>
+        </div>
+        <div class="show-arrow">
+            <svg xmlns="http://www.w3.org/2000/svg" width="18" height="11" viewBox="0 0 18 11" fill="none">
+                <path d="M2.03223 9.76953L2.20898 9.59277L8.8125 2.98828L15.418 9.59375L15.5947 9.77148L15.7715
+                9.59375L17.0967 8.26758L17.2734 8.09082L17.0967 7.91406L9.875 0.69043H9.87402C9.73533 0.551169
+                9.57112 0.439765 9.38965 0.364258C9.20774 0.28857 9.01246 0.250036 8.81543 0.25C8.61847 0.25
+                8.42308 0.28866 8.24121 0.364258C8.05943 0.439892 7.89373 0.550835 7.75488 0.69043L0.530273
+                7.91406L0.353516 8.09082L2.03223 9.76953Z" fill="#646464" stroke="#646464" stroke-width="0.5"/>
+            </svg>
+        </div>
+    </div>
+    <div class="functions-container">
+        <div class="function-button {{ request()->routeIs('rdp.pending.list') ? 'force-active' : '' }}" onclick="proccedto('{{ route('rdp.pending.list') }}')">List</div>
+        <div class="function-button {{ request()->routeIs('rdp.pending.for-approval') ? 'force-active' : '' }}" onclick="proccedto('{{ route('rdp.pending.for-approval') }}')">For Approval</div>
+    </div>
+</div>
+
+<div id="rdp-draft-id" class="button-section-container {{ request()->routeIs('rdp.draft.*') ? 'show' : '' }}">
+    <div class="button-container {{ request()->routeIs('rdp.draft.*') ? 'force-active' : '' }}" onclick="showButtonSection('rdp-draft-id')">
+        <div class="button-icon">
+            <svg xmlns="http://www.w3.org/2000/svg" width="29" height="29" viewBox="0 0 24 24" fill="none">
+                <path d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04c.39-.39.39-1.02 0-1.41l-2.34-2.34c-.39-.39-1.02-.39-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z" fill="#4F4F4F"/>
+            </svg>
+        </div>
+        <div class="button-label">
+            <span>Draft</span>
+        </div>
+        <div class="show-arrow">
+            <svg xmlns="http://www.w3.org/2000/svg" width="18" height="11" viewBox="0 0 18 11" fill="none">
+                <path d="M2.03223 9.76953L2.20898 9.59277L8.8125 2.98828L15.418 9.59375L15.5947 9.77148L15.7715
+                9.59375L17.0967 8.26758L17.2734 8.09082L17.0967 7.91406L9.875 0.69043H9.87402C9.73533 0.551169
+                9.57112 0.439765 9.38965 0.364258C9.20774 0.28857 9.01246 0.250036 8.81543 0.25C8.61847 0.25
+                8.42308 0.28866 8.24121 0.364258C8.05943 0.439892 7.89373 0.550835 7.75488 0.69043L0.530273
+                7.91406L0.353516 8.09082L2.03223 9.76953Z" fill="#646464" stroke="#646464" stroke-width="0.5"/>
+            </svg>
+        </div>
+    </div>
+    <div class="functions-container">
+        <div class="function-button {{ request()->routeIs('rdp.draft.inventory-and-appraisal') ? 'force-active' : '' }}" onclick="proccedto('{{ route('rdp.draft.inventory-and-appraisal') }}')">Inventory and Appraisal</div>
+        <div class="function-button {{ request()->routeIs('rdp.draft.records-and-disposition-schedule') ? 'force-active' : '' }}" onclick="proccedto('{{ route('rdp.draft.records-and-disposition-schedule') }}')">Records and Disposition Schedule</div>
     </div>
 </div>
 

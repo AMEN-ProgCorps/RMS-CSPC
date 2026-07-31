@@ -15,6 +15,10 @@ class AppServiceProvider extends ServiceProvider
 
     public function boot(): void
     {
+        if (!app()->runningInConsole() && request()->hasHeader('Host')) {
+            \Illuminate\Support\Facades\URL::forceRootUrl(request()->schemeAndHttpHost());
+        }
+
         Volt::mount([
             resource_path('views'),
         ]);

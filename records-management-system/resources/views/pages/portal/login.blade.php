@@ -47,7 +47,7 @@ new #[Layout('layouts.portal')] #[Title('RMS CSPC Login')] class extends Compone
                 }
             }
 
-            $this->redirect(route('portal'));
+            $this->redirect('/portal');
             return;
         }
 

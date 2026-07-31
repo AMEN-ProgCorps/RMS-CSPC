@@ -14,20 +14,58 @@ Route::post('/', fn () => redirect()->route('login'));
 Route::get('/auth/google', function () {
     $allowGoogleLogin = \Illuminate\Support\Facades\DB::table('system_settings')->where('key', 'allow_google_login')->value('value') !== 'false';
     if (!$allowGoogleLogin) {
-        return redirect()->route('login')->with('error', 'Google Sign-In is currently disabled by administrator.');
+        return redirect('/')->with('error', 'Google Sign-In is currently disabled by administrator.');
     }
-    $redirectUrl = config('services.google.redirect') ?: url('/auth/google/callback');
-    return \Laravel\Socialite\Facades\Socialite::driver('google')
-        ->redirectUrl($redirectUrl)
-        ->redirect();
+
+    $clientId = config('services.google.client_id')
+        ?: env('GOOGLE_CLIENT_ID')
+        ?: '459768812355-jlvlru3ns38l5qik5crla02qoelop2ic.apps.googleusercontent.com';
+
+    $clientSecret = config('services.google.client_secret')
+        ?: env('GOOGLE_CLIENT_SECRET')
+        ?: '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';
+
+    if (empty($clientId) || empty($clientSecret)) {
+        return redirect('/')->with('error', 'Google Auth credentials (GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET) are missing in environment configuration.');
+    }
+
+    $envRedirect = env('GOOGLE_REDIRECT_URI');
+    $redirectUrl = (!empty($envRedirect) && $envRedirect !== 'dynamic')
+        ? $envRedirect
+        : url('/auth/google/callback');
+
+    return \Laravel\Socialite\Facades\Socialite::buildProvider(
+        \Laravel\Socialite\Two\GoogleProvider::class,
+        [
+            'client_id'     => $clientId,
+            'client_secret' => $clientSecret,
+            'redirect'      => $redirectUrl,
+        ]
+    )->stateless()->redirect();
 })->name('auth.google');
 
 Route::get('/auth/google/callback', function () {
     try {
-        $redirectUrl = config('services.google.redirect') ?: url('/auth/google/callback');
-        $googleUser = \Laravel\Socialite\Facades\Socialite::driver('google')
-            ->redirectUrl($redirectUrl)
-            ->user();
+        $clientId = config('services.google.client_id')
+            ?: env('GOOGLE_CLIENT_ID')
+            ?: '459768812355-jlvlru3ns38l5qik5crla02qoelop2ic.apps.googleusercontent.com';
+
+        $clientSecret = config('services.google.client_secret')
+            ?: env('GOOGLE_CLIENT_SECRET')
+            ?: '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';
+        $envRedirect = env('GOOGLE_REDIRECT_URI');
+        $redirectUrl = (!empty($envRedirect) && $envRedirect !== 'dynamic')
+            ? $envRedirect
+            : url('/auth/google/callback');
+
+        $googleUser = \Laravel\Socialite\Facades\Socialite::buildProvider(
+            \Laravel\Socialite\Two\GoogleProvider::class,
+            [
+                'client_id'     => $clientId,
+                'client_secret' => $clientSecret,
+                'redirect'      => $redirectUrl,
+            ]
+        )->stateless()->user();
         $email = strtolower(trim($googleUser->getEmail()));
 
         // Lookup account in account_details by email
@@ -41,7 +79,7 @@ Route::get('/auth/google/callback', function () {
                 'time'        => now(),
             ]);
 
-            return redirect()->route('login')->with('error', "No registered RMS account found for '{$email}'. Please contact your administrator.");
+            return redirect('/')->with('error', "No registered RMS account found for '{$email}'. Please contact your administrator.");
         }
 
         // Verify account is active
@@ -54,7 +92,7 @@ Route::get('/auth/google/callback', function () {
                 'time'        => now(),
             ]);
 
-            return redirect()->route('login')->with('error', 'Your account is deactivated. Please contact your administrator.');
+            return redirect('/')->with('error', 'Your account is deactivated. Please contact your administrator.');
         }
 
         // Authenticate user
@@ -76,10 +114,11 @@ Route::get('/auth/google/callback', function () {
                 'last_online_time'    => now(),
             ]);
 
-        return redirect()->route('portal');
+        return redirect('/portal');
     } catch (\Throwable $e) {
-        \Illuminate\Support\Facades\Log::error('Google Auth Error: ' . $e->getMessage());
-        return redirect()->route('login')->with('error', 'Google authentication failed or was cancelled.');
+        $msg = $e->getMessage() ?: get_class($e);
+        \Illuminate\Support\Facades\Log::error('Google Auth Error: ' . $msg . "\n" . $e->getTraceAsString());
+        return redirect('/')->with('error', 'Google authentication failed: ' . $msg);
     }
 })->name('auth.google.callback');
 
@@ -163,6 +202,8 @@ Route::middleware(['auth'])
         Volt::route('/rdp/reports/nap-form-1', 'pages.rdp.reports.nap-form-1')->name('rdp.reports.nap-form-1');
         Volt::route('/rdp/reports/nap-form-2', 'pages.rdp.reports.nap-form-2')->name('rdp.reports.nap-form-2');
         Volt::route('/rdp/reports/nap-form-3', 'pages.rdp.reports.nap-form-3')->name('rdp.reports.nap-form-3');
+
+        Volt::route('/rdp/references/{type}', 'pages.rdp.references.show')->name('rdp.references.show');
     });
 
     // DTS — Document Tracking System (requires can_access_dts or is_sadm)

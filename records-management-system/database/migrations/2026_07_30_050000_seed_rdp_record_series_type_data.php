@@ -11,14 +11,20 @@ return new class extends Migration
     public function up(): void
     {
         $types = [
+            
+            [
+                'type_name'    => 'National Archives of the Philippines',
+                'shorted_type' => 'PH-NAP',
+                'is_active'    => true,
+            ],
             [
                 'type_name'    => 'Camarines Sur Polytechnic Colleges',
                 'shorted_type' => 'CSPC',
                 'is_active'    => true,
             ],
             [
-                'type_name'    => 'National Archives of the Philippines',
-                'shorted_type' => 'PH-NAP',
+                'type_name'    => 'No Labels',
+                'shorted_type' => 'OTHERS',
                 'is_active'    => true,
             ],
         ];
@@ -37,7 +43,7 @@ return new class extends Migration
     public function down(): void
     {
         DB::table('rdp_record_series_type')
-            ->whereIn('shorted_type', ['CSPC', 'PH-NAP'])
+            ->whereIn('shorted_type', [ 'PH-NAP', 'CSPC', 'OTHERS'])
             ->delete();
     }
 };

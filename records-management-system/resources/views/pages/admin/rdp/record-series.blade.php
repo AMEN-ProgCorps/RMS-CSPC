@@ -31,6 +31,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Record Series')] class e
     public string $series_title = '';
     public array $subsections = [];
     public string $bracketInput = '';
+    public ?string $newOfficeCode = '';
     public bool $showBracketDropdown = false;
     public bool $showParentDropdown = false;
     public string $newActivePeriod = '';
@@ -45,6 +46,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Record Series')] class e
     public ?string $editItemNumber = '';
     public string $editSeriesTitle = '';
     public string $editBracketInput = '';
+    public ?string $editOfficeCode = '';
     public bool $showEditBracketDropdown = false;
     public ?int $editSeriesType = null;
     public string $editActivePeriod = '';
@@ -235,6 +237,29 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Record Series')] class e
         ]);
     }
 
+    public function resolveOfficeCode(?string $input, bool $onlyExisting = false): ?string
+    {
+        $input = trim(rtrim($input ?? '', ';'));
+        if (empty($input)) {
+            return null;
+        }
+
+        // 1. Check exact or ILIKE match on office_code or office_name in office table
+        $existing = DB::table('office')
+            ->where('is_active', true)
+            ->where(function($q) use ($input) {
+                $q->where('office_code', 'ilike', $input)
+                  ->orWhere('office_name', 'ilike', $input);
+            })
+            ->first();
+
+        if ($existing) {
+            return $existing->office_code;
+        }
+
+        return $onlyExisting ? null : mb_strtoupper($input);
+    }
+
     public function computeTotalPeriod(?string $active, ?string $storage, bool $isPermanent): string
     {
         if ($isPermanent) {
@@ -328,37 +353,58 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Record Series')] class e
         ];
     }
 
-    private function buildTreeHierarchy(array $records): array
+    private function buildGroupedTreeHierarchy(array $records): array
     {
-        $byParent = [];
+        $byBracketAndOffice = [];
         foreach ($records as $r) {
-            $pId = $r->parent_id ?? 0;
-            $byParent[$pId][] = $r;
+            $bKey = $r->bracket_id ? ('b_' . $r->bracket_id) : 'no_bracket';
+            $oKey = $r->recorded_at_office ? ('o_' . $r->recorded_at_office) : 'no_office';
+            $byBracketAndOffice[$bKey][$oKey][] = $r;
         }
 
-        $ordered = [];
-        $flatten = function ($parentId, $depth) use (&$flatten, &$ordered, $byParent) {
-            if (!isset($byParent[$parentId])) {
-                return;
-            }
-            foreach ($byParent[$parentId] as $item) {
-                $item->depth = $depth;
-                $ordered[] = $item;
-                $flatten($item->id, $depth + 1);
-            }
-        };
+        $finalOrdered = [];
 
-        $flatten(0, 0);
+        foreach ($byBracketAndOffice as $bKey => $officeGroups) {
+            foreach ($officeGroups as $oKey => $items) {
+                $itemIdsInGroup = array_column($items, 'id');
+                $byParent = [];
+                foreach ($items as $item) {
+                    $pId = $item->parent_id ?? 0;
+                    if ($pId > 0 && !in_array($pId, $itemIdsInGroup, true)) {
+                        $pId = 0;
+                    }
+                    $byParent[$pId][] = $item;
+                }
 
-        $addedIds = array_column($ordered, 'id');
-        foreach ($records as $r) {
-            if (!in_array($r->id, $addedIds, true)) {
-                $r->depth = 0;
-                $ordered[] = $r;
+                $groupOrdered = [];
+                $flatten = function ($parentId, $depth) use (&$flatten, &$groupOrdered, $byParent) {
+                    if (!isset($byParent[$parentId])) {
+                        return;
+                    }
+                    foreach ($byParent[$parentId] as $item) {
+                        $item->depth = $depth;
+                        $groupOrdered[] = $item;
+                        $flatten($item->id, $depth + 1);
+                    }
+                };
+
+                $flatten(0, 0);
+
+                $addedIds = array_column($groupOrdered, 'id');
+                foreach ($items as $item) {
+                    if (!in_array($item->id, $addedIds, true)) {
+                        $item->depth = 0;
+                        $groupOrdered[] = $item;
+                    }
+                }
+
+                foreach ($groupOrdered as $go) {
+                    $finalOrdered[] = $go;
+                }
             }
         }
 
-        return $ordered;
+        return $finalOrdered;
     }
 
     public function resetAddForm(): void
@@ -367,6 +413,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Record Series')] class e
         $this->series_title = '';
         $this->subsections = [];
         $this->bracketInput = '';
+        $this->newOfficeCode = '';
         $this->showBracketDropdown = false;
         $this->showParentDropdown = false;
         $this->newActivePeriod = '';
@@ -395,6 +442,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Record Series')] class e
         }
 
         $bracketId = $this->resolveBracketId($this->bracketInput);
+        $officeCode = $this->resolveOfficeCode($this->newOfficeCode);
         $seriesTypeId = is_numeric($this->activeTab) ? (int) $this->activeTab : null;
         $itemNum = trim($this->newItemNumber ?? '');
         $itemNumberVal = ($itemNum !== '' && is_numeric($itemNum)) ? (int) $itemNum : null;
@@ -433,6 +481,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Record Series')] class e
                     'series_title'                 => $t,
                     'parent_id'                    => $currentParentId,
                     'bracket_id'                   => $bracketId,
+                    'recorded_at_office'           => $officeCode,
                     'series_type'                  => $seriesTypeId,
                     'retention_period'             => $isLeaf ? $retentionId : ($existing->retention_period ?? null),
                     'is_retention_period_permanent' => $isLeaf ? $this->newIsPermanent : ($existing->is_retention_period_permanent ?? false),
@@ -487,6 +536,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Record Series')] class e
         $this->editItemNumber = $series->item_number !== null ? (string)$series->item_number : '';
         $this->editSeriesTitle = $series->series_title;
         $this->editBracketInput = $series->bracket_name ?? '';
+        $this->editOfficeCode = $series->recorded_at_office ?? '';
         $this->showEditBracketDropdown = false;
         $this->editSeriesType = $series->series_type;
         $this->editIsPermanent = (bool) $series->is_retention_period_permanent;
@@ -540,6 +590,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Record Series')] class e
         }
 
         $bracketId = $this->resolveBracketId($this->editBracketInput);
+        $officeCode = $this->resolveOfficeCode($this->editOfficeCode);
         $itemNum = trim($this->editItemNumber ?? '');
         $itemNumberVal = ($itemNum !== '' && is_numeric($itemNum)) ? (int) $itemNum : null;
 
@@ -547,6 +598,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Record Series')] class e
             'item_number'                  => $itemNumberVal,
             'series_title'                 => $title,
             'bracket_id'                   => $bracketId,
+            'recorded_at_office'           => $officeCode,
             'retention_period'             => $retentionId,
             'is_retention_period_permanent' => $this->editIsPermanent,
             'is_active'                    => $this->editIsActive,
@@ -591,9 +643,27 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Record Series')] class e
             $rawLines = preg_split('/\r\n|\r|\n/', $content);
             $seriesTypeId = is_numeric($this->activeTab) ? (int)$this->activeTab : null;
 
-            $stack = [];
-            $currentBracketId = null;
+            $stack = []; // subsection parent tracking: depth => series_id
+            $blockStack = []; // array of ['type' => 'bracket'|'office', 'val' => mixed]
             $importedCount = 0;
+
+            $getCurrentBracketId = function() use (&$blockStack) {
+                for ($i = count($blockStack) - 1; $i >= 0; $i--) {
+                    if ($blockStack[$i]['type'] === 'bracket') {
+                        return $blockStack[$i]['val'];
+                    }
+                }
+                return null;
+            };
+
+            $getCurrentOfficeCode = function() use (&$blockStack) {
+                for ($i = count($blockStack) - 1; $i >= 0; $i--) {
+                    if ($blockStack[$i]['type'] === 'office') {
+                        return $blockStack[$i]['val'];
+                    }
+                }
+                return null;
+            };
 
             $pendingItemNo = null;
             $pendingTitle = null;
@@ -607,7 +677,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Record Series')] class e
             $flushPending = function () use (
                 &$pendingItemNo, &$pendingTitle, &$pendingDepth,
                 &$pendingActive, &$pendingStorage, &$pendingIsPermanent, &$pendingRemarks,
-                &$hasPendingSeries, &$stack, &$currentBracketId, &$seriesTypeId, &$importedCount
+                &$hasPendingSeries, &$stack, &$getCurrentBracketId, &$getCurrentOfficeCode, &$seriesTypeId, &$importedCount
             ) {
                 if (!$hasPendingSeries || empty($pendingTitle)) {
                     $hasPendingSeries = false;
@@ -635,20 +705,74 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Record Series')] class e
                     $parentId = $stack[$pendingDepth - 1];
                 }
 
-                $seriesId = DB::table('rdp_record_series')->insertGetId([
-                    'item_number'                  => $pendingItemNo,
-                    'series_title'                 => $pendingTitle,
-                    'parent_id'                    => $parentId,
-                    'bracket_id'                   => $currentBracketId,
-                    'series_type'                  => $seriesTypeId,
-                    'retention_period'             => $retentionId,
-                    'is_retention_period_permanent' => $pendingIsPermanent,
-                    'is_verified'                  => true,
-                    'is_active'                    => true,
-                    'remarks'                      => trim($pendingRemarks ?? '') ?: null,
-                    'created_at'                   => now(),
-                    'updated_at'                   => now(),
-                ]);
+                $bId = $getCurrentBracketId();
+                $oCode = $getCurrentOfficeCode();
+
+                // Check for existing duplicate series to prevent duplicates
+                $existingQuery = DB::table('rdp_record_series')
+                    ->where('series_title', 'ilike', $pendingTitle);
+
+                if ($parentId === null) {
+                    $existingQuery->whereNull('parent_id');
+                } else {
+                    $existingQuery->where('parent_id', $parentId);
+                }
+
+                if ($bId === null) {
+                    $existingQuery->whereNull('bracket_id');
+                } else {
+                    $existingQuery->where('bracket_id', $bId);
+                }
+
+                if ($oCode === null) {
+                    $existingQuery->whereNull('recorded_at_office');
+                } else {
+                    $existingQuery->where('recorded_at_office', $oCode);
+                }
+
+                if ($seriesTypeId === null) {
+                    $existingQuery->whereNull('series_type');
+                } else {
+                    $existingQuery->where('series_type', $seriesTypeId);
+                }
+
+                $existing = $existingQuery->first();
+
+                if ($existing) {
+                    $updateData = ['updated_at' => now()];
+                    if ($pendingItemNo !== null) {
+                        $updateData['item_number'] = $pendingItemNo;
+                    }
+                    if ($retentionId !== null) {
+                        $updateData['retention_period'] = $retentionId;
+                    }
+                    if ($pendingIsPermanent) {
+                        $updateData['is_retention_period_permanent'] = true;
+                    }
+                    if (!empty($pendingRemarks)) {
+                        $updateData['remarks'] = trim($pendingRemarks);
+                    }
+
+                    DB::table('rdp_record_series')->where('id', $existing->id)->update($updateData);
+                    $seriesId = $existing->id;
+                } else {
+                    $seriesId = DB::table('rdp_record_series')->insertGetId([
+                        'item_number'                  => $pendingItemNo,
+                        'series_title'                 => $pendingTitle,
+                        'parent_id'                    => $parentId,
+                        'bracket_id'                   => $bId,
+                        'recorded_at_office'           => $oCode,
+                        'series_type'                  => $seriesTypeId,
+                        'retention_period'             => $retentionId,
+                        'is_retention_period_permanent' => $pendingIsPermanent,
+                        'is_verified'                  => true,
+                        'is_active'                    => true,
+                        'remarks'                      => trim($pendingRemarks ?? '') ?: null,
+                        'created_at'                   => now(),
+                        'updated_at'                   => now(),
+                    ]);
+                    $importedCount++;
+                }
 
                 $stack[$pendingDepth] = $seriesId;
                 foreach (array_keys($stack) as $d) {
@@ -656,8 +780,6 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Record Series')] class e
                         unset($stack[$d]);
                     }
                 }
-
-                $importedCount++;
 
                 $pendingItemNo = null;
                 $pendingTitle = null;
@@ -676,19 +798,30 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Record Series')] class e
                     continue;
                 }
 
-                // Check for Bracket block opening: [<bracket name>]{
+                // Check for Bracket block opening: [ <bracket name> ] { or [ <bracket name> ]{
                 if (preg_match('/^\[\s*(.+?)\s*\]\s*\{$/', $line, $matches)) {
                     $flushPending();
                     $bracketName = trim($matches[1]);
-                    $currentBracketId = $this->resolveBracketId($bracketName);
+                    $bracketId = $this->resolveBracketId($bracketName);
+                    $blockStack[] = ['type' => 'bracket', 'val' => $bracketId];
                     $stack = [];
                     continue;
                 }
 
-                // Check for Bracket block closing: }; or }
+                // Check for Office Section block opening: ( <section name> ) { or ( <section name> ){
+                if (preg_match('/^\(\s*(.+?)\s*\)\s*\{$/', $line, $matches)) {
+                    $flushPending();
+                    $sectionName = trim($matches[1]);
+                    $officeCode = $this->resolveOfficeCode($sectionName);
+                    $blockStack[] = ['type' => 'office', 'val' => $officeCode];
+                    $stack = [];
+                    continue;
+                }
+
+                // Check for Block closing: }; or }
                 if ($line === '};' || $line === '}') {
                     $flushPending();
-                    $currentBracketId = null;
+                    array_pop($blockStack);
                     $stack = [];
                     continue;
                 }
@@ -728,10 +861,13 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Record Series')] class e
                     continue;
                 }
 
-                // Retention line: [A=..., S=...] or Permanent
-                if ($hasPendingSeries && (str_starts_with($line, '[') || strtolower($line) === 'permanent;' || strtolower($line) === 'permanent')) {
+                // Retention line: [A=..., S=...], [P], Permanent;, P;, etc.
+                $lineLower = strtolower(rtrim($line, ';'));
+                $isPermLine = in_array($lineLower, ['p', 'permanent', '[p]', '[permanent]'], true);
+
+                if ($hasPendingSeries && (str_starts_with($line, '[') || $isPermLine)) {
                     $cleanLine = rtrim($line, ';');
-                    if (stristr($cleanLine, 'permanent')) {
+                    if ($isPermLine || stristr($cleanLine, 'permanent') || strcasecmp($cleanLine, 'P') === 0) {
                         $pendingIsPermanent = true;
                     } else {
                         if (preg_match('/A\s*=\s*[\'"]?([^\'",\]]+)[\'"]?/i', $cleanLine, $m)) {
@@ -748,20 +884,28 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Record Series')] class e
                     continue;
                 }
 
-                // Remarks line starting with $ or plain text
-                if ($hasPendingSeries) {
-                    if (str_starts_with($line, '$')) {
-                        $line = ltrim($line, '$');
-                    }
-                    $line = rtrim(trim($line), ';');
-                    if (!empty($line)) {
-                        $pendingRemarks = $pendingRemarks ? ($pendingRemarks . ' ' . $line) : $line;
+                // Remarks line starting with $
+                if ($hasPendingSeries && str_starts_with($line, '$')) {
+                    $remText = ltrim($line, '$');
+                    $remText = trim(rtrim(trim($remText), ';'));
+                    if (!empty($remText)) {
+                        $pendingRemarks = $pendingRemarks ? ($pendingRemarks . ' ' . $remText) : $remText;
                     }
                     continue;
                 }
 
+                // If title was missing on =, fill title first
                 if ($hasPendingSeries && empty($pendingTitle)) {
-                    $pendingTitle = rtrim($line, ';');
+                    $pendingTitle = trim(rtrim(trim($line), ';'));
+                    continue;
+                }
+
+                // Append any trailing remarks text
+                if ($hasPendingSeries) {
+                    $remText = trim(rtrim(trim($line), ';'));
+                    if (!empty($remText)) {
+                        $pendingRemarks = $pendingRemarks ? ($pendingRemarks . ' ' . $remText) : $remText;
+                    }
                 }
             }
 
@@ -855,6 +999,11 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Record Series')] class e
             ->orderBy('id', 'asc')
             ->get();
 
+        $offices = DB::table('office')
+            ->where('is_active', true)
+            ->orderBy('office_name', 'asc')
+            ->get();
+
         $bracketSuggestions = DB::table('rdp_record_series_brackets')
             ->select('bracket_name')
             ->where('is_active', true)
@@ -886,6 +1035,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Record Series')] class e
             ->leftJoin('rdp_retention_period', 'rdp_record_series.retention_period', '=', 'rdp_retention_period.id')
             ->leftJoin('rdp_record_series as parent', 'rdp_record_series.parent_id', '=', 'parent.id')
             ->leftJoin('rdp_record_series_brackets', 'rdp_record_series.bracket_id', '=', 'rdp_record_series_brackets.id')
+            ->leftJoin('office', 'rdp_record_series.recorded_at_office', '=', 'office.office_code')
             ->where('rdp_record_series.is_verified', true)
             ->select([
                 'rdp_record_series.*',
@@ -894,6 +1044,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Record Series')] class e
                 'rdp_retention_period.total_period',
                 'parent.series_title as parent_title',
                 'rdp_record_series_brackets.bracket_name',
+                'office.office_name as recorded_office_name',
             ]);
 
         if ($this->activeTab === 'unregistered') {
@@ -907,7 +1058,9 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Record Series')] class e
                 $q->where('rdp_record_series.series_title', 'ilike', '%' . $this->search . '%')
                   ->orWhere('rdp_record_series.remarks', 'ilike', '%' . $this->search . '%')
                   ->orWhere('parent.series_title', 'ilike', '%' . $this->search . '%')
-                  ->orWhere('rdp_record_series_brackets.bracket_name', 'ilike', '%' . $this->search . '%');
+                  ->orWhere('rdp_record_series_brackets.bracket_name', 'ilike', '%' . $this->search . '%')
+                  ->orWhere('office.office_name', 'ilike', '%' . $this->search . '%')
+                  ->orWhere('rdp_record_series.recorded_at_office', 'ilike', '%' . $this->search . '%');
             });
         }
 
@@ -915,14 +1068,19 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Record Series')] class e
             $query->where('rdp_record_series.is_active', $this->statusFilter === '1');
         }
 
-        $allFetched = $query->orderByRaw('rdp_record_series.item_number ASC NULLS LAST, rdp_record_series.series_title ASC')->get();
+        $allFetched = $query->orderByRaw('
+            rdp_record_series_brackets.bracket_name ASC NULLS LAST,
+            office.office_name ASC NULLS LAST,
+            rdp_record_series.item_number ASC NULLS LAST,
+            rdp_record_series.series_title ASC
+        ')->get();
 
         $allFetchedMap = [];
         foreach ($allFetched as $item) {
             $allFetchedMap[$item->id] = $item;
         }
 
-        $treeOrdered = $this->buildTreeHierarchy($allFetched->all());
+        $treeOrdered = $this->buildGroupedTreeHierarchy($allFetched->all());
 
         foreach ($treeOrdered as $item) {
             $eff = $this->resolveEffectiveRetention($allFetchedMap, $item);
@@ -934,7 +1092,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Record Series')] class e
         }
 
         $page = \Illuminate\Pagination\Paginator::resolveCurrentPage() ?: 1;
-        $perPage = 15;
+        $perPage = 25;
         $paginatedItems = array_slice($treeOrdered, ($page - 1) * $perPage, $perPage);
         $paginatedRecords = new \Illuminate\Pagination\LengthAwarePaginator(
             $paginatedItems,
@@ -950,6 +1108,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Record Series')] class e
             'editBracketSuggestions' => $editBracketSuggestions,
             'parentSuggestions'       => $parentSuggestions,
             'seriesTypes'             => $seriesTypes,
+            'offices'                 => $offices,
         ];
     }
 };
@@ -1021,12 +1180,23 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Record Series')] class e
                                 <ul class="ars-suggestions-list">
                                     @foreach($bracketSuggestions as $b)
                                         <li class="ars-suggestion-item" wire:click="selectBracketSuggestion('{{ addslashes($b->bracket_name) }}')">
-                                            📌 {{ $b->bracket_name }}
+                                            {{ $b->bracket_name }}
                                         </li>
                                     @endforeach
                                 </ul>
                             @endif
                         </div>
+                    </div>
+
+                    <!-- Recorded Office Selection -->
+                    <div class="ars-form-row">
+                        <span class="ars-label">Recorded Office:</span>
+                        <select class="ars-input" wire:model="newOfficeCode" style="font-weight: 600;">
+                            <option value="">No Office Section (Global / Unassigned)</option>
+                            @foreach($offices as $off)
+                                <option value="{{ $off->office_code }}">{{ $off->office_code }} — {{ $off->office_name }}</option>
+                            @endforeach
+                        </select>
                     </div>
 
                     <!-- Item Number -->
@@ -1050,7 +1220,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Record Series')] class e
                                 <ul class="ars-suggestions-list">
                                     @foreach($parentSuggestions as $ps)
                                         <li class="ars-suggestion-item" wire:click="selectParentSuggestion('{{ addslashes($ps->series_title) }}')">
-                                            📁 {{ $ps->series_title }}
+                                            {{ $ps->series_title }}
                                         </li>
                                     @endforeach
                                 </ul>
@@ -1135,7 +1305,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Record Series')] class e
     <div class="ars-table-card">
         <div class="ars-filter-bar">
             <div style="display: flex; gap: 12px; flex-wrap: wrap; flex: 1; align-items: center;">
-                <input type="text" class="ars-input" wire:model.live.debounce.300ms="search" placeholder="Search title, remarks, bracket..." style="max-width: 320px;">
+                <input type="text" class="ars-input" wire:model.live.debounce.300ms="search" placeholder="Search title, remarks, bracket, office..." style="max-width: 320px;">
 
                 <select class="ars-input" wire:model.live="statusFilter" style="max-width: 160px;">
                     <option value="">All Status</option>
@@ -1165,34 +1335,58 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Record Series')] class e
         </div>
 
         <div style="overflow-x: auto; width: 100%;">
-            <table class="ars-table" style="min-width: 1050px;">
+            <table class="ars-table" style="min-width: 1050px; border: 1.5px solid #cbd5e1;">
                 <thead>
-                    <tr>
-                        <th rowspan="2" style="width: 80px; text-align: center;">ITEM NO.</th>
-                        <th rowspan="2" style="text-align: center; width: 34%;">RECORD SERIES TITLE & DESCRIPTION</th>
-                        <th colspan="3" style="text-align: center; border-bottom: 1px solid var(--ars-slate-200); width: 225px;">RETENTION PERIOD</th>
-                        <th rowspan="2" style="text-align: center; width: 26%;">REMARKS</th>
-                        <th rowspan="2" style="text-align: center; width: 200px;">ACTIONS</th>
+                    <tr style="background: #f1f5f9;">
+                        <th rowspan="2" style="width: 80px; text-align: center; border: 1px solid #cbd5e1;">ITEM NO.</th>
+                        <th rowspan="2" style="text-align: center; width: 34%; border: 1px solid #cbd5e1;">RECORD SERIES TITLE & DESCRIPTION</th>
+                        <th colspan="3" style="text-align: center; border: 1px solid #cbd5e1; width: 225px;">RETENTION PERIOD</th>
+                        <th rowspan="2" style="text-align: center; width: 26%; border: 1px solid #cbd5e1;">REMARKS</th>
+                        <th rowspan="2" style="text-align: center; width: 200px; border: 1px solid #cbd5e1;">ACTIONS</th>
                     </tr>
-                    <tr>
-                        <th style="text-align: center; width: 75px;">ACTIVE</th>
-                        <th style="text-align: center; width: 75px;">STORAGE</th>
-                        <th style="text-align: center; width: 75px;">TOTAL</th>
+                    <tr style="background: #f1f5f9;">
+                        <th style="text-align: center; width: 75px; border: 1px solid #cbd5e1;">ACTIVE</th>
+                        <th style="text-align: center; width: 75px; border: 1px solid #cbd5e1;">STORAGE</th>
+                        <th style="text-align: center; width: 75px; border: 1px solid #cbd5e1;">TOTAL</th>
                     </tr>
                 </thead>
                 <tbody>
-                    @forelse($records as $record)
+                    @forelse($records as $index => $record)
+                        @php
+                            $prevRecord = $index > 0 ? $records[$index - 1] : null;
+                            $bracketChanged = !$prevRecord || ($prevRecord->bracket_id !== $record->bracket_id);
+                            $officeChanged = $bracketChanged || ($prevRecord->recorded_at_office !== $record->recorded_at_office);
+                        @endphp
+
+                        @if($bracketChanged && !empty($record->bracket_name))
+                            <!-- Bracket Section Header Banner (Matching Reference Layout e.g. OFFICE OF THE PRESIDENT) -->
+                            <tr style="background: #cbd5e1; font-weight: 800; font-size: 13.5px; text-align: center; color: #0f172a; letter-spacing: 0.8px;">
+                                <td colspan="7" style="padding: 10px 16px; border: 1.5px solid #94a3b8; text-transform: uppercase;">
+                                    {{ $record->bracket_name }}
+                                </td>
+                            </tr>
+                        @endif
+
+                        @if($officeChanged && !empty($record->recorded_at_office))
+                            <!-- Office / Section Header Banner (Matching Reference Layout e.g. BOARD/COLLEGE SECRETARY) -->
+                            <tr style="background: #e2e8f0; font-weight: 700; font-size: 12.5px; color: #1e293b; letter-spacing: 0.5px;">
+                                <td colspan="7" style="padding: 7px 20px; border: 1px solid #cbd5e1; text-align: left; padding-left: 45px; text-transform: uppercase;">
+                                    {{ $record->recorded_office_name ?? $record->recorded_at_office }}
+                                </td>
+                            </tr>
+                        @endif
+
                         @if($editingId === $record->id)
                             <!-- Inline Edit Row -->
                             <tr style="background: #fffbeb;">
-                                <td style="text-align: center;">
+                                <td style="text-align: center; border: 1px solid #cbd5e1;">
                                     <input type="number" class="ars-input" wire:model="editItemNumber" placeholder="No." style="width: 70px; text-align: center; font-weight: 700;">
                                 </td>
-                                <td style="text-align: center; position: relative;">
+                                <td style="text-align: center; position: relative; border: 1px solid #cbd5e1;">
                                     <input type="text" class="ars-input" wire:model="editSeriesTitle" style="font-weight: 700; margin-bottom: 4px; text-align: center;">
 
                                     <!-- Edit Bracket Autocomplete -->
-                                    <div style="position: relative;" wire:click.outside="$set('showEditBracketDropdown', false)">
+                                    <div style="position: relative; margin-bottom: 4px;" wire:click.outside="$set('showEditBracketDropdown', false)">
                                         <input type="text"
                                                class="ars-input"
                                                wire:model.live="editBracketInput"
@@ -1210,23 +1404,33 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Record Series')] class e
                                             </ul>
                                         @endif
                                     </div>
+
+                                    <!-- Edit Office Select -->
+                                    <div>
+                                        <select class="ars-input" wire:model="editOfficeCode" style="font-size: 11.5px; text-align: center;">
+                                            <option value="">No Office</option>
+                                            @foreach($offices as $off)
+                                                <option value="{{ $off->office_code }}">{{ $off->office_code }} ({{ $off->office_name }})</option>
+                                            @endforeach
+                                        </select>
+                                    </div>
                                 </td>
-                                <td>
+                                <td style="border: 1px solid #cbd5e1;">
                                     <label style="display: flex; align-items: center; justify-content: center; gap: 4px; font-size: 11px; font-weight: 700; color: var(--ars-blue-800); margin-bottom: 4px;">
                                         <input type="checkbox" wire:model.live="editIsPermanent" style="width: 14px; height: 14px; accent-color: var(--ars-blue-600);"> Permanent
                                     </label>
                                     <input type="text" class="ars-input" wire:model.live.debounce.200ms="editActivePeriod" placeholder="Active" {{ $editIsPermanent ? 'disabled style=opacity:0.4;' : '' }} style="text-align: center;">
                                 </td>
-                                <td>
+                                <td style="border: 1px solid #cbd5e1;">
                                     <input type="text" class="ars-input" wire:model.live.debounce.200ms="editStoragePeriod" placeholder="Storage" {{ $editIsPermanent ? 'disabled style=opacity:0.4;' : '' }} style="text-align: center;">
                                 </td>
-                                <td style="font-weight: 700; color: var(--ars-blue-800); text-align: center;">
+                                <td style="font-weight: 700; color: var(--ars-blue-800); text-align: center; border: 1px solid #cbd5e1;">
                                     {{ $this->computeTotalPeriod($editActivePeriod, $editStoragePeriod, $editIsPermanent) ?: '—' }}
                                 </td>
-                                <td style="text-align: center;">
+                                <td style="text-align: center; border: 1px solid #cbd5e1;">
                                     <input type="text" class="ars-input" wire:model="editRemarks" placeholder="Enter remarks..." style="width: 100%; text-align: center;">
                                 </td>
-                                <td style="text-align: center; white-space: nowrap; width: 200px;">
+                                <td style="text-align: center; white-space: nowrap; width: 200px; border: 1px solid #cbd5e1;">
                                     <div style="margin-bottom: 6px;">
                                         <label style="display: inline-flex; align-items: center; gap: 4px; font-size: 11px; font-weight: 700; cursor: pointer;">
                                             <input type="checkbox" wire:model="editIsActive" style="width: 14px; height: 14px;"> Active
@@ -1239,32 +1443,28 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Record Series')] class e
                         @else
                             <!-- Display Row -->
                             <tr>
-                                <td style="text-align: center; font-weight: 800; color: var(--ars-blue-800);">
-                                    {{ $record->item_number ? sprintf('%03d', $record->item_number) : '—' }}
+                                <td style="text-align: center; font-weight: 800; color: var(--ars-blue-800); border: 1px solid #cbd5e1;">
+                                    @if(($record->depth ?? 0) === 0)
+                                        {{ $record->item_number ?? '—' }}
+                                    @else
+                                        {{ $record->item_number ?? '' }}
+                                    @endif
                                 </td>
-                                <td style="text-align: center; padding-left: {{ (($record->depth ?? 0) * 16) + 12 }}px;">
-                                    <div style="display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px;">
+                                <td style="text-align: left; padding-left: {{ (($record->depth ?? 0) * 28) + 16 }}px; border: 1px solid #cbd5e1;">
+                                    <div style="display: flex; align-items: center; justify-content: space-between; gap: 8px;">
                                         <div>
                                             @if(($record->depth ?? 0) > 0)
                                                 <span style="color: var(--ars-blue-600); font-weight: 800; font-family: monospace; margin-right: 6px;">└─</span>
                                             @endif
-                                            <span style="font-weight: 800; color: var(--ars-slate-900);">{{ $record->series_title ?? '—' }}</span>
+                                            <span style="{{ ($record->depth ?? 0) === 0 ? 'font-weight: 800; font-size: 13.5px; color: #0f172a;' : (($record->depth ?? 0) === 1 ? 'font-weight: 700; font-size: 13px; color: #1e293b;' : 'font-weight: 600; font-size: 12.5px; color: #334155;') }}">
+                                                {{ $record->series_title ?? '—' }}
+                                            </span>
                                         </div>
-                                        @if(!empty($record->bracket_name))
-                                            <div>
-                                                <span class="ars-badge ars-badge-bracket">📌 {{ $record->bracket_name }}</span>
-                                            </div>
-                                        @endif
-                                        @if(!empty($record->parent_title))
-                                            <div style="font-size: 11.5px; color: var(--ars-slate-500); font-weight: 500;">
-                                                Parent: {{ $record->parent_title }}
-                                            </div>
-                                        @endif
                                         <div>
                                             @if($record->is_active)
-                                                <span class="ars-badge ars-badge-active" style="font-size: 10.5px;">Active</span>
+                                                <span class="ars-badge ars-badge-active" style="font-size: 10px; padding: 2px 6px;">Active</span>
                                             @else
-                                                <span class="ars-badge ars-badge-inactive" style="font-size: 10.5px;">Inactive</span>
+                                                <span class="ars-badge ars-badge-inactive" style="font-size: 10px; padding: 2px 6px;">Inactive</span>
                                             @endif
                                         </div>
                                     </div>
@@ -1277,33 +1477,31 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Record Series')] class e
                                 @endphp
 
                                 @if($isPermSeries)
-                                    <td colspan="3" style="text-align: center;">
-                                        <span class="ars-badge ars-badge-perm">
-                                            Permanent
-                                            @if(!empty($record->is_inherited))
-                                                <span style="font-size: 10px; font-weight: 600; opacity: 0.75; margin-left: 4px;">(Inherited)</span>
-                                            @endif
-                                        </span>
+                                    <td colspan="3" style="text-align: center; font-weight: 800; letter-spacing: 3px; color: #1e3a8a; background: #eff6ff; font-size: 12.5px; border: 1px solid #cbd5e1;">
+                                        P E R M A N E N T
+                                        @if(!empty($record->is_inherited))
+                                            <span style="font-size: 10px; font-weight: 600; opacity: 0.75; letter-spacing: normal; margin-left: 4px;">(Inherited)</span>
+                                        @endif
                                     </td>
                                 @else
-                                    <td style="color: var(--ars-slate-800); font-size: 13px; text-align: center;">
-                                        {{ $record->effective_active ?? '—' }}
+                                    <td style="color: var(--ars-slate-800); font-size: 13px; text-align: center; border: 1px solid #cbd5e1;">
+                                        {{ $record->effective_active ?? '' }}
                                     </td>
-                                    <td style="color: var(--ars-slate-800); font-size: 13px; text-align: center;">
-                                        {{ $record->effective_storage ?? '—' }}
+                                    <td style="color: var(--ars-slate-800); font-size: 13px; text-align: center; border: 1px solid #cbd5e1;">
+                                        {{ $record->effective_storage ?? '' }}
                                     </td>
-                                    <td style="color: var(--ars-slate-800); font-size: 13px; text-align: center;">
-                                        {{ $record->effective_total ?? '—' }}
+                                    <td style="color: var(--ars-slate-800); font-size: 13px; text-align: center; border: 1px solid #cbd5e1;">
+                                        {{ $record->effective_total ?? '' }}
                                         @if(!empty($record->is_inherited) && (!empty($record->effective_active) || !empty($record->effective_storage)))
                                             <span style="font-size: 10px; font-weight: 600; color: var(--ars-slate-500); margin-left: 4px;">(Inherited)</span>
                                         @endif
                                     </td>
                                 @endif
 
-                                <td style="color: var(--ars-slate-700); font-size: 13px; text-align: center; word-break: break-word;">
+                                <td style="color: var(--ars-slate-700); font-size: 13px; text-align: left; padding-left: 12px; word-break: break-word; border: 1px solid #cbd5e1;">
                                     {{ $record->remarks ?? '—' }}
                                 </td>
-                                <td style="text-align: center; white-space: nowrap; width: 200px;">
+                                <td style="text-align: center; white-space: nowrap; width: 200px; border: 1px solid #cbd5e1;">
                                     <button type="button" wire:click="startEdit({{ $record->id }})" class="ars-btn ars-btn-secondary" style="padding: 5px 10px; font-size: 12px; margin-right: 2px;">Edit</button>
                                     <button type="button" wire:click="toggleActive({{ $record->id }})" class="ars-btn ars-btn-secondary" style="padding: 5px 10px; font-size: 12px; margin-right: 2px; color: {{ $record->is_active ? '#ea580c' : '#16a34a' }};">
                                         {{ $record->is_active ? 'Deactivate' : 'Activate' }}
@@ -1323,9 +1521,33 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Record Series')] class e
             </table>
         </div>
 
-        <div style="margin-top: 16px;">
-            {{ $records->links() }}
-        </div>
+        <!-- Custom Styled Pagination Bar -->
+        @if($records->hasPages())
+            <div style="display: flex; align-items: center; justify-content: space-between; padding: 14px 20px; background: var(--ars-white); border: 1px solid var(--ars-slate-200); border-top: none; border-radius: 0 0 12px 12px; margin-top: 0; flex-wrap: wrap; gap: 12px;">
+                <div style="font-size: 13px; font-weight: 600; color: var(--ars-slate-600);">
+                    Showing <span style="font-weight: 800; color: var(--ars-slate-900);">{{ $records->firstItem() ?? 0 }}</span> to <span style="font-weight: 800; color: var(--ars-slate-900);">{{ $records->lastItem() ?? 0 }}</span> of <span style="font-weight: 800; color: var(--ars-slate-900);">{{ $records->total() }}</span> entries
+                </div>
+                <div style="display: flex; gap: 4px; align-items: center;">
+                    @if($records->onFirstPage())
+                        <button disabled class="ars-btn ars-btn-secondary" style="opacity: 0.4; cursor: not-allowed; padding: 5px 12px; font-size: 12px;">« Previous</button>
+                    @else
+                        <button wire:click="previousPage" class="ars-btn ars-btn-secondary" style="padding: 5px 12px; font-size: 12px;">« Previous</button>
+                    @endif
+
+                    @foreach($records->getUrlRange(1, $records->lastPage()) as $pageNumber => $url)
+                        <button wire:click="gotoPage({{ $pageNumber }})" class="ars-btn {{ $pageNumber === $records->currentPage() ? 'ars-btn-primary' : 'ars-btn-secondary' }}" style="padding: 5px 10px; font-size: 12px; min-width: 32px;">
+                            {{ $pageNumber }}
+                        </button>
+                    @endforeach
+
+                    @if($records->hasMorePages())
+                        <button wire:click="nextPage" class="ars-btn ars-btn-secondary" style="padding: 5px 12px; font-size: 12px;">Next »</button>
+                    @else
+                        <button disabled class="ars-btn ars-btn-secondary" style="opacity: 0.4; cursor: not-allowed; padding: 5px 12px; font-size: 12px;">Next »</button>
+                    @endif
+                </div>
+            </div>
+        @endif
     </div>
 
     <!-- Register New Record Series Type Modal (+) -->
@@ -1378,28 +1600,33 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Record Series')] class e
                     </div>
 
                     <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 10px; padding: 14px 16px; font-size: 12px; color: #334155; line-height: 1.5;">
-                        <strong style="color: #0f172a; display: block; margin-bottom: 6px;">Supported Syntax Cheat Sheet:</strong>
+                        <strong style="color: #0f172a; display: block; margin-bottom: 6px;">Supported Block Syntax Cheat Sheet:</strong>
                         <pre style="margin: 0; font-family: monospace; font-size: 11px; background: #0f172a; color: #38bdf8; padding: 10px 12px; border-radius: 6px; overflow-x: auto;">
-[OFFICE OF THE PRESIDENT]{
-=001;
-LIST;
-[A='1 Year'];
-$ President office list
-
-- Executive Directives;
-[A='2 Years', S='3 Years'];
-
-=002;
+[ MAIN BRACKET ] {
+= 001;
 GATE PASSES;
 [A='1 Year', S='2 Years'];
+
+( OFFICE OF THE PRESIDENT ) {
+ = 002;
+ EXECUTIVE DIRECTIVES;
+ [A='2 Years', S='3 Years'];
+
+ - Special Orders;
+ [A='1 Year'];
+};
+
+= 003;
+RECEIPTS;
 };
                         </pre>
                         <ul style="margin: 8px 0 0 16px; padding: 0;">
-                            <li><code>[BRACKET NAME]{ ... };</code> - Groups series under a bracket.</li>
-                            <li><code>=ItemNo; Title;</code> - Defines root series.</li>
-                            <li><code>- Title;</code> / <code>-- Title;</code> - Defines nested subsections.</li>
-                            <li><code>[A='...', S='...']</code> or <code>Permanent;</code> - Retention duration.</li>
-                            <li><code>$ Remarks</code> - Optional remarks description.</li>
+                            <li><code>[ BRACKET NAME ] { ... };</code> - Bracket container block.</li>
+                            <li><code>( OFFICE SECTION ) { ... };</code> - Office section block auto-filling <code>recorded_at_office</code> for enclosed series.</li>
+                            <li><code>= ItemNo; Title;</code> - Root record series.</li>
+                            <li><code>- Title;</code> / <code>-- Title;</code> - Nested subsections.</li>
+                            <li><code>[A='...', S='...']</code> or <code>P;</code> / <code>Permanent;</code> - Retention periods.</li>
+                            <li><code>$ Remarks</code> - Series remarks description.</li>
                         </ul>
                     </div>
                 </div>

@@ -32,7 +32,6 @@ return new class extends Migration
             $table->boolean('is_active')->default(true);
             $table->foreign('parent_id')->references('id')->on('rdp_record_series')->onDelete('cascade');
             $table->foreign('retention_period')->references('id')->on('rdp_retention_period')->onDelete('cascade');
-            $table->foreign('recorded_at_office')->references('office_code')->on('office')->onDelete('cascade');
             $table->timestamps();
         });
         

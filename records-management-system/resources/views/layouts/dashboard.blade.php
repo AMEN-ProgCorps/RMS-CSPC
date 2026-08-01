@@ -4,29 +4,33 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <link rel="icon" href="{{ asset('images/cspc.webp') }}" type="image/webp">
     <script>
+        window.assetPaths = {
+            toggleNavSection: "{{ asset('icons/toggle-nav-section.svg') }}",
+            toggleNavDefault: "{{ asset('icons/toggle-nav-default.svg') }}",
+        };
         function toggleDropdown() {
             const dropdownIcon = document.getElementById('dropdown-icon');
             const dropdown = document.getElementById('dropdown');
-            if (!dropdown.classList.contains('show')) {
+            if (!dropdown?.classList.contains('show')) {
                 window.dispatchEvent(new CustomEvent('close-notifications'));
             }
-            if (dropdownIcon.classList.contains('rotate')) {
+            if (dropdownIcon?.classList.contains('rotate')) {
                 dropdownIcon.classList.remove('rotate');
                 dropdownIcon.classList.toggle('revert');
             } else {
-                if (dropdownIcon.classList.contains('revert')) {
+                if (dropdownIcon?.classList.contains('revert')) {
                     dropdownIcon.classList.remove('revert');
                 }
-                dropdownIcon.classList.add('rotate');
+                dropdownIcon?.classList.add('rotate');
             }
-            dropdown.classList.toggle('show');
+            dropdown?.classList.toggle('show');
         }
         function closeActionsDropdown() {
             const dropdown = document.getElementById('dropdown');
             const dropdownIcon = document.getElementById('dropdown-icon');
-            if (dropdown && dropdown.classList.contains('show')) {
+            if (dropdown?.classList.contains('show')) {
                 dropdown.classList.remove('show');
-                if (dropdownIcon && dropdownIcon.classList.contains('rotate')) {
+                if (dropdownIcon?.classList.contains('rotate')) {
                     dropdownIcon.classList.remove('rotate');
                     dropdownIcon.classList.add('revert');
                 }
@@ -36,38 +40,42 @@
             const navigation = document.getElementById('navigation');
             const navMainIcon = document.getElementById('nav-main-icon');
             const articleContainer = document.getElementById('article-container');
+            const toggleNavSection = window.assetPaths?.toggleNavSection ?? "{{ asset('icons/toggle-nav-section.svg') }}";
+            const toggleNavDefault = window.assetPaths?.toggleNavDefault ?? "{{ asset('icons/toggle-nav-default.svg') }}";
+            if (!navigation || !articleContainer) return;
             if (navigation.classList.contains('imup')) {
                 navigation.classList.remove('imup');
                 navigation.classList.add('imdown');
                 articleContainer.classList.remove('imdown');
                 articleContainer.classList.add('imup');
-                navMainIcon.src = "{{ asset('icons/toggle-nav-section.svg') }}";
+                if (navMainIcon) navMainIcon.src = toggleNavSection;
             } else {
                 navigation.classList.remove('imdown');
                 navigation.classList.add('imup');
                 articleContainer.classList.remove('imup');
                 articleContainer.classList.add('imdown');
-                navMainIcon.src = "{{ asset('icons/toggle-nav-default.svg') }}";
+                if (navMainIcon) navMainIcon.src = toggleNavDefault;
             }
         }
         function resetNavProperties() {
             const navigation = document.getElementById('navigation');
             const navMainIcon = document.getElementById('nav-main-icon');
             const articleContainer = document.getElementById('article-container');
+            const toggleNavDefault = window.assetPaths?.toggleNavDefault ?? "{{ asset('icons/toggle-nav-default.svg') }}";
+            if (!navigation || !articleContainer) return;
             navigation.classList.remove('imdown');
             navigation.classList.add('imup');
             articleContainer.classList.remove('imup');
             articleContainer.classList.add('imdown');
-            navMainIcon.src = "{{ asset('icons/toggle-nav-default.svg') }}";
+            if (navMainIcon) navMainIcon.src = toggleNavDefault;
         }
         function showButtonSection(button_target) {
             const navigation = document.getElementById('navigation');
             let pla = document.getElementById(button_target);
-            if (navigation.classList.contains('imup')) {
+            if (navigation && navigation.classList.contains('imup') && pla) {
                 if (pla.classList.contains('show')) {
                     pla.classList.remove('show');
                 } else {
-                    // Find all other open button section containers and close them
                     document.querySelectorAll('.button-section-container.show').forEach(container => {
                         if (container.id !== button_target) {
                             container.classList.remove('show');

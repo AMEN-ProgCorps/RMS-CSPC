@@ -22,7 +22,6 @@
         <div class="button-label">
             <span>Management</span>
         </div>
-        <div class="spacer"></div>
         <div class="show-arrow">
             <svg xmlns="http://www.w3.org/2000/svg" width="18" height="11" viewBox="0 0 18 11" fill="none">
                 <path d="M2.03223 9.76953L2.20898 9.59277L8.8125 2.98828L15.418 9.59375L15.5947 9.77148L15.7715
@@ -85,7 +84,6 @@
         <div class="button-label">
             <span>Subsystems</span>
         </div>
-        <div class="spacer"></div>
         <div class="show-arrow">
             <svg xmlns="http://www.w3.org/2000/svg" width="18" height="11" viewBox="0 0 18 11" fill="none">
                 <path d="M2.03223 9.76953L2.20898 9.59277L8.8125 2.98828L15.418 9.59375L15.5947 9.77148L15.7715
@@ -118,7 +116,6 @@
         <div class="button-label">
             <span>Document Tracking Systems</span>
         </div>
-        <div class="spacer"></div>
         <div class="show-arrow">
             <svg xmlns="http://www.w3.org/2000/svg" width="18" height="11" viewBox="0 0 18 11" fill="none">
                 <path d="M2.03223 9.76953L2.20898 9.59277L8.8125 2.98828L15.418 9.59375L15.5947 9.77148L15.7715
@@ -147,7 +144,6 @@
         <div class="button-label">
             <span>Records Disposition Program</span>
         </div>
-        <div class="spacer"></div>
         <div class="show-arrow">
             <svg xmlns="http://www.w3.org/2000/svg" width="18" height="11" viewBox="0 0 18 11" fill="none">
                 <path d="M2.03223 9.76953L2.20898 9.59277L8.8125 2.98828L15.418 9.59375L15.5947 9.77148L15.7715

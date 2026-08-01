@@ -1031,7 +1031,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Record Series')] class e
             ->limit(8)
             ->get();
 
-        $query = DB::table('rdp_record_series')
+        $baseQuery = DB::table('rdp_record_series')
             ->leftJoin('rdp_retention_period', 'rdp_record_series.retention_period', '=', 'rdp_retention_period.id')
             ->leftJoin('rdp_record_series as parent', 'rdp_record_series.parent_id', '=', 'parent.id')
             ->leftJoin('rdp_record_series_brackets', 'rdp_record_series.bracket_id', '=', 'rdp_record_series_brackets.id')
@@ -1047,28 +1047,77 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Record Series')] class e
                 'office.office_name as recorded_office_name',
             ]);
 
+        $seriesTypeId = is_numeric($this->activeTab) ? (int)$this->activeTab : null;
+
         if ($this->activeTab === 'unregistered') {
-            $query->whereNull('rdp_record_series.series_type');
-        } elseif (is_numeric($this->activeTab)) {
-            $query->where('rdp_record_series.series_type', (int) $this->activeTab);
+            $baseQuery->whereNull('rdp_record_series.series_type');
+        } elseif ($seriesTypeId !== null) {
+            $baseQuery->where('rdp_record_series.series_type', $seriesTypeId);
         }
 
-        if (!empty($this->search)) {
-            $query->where(function ($q) {
-                $q->where('rdp_record_series.series_title', 'ilike', '%' . $this->search . '%')
-                  ->orWhere('rdp_record_series.remarks', 'ilike', '%' . $this->search . '%')
-                  ->orWhere('parent.series_title', 'ilike', '%' . $this->search . '%')
-                  ->orWhere('rdp_record_series_brackets.bracket_name', 'ilike', '%' . $this->search . '%')
-                  ->orWhere('office.office_name', 'ilike', '%' . $this->search . '%')
-                  ->orWhere('rdp_record_series.recorded_at_office', 'ilike', '%' . $this->search . '%');
-            });
+        if (!empty(trim($this->search))) {
+            $searchTerm = '%' . trim($this->search) . '%';
+
+            $matchedQuery = DB::table('rdp_record_series')
+                ->leftJoin('rdp_record_series_brackets', 'rdp_record_series.bracket_id', '=', 'rdp_record_series_brackets.id')
+                ->leftJoin('office', 'rdp_record_series.recorded_at_office', '=', 'office.office_code')
+                ->where('rdp_record_series.is_verified', true);
+
+            if ($this->activeTab === 'unregistered') {
+                $matchedQuery->whereNull('rdp_record_series.series_type');
+            } elseif ($seriesTypeId !== null) {
+                $matchedQuery->where('rdp_record_series.series_type', $seriesTypeId);
+            }
+
+            $matchedIds = $matchedQuery->where(function ($q) use ($searchTerm) {
+                $q->where('rdp_record_series.series_title', 'ilike', $searchTerm)
+                  ->orWhere('rdp_record_series.remarks', 'ilike', $searchTerm)
+                  ->orWhere('rdp_record_series_brackets.bracket_name', 'ilike', $searchTerm)
+                  ->orWhere('office.office_name', 'ilike', $searchTerm)
+                  ->orWhere('rdp_record_series.recorded_at_office', 'ilike', $searchTerm)
+                  ->orWhere(DB::raw("CAST(rdp_record_series.item_number AS TEXT)"), 'ilike', $searchTerm);
+            })->pluck('rdp_record_series.id')->toArray();
+
+            $allTypeSeries = DB::table('rdp_record_series')
+                ->where('is_verified', true)
+                ->when($this->activeTab === 'unregistered', fn($q) => $q->whereNull('series_type'))
+                ->when($seriesTypeId !== null, fn($q) => $q->where('series_type', $seriesTypeId))
+                ->get();
+
+            $includedIds = [];
+            foreach ($matchedIds as $mId) {
+                $includedIds[$mId] = true;
+
+                $collectChildren = function($pId) use (&$collectChildren, &$includedIds, $allTypeSeries) {
+                    foreach ($allTypeSeries as $s) {
+                        if ($s->parent_id == $pId) {
+                            $includedIds[$s->id] = true;
+                            $collectChildren($s->id);
+                        }
+                    }
+                };
+                $collectChildren($mId);
+
+                $currId = $mId;
+                while ($currId) {
+                    $item = $allTypeSeries->firstWhere('id', $currId);
+                    if ($item && $item->parent_id) {
+                        $includedIds[$item->parent_id] = true;
+                        $currId = $item->parent_id;
+                    } else {
+                        break;
+                    }
+                }
+            }
+
+            $baseQuery->whereIn('rdp_record_series.id', array_keys($includedIds));
         }
 
         if ($this->statusFilter !== '') {
-            $query->where('rdp_record_series.is_active', $this->statusFilter === '1');
+            $baseQuery->where('rdp_record_series.is_active', $this->statusFilter === '1');
         }
 
-        $allFetched = $query->orderByRaw('
+        $allFetched = $baseQuery->orderByRaw('
             rdp_record_series_brackets.bracket_name ASC NULLS LAST,
             office.office_name ASC NULLS LAST,
             rdp_record_series.item_number ASC NULLS LAST,
@@ -1301,8 +1350,24 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Record Series')] class e
         </div>
     @endif
 
-    <!-- Data Table & Search Toolbar Card -->
-    <div class="ars-table-card">
+    <!-- Data Table Card with Alpine.js Collapsible State -->
+    <div class="ars-table-card" x-data="{ 
+        collapsedBrackets: {}, 
+        collapsedOffices: {}, 
+        search: @entangle('search').live,
+        toggleBracket(id) { 
+            this.collapsedBrackets[id] = !this.collapsedBrackets[id]; 
+        }, 
+        toggleOffice(id) { 
+            this.collapsedOffices[id] = !this.collapsedOffices[id]; 
+        },
+        isBracketCollapsed(bId) { 
+            return !this.search && !!this.collapsedBrackets[bId]; 
+        },
+        isRowCollapsed(bId, oId) { 
+            return !this.search && (!!this.collapsedBrackets[bId] || !!this.collapsedOffices[oId]); 
+        }
+    }">
         <div class="ars-filter-bar">
             <div style="display: flex; gap: 12px; flex-wrap: wrap; flex: 1; align-items: center;">
                 <input type="text" class="ars-input" wire:model.live.debounce.300ms="search" placeholder="Search title, remarks, bracket, office..." style="max-width: 320px;">
@@ -1322,7 +1387,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Record Series')] class e
 
             <div style="display: flex; gap: 8px; align-items: center;">
                 <button type="button" wire:click="openImportModal" class="ars-btn ars-btn-import">
-                    <span>📄</span> Import File
+                    Import File
                 </button>
                 <button type="button" wire:click="toggleAddForm" class="ars-btn {{ $showAddForm ? 'ars-btn-danger' : 'ars-btn-primary' }}">
                     @if($showAddForm)
@@ -1356,21 +1421,25 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Record Series')] class e
                             $prevRecord = $index > 0 ? $records[$index - 1] : null;
                             $bracketChanged = !$prevRecord || ($prevRecord->bracket_id !== $record->bracket_id);
                             $officeChanged = $bracketChanged || ($prevRecord->recorded_at_office !== $record->recorded_at_office);
+                            $bKey = 'b_' . ($record->bracket_id ?? 'none');
+                            $oKey = 'o_' . ($record->bracket_id ?? 'none') . '_' . ($record->recorded_at_office ?? 'none');
                         @endphp
 
                         @if($bracketChanged && !empty($record->bracket_name))
-                            <!-- Bracket Section Header Banner (Matching Reference Layout e.g. OFFICE OF THE PRESIDENT) -->
-                            <tr style="background: #cbd5e1; font-weight: 800; font-size: 13.5px; text-align: center; color: #0f172a; letter-spacing: 0.8px;">
+                            <!-- Bracket Section Header Banner (Collapsible) -->
+                            <tr x-on:click="toggleBracket('{{ $bKey }}')" style="background: #cbd5e1; font-weight: 800; font-size: 13.5px; text-align: center; color: #0f172a; letter-spacing: 0.8px; cursor: pointer; user-select: none;">
                                 <td colspan="7" style="padding: 10px 16px; border: 1.5px solid #94a3b8; text-transform: uppercase;">
+                                    <span x-text="isBracketCollapsed('{{ $bKey }}') ? '►' : '▼'" style="font-size: 11px; margin-right: 6px; color: #475569;"></span>
                                     {{ $record->bracket_name }}
                                 </td>
                             </tr>
                         @endif
 
                         @if($officeChanged && !empty($record->recorded_at_office))
-                            <!-- Office / Section Header Banner (Matching Reference Layout e.g. BOARD/COLLEGE SECRETARY) -->
-                            <tr style="background: #e2e8f0; font-weight: 700; font-size: 12.5px; color: #1e293b; letter-spacing: 0.5px;">
+                            <!-- Office / Section Header Banner (Collapsible) -->
+                            <tr x-show="!isBracketCollapsed('{{ $bKey }}')" x-on:click="toggleOffice('{{ $oKey }}')" style="background: #e2e8f0; font-weight: 700; font-size: 12.5px; color: #1e293b; letter-spacing: 0.5px; cursor: pointer; user-select: none;">
                                 <td colspan="7" style="padding: 7px 20px; border: 1px solid #cbd5e1; text-align: left; padding-left: 45px; text-transform: uppercase;">
+                                    <span x-text="collapsedOffices['{{ $oKey }}'] ? '►' : '▼'" style="font-size: 10px; margin-right: 6px; color: #64748b;"></span>
                                     {{ $record->recorded_office_name ?? $record->recorded_at_office }}
                                 </td>
                             </tr>
@@ -1378,7 +1447,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Record Series')] class e
 
                         @if($editingId === $record->id)
                             <!-- Inline Edit Row -->
-                            <tr style="background: #fffbeb;">
+                            <tr x-show="!isRowCollapsed('{{ $bKey }}', '{{ $oKey }}')" style="background: #fffbeb;">
                                 <td style="text-align: center; border: 1px solid #cbd5e1;">
                                     <input type="number" class="ars-input" wire:model="editItemNumber" placeholder="No." style="width: 70px; text-align: center; font-weight: 700;">
                                 </td>
@@ -1398,7 +1467,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Record Series')] class e
                                             <ul class="ars-suggestions-list">
                                                 @foreach($editBracketSuggestions as $b)
                                                     <li class="ars-suggestion-item" wire:click="selectEditBracketSuggestion('{{ addslashes($b->bracket_name) }}')">
-                                                        📌 {{ $b->bracket_name }}
+                                                        {{ $b->bracket_name }}
                                                     </li>
                                                 @endforeach
                                             </ul>
@@ -1442,7 +1511,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Record Series')] class e
                             </tr>
                         @else
                             <!-- Display Row -->
-                            <tr>
+                            <tr x-show="!isRowCollapsed('{{ $bKey }}', '{{ $oKey }}')">
                                 <td style="text-align: center; font-weight: 800; color: var(--ars-blue-800); border: 1px solid #cbd5e1;">
                                     @if(($record->depth ?? 0) === 0)
                                         {{ $record->item_number ?? '—' }}
@@ -1621,8 +1690,8 @@ RECEIPTS;
 };
                         </pre>
                         <ul style="margin: 8px 0 0 16px; padding: 0;">
-                            <li><code>[ BRACKET NAME ] { ... };</code> - Bracket container block.</li>
-                            <li><code>( OFFICE SECTION ) { ... };</code> - Office section block auto-filling <code>recorded_at_office</code> for enclosed series.</li>
+                            <li><code>[ BRACKET NAME ] { ... };</code> - Optional Bracket container block.</li>
+                            <li><code>( OFFICE SECTION ) { ... };</code> - Optional Office section block (can be used with or without Brackets).</li>
                             <li><code>= ItemNo; Title;</code> - Root record series.</li>
                             <li><code>- Title;</code> / <code>-- Title;</code> - Nested subsections.</li>
                             <li><code>[A='...', S='...']</code> or <code>P;</code> / <code>Permanent;</code> - Retention periods.</li>

@@ -75,6 +75,60 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Reference Se
         ];
     }
 
+    private function buildGroupedTreeHierarchy(array $records): array
+    {
+        $byBracketAndOffice = [];
+        foreach ($records as $r) {
+            $bKey = $r->bracket_id ? ('b_' . $r->bracket_id) : 'no_bracket';
+            $oKey = $r->recorded_at_office ? ('o_' . $r->recorded_at_office) : 'no_office';
+            $byBracketAndOffice[$bKey][$oKey][] = $r;
+        }
+
+        $finalOrdered = [];
+
+        foreach ($byBracketAndOffice as $bKey => $officeGroups) {
+            foreach ($officeGroups as $oKey => $items) {
+                $itemIdsInGroup = array_column($items, 'id');
+                $byParent = [];
+                foreach ($items as $item) {
+                    $pId = $item->parent_id ?? 0;
+                    if ($pId > 0 && !in_array($pId, $itemIdsInGroup, true)) {
+                        $pId = 0;
+                    }
+                    $byParent[$pId][] = $item;
+                }
+
+                $groupOrdered = [];
+                $flatten = function ($parentId, $depth) use (&$flatten, &$groupOrdered, $byParent) {
+                    if (!isset($byParent[$parentId])) {
+                        return;
+                    }
+                    foreach ($byParent[$parentId] as $item) {
+                        $item->depth = $depth;
+                        $groupOrdered[] = $item;
+                        $flatten($item->id, $depth + 1);
+                    }
+                };
+
+                $flatten(0, 0);
+
+                $addedIds = array_column($groupOrdered, 'id');
+                foreach ($items as $item) {
+                    if (!in_array($item->id, $addedIds, true)) {
+                        $item->depth = 0;
+                        $groupOrdered[] = $item;
+                    }
+                }
+
+                foreach ($groupOrdered as $go) {
+                    $finalOrdered[] = $go;
+                }
+            }
+        }
+
+        return $finalOrdered;
+    }
+
     public function with(): array
     {
         if (!$this->typeRecord) {
@@ -84,6 +138,8 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Reference Se
             ];
         }
 
+        $typeId = $this->typeRecord->id;
+
         $allFetchedMap = DB::table('rdp_record_series')
             ->leftJoin('rdp_retention_period', 'rdp_record_series.retention_period', '=', 'rdp_retention_period.id')
             ->select(['rdp_record_series.*', 'rdp_retention_period.active_period', 'rdp_retention_period.storage_period', 'rdp_retention_period.total_period'])
@@ -91,36 +147,93 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Reference Se
             ->keyBy('id')
             ->all();
 
-        $query = DB::table('rdp_record_series')
+        $baseQuery = DB::table('rdp_record_series')
             ->leftJoin('rdp_retention_period', 'rdp_record_series.retention_period', '=', 'rdp_retention_period.id')
             ->leftJoin('rdp_record_series as parent', 'rdp_record_series.parent_id', '=', 'parent.id')
+            ->leftJoin('rdp_record_series_brackets', 'rdp_record_series.bracket_id', '=', 'rdp_record_series_brackets.id')
+            ->leftJoin('office', 'rdp_record_series.recorded_at_office', '=', 'office.office_code')
+            ->where('rdp_record_series.series_type', $typeId)
+            ->where('rdp_record_series.is_verified', true)
+            ->where('rdp_record_series.is_active', true)
             ->select([
                 'rdp_record_series.*',
                 'rdp_retention_period.active_period',
                 'rdp_retention_period.storage_period',
                 'rdp_retention_period.total_period',
                 'parent.series_title as parent_title',
+                'rdp_record_series_brackets.bracket_name',
+                'office.office_name as recorded_office_name',
             ]);
-
-        // Filter strictly by series_type id and verified status
-        $typeId = $this->typeRecord->id;
-        $query->where('rdp_record_series.series_type', $typeId)
-              ->where('rdp_record_series.is_verified', true);
 
         if (!empty(trim($this->search))) {
             $searchTerm = '%' . trim($this->search) . '%';
-            $query->where(function ($q) use ($searchTerm) {
-                $q->where('rdp_record_series.series_title', 'ILIKE', $searchTerm)
-                  ->orWhere('rdp_record_series.remarks', 'ILIKE', $searchTerm)
-                  ->orWhere(DB::raw("CAST(rdp_record_series.item_number AS TEXT)"), 'ILIKE', $searchTerm);
-            });
+
+            // 1. Find direct matching record IDs
+            $matchedIds = DB::table('rdp_record_series')
+                ->leftJoin('rdp_record_series_brackets', 'rdp_record_series.bracket_id', '=', 'rdp_record_series_brackets.id')
+                ->leftJoin('office', 'rdp_record_series.recorded_at_office', '=', 'office.office_code')
+                ->where('rdp_record_series.series_type', $typeId)
+                ->where('rdp_record_series.is_verified', true)
+                ->where('rdp_record_series.is_active', true)
+                ->where(function ($q) use ($searchTerm) {
+                    $q->where('rdp_record_series.series_title', 'ILIKE', $searchTerm)
+                      ->orWhere('rdp_record_series.remarks', 'ILIKE', $searchTerm)
+                      ->orWhere('rdp_record_series_brackets.bracket_name', 'ILIKE', $searchTerm)
+                      ->orWhere('office.office_name', 'ILIKE', $searchTerm)
+                      ->orWhere('rdp_record_series.recorded_at_office', 'ILIKE', $searchTerm)
+                      ->orWhere(DB::raw("CAST(rdp_record_series.item_number AS TEXT)"), 'ILIKE', $searchTerm);
+                })
+                ->pluck('rdp_record_series.id')
+                ->toArray();
+
+            // 2. Fetch all series in this type to traverse hierarchy
+            $allTypeSeries = DB::table('rdp_record_series')
+                ->where('series_type', $typeId)
+                ->where('is_verified', true)
+                ->where('is_active', true)
+                ->get();
+
+            $includedIds = [];
+            foreach ($matchedIds as $mId) {
+                $includedIds[$mId] = true;
+
+                // Collect all child & grandchild subsections of mId
+                $collectChildren = function($pId) use (&$collectChildren, &$includedIds, $allTypeSeries) {
+                    foreach ($allTypeSeries as $s) {
+                        if ($s->parent_id == $pId) {
+                            $includedIds[$s->id] = true;
+                            $collectChildren($s->id);
+                        }
+                    }
+                };
+                $collectChildren($mId);
+
+                // Collect all ancestors of mId so parent structure remains intact
+                $currId = $mId;
+                while ($currId) {
+                    $item = $allTypeSeries->firstWhere('id', $currId);
+                    if ($item && $item->parent_id) {
+                        $includedIds[$item->parent_id] = true;
+                        $currId = $item->parent_id;
+                    } else {
+                        break;
+                    }
+                }
+            }
+
+            $baseQuery->whereIn('rdp_record_series.id', array_keys($includedIds));
         }
 
-        $records = $query->orderByRaw('item_number ASC NULLS LAST')
-            ->orderBy('rdp_record_series.id', 'asc')
-            ->get();
+        $allFetched = $baseQuery->orderByRaw('
+            rdp_record_series_brackets.bracket_name ASC NULLS LAST,
+            office.office_name ASC NULLS LAST,
+            rdp_record_series.item_number ASC NULLS LAST,
+            rdp_record_series.series_title ASC
+        ')->get();
 
-        foreach ($records as $rec) {
+        $treeOrdered = $this->buildGroupedTreeHierarchy($allFetched->all());
+
+        foreach ($treeOrdered as $rec) {
             $eff = $this->resolveEffectiveRetention($allFetchedMap, $rec);
             $rec->effective_active = $eff->active_period;
             $rec->effective_storage = $eff->storage_period;
@@ -130,7 +243,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Reference Se
         }
 
         return [
-            'seriesList' => $records,
+            'seriesList' => $treeOrdered,
             'typeRecord' => $this->typeRecord,
         ];
     }
@@ -211,121 +324,6 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Reference Se
         .ref-clear-btn:hover {
             background: #e2e8f0;
         }
-
-        /* NAP Form 2 Styled Table */
-        .nap2-table-wrapper {
-            background: #ffffff;
-            border: 1px solid #cbd5e1;
-            border-radius: 12px;
-            overflow: hidden;
-            box-shadow: 0 4px 6px -1px rgba(0,0,0,0.05);
-        }
-        .nap2-table {
-            width: 100%;
-            border-collapse: collapse;
-            text-align: left;
-            font-size: 14px;
-        }
-        .nap2-table thead tr:first-child th {
-            background: #1e293b;
-            color: #ffffff;
-            font-weight: 600;
-            padding: 12px 14px;
-            border-right: 1px solid #334155;
-            text-align: center;
-        }
-        .nap2-table thead tr:nth-child(2) th {
-            background: #334155;
-            color: #f8fafc;
-            font-weight: 500;
-            font-size: 12px;
-            padding: 8px 10px;
-            border-right: 1px solid #475569;
-            text-align: center;
-        }
-        .nap2-table tbody tr {
-            border-bottom: 1px solid #e2e8f0;
-            transition: background 0.15s;
-        }
-        .nap2-table tbody tr:hover {
-            background: #f8fafc;
-        }
-        .nap2-table td {
-            padding: 12px 14px;
-            color: #334155;
-            vertical-align: top;
-            border-right: 1px solid #e2e8f0;
-        }
-        .nap2-table td:last-child {
-            border-right: none;
-        }
-        .col-item-no {
-            width: 100px;
-            text-align: center;
-            font-weight: 600;
-            color: #0f172a;
-        }
-        .col-title {
-            min-width: 320px;
-        }
-        .col-retention {
-            width: 110px;
-            text-align: center;
-        }
-        .col-remarks {
-            min-width: 220px;
-            color: #64748b;
-            font-size: 13px;
-        }
-        .root-series-title {
-            font-weight: 700;
-            color: #0f172a;
-            font-size: 15px;
-        }
-        .child-series-title {
-            padding-left: 20px;
-            color: #334155;
-            position: relative;
-        }
-        .child-series-title::before {
-            content: "↳ ";
-            color: #94a3b8;
-            font-weight: 600;
-        }
-        .parent-tag {
-            font-size: 11px;
-            color: #64748b;
-            background: #f1f5f9;
-            padding: 2px 6px;
-            border-radius: 4px;
-            margin-bottom: 4px;
-            display: inline-block;
-        }
-        .perm-badge {
-            background: #dcfce7;
-            color: #166534;
-            border: 1px solid #bbf7d0;
-            padding: 3px 10px;
-            border-radius: 12px;
-            font-size: 12px;
-            font-weight: 600;
-            display: inline-block;
-        }
-        .inherited-note {
-            font-size: 11px;
-            color: #94a3b8;
-            font-style: italic;
-            margin-top: 2px;
-        }
-        .empty-state {
-            padding: 48px;
-            text-align: center;
-            color: #64748b;
-        }
-        .empty-state svg {
-            margin-bottom: 12px;
-            opacity: 0.5;
-        }
     </style>
 
     <div class="ref-header-card">
@@ -335,76 +333,137 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Reference Se
                 <span class="ref-badge">{{ $typeRecord->shorted_type ?? $type }}</span>
             </h1>
             <p class="ref-subtitle">
-                Official Record Series Reference Matrix for <strong>{{ $typeRecord->type_name ?? $type }}</strong> (NAP Form 2 Format)
+                Official Record Series Reference Matrix for <strong>{{ $typeRecord->type_name ?? $type }}</strong>
             </p>
         </div>
         <div class="ref-search-box">
-            <input type="text" wire:model.live.debounce.250ms="search" class="ref-search-input" placeholder="Search item number or series title...">
+            <input type="text" wire:model.live.debounce.250ms="search" class="ref-search-input" placeholder="Search item number, title, bracket, office...">
             @if(!empty($search))
                 <button wire:click="clearSearch" class="ref-clear-btn">Clear</button>
             @endif
         </div>
     </div>
 
-    <div class="nap2-table-wrapper">
-        <table class="nap2-table">
+    <!-- Alpine.js Collapsible Table Container -->
+    <div x-data="{ 
+        collapsedBrackets: {}, 
+        collapsedOffices: {}, 
+        search: @entangle('search').live,
+        toggleBracket(id) { 
+            this.collapsedBrackets[id] = !this.collapsedBrackets[id]; 
+        }, 
+        toggleOffice(id) { 
+            this.collapsedOffices[id] = !this.collapsedOffices[id]; 
+        },
+        isBracketCollapsed(bId) { 
+            return !this.search && !!this.collapsedBrackets[bId]; 
+        },
+        isRowCollapsed(bId, oId) { 
+            return !this.search && (!!this.collapsedBrackets[bId] || !!this.collapsedOffices[oId]); 
+        }
+    }" style="overflow-x: auto; width: 100%; background: #ffffff; border-radius: 12px; border: 1.5px solid #cbd5e1; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.05);">
+        <table style="width: 100%; min-width: 950px; border-collapse: collapse;">
             <thead>
-                <tr>
-                    <th rowspan="2" style="width: 100px;">Item No.</th>
-                    <th rowspan="2">Record Series Title & Description</th>
-                    <th colspan="3">Retention Period</th>
-                    <th rowspan="2">Remarks</th>
+                <tr style="background: #f1f5f9;">
+                    <th rowspan="2" style="width: 80px; text-align: center; border: 1px solid #cbd5e1; padding: 10px; font-weight: 700; color: #0f172a; font-size: 13px;">ITEM NO.</th>
+                    <th rowspan="2" style="text-align: center; width: 40%; border: 1px solid #cbd5e1; padding: 10px; font-weight: 700; color: #0f172a; font-size: 13px;">RECORD SERIES TITLE & DESCRIPTION</th>
+                    <th colspan="3" style="text-align: center; border: 1px solid #cbd5e1; padding: 8px; font-weight: 700; color: #0f172a; font-size: 13px; width: 225px;">RETENTION PERIOD</th>
+                    <th rowspan="2" style="text-align: center; width: 30%; border: 1px solid #cbd5e1; padding: 10px; font-weight: 700; color: #0f172a; font-size: 13px;">REMARKS</th>
                 </tr>
-                <tr>
-                    <th style="width: 110px;">Active</th>
-                    <th style="width: 110px;">Storage</th>
-                    <th style="width: 130px;">Total</th>
+                <tr style="background: #f1f5f9;">
+                    <th style="text-align: center; width: 75px; border: 1px solid #cbd5e1; padding: 8px; font-weight: 600; color: #334155; font-size: 12px;">ACTIVE</th>
+                    <th style="text-align: center; width: 75px; border: 1px solid #cbd5e1; padding: 8px; font-weight: 600; color: #334155; font-size: 12px;">STORAGE</th>
+                    <th style="text-align: center; width: 75px; border: 1px solid #cbd5e1; padding: 8px; font-weight: 600; color: #334155; font-size: 12px;">TOTAL</th>
                 </tr>
             </thead>
             <tbody>
-                @forelse($seriesList as $series)
-                    <tr>
-                        <td class="col-item-no">
-                            {{ $series->item_number ? sprintf('%03d', $series->item_number) : '—' }}
-                        </td>
-                        <td class="col-title">
-                            @if(!empty($series->parent_title))
-                                <div class="parent-tag">Sub-series of: {{ $series->parent_title }}</div>
-                                <div class="child-series-title">{{ $series->series_title }}</div>
+                @forelse($seriesList as $index => $record)
+                    @php
+                        $prevRecord = $index > 0 ? $seriesList[$index - 1] : null;
+                        $bracketChanged = !$prevRecord || ($prevRecord->bracket_id !== $record->bracket_id);
+                        $officeChanged = $bracketChanged || ($prevRecord->recorded_at_office !== $record->recorded_at_office);
+                        $bKey = 'b_' . ($record->bracket_id ?? 'none');
+                        $oKey = 'o_' . ($record->bracket_id ?? 'none') . '_' . ($record->recorded_at_office ?? 'none');
+                    @endphp
+
+                    @if($bracketChanged && !empty($record->bracket_name))
+                        <!-- Bracket Section Header Banner (Collapsible) -->
+                        <tr x-on:click="toggleBracket('{{ $bKey }}')" style="background: #cbd5e1; font-weight: 800; font-size: 13.5px; text-align: center; color: #0f172a; letter-spacing: 0.8px; cursor: pointer; user-select: none;">
+                            <td colspan="6" style="padding: 10px 16px; border: 1.5px solid #94a3b8; text-transform: uppercase;">
+                                <span x-text="isBracketCollapsed('{{ $bKey }}') ? '►' : '▼'" style="font-size: 11px; margin-right: 6px; color: #475569;"></span>
+                                {{ $record->bracket_name }}
+                            </td>
+                        </tr>
+                    @endif
+
+                    @if($officeChanged && !empty($record->recorded_at_office))
+                        <!-- Office / Section Header Banner (Collapsible) -->
+                        <tr x-show="!isBracketCollapsed('{{ $bKey }}')" x-on:click="toggleOffice('{{ $oKey }}')" style="background: #e2e8f0; font-weight: 700; font-size: 12.5px; color: #1e293b; letter-spacing: 0.5px; cursor: pointer; user-select: none;">
+                            <td colspan="6" style="padding: 7px 20px; border: 1px solid #cbd5e1; text-align: left; padding-left: 45px; text-transform: uppercase;">
+                                <span x-text="collapsedOffices['{{ $oKey }}'] ? '►' : '▼'" style="font-size: 10px; margin-right: 6px; color: #64748b;"></span>
+                                {{ $record->recorded_office_name ?? $record->recorded_at_office }}
+                            </td>
+                        </tr>
+                    @endif
+
+                    <!-- Display Row -->
+                    <tr x-show="!isRowCollapsed('{{ $bKey }}', '{{ $oKey }}')" style="border-bottom: 1px solid #cbd5e1;">
+                        <td style="text-align: center; font-weight: 800; color: #1e3a8a; border: 1px solid #cbd5e1; padding: 10px;">
+                            @if(($record->depth ?? 0) === 0)
+                                {{ $record->item_number ?? '—' }}
                             @else
-                                <div class="root-series-title">{{ $series->series_title }}</div>
+                                {{ $record->item_number ?? '' }}
                             @endif
                         </td>
-                        <td class="col-retention">
-                            {{ !empty(trim($series->effective_active ?? '')) ? $series->effective_active : '—' }}
+                        <td style="text-align: left; padding-left: {{ (($record->depth ?? 0) * 28) + 16 }}px; border: 1px solid #cbd5e1; padding-top: 10px; padding-bottom: 10px; padding-right: 16px;">
+                            <div style="display: flex; align-items: center; justify-content: space-between; gap: 8px;">
+                                <div>
+                                    @if(($record->depth ?? 0) > 0)
+                                        <span style="color: #2563eb; font-weight: 800; font-family: monospace; margin-right: 6px;">└─</span>
+                                    @endif
+                                    <span style="{{ ($record->depth ?? 0) === 0 ? 'font-weight: 800; font-size: 13.5px; color: #0f172a;' : (($record->depth ?? 0) === 1 ? 'font-weight: 700; font-size: 13px; color: #1e293b;' : 'font-weight: 600; font-size: 12.5px; color: #334155;') }}">
+                                        {{ $record->series_title ?? '—' }}
+                                    </span>
+                                </div>
+                            </div>
                         </td>
-                        <td class="col-retention">
-                            {{ !empty(trim($series->effective_storage ?? '')) ? $series->effective_storage : '—' }}
-                        </td>
-                        <td class="col-retention">
-                            @if($series->effective_is_permanent)
-                                <span class="perm-badge">Permanent</span>
-                            @elseif(!empty(trim($series->effective_total ?? '')))
-                                <strong>{{ $series->effective_total }}</strong>
-                            @else
-                                —
-                            @endif
-                            @if($series->is_inherited)
-                                <div class="inherited-note">(Inherited)</div>
-                            @endif
-                        </td>
-                        <td class="col-remarks">
-                            {{ $series->remarks ?? '—' }}
+
+                        @php
+                            $isPermSeries = (bool)($record->effective_is_permanent) || 
+                                            (strtolower(trim($record->effective_total ?? '')) === 'permanent') ||
+                                            (strtolower(trim($record->effective_active ?? '')) === 'permanent' && strtolower(trim($record->effective_storage ?? '')) === 'permanent');
+                        @endphp
+
+                        @if($isPermSeries)
+                            <td colspan="3" style="text-align: center; font-weight: 800; letter-spacing: 3px; color: #1e3a8a; background: #eff6ff; font-size: 12.5px; border: 1px solid #cbd5e1; padding: 10px;">
+                                P E R M A N E N T
+                                @if(!empty($record->is_inherited))
+                                    <span style="font-size: 10px; font-weight: 600; opacity: 0.75; letter-spacing: normal; margin-left: 4px;">(Inherited)</span>
+                                @endif
+                            </td>
+                        @else
+                            <td style="color: #334155; font-size: 13px; text-align: center; border: 1px solid #cbd5e1; padding: 10px;">
+                                {{ $record->effective_active ?? '' }}
+                            </td>
+                            <td style="color: #334155; font-size: 13px; text-align: center; border: 1px solid #cbd5e1; padding: 10px;">
+                                {{ $record->effective_storage ?? '' }}
+                            </td>
+                            <td style="color: #334155; font-size: 13px; text-align: center; border: 1px solid #cbd5e1; padding: 10px;">
+                                {{ $record->effective_total ?? '' }}
+                                @if(!empty($record->is_inherited) && (!empty($record->effective_active) || !empty($record->effective_storage)))
+                                    <span style="font-size: 10px; font-weight: 600; color: #64748b; margin-left: 4px;">(Inherited)</span>
+                                @endif
+                            </td>
+                        @endif
+
+                        <td style="color: #334155; font-size: 13px; text-align: left; padding-left: 12px; word-break: break-word; border: 1px solid #cbd5e1; padding-top: 10px; padding-bottom: 10px; padding-right: 12px;">
+                            {{ $record->remarks ?? '—' }}
                         </td>
                     </tr>
                 @empty
                     <tr>
-                        <td colspan="6">
-                            <div class="empty-state">
-                                <svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="9" y1="15" x2="15" y2="15"></line></svg>
-                                <h3>No Record Series Found</h3>
-                                <p>No record series match your query under {{ $typeRecord->type_name ?? $type }}.</p>
-                            </div>
+                        <td colspan="6" style="padding: 48px; text-align: center; color: #64748b;">
+                            No record series found matching your query under {{ $typeRecord->type_name ?? $type }}.
                         </td>
                     </tr>
                 @endforelse

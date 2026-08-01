@@ -40,7 +40,7 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
     public string $records_location = '';
     public ?string $frequence_use = null;
     public ?string $duplication = null;
-    public ?string $time_value = null;
+    public ?string $time_value = 'T';
     public array $utility_values = []; // Multi-choice array of selected utility IDs
     public string $retention_period = '';
     public bool $is_permanent = false;
@@ -168,6 +168,8 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
 
     public function mount(): void
     {
+        $this->time_value = $this->is_permanent ? 'P' : 'T';
+
         // Default volume_unit to standard unit (e.g. Pages)
         $defaultUnit = DB::table('rdp_volume_value')
             ->where('cur_used_standard', true)
@@ -739,7 +741,7 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
         $this->records_location = '';
         $this->frequence_use = null;
         $this->duplication = null;
-        $this->time_value = null;
+        $this->time_value = 'T';
         $this->utility_values = [];
         $this->retention_period = '';
         $this->is_permanent = false;
@@ -903,12 +905,16 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
             <!-- Time Value -->
             <div class="ia-form-row">
                 <span class="ia-label">Time Value</span>
-                <select class="ia-input" wire:model.live="time_value">
-                    <option value="" selected disabled>Select Time Value...</option>
-                    @foreach($timeValuesList as $tv)
-                        <option value="{{ $tv->char_value }}">{{ $tv->char_value }} — {{ $tv->description }}</option>
-                    @endforeach
-                </select>
+                <div style="flex: 1; display: flex; align-items: center; gap: 8px;">
+                    <select class="ia-input" disabled style="cursor: not-allowed; background: var(--ia-slate-100); font-weight: 700; color: var(--ia-blue-800);">
+                        @foreach($timeValuesList as $tv)
+                            <option value="{{ $tv->char_value }}" {{ $time_value === $tv->char_value ? 'selected' : '' }}>
+                                {{ $tv->char_value }} — {{ mb_strtoupper($tv->description) }}
+                            </option>
+                        @endforeach
+                    </select>
+                    <span style="font-size: 12px; color: var(--ia-slate-500); font-weight: 500;">(System auto-set)</span>
+                </div>
             </div>
 
             <!-- Utility Value (Multi-Choice Pills) -->

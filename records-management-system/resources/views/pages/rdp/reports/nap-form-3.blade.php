@@ -432,6 +432,14 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 3')
             $item->display_item_no = ''; // Unverified series have no assigned item number
         }
 
+        // EXCLUDE PERMANENT RECORDS: NAP Form 3 is for Disposal Authority. Permanent records can NEVER be disposed of.
+        $treeOrdered = array_values(array_filter($treeOrdered, function ($item) {
+            $isPerm = (bool)($item->effective_is_permanent) || 
+                      (strtolower(trim($item->effective_total ?? '')) === 'permanent') ||
+                      (strtolower(trim($item->effective_active ?? '')) === 'permanent' && strtolower(trim($item->effective_storage ?? '')) === 'permanent');
+            return !$isPerm;
+        }));
+
         // Apply retention filter if selected
         if ($this->retentionFilter === 'permanent') {
             $treeOrdered = array_filter($treeOrdered, function ($item) {
@@ -469,8 +477,6 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 3')
         }
 
         $totalCount     = count($treeOrdered);
-        $permanentCount = count(array_filter($treeOrdered, fn($i) => $i->effective_is_permanent || strtolower(trim($i->effective_total ?? '')) === 'permanent'));
-        $temporaryCount = $totalCount - $permanentCount;
 
         $officesList = DB::table('office')->where('is_active', true)->orderBy('office_name')->get();
 
@@ -479,8 +485,6 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 3')
             'printItems'       => $printItems,
             'officesList'      => $officesList,
             'totalCount'       => $totalCount,
-            'permanentCount'   => $permanentCount,
-            'temporaryCount'   => $temporaryCount,
         ];
     }
 };
@@ -628,32 +632,22 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 3')
     <!-- Stat Summary Cards -->
     <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 16px; margin-bottom: 24px;">
         <div style="background: #ffffff; border: 1px solid #e2e8f0; border-radius: 12px; padding: 18px; box-shadow: 0 4px 12px rgba(0,0,0,0.02); display: flex; align-items: center; gap: 16px;">
-            <div style="width: 44px; height: 44px; border-radius: 10px; background: #eff6ff; color: #2563eb; display: flex; align-items: center; justify-content: center; font-size: 20px; font-weight: 800;">
-                ⚠️
-            </div>
-            <div>
-                <div style="font-size: 22px; font-weight: 800; color: #0f172a;">{{ number_format($totalCount) }}</div>
-                <div style="font-size: 12.5px; font-weight: 600; color: #64748b;">Unverified Record Series</div>
-            </div>
-        </div>
-
-        <div style="background: #ffffff; border: 1px solid #e2e8f0; border-radius: 12px; padding: 18px; box-shadow: 0 4px 12px rgba(0,0,0,0.02); display: flex; align-items: center; gap: 16px;">
-            <div style="width: 44px; height: 44px; border-radius: 10px; background: #f0fdf4; color: #16a34a; display: flex; align-items: center; justify-content: center; font-size: 20px; font-weight: 800;">
-                ♾️
-            </div>
-            <div>
-                <div style="font-size: 22px; font-weight: 800; color: #0f172a;">{{ number_format($permanentCount) }}</div>
-                <div style="font-size: 12.5px; font-weight: 600; color: #64748b;">Permanent Series</div>
-            </div>
-        </div>
-
-        <div style="background: #ffffff; border: 1px solid #e2e8f0; border-radius: 12px; padding: 18px; box-shadow: 0 4px 12px rgba(0,0,0,0.02); display: flex; align-items: center; gap: 16px;">
             <div style="width: 44px; height: 44px; border-radius: 10px; background: #fff7ed; color: #ea580c; display: flex; align-items: center; justify-content: center; font-size: 20px; font-weight: 800;">
                 ⏳
             </div>
             <div>
-                <div style="font-size: 22px; font-weight: 800; color: #0f172a;">{{ number_format($temporaryCount) }}</div>
-                <div style="font-size: 12.5px; font-weight: 600; color: #64748b;">Temporary Series</div>
+                <div style="font-size: 22px; font-weight: 800; color: #0f172a;">{{ number_format($totalCount) }}</div>
+                <div style="font-size: 12.5px; font-weight: 600; color: #64748b;">Expired Temporary Series</div>
+            </div>
+        </div>
+
+        <div style="background: #ffffff; border: 1px solid #e2e8f0; border-radius: 12px; padding: 18px; box-shadow: 0 4px 12px rgba(0,0,0,0.02); display: flex; align-items: center; gap: 16px;">
+            <div style="width: 44px; height: 44px; border-radius: 10px; background: #eff6ff; color: #2563eb; display: flex; align-items: center; justify-content: center; font-size: 20px; font-weight: 800;">
+                📦
+            </div>
+            <div>
+                <div style="font-size: 22px; font-weight: 800; color: #0f172a;">{{ count($selectedIds) }}</div>
+                <div style="font-size: 12.5px; font-weight: 600; color: #64748b;">Selected for Cluster</div>
             </div>
         </div>
     </div>
@@ -663,12 +657,6 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 3')
         <div style="display: flex; gap: 12px; align-items: center; justify-content: space-between; flex-wrap: wrap; margin-bottom: 20px;">
             <div style="display: flex; gap: 12px; flex-wrap: wrap; flex: 1;">
                 <input type="text" wire:model.live.debounce.300ms="search" placeholder="Search unverified series title, remarks..." style="padding: 9px 14px; border: 1px solid #cbd5e1; border-radius: 8px; font-size: 13px; min-width: 280px; outline: none;">
-                
-                <select wire:model.live="retentionFilter" style="padding: 9px 14px; border: 1px solid #cbd5e1; border-radius: 8px; font-size: 13px; background: #fff; outline: none;">
-                    <option value="">All Retention Types</option>
-                    <option value="permanent">Permanent Retention</option>
-                    <option value="temporary">Temporary Retention</option>
-                </select>
 
                 <select wire:model.live="officeFilter" style="padding: 9px 14px; border: 1px solid #cbd5e1; border-radius: 8px; font-size: 13px; background: #fff; outline: none; font-weight: 600; color: #0f172a;">
                     <option value="">All Offices</option>
@@ -677,7 +665,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 3')
                     @endforeach
                 </select>
 
-                @if($search || $retentionFilter || $officeFilter || count($selectedIds) > 0)
+                @if($search || $officeFilter || count($selectedIds) > 0)
                     <button type="button" wire:click="clearFilters" class="nap-btn nap-btn-secondary">
                         Reset Filters
                     </button>
@@ -731,6 +719,28 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 3')
                                     <span style="font-family: monospace; font-weight: 800; color: #2563eb;">└─</span> 
                                 @endif
                                 {{ $item->series_title }}
+
+                                @php
+                                    $tagVal = $item->shorted_type ?? ($item->series_type_tag ?? '');
+                                @endphp
+                                @if(!(bool)($item->is_verified ?? false))
+                                    <span style="padding: 2px 7px; background: #fef2f2; color: #dc2626; border: 1px solid #fecaca; border-radius: 6px; font-weight: 800; font-size: 11px; margin-left: 8px; display: inline-block;">
+                                        [ UNREGISTERED ]
+                                    </span>
+                                @elseif($tagVal === 'PH-NAP')
+                                    <span style="padding: 2px 7px; background: #eff6ff; color: #1d4ed8; border: 1px solid #bfdbfe; border-radius: 6px; font-weight: 800; font-size: 11px; margin-left: 8px; display: inline-block;">
+                                        [ PH-NAP ]
+                                    </span>
+                                @elseif($tagVal === 'CSPC')
+                                    <span style="padding: 2px 7px; background: #f0fdf4; color: #15803d; border: 1px solid #bbf7d0; border-radius: 6px; font-weight: 800; font-size: 11px; margin-left: 8px; display: inline-block;">
+                                        [ CSPC ]
+                                    </span>
+                                @else
+                                    <span style="padding: 2px 7px; background: #f0f9ff; color: #0284c7; border: 1px solid #bae6fd; border-radius: 6px; font-weight: 800; font-size: 11px; margin-left: 8px; display: inline-block;">
+                                        [ {{ strtoupper($tagVal ?: 'PH-NAP') }} ]
+                                    </span>
+                                @endif
+
                                 @if(!empty($item->is_inherited))
                                     <span style="font-size: 11px; color: #64748b; font-weight: 500; margin-left: 6px;">(Inherited)</span>
                                 @endif
@@ -870,293 +880,6 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 3')
                         <button type="submit" class="nap-btn nap-btn-primary">Save Changes</button>
                     </div>
                 </form>
-            </div>
-        </div>
-    @endif
-
-    <!-- PRINT MODAL (NAP FORM 3 OFFICIAL DISPOSITION REQUEST LAYOUT) -->
-    @if($showPrintModal)
-        <div class="modal-overlay" wire:click.self="closePrintModal">
-            <div class="modal-content">
-                
-                <!-- Action Header -->
-                <div class="modal-header-actions" style="display: flex; justify-content: space-between; align-items: center; background: #ffffff; padding: 16px 20px; border-radius: 12px; border: 1px solid #cbd5e1; box-shadow: 0 4px 12px rgba(0,0,0,0.05);">
-                    <div>
-                        <h3 style="margin: 0; font-size: 18px; font-weight: 800; color: #0f172a;">NAP Form 3 Unverified Report Customization & Print</h3>
-                        <span style="font-size: 13px; color: #64748b;">Customize header metadata and signature blocks before printing ({{ count($printItems) }} Unverified Series selected)</span>
-                    </div>
-                    <div style="display: flex; gap: 10px;">
-                        <button type="button" class="nap-btn nap-btn-primary" onclick="window.print()">🖨️ Print Official NAP Form 3</button>
-                        <button type="button" class="nap-btn nap-btn-secondary" wire:click="closePrintModal">Close</button>
-                    </div>
-                </div>
-
-                <!-- Customization Form Panel (hidden during window.print via .no-print) -->
-                <div class="no-print" style="background: #ffffff; border: 1px solid #cbd5e1; border-radius: 12px; padding: 20px; display: flex; flex-direction: column; gap: 16px; box-shadow: 0 4px 12px rgba(0,0,0,0.05);">
-                    <div style="font-weight: 800; font-size: 14px; color: #1e293b; border-bottom: 2px solid #e2e8f0; padding-bottom: 8px;">
-                        📝 TOP HEADER METADATA
-                    </div>
-                    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px;">
-                        <div>
-                            <label style="font-size: 11.5px; font-weight: 700; color: #475569; display: block; margin-bottom: 4px;">1. AGENCY NAME:</label>
-                            <input type="text" wire:model.live="agencyName" style="width: 100%; padding: 8px 12px; border: 1px solid #cbd5e1; border-radius: 6px; font-size: 12.5px; box-sizing: border-box;">
-                        </div>
-                        <div>
-                            <label style="font-size: 11.5px; font-weight: 700; color: #475569; display: block; margin-bottom: 4px;">2. ADDRESS:</label>
-                            <input type="text" wire:model.live="agencyAddress" style="width: 100%; padding: 8px 12px; border: 1px solid #cbd5e1; border-radius: 6px; font-size: 12.5px; box-sizing: border-box;">
-                        </div>
-                        <div>
-                            <label style="font-size: 11.5px; font-weight: 700; color: #475569; display: block; margin-bottom: 4px;">3. SCHEDULE NO.:</label>
-                            <input type="text" wire:model.live="scheduleNo" style="width: 100%; padding: 8px 12px; border: 1px solid #cbd5e1; border-radius: 6px; font-size: 12.5px; box-sizing: border-box;">
-                        </div>
-                        <div>
-                            <label style="font-size: 11.5px; font-weight: 700; color: #475569; display: block; margin-bottom: 4px;">4. DATE PREPARED:</label>
-                            <input type="text" wire:model.live="datePrepared" style="width: 100%; padding: 8px 12px; border: 1px solid #cbd5e1; border-radius: 6px; font-size: 12.5px; box-sizing: border-box;">
-                        </div>
-                    </div>
-
-                    <div style="font-weight: 800; font-size: 14px; color: #1e293b; border-bottom: 2px solid #e2e8f0; padding-bottom: 8px; margin-top: 8px;">
-                        ✍️ SIGNATURES & APPROVALS (PAGE 2)
-                    </div>
-                    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px;">
-                        <div>
-                            <label style="font-size: 11.5px; font-weight: 700; color: #475569; display: block; margin-bottom: 4px;">9. PREPARED BY (Name & Position):</label>
-                            <input type="text" wire:model.live="preparedBy" placeholder="Name" style="width: 100%; padding: 7px 10px; border: 1px solid #cbd5e1; border-radius: 6px; font-size: 12px; margin-bottom: 4px; box-sizing: border-box;">
-                            <input type="text" wire:model.live="preparedPosition" placeholder="Position" style="width: 100%; padding: 7px 10px; border: 1px solid #cbd5e1; border-radius: 6px; font-size: 12px; box-sizing: border-box;">
-                        </div>
-                        <div>
-                            <label style="font-size: 11.5px; font-weight: 700; color: #475569; display: block; margin-bottom: 4px;">10. ASSISTED BY (Name & Position):</label>
-                            <input type="text" wire:model.live="assistedBy" placeholder="Name" style="width: 100%; padding: 7px 10px; border: 1px solid #cbd5e1; border-radius: 6px; font-size: 12px; margin-bottom: 4px; box-sizing: border-box;">
-                            <input type="text" wire:model.live="assistedPosition" placeholder="Position" style="width: 100%; padding: 7px 10px; border: 1px solid #cbd5e1; border-radius: 6px; font-size: 12px; box-sizing: border-box;">
-                        </div>
-                        <div>
-                            <label style="font-size: 11.5px; font-weight: 700; color: #475569; display: block; margin-bottom: 4px;">11. RECOMMENDING APPROVAL (Name & Position):</label>
-                            <input type="text" wire:model.live="recommendingBy" placeholder="Name" style="width: 100%; padding: 7px 10px; border: 1px solid #cbd5e1; border-radius: 6px; font-size: 12px; margin-bottom: 4px; box-sizing: border-box;">
-                            <input type="text" wire:model.live="recommendingPosition" placeholder="Position" style="width: 100%; padding: 7px 10px; border: 1px solid #cbd5e1; border-radius: 6px; font-size: 12px; box-sizing: border-box;">
-                        </div>
-                        <div>
-                            <label style="font-size: 11.5px; font-weight: 700; color: #475569; display: block; margin-bottom: 4px;">12. APPROVED (Name & Position):</label>
-                            <input type="text" wire:model.live="approvedBy" placeholder="Name" style="width: 100%; padding: 7px 10px; border: 1px solid #cbd5e1; border-radius: 6px; font-size: 12px; margin-bottom: 4px; box-sizing: border-box;">
-                            <input type="text" wire:model.live="approvedPosition" placeholder="Position" style="width: 100%; padding: 7px 10px; border: 1px solid #cbd5e1; border-radius: 6px; font-size: 12px; box-sizing: border-box;">
-                        </div>
-                        <div>
-                            <label style="font-size: 11.5px; font-weight: 700; color: #475569; display: block; margin-bottom: 4px;">RECORD MANAGEMENT CHAIRMAN:</label>
-                            <input type="text" wire:model.live="committeeChairmanName" placeholder="Chairman Name" style="width: 100%; padding: 7px 10px; border: 1px solid #cbd5e1; border-radius: 6px; font-size: 12px; margin-bottom: 4px; box-sizing: border-box;">
-                            <input type="text" wire:model.live="committeeChairmanTitle" placeholder="Title" style="width: 100%; padding: 7px 10px; border: 1px solid #cbd5e1; border-radius: 6px; font-size: 12px; box-sizing: border-box;">
-                        </div>
-                        <div>
-                            <label style="font-size: 11.5px; font-weight: 700; color: #475569; display: block; margin-bottom: 4px;">EXECUTIVE DIRECTOR (NAP):</label>
-                            <input type="text" wire:model.live="executiveDirectorName" placeholder="Director Name" style="width: 100%; padding: 7px 10px; border: 1px solid #cbd5e1; border-radius: 6px; font-size: 12px; margin-bottom: 4px; box-sizing: border-box;">
-                            <input type="text" wire:model.live="executiveDirectorTitle" placeholder="Title" style="width: 100%; padding: 7px 10px; border: 1px solid #cbd5e1; border-radius: 6px; font-size: 12px; box-sizing: border-box;">
-                        </div>
-                    </div>
-                </div>
-
-                <!-- PAGE 1: OFFICIAL TABLE PREVIEW FOR NAP FORM 3 -->
-                <div class="print-page">
-                    <div style="margin-top: 4px; width: 100%;">
-                        
-                        <div class="doc-top-labels">
-                            <div>
-                                NAP Form No. 3<br>
-                                Revised 2012
-                            </div>
-                            <div style="text-align: right;">
-                                Page 1 of 2 Pages
-                            </div>
-                        </div>
-
-                        <table class="doc-table">
-                            <tr>
-                                <td rowspan="2" class="header-cell">
-                                    <div class="header-main-text">NATIONAL ARCHIVES OF THE PHILIPPINES</div>
-                                    <div class="header-sub-text">Pambansang Sinupan ng Pilipinas</div>
-                                    <div class="header-doc-title">REQUEST FOR AUTHORITY TO DISPOSE OF RECORDS</div>
-                                </td>
-                                <td>
-                                    <span class="field-label">1. AGENCY NAME:</span>
-                                    <div class="field-value">{{ $agencyName }}</div>
-                                </td>
-                                <td>
-                                    <span class="field-label">3. SCHEDULE NO.</span>
-                                    <div class="field-value">{{ $scheduleNo }}</div>
-                                </td>
-                            </tr>
-                            <tr>
-                                <td>
-                                    <span class="field-label">2. ADDRESS:</span>
-                                    <div class="field-value">{{ $agencyAddress }}</div>
-                                </td>
-                                <td>
-                                    <span class="field-label">4. DATE PREPARED:</span>
-                                    <div class="field-value">{{ $datePrepared }}</div>
-                                </td>
-                            </tr>
-                        </table>
-
-                        <table class="doc-table doc-data-table" style="border-top: none;">
-                            <thead>
-                                <tr>
-                                    <th rowspan="2" style="width: 10%;">5. ITEM NO.</th>
-                                    <th rowspan="2" style="width: 44%;">6. UNVERIFIED RECORD SERIES TITLE AND DESCRIPTION</th>
-                                    <th colspan="3" style="width: 28%;">7. RETENTION PERIOD</th>
-                                    <th rowspan="2" style="width: 18%;">8. REMARKS</th>
-                                </tr>
-                                <tr class="sub-header">
-                                    <th style="width: 9%;">Active</th>
-                                    <th style="width: 9%;">Storage</th>
-                                    <th style="width: 10%;">Total</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                @php $prevPrintOfficeName = null; @endphp
-                                @forelse($printItems as $pIdx => $pItem)
-                                    @php
-                                        $isPermSeries = (bool)($pItem->effective_is_permanent) || 
-                                                        (strtolower(trim($pItem->effective_total ?? '')) === 'permanent') ||
-                                                        (strtolower(trim($pItem->effective_active ?? '')) === 'permanent' && strtolower(trim($pItem->effective_storage ?? '')) === 'permanent');
-                                        $pOfficeName = $pItem->recorded_office_name ?? $pItem->recorded_at_office ?? 'Unknown Office';
-                                    @endphp
-                                    @if($pOfficeName !== $prevPrintOfficeName)
-                                        <tr class="doc-section-divider">
-                                            <td colspan="6" style="background: #cbd5e1; color: #0f172a; font-weight: bold; text-align: center; text-transform: uppercase; letter-spacing: 0.5px; padding: 5px 8px; border: 1px solid #000000; font-size: 9.5px; -webkit-print-color-adjust: exact; print-color-adjust: exact;">
-                                                {{ strtoupper($pOfficeName) }}
-                                            </td>
-                                        </tr>
-                                        @php $prevPrintOfficeName = $pOfficeName; @endphp
-                                    @endif
-                                    <tr>
-                                        <td style="text-align: center; color: #94a3b8; font-style: italic;">
-                                            —
-                                        </td>
-                                        <td style="padding-left: {{ (($pItem->depth ?? 0) * 12) + 4 }}px; font-weight: bold; color: #000;">
-                                            @if(($pItem->depth ?? 0) > 0)
-                                                └─ 
-                                            @endif
-                                            {{ $pItem->series_title }}
-                                        </td>
-                                        @if($isPermSeries)
-                                            <td colspan="3" style="text-align: center; font-weight: bold; font-size: 8.5px; color: #000;">
-                                                PERMANENT
-                                            </td>
-                                        @else
-                                            <td style="text-align: center; color: #000;">{{ $pItem->effective_active ?: '' }}</td>
-                                            <td style="text-align: center; color: #000;">{{ $pItem->effective_storage ?: '' }}</td>
-                                            <td style="text-align: center; font-weight: bold; color: #000;">{{ $pItem->effective_total ?: '' }}</td>
-                                        @endif
-                                        <td style="font-size: 8.5px; color: #000;">{{ $pItem->remarks ?: '' }}</td>
-                                    </tr>
-                                @empty
-                                    <tr>
-                                        <td colspan="6" style="text-align: center; padding: 20px; font-style: italic;">
-                                            No unverified record series items selected for NAP Form 3.
-                                        </td>
-                                    </tr>
-                                @endforelse
-                            </tbody>
-                        </table>
-
-                        <div class="important-note">
-                            <strong>IMPORTANT:</strong> Pursuant to Section 18, Article III, RA 9470 s. 2007, "No government department, bureau, agency and instrumentality shall dispose of, destroy or authorize the disposal or destruction of any public records, which are in the custody or under its control except with the prior written authority of the executive director."
-                        </div>
-                    </div>
-
-                    <div style="position: absolute; bottom: 15px; right: 35px; font-size: 9px; color: #333;">Page 1 of 2 Pages</div>
-                </div>
-
-                <!-- PAGE 2: SIGNATURES & NATIONAL ARCHIVES APPROVAL FOR NAP FORM 3 -->
-                <div class="print-page">
-                    <div style="margin-top: 4px; width: 100%;">
-                        <table class="signatures-table">
-                            <tr>
-                                <td>
-                                    <span class="field-label">9. Prepared by:</span>
-                                    <div class="sig-block">
-                                        <div class="sig-line">{{ $preparedBy ?: '___________________' }}</div>
-                                        <div class="sig-label">{{ $preparedPosition }}</div>
-                                    </div>
-                                </td>
-                                <td>
-                                    <span class="field-label">11. Recommending Approval:</span>
-                                    <div class="sig-block">
-                                        <div class="sig-line">{{ $recommendingBy ?: '___________________' }}</div>
-                                        <div class="sig-label">{{ $recommendingPosition ?: 'Vice President for Administration' }}</div>
-                                    </div>
-                                </td>
-                            </tr>
-                            <tr>
-                                <td>
-                                    <span class="field-label">10. Assisted by:</span>
-                                    <div class="sig-block">
-                                        <div class="sig-line">{{ $assistedBy ?: '___________________' }}</div>
-                                        <div class="sig-label">{{ $assistedPosition ?: 'Records Management Analyst' }}</div>
-                                    </div>
-                                </td>
-                                <td>
-                                    <span class="field-label">12. Approved:</span>
-                                    <div class="sig-block">
-                                        <div class="sig-line">{{ $approvedBy ?: '___________________' }}</div>
-                                        <div class="sig-label">{{ $approvedPosition }}</div>
-                                    </div>
-                                </td>
-                            </tr>
-                        </table>
-
-                        <div class="nap-accomplish-section">
-                            <div style="font-weight: bold; font-size: 10px; margin-bottom: 12px; text-transform: uppercase;">
-                                ACCOMPLISHED BY THE NATIONAL ARCHIVES OF THE PHILIPPINES:
-                            </div>
-
-                            <div style="display: flex; flex-direction: column; gap: 14px; margin-bottom: 25px;">
-                                <div>
-                                    <span style="font-weight: bold;">13. Evaluated by:</span>
-                                    <div style="border-bottom: 1px dashed #000; height: 18px; margin-top: 2px;"></div>
-                                </div>
-
-                                <div style="display: flex; gap: 20px;">
-                                    <div style="flex: 1;">
-                                        <span style="font-weight: bold;">14. Date Received:</span>
-                                        <div style="border-bottom: 1px dashed #000; height: 18px; margin-top: 2px;"></div>
-                                    </div>
-                                    <div style="flex: 1;">
-                                        <span style="font-weight: bold;">15. Schedule No.:</span>
-                                        <div style="border-bottom: 1px dashed #000; height: 18px; margin-top: 2px;"></div>
-                                    </div>
-                                </div>
-
-                                <div>
-                                    <span style="font-weight: bold;">16. Confirmation / Action Taken:</span>
-                                    <div style="border-bottom: 1px dashed #000; height: 18px; margin-top: 2px;"></div>
-                                    <div style="border-bottom: 1px dashed #000; height: 18px; margin-top: 6px;"></div>
-                                </div>
-                            </div>
-
-                            <div style="margin-top: 40px; text-align: center;">
-                                @if(!empty($committeeChairmanName))
-                                    <div style="font-weight: bold; font-size: 11px; text-transform: uppercase;">{{ $committeeChairmanName }}</div>
-                                @endif
-                                <div style="border-bottom: 1px solid #000; width: 280px; margin: 0 auto 4px auto;"></div>
-                                <div style="font-size: 9px; font-weight: bold; text-transform: uppercase;">
-                                    {{ $committeeChairmanTitle }}
-                                </div>
-                            </div>
-
-                            <div style="margin-top: 35px; text-align: center;">
-                                @if(!empty($executiveDirectorName))
-                                    <div style="font-weight: bold; font-size: 11px; text-transform: uppercase;">{{ $executiveDirectorName }}</div>
-                                @endif
-                                <div style="border-bottom: 1px solid #000; width: 320px; margin: 0 auto 4px auto;"></div>
-                                <div style="font-size: 9px; font-weight: bold; text-transform: uppercase;">
-                                    {{ $executiveDirectorTitle }}
-                                </div>
-                            </div>
-                        </div>
-
-                    </div>
-
-                    <div style="position: absolute; bottom: 15px; right: 35px; font-size: 9px; color: #333;">Page 2 of 2 Pages</div>
-                </div>
-
             </div>
         </div>
     @endif

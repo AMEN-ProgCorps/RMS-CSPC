@@ -453,16 +453,19 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 1')
 
     public function with(): array
     {
-        $query = DB::table('rdp_record_series')
+        $query = DB::table('rdp_record')
+            ->join('rdp_record_series', 'rdp_record.record_series_id', '=', 'rdp_record_series.id')
             ->leftJoin('rdp_retention_period', 'rdp_record_series.retention_period', '=', 'rdp_retention_period.id')
+            ->leftJoin('rdp_record_series_type', 'rdp_record_series.series_type', '=', 'rdp_record_series_type.id')
             ->leftJoin('rdp_record_series as parent', 'rdp_record_series.parent_id', '=', 'parent.id')
-            ->leftJoin('rdp_record', 'rdp_record_series.id', '=', 'rdp_record.record_series_id')
             ->leftJoin('rdp_recorded_value', 'rdp_record.records_medium', '=', 'rdp_recorded_value.id')
             ->leftJoin('rdp_utility_medium', 'rdp_record.utility_value', '=', 'rdp_utility_medium.id')
             ->leftJoin('rdp_period_covered', 'rdp_record.id', '=', 'rdp_period_covered.period_owner')
             ->leftJoin('office', 'rdp_record_series.recorded_at_office', '=', 'office.office_code')
             ->select([
                 'rdp_record_series.*',
+                'rdp_record_series_type.shorted_type',
+                'rdp_record.id as record_id',
                 'rdp_retention_period.active_period',
                 'rdp_retention_period.storage_period',
                 'rdp_retention_period.total_period',
@@ -505,12 +508,41 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 1')
 
         $allFetched = $query->orderByRaw('rdp_record_series.recorded_at_office ASC NULLS LAST, rdp_record_series.item_number ASC NULLS LAST, rdp_record_series.series_title ASC')->get();
 
+        $allRecords = $allFetched->all();
+        $existingIds = array_column($allRecords, 'id');
+        $parentIds = array_filter(array_unique(array_column($allRecords, 'parent_id')));
+        $missingParentIds = array_diff($parentIds, $existingIds);
+
+        if (!empty($missingParentIds)) {
+            $parents = DB::table('rdp_record_series')
+                ->leftJoin('rdp_retention_period', 'rdp_record_series.retention_period', '=', 'rdp_retention_period.id')
+                ->leftJoin('rdp_record_series_type', 'rdp_record_series.series_type', '=', 'rdp_record_series_type.id')
+                ->leftJoin('rdp_record_series as parent', 'rdp_record_series.parent_id', '=', 'parent.id')
+                ->leftJoin('office', 'rdp_record_series.recorded_at_office', '=', 'office.office_code')
+                ->select([
+                    'rdp_record_series.*',
+                    'rdp_record_series_type.shorted_type',
+                    'rdp_retention_period.active_period',
+                    'rdp_retention_period.storage_period',
+                    'rdp_retention_period.total_period',
+                    'parent.series_title as parent_title',
+                    'office.office_name as recorded_office_name',
+                ])
+                ->whereIn('rdp_record_series.id', $missingParentIds)
+                ->get();
+
+            foreach ($parents as $mp) {
+                $mp->is_parent_context = true;
+                $allRecords[] = $mp;
+            }
+        }
+
         $allFetchedMap = [];
-        foreach ($allFetched as $item) {
+        foreach ($allRecords as $item) {
             $allFetchedMap[$item->id] = $item;
         }
 
-        $treeOrdered = $this->buildTreeHierarchy($allFetched->all());
+        $treeOrdered = $this->buildTreeHierarchy($allRecords);
 
         $childCounter = 1;
         foreach ($treeOrdered as $item) {
@@ -521,34 +553,49 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 1')
             $item->effective_is_permanent = $eff->is_retention_period_permanent;
             $item->is_inherited = $eff->inherited;
 
-            // All items are regular rows; office grouping is handled by the template
+            // Type badge determination
+            if (!(bool)($item->is_verified ?? false)) {
+                $item->series_type_tag = 'UNREGISTERED';
+            } else {
+                $item->series_type_tag = !empty($item->shorted_type) ? $item->shorted_type : 'PH-NAP';
+            }
+
+            // Item Numbers: UNREGISTERED series (is_verified = false) have NO item number until approved on Form 2
             $item->is_root_parent = false;
-            if (!empty($item->item_number)) {
+            if (!(bool)($item->is_verified ?? false)) {
+                $item->display_item_no = '—';
+            } elseif (!empty($item->item_number)) {
                 $item->display_item_no = (string)$item->item_number;
             } else {
-                $item->display_item_no = (string)$childCounter;
-                $childCounter++;
+                if (($item->depth ?? 0) > 0) {
+                    $item->display_item_no = '—';
+                } else {
+                    $item->display_item_no = (string)$childCounter;
+                    $childCounter++;
+                }
             }
 
             // Description formatting
-            $item->display_description = $item->rec_description ?: '';
+            $item->display_description = $item->rec_description ?? '';
 
             // Period Covered formatting
-            if (!empty($item->rec_start_at) && !empty($item->rec_ends_at)) {
-                $item->display_period_covered = Carbon::parse($item->rec_start_at)->format('Y') . ' - ' . Carbon::parse($item->rec_ends_at)->format('Y');
+            if (!empty($item->rec_start_at) || !empty($item->rec_ends_at)) {
+                $start = !empty($item->rec_start_at) ? Carbon::parse($item->rec_start_at)->format('Y') : '';
+                $end = !empty($item->rec_ends_at) ? Carbon::parse($item->rec_ends_at)->format('Y') : 'Present';
+                $item->display_period_covered = trim($start . ' - ' . $end, ' -');
             } else {
-                $item->display_period_covered = '2020 - Present';
+                $item->display_period_covered = '—';
             }
 
-            // Inventory appraisal default fallbacks
-            $item->display_volume = $item->rec_volume ?: '0.5 cu. m.';
-            $item->display_location = $item->rec_location ?: 'Records Office';
-            $item->display_freq = $item->rec_freq ?: 'Monthly';
-            $item->display_medium = $item->rec_medium ?: 'Hardcopy';
+            // Inventory appraisal values
+            $item->display_volume = !empty($item->rec_volume) ? $item->rec_volume : '—';
+            $item->display_location = !empty($item->rec_location) ? $item->rec_location : '—';
+            $item->display_freq = !empty($item->rec_freq) ? $item->rec_freq : '—';
+            $item->display_medium = !empty($item->rec_medium) ? $item->rec_medium : '—';
             
             $isPerm = (bool)($item->effective_is_permanent) || strtolower(trim($item->effective_total ?? '')) === 'permanent';
-            $item->display_time_value = $item->rec_time_value ?: ($isPerm ? 'P' : 'T');
-            $item->display_utility = $item->rec_utility ?: ($isPerm ? 'Arc' : 'Adm');
+            $item->display_time_value = !empty($item->rec_time_value) ? $item->rec_time_value : ($isPerm ? 'P' : 'T');
+            $item->display_utility = !empty($item->rec_utility) ? $item->rec_utility : ($isPerm ? 'Arc' : 'Adm');
         }
 
         // Apply retention filter if selected
@@ -804,18 +851,23 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 1')
             <table class="nap-table">
                 <thead>
                     <tr>
-                        <th style="width: 40px; text-align: center;">
+                        <th rowspan="2" style="width: 40px; text-align: center;">
                             <input type="checkbox" wire:model.live="selectAll" style="width: 16px; height: 16px; cursor: pointer; accent-color: #2563eb;">
                         </th>
-                        <th style="width: 80px; text-align: center;">ITEM NO.</th>
-                        <th>RECORD SERIES TITLE & DESCRIPTION</th>
-                        <th style="width: 110px; text-align: center;">PERIOD</th>
-                        <th style="width: 90px; text-align: center;">VOLUME</th>
-                        <th style="width: 110px; text-align: center;">LOCATION</th>
-                        <th style="width: 70px; text-align: center;">TIME</th>
-                        <th style="width: 70px; text-align: center;">UTIL</th>
-                        <th style="width: 120px; text-align: center;">RETENTION</th>
-                        <th style="width: 130px; text-align: right;">ACTION</th>
+                        <th rowspan="2" style="width: 80px; text-align: center;">ITEM NO.</th>
+                        <th rowspan="2">RECORD SERIES TITLE & DESCRIPTION</th>
+                        <th rowspan="2" style="width: 100px; text-align: center;">PERIOD</th>
+                        <th rowspan="2" style="width: 85px; text-align: center;">VOLUME</th>
+                        <th rowspan="2" style="width: 100px; text-align: center;">LOCATION</th>
+                        <th rowspan="2" style="width: 60px; text-align: center;">TIME</th>
+                        <th rowspan="2" style="width: 60px; text-align: center;">UTIL</th>
+                        <th colspan="3" style="text-align: center; border-bottom: 1px solid #cbd5e1;">RETENTION PERIOD</th>
+                        <th rowspan="2" style="width: 130px; text-align: right;">ACTION</th>
+                    </tr>
+                    <tr style="background: #f1f5f9; font-size: 11px; text-transform: uppercase;">
+                        <th style="width: 65px; text-align: center; border-right: 1px solid #cbd5e1; padding: 6px 4px;">ACTIVE</th>
+                        <th style="width: 65px; text-align: center; border-right: 1px solid #cbd5e1; padding: 6px 4px;">STORAGE</th>
+                        <th style="width: 70px; text-align: center; padding: 6px 4px;">TOTAL</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -830,7 +882,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 1')
                         @endphp
                         @if($currentOfficeName !== $prevOfficeName)
                             <tr class="table-section-divider-row">
-                                <td colspan="10" style="background: #e2e8f0; color: #1e293b; font-weight: 800; text-align: center; text-transform: uppercase; letter-spacing: 0.6px; padding: 7px 12px; font-size: 11.5px; font-family: 'Inter', sans-serif; border-top: 2px solid #cbd5e1; border-bottom: 2px solid #cbd5e1;">
+                                <td colspan="12" style="background: #e2e8f0; color: #1e293b; font-weight: 800; text-align: center; text-transform: uppercase; letter-spacing: 0.6px; padding: 7px 12px; font-size: 11.5px; font-family: 'Inter', sans-serif; border-top: 2px solid #cbd5e1; border-bottom: 2px solid #cbd5e1;">
                                     {{ strtoupper($currentOfficeName) }}
                                 </td>
                             </tr>
@@ -848,6 +900,28 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 1')
                                     <span style="font-family: monospace; font-weight: 800; color: #2563eb;">└─</span> 
                                 @endif
                                 {{ $item->series_title }}
+                                
+                                @php
+                                    $tagVal = $item->series_type_tag ?? 'UNREGISTERED';
+                                @endphp
+                                @if(!(bool)($item->is_verified ?? false))
+                                    <span style="padding: 2px 7px; background: #fef2f2; color: #dc2626; border: 1px solid #fecaca; border-radius: 6px; font-weight: 800; font-size: 11px; margin-left: 8px; display: inline-block;">
+                                        [ UNREGISTERED ]
+                                    </span>
+                                @elseif($tagVal === 'PH-NAP')
+                                    <span style="padding: 2px 7px; background: #eff6ff; color: #1d4ed8; border: 1px solid #bfdbfe; border-radius: 6px; font-weight: 800; font-size: 11px; margin-left: 8px; display: inline-block;">
+                                        [ PH-NAP ]
+                                    </span>
+                                @elseif($tagVal === 'CSPC')
+                                    <span style="padding: 2px 7px; background: #f0fdf4; color: #15803d; border: 1px solid #bbf7d0; border-radius: 6px; font-weight: 800; font-size: 11px; margin-left: 8px; display: inline-block;">
+                                        [ CSPC ]
+                                    </span>
+                                @else
+                                    <span style="padding: 2px 7px; background: #f0f9ff; color: #0284c7; border: 1px solid #bae6fd; border-radius: 6px; font-weight: 800; font-size: 11px; margin-left: 8px; display: inline-block;">
+                                        [ {{ strtoupper($tagVal) }} ]
+                                    </span>
+                                @endif
+
                                 @if(!empty($item->is_inherited))
                                     <span style="font-size: 11px; color: #64748b; font-weight: 500; margin-left: 6px;">(Inherited)</span>
                                 @endif
@@ -870,17 +944,23 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 1')
                                     {{ $item->display_utility }}
                                 </span>
                             </td>
-                            <td style="text-align: center;">
-                                @if($isPermSeries)
+                            @if($isPermSeries)
+                                <td colspan="3" style="text-align: center;">
                                     <span style="display: inline-block; padding: 4px 10px; background: #eff6ff; color: #1e40af; border: 1px solid #bfdbfe; border-radius: 12px; font-weight: 800; font-size: 11.5px;">
                                         PERMANENT
                                     </span>
-                                @else
-                                    <span style="display: inline-block; padding: 3px 8px; background: #f8fafc; color: #0f172a; border: 1px solid #cbd5e1; border-radius: 6px; font-weight: 700; font-size: 12px;">
-                                        {{ $item->effective_total ?: '—' }}
-                                    </span>
-                                @endif
-                            </td>
+                                </td>
+                            @else
+                                <td style="text-align: center; font-size: 12px; color: #475569; font-weight: 600;">
+                                    {{ $item->effective_active ?: '—' }}
+                                </td>
+                                <td style="text-align: center; font-size: 12px; color: #475569; font-weight: 600;">
+                                    {{ $item->effective_storage ?: '—' }}
+                                </td>
+                                <td style="text-align: center; font-size: 12px; font-weight: 800; color: #0f172a;">
+                                    {{ $item->effective_total ?: '—' }}
+                                </td>
+                            @endif
                             <td style="text-align: right; white-space: nowrap;">
                                 <button type="button" wire:click="openViewModal({{ $item->id }})" class="nap-btn nap-btn-secondary" style="padding: 5px 10px; font-size: 12px; margin-right: 4px;">
                                     👁️ View
@@ -892,7 +972,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 1')
                         </tr>
                     @empty
                         <tr>
-                            <td colspan="10" style="padding: 32px; text-align: center; color: #64748b;">
+                            <td colspan="12" style="padding: 32px; text-align: center; color: #64748b;">
                                 No record series found matching filter criteria.
                             </td>
                         </tr>
@@ -1084,237 +1164,6 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 1')
                         <button type="submit" class="nap-btn nap-btn-primary">Save Changes</button>
                     </div>
                 </form>
-            </div>
-        </div>
-    @endif
-
-    <!-- PRINT MODAL (NAP FORM 1 OFFICIAL RECORDS INVENTORY AND APPRAISAL LAYOUT) -->
-    @if($showPrintModal)
-        <div class="modal-overlay" wire:click.self="closePrintModal">
-            <div class="modal-content">
-                
-                <!-- Action Header -->
-                <div class="modal-header-actions" style="display: flex; justify-content: space-between; align-items: center; background: #ffffff; padding: 16px 20px; border-radius: 12px; border: 1px solid #cbd5e1; box-shadow: 0 4px 12px rgba(0,0,0,0.05);">
-                    <div>
-                        <h3 style="margin: 0; font-size: 18px; font-weight: 800; color: #0f172a;">NAP Form 1 Document Customization & Print</h3>
-                        <span style="font-size: 13px; color: #64748b;">Customize inventory header metadata and signature blocks before printing ({{ count($printItems) }} Record Series selected)</span>
-                    </div>
-                    <div style="display: flex; gap: 10px;">
-                        <button type="button" class="nap-btn nap-btn-primary" onclick="window.print()">🖨️ Print Official Document</button>
-                        <button type="button" class="nap-btn nap-btn-secondary" wire:click="closePrintModal">Close</button>
-                    </div>
-                </div>
-
-                <!-- Customization Form Panel (hidden during window.print via .no-print) -->
-                <div class="no-print" style="background: #ffffff; border: 1px solid #cbd5e1; border-radius: 12px; padding: 20px; display: flex; flex-direction: column; gap: 16px; box-shadow: 0 4px 12px rgba(0,0,0,0.05);">
-                    <div style="font-weight: 800; font-size: 14px; color: #1e293b; border-bottom: 2px solid #e2e8f0; padding-bottom: 8px;">
-                        📝 TOP HEADER METADATA
-                    </div>
-                    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px;">
-                        <div>
-                            <label style="font-size: 11.5px; font-weight: 700; color: #475569; display: block; margin-bottom: 4px;">AGENCY NAME:</label>
-                            <input type="text" wire:model.live="agencyName" style="width: 100%; padding: 8px 12px; border: 1px solid #cbd5e1; border-radius: 6px; font-size: 12.5px; box-sizing: border-box;">
-                        </div>
-                        <div>
-                            <label style="font-size: 11.5px; font-weight: 700; color: #475569; display: block; margin-bottom: 4px;">ADDRESS:</label>
-                            <input type="text" wire:model.live="agencyAddress" style="width: 100%; padding: 8px 12px; border: 1px solid #cbd5e1; border-radius: 6px; font-size: 12.5px; box-sizing: border-box;">
-                        </div>
-                        <div>
-                            <label style="font-size: 11.5px; font-weight: 700; color: #475569; display: block; margin-bottom: 4px;">ORGANIZATIONAL UNIT:</label>
-                            <input type="text" wire:model.live="orgUnit" style="width: 100%; padding: 8px 12px; border: 1px solid #cbd5e1; border-radius: 6px; font-size: 12.5px; box-sizing: border-box;">
-                        </div>
-                        <div>
-                            <label style="font-size: 11.5px; font-weight: 700; color: #475569; display: block; margin-bottom: 4px;">PERSON-IN-CHARGE:</label>
-                            <input type="text" wire:model.live="personInCharge" style="width: 100%; padding: 8px 12px; border: 1px solid #cbd5e1; border-radius: 6px; font-size: 12.5px; box-sizing: border-box;">
-                        </div>
-                        <div>
-                            <label style="font-size: 11.5px; font-weight: 700; color: #475569; display: block; margin-bottom: 4px;">TELEPHONE NO:</label>
-                            <input type="text" wire:model.live="telephoneNumber" style="width: 100%; padding: 8px 12px; border: 1px solid #cbd5e1; border-radius: 6px; font-size: 12.5px; box-sizing: border-box;">
-                        </div>
-                        <div>
-                            <label style="font-size: 11.5px; font-weight: 700; color: #475569; display: block; margin-bottom: 4px;">DATE PREPARED:</label>
-                            <input type="text" wire:model.live="datePrepared" style="width: 100%; padding: 8px 12px; border: 1px solid #cbd5e1; border-radius: 6px; font-size: 12.5px; box-sizing: border-box;">
-                        </div>
-                    </div>
-
-                    <div style="font-weight: 800; font-size: 14px; color: #1e293b; border-bottom: 2px solid #e2e8f0; padding-bottom: 8px; margin-top: 8px;">
-                        ✍️ SIGNATURES & APPROVALS
-                    </div>
-                    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px;">
-                        <div>
-                            <label style="font-size: 11.5px; font-weight: 700; color: #475569; display: block; margin-bottom: 4px;">PREPARED BY (Name & Position):</label>
-                            <input type="text" wire:model.live="preparedBy" placeholder="Name" style="width: 100%; padding: 7px 10px; border: 1px solid #cbd5e1; border-radius: 6px; font-size: 12px; margin-bottom: 4px; box-sizing: border-box;">
-                            <input type="text" wire:model.live="preparedPosition" placeholder="Position" style="width: 100%; padding: 7px 10px; border: 1px solid #cbd5e1; border-radius: 6px; font-size: 12px; box-sizing: border-box;">
-                        </div>
-                        <div>
-                            <label style="font-size: 11.5px; font-weight: 700; color: #475569; display: block; margin-bottom: 4px;">ASSISTED BY (Name & Position):</label>
-                            <input type="text" wire:model.live="assistedBy" placeholder="Name" style="width: 100%; padding: 7px 10px; border: 1px solid #cbd5e1; border-radius: 6px; font-size: 12px; margin-bottom: 4px; box-sizing: border-box;">
-                            <input type="text" wire:model.live="assistedPosition" placeholder="Position" style="width: 100%; padding: 7px 10px; border: 1px solid #cbd5e1; border-radius: 6px; font-size: 12px; box-sizing: border-box;">
-                        </div>
-                        <div>
-                            <label style="font-size: 11.5px; font-weight: 700; color: #475569; display: block; margin-bottom: 4px;">APPROVED BY (Name & Position):</label>
-                            <input type="text" wire:model.live="approvedBy" placeholder="Name" style="width: 100%; padding: 7px 10px; border: 1px solid #cbd5e1; border-radius: 6px; font-size: 12px; margin-bottom: 4px; box-sizing: border-box;">
-                            <input type="text" wire:model.live="approvedPosition" placeholder="Position" style="width: 100%; padding: 7px 10px; border: 1px solid #cbd5e1; border-radius: 6px; font-size: 12px; box-sizing: border-box;">
-                        </div>
-                    </div>
-                </div>
-
-                <!-- PRINT PAGE: NAP FORM 1 (RECORDS INVENTORY AND APPRAISAL) -->
-                <div class="print-page">
-                    <div style="margin-top: 4px; width: 100%;">
-
-                        <table class="doc-table">
-                            <tr>
-                                <td rowspan="2" class="header-cell">
-                                    <div class="header-main-text">NATIONAL ARCHIVES OF THE PHILIPPINES</div>
-                                    <div class="header-sub-text">Pambansang Sinupan ng Pilipinas</div>
-                                    <div class="header-doc-title">RECORDS INVENTORY AND APPRAISAL</div>
-                                </td>
-                                <td>
-                                    <span class="field-label">Agency:</span>
-                                    <div class="field-value">{{ $agencyName }}</div>
-                                </td>
-                                <td>
-                                    <span class="field-label">Organizational Unit:</span>
-                                    <div class="field-value">{{ $orgUnit }}</div>
-                                </td>
-                                <td>
-                                    <span class="field-label">Telephone No:</span>
-                                    <div class="field-value">{{ $telephoneNumber }}</div>
-                                </td>
-                            </tr>
-                            <tr>
-                                <td>
-                                    <span class="field-label">Address:</span>
-                                    <div class="field-value">{{ $agencyAddress }}</div>
-                                </td>
-                                <td>
-                                    <span class="field-label">Person-in-Charge:</span>
-                                    <div class="field-value">{{ $personInCharge }}</div>
-                                </td>
-                                <td>
-                                    <span class="field-label">Date Prepared:</span>
-                                    <div class="field-value">{{ $datePrepared }}</div>
-                                </td>
-                            </tr>
-                        </table>
-
-                        <table class="doc-table doc-data-table" style="border-top: none;">
-                            <thead>
-                                <tr>
-                                    <th rowspan="2" style="width: 6%;">ITEM NO.</th>
-                                    <th rowspan="2" style="width: 30%;">RECORDS SERIES TITLE & DESCRIPTION</th>
-                                    <th rowspan="2" style="width: 10%;">PERIOD COVERED</th>
-                                    <th rowspan="2" style="width: 8%;">VOL IN CUBIC METER</th>
-                                    <th rowspan="2" style="width: 10%;">LOCATION OF RECORDS</th>
-                                    <th rowspan="2" style="width: 7%;">FREQ OF USE</th>
-                                    <th rowspan="2" style="width: 7%;">DUPLICATION</th>
-                                    <th rowspan="2" style="width: 5%;">TIME VALUE<br>(T/P)</th>
-                                    <th rowspan="2" style="width: 5%;">UTILITY VALUE<br>(adm/F/L/Arc)</th>
-                                    <th colspan="3">RETENTION PERIOD</th>
-                                    <th rowspan="2" style="width: 12%;">DISPOSITION PROVISION</th>
-                                </tr>
-                                <tr class="sub-header">
-                                    <th style="width: 4%;">Active</th>
-                                    <th style="width: 4%;">Storage</th>
-                                    <th style="width: 4%;">Total</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                @php $prevPrintOfficeName = null; @endphp
-                                @forelse($printItems as $pIdx => $pItem)
-                                    @php
-                                        $isPermSeries = (bool)($pItem->effective_is_permanent) || 
-                                                        (strtolower(trim($pItem->effective_total ?? '')) === 'permanent') ||
-                                                        (strtolower(trim($pItem->effective_active ?? '')) === 'permanent' && strtolower(trim($pItem->effective_storage ?? '')) === 'permanent');
-                                        $pOfficeName = $pItem->recorded_office_name ?? $pItem->recorded_at_office ?? 'Unknown Office';
-                                    @endphp
-                                    @if($pOfficeName !== $prevPrintOfficeName)
-                                        <tr class="doc-section-divider">
-                                            <td colspan="13" style="background: #cbd5e1; color: #0f172a; font-weight: bold; text-align: center; text-transform: uppercase; letter-spacing: 0.5px; padding: 5px 8px; border: 1px solid #000000; font-size: 9.5px; -webkit-print-color-adjust: exact; print-color-adjust: exact;">
-                                                {{ strtoupper($pOfficeName) }}
-                                            </td>
-                                        </tr>
-                                        @php $prevPrintOfficeName = $pOfficeName; @endphp
-                                    @endif
-                                    <tr>
-                                        <td style="text-align: center; font-weight: bold; color: #000;">
-                                            {{ $pItem->display_item_no ?? '' }}
-                                        </td>
-                                        <td style="padding-left: {{ (($pItem->depth ?? 0) * 12) + 4 }}px; font-weight: bold; color: #000;">
-                                            @if(($pItem->depth ?? 0) > 0)
-                                                └─ 
-                                            @endif
-                                            {{ $pItem->series_title }}
-                                            @if(!empty($pItem->display_description))
-                                                <div style="font-weight: normal; font-style: italic; font-size: 8px; color: #334155; margin-top: 1px; line-height: 1.25;">
-                                                    {{ $pItem->display_description }}
-                                                </div>
-                                            @endif
-                                        </td>
-                                        <td style="text-align: center; color: #000;">{{ $pItem->display_period_covered }}</td>
-                                        <td style="text-align: center; color: #000;">{{ $pItem->display_volume }}</td>
-                                        <td style="text-align: center; font-size: 8.5px; color: #000;">{{ $pItem->display_location }}</td>
-                                        <td style="text-align: center; font-size: 8.5px; color: #000;">{{ $pItem->display_freq }}</td>
-                                        <td style="text-align: center; font-size: 8.5px; color: #000;">{{ $pItem->display_medium }}</td>
-                                        <td style="text-align: center; font-weight: bold; color: #000;">{{ $pItem->display_time_value }}</td>
-                                        <td style="text-align: center; font-weight: bold; color: #000;">{{ $pItem->display_utility }}</td>
-                                        @if($isPermSeries)
-                                            <td colspan="3" style="text-align: center; font-weight: bold; font-size: 8.5px; color: #dc2626;" class="print-retention-red">
-                                                PERMANENT
-                                            </td>
-                                        @else
-                                            <td style="text-align: center; color: #dc2626; font-weight: bold;" class="print-retention-red">{{ $pItem->effective_active ?: '' }}</td>
-                                            <td style="text-align: center; color: #dc2626; font-weight: bold;" class="print-retention-red">{{ $pItem->effective_storage ?: '' }}</td>
-                                            <td style="text-align: center; font-weight: bold; color: #dc2626;" class="print-retention-red">{{ $pItem->effective_total ?: '' }}</td>
-                                        @endif
-                                        <td style="font-size: 8.5px; color: #000;">{{ $pItem->remarks ?: '' }}</td>
-                                    </tr>
-                                @empty
-                                    <tr>
-                                        <td colspan="13" style="text-align: center; padding: 20px; font-style: italic;">
-                                            No record series items selected for NAP Form 1.
-                                        </td>
-                                    </tr>
-                                @endforelse
-                            </tbody>
-                        </table>
-
-                        <div class="signatures-wrapper">
-                            <div class="footer-legend">
-                                <strong>LEGEND:</strong> TIME VALUE: T-Temporary P-Permanent &nbsp;|&nbsp; UTILITY VALUE: Adm-Administrative F-Fiscal L-Legal Arc-Archival
-                            </div>
-
-                            <table class="signatures-table">
-                                <tr>
-                                    <td>
-                                        <span class="field-label">PREPARED BY:</span>
-                                        <div class="sig-block">
-                                            <div class="sig-line">{{ $preparedBy ?: '___________________' }}</div>
-                                            <div class="sig-label">{{ $preparedPosition }}</div>
-                                        </div>
-                                    </td>
-                                    <td>
-                                        <span class="field-label">ASSISTED BY:</span>
-                                        <div class="sig-block">
-                                            <div class="sig-line">{{ $assistedBy ?: '___________________' }}</div>
-                                            <div class="sig-label">{{ $assistedPosition ?: 'NAP Records Management Analyst' }}</div>
-                                        </div>
-                                    </td>
-                                    <td>
-                                        <span class="field-label">APPROVED BY:</span>
-                                        <div class="sig-block">
-                                            <div class="sig-line">{{ $approvedBy ?: '___________________' }}</div>
-                                            <div class="sig-label">{{ $approvedPosition ?: 'Chief of Division / Department Head' }}</div>
-                                        </div>
-                                    </td>
-                                </tr>
-                            </table>
-                        </div>
-
-                    </div>
-                </div>
-
             </div>
         </div>
     @endif

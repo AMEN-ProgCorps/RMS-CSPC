@@ -12,10 +12,87 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 2')
     public string $retentionFilter = ''; // 'all', 'permanent', 'temporary'
     public string $officeFilter = ''; // '' for all, or office_code
     
-    // Checkbox selections for printing
+    // Checkbox selections & feedback messages
     public array $selectedIds = [];
     public bool $selectAll = false;
-    public bool $showPrintModal = false;
+    public string $errorMessage = '';
+    public string $successMessage = '';
+
+    // Cluster Creation Modal Properties
+    public bool $showClusterModal = false;
+    public string $clusterName = '';
+    public string $clusterNotes = '';
+
+    public function openClusterModal(): void
+    {
+        if (empty($this->selectedIds)) {
+            $this->errorMessage = 'Please select at least one record series to create an RDS cluster.';
+            return;
+        }
+
+        $userOffice = Auth::user()?->details?->office_code ?? 'OFFICE';
+        $this->clusterName = 'RDS Schedule Cluster — ' . $userOffice . ' (' . Carbon::now()->format('Y-m-d') . ')';
+        $this->clusterNotes = '';
+        $this->showClusterModal = true;
+    }
+
+    public function closeClusterModal(): void
+    {
+        $this->showClusterModal = false;
+    }
+
+    public function submitClusterCreation(): void
+    {
+        if (empty($this->selectedIds)) {
+            $this->errorMessage = 'Please select at least one record series to create an RDS cluster.';
+            return;
+        }
+
+        try {
+            DB::beginTransaction();
+
+            $user = Auth::user();
+            $userOffice = $user?->details?->office_code ?? null;
+
+            $mainPendingId = DB::table('main_pending_id')->insertGetId([
+                'status'     => 'UNUSED',
+                'is_active'  => true,
+                'created_at' => now(),
+                'updated_at' => now(),
+            ]);
+
+            DB::table('rdp_pending_record_series')->insert([
+                'cluster_id'   => $mainPendingId,
+                'cluster_name' => trim($this->clusterName) ?: ('RDS Schedule Batch — ' . now()->format('Y-m-d')),
+                'status_id'    => 1, // Pending Verification
+                'office'       => $userOffice,
+                'created_by'   => $user?->id,
+                'is_active'    => true,
+                'created_at'   => now(),
+                'updated_at'   => now(),
+            ]);
+
+            foreach ($this->selectedIds as $sId) {
+                DB::table('rdp_grouped_record_series')->insert([
+                    'group_head'       => $mainPendingId,
+                    'record_series_id' => (int)$sId,
+                    'is_active'        => true,
+                    'created_at'       => now(),
+                    'updated_at'       => now(),
+                ]);
+            }
+
+            DB::commit();
+
+            $this->successMessage = 'RDS Schedule cluster created successfully! It is now available under Pending / List for printing and approval.';
+            $this->selectedIds = [];
+            $this->selectAll = false;
+            $this->closeClusterModal();
+        } catch (\Exception $e) {
+            DB::rollBack();
+            $this->errorMessage = 'Failed to create RDS cluster: ' . $e->getMessage();
+        }
+    }
 
     // View Modal Properties
     public bool $showViewModal = false;
@@ -48,8 +125,6 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 2')
     public string $committeeChairmanTitle = 'Chairman, Records Management Committee';
     public string $executiveDirectorName = '';
     public string $executiveDirectorTitle = 'Executive Director, National Archives of the Philippines';
-
-    public string $errorMessage = '';
 
     public function mount(): void
     {
@@ -265,9 +340,46 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 2')
 
     private function buildTreeHierarchy(array $records): array
     {
-        $byParent = [];
+        $allParentIds = [];
         foreach ($records as $r) {
-            $pId = $r->parent_id ?? 0;
+            if (!empty($r->parent_id)) {
+                $allParentIds[] = (int)$r->parent_id;
+            }
+        }
+
+        $recordsById = [];
+        foreach ($records as $r) {
+            $recordsById[(int)$r->id] = $r;
+        }
+
+        $missingParentIds = array_diff(array_unique($allParentIds), array_keys($recordsById));
+        if (!empty($missingParentIds)) {
+            $missingParents = DB::table('rdp_record_series')
+                ->leftJoin('rdp_retention_period', 'rdp_record_series.retention_period', '=', 'rdp_retention_period.id')
+                ->leftJoin('rdp_record_series as parent', 'rdp_record_series.parent_id', '=', 'parent.id')
+                ->leftJoin('office', 'rdp_record_series.recorded_at_office', '=', 'office.office_code')
+                ->select([
+                    'rdp_record_series.*',
+                    'rdp_retention_period.active_period',
+                    'rdp_retention_period.storage_period',
+                    'rdp_retention_period.total_period',
+                    'parent.series_title as parent_title',
+                    'office.office_name as recorded_office_name',
+                ])
+                ->whereIn('rdp_record_series.id', $missingParentIds)
+                ->get();
+
+            foreach ($missingParents as $mp) {
+                $mp->is_parent_context = true;
+                $recordsById[(int)$mp->id] = $mp;
+            }
+        }
+
+        $allRecords = array_values($recordsById);
+
+        $byParent = [];
+        foreach ($allRecords as $r) {
+            $pId = (int)($r->parent_id ?? 0);
             $byParent[$pId][] = $r;
         }
 
@@ -279,14 +391,14 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 2')
             foreach ($byParent[$parentId] as $item) {
                 $item->depth = $depth;
                 $ordered[] = $item;
-                $flatten($item->id, $depth + 1);
+                $flatten((int)$item->id, $depth + 1);
             }
         };
 
         $flatten(0, 0);
 
         $addedIds = array_column($ordered, 'id');
-        foreach ($records as $r) {
+        foreach ($allRecords as $r) {
             if (!in_array($r->id, $addedIds, true)) {
                 $r->depth = 0;
                 $ordered[] = $r;
@@ -546,7 +658,9 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 2')
             <p style="font-size: 14px; color: #64748b; margin: 4px 0 0 0;">Official audit report & disposition retention schedule for verified record series.</p>
         </div>
         <div style="display: flex; gap: 10px; flex-wrap: wrap;">
-            <!-- Cluster printing managed under Pending / List -->
+            <button type="button" wire:click="openClusterModal" class="nap-btn nap-btn-primary" {{ empty($selectedIds) ? 'disabled style="opacity: 0.5; cursor: not-allowed;"' : '' }}>
+                📦 Create Cluster ({{ count($selectedIds) }})
+            </button>
         </div>
     </div>
 
@@ -617,7 +731,6 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 2')
                         <th style="width: 40px; text-align: center;">
                             <input type="checkbox" wire:model.live="selectAll" style="width: 16px; height: 16px; cursor: pointer; accent-color: #2563eb;">
                         </th>
-                        <th style="width: 90px; text-align: center;">ITEM NO.</th>
                         <th>RECORD SERIES TITLE</th>
                         <th style="width: 120px; text-align: center;">ACTIVE</th>
                         <th style="width: 120px; text-align: center;">STORAGE</th>
@@ -635,27 +748,32 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 2')
                                             (strtolower(trim($item->effective_active ?? '')) === 'permanent' && strtolower(trim($item->effective_storage ?? '')) === 'permanent');
                             $itemIdStr = (string)$item->id;
                             $currentOfficeName = $item->recorded_office_name ?? $item->recorded_at_office ?? 'Unknown Office';
+                            $isParentCtx = !empty($item->is_parent_context);
                         @endphp
                         @if($currentOfficeName !== $prevOfficeName)
                             <tr class="table-section-divider-row">
-                                <td colspan="8" style="background: #e2e8f0; color: #1e293b; font-weight: 800; text-align: center; text-transform: uppercase; letter-spacing: 0.6px; padding: 7px 12px; font-size: 11.5px; font-family: 'Inter', sans-serif; border-top: 2px solid #cbd5e1; border-bottom: 2px solid #cbd5e1;">
+                                <td colspan="7" style="background: #e2e8f0; color: #1e293b; font-weight: 800; text-align: center; text-transform: uppercase; letter-spacing: 0.6px; padding: 7px 12px; font-size: 11.5px; font-family: 'Inter', sans-serif; border-top: 2px solid #cbd5e1; border-bottom: 2px solid #cbd5e1;">
                                     {{ strtoupper($currentOfficeName) }}
                                 </td>
                             </tr>
                             @php $prevOfficeName = $currentOfficeName; @endphp
                         @endif
-                        <tr style="{{ in_array($itemIdStr, $selectedIds) ? 'background: #eff6ff;' : '' }}">
+                        <tr style="{{ $isParentCtx ? 'background: #f8fafc;' : (in_array($itemIdStr, $selectedIds) ? 'background: #eff6ff;' : '') }}">
                             <td style="text-align: center;">
-                                <input type="checkbox" wire:model.live="selectedIds" value="{{ $item->id }}" style="width: 16px; height: 16px; cursor: pointer; accent-color: #2563eb;">
+                                @if(!$isParentCtx)
+                                    <input type="checkbox" wire:model.live="selectedIds" value="{{ $item->id }}" style="width: 16px; height: 16px; cursor: pointer; accent-color: #2563eb;">
+                                @else
+                                    <span style="font-size: 11px; color: #94a3b8;">—</span>
+                                @endif
                             </td>
-                            <td style="text-align: center; font-weight: 700; color: #475569;">
-                                {{ $item->display_item_no ?? '' }}
-                            </td>
-                            <td style="padding-left: {{ (($item->depth ?? 0) * 16) + 14 }}px; font-weight: 700;">
+                            <td style="padding-left: {{ (($item->depth ?? 0) * 20) + 14 }}px; font-weight: 700;">
                                 @if(($item->depth ?? 0) > 0)
-                                    <span style="font-family: monospace; font-weight: 800; color: #2563eb;">└─</span> 
+                                    <span style="font-family: monospace; font-weight: 800; color: #2563eb; margin-right: 4px;">└─</span> 
                                 @endif
                                 {{ $item->series_title }}
+                                @if($isParentCtx)
+                                    <span style="font-size: 10px; font-weight: 800; background: #e2e8f0; color: #475569; padding: 2px 6px; border-radius: 4px; margin-left: 6px;">PARENT SERIES</span>
+                                @endif
                                 @if(!empty($item->is_inherited))
                                     <span style="font-size: 11px; color: #64748b; font-weight: 500; margin-left: 6px;">(Inherited)</span>
                                 @endif
@@ -689,7 +807,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 2')
                         </tr>
                     @empty
                         <tr>
-                            <td colspan="8" style="padding: 32px; text-align: center; color: #64748b;">
+                            <td colspan="7" style="padding: 32px; text-align: center; color: #64748b;">
                                 No record series found matching filter criteria.
                             </td>
                         </tr>
@@ -1103,6 +1221,34 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 2')
                     <div style="position: absolute; bottom: 15px; right: 35px; font-size: 9px; color: #333;">Page 2 of 2 Pages</div>
                 </div>
 
+            </div>
+        </div>
+    @endif
+
+    <!-- CREATE CLUSTER MODAL OVERLAY -->
+    @if($showClusterModal)
+        <div class="modal-overlay" wire:click.self="closeClusterModal">
+            <div class="modal-dialog" style="max-width: 550px;">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; border-bottom: 1px solid #e2e8f0; padding-bottom: 12px;">
+                    <h3 style="margin: 0; font-size: 18px; font-weight: 800; color: #0f172a;">Create RDS Schedule Cluster</h3>
+                    <button type="button" wire:click="closeClusterModal" style="background: none; border: none; font-size: 20px; cursor: pointer; color: #64748b;">✕</button>
+                </div>
+
+                <div style="display: flex; flex-direction: column; gap: 16px;">
+                    <div style="background: #eff6ff; border: 1px solid #bfdbfe; border-radius: 8px; padding: 12px 16px; font-size: 13px; color: #1e40af; font-weight: 600;">
+                        📦 Packaging <strong>{{ count($selectedIds) }}</strong> selected custom record series into an RDS schedule submission cluster.
+                    </div>
+
+                    <div>
+                        <label style="font-size: 13px; font-weight: 700; color: #334155; display: block; margin-bottom: 6px;">Cluster Title / Name</label>
+                        <input type="text" class="form-control" wire:model="clusterName" placeholder="e.g. RDS Schedule Batch 2026-Q3" style="width: 100%; padding: 10px; border: 1px solid #cbd5e1; border-radius: 8px; font-size: 14px;">
+                    </div>
+
+                    <div style="display: flex; justify-content: flex-end; gap: 10px; margin-top: 8px; border-top: 1px solid #e2e8f0; padding-top: 14px;">
+                        <button type="button" wire:click="closeClusterModal" class="nap-btn nap-btn-secondary">Cancel</button>
+                        <button type="button" wire:click="submitClusterCreation" class="nap-btn nap-btn-primary">Confirm & Create Cluster</button>
+                    </div>
+                </div>
             </div>
         </div>
     @endif

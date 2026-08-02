@@ -44,12 +44,14 @@ function toggleNavProperties() {
         articleContainer.classList.remove('imdown');
         articleContainer.classList.add('imup');
         navMainIcon.src = toggleNavSection;
+        localStorage.setItem('sidebarState', 'imdown');
     } else {
         navigation.classList.remove('imdown');
         navigation.classList.add('imup');
         articleContainer.classList.remove('imup');
         articleContainer.classList.add('imdown');
         navMainIcon.src = toggleNavDefault;
+        localStorage.setItem('sidebarState', 'imup');
     }
 }
 
@@ -64,6 +66,7 @@ function resetNavProperties() {
     articleContainer.classList.remove('imup');
     articleContainer.classList.add('imdown');
     navMainIcon.src = toggleNavDefault;
+    localStorage.setItem('sidebarState', 'imup');
 }
 
 function showButtonSection(button_target) {
@@ -96,24 +99,137 @@ window.showButtonSection = showButtonSection;
 window.proccedto = proccedto;
 window.closeActionsDropdown = closeActionsDropdown;
 
+function initializeNavTooltips() {
+    document.querySelectorAll('.button-container').forEach(container => {
+        if (!container.querySelector('.nav-tooltip')) {
+            const labelSpan = container.querySelector('.button-label span');
+            if (labelSpan) {
+                const tooltip = document.createElement('span');
+                tooltip.className = 'nav-tooltip';
+                tooltip.textContent = labelSpan.textContent.trim();
+                container.appendChild(tooltip);
+            }
+        }
+    });
+}
+
+function closeNavFlyout() {
+    const existing = document.querySelector('.nav-flyout-popover');
+    if (existing) {
+        existing.remove();
+    }
+}
+window.closeNavFlyout = closeNavFlyout;
+
+function setupIconModeInteractions() {
+    document.querySelectorAll('.button-section-container').forEach(section => {
+        const buttonContainer = section.querySelector('.button-container');
+        if (!buttonContainer || buttonContainer.dataset.iconEventsBound) return;
+        buttonContainer.dataset.iconEventsBound = 'true';
+
+        // LEFT-CLICK HANDLER IN ICON MODE (Expands Nav)
+        buttonContainer.addEventListener('click', (e) => {
+            const navigation = document.getElementById('navigation');
+            if (navigation && navigation.classList.contains('imdown')) {
+                e.preventDefault();
+                e.stopPropagation();
+                closeNavFlyout();
+
+                // 1. Expand sidebar back to imup mode
+                toggleNavProperties();
+
+                // 2. Open section if it has sub-items
+                const sectionId = section.id;
+                if (sectionId) {
+                    showButtonSection(sectionId);
+                }
+            }
+        });
+
+        // RIGHT-CLICK HANDLER IN ICON MODE (Direct Link or Flyout Menu)
+        buttonContainer.addEventListener('contextmenu', (e) => {
+            const navigation = document.getElementById('navigation');
+            if (navigation && navigation.classList.contains('imdown')) {
+                e.preventDefault();
+                e.stopPropagation();
+                closeNavFlyout();
+
+                const functionsContainer = section.querySelector('.functions-container');
+                const subButtons = functionsContainer ? functionsContainer.querySelectorAll('.function-button') : [];
+
+                // CASE A: Single-page section (NO sub-items) -> Redirect directly
+                if (!subButtons || subButtons.length === 0) {
+                    const onclickAttr = buttonContainer.getAttribute('onclick');
+                    if (onclickAttr && onclickAttr.includes("proccedto('")) {
+                        const urlMatch = onclickAttr.match(/proccedto\('([^']+)'\)/);
+                        if (urlMatch && urlMatch[1]) {
+                            proccedto(urlMatch[1]);
+                        }
+                    }
+                    return;
+                }
+
+                // CASE B: Multi-page section (HAS sub-items) -> Show Popout Flyout Card!
+                const rect = buttonContainer.getBoundingClientRect();
+                const titleSpan = buttonContainer.querySelector('.button-label span');
+                const titleText = titleSpan ? titleSpan.textContent.trim().toUpperCase() : 'SECTION';
+                const iconSvg = buttonContainer.querySelector('.button-icon svg');
+                const iconHtml = iconSvg ? iconSvg.outerHTML : '';
+
+                const flyout = document.createElement('div');
+                flyout.className = 'nav-flyout-popover';
+                flyout.style.top = `${Math.max(10, rect.top)}px`;
+                flyout.style.left = `${rect.right + 12}px`;
+
+                let menuHtml = `
+                    <div class="flyout-header">
+                        <div class="flyout-icon">${iconHtml}</div>
+                        <span class="flyout-title">${titleText}</span>
+                    </div>
+                    <div class="flyout-menu-list">
+                `;
+
+                subButtons.forEach(sub => {
+                    const subText = sub.textContent.trim();
+                    const isActive = sub.classList.contains('force-active');
+                    const onclickAttr = sub.getAttribute('onclick') || '';
+                    menuHtml += `
+                        <div class="flyout-item ${isActive ? 'force-active' : ''}" onclick="closeNavFlyout(); ${onclickAttr}">
+                            ${subText}
+                        </div>
+                    `;
+                });
+
+                menuHtml += `</div>`;
+                flyout.innerHTML = menuHtml;
+                document.body.appendChild(flyout);
+            }
+        });
+    });
+}
+
 function initializeSidebarState() {
     const navigation = document.getElementById('navigation');
     const navMainIcon = document.getElementById('nav-main-icon');
     const articleContainer = document.getElementById('article-container');
+    initializeNavTooltips();
+    setupIconModeInteractions();
     if (!navigation || !articleContainer || !navMainIcon) return;
 
     const toggleNavSection = window.assetPaths?.toggleNavSection ?? '/icons/toggle-nav-section.svg';
     const toggleNavDefault = window.assetPaths?.toggleNavDefault ?? '/icons/toggle-nav-default.svg';
 
-    if (window.innerWidth < 1024) {
-        // Default closed for tablet/mobile
+    const savedState = localStorage.getItem('sidebarState');
+
+    if (savedState === 'imdown' || (window.innerWidth < 1024 && !savedState)) {
+        // Keep closed / icon mode
         navigation.classList.remove('imup');
         navigation.classList.add('imdown');
         articleContainer.classList.remove('imdown');
         articleContainer.classList.add('imup');
         navMainIcon.src = toggleNavSection;
     } else {
-        // Default open for PC
+        // Keep open / expanded mode
         navigation.classList.remove('imdown');
         navigation.classList.add('imup');
         articleContainer.classList.remove('imup');
@@ -122,9 +238,33 @@ function initializeSidebarState() {
     }
 }
 
-document.addEventListener('DOMContentLoaded', initializeSidebarState);
-document.addEventListener('livewire:navigated', initializeSidebarState);
+document.addEventListener('DOMContentLoaded', () => {
+    initializeNavTooltips();
+    setupIconModeInteractions();
+    initializeSidebarState();
+});
+document.addEventListener('livewire:navigated', () => {
+    initializeNavTooltips();
+    setupIconModeInteractions();
+    initializeSidebarState();
+});
+document.addEventListener('click', (e) => {
+    if (!e.target.closest('.nav-flyout-popover') && !e.target.closest('.button-container')) {
+        closeNavFlyout();
+    }
+});
+document.addEventListener('contextmenu', (e) => {
+    if (!e.target.closest('.button-container')) {
+        closeNavFlyout();
+    }
+});
+document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') {
+        closeNavFlyout();
+    }
+});
 window.addEventListener('resize', () => {
+    closeNavFlyout();
     const navigation = document.getElementById('navigation');
     if (navigation && window.innerWidth < 1024 && navigation.classList.contains('imup')) {
         initializeSidebarState();
@@ -132,3 +272,5 @@ window.addEventListener('resize', () => {
 });
 
 window.initializeSidebarState = initializeSidebarState;
+window.initializeNavTooltips = initializeNavTooltips;
+window.setupIconModeInteractions = setupIconModeInteractions;

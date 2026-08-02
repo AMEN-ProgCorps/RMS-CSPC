@@ -294,13 +294,13 @@ section{
                     width: 100%;
                     text-align: left;
                     border: none;
-                    border-radius: 8px;
-                    padding: 4px 6px;
+                    border-radius: 10px;
+                    padding: 8px 12px;
                     box-sizing: border-box;
                     transition: background-color 0.2s ease, transform 0.2s ease, gap 0.35s cubic-bezier(0.4, 0, 0.2, 1);
                 }
                 .button-container:hover {
-                    background-color: rgba(4, 56, 153, 0.04);
+                    background-color: #EEF2FF;
                 }
                 .button-container .button-icon{
                     position: relative;
@@ -365,9 +365,9 @@ section{
                 box-sizing: border-box;
                 display: flex;
                 flex-direction: column;
-                gap: 10px;
-                width: 70%;
-                margin-left: 25%;
+                gap: 4px;
+                width: 84%;
+                margin-left: 16%;
                 max-height: 0;
                 opacity: 0;
                 overflow: hidden;
@@ -375,17 +375,24 @@ section{
             }
                .function-button{
                     cursor: pointer;
-                    color: #646464;
-                    font-family: Roboto, sans-serif;
-                    font-size: 15px;
+                    color: #64748b;
+                    font-family: 'Inter', Roboto, sans-serif;
+                    font-size: 14.5px;
                     font-style: normal;
-                    font-weight: 400;
-                    line-height: 117.07%;
-                    transition: margin-left 0.2s ease, color 0.2s ease;
+                    font-weight: 500;
+                    line-height: 1.2;
+                    padding: 8px 12px;
+                    border-radius: 8px;
+                    transition: background-color 0.2s ease, color 0.2s ease;
                }
                .function-button:hover{
-                    margin-left: 5px;
-                    color:#0059FF;
+                    background-color: rgba(4, 56, 153, 0.05);
+                    color: #043899;
+               }
+               .function-button.force-active{
+                    background-color: #EEF2FF !important;
+                    color: #D97706 !important;
+                    font-weight: 700 !important;
                }
         .nav .account-container {
             position: relative;
@@ -428,21 +435,68 @@ section{
                     color: #043899;
                 }
         .force-active{
-            color: #FFB200;
+            color: #043899;
         }
 
-    /* Active Sub-section State */
-    .button-section-container.show .button-container .button-label{
-        color: #043899;
+    /* Active & Opened Sub-section States (Image 1 Design) */
+    .button-section-container.show > .button-container,
+    .button-container.force-active {
+        background-color: #EEF2FF !important;
+        border-radius: 10px !important;
     }
-    .button-section-container.show .button-container .show-arrow {
+    .button-section-container.show > .button-container .button-label,
+    .button-container.force-active .button-label {
+        color: #043899 !important;
+        font-weight: 700 !important;
+    }
+    .button-section-container.show > .button-container .button-icon svg path,
+    .button-container.force-active .button-icon svg path {
+        fill: #043899 !important;
+    }
+    .button-section-container.show > .button-container .show-arrow {
         transform: rotate(180deg);
+    }
+    .button-section-container.show > .button-container .show-arrow svg path {
+        fill: #043899 !important;
+        stroke: #043899 !important;
     }
     .button-section-container.show .functions-container{
         display: flex;
         max-height: 500px;
         opacity: 1;
         margin-top: 5px;
+    }
+
+    /* Icon Mode Tooltip Styling (Image 2 Design) */
+    .nav-tooltip {
+        display: none;
+        position: absolute;
+        left: 80px;
+        top: 50%;
+        transform: translateY(-50%) translateX(-4px);
+        background-color: #1e293b;
+        color: #ffffff;
+        padding: 7px 14px;
+        border-radius: 8px;
+        font-family: 'Inter', Roboto, sans-serif;
+        font-size: 13.5px;
+        font-weight: 600;
+        white-space: nowrap;
+        z-index: 999999;
+        box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.25), 0 4px 6px -4px rgba(0, 0, 0, 0.1);
+        pointer-events: none;
+        opacity: 0;
+        transition: opacity 0.2s ease, transform 0.2s ease;
+    }
+    .nav-tooltip::before {
+        content: '';
+        position: absolute;
+        right: 100%;
+        top: 50%;
+        transform: translateY(-50%);
+        border-width: 6px;
+        border-style: solid;
+        border-color: transparent #1e293b transparent transparent;
     }
 
     /* Expanded Navigation State (.navigation.imup) */
@@ -468,10 +522,13 @@ section{
     /* Collapsed Navigation State (.navigation.imdown) */
     .navigation.imdown {
         --nav-width: 80px;
+        overflow: visible !important;
+        z-index: 100 !important;
     }
     .navigation.imdown .nav {
         padding: 20px 15px;
-        z-index: 0;
+        z-index: 100 !important;
+        overflow: visible !important;
     }
     .navigation.imdown .nav .nav-header-container {
         gap: 0 !important;
@@ -491,6 +548,8 @@ section{
     }
     .navigation.imdown .nav .nav-list-container .button-section-container .button-container {
         gap: 0 !important;
+        position: relative !important;
+        overflow: visible !important;
     }
     .navigation.imdown .nav .nav-list-container .button-section-container .button-container .button-label,
     .navigation.imdown .nav .nav-list-container .button-section-container .button-container .button-label *,
@@ -535,6 +594,23 @@ section{
     .navigation.imdown .nav .nav-list-container {
         -ms-overflow-style: none !important;
         scrollbar-width: none !important;
+        overflow: visible !important;
+    }
+
+    /* Hover Tooltip & Card Highlight Display in Collapsed Mode (Image 2) */
+    .navigation.imdown .button-container:hover .nav-tooltip,
+    .navigation.imdown .button-section-container:hover > .button-container .nav-tooltip {
+        display: block !important;
+        opacity: 1 !important;
+        visibility: visible !important;
+        transform: translateY(-50%) translateX(4px) !important;
+    }
+    .navigation.imdown .button-container:hover {
+        background-color: #EEF2FF !important;
+        border-radius: 10px !important;
+    }
+    .navigation.imdown .button-container:hover .button-icon svg path {
+        fill: #043899 !important;
     }
 
     .article-container{
@@ -547,14 +623,16 @@ section{
         flex-grow: 1;
         overflow-y: auto;
         text-overflow: ellipsis;
-        transition: border-radius 0.35s cubic-bezier(0.4, 0, 0.2, 1), background-color 0.35s cubic-bezier(0.4, 0, 0.2, 1), box-shadow 0.35s cubic-bezier(0.4, 0, 0.2, 1);
+        border-radius: 0 !important;
+        transition: background-color 0.35s cubic-bezier(0.4, 0, 0.2, 1);
     }
         .article-container.imdown{
             background-color: #F5F5F5;
+            border-radius: 0 !important;
         }
         .article-container.imup{
-            border-radius: 20px 0px 0px 20px;
-            box-shadow: rgba(0, 0, 0, 0.35) 0px 5px 15px;
+            border-radius: 0 !important;
+            box-shadow: none !important;
             z-index: 1;
         }
     .article-container::-webkit-scrollbar {
@@ -572,3 +650,89 @@ section{
         border-radius: 10px;
         cursor: grabbing;
     }
+
+/* Flyout Popover Menu for Right-Click in Icon Mode (Image Design) */
+.nav-flyout-popover {
+    position: fixed;
+    z-index: 9999999;
+    background: #ffffff;
+    border-radius: 14px;
+    box-shadow: rgba(0, 0, 0, 0.15) 0px 10px 30px, rgba(0, 0, 0, 0.08) 0px 4px 12px;
+    padding: 16px 14px;
+    min-width: 230px;
+    max-width: 310px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    animation: flyoutFadeIn 0.18s cubic-bezier(0.4, 0, 0.2, 1);
+    border: 1px solid rgba(0, 0, 0, 0.06);
+    user-select: none;
+}
+
+@keyframes flyoutFadeIn {
+    from {
+        opacity: 0;
+        transform: translateY(-6px) scale(0.97);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0) scale(1);
+    }
+}
+
+.flyout-header {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding-bottom: 8px;
+    border-bottom: 1px solid #f1f5f9;
+}
+.flyout-header .flyout-icon {
+    width: 22px;
+    height: 22px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: #475569;
+}
+.flyout-header .flyout-icon svg {
+    width: 100%;
+    height: 100%;
+}
+.flyout-header .flyout-icon svg path {
+    fill: #475569;
+}
+.flyout-header .flyout-title {
+    font-family: 'Inter', Roboto, sans-serif;
+    font-weight: 700;
+    font-size: 13px;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    color: #334155;
+}
+
+.flyout-menu-list {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+.flyout-item {
+    cursor: pointer;
+    padding: 9px 14px;
+    border-radius: 8px;
+    font-family: 'Inter', Roboto, sans-serif;
+    font-size: 14px;
+    font-weight: 500;
+    color: #64748b;
+    transition: background-color 0.15s ease, color 0.15s ease, font-weight 0.15s ease;
+}
+.flyout-item:hover {
+    background-color: #EEF2FF;
+    color: #D97706;
+    font-weight: 700;
+}
+.flyout-item.force-active {
+    background-color: #EEF2FF;
+    color: #D97706;
+    font-weight: 700;
+}

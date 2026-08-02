@@ -22,6 +22,9 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
     // Selected Series Staged State (Deferred DB save)
     public ?int $record_series_id = null;
     public ?string $selectedSeriesTitle = null;
+    public array $selectedSeriesHierarchy = [];
+    public bool $hasPredefinedRemarks = false;
+    public bool $hasPredefinedRetention = false;
 
     // Predefined vs Custom Series Flag
     public bool $isCustomSeries = false;
@@ -194,6 +197,10 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
         $this->activeSubDropdownIndex = null;
     }
 
+    public ?int $selectedParentId = null;
+    public ?int $selectedParentTypeId = null;
+    public ?string $selectedParentOffice = null;
+
     public function getSubSuggestions(int $index): \Illuminate\Support\Collection
     {
         $parentTitle = ($index === 0) ? trim($this->parentSeriesTitle) : trim($this->subsections[$index - 1] ?? '');
@@ -201,29 +208,57 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
             return collect();
         }
 
-        $query = DB::table('rdp_record_series');
+        $parentQuery = DB::table('rdp_record_series')->where('series_title', 'ilike', $parentTitle);
 
-        $parentRecord = DB::table('rdp_record_series')
-            ->where('series_title', 'ilike', $parentTitle)
-            ->first();
+        if ($index === 0 && $this->selectedParentId) {
+            $parentQuery->where('id', $this->selectedParentId);
+        } elseif ($index === 0 && $this->selectedParentTypeId) {
+            $parentQuery->where('series_type', $this->selectedParentTypeId);
+            if ($this->selectedParentOffice) {
+                $parentQuery->where('recorded_at_office', $this->selectedParentOffice);
+            }
+        }
 
-        if ($parentRecord) {
-            $query->where('parent_id', $parentRecord->id);
-        } else {
+        $parentRecord = $parentQuery->first();
+
+        if (!$parentRecord) {
             return collect();
         }
 
+        $query = DB::table('rdp_record_series')
+            ->leftJoin('rdp_record_series_type', 'rdp_record_series.series_type', '=', 'rdp_record_series_type.id')
+            ->leftJoin('office', 'rdp_record_series.recorded_at_office', '=', 'office.office_code')
+            ->select([
+                'rdp_record_series.id',
+                'rdp_record_series.series_title',
+                'rdp_record_series.recorded_at_office',
+                'rdp_record_series_type.shorted_type',
+                'office.office_name as recorded_office_name',
+            ])
+            ->where('rdp_record_series.parent_id', $parentRecord->id);
+
         $currentSubInput = trim($this->subsections[$index] ?? '');
         if (!empty($currentSubInput)) {
-            $query->where('series_title', 'ilike', '%' . $currentSubInput . '%');
+            $query->where('rdp_record_series.series_title', 'ilike', '%' . $currentSubInput . '%');
         }
 
-        return $query->select('series_title')->distinct()->limit(10)->get();
+        return $query->distinct()->limit(10)->get();
     }
 
-    public function selectParentSuggestion(string $title): void
+    public function updatedParentSeriesTitle(): void
+    {
+        $this->selectedParentId = null;
+        $this->selectedParentTypeId = null;
+        $this->selectedParentOffice = null;
+        $this->showParentDropdown = true;
+    }
+
+    public function selectParentSuggestion(string $title, ?int $id = null, ?int $typeId = null, ?string $office = null): void
     {
         $this->parentSeriesTitle = mb_strtoupper($title);
+        $this->selectedParentId = $id;
+        $this->selectedParentTypeId = $typeId;
+        $this->selectedParentOffice = $office;
         $this->showParentDropdown = false;
     }
 
@@ -263,8 +298,38 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
             }
         }
 
+        $this->selectedSeriesHierarchy = [];
+        $currentParentId = null;
+
+        foreach ($fullPathTitles as $idx => $t) {
+            $query = DB::table('rdp_record_series')->where('series_title', 'ilike', $t);
+            if ($idx === 0) {
+                $query->whereNull('parent_id');
+            } elseif ($currentParentId) {
+                $query->where('parent_id', $currentParentId);
+            }
+            $existsNode = $query->first();
+
+            if ($existsNode) {
+                $currentParentId = $existsNode->id;
+                $this->selectedSeriesHierarchy[] = [
+                    'title' => $t,
+                    'is_predefined' => true,
+                ];
+            } else {
+                $currentParentId = null;
+                $this->selectedSeriesHierarchy[] = [
+                    'title' => $t,
+                    'is_predefined' => false,
+                ];
+            }
+        }
+
         $this->selectedSeriesTitle = implode(' ➔ ', $fullPathTitles);
         $leafTitle = end($fullPathTitles);
+
+        $this->hasPredefinedRemarks = false;
+        $this->hasPredefinedRetention = false;
 
         $foundSeries = DB::table('rdp_record_series')
             ->where('series_title', 'ilike', $leafTitle)
@@ -279,10 +344,19 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
                     ->first();
             }
 
+            if (!empty($foundSeries->remarks)) {
+                $this->hasPredefinedRemarks = true;
+                $this->disposition_provision = mb_strtoupper($foundSeries->remarks);
+            }
+
             $isPermFlag = (bool)($foundSeries->is_retention_period_permanent ?? false);
             $isActivePermanent = $retention && strtolower($retention->active_period ?? '') === 'permanent';
             $isTotalPermanent  = $retention && strtolower($retention->total_period ?? '') === 'permanent';
             $isTitlePermanent  = str_contains(strtolower($leafTitle), 'permanent');
+
+            if ($foundSeries->retention_period || $isPermFlag || $retention) {
+                $this->hasPredefinedRetention = true;
+            }
 
             if ($isPermFlag || $isActivePermanent || $isTotalPermanent || $isTitlePermanent) {
                 $this->is_permanent = true;
@@ -290,20 +364,12 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
                 $this->storage_period = '';
                 $this->retention_period = 'Permanent';
                 $this->time_value = 'P';
-
-                if ($foundSeries->remarks) {
-                    $this->disposition_provision = mb_strtoupper($foundSeries->remarks);
-                }
             } else {
                 $this->is_permanent = false;
                 $this->active_period = mb_strtoupper($retention->active_period ?? '');
                 $this->storage_period = mb_strtoupper($retention->storage_period ?? '');
                 $this->retention_period = mb_strtoupper($this->computeTotalPeriod($this->active_period, $this->storage_period, false));
                 $this->time_value = 'T';
-
-                if ($foundSeries->remarks) {
-                    $this->disposition_provision = mb_strtoupper($foundSeries->remarks);
-                }
             }
         } else {
             $this->isCustomSeries = true;
@@ -442,14 +508,52 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
 
     public function with(): array
     {
-        $parentSuggestions = DB::table('rdp_record_series')
-            ->select('series_title')
-            ->whereNull('parent_id')
-            ->when(!empty(trim($this->parentSeriesTitle)), fn($q) => $q->where('series_title', 'ilike', '%' . trim($this->parentSeriesTitle) . '%'))
-            ->distinct()
-            ->orderBy('series_title', 'asc')
-            ->limit(10)
-            ->get();
+        $term = strtolower(trim($this->parentSeriesTitle));
+
+        $parentSuggestionsQuery = DB::table('rdp_record_series')
+            ->leftJoin('rdp_record_series_type', 'rdp_record_series.series_type', '=', 'rdp_record_series_type.id')
+            ->leftJoin('office', 'rdp_record_series.recorded_at_office', '=', 'office.office_code')
+            ->select([
+                'rdp_record_series.id',
+                'rdp_record_series.series_title',
+                'rdp_record_series.series_type',
+                'rdp_record_series.recorded_at_office',
+                'rdp_record_series_type.shorted_type',
+                'office.office_name as recorded_office_name',
+            ])
+            ->whereNull('rdp_record_series.parent_id');
+
+        if (!empty($term)) {
+            $searchTerm = '%' . $term . '%';
+            $allMatching = $parentSuggestionsQuery->where('rdp_record_series.series_title', 'ilike', $searchTerm)
+                ->limit(50)
+                ->get();
+
+            $sorted = $allMatching->sort(function ($a, $b) use ($term) {
+                $titleA = strtolower($a->series_title ?? '');
+                $titleB = strtolower($b->series_title ?? '');
+
+                $getPriority = function ($title) use ($term) {
+                    if ($title === $term) return 1;
+                    if (str_starts_with($title, $term)) return 2;
+                    if (str_contains($title, ' ' . $term)) return 3;
+                    return 4;
+                };
+
+                $pA = $getPriority($titleA);
+                $pB = $getPriority($titleB);
+
+                if ($pA !== $pB) {
+                    return $pA <=> $pB;
+                }
+
+                return strcmp($titleA, $titleB);
+            })->values();
+
+            $parentSuggestions = $sorted->slice(0, 10);
+        } else {
+            $parentSuggestions = $parentSuggestionsQuery->orderBy('rdp_record_series.series_title', 'asc')->limit(10)->get();
+        }
 
         $allSeriesSuggestions = DB::table('rdp_record_series')
             ->select('series_title')
@@ -484,11 +588,13 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
             return;
         }
 
+        $this->clearMessages();
+
         try {
             DB::beginTransaction();
 
             $user = Auth::user();
-            $userOfficeCode = $user?->details?->office?->office_code;
+            $userOfficeCode = $user?->details?->office?->office_code ?? $user?->details?->office_code ?? null;
             $documentIdHandler = null;
 
             $this->volume = $this->calculateFormattedVolume();
@@ -589,11 +695,13 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
             return;
         }
 
+        $this->clearMessages();
+
         try {
             DB::beginTransaction();
 
             $user = Auth::user();
-            $userOfficeCode = $user?->details?->office?->office_code;
+            $userOfficeCode = $user?->details?->office?->office_code ?? $user?->details?->office_code ?? null;
             $documentIdHandler = null;
 
             $this->volume = $this->calculateFormattedVolume();
@@ -797,10 +905,23 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
                 <span class="ia-label ia-label-required">Record Series Title</span>
                 <div style="flex: 1; display: flex; align-items: center;">
                     @if($selectedSeriesTitle)
-                        <div class="ia-badge ia-badge-green">
-                            <div class="ia-badge-icon">
-                                <span class="ia-badge-icon-circle">📁</span>
-                                <span>{{ $selectedSeriesTitle }}</span>
+                        <div class="ia-badge ia-badge-green" style="display: flex; align-items: center; justify-content: space-between; width: 100%; gap: 12px; padding: 10px 16px;">
+                            <div style="display: flex; align-items: center; flex-wrap: wrap; gap: 6px;">
+                                @if(!empty($selectedSeriesHierarchy))
+                                    @foreach($selectedSeriesHierarchy as $idx => $node)
+                                        @if($idx > 0)
+                                            <span style="margin: 0 4px; color: #059669; font-weight: 800;">➔</span>
+                                        @endif
+                                        <span style="font-weight: 800; color: #065f46;">{{ $node['title'] }}</span>
+                                        @if($node['is_predefined'])
+                                            <span style="font-size: 10px; font-weight: 800; background: #eff6ff; color: #1d4ed8; border: 1px solid #bfdbfe; padding: 2px 6px; border-radius: 4px; text-transform: uppercase; display: inline-flex; align-items: center;">PREDEFINED</span>
+                                        @else
+                                            <span style="font-size: 10px; font-weight: 800; background: #faf5ff; color: #7e22ce; border: 1px solid #e9d5ff; padding: 2px 6px; border-radius: 4px; text-transform: uppercase; display: inline-flex; align-items: center;">USER</span>
+                                        @endif
+                                    @endforeach
+                                @else
+                                    <span style="font-weight: 800; color: #065f46;">{{ $selectedSeriesTitle }}</span>
+                                @endif
                             </div>
                             <button type="button" wire:click="openSeriesModal" class="ia-btn ia-btn-change">Change Series</button>
                         </div>
@@ -950,10 +1071,15 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
 
             <!-- Permanent Record Toggle -->
             <div class="ia-form-row">
-                <span class="ia-label">Permanent Record</span>
+                <span class="ia-label">
+                    Permanent Record
+                    @if($hasPredefinedRetention)
+                        <span style="font-size: 11px; color: #64748b; font-weight: 500;">(Predefined — Read Only)</span>
+                    @endif
+                </span>
                 <div style="flex: 1; display: flex; align-items: center; gap: 8px;">
                     <label class="ia-permanent-label">
-                        <input type="checkbox" wire:model.live="is_permanent">
+                        <input type="checkbox" wire:model.live="is_permanent" {{ $hasPredefinedRetention ? 'disabled' : '' }}>
                         Permanent Record Series
                     </label>
                     <span class="ia-permanent-hint">(Disables period inputs and sets retention to Permanent)</span>
@@ -961,19 +1087,29 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
             </div>
 
             <!-- Active Period -->
-            <div class="ia-form-row {{ $is_permanent ? 'ia-row-disabled' : '' }}">
-                <span class="ia-label">Active Period</span>
-                <input type="text" class="ia-input" wire:model.live.debounce.200ms="active_period" placeholder="E.G. 6 MONTHS, 1 YEAR" {{ $is_permanent ? 'disabled' : '' }}>
+            <div class="ia-form-row {{ ($is_permanent || $hasPredefinedRetention) ? 'ia-row-disabled' : '' }}">
+                <span class="ia-label">
+                    Active Period
+                    @if($hasPredefinedRetention)
+                        <span style="font-size: 11px; color: #64748b; font-weight: 500;">(Predefined — Read Only)</span>
+                    @endif
+                </span>
+                <input type="text" class="ia-input" wire:model.live.debounce.200ms="active_period" placeholder="E.G. 6 MONTHS, 1 YEAR" {{ ($is_permanent || $hasPredefinedRetention) ? 'disabled' : '' }}>
             </div>
 
             <!-- Storage Period -->
-            <div class="ia-form-row {{ $is_permanent ? 'ia-row-disabled' : '' }}">
-                <span class="ia-label">Storage Period</span>
-                <input type="text" class="ia-input" wire:model.live.debounce.200ms="storage_period" placeholder="E.G. 1 YEAR, 4 YEARS" {{ $is_permanent ? 'disabled' : '' }}>
+            <div class="ia-form-row {{ ($is_permanent || $hasPredefinedRetention) ? 'ia-row-disabled' : '' }}">
+                <span class="ia-label">
+                    Storage Period
+                    @if($hasPredefinedRetention)
+                        <span style="font-size: 11px; color: #64748b; font-weight: 500;">(Predefined — Read Only)</span>
+                    @endif
+                </span>
+                <input type="text" class="ia-input" wire:model.live.debounce.200ms="storage_period" placeholder="E.G. 1 YEAR, 4 YEARS" {{ ($is_permanent || $hasPredefinedRetention) ? 'disabled' : '' }}>
             </div>
 
             <!-- Total Period (Computed) -->
-            <div class="ia-form-row {{ $is_permanent ? 'ia-row-disabled' : '' }}">
+            <div class="ia-form-row {{ ($is_permanent || $hasPredefinedRetention) ? 'ia-row-disabled' : '' }}">
                 <span class="ia-label">Total Period</span>
                 <div class="ia-computed-box">
                     {{ $this->computeTotalPeriod($active_period, $storage_period, $is_permanent) ?: '— (Auto-calculated)' }}
@@ -982,8 +1118,13 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
 
             <!-- Remarks -->
             <div class="ia-form-row" style="align-items: flex-start;">
-                <span class="ia-label" style="margin-top: 10px;">Remarks</span>
-                <textarea class="ia-input" wire:model="disposition_provision" rows="3" placeholder="ENTER REMARKS OR DISPOSITION INSTRUCTIONS..." style="font-family: inherit;"></textarea>
+                <span class="ia-label" style="margin-top: 10px;">
+                    Remarks
+                    @if($hasPredefinedRemarks)
+                        <span style="font-size: 11px; color: #64748b; font-weight: 500; display: block;">(Predefined — Read Only)</span>
+                    @endif
+                </span>
+                <textarea class="ia-input" wire:model="disposition_provision" rows="3" placeholder="ENTER REMARKS OR DISPOSITION INSTRUCTIONS..." style="font-family: inherit;" {{ $hasPredefinedRemarks ? 'disabled' : '' }}></textarea>
             </div>
         </div>
 
@@ -1022,12 +1163,22 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
                 <div class="ia-modal-body">
                     <div style="margin-bottom: 16px; position: relative;" wire:click.outside="$set('showParentDropdown', false)">
                         <label class="ia-modal-label">Parent Record Series Title *:</label>
-                        <input type="text" class="ia-input" wire:model.live="parentSeriesTitle" wire:focus="$set('showParentDropdown', true)" placeholder="Search or type parent title..." style="width: 100%;">
+                        <input type="text" class="ia-input" wire:model.live.debounce.150ms="parentSeriesTitle" wire:focus="$set('showParentDropdown', true)" placeholder="Search or type parent title..." style="width: 100%;">
                         @if($showParentDropdown && count($parentSuggestions) > 0)
                             <div class="ia-autocomplete-dropdown">
                                 @foreach($parentSuggestions as $sugg)
-                                    <div wire:click="selectParentSuggestion('{{ addslashes($sugg->series_title) }}')" class="ia-autocomplete-item">
-                                        {{ $sugg->series_title }}
+                                    <div wire:click="selectParentSuggestion('{{ addslashes($sugg->series_title) }}', {{ $sugg->id ?? 'null' }}, {{ $sugg->series_type ?? 'null' }}, '{{ addslashes($sugg->recorded_at_office ?? '') }}')" class="ia-autocomplete-item" style="display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 8px 12px;">
+                                        <div style="display: flex; align-items: center; gap: 8px;">
+                                            @if(!empty($sugg->shorted_type))
+                                                <span style="font-size: 10.5px; font-weight: 800; background: #eff6ff; color: #1d4ed8; border: 1px solid #bfdbfe; padding: 2px 6px; border-radius: 4px; letter-spacing: 0.5px; text-transform: uppercase;">{{ $sugg->shorted_type }}</span>
+                                            @endif
+                                            <span style="font-weight: 700; color: #0f172a;">{{ $sugg->series_title }}</span>
+                                        </div>
+                                        @if(!empty($sugg->recorded_at_office))
+                                            <span style="font-size: 10px; font-weight: 700; color: #64748b; background: #f1f5f9; border: 1px solid #cbd5e1; padding: 2px 6px; border-radius: 4px; text-transform: uppercase;">
+                                                {{ $sugg->recorded_office_name ?? $sugg->recorded_at_office }}
+                                            </span>
+                                        @endif
                                     </div>
                                 @endforeach
                             </div>
@@ -1038,6 +1189,19 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
                         <div style="margin-bottom: 12px; display: flex; gap: 8px; position: relative;" wire:click.outside="$set('activeSubDropdownIndex', null)">
                             <input type="text" class="ia-input" wire:model.live="subsections.{{ $idx }}" wire:focus="$set('activeSubDropdownIndex', {{ $idx }})" placeholder="Subsection #{{ $idx + 1 }} title...">
                             <button type="button" wire:click="removeSubsection({{ $idx }})" class="ia-btn ia-btn-danger" style="padding: 0 12px;">&times;</button>
+
+                            @if($activeSubDropdownIndex === $idx && count($this->getSubSuggestions($idx)) > 0)
+                                <div class="ia-autocomplete-dropdown" style="top: 100%; left: 0; right: 40px; z-index: 10;">
+                                    @foreach($this->getSubSuggestions($idx) as $subSugg)
+                                        <div wire:click="selectSubSuggestion({{ $idx }}, '{{ addslashes($subSugg->series_title) }}')" class="ia-autocomplete-item" style="display: flex; align-items: center; gap: 8px;">
+                                            @if(!empty($subSugg->shorted_type))
+                                                <span style="font-size: 10.5px; font-weight: 800; background: #eff6ff; color: #1d4ed8; border: 1px solid #bfdbfe; padding: 2px 6px; border-radius: 4px; letter-spacing: 0.5px; text-transform: uppercase;">{{ $subSugg->shorted_type }}</span>
+                                            @endif
+                                            <span style="font-weight: 700; color: #0f172a;">{{ $subSugg->series_title }}</span>
+                                        </div>
+                                    @endforeach
+                                </div>
+                            @endif
                         </div>
                     @endforeach
 

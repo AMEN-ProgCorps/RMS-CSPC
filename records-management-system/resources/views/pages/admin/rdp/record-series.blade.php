@@ -130,6 +130,16 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Record Series')] class e
         $this->showEditBracketDropdown = false;
     }
 
+    public function updatedSeriesTitle(): void
+    {
+        $this->showParentDropdown = true;
+    }
+
+    public function updatedBracketInput(): void
+    {
+        $this->showBracketDropdown = true;
+    }
+
     public function selectParentSuggestion(string $title): void
     {
         $this->series_title = mb_strtoupper($title);
@@ -1022,14 +1032,51 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Record Series')] class e
             ->limit(8)
             ->get();
 
-        $parentSuggestions = DB::table('rdp_record_series')
-            ->select('series_title')
-            ->whereNull('parent_id')
-            ->when(!empty(trim($this->series_title)), fn($q) => $q->where('series_title', 'ilike', '%' . trim($this->series_title) . '%'))
-            ->distinct()
-            ->orderBy('series_title', 'asc')
-            ->limit(8)
-            ->get();
+        $termAdmin = strtolower(trim($this->series_title));
+
+        $parentSuggestionsQuery = DB::table('rdp_record_series')
+            ->leftJoin('rdp_record_series_type', 'rdp_record_series.series_type', '=', 'rdp_record_series_type.id')
+            ->leftJoin('office', 'rdp_record_series.recorded_at_office', '=', 'office.office_code')
+            ->select([
+                'rdp_record_series.id',
+                'rdp_record_series.series_title',
+                'rdp_record_series.recorded_at_office',
+                'rdp_record_series_type.shorted_type',
+                'office.office_name as recorded_office_name',
+            ])
+            ->whereNull('rdp_record_series.parent_id');
+
+        if (!empty($termAdmin)) {
+            $searchTerm = '%' . $termAdmin . '%';
+            $allMatching = $parentSuggestionsQuery->where('rdp_record_series.series_title', 'ilike', $searchTerm)
+                ->limit(50)
+                ->get();
+
+            $sorted = $allMatching->sort(function ($a, $b) use ($termAdmin) {
+                $titleA = strtolower($a->series_title ?? '');
+                $titleB = strtolower($b->series_title ?? '');
+
+                $getPriority = function ($title) use ($termAdmin) {
+                    if ($title === $termAdmin) return 1;
+                    if (str_starts_with($title, $termAdmin)) return 2;
+                    if (str_contains($title, ' ' . $termAdmin)) return 3;
+                    return 4;
+                };
+
+                $pA = $getPriority($titleA);
+                $pB = $getPriority($titleB);
+
+                if ($pA !== $pB) {
+                    return $pA <=> $pB;
+                }
+
+                return strcmp($titleA, $titleB);
+            })->values();
+
+            $parentSuggestions = $sorted->slice(0, 8);
+        } else {
+            $parentSuggestions = $parentSuggestionsQuery->orderBy('rdp_record_series.series_title', 'asc')->limit(8)->get();
+        }
 
         $baseQuery = DB::table('rdp_record_series')
             ->leftJoin('rdp_retention_period', 'rdp_record_series.retention_period', '=', 'rdp_retention_period.id')
@@ -1260,7 +1307,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Record Series')] class e
                         <div style="flex: 1; position: relative;">
                             <input type="text"
                                    class="ars-input"
-                                   wire:model.live="series_title"
+                                   wire:model.live.debounce.150ms="series_title"
                                    wire:focus="$set('showParentDropdown', true)"
                                    placeholder="E.G. GATE PASSES, RECEIPTS, FINANCIAL STATEMENTS"
                                    style="width: 100%; font-weight: 700;">
@@ -1268,8 +1315,18 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Record Series')] class e
                             @if($showParentDropdown && count($parentSuggestions) > 0)
                                 <ul class="ars-suggestions-list">
                                     @foreach($parentSuggestions as $ps)
-                                        <li class="ars-suggestion-item" wire:click="selectParentSuggestion('{{ addslashes($ps->series_title) }}')">
-                                            {{ $ps->series_title }}
+                                        <li class="ars-suggestion-item" wire:click="selectParentSuggestion('{{ addslashes($ps->series_title) }}')" style="display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 8px 12px;">
+                                            <div style="display: flex; align-items: center; gap: 8px;">
+                                                @if(!empty($ps->shorted_type))
+                                                    <span style="font-size: 10px; font-weight: 800; background: #eff6ff; color: #1d4ed8; border: 1px solid #bfdbfe; padding: 1px 5px; border-radius: 4px; letter-spacing: 0.5px; text-transform: uppercase;">{{ $ps->shorted_type }}</span>
+                                                @endif
+                                                <span>{{ $ps->series_title }}</span>
+                                            </div>
+                                            @if(!empty($ps->recorded_at_office))
+                                                <span style="font-size: 10px; font-weight: 700; color: #64748b; background: #f1f5f9; border: 1px solid #cbd5e1; padding: 1px 5px; border-radius: 4px; text-transform: uppercase;">
+                                                    {{ $ps->recorded_office_name ?? $ps->recorded_at_office }}
+                                                </span>
+                                            @endif
                                         </li>
                                     @endforeach
                                 </ul>

@@ -402,6 +402,8 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 1')
                 'office.office_name as recorded_office_name',
             ]);
 
+        $query->where('rdp_record_series.is_verified', false);
+
         if (!empty($this->officeFilter)) {
             $query->where('rdp_record_series.recorded_at_office', $this->officeFilter);
         }
@@ -657,9 +659,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 1')
             <p style="font-size: 14px; color: #64748b; margin: 4px 0 0 0;">Official inventory listing & appraisal schedule for all record series.</p>
         </div>
         <div style="display: flex; gap: 10px; flex-wrap: wrap;">
-            <button type="button" wire:click="openPrintModal" class="nap-btn nap-btn-primary">
-                🖨️ Print Selected NAP Form 1 ({{ count($selectedIds) ?: 'All' }})
-            </button>
+            <!-- Cluster printing managed under Pending / List -->
         </div>
     </div>
 

@@ -103,6 +103,9 @@ return new class extends Migration
             $table->integer('utility_value')->unique()->nullable();
             $table->unsignedInteger('user_own')->nullable();
             $table->string('office_own')->nullable();
+            $table->boolean('is_drafted')->default(true);
+            $table->boolean('is_active')->default(true);
+            $table->boolean('is_verified')->default(false);
             $table->string('upload_doc_id_handler')->unique()->nullable();
             $table->unsignedBigInteger('duplication_id')->unique()->nullable();
             $table->foreign('record_series_id')->references('id')->on('rdp_record_series')->onDelete('cascade');

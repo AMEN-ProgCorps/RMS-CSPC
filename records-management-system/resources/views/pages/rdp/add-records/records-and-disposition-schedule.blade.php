@@ -257,7 +257,7 @@ new #[Layout('layouts.rdp')] #[Title('Records and Disposition Schedule')] class 
                 'updated_at' => now(),
             ]);
 
-            $clusterId = DB::table('rdp_pending_record_series')->insertGetId([
+            DB::table('rdp_pending_record_series')->insert([
                 'cluster_id'   => $mainPendingId,
                 'cluster_name' => 'Schedule Draft Submission — ' . $parentTitle,
                 'status_id'    => 1, // Pending Verification

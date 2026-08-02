@@ -543,9 +543,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 3')
             <p style="font-size: 14px; color: #64748b; margin: 0;">Official disposition schedule report specifically for record series pending National Archives verification.</p>
         </div>
         <div style="display: flex; gap: 10px; flex-wrap: wrap;">
-            <button type="button" wire:click="openPrintModal" class="nap-btn nap-btn-primary">
-                🖨️ Print NAP Form 3 Report ({{ count($selectedIds) ?: 'All' }})
-            </button>
+            <!-- Cluster printing managed under Pending / List -->
         </div>
     </div>
 

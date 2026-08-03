@@ -2926,36 +2926,10 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
           </span>
         </label>
 
-        <label style="display:flex;flex-direction:column;gap:4px;cursor:pointer;">
-          <div style="display:flex;align-items:center;gap:8px;font-weight:600;color:var(--text-primary);font-size:14px;">
-            <input type="checkbox" id="chkAllowLiveDraftPreview" style="accent-color:var(--primary-color);width:18px;height:18px;">
-            <span>Allow Others to Open My Live Draft Preview via Modal</span>
-          </div>
-          <span style="font-size:12px;color:var(--text-secondary);margin-left:26px;line-height:1.4;">
-            When enabled, an eye icon appears next to your conversation so recipients can open a full live draft modal.
-          </span>
-        </label>
       </div>
       <div class="modal-footer">
         <button type="button" class="modal-button cancel-button" onclick="closeCommSettingsModal()">Cancel</button>
         <button type="button" class="modal-button confirm-button" onclick="saveCommSettings()">Save Settings</button>
-      </div>
-    </div>
-  </div>
-
-  <!-- Live Draft Preview Modal -->
-  <div class="modal" id="liveDraftModal" aria-hidden="true">
-    <div class="modal-content" style="max-width:480px;width:90%;">
-      <div class="modal-header" style="padding:16px;border-bottom:1px solid var(--border-color);">
-        <h3 id="liveDraftModalTitle" style="margin:0;font-size:16px;font-weight:600;color:var(--text-primary);">Live Draft Preview</h3>
-      </div>
-      <div class="modal-body" style="padding:16px;">
-        <div id="liveDraftContent" style="min-height:100px;max-height:280px;overflow-y:auto;background:var(--bg-secondary, #f5f6f8);padding:12px 14px;border-radius:8px;font-size:14px;color:var(--text-primary);white-space:pre-wrap;word-break:break-word;text-align:left;line-height:1.5;">
-          No active draft preview...
-        </div>
-      </div>
-      <div class="modal-footer">
-        <button type="button" class="modal-button confirm-button" style="border-right:none;" onclick="closeLiveDraftModal()">Close</button>
       </div>
     </div>
   </div>
@@ -3991,34 +3965,10 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
           }
         }
 
-        // Remove old bell icon button completely
-        let oldNotifyBtn = actionsRight.querySelector('.notify-btn:not(.live-draft-circle-eye-btn)');
+        // Clean up any old action buttons if present
+        let oldNotifyBtn = actionsRight.querySelector('.notify-btn');
         if (oldNotifyBtn) {
           oldNotifyBtn.remove();
-        }
-
-        // Permanent circular Eye Icon button on the name card box (replaces old bell icon)
-        let circleEyeBtn = actionsRight.querySelector('.live-draft-circle-eye-btn');
-        const userHasLiveDraftEnabled = !!u.allow_live_draft_preview || (clientActivePreviews.has(Number(u.account_id)) && !!clientActivePreviews.get(Number(u.account_id)).allow_live_draft_preview);
-        const canShowCircleEye = userHasLiveDraftEnabled && window.currentUserCommSettings && window.currentUserCommSettings.allow_see_typing_preview;
-
-        if (canShowCircleEye) {
-          if (!circleEyeBtn) {
-            circleEyeBtn = document.createElement('button');
-            circleEyeBtn.type = 'button';
-            circleEyeBtn.className = 'notify-btn live-draft-circle-eye-btn';
-            circleEyeBtn.title = 'View Live Draft Preview for ' + u.name;
-            circleEyeBtn.setAttribute('aria-label', 'View Live Draft Preview for ' + u.name);
-            circleEyeBtn.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path><circle cx="12" cy="12" r="3"></circle></svg>`;
-            circleEyeBtn.onclick = function(e) {
-              e.stopPropagation();
-              openLiveDraftModal(Number(u.account_id), u.name || u.full_name);
-            };
-            actionsRight.appendChild(circleEyeBtn);
-          }
-          circleEyeBtn.style.display = 'flex';
-        } else if (circleEyeBtn) {
-          circleEyeBtn.remove();
         }
 
         if (sidebarUsers.children[index] !== item) {
@@ -6956,11 +6906,9 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
       
       const chk1 = document.getElementById('chkAllowTypingPreview');
       const chk2 = document.getElementById('chkAllowSeeTypingPreview');
-      const chk3 = document.getElementById('chkAllowLiveDraftPreview');
 
       if (chk1) chk1.checked = !!(window.currentUserCommSettings && window.currentUserCommSettings.allow_typing_preview);
       if (chk2) chk2.checked = !!(window.currentUserCommSettings && window.currentUserCommSettings.allow_see_typing_preview);
-      if (chk3) chk3.checked = !!(window.currentUserCommSettings && window.currentUserCommSettings.allow_live_draft_preview);
 
       modal.classList.add('active');
       modal.setAttribute('aria-hidden', 'false');
@@ -6977,12 +6925,10 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
     window.saveCommSettings = function() {
       const chk1 = document.getElementById('chkAllowTypingPreview');
       const chk2 = document.getElementById('chkAllowSeeTypingPreview');
-      const chk3 = document.getElementById('chkAllowLiveDraftPreview');
 
       const settings = {
         allow_typing_preview: chk1 ? chk1.checked : false,
-        allow_see_typing_preview: chk2 ? chk2.checked : false,
-        allow_live_draft_preview: chk3 ? chk3.checked : false
+        allow_see_typing_preview: chk2 ? chk2.checked : false
       };
 
       window.currentUserCommSettings = settings;
@@ -7010,36 +6956,9 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
       });
     };
 
-    window.openLiveDraftModal = function(senderId, senderName) {
-      currentActiveDraftModalSenderId = senderId;
-      const modal = document.getElementById('liveDraftModal');
-      const title = document.getElementById('liveDraftModalTitle');
-
-      if (title) title.textContent = `Live Draft Preview: ${senderName}`;
-      
-      renderLiveDraftModalContent(senderId);
-
-      if (modal) {
-        modal.classList.add('active');
-        modal.setAttribute('aria-hidden', 'false');
-      }
-    };
-
-    window.closeLiveDraftModal = function() {
-      currentActiveDraftModalSenderId = null;
-      const modal = document.getElementById('liveDraftModal');
-      if (modal) {
-        modal.classList.remove('active');
-        modal.setAttribute('aria-hidden', 'true');
-      }
-    };
-
-    // Backdrop click listeners for closing modals
+    // Backdrop click listener for closing comm settings modal
     document.getElementById('commSettingsModal')?.addEventListener('click', function(e) {
       if (e.target === this) closeCommSettingsModal();
-    });
-    document.getElementById('liveDraftModal')?.addEventListener('click', function(e) {
-      if (e.target === this) closeLiveDraftModal();
     });
 
     // Attach click listener directly to settings button

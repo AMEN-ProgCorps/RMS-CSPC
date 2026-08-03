@@ -3910,7 +3910,6 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
 
         // Unread badge and notify button rendering
         let badge = actionsRight.querySelector('.user-unread-badge');
-        let adminBadgeWrapper = actionsRight.querySelector('.admin-badge-wrapper');
         let notifyBtn = actionsRight.querySelector('.notify-btn');
 
         if (targetIsAdmin) {
@@ -3920,41 +3919,20 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
           }
 
           if (hasUnread) {
-            if (!adminBadgeWrapper) {
-              adminBadgeWrapper = document.createElement('div');
-              adminBadgeWrapper.className = 'admin-badge-wrapper';
-              adminBadgeWrapper.style.cssText = 'width: 32px; height: 32px; display: flex; align-items: center; justify-content: center; flex-shrink: 0; margin-left: 4px;';
-              actionsRight.appendChild(adminBadgeWrapper);
-            }
-            
-            badge = adminBadgeWrapper.querySelector('.user-unread-badge');
             const badgeText = u.unreadCount > 99 ? '99+' : String(u.unreadCount);
             if (!badge) {
               badge = document.createElement('span');
               badge.className = 'user-unread-badge';
-              badge.style.marginLeft = '0';
-              adminBadgeWrapper.appendChild(badge);
+              actionsRight.insertBefore(badge, actionsRight.firstChild);
               badge.textContent = badgeText;
             } else if (badge.textContent !== badgeText) {
               badge.textContent = badgeText;
             }
-            
-            let standaloneBadge = actionsRight.querySelector(':scope > .user-unread-badge');
-            if (standaloneBadge) {
-              standaloneBadge.remove();
-            }
-          } else {
-            if (adminBadgeWrapper) {
-              adminBadgeWrapper.remove();
-              adminBadgeWrapper = null;
-            }
+          } else if (badge) {
+            badge.remove();
+            badge = null;
           }
         } else {
-          if (adminBadgeWrapper) {
-            adminBadgeWrapper.remove();
-            adminBadgeWrapper = null;
-          }
-
           if (hasUnread) {
             const badgeText = u.unreadCount > 99 ? '99+' : String(u.unreadCount);
             if (!badge) {

@@ -146,13 +146,12 @@ if ($searchQuery !== '') {
         ];
     }
 
-    // Sort: unreads first → most recent → alphabetical
+    // Sort: most recent → alphabetical (unread state no longer affects order,
+    // so a conversation doesn't jump to the top on refresh just because it
+    // has unread messages — this now matches the real-time client-side
+    // reordering in bumpSidebarUser(), which only moves a chat to the top
+    // when a new message actually arrives)
     usort($sidebarUsers, function ($a, $b) {
-        $aHasUnread = $a['unreadCount'] > 0 ? 1 : 0;
-        $bHasUnread = $b['unreadCount'] > 0 ? 1 : 0;
-        if ($bHasUnread !== $aHasUnread) {
-            return $bHasUnread - $aHasUnread;
-        }
         if ($b['lastTimestamp'] !== $a['lastTimestamp']) {
             return $b['lastTimestamp'] <=> $a['lastTimestamp'];
         }

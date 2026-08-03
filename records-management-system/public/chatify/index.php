@@ -317,6 +317,7 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
       will-change: transform;
       backface-visibility: hidden;
       -webkit-backface-visibility: hidden;
+      touch-action: pan-y; /* Block pinch-zoom, allow vertical scroll (mobile) */
     }
 
     /* Suppress the open/close slide transition on initial page load so the
@@ -415,6 +416,7 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
       -ms-overflow-style: none; /* IE/Edge */
       -webkit-overflow-scrolling: touch; /* Smooth momentum scrolling on mobile iOS/Android */
       contain: content; /* Isolate layout & repaint boundaries for max scrolling performance */
+      touch-action: pan-y; /* Block pinch-zoom (mobile) */
     }
 
     .sidebar-users::-webkit-scrollbar {
@@ -1641,6 +1643,7 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
       visibility: hidden;
       transition: all 0.3s ease;
       user-select: none;
+      touch-action: none; /* Block pinch-zoom on the modal backdrop (mobile) */
     }
 
     .modal.active {
@@ -1660,6 +1663,7 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
       animation: modalSlide 0.3s ease;
       box-shadow: 0 4px 12px var(--shadow-color);
       transition: background-color 0.3s ease;
+      touch-action: pan-y; /* Allow vertical scroll but block pinch-zoom (mobile) */
     }
 
     @keyframes modalSlide {
@@ -1686,6 +1690,7 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
       color: var(--text-secondary);
       font-size: 14px;
       line-height: 1.5;
+      touch-action: pan-y; /* Block pinch-zoom while allowing vertical scroll (mobile) */
     }
 
     .modal-footer {
@@ -1983,6 +1988,7 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
         z-index: 190;
         opacity: 0;
         transition: opacity 0.25s ease;
+        touch-action: none; /* Block pinch-zoom on the backdrop (mobile) */
       }
 
       .sidebar-backdrop.visible {
@@ -2919,7 +2925,7 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
         <label style="display:flex;flex-direction:column;gap:4px;cursor:pointer;">
           <div style="display:flex;align-items:center;gap:8px;font-weight:600;color:var(--text-primary);font-size:14px;">
             <input type="checkbox" id="chkAllowSeeTypingPreview" style="accent-color:var(--primary-color);width:18px;height:18px;">
-            <span>Allow to see someone's typing preview</span>
+            <span>Show Live Typing Previews</span>
           </div>
           <span style="font-size:12px;color:var(--text-secondary);margin-left:26px;line-height:1.4;">
             When disabled, you will not see real-time typing previews from others even if they have enabled it.

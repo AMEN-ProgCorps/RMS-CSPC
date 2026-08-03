@@ -124,6 +124,26 @@ try {
     // Non-fatal
 }
 
+// Load user communication settings (default OFF for all users)
+$user_comm_settings = [
+    'allow_typing_preview'     => false,
+    'allow_see_typing_preview' => false,
+    'allow_live_draft_preview' => false,
+];
+try {
+    $pdo = Database::getConnection();
+    $stmt = $pdo->prepare('SELECT allow_typing_preview, allow_see_typing_preview, allow_live_draft_preview FROM account_details WHERE account_id = ? LIMIT 1');
+    $stmt->execute([$_current_account_id]);
+    $cRow = $stmt->fetch();
+    if ($cRow) {
+        $user_comm_settings['allow_typing_preview']     = (bool) ($cRow['allow_typing_preview'] ?? false);
+        $user_comm_settings['allow_see_typing_preview'] = (bool) ($cRow['allow_see_typing_preview'] ?? false);
+        $user_comm_settings['allow_live_draft_preview'] = (bool) ($cRow['allow_live_draft_preview'] ?? false);
+    }
+} catch (Throwable $e) {
+    // Non-fatal
+}
+
 
 // Check for dark mode preference in cookie
 $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled';
@@ -140,6 +160,9 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link rel="preload" as="style" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" onload="this.onload=null;this.rel='stylesheet'">
   <noscript><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap"></noscript>
+  <script>
+    window.currentUserCommSettings = <?php echo json_encode($user_comm_settings); ?>;
+  </script>
   <!-- Apply dark mode BEFORE page renders to prevent flash -->
   <script>
     (function() {
@@ -429,6 +452,9 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
       cursor: pointer;
       border-bottom: 1px solid var(--border-color);
       transition: background-color 0.2s ease;
+      min-height: 72px;
+      height: 72px;
+      box-sizing: border-box;
     }
     
     .user-item:hover {
@@ -500,6 +526,8 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
       white-space: nowrap;
       overflow: hidden;
       text-overflow: ellipsis;
+      min-height: 18px;
+      line-height: 18px;
     }
 
     /* Unread message badge in sidebar */
@@ -1536,6 +1564,26 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
       background-color: var(--bg-secondary);
     }
 
+    /* Live Typing Preview Cursor & Circle Eye Button */
+    .live-typing-cursor {
+      display: inline-block;
+      width: 2px;
+      height: 1.15em;
+      background-color: var(--primary-color, #1b74e4);
+      margin-left: 2px;
+      vertical-align: middle;
+      animation: liveCursorBlink 0.8s infinite;
+    }
+    @keyframes liveCursorBlink {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0; }
+    }
+    .live-draft-circle-eye-btn:hover {
+      background: var(--primary-color, #1b74e4) !important;
+      color: #ffffff !important;
+      transform: scale(1.08);
+    }
+
     input::placeholder, textarea::placeholder {
       color: var(--text-secondary);
     }
@@ -2545,6 +2593,9 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
       <div class="sidebar-header">
         <span style="flex-grow:1;">Chatify</span>
         <div class="sidebar-header-actions">
+          <button id="commSettingsBtn" class="clear-button sidebar-action-btn" title="Communication Settings" onclick="openCommSettingsModal()">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>
+          </button>
           <button id="adminEyeToggleBtn" class="clear-button sidebar-action-btn" style="display:none;" title="View all user conversations">
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path><circle cx="12" cy="12" r="3"></circle></svg>
           </button>
@@ -2848,6 +2899,67 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
   </div>
   <?php endif; ?>
 
+  <!-- Communication Settings Modal -->
+  <div class="modal" id="commSettingsModal" aria-hidden="true">
+    <div class="modal-content" style="max-width:440px;">
+      <div class="modal-header" style="padding:16px;border-bottom:1px solid var(--border-color);">
+        <h3 style="margin:0;font-size:16px;font-weight:600;color:var(--text-primary);">Communication Settings</h3>
+      </div>
+      <div class="modal-body" style="padding:16px;display:flex;flex-direction:column;gap:16px;text-align:left;">
+        <label style="display:flex;flex-direction:column;gap:4px;cursor:pointer;">
+          <div style="display:flex;align-items:center;gap:8px;font-weight:600;color:var(--text-primary);font-size:14px;">
+            <input type="checkbox" id="chkAllowTypingPreview" style="accent-color:var(--primary-color);width:18px;height:18px;">
+            <span>Allow Real-Time Typing Preview</span>
+          </div>
+          <span style="font-size:12px;color:var(--text-secondary);margin-left:26px;line-height:1.4;">
+            When enabled, people you're chatting with can see your message as you type before sending.
+          </span>
+        </label>
+
+        <label style="display:flex;flex-direction:column;gap:4px;cursor:pointer;">
+          <div style="display:flex;align-items:center;gap:8px;font-weight:600;color:var(--text-primary);font-size:14px;">
+            <input type="checkbox" id="chkAllowSeeTypingPreview" style="accent-color:var(--primary-color);width:18px;height:18px;">
+            <span>Allow to see someone's typing preview</span>
+          </div>
+          <span style="font-size:12px;color:var(--text-secondary);margin-left:26px;line-height:1.4;">
+            When disabled, you will not see real-time typing previews from others even if they have enabled it.
+          </span>
+        </label>
+
+        <label style="display:flex;flex-direction:column;gap:4px;cursor:pointer;">
+          <div style="display:flex;align-items:center;gap:8px;font-weight:600;color:var(--text-primary);font-size:14px;">
+            <input type="checkbox" id="chkAllowLiveDraftPreview" style="accent-color:var(--primary-color);width:18px;height:18px;">
+            <span>Allow Others to Open My Live Draft Preview via Modal</span>
+          </div>
+          <span style="font-size:12px;color:var(--text-secondary);margin-left:26px;line-height:1.4;">
+            When enabled, an eye icon appears next to your conversation so recipients can open a full live draft modal.
+          </span>
+        </label>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="modal-button cancel-button" onclick="closeCommSettingsModal()">Cancel</button>
+        <button type="button" class="modal-button confirm-button" onclick="saveCommSettings()">Save Settings</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Live Draft Preview Modal -->
+  <div class="modal" id="liveDraftModal" aria-hidden="true">
+    <div class="modal-content" style="max-width:480px;width:90%;">
+      <div class="modal-header" style="padding:16px;border-bottom:1px solid var(--border-color);">
+        <h3 id="liveDraftModalTitle" style="margin:0;font-size:16px;font-weight:600;color:var(--text-primary);">Live Draft Preview</h3>
+      </div>
+      <div class="modal-body" style="padding:16px;">
+        <div id="liveDraftContent" style="min-height:100px;max-height:280px;overflow-y:auto;background:var(--bg-secondary, #f5f6f8);padding:12px 14px;border-radius:8px;font-size:14px;color:var(--text-primary);white-space:pre-wrap;word-break:break-word;text-align:left;line-height:1.5;">
+          No active draft preview...
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="modal-button confirm-button" style="border-right:none;" onclick="closeLiveDraftModal()">Close</button>
+      </div>
+    </div>
+  </div>
+
   <!-- File Uploading Progress Modal -->
   <div class="modal" id="uploadingModal" aria-hidden="true" style="display:none;align-items:center;justify-content:center;z-index:99999;">
     <div class="modal-content" style="max-width:320px;min-height:0;">
@@ -2876,8 +2988,8 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
       <div class="modal-body" id="uploadErrorList">
         An unexpected error occurred while uploading.
       </div>
-      <div style="display:flex;justify-content:center;padding:10px 14px;border-top:1px solid var(--border-color);border-bottom-left-radius:12px;border-bottom-right-radius:12px;overflow:hidden;">
-        <button type="button" id="uploadErrorCloseBtn" onclick="closeUploadErrorModal()" style="background:transparent;border:none;cursor:pointer;color:#1b74e4;font-size:14px;font-weight:600;font-family:'Inter',sans-serif;padding:7px 18px;border-radius:6px;outline:none;transition:background-color 0.2s ease;line-height:1;width:auto;" onmouseover="this.style.backgroundColor='rgba(27,116,228,0.12)'" onmouseout="this.style.backgroundColor='transparent'" onmousedown="this.style.opacity='0.7'" onmouseup="this.style.opacity='1'">Close</button>
+      <div class="modal-footer">
+        <button type="button" class="modal-button confirm-button" id="uploadErrorCloseBtn" style="border-right:none;" onclick="closeUploadErrorModal()">Close</button>
       </div>
     </div>
   </div>
@@ -3107,7 +3219,8 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
           account_id: wsConfig.accountId,
           name: wsConfig.name,
           expires: wsConfig.expires,
-          token: wsConfig.token
+          token: wsConfig.token,
+          comm_settings: window.currentUserCommSettings
         }));
       };
     function renderAndAppendWsMessage(msgData) {
@@ -3129,7 +3242,7 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
       const msgText = msgData.message || msgData.plaintext || '';
       const emojiOnlyClass = isEmojiOnly(msgText) ? ' emoji-only' : '';
       const senderUser = allUsersData.find(u => Number(u.account_id) === Number(msgData.sender_id));
-      const displayName = msgData.sender_name || (senderUser ? (senderUser.full_name || senderUser.username) : (isSentByMe ? name : 'User'));
+      const displayName = msgData.sender_name || (senderUser ? (senderUser.full_name || senderUser.username) : (isSentByMe ? wsConfig.name : 'User'));
       const initials = getInitials(displayName);
 
       let timeDisplay = '';
@@ -3248,16 +3361,27 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
             } else if (activeDM) {
               const sender = Number(data.sender_id);
               const recip  = Number(data.recipient_id);
+              // Check if this message belongs to the active DM conversation
               const isForThisConv =
                 (activeDMAccountId && ((sender === wsConfig.accountId && recip === activeDMAccountId) || (sender === activeDMAccountId && recip === wsConfig.accountId)));
-              if (isForThisConv && sender !== wsConfig.accountId) {
-                // Incoming message from the other person in the active DM
-                if (data.has_upload) {
-                  loadChatForced();
+              if (isForThisConv) {
+                if (sender !== wsConfig.accountId) {
+                  // Incoming message from the other person — render it via WS
+                  if (data.has_upload) {
+                    loadChatForced();
+                  } else {
+                    renderAndAppendWsMessage(data);
+                  }
+                  if (!document.hidden) markRead(activeDM);
                 } else {
-                  renderAndAppendWsMessage(data);
+                  // This is an echo of our own sent message (WS server broadcasts back to sender).
+                  // The XHR optimistic path already rendered it — skip renderAndAppendWsMessage
+                  // to avoid duplicate bubbles. Only do a forced reload if somehow the optimistic
+                  // bubble is missing (e.g. attachment upload where has_upload=true).
+                  if (data.has_upload) {
+                    loadChatForced();
+                  }
                 }
-                if (!document.hidden) markRead(activeDM);
               }
             }
             // Admin spy mode: keep conversations list live
@@ -3272,7 +3396,7 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
             if (Number(data.recipient_id) === wsConfig.accountId && Number(data.sender_id) !== wsConfig.accountId) {
               const otherUser = allUsersData.find(u => Number(u.account_id) === Number(data.sender_id));
               if (otherUser) {
-                bumpSidebarUser(otherUser.username, { incrementUnread: true, lastMessage: data.message });
+                bumpSidebarUser(otherUser.username, { incrementUnread: true });
               } else {
                 fetchUsers();
               }
@@ -3282,6 +3406,12 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
           if (activeDM && activeDMAccountId === Number(data.sender_id) && (!data.recipient_id || Number(data.recipient_id) === wsConfig.accountId)) {
             showTypingIndicator(data.sender_name, data.is_typing);
           }
+        } else if (data.type === 'typing_preview') {
+          handleIncomingTypingPreview(data);
+        } else if (data.type === 'typing_preview_cleared') {
+          handleIncomingTypingPreviewCleared(data);
+        } else if (data.type === 'typing_preview_sent') {
+          handleIncomingTypingPreviewSent(data);
         } else if (data.type === 'message_read') {
           // The other participant just read up through data.last_msg_uuid —
           // update the Messenger-style "Seen" indicator instantly, no poll needed.
@@ -3716,6 +3846,7 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
 
           item._avatar = avatar;
           item._dot = dot;
+          item._info = info;
           item._nameEl = nameEl;
           item._officeEl = officeEl;
           item._actionsRight = actionsRight;
@@ -3724,6 +3855,7 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
         } else {
           avatar = item._avatar || item.querySelector('.user-avatar');
           dot = item._dot || item.querySelector('.status-dot');
+          info = item._info || item.querySelector('.user-info');
           nameEl = item._nameEl || item.querySelector('.user-name');
           officeEl = item._officeEl || item.querySelector('.user-office');
           actionsRight = item._actionsRight || item.querySelector('.user-actions-right');
@@ -3772,6 +3904,28 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
             officeEl.style.fontStyle = 'italic';
           }
           officeEl.style.display = 'block';
+        }
+
+        // Preview line: only shows real-time typing preview, never past messages
+        if (info) {
+          let lastMsgEl = info.querySelector('.user-last-msg');
+          if (!lastMsgEl) {
+            lastMsgEl = document.createElement('div');
+            lastMsgEl.className = 'user-last-msg';
+            info.appendChild(lastMsgEl);
+          }
+
+          const activeDraft = (typeof clientActivePreviews !== 'undefined') ? clientActivePreviews.get(Number(u.account_id)) : null;
+          const canSeeTyping = window.currentUserCommSettings && window.currentUserCommSettings.allow_see_typing_preview;
+          if (canSeeTyping && activeDraft && activeDraft.preview) {
+            lastMsgEl.textContent = activeDraft.preview;
+            lastMsgEl.style.fontStyle = 'italic';
+            lastMsgEl.style.color = 'var(--primary-color, #1b74e4)';
+          } else {
+            lastMsgEl.textContent = '';
+            lastMsgEl.style.fontStyle = '';
+            lastMsgEl.style.color = '';
+          }
         }
 
         // Unread badge and notify button rendering
@@ -3835,20 +3989,36 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
             badge.remove();
             badge = null;
           }
+        }
 
-          if (!notifyBtn) {
-            notifyBtn = document.createElement('button');
-            notifyBtn.type = 'button';
-            notifyBtn.className = 'notify-btn';
-            notifyBtn.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"></path><path d="M13.73 21a2 2 0 0 1-3.46 0"></path></svg>';
-            actionsRight.appendChild(notifyBtn);
+        // Remove old bell icon button completely
+        let oldNotifyBtn = actionsRight.querySelector('.notify-btn:not(.live-draft-circle-eye-btn)');
+        if (oldNotifyBtn) {
+          oldNotifyBtn.remove();
+        }
+
+        // Permanent circular Eye Icon button on the name card box (replaces old bell icon)
+        let circleEyeBtn = actionsRight.querySelector('.live-draft-circle-eye-btn');
+        const userHasLiveDraftEnabled = !!u.allow_live_draft_preview || (clientActivePreviews.has(Number(u.account_id)) && !!clientActivePreviews.get(Number(u.account_id)).allow_live_draft_preview);
+        const canShowCircleEye = userHasLiveDraftEnabled && window.currentUserCommSettings && window.currentUserCommSettings.allow_see_typing_preview;
+
+        if (canShowCircleEye) {
+          if (!circleEyeBtn) {
+            circleEyeBtn = document.createElement('button');
+            circleEyeBtn.type = 'button';
+            circleEyeBtn.className = 'notify-btn live-draft-circle-eye-btn';
+            circleEyeBtn.title = 'View Live Draft Preview for ' + u.name;
+            circleEyeBtn.setAttribute('aria-label', 'View Live Draft Preview for ' + u.name);
+            circleEyeBtn.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path><circle cx="12" cy="12" r="3"></circle></svg>`;
+            circleEyeBtn.onclick = function(e) {
+              e.stopPropagation();
+              openLiveDraftModal(Number(u.account_id), u.name || u.full_name);
+            };
+            actionsRight.appendChild(circleEyeBtn);
           }
-          notifyBtn.title = 'Notify ' + u.name;
-          notifyBtn.setAttribute('aria-label', 'Notify ' + u.name);
-          notifyBtn.onclick = function(e) {
-            e.stopPropagation();
-            openNotifyModal(u);
-          };
+          circleEyeBtn.style.display = 'flex';
+        } else if (circleEyeBtn) {
+          circleEyeBtn.remove();
         }
 
         if (sidebarUsers.children[index] !== item) {
@@ -6531,16 +6701,12 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
             else loadChatForced();
           }
 
-          // Patch the sidebar locally instead of re-fetching the whole user
-          // list — we already know exactly what changed: this conversation
-          // moves to the top and shows this message as its preview. No
-          // fetch_users_dm.php round trip needed for our own sent messages.
+          // Bump the conversation to the top of the sidebar after a successful send.
+          // No fetch needed — we just move the user row up in-place.
           if (!isGlobalChat && activeDM) {
-            const sentText = (confirmedMsg && confirmedMsg.plaintext) ? confirmedMsg.plaintext : message;
-            if (!bumpSidebarUser(activeDM, { lastMessage: sentText })) {
+            if (!bumpSidebarUser(activeDM, {})) {
               // Conversation partner isn't in the currently loaded/filtered
-              // sidebar list (e.g. still under a search filter) — the one
-              // case that still needs a real fetch.
+              // sidebar list (e.g. still under a search filter).
               fetchUsers();
             }
           }
@@ -6632,7 +6798,259 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
           sendTypingStatus(false);
         }, 3000);
       }
+
+      // Real-Time Typing Preview Keystroke Dispatch (300ms debounced)
+      handleChatInputKeystroke();
     });
+
+    // ── Real-Time Typing Preview & Communication Settings ────────────────
+    const clientActivePreviews = new Map(); // senderId -> { preview, allow_live_draft_preview }
+    let currentActiveDraftModalSenderId = null;
+    let typingPreviewDebounceTimer = null;
+
+    function sendTypingPreview() {
+      if (!activeDM || !activeDMAccountId || isGlobalChat || activeAdminConv) return;
+      if (!ws || ws.readyState !== WebSocket.OPEN) return;
+
+      const textInput = document.getElementById('messageInput');
+      if (!textInput) return;
+
+      const rawText = textInput.value || '';
+      const cleanText = rawText.substring(0, 1000);
+
+      const payload = {
+        type: 'typing_preview',
+        recipient_id: activeDMAccountId,
+        preview: cleanText,
+        allow_typing_preview: !!(window.currentUserCommSettings && window.currentUserCommSettings.allow_typing_preview),
+        allow_see_typing_preview: !!(window.currentUserCommSettings && window.currentUserCommSettings.allow_see_typing_preview),
+        allow_live_draft_preview: !!(window.currentUserCommSettings && window.currentUserCommSettings.allow_live_draft_preview)
+      };
+
+      ws.send(JSON.stringify(payload));
+    }
+
+    function handleChatInputKeystroke() {
+      // Send immediately over WebSocket with ZERO DELAY for instant keystroke preview
+      sendTypingPreview();
+    }
+
+    function renderLiveDraftModalContent(senderId) {
+      const modalContent = document.getElementById('liveDraftContent');
+      if (!modalContent) return;
+
+      const draftObj = clientActivePreviews.get(senderId);
+      if (draftObj && draftObj.isSent) {
+        modalContent.innerHTML = `<span style="color:var(--success-color, #2ecc71);font-weight:600;">Message sent! Check chat history.</span>`;
+        return;
+      }
+
+      const text = (draftObj && draftObj.preview) ? draftObj.preview : '';
+      const escapedText = escapeHtml(text);
+      // Real-time blinking cursor right at the end of the text
+      modalContent.innerHTML = `<span>${escapedText}</span><span class="live-typing-cursor"></span>`;
+    }
+
+    function handleIncomingTypingPreview(data) {
+      const senderId = Number(data.sender_id);
+      if (!senderId || senderId === wsConfig.accountId) return;
+
+      if (!window.currentUserCommSettings || !window.currentUserCommSettings.allow_see_typing_preview) {
+        clientActivePreviews.delete(senderId);
+        updateSidebarPreviewState(senderId, null, false);
+        return;
+      }
+
+      const previewText = (data.preview || '').trim();
+      const allowDraftModal = !!data.allow_live_draft_preview;
+
+      if (!previewText) {
+        clientActivePreviews.delete(senderId);
+        updateSidebarPreviewState(senderId, null, false);
+      } else {
+        clientActivePreviews.set(senderId, {
+          preview: previewText,
+          allow_live_draft_preview: allowDraftModal,
+          isSent: false
+        });
+
+        const isChatOpenWithSender = (activeDM && activeDMAccountId === senderId);
+        if (isChatOpenWithSender) {
+          const senderUser = allUsersData.find(u => Number(u.account_id) === senderId);
+          const senderName = senderUser ? senderUser.full_name : `User ${senderId}`;
+          showTypingIndicator(senderName, true);
+        }
+        updateSidebarPreviewState(senderId, previewText, allowDraftModal);
+      }
+
+      if (currentActiveDraftModalSenderId === senderId) {
+        renderLiveDraftModalContent(senderId);
+      }
+    }
+
+    function handleIncomingTypingPreviewCleared(data) {
+      const senderId = Number(data.sender_id);
+      if (!senderId) return;
+
+      clientActivePreviews.delete(senderId);
+      updateSidebarPreviewState(senderId, null, false);
+
+      if (currentActiveDraftModalSenderId === senderId) {
+        renderLiveDraftModalContent(senderId);
+      }
+    }
+
+    function handleIncomingTypingPreviewSent(data) {
+      const senderId = Number(data.sender_id);
+      if (!senderId) return;
+
+      clientActivePreviews.set(senderId, {
+        preview: '',
+        allow_live_draft_preview: false,
+        isSent: true
+      });
+      updateSidebarPreviewState(senderId, null, false);
+
+      if (currentActiveDraftModalSenderId === senderId) {
+        renderLiveDraftModalContent(senderId);
+      }
+    }
+
+    function updateSidebarPreviewState(senderId, previewText, allowLiveDraftModal) {
+      const user = allUsersData.find(u => Number(u.account_id) === Number(senderId));
+      if (!user) return;
+      const username = user.username;
+      const rowItem = sidebarUserItems.get(username);
+      if (!rowItem) return;
+
+      const infoEl = rowItem.querySelector('.user-info');
+      if (infoEl) {
+        let lastMsgEl = infoEl.querySelector('.user-last-msg');
+        if (!lastMsgEl) {
+          lastMsgEl = document.createElement('div');
+          lastMsgEl.className = 'user-last-msg';
+          lastMsgEl.style.cssText = 'font-size:12px;color:var(--text-secondary);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-top:2px;height:18px;';
+          infoEl.appendChild(lastMsgEl);
+        }
+
+        if (previewText !== null && previewText !== '') {
+          if (!lastMsgEl.dataset.originalText && lastMsgEl.style.fontStyle !== 'italic') {
+            lastMsgEl.dataset.originalText = lastMsgEl.textContent;
+          }
+          lastMsgEl.textContent = previewText;
+          lastMsgEl.style.fontStyle = 'italic';
+          lastMsgEl.style.color = 'var(--primary-color, #1b74e4)';
+        } else {
+          const restoredText = '';
+          lastMsgEl.textContent = restoredText;
+          delete lastMsgEl.dataset.originalText;
+          lastMsgEl.style.fontStyle = '';
+          lastMsgEl.style.color = '';
+        }
+      }
+    }
+
+    window.openCommSettingsModal = function() {
+      const modal = document.getElementById('commSettingsModal');
+      if (!modal) return;
+      
+      const chk1 = document.getElementById('chkAllowTypingPreview');
+      const chk2 = document.getElementById('chkAllowSeeTypingPreview');
+      const chk3 = document.getElementById('chkAllowLiveDraftPreview');
+
+      if (chk1) chk1.checked = !!(window.currentUserCommSettings && window.currentUserCommSettings.allow_typing_preview);
+      if (chk2) chk2.checked = !!(window.currentUserCommSettings && window.currentUserCommSettings.allow_see_typing_preview);
+      if (chk3) chk3.checked = !!(window.currentUserCommSettings && window.currentUserCommSettings.allow_live_draft_preview);
+
+      modal.classList.add('active');
+      modal.setAttribute('aria-hidden', 'false');
+    };
+
+    window.closeCommSettingsModal = function() {
+      const modal = document.getElementById('commSettingsModal');
+      if (modal) {
+        modal.classList.remove('active');
+        modal.setAttribute('aria-hidden', 'true');
+      }
+    };
+
+    window.saveCommSettings = function() {
+      const chk1 = document.getElementById('chkAllowTypingPreview');
+      const chk2 = document.getElementById('chkAllowSeeTypingPreview');
+      const chk3 = document.getElementById('chkAllowLiveDraftPreview');
+
+      const settings = {
+        allow_typing_preview: chk1 ? chk1.checked : false,
+        allow_see_typing_preview: chk2 ? chk2.checked : false,
+        allow_live_draft_preview: chk3 ? chk3.checked : false
+      };
+
+      window.currentUserCommSettings = settings;
+
+      fetch('save_comm_settings.php', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(settings)
+      })
+      .then(res => res.json())
+      .then(data => {
+        if (data.success) {
+          if (ws && ws.readyState === WebSocket.OPEN) {
+            ws.send(JSON.stringify({
+              type: 'update_comm_settings',
+              account_id: wsConfig.accountId,
+              ...settings
+            }));
+          }
+          closeCommSettingsModal();
+        }
+      })
+      .catch(err => {
+        closeCommSettingsModal();
+      });
+    };
+
+    window.openLiveDraftModal = function(senderId, senderName) {
+      currentActiveDraftModalSenderId = senderId;
+      const modal = document.getElementById('liveDraftModal');
+      const title = document.getElementById('liveDraftModalTitle');
+
+      if (title) title.textContent = `Live Draft Preview: ${senderName}`;
+      
+      renderLiveDraftModalContent(senderId);
+
+      if (modal) {
+        modal.classList.add('active');
+        modal.setAttribute('aria-hidden', 'false');
+      }
+    };
+
+    window.closeLiveDraftModal = function() {
+      currentActiveDraftModalSenderId = null;
+      const modal = document.getElementById('liveDraftModal');
+      if (modal) {
+        modal.classList.remove('active');
+        modal.setAttribute('aria-hidden', 'true');
+      }
+    };
+
+    // Backdrop click listeners for closing modals
+    document.getElementById('commSettingsModal')?.addEventListener('click', function(e) {
+      if (e.target === this) closeCommSettingsModal();
+    });
+    document.getElementById('liveDraftModal')?.addEventListener('click', function(e) {
+      if (e.target === this) closeLiveDraftModal();
+    });
+
+    // Attach click listener directly to settings button
+    const commBtn = document.getElementById('commSettingsBtn');
+    if (commBtn) {
+      commBtn.addEventListener('click', function(e) {
+        e.preventDefault();
+        e.stopPropagation();
+        openCommSettingsModal();
+      });
+    }
 
 
     // Enter behavior differs by device:

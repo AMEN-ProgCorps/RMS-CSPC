@@ -100,6 +100,9 @@ class UserResolver
             'office_code'         => $row['office_code'] ?? null,
             'is_currently_online' => (bool) ($row['is_currently_online'] ?? false),
             'last_online_time'    => $row['last_online_time'] ?? null,
+            'allow_typing_preview' => (bool) ($row['allow_typing_preview'] ?? false),
+            'allow_see_typing_preview' => (bool) ($row['allow_see_typing_preview'] ?? false),
+            'allow_live_draft_preview' => (bool) ($row['allow_live_draft_preview'] ?? false),
         ];
     }
 
@@ -130,6 +133,9 @@ class UserResolver
                 'office_code'         => $row['office_code'] ?? null,
                 'is_currently_online' => (bool) ($row['is_currently_online'] ?? false),
                 'last_online_time'    => $row['last_online_time'] ?? null,
+                'allow_typing_preview' => (bool) ($row['allow_typing_preview'] ?? false),
+                'allow_see_typing_preview' => (bool) ($row['allow_see_typing_preview'] ?? false),
+                'allow_live_draft_preview' => (bool) ($row['allow_live_draft_preview'] ?? false),
             ];
         }
 
@@ -328,7 +334,10 @@ class UserResolver
             $pdo  = Database::getConnection();
             $stmt = $pdo->prepare(
                 'SELECT ad.account_id, ad.first_name, ad.last_name, ad.middle_name,
-                        ad.office_id, o.office_name, o.office_code, ad.email, ad.is_currently_online, ad.last_online_time
+                        ad.office_id, o.office_name, o.office_code, ad.email, ad.is_currently_online, ad.last_online_time,
+                        COALESCE(ad.allow_typing_preview, FALSE) AS allow_typing_preview,
+                        COALESCE(ad.allow_see_typing_preview, FALSE) AS allow_see_typing_preview,
+                        COALESCE(ad.allow_live_draft_preview, FALSE) AS allow_live_draft_preview
                  FROM account_details ad
                  LEFT JOIN office o ON o.id = ad.office_id
                  WHERE ad.account_id = :id
@@ -358,7 +367,10 @@ class UserResolver
             $pdo  = Database::getConnection();
             $stmt = $pdo->query(
                 'SELECT ad.account_id, ad.first_name, ad.last_name, ad.middle_name,
-                        ad.office_id, o.office_name, o.office_code, ad.email, ad.is_currently_online, ad.last_online_time
+                        ad.office_id, o.office_name, o.office_code, ad.email, ad.is_currently_online, ad.last_online_time,
+                        COALESCE(ad.allow_typing_preview, FALSE) AS allow_typing_preview,
+                        COALESCE(ad.allow_see_typing_preview, FALSE) AS allow_see_typing_preview,
+                        COALESCE(ad.allow_live_draft_preview, FALSE) AS allow_live_draft_preview
                  FROM account_details ad
                  LEFT JOIN office o ON o.id = ad.office_id
                  ORDER BY ad.last_name, ad.first_name'

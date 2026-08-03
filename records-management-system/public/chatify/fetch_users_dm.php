@@ -95,6 +95,9 @@ if ($searchQuery !== '') {
             'lastMessage'         => $lastMessageText,
             'lastTimestamp'       => $lastTimestamp,
             'unreadCount'         => $unreadCount,
+            'allow_typing_preview'     => (bool) ($user['allow_typing_preview'] ?? false),
+            'allow_see_typing_preview' => (bool) ($user['allow_see_typing_preview'] ?? false),
+            'allow_live_draft_preview' => (bool) ($user['allow_live_draft_preview'] ?? false),
         ];
     }
 } else {
@@ -137,6 +140,9 @@ if ($searchQuery !== '') {
             'lastMessage'         => $lastMessageText,
             'lastTimestamp'       => (int) ($conv['last_ts'] ?? 0),
             'unreadCount'         => (int) ($conv['unread_count'] ?? 0),
+            'allow_typing_preview'     => (bool) ($userInfo['allow_typing_preview'] ?? false),
+            'allow_see_typing_preview' => (bool) ($userInfo['allow_see_typing_preview'] ?? false),
+            'allow_live_draft_preview' => (bool) ($userInfo['allow_live_draft_preview'] ?? false),
         ];
     }
 

@@ -61,24 +61,26 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 3')
                 'updated_at' => now(),
             ]);
 
-            DB::table('rdp_pending_record_series')->insert([
-                'cluster_id'   => $mainPendingId,
-                'cluster_name' => trim($this->clusterName) ?: ('Disposal Authority Batch — ' . now()->format('Y-m-d')),
-                'status_id'    => 1, // Pending Verification
-                'office'       => $userOffice,
-                'created_by'   => $user?->id,
-                'is_active'    => true,
-                'created_at'   => now(),
-                'updated_at'   => now(),
+            DB::table('rdp_pending_record')->insert([
+                'cluster_id'       => $mainPendingId,
+                'cluster_name'     => trim($this->clusterName) ?: ('Disposal Authority Batch — ' . ($userOffice ?: 'OFFICE') . ' (' . now()->format('Y-m-d') . ')'),
+                'status_id'        => 1, // Pending Verification
+                'office'           => $userOffice,
+                'created_by'       => $user?->id,
+                'is_for_nap_one'   => false,
+                'is_for_nap_three' => true,
+                'is_active'        => true,
+                'created_at'       => now(),
+                'updated_at'       => now(),
             ]);
 
             foreach ($this->selectedIds as $sId) {
-                DB::table('rdp_grouped_record_series')->insert([
-                    'group_head'       => $mainPendingId,
-                    'record_series_id' => (int)$sId,
-                    'is_active'        => true,
-                    'created_at'       => now(),
-                    'updated_at'       => now(),
+                DB::table('rdp_grouped_record')->insert([
+                    'group_head' => $mainPendingId,
+                    'record_id'  => (int)$sId,
+                    'is_active'  => true,
+                    'created_at' => now(),
+                    'updated_at' => now(),
                 ]);
             }
 
@@ -149,7 +151,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 3')
     public function updatedSelectAll($value): void
     {
         if ($value) {
-            $allUnverifiedIds = DB::table('rdp_record_series')->where('is_verified', false)->pluck('id')->toArray();
+            $allUnverifiedIds = DB::table('rdp_record')->pluck('id')->toArray();
             $this->selectedIds = array_map('strval', $allUnverifiedIds);
         } else {
             $this->selectedIds = [];
@@ -373,20 +375,20 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 3')
 
     public function with(): array
     {
-        // Filter exclusively for unverified series (is_verified = false)
-        $query = DB::table('rdp_record_series')
+        $query = DB::table('rdp_record')
+            ->join('rdp_record_series', 'rdp_record.record_series_id', '=', 'rdp_record_series.id')
             ->leftJoin('rdp_retention_period', 'rdp_record_series.retention_period', '=', 'rdp_retention_period.id')
             ->leftJoin('rdp_record_series as parent', 'rdp_record_series.parent_id', '=', 'parent.id')
             ->leftJoin('office', 'rdp_record_series.recorded_at_office', '=', 'office.office_code')
             ->select([
                 'rdp_record_series.*',
+                'rdp_record.id as record_id',
                 'rdp_retention_period.active_period',
                 'rdp_retention_period.storage_period',
                 'rdp_retention_period.total_period',
                 'parent.series_title as parent_title',
                 'office.office_name as recorded_office_name',
-            ])
-            ->where('rdp_record_series.is_verified', false);
+            ]);
 
         if (!empty($this->officeFilter)) {
             $query->where('rdp_record_series.recorded_at_office', $this->officeFilter);
@@ -696,7 +698,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 3')
                             $isPermSeries = (bool)($item->effective_is_permanent) || 
                                             (strtolower(trim($item->effective_total ?? '')) === 'permanent') ||
                                             (strtolower(trim($item->effective_active ?? '')) === 'permanent' && strtolower(trim($item->effective_storage ?? '')) === 'permanent');
-                            $itemIdStr = (string)$item->id;
+                            $itemIdStr = (string)($item->record_id ?? $item->id);
                             $currentOfficeName = $item->recorded_office_name ?? $item->recorded_at_office ?? 'Unknown Office';
                         @endphp
                         @if($currentOfficeName !== $prevOfficeName)
@@ -709,7 +711,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 3')
                         @endif
                         <tr style="{{ in_array($itemIdStr, $selectedIds) ? 'background: #eff6ff;' : '' }}">
                             <td style="text-align: center;">
-                                <input type="checkbox" wire:model.live="selectedIds" value="{{ $item->id }}" style="width: 16px; height: 16px; cursor: pointer; accent-color: #2563eb;">
+                                <input type="checkbox" wire:model.live="selectedIds" value="{{ $item->record_id ?? $item->id }}" style="width: 16px; height: 16px; cursor: pointer; accent-color: #2563eb;">
                             </td>
                             <td style="text-align: center; color: #94a3b8; font-style: italic;">
                                 —

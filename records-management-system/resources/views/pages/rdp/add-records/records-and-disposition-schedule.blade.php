@@ -229,7 +229,7 @@ new #[Layout('layouts.rdp')] #[Title('Records and Disposition Schedule')] class 
                     'parent_id'                    => $currentParentId,
                     'retention_period'             => $isLeaf ? $retentionId : null,
                     'is_retention_period_permanent' => $isLeaf ? $this->is_permanent : false,
-                    'remarks'                      => $isLeaf ? (mb_strtoupper(trim($this->remarks)) ?: null) : null,
+                    'remarks'                      => $isLeaf ? (trim($this->remarks) ?: null) : null,
                     'recorded_at_office'           => $userOfficeCode,
                     'is_verified'                  => false,
                     'is_active'                    => true,
@@ -364,7 +364,7 @@ new #[Layout('layouts.rdp')] #[Title('Records and Disposition Schedule')] class 
                     'parent_id'                    => $currentParentId,
                     'retention_period'             => $isLeaf ? $retentionId : null,
                     'is_retention_period_permanent' => $isLeaf ? $this->is_permanent : false,
-                    'remarks'                      => $isLeaf ? (mb_strtoupper(trim($this->remarks)) ?: null) : null,
+                    'remarks'                      => $isLeaf ? (trim($this->remarks) ?: null) : null,
                     'recorded_at_office'           => $userOfficeCode,
                     'is_verified'                  => $existing ? (bool)$existing->is_verified : false,
                     'is_active'                    => true,
@@ -595,7 +595,7 @@ new #[Layout('layouts.rdp')] #[Title('Records and Disposition Schedule')] class 
             <!-- Remarks -->
             <div class="rds-form-row" style="align-items: flex-start;">
                 <span class="rds-label" style="margin-top: 10px;">Remarks</span>
-                <textarea class="rds-input" wire:model="remarks" rows="3" placeholder="ENTER DISPOSITION INSTRUCTIONS OR REMARKS..." style="font-family: inherit;"></textarea>
+                <textarea class="rds-input" wire:model="remarks" rows="3" placeholder="Enter disposition instructions or remarks..." style="font-family: inherit; text-transform: none !important;"></textarea>
             </div>
         </div>
 

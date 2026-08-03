@@ -346,7 +346,7 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
 
             if (!empty($foundSeries->remarks)) {
                 $this->hasPredefinedRemarks = true;
-                $this->disposition_provision = mb_strtoupper($foundSeries->remarks);
+                $this->disposition_provision = $foundSeries->remarks;
             }
 
             $isPermFlag = (bool)($foundSeries->is_retention_period_permanent ?? false);
@@ -1124,7 +1124,7 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
                         <span style="font-size: 11px; color: #64748b; font-weight: 500; display: block;">(Predefined — Read Only)</span>
                     @endif
                 </span>
-                <textarea class="ia-input" wire:model="disposition_provision" rows="3" placeholder="ENTER REMARKS OR DISPOSITION INSTRUCTIONS..." style="font-family: inherit;" {{ $hasPredefinedRemarks ? 'disabled' : '' }}></textarea>
+                <textarea class="ia-input" wire:model="disposition_provision" rows="3" placeholder="Enter remarks or disposition instructions..." style="font-family: inherit; text-transform: none !important;" {{ $hasPredefinedRemarks ? 'disabled' : '' }}></textarea>
             </div>
         </div>
 

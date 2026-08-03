@@ -92,7 +92,7 @@ new #[Layout('layouts.rdp')] #[Title('Draft Records and Disposition Schedule')] 
 
                 DB::table('rdp_record_series')->where('id', $this->editingSeriesId)->update([
                     'series_title'                  => mb_strtoupper(trim($this->editSeriesTitle)),
-                    'remarks'                       => mb_strtoupper(trim($this->editRemarks)) ?: null,
+                    'remarks'                       => trim($this->editRemarks) ?: null,
                     'retention_period'              => $retentionId,
                     'is_retention_period_permanent' => $this->editIsPermanent,
                     'updated_at'                    => now(),

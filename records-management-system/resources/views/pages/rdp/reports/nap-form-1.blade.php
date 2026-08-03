@@ -61,24 +61,26 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 1')
                 'updated_at' => now(),
             ]);
 
-            DB::table('rdp_pending_record_series')->insert([
-                'cluster_id'   => $mainPendingId,
-                'cluster_name' => trim($this->clusterName) ?: ('Inventory Batch — ' . now()->format('Y-m-d')),
-                'status_id'    => 1, // Pending Verification
-                'office'       => $userOffice,
-                'created_by'   => $user?->id,
-                'is_active'    => true,
-                'created_at'   => now(),
-                'updated_at'   => now(),
+            DB::table('rdp_pending_record')->insert([
+                'cluster_id'       => $mainPendingId,
+                'cluster_name'     => trim($this->clusterName) ?: ('Inventory Cluster — ' . ($userOffice ?: 'OFFICE') . ' (' . now()->format('Y-m-d') . ')'),
+                'status_id'        => 1, // Pending Verification
+                'office'           => $userOffice,
+                'created_by'       => $user?->id,
+                'is_for_nap_one'   => true,
+                'is_for_nap_three' => false,
+                'is_active'        => true,
+                'created_at'       => now(),
+                'updated_at'       => now(),
             ]);
 
             foreach ($this->selectedIds as $sId) {
-                DB::table('rdp_grouped_record_series')->insert([
-                    'group_head'       => $mainPendingId,
-                    'record_series_id' => (int)$sId,
-                    'is_active'        => true,
-                    'created_at'       => now(),
-                    'updated_at'       => now(),
+                DB::table('rdp_grouped_record')->insert([
+                    'group_head' => $mainPendingId,
+                    'record_id'  => (int)$sId,
+                    'is_active'  => true,
+                    'created_at' => now(),
+                    'updated_at' => now(),
                 ]);
             }
 
@@ -160,7 +162,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 1')
     public function updatedSelectAll($value): void
     {
         if ($value) {
-            $allIds = DB::table('rdp_record_series')->pluck('id')->toArray();
+            $allIds = DB::table('rdp_record')->pluck('id')->toArray();
             $this->selectedIds = array_map('strval', $allIds);
         } else {
             $this->selectedIds = [];
@@ -877,7 +879,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 1')
                             $isPermSeries = (bool)($item->effective_is_permanent) || 
                                             (strtolower(trim($item->effective_total ?? '')) === 'permanent') ||
                                             (strtolower(trim($item->effective_active ?? '')) === 'permanent' && strtolower(trim($item->effective_storage ?? '')) === 'permanent');
-                            $itemIdStr = (string)$item->id;
+                            $itemIdStr = (string)($item->record_id ?? $item->id);
                             $currentOfficeName = $item->recorded_office_name ?? $item->recorded_at_office ?? 'Unknown Office';
                         @endphp
                         @if($currentOfficeName !== $prevOfficeName)
@@ -890,7 +892,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 1')
                         @endif
                         <tr style="{{ in_array($itemIdStr, $selectedIds) ? 'background: #eff6ff;' : '' }}">
                             <td style="text-align: center;">
-                                <input type="checkbox" wire:model.live="selectedIds" value="{{ $item->id }}" style="width: 16px; height: 16px; cursor: pointer; accent-color: #2563eb;">
+                                <input type="checkbox" wire:model.live="selectedIds" value="{{ $item->record_id ?? $item->id }}" style="width: 16px; height: 16px; cursor: pointer; accent-color: #2563eb;">
                             </td>
                             <td style="text-align: center; font-weight: 700; color: #475569;">
                                 {{ $item->display_item_no }}

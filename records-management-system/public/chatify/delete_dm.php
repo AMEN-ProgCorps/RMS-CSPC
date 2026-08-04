@@ -69,6 +69,14 @@ if (!$isAdmin) {
     }
 }
 
+// ── Backup conversation before deletion ──────────────────────────────────────
+try {
+    $pdo = Database::getConnection();
+    ConversationManager::backupConversation($pdo, $convId, $myAccountId);
+} catch (Throwable $e) {
+    // Non-fatal — continue with deletion
+}
+
 // ── Perform deletion via ConversationManager (PostgreSQL) ─────────────────────
 $deleted = ConversationManager::deleteConversation($convId, $myAccountId, $isAdmin);
 
@@ -91,3 +99,10 @@ if ($isAdmin) {
 } else {
     echo 'Conversation cleared';
 }
+
+// ── Audit log (fire-and-forget) ───────────────────────────────────────────────
+ChatAuditLogger::log($myAccountId, 'clear_chat', $convId, [
+    'is_admin'      => $isAdmin,
+    'fully_deleted' => $isAdmin && $deleted,
+    'conv_id'       => $convId,
+]);

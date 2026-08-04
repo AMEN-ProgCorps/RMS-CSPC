@@ -124,10 +124,10 @@ try {
     // Non-fatal
 }
 
-// Load user communication settings (default OFF for all users)
+// Load user communication settings (default ON for all users)
 $user_comm_settings = [
-    'allow_typing_preview'     => false,
-    'allow_see_typing_preview' => false,
+    'allow_typing_preview'     => true,
+    'allow_see_typing_preview' => true,
     'allow_live_draft_preview' => false,
 ];
 try {
@@ -136,9 +136,9 @@ try {
     $stmt->execute([$_current_account_id]);
     $cRow = $stmt->fetch();
     if ($cRow) {
-        $user_comm_settings['allow_typing_preview']     = (bool) ($cRow['allow_typing_preview'] ?? false);
-        $user_comm_settings['allow_see_typing_preview'] = (bool) ($cRow['allow_see_typing_preview'] ?? false);
-        $user_comm_settings['allow_live_draft_preview'] = (bool) ($cRow['allow_live_draft_preview'] ?? false);
+        $user_comm_settings['allow_typing_preview']     = isset($cRow['allow_typing_preview']) ? (bool) $cRow['allow_typing_preview'] : true;
+        $user_comm_settings['allow_see_typing_preview'] = isset($cRow['allow_see_typing_preview']) ? (bool) $cRow['allow_see_typing_preview'] : true;
+        $user_comm_settings['allow_live_draft_preview'] = isset($cRow['allow_live_draft_preview']) ? (bool) $cRow['allow_live_draft_preview'] : false;
     }
 } catch (Throwable $e) {
     // Non-fatal
@@ -147,6 +147,22 @@ try {
 
 // Check for dark mode preference in cookie
 $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled';
+
+// ── Legal authorization gate ──────────────────────────────────────────────────
+// Check once server-side to avoid a round-trip for users who've already agreed.
+// The JS below re-checks on DOM ready and enforces the gate client-side as well.
+$hasAgreedToLegal = false;
+try {
+    $pdo  = Database::getConnection();
+    $stmt = $pdo->prepare(
+        'SELECT id FROM chatify_legal_agreements WHERE account_id = :id LIMIT 1'
+    );
+    $stmt->execute([':id' => $_current_account_id]);
+    $hasAgreedToLegal = (bool) $stmt->fetch();
+} catch (Throwable $e) {
+    // Non-fatal — default to showing the modal when DB is unavailable
+    $hasAgreedToLegal = false;
+}
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -162,6 +178,7 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
   <noscript><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap"></noscript>
   <script>
     window.currentUserCommSettings = <?php echo json_encode($user_comm_settings); ?>;
+    window._chatifyHasAgreedToLegal = <?php echo json_encode($hasAgreedToLegal); ?>;
   </script>
   <!-- Apply dark mode BEFORE page renders to prevent flash -->
   <script>
@@ -2920,7 +2937,7 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
             <span>Allow Real-Time Typing Preview</span>
           </div>
           <span style="font-size:12px;color:var(--text-secondary);margin-left:26px;line-height:1.4;">
-            When enabled, people you're chatting with can see your message as you type before sending.
+            Let others see your message in real time before you send it. Enabled by default for faster and more engaging conversations.
           </span>
         </label>
 
@@ -2930,7 +2947,7 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
             <span>Show Live Typing Previews</span>
           </div>
           <span style="font-size:12px;color:var(--text-secondary);margin-left:26px;line-height:1.4;">
-            When disabled, you will not see real-time typing previews from others even if they have enabled it.
+            View messages as others type them in real time. Turn this off if you prefer to only see messages after they are sent.
           </span>
         </label>
 
@@ -7482,6 +7499,10 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
 
       // Build FormData
       const fd = new FormData();
+      fd.append('chat_type', isGlobalChat ? 'global' : 'dm');
+      if (!isGlobalChat && typeof activeDMAccountId !== 'undefined' && activeDMAccountId) {
+        fd.append('target_id', activeDMAccountId);
+      }
       const names = [];
       for (const file of fileList) {
         fd.append('files[]', file);
@@ -7998,6 +8019,229 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
       const wsAlive = ws && ws.readyState === WebSocket.OPEN;
       if (!wsAlive) refreshOwnName();
     }, 15000);
+  </script>
+  <!-- ═══════════════════════════════════════════════════════════════════════
+       LEGAL AUTHORIZATION MODAL
+       Uses the existing Chatify .modal / .modal.active pattern.
+       Shown only once per account — tracked in chatify_legal_agreements.
+       ═══════════════════════════════════════════════════════════════════════ -->
+  
+  <!-- Add CSS for backdrop blur -->
+  <style>
+    /* Blur backdrop effect */
+    .modal-blur-overlay {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background: rgba(0, 0, 0, 0.5);
+      backdrop-filter: blur(8px);
+      -webkit-backdrop-filter: blur(8px);
+      z-index: 99998;
+      display: none;
+      animation: fadeIn 0.3s ease-out;
+    }
+
+    .modal-blur-overlay.active {
+      display: block;
+    }
+
+    /* Modal styling with higher z-index */
+    #legalAuthModal {
+      z-index: 99999 !important;
+    }
+
+    /* Ensure modal content stays clear */
+    #legalAuthModal .modal-content {
+      background: var(--bg-primary, #ffffff);
+      border-radius: 12px;
+      box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+    }
+
+    @keyframes fadeIn {
+      from { opacity: 0; }
+      to { opacity: 1; }
+    }
+
+    /* Prevent body scroll when modal is open */
+    body.modal-open {
+      overflow: hidden !important;
+    }
+  </style>
+
+  <!-- Blur overlay -->
+  <div class="modal-blur-overlay" id="legalBlurOverlay"></div>
+
+  <div class="modal" id="legalAuthModal" aria-modal="true" aria-labelledby="legalAuthTitle"
+       style="z-index: 99999;">
+    <div class="modal-content" style="max-width: 500px; user-select: text; touch-action: pan-y;">
+
+      <!-- Header -->
+      <div class="modal-header">
+        <h3 id="legalAuthTitle">Chatify — Authorization &amp; Usage Policy</h3>
+      </div>
+
+      <!-- Body -->
+      <div class="modal-body" style="max-height: 55vh; overflow-y: auto; touch-action: pan-y;">
+
+        <p style="margin: 0 0 12px; color: var(--text-primary); font-size: 13.5px; line-height: 1.55;">
+          Before accessing Chatify, please read and acknowledge the following usage policy.
+        </p>
+
+        <div style="background: rgba(27,116,228,0.07);
+                    border-radius: 0 6px 6px 0; padding: 10px 14px; margin-bottom: 14px;">
+          <p style="margin: 0; font-size: 13px; color: var(--text-primary); font-weight: 600; line-height: 1.5;">
+            MONITORED COMMUNICATION
+          </p>
+          <p style="margin: 6px 0 0; font-size: 13px; color: var(--text-secondary); line-height: 1.5;">
+            All communication within Chatify — including messages, file transfers, and user
+            actions — is recorded and monitored by CSPC administration for institutional
+            and security purposes.
+          </p>
+        </div>
+
+        <p style="margin: 0 0 8px; font-size: 12px; font-weight: 600;
+                  color: var(--text-secondary); text-transform: uppercase; letter-spacing: 0.4px;">
+          By using Chatify, you agree to the following:
+        </p>
+
+        <ul style="margin: 0 0 14px; padding-left: 18px;
+                   font-size: 13px; color: var(--text-secondary);
+                   line-height: 1.6; display: flex; flex-direction: column; gap: 4px;">
+          <li>You acknowledge that this system is intended solely for <strong style="color:var(--text-primary);">authorized academic, administrative, and institutional use</strong>.</li>
+          <li>You will not send any content that is <strong style="color:var(--text-primary);">abusive, threatening, or illegal</strong>.</li>
+          <li>You will not use Chatify for <strong style="color:var(--text-primary);">unauthorized personal or commercial activities</strong>.</li>
+          <li>Your actions within the system may be <strong style="color:var(--text-primary);">reviewed by authorized administrators</strong> at any time.</li>
+          <li>Violations of this policy may result in <strong style="color:var(--text-primary);">disciplinary action</strong> under CSPC regulations.</li>
+        </ul>
+
+        <p style="margin: 0; font-size: 11.5px; color: var(--text-secondary);
+                  border-top: 1px solid var(--border-color); padding-top: 10px; line-height: 1.5;">
+          Your acceptance is recorded with your account ID, timestamp, and IP address
+          for institutional records.
+        </p>
+
+        <!-- Inline error message -->
+        <div id="legalAuthError"
+             style="display:none; margin-top:10px; padding:8px 12px; border-radius:6px;
+                    background:rgba(239,68,68,0.1); color:#dc2626;
+                    font-size:12.5px; font-weight:600; text-align:center;">
+        </div>
+      </div>
+
+      <!-- Footer -->
+      <div class="modal-footer">
+        <button class="modal-button confirm-button" id="legalAgreeBtn" type="button" style="border-left: none;">
+          I Understand and Agree
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+  (function() {
+    'use strict';
+
+    var modal      = document.getElementById('legalAuthModal');
+    var agreeBtn   = document.getElementById('legalAgreeBtn');
+    var errBox     = document.getElementById('legalAuthError');
+    var blurOverlay = document.getElementById('legalBlurOverlay');
+
+    var PORTAL_URL = window.location.origin + '/portal';
+
+    function openLegalModal() {
+      if (!modal) return;
+      modal.classList.add('active');
+      if (blurOverlay) blurOverlay.classList.add('active');
+      document.body.classList.add('modal-open');
+      setTimeout(function() { if (agreeBtn) agreeBtn.focus(); }, 150);
+    }
+
+    function closeLegalModal() {
+      if (!modal) return;
+      modal.classList.remove('active');
+      if (blurOverlay) blurOverlay.classList.remove('active');
+      document.body.classList.remove('modal-open');
+    }
+
+    function showError(msg) {
+      if (!errBox) return;
+      errBox.textContent = msg;
+      errBox.style.display = 'block';
+    }
+
+    function clearError() {
+      if (!errBox) return;
+      errBox.style.display = 'none';
+      errBox.textContent = '';
+    }
+
+    function onAgree() {
+      clearError();
+      agreeBtn.disabled = true;
+      agreeBtn.textContent = 'Recording…';
+
+      var fd = new FormData();
+      fd.append('agreed', 'true');
+
+      fetch('accept_legal.php', {
+        method: 'POST',
+        credentials: 'same-origin',
+        body: fd
+      })
+      .then(function(res) {
+        return res.json().catch(function() {
+          return { error: 'Server returned an unexpected response (HTTP ' + res.status + ').' };
+        });
+      })
+      .then(function(data) {
+        if (data && data.success) {
+          closeLegalModal();
+        } else {
+          showError(data.error || 'Failed to record agreement. Please try again.');
+          agreeBtn.textContent = 'I Understand and Agree';
+          agreeBtn.disabled = false;
+        }
+      })
+      .catch(function(err) {
+        showError('Network error. Please check your connection and try again.');
+        agreeBtn.textContent = 'I Understand and Agree';
+        agreeBtn.disabled = false;
+      });
+    }
+
+    if (agreeBtn) agreeBtn.addEventListener('click', onAgree);
+
+    // Escape key must NOT close this modal
+    document.addEventListener('keydown', function(e) {
+      if (modal && modal.classList.contains('active') && e.key === 'Escape') {
+        e.preventDefault();
+        e.stopImmediatePropagation();
+      }
+    }, true);
+
+    // Backdrop click must NOT close this modal either
+    if (modal) {
+      modal.addEventListener('click', function(e) {
+        e.stopPropagation();
+      });
+    }
+
+    // Gate: show modal on DOM ready if user has not agreed yet
+    function initLegalGate() {
+      if (!window._chatifyHasAgreedToLegal) {
+        openLegalModal();
+      }
+    }
+
+    if (document.readyState === 'loading') {
+      document.addEventListener('DOMContentLoaded', initLegalGate);
+    } else {
+      initLegalGate();
+    }
+
+  })();
   </script>
 </body>
 </html>

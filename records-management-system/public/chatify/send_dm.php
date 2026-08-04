@@ -122,6 +122,12 @@ if (empty($errors)) {
         ]);
     }
     echo json_encode(['success' => true, 'message' => $msgData]);
+    // ── Audit log (fire-and-forget) ───────────────────────────────────────────
+    ChatAuditLogger::log($senderId, 'send_dm', $msgData['id'] ?? null, [
+        'recipient_id' => $targetId,
+        'has_text'     => $message !== '',
+        'has_file'     => $uploadedRaw !== '',
+    ]);
 } else {
     http_response_code(500);
     echo json_encode(['success' => false, 'errors' => $errors]);

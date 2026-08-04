@@ -54,11 +54,18 @@ try {
         $deletedConversations = (int) $countStmt->fetchColumn();
     } catch (Throwable $e) {}
 
-    // 3. Backup all messages to backup table if required
-    ConversationManager::backupAll($pdo, $adminId);
+    // 3. Backup all messages to backup table before wiping
+    ConversationManager::backupAll($pdo, $adminId);    // DM conversations
+    ConversationManager::backupGlobal($pdo, $adminId); // Global chat
 
     // 4. Instantaneous wipe using TRUNCATE CASCADE across chat messages, read markers, and conversations
     $pdo->exec("TRUNCATE TABLE chat_messages, chat_read_markers, chat_conversations CASCADE;");
+
+    // 5. Audit log (fire-and-forget)
+    ChatAuditLogger::log($adminId, 'clear_all_chat', null, [
+        'deleted_conversations' => $deletedConversations,
+        'includes_global'       => true,
+    ]);
 
     // Real-time broadcast to all connected WebSocket clients
     WsPush::broadcast('all_cleared', []);

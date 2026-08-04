@@ -216,11 +216,14 @@
 
         if (!isTabletOrDesktop()) {
             card.style.display = 'none';
+            if (iframe) iframe.src = 'about:blank';
             return;
         }
 
         if (show) {
-            if (iframe && !iframe.src) {
+            if (iframe && (!iframe.src || iframe.src.includes('about:blank'))) {
+                const loader = document.getElementById('chatify-iframe-loader');
+                if (loader) loader.style.display = 'flex';
                 iframe.src = iframe.getAttribute('data-src');
             }
 
@@ -240,11 +243,15 @@
                 card.style.opacity = '0';
                 card.style.transform = 'translateY(16px) scale(0.96)';
                 setTimeout(() => {
-                    if (!isOpen) card.style.display = 'none';
+                    if (!isOpen) {
+                        card.style.display = 'none';
+                        if (iframe) iframe.src = 'about:blank';
+                    }
                 }, 250);
             } else {
                 card.style.display = 'none';
                 card.style.opacity = '0';
+                if (iframe) iframe.src = 'about:blank';
             }
 
             if (iconChat && iconClose) {

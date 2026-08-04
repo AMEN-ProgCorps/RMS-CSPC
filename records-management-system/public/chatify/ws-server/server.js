@@ -185,8 +185,8 @@ const userCommSettings = new Map();
 
 function getUserCommSettings(accountId) {
   return userCommSettings.get(Number(accountId)) || {
-    allow_typing_preview: false,
-    allow_see_typing_preview: false,
+    allow_typing_preview: true,
+    allow_see_typing_preview: true,
     allow_live_draft_preview: false
   };
 }

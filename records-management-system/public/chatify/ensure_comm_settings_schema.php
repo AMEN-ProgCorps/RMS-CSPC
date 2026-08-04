@@ -7,7 +7,7 @@ try {
     $pdo->exec("
         ALTER TABLE account_details ADD COLUMN IF NOT EXISTS allow_typing_preview BOOLEAN DEFAULT TRUE;
         ALTER TABLE account_details ADD COLUMN IF NOT EXISTS allow_see_typing_preview BOOLEAN DEFAULT TRUE;
-        ALTER TABLE account_details ADD COLUMN IF NOT EXISTS allow_live_draft_preview BOOLEAN DEFAULT FALSE;
+        ALTER TABLE account_details DROP COLUMN IF EXISTS allow_live_draft_preview;
 
         -- Alter default values to TRUE for the typing preview columns
         ALTER TABLE account_details ALTER COLUMN allow_typing_preview SET DEFAULT TRUE;

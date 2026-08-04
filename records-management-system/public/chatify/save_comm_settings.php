@@ -25,29 +25,25 @@ if (!is_array($data)) {
 
 $allowTypingPreview   = !empty($data['allow_typing_preview']);
 $allowSeeTypingPreview = !empty($data['allow_see_typing_preview']);
-$allowLiveDraftPreview = !empty($data['allow_live_draft_preview']);
 
 try {
     $pdo = Database::getConnection();
     
     // Ensure columns exist just in case
     @$pdo->exec("
-        ALTER TABLE account_details ADD COLUMN IF NOT EXISTS allow_typing_preview BOOLEAN DEFAULT FALSE;
-        ALTER TABLE account_details ADD COLUMN IF NOT EXISTS allow_see_typing_preview BOOLEAN DEFAULT FALSE;
-        ALTER TABLE account_details ADD COLUMN IF NOT EXISTS allow_live_draft_preview BOOLEAN DEFAULT FALSE;
+        ALTER TABLE account_details ADD COLUMN IF NOT EXISTS allow_typing_preview BOOLEAN DEFAULT TRUE;
+        ALTER TABLE account_details ADD COLUMN IF NOT EXISTS allow_see_typing_preview BOOLEAN DEFAULT TRUE;
     ");
 
     $stmt = $pdo->prepare('
         UPDATE account_details
         SET allow_typing_preview = :a,
-            allow_see_typing_preview = :b,
-            allow_live_draft_preview = :c
+            allow_see_typing_preview = :b
         WHERE account_id = :id
     ');
     $stmt->execute([
         ':a'  => $allowTypingPreview ? 'true' : 'false',
         ':b'  => $allowSeeTypingPreview ? 'true' : 'false',
-        ':c'  => $allowLiveDraftPreview ? 'true' : 'false',
         ':id' => $accountId,
     ]);
 
@@ -56,7 +52,6 @@ try {
         'account_id'               => $accountId,
         'allow_typing_preview'     => $allowTypingPreview,
         'allow_see_typing_preview' => $allowSeeTypingPreview,
-        'allow_live_draft_preview' => $allowLiveDraftPreview,
     ]);
 
     echo json_encode([
@@ -64,7 +59,6 @@ try {
         'settings' => [
             'allow_typing_preview'     => $allowTypingPreview,
             'allow_see_typing_preview' => $allowSeeTypingPreview,
-            'allow_live_draft_preview' => $allowLiveDraftPreview,
         ],
     ]);
 } catch (Throwable $e) {

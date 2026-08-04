@@ -1329,8 +1329,7 @@
     });
 
     // ── Real-Time Typing Preview & Communication Settings ────────────────
-    const clientActivePreviews = new Map(); // senderId -> { preview, allow_live_draft_preview }
-    let currentActiveDraftModalSenderId = null;
+    const clientActivePreviews = new Map(); // senderId -> { preview }
     let typingPreviewDebounceTimer = null;
 
     function sendTypingPreview() {
@@ -1348,8 +1347,7 @@
         recipient_id: activeDMAccountId,
         preview: cleanText,
         allow_typing_preview: !!(window.currentUserCommSettings && window.currentUserCommSettings.allow_typing_preview),
-        allow_see_typing_preview: !!(window.currentUserCommSettings && window.currentUserCommSettings.allow_see_typing_preview),
-        allow_live_draft_preview: !!(window.currentUserCommSettings && window.currentUserCommSettings.allow_live_draft_preview)
+        allow_see_typing_preview: !!(window.currentUserCommSettings && window.currentUserCommSettings.allow_see_typing_preview)
       };
 
       ws.send(JSON.stringify(payload));
@@ -1360,42 +1358,24 @@
       sendTypingPreview();
     }
 
-    function renderLiveDraftModalContent(senderId) {
-      const modalContent = document.getElementById('liveDraftContent');
-      if (!modalContent) return;
-
-      const draftObj = clientActivePreviews.get(senderId);
-      if (draftObj && draftObj.isSent) {
-        modalContent.innerHTML = `<span style="color:var(--success-color, #2ecc71);font-weight:600;">Message sent! Check chat history.</span>`;
-        return;
-      }
-
-      const text = (draftObj && draftObj.preview) ? draftObj.preview : '';
-      const escapedText = escapeHtml(text);
-      // Real-time blinking cursor right at the end of the text
-      modalContent.innerHTML = `<span>${escapedText}</span><span class="live-typing-cursor"></span>`;
-    }
-
     function handleIncomingTypingPreview(data) {
       const senderId = Number(data.sender_id);
       if (!senderId || senderId === wsConfig.accountId) return;
 
       if (!window.currentUserCommSettings || !window.currentUserCommSettings.allow_see_typing_preview) {
         clientActivePreviews.delete(senderId);
-        updateSidebarPreviewState(senderId, null, false);
+        updateSidebarPreviewState(senderId, null);
         return;
       }
 
       const previewText = (data.preview || '').trim();
-      const allowDraftModal = !!data.allow_live_draft_preview;
 
       if (!previewText) {
         clientActivePreviews.delete(senderId);
-        updateSidebarPreviewState(senderId, null, false);
+        updateSidebarPreviewState(senderId, null);
       } else {
         clientActivePreviews.set(senderId, {
           preview: previewText,
-          allow_live_draft_preview: allowDraftModal,
           isSent: false
         });
 
@@ -1405,11 +1385,7 @@
           const senderName = senderUser ? senderUser.full_name : `User ${senderId}`;
           showTypingIndicator(senderName, true);
         }
-        updateSidebarPreviewState(senderId, previewText, allowDraftModal);
-      }
-
-      if (currentActiveDraftModalSenderId === senderId) {
-        renderLiveDraftModalContent(senderId);
+        updateSidebarPreviewState(senderId, previewText);
       }
     }
 
@@ -1418,11 +1394,7 @@
       if (!senderId) return;
 
       clientActivePreviews.delete(senderId);
-      updateSidebarPreviewState(senderId, null, false);
-
-      if (currentActiveDraftModalSenderId === senderId) {
-        renderLiveDraftModalContent(senderId);
-      }
+      updateSidebarPreviewState(senderId, null);
     }
 
     function handleIncomingTypingPreviewSent(data) {
@@ -1431,17 +1403,12 @@
 
       clientActivePreviews.set(senderId, {
         preview: '',
-        allow_live_draft_preview: false,
         isSent: true
       });
-      updateSidebarPreviewState(senderId, null, false);
-
-      if (currentActiveDraftModalSenderId === senderId) {
-        renderLiveDraftModalContent(senderId);
-      }
+      updateSidebarPreviewState(senderId, null);
     }
 
-    function updateSidebarPreviewState(senderId, previewText, allowLiveDraftModal) {
+    function updateSidebarPreviewState(senderId, previewText) {
       const user = allUsersData.find(u => Number(u.account_id) === Number(senderId));
       if (!user) return;
       const username = user.username;

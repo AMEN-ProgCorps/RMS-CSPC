@@ -186,8 +186,7 @@ const userCommSettings = new Map();
 function getUserCommSettings(accountId) {
   return userCommSettings.get(Number(accountId)) || {
     allow_typing_preview: true,
-    allow_see_typing_preview: true,
-    allow_live_draft_preview: false
+    allow_see_typing_preview: true
   };
 }
 
@@ -508,8 +507,7 @@ wss.on('connection', (ws) => {
         if (data.comm_settings && typeof data.comm_settings === 'object') {
           userCommSettings.set(accountId, {
             allow_typing_preview: !!data.comm_settings.allow_typing_preview,
-            allow_see_typing_preview: !!data.comm_settings.allow_see_typing_preview,
-            allow_live_draft_preview: !!data.comm_settings.allow_live_draft_preview
+            allow_see_typing_preview: !!data.comm_settings.allow_see_typing_preview
           });
         }
         log(`Client authenticated: account_id=${account_id}, name="${name}"`);
@@ -524,8 +522,7 @@ wss.on('connection', (ws) => {
                 type: 'typing_preview',
                 sender_id: entry.sender_id,
                 recipient_id: entry.recipient_id,
-                preview: entry.preview,
-                allow_live_draft_preview: !!entry.allow_live_draft_preview
+                preview: entry.preview
               }));
             }
           }
@@ -702,24 +699,26 @@ wss.on('connection', (ws) => {
     // 4a2. Handle Communication Settings Update Event
     if (data.type === 'update_comm_settings') {
       const targetAccId = Number(data.account_id || state.accountId);
-      userCommSettings.set(targetAccId, {
+      const prevSettings = getUserCommSettings(targetAccId);
+      const newSettings = {
         allow_typing_preview: !!data.allow_typing_preview,
-        allow_see_typing_preview: !!data.allow_see_typing_preview,
-        allow_live_draft_preview: !!data.allow_live_draft_preview
-      });
+        allow_see_typing_preview: !!data.allow_see_typing_preview
+      };
+      userCommSettings.set(targetAccId, newSettings);
 
-      log(`Communication settings updated for account ${targetAccId}: typing_preview=${!!data.allow_typing_preview}, see_preview=${!!data.allow_see_typing_preview}, live_draft=${!!data.allow_live_draft_preview}`);
+      log(`Communication settings updated for account ${targetAccId}: typing_preview=${newSettings.allow_typing_preview}, see_preview=${newSettings.allow_see_typing_preview}`);
 
-      // If user turned off allow_typing_preview, clear previews sent by this user
-      if (!data.allow_typing_preview) {
+      // If user turned OFF allow_typing_preview, clear previews sent by this user
+      if (!newSettings.allow_typing_preview) {
         for (const [key, entry] of activeTypingPreviews.entries()) {
           if (entry.sender_id === targetAccId) {
             clearPreview(key, true, 'settings_disabled');
           }
         }
       }
-      // If user turned off allow_see_typing_preview, send clear event to this user's sockets
-      if (!data.allow_see_typing_preview) {
+
+      // If user turned OFF allow_see_typing_preview, clear all previews from this user's view
+      if (!newSettings.allow_see_typing_preview) {
         for (const [key, entry] of activeTypingPreviews.entries()) {
           if (entry.recipient_id === targetAccId) {
             const clearStr = JSON.stringify({
@@ -732,6 +731,24 @@ wss.on('connection', (ws) => {
           }
         }
       }
+
+      // If user just turned ON allow_see_typing_preview, replay any active previews immediately
+      if (newSettings.allow_see_typing_preview && !prevSettings.allow_see_typing_preview) {
+        for (const [key, entry] of activeTypingPreviews.entries()) {
+          if (entry.recipient_id === targetAccId) {
+            const senderSettings = getUserCommSettings(entry.sender_id);
+            if (senderSettings.allow_typing_preview) {
+              broadcastToAccounts([targetAccId], JSON.stringify({
+                type: 'typing_preview',
+                sender_id: entry.sender_id,
+                recipient_id: targetAccId,
+                preview: entry.preview
+              }));
+            }
+          }
+        }
+      }
+
       return;
     }
 
@@ -747,8 +764,7 @@ wss.on('connection', (ws) => {
         const existing = getUserCommSettings(state.accountId);
         userCommSettings.set(state.accountId, {
           ...existing,
-          allow_typing_preview: !!data.allow_typing_preview,
-          allow_live_draft_preview: data.allow_live_draft_preview !== undefined ? !!data.allow_live_draft_preview : existing.allow_live_draft_preview
+          allow_typing_preview: !!data.allow_typing_preview
         });
       }
       if (data.allow_see_typing_preview !== undefined) {
@@ -790,7 +806,6 @@ wss.on('connection', (ws) => {
         sender_id: state.accountId,
         recipient_id: recipientId,
         preview: text,
-        allow_live_draft_preview: !!senderSettings.allow_live_draft_preview,
         timeoutId
       });
 
@@ -799,8 +814,7 @@ wss.on('connection', (ws) => {
           type: 'typing_preview',
           sender_id: state.accountId,
           recipient_id: recipientId,
-          preview: text,
-          allow_live_draft_preview: !!senderSettings.allow_live_draft_preview
+          preview: text
         });
         // Target recipient sessions and sender sessions (multi-device support)
         broadcastToAccounts([recipientId, state.accountId], payloadStr);

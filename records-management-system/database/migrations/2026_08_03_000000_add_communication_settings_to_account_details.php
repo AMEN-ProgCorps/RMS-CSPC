@@ -13,13 +13,10 @@ return new class extends Migration
     {
         Schema::table('account_details', function (Blueprint $table) {
             if (!Schema::hasColumn('account_details', 'allow_typing_preview')) {
-                $table->boolean('allow_typing_preview')->default(false);
+                $table->boolean('allow_typing_preview')->default(true);
             }
             if (!Schema::hasColumn('account_details', 'allow_see_typing_preview')) {
-                $table->boolean('allow_see_typing_preview')->default(false);
-            }
-            if (!Schema::hasColumn('account_details', 'allow_live_draft_preview')) {
-                $table->boolean('allow_live_draft_preview')->default(false);
+                $table->boolean('allow_see_typing_preview')->default(true);
             }
         });
     }
@@ -33,7 +30,6 @@ return new class extends Migration
             $table->dropColumn([
                 'allow_typing_preview',
                 'allow_see_typing_preview',
-                'allow_live_draft_preview',
             ]);
         });
     }

@@ -135,3 +135,25 @@ for ($i = 0; $i < $total; $i++) {
 
 $response['success'] = count($response['uploaded']) > 0;
 echo json_encode($response);
+
+// ── Audit log (fire-and-forget) ───────────────────────────────────────────────
+if ($response['success']) {
+    $uploaderId = Auth::accountId();
+    $chatType   = isset($_POST['chat_type']) ? trim($_POST['chat_type']) : 'global';
+    $targetId   = isset($_POST['target_id']) ? (int)$_POST['target_id'] : null;
+
+    $isDm   = ($chatType === 'dm' || $chatType === 'private');
+    $action = $isDm ? 'upload_dm_file' : 'upload_file';
+
+    $meta = [
+        'chat_type'  => $isDm ? 'private' : 'global',
+        'file_count' => count($response['uploaded']),
+        'filenames'  => $response['uploaded'],
+    ];
+
+    if ($isDm && $targetId) {
+        $meta['recipient_id'] = $targetId;
+    }
+
+    ChatAuditLogger::log($uploaderId, $action, null, $meta);
+}

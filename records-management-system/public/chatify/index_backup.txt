@@ -2429,6 +2429,8 @@ $dark_mode = isset($_COOKIE['dark_mode']) && $_COOKIE['dark_mode'] === 'enabled'
     .verified-badge svg {
       width: 13px;
       height: 13px;
+      flex-shrink: 0;
+      aspect-ratio: 1 / 1;
       display: block;
     }
     /* Tooltip on hover */

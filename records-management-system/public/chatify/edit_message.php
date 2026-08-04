@@ -33,6 +33,8 @@ header('Content-Type: application/json');
 
 if ($success) {
     echo json_encode(['success' => true]);
+    // ── Audit log (fire-and-forget) ───────────────────────────────────────────
+    ChatAuditLogger::log($senderId, 'edit_message', $msgUuid);
 } else {
     http_response_code(500);
     echo json_encode([

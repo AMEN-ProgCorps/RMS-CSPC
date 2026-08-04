@@ -70,6 +70,7 @@
         <div class="function-button {{ request()->routeIs('admin.activity.dts.transaction-logs') ? 'force-active' : '' }}" onclick="proccedto('{{ route('admin.activity.dts.transaction-logs') }}')">[DTS] Transactions Logs</div>
         <div class="function-button {{ request()->routeIs('admin.activity.dts.update-logs') ? 'force-active' : '' }}" onclick="proccedto('{{ route('admin.activity.dts.update-logs') }}')">[DTS] Update Logs</div>
         <div class="function-button {{ request()->routeIs('admin.activity.dts.flow-logs') ? 'force-active' : '' }}" onclick="proccedto('{{ route('admin.activity.dts.flow-logs') }}')">[DTS] Flows Logs</div>
+        <div class="function-button {{ request()->routeIs('admin.activity.chat-audit') ? 'force-active' : '' }}" onclick="proccedto('{{ route('admin.activity.chat-audit') }}')">[Chat] Audit Trail</div>
     </div>
 </div>
 @endif

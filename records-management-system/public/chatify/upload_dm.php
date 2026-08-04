@@ -98,3 +98,12 @@ for ($i = 0; $i < $total; $i++) {
 
 $response['success'] = count($response['uploaded']) > 0;
 echo json_encode($response);
+
+// ── Audit log (fire-and-forget) ───────────────────────────────────────────────
+if ($response['success']) {
+    ChatAuditLogger::log($senderId, 'upload_dm_file', null, [
+        'recipient_id' => $targetId,
+        'file_count'   => count($response['uploaded']),
+        'filenames'    => $response['uploaded'],
+    ]);
+}

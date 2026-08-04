@@ -1,0 +1,73 @@
+<?php
+require_once __DIR__ . '/bootstrap.php';
+
+header('Content-Type: application/json');
+
+if (!Auth::check()) {
+    http_response_code(401);
+    echo json_encode(['error' => 'Unauthorized']);
+    exit;
+}
+
+$accountId = (int) ($_SESSION['account_id'] ?? 0);
+if ($accountId <= 0) {
+    http_response_code(400);
+    echo json_encode(['error' => 'Invalid account']);
+    exit;
+}
+
+$rawInput = file_get_contents('php://input');
+$data = json_decode($rawInput, true);
+
+if (!is_array($data)) {
+    $data = $_POST;
+}
+
+$allowTypingPreview   = !empty($data['allow_typing_preview']);
+$allowSeeTypingPreview = !empty($data['allow_see_typing_preview']);
+$allowLiveDraftPreview = !empty($data['allow_live_draft_preview']);
+
+try {
+    $pdo = Database::getConnection();
+    
+    // Ensure columns exist just in case
+    @$pdo->exec("
+        ALTER TABLE account_details ADD COLUMN IF NOT EXISTS allow_typing_preview BOOLEAN DEFAULT FALSE;
+        ALTER TABLE account_details ADD COLUMN IF NOT EXISTS allow_see_typing_preview BOOLEAN DEFAULT FALSE;
+        ALTER TABLE account_details ADD COLUMN IF NOT EXISTS allow_live_draft_preview BOOLEAN DEFAULT FALSE;
+    ");
+
+    $stmt = $pdo->prepare('
+        UPDATE account_details
+        SET allow_typing_preview = :a,
+            allow_see_typing_preview = :b,
+            allow_live_draft_preview = :c
+        WHERE account_id = :id
+    ');
+    $stmt->execute([
+        ':a'  => $allowTypingPreview ? 'true' : 'false',
+        ':b'  => $allowSeeTypingPreview ? 'true' : 'false',
+        ':c'  => $allowLiveDraftPreview ? 'true' : 'false',
+        ':id' => $accountId,
+    ]);
+
+    // Push updated settings to WebSocket server
+    WsPush::push([$accountId], 'update_comm_settings', [
+        'account_id'               => $accountId,
+        'allow_typing_preview'     => $allowTypingPreview,
+        'allow_see_typing_preview' => $allowSeeTypingPreview,
+        'allow_live_draft_preview' => $allowLiveDraftPreview,
+    ]);
+
+    echo json_encode([
+        'success'  => true,
+        'settings' => [
+            'allow_typing_preview'     => $allowTypingPreview,
+            'allow_see_typing_preview' => $allowSeeTypingPreview,
+            'allow_live_draft_preview' => $allowLiveDraftPreview,
+        ],
+    ]);
+} catch (Throwable $e) {
+    http_response_code(500);
+    echo json_encode(['error' => 'Database update failed', 'message' => $e->getMessage()]);
+}

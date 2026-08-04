@@ -178,12 +178,43 @@ function unindexSocket(ws, accountId) {
   if (set.size === 0) accountSockets.delete(accountId);
 }
 
+// ── Real-Time Typing Preview (Memory-Only Architecture) ─────────────────
+// Key format: `${senderId}:${recipientId}`
+const activeTypingPreviews = new Map();
+const userCommSettings = new Map();
+
+function getUserCommSettings(accountId) {
+  return userCommSettings.get(Number(accountId)) || {
+    allow_typing_preview: false,
+    allow_see_typing_preview: false,
+    allow_live_draft_preview: false
+  };
+}
+
+function clearPreview(key, notify = false, reason = 'cleared') {
+  const entry = activeTypingPreviews.get(key);
+  if (!entry) return;
+  if (entry.timeoutId) clearTimeout(entry.timeoutId);
+  activeTypingPreviews.delete(key);
+
+  if (notify) {
+    const payloadStr = JSON.stringify({
+      type: 'typing_preview_cleared',
+      sender_id: entry.sender_id,
+      recipient_id: entry.recipient_id,
+      reason: reason
+    });
+    broadcastToAccounts([entry.recipient_id, entry.sender_id], payloadStr);
+  }
+}
+
 // ── Rate limiting (per account, fixed window) ───────────────────────────
 // Cheap spam/flood protection: a runaway client (buggy tab stuck in a
 // loop, or someone intentionally hammering the socket) can't drown out
 // the server or other users' events.
 const RATE_LIMITS = {
   typing: { max: 5, windowMs: 1000 },
+  typing_preview: { max: 60, windowMs: 1000 },
   message: { max: 10, windowMs: 1000 },
   control: { max: 20, windowMs: 1000 }, // update_name, chat_cleared, all_cleared
   mark_read: { max: 10, windowMs: 1000 }
@@ -474,8 +505,31 @@ wss.on('connection', (ws) => {
           expires: parseInt(expires, 10) // re-checked continuously, see sweep below
         });
         indexSocket(ws, accountId);
+        if (data.comm_settings && typeof data.comm_settings === 'object') {
+          userCommSettings.set(accountId, {
+            allow_typing_preview: !!data.comm_settings.allow_typing_preview,
+            allow_see_typing_preview: !!data.comm_settings.allow_see_typing_preview,
+            allow_live_draft_preview: !!data.comm_settings.allow_live_draft_preview
+          });
+        }
         log(`Client authenticated: account_id=${account_id}, name="${name}"`);
         ws.send(JSON.stringify({ type: 'auth_success' }));
+
+        // Sync active typing previews for this recipient (handles page refresh)
+        for (const [key, entry] of activeTypingPreviews.entries()) {
+          if (entry.recipient_id === accountId) {
+            const recSettings = getUserCommSettings(accountId);
+            if (recSettings.allow_see_typing_preview) {
+              safeSend(ws, JSON.stringify({
+                type: 'typing_preview',
+                sender_id: entry.sender_id,
+                recipient_id: entry.recipient_id,
+                preview: entry.preview,
+                allow_live_draft_preview: !!entry.allow_live_draft_preview
+              }));
+            }
+          }
+        }
       } else {
         log(`Authentication failed: account_id=${account_id}`);
         ws.send(JSON.stringify({ type: 'auth_failure', error: 'Invalid or expired token' }));
@@ -576,6 +630,17 @@ wss.on('connection', (ws) => {
       } else if (chat_type === 'private') {
         // Recipient, any other session of the sender, and admin (1) for spymode
         broadcastToAccounts([Number(recipient_id), state.accountId, 1], payloadStr);
+        // Clear active typing preview on message send
+        const previewKey = `${state.accountId}:${Number(recipient_id)}`;
+        if (activeTypingPreviews.has(previewKey)) {
+          clearPreview(previewKey, false);
+          const sentPayloadStr = JSON.stringify({
+            type: 'typing_preview_sent',
+            sender_id: state.accountId,
+            recipient_id: Number(recipient_id)
+          });
+          broadcastToAccounts([Number(recipient_id), state.accountId], sentPayloadStr);
+        }
       }
       return;
     }
@@ -631,6 +696,115 @@ wss.on('connection', (ws) => {
 
       broadcastToAccounts([Number(recipient_id)], payloadStr);
 
+      return;
+    }
+
+    // 4a2. Handle Communication Settings Update Event
+    if (data.type === 'update_comm_settings') {
+      const targetAccId = Number(data.account_id || state.accountId);
+      userCommSettings.set(targetAccId, {
+        allow_typing_preview: !!data.allow_typing_preview,
+        allow_see_typing_preview: !!data.allow_see_typing_preview,
+        allow_live_draft_preview: !!data.allow_live_draft_preview
+      });
+
+      log(`Communication settings updated for account ${targetAccId}: typing_preview=${!!data.allow_typing_preview}, see_preview=${!!data.allow_see_typing_preview}, live_draft=${!!data.allow_live_draft_preview}`);
+
+      // If user turned off allow_typing_preview, clear previews sent by this user
+      if (!data.allow_typing_preview) {
+        for (const [key, entry] of activeTypingPreviews.entries()) {
+          if (entry.sender_id === targetAccId) {
+            clearPreview(key, true, 'settings_disabled');
+          }
+        }
+      }
+      // If user turned off allow_see_typing_preview, send clear event to this user's sockets
+      if (!data.allow_see_typing_preview) {
+        for (const [key, entry] of activeTypingPreviews.entries()) {
+          if (entry.recipient_id === targetAccId) {
+            const clearStr = JSON.stringify({
+              type: 'typing_preview_cleared',
+              sender_id: entry.sender_id,
+              recipient_id: targetAccId,
+              reason: 'settings_disabled'
+            });
+            broadcastToAccounts([targetAccId], clearStr);
+          }
+        }
+      }
+      return;
+    }
+
+    // 4a3. Handle Real-Time Typing Preview Event (Memory-Only)
+    if (data.type === 'typing_preview') {
+      if (isRateLimited(state.accountId, 'typing_preview')) return;
+
+      const recipientId = Number(data.recipient_id);
+      if (!recipientId) return;
+
+      // Update in-memory user settings if passed with event
+      if (data.allow_typing_preview !== undefined) {
+        const existing = getUserCommSettings(state.accountId);
+        userCommSettings.set(state.accountId, {
+          ...existing,
+          allow_typing_preview: !!data.allow_typing_preview,
+          allow_live_draft_preview: data.allow_live_draft_preview !== undefined ? !!data.allow_live_draft_preview : existing.allow_live_draft_preview
+        });
+      }
+      if (data.allow_see_typing_preview !== undefined) {
+        const existing = getUserCommSettings(state.accountId);
+        userCommSettings.set(state.accountId, {
+          ...existing,
+          allow_see_typing_preview: !!data.allow_see_typing_preview
+        });
+      }
+
+      const senderSettings = getUserCommSettings(state.accountId);
+      const recipientSettings = getUserCommSettings(recipientId);
+
+      const key = `${state.accountId}:${recipientId}`;
+      const rawText = data.preview || '';
+      const text = rawText.substring(0, 1000); // 1000 character draft limit
+
+      if (!text || text.trim() === '') {
+        clearPreview(key, true, 'empty');
+        return;
+      }
+
+      // Server-Side Permission Check:
+      // Sender MUST allow typing preview AND Recipient MUST allow seeing typing preview
+      const isAllowedToBroadcast = senderSettings.allow_typing_preview && recipientSettings.allow_see_typing_preview;
+
+      // Clear existing timer if present
+      const existingEntry = activeTypingPreviews.get(key);
+      if (existingEntry && existingEntry.timeoutId) {
+        clearTimeout(existingEntry.timeoutId);
+      }
+
+      // Reset 5-second inactivity timeout
+      const timeoutId = setTimeout(() => {
+        clearPreview(key, true, 'timeout');
+      }, 5000);
+
+      activeTypingPreviews.set(key, {
+        sender_id: state.accountId,
+        recipient_id: recipientId,
+        preview: text,
+        allow_live_draft_preview: !!senderSettings.allow_live_draft_preview,
+        timeoutId
+      });
+
+      if (isAllowedToBroadcast) {
+        const payloadStr = JSON.stringify({
+          type: 'typing_preview',
+          sender_id: state.accountId,
+          recipient_id: recipientId,
+          preview: text,
+          allow_live_draft_preview: !!senderSettings.allow_live_draft_preview
+        });
+        // Target recipient sessions and sender sessions (multi-device support)
+        broadcastToAccounts([recipientId, state.accountId], payloadStr);
+      }
       return;
     }
 
@@ -713,6 +887,13 @@ wss.on('connection', (ws) => {
       log(`Client disconnected: account_id=${state.accountId}, code=${code}`);
       unindexSocket(ws, state.accountId);
       clearRateState(state.accountId);
+
+      // Clean up active typing previews sent by this disconnected user
+      for (const [key, entry] of activeTypingPreviews.entries()) {
+        if (entry.sender_id === state.accountId) {
+          clearPreview(key, true, 'disconnect');
+        }
+      }
 
       // Deliberately NOT broadcasting an is_typing:false to everyone here.
       // That used to be an O(n) fan-out to every connected client on every

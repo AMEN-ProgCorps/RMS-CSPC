@@ -95,6 +95,9 @@ if ($searchQuery !== '') {
             'lastMessage'         => $lastMessageText,
             'lastTimestamp'       => $lastTimestamp,
             'unreadCount'         => $unreadCount,
+            'allow_typing_preview'     => (bool) ($user['allow_typing_preview'] ?? false),
+            'allow_see_typing_preview' => (bool) ($user['allow_see_typing_preview'] ?? false),
+            'allow_live_draft_preview' => (bool) ($user['allow_live_draft_preview'] ?? false),
         ];
     }
 } else {
@@ -137,16 +140,18 @@ if ($searchQuery !== '') {
             'lastMessage'         => $lastMessageText,
             'lastTimestamp'       => (int) ($conv['last_ts'] ?? 0),
             'unreadCount'         => (int) ($conv['unread_count'] ?? 0),
+            'allow_typing_preview'     => (bool) ($userInfo['allow_typing_preview'] ?? false),
+            'allow_see_typing_preview' => (bool) ($userInfo['allow_see_typing_preview'] ?? false),
+            'allow_live_draft_preview' => (bool) ($userInfo['allow_live_draft_preview'] ?? false),
         ];
     }
 
-    // Sort: unreads first → most recent → alphabetical
+    // Sort: most recent → alphabetical (unread state no longer affects order,
+    // so a conversation doesn't jump to the top on refresh just because it
+    // has unread messages — this now matches the real-time client-side
+    // reordering in bumpSidebarUser(), which only moves a chat to the top
+    // when a new message actually arrives)
     usort($sidebarUsers, function ($a, $b) {
-        $aHasUnread = $a['unreadCount'] > 0 ? 1 : 0;
-        $bHasUnread = $b['unreadCount'] > 0 ? 1 : 0;
-        if ($bHasUnread !== $aHasUnread) {
-            return $bHasUnread - $aHasUnread;
-        }
         if ($b['lastTimestamp'] !== $a['lastTimestamp']) {
             return $b['lastTimestamp'] <=> $a['lastTimestamp'];
         }

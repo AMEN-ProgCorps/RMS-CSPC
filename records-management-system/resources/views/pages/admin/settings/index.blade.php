@@ -31,6 +31,14 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - System Settings')] class
     public string $driveFolderId = '';
     public bool $driveVerifySsl = true;
 
+    // Google SSO Credential Manager
+    public string $ssoTestResult = '';
+    public string $ssoStatus = 'unknown';
+    public bool $showSsoEditForm = false;
+    public string $ssoClientId = '';
+    public string $ssoClientSecret = '';
+    public string $ssoRedirectUri = 'dynamic';
+
     public function toggleDriveEditForm(): void
     {
         $this->showDriveEditForm = !$this->showDriveEditForm;
@@ -112,6 +120,114 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - System Settings')] class
             $this->testDriveConnection();
         } catch (\Throwable $e) {
             $this->errorMessage = 'Failed to save Google Drive credentials: ' . $e->getMessage();
+        }
+    }
+
+    public function toggleSsoEditForm(): void
+    {
+        $this->showSsoEditForm = !$this->showSsoEditForm;
+        if ($this->showSsoEditForm) {
+            $this->loadSsoCredentials();
+        }
+    }
+
+    public function loadSsoCredentials(): void
+    {
+        $this->ssoClientId = \DB::table('system_settings')->where('key', 'google_sso_client_id')->value('value')
+            ?: env('GOOGLE_CLIENT_ID', '');
+
+        $this->ssoClientSecret = \DB::table('system_settings')->where('key', 'google_sso_client_secret')->value('value')
+            ?: env('GOOGLE_CLIENT_SECRET', '');
+
+        $this->ssoRedirectUri = \DB::table('system_settings')->where('key', 'google_sso_redirect_uri')->value('value')
+            ?: env('GOOGLE_REDIRECT_URI', 'dynamic');
+    }
+
+    public function saveSsoCredentials(): void
+    {
+        try {
+            $credentials = [
+                'google_sso_client_id'     => trim($this->ssoClientId),
+                'google_sso_client_secret' => trim($this->ssoClientSecret),
+                'google_sso_redirect_uri'  => trim($this->ssoRedirectUri),
+            ];
+
+            foreach ($credentials as $key => $value) {
+                \DB::table('system_settings')->updateOrInsert(
+                    ['key' => $key],
+                    ['value' => $value, 'updated_at' => now()]
+                );
+            }
+
+            $this->updateEnvFile([
+                'GOOGLE_CLIENT_ID'     => trim($this->ssoClientId),
+                'GOOGLE_CLIENT_SECRET' => trim($this->ssoClientSecret),
+                'GOOGLE_REDIRECT_URI'  => trim($this->ssoRedirectUri),
+            ]);
+
+            config([
+                'services.google.client_id'     => trim($this->ssoClientId),
+                'services.google.client_secret' => trim($this->ssoClientSecret),
+                'services.google.redirect'      => trim($this->ssoRedirectUri),
+            ]);
+
+            \DB::table('admin_logs')->insert([
+                'changes' => 'Updated Google SSO (Sign-In) credentials via Admin Console',
+                'admin_id' => auth()->id(),
+                'what_system' => 3,
+                'when_changes' => now(),
+            ]);
+
+            $this->showSsoEditForm = false;
+            $this->successMessage = 'Google SSO credentials updated successfully! Changes are live — no restart required.';
+
+            $this->testSsoConnection();
+        } catch (\Throwable $e) {
+            $this->errorMessage = 'Failed to save Google SSO credentials: ' . $e->getMessage();
+        }
+    }
+
+    public function testSsoConnection(): void
+    {
+        try {
+            $clientId = \DB::table('system_settings')->where('key', 'google_sso_client_id')->value('value')
+                ?: config('services.google.client_id')
+                ?: env('GOOGLE_CLIENT_ID');
+
+            $clientSecret = \DB::table('system_settings')->where('key', 'google_sso_client_secret')->value('value')
+                ?: config('services.google.client_secret')
+                ?: env('GOOGLE_CLIENT_SECRET');
+
+            if (empty($clientId) || empty($clientSecret)) {
+                $this->ssoStatus = 'error';
+                $this->ssoTestResult = '❌ Google SSO credentials are missing. Please provide a valid Client ID and Client Secret.';
+                return;
+            }
+
+            if (!str_contains($clientId, '.apps.googleusercontent.com')) {
+                $this->ssoStatus = 'warning';
+                $this->ssoTestResult = '⚠️ Client ID format appears invalid. Expected format: xxxx.apps.googleusercontent.com';
+                return;
+            }
+
+            if (strlen($clientSecret) < 10) {
+                $this->ssoStatus = 'warning';
+                $this->ssoTestResult = '⚠️ Client Secret appears too short. Please verify your credentials.';
+                return;
+            }
+
+            $this->ssoStatus = 'connected';
+            $this->ssoTestResult = '✅ Google SSO credentials are configured and appear valid. Client ID: ' . substr($clientId, 0, 20) . '...';
+
+            \DB::table('admin_logs')->insert([
+                'changes' => 'Validated Google SSO credentials (Status: CONFIGURED)',
+                'admin_id' => auth()->id(),
+                'what_system' => 3,
+                'when_changes' => now(),
+            ]);
+        } catch (\Throwable $e) {
+            $this->ssoStatus = 'error';
+            $this->ssoTestResult = '❌ SSO Credential Check Error: ' . $e->getMessage();
         }
     }
 
@@ -654,7 +770,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - System Settings')] class
     @endif
 
     <!-- General Livewire Action Loading Indicator (For Test Connection & Sync Metrics) -->
-    <div wire:loading.flex wire:target="testDriveConnection, saveDriveCredentials, refreshDriveMetrics" style="position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(15, 23, 42, 0.7); backdrop-filter: blur(4px); z-index: 99998; align-items: center; justify-content: center; color: white;">
+    <div wire:loading.flex wire:target="testDriveConnection, saveDriveCredentials, refreshDriveMetrics, saveSsoCredentials, testSsoConnection" style="position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(15, 23, 42, 0.7); backdrop-filter: blur(4px); z-index: 99998; align-items: center; justify-content: center; color: white;">
         <div style="background: #ffffff; color: #0f172a; padding: 36px 44px; border-radius: 16px; box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.35); text-align: center; max-width: 440px; border: 1px solid #cbd5e1;">
             <div style="width: 56px; height: 56px; border: 4px solid #e2e8f0; border-top-color: #2563eb; border-radius: 50%; animation: spinDrive 0.8s linear infinite; margin: 0 auto 18px auto;"></div>
             <h4 style="font-size: 19px; font-weight: 800; margin: 0 0 8px 0; color: #0f172a;">Processing Operation...</h4>
@@ -812,6 +928,127 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - System Settings')] class
                             <i class="fa-solid fa-floppy-disk"></i> Save Credentials
                         </button>
                         <button type="button" wire:click="toggleDriveEditForm" style="background: #e2e8f0; color: #475569; border: none; padding: 8px 14px; border-radius: 6px; font-weight: 700; font-size: 12px; cursor: pointer;">
+                            Cancel
+                        </button>
+                    </div>
+                </div>
+            @endif
+        </div>
+
+        <!-- Google SSO Credential Manager Card (Full Width Banner) -->
+        <div class="settings-card" style="border-top: 4px solid #ea4335; margin-bottom: 16px;">
+            <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px; margin-bottom: 12px;">
+                <div style="display: flex; align-items: center; gap: 10px;">
+                    <i class="fa-brands fa-google" style="font-size: 24px; color: #ea4335;"></i>
+                    <div>
+                        <h3 style="font-size: 17px; font-weight: 800; color: #0f172a; margin: 0;">Google SSO Credential Manager</h3>
+                        <span style="font-size: 12px; color: #64748b;">Manage Google Single Sign-On (OAuth 2.0) credentials for portal authentication — live changes, no restart needed</span>
+                    </div>
+                </div>
+                <div style="display: flex; align-items: center; gap: 8px;">
+                    @if ($ssoStatus === 'connected')
+                        <span style="display: inline-flex; align-items: center; gap: 6px; padding: 4px 12px; border-radius: 9999px; font-size: 12px; font-weight: 700; background: #dcfce7; color: #15803d;">
+                            <i class="fa-solid fa-circle-check"></i> Configured
+                        </span>
+                    @elseif ($ssoStatus === 'warning')
+                        <span style="display: inline-flex; align-items: center; gap: 6px; padding: 4px 12px; border-radius: 9999px; font-size: 12px; font-weight: 700; background: #fef9c3; color: #854d0e;">
+                            <i class="fa-solid fa-triangle-exclamation"></i> Warning
+                        </span>
+                    @elseif ($ssoStatus === 'error')
+                        <span style="display: inline-flex; align-items: center; gap: 6px; padding: 4px 12px; border-radius: 9999px; font-size: 12px; font-weight: 700; background: #fef2f2; color: #991b1b;">
+                            <i class="fa-solid fa-circle-xmark"></i> Not Configured
+                        </span>
+                    @else
+                        <span style="display: inline-flex; align-items: center; gap: 6px; padding: 4px 12px; border-radius: 9999px; font-size: 12px; font-weight: 700; background: #f1f5f9; color: #64748b;">
+                            <i class="fa-solid fa-circle-question"></i> Unknown
+                        </span>
+                    @endif
+                </div>
+            </div>
+
+            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; background: #f8fafc; padding: 12px; border-radius: 8px; margin-bottom: 14px; border: 1px solid #e2e8f0;">
+                <div>
+                    <span style="font-size: 11px; color: #64748b; font-weight: 600; text-transform: uppercase;">Client ID</span>
+                    <div style="font-size: 12px; font-weight: 700; color: #0f172a; font-family: monospace; overflow: hidden; text-overflow: ellipsis;">
+                        @php
+                            $currentSsoId = \DB::table('system_settings')->where('key', 'google_sso_client_id')->value('value') ?: config('services.google.client_id') ?: env('GOOGLE_CLIENT_ID', '');
+                        @endphp
+                        {{ $currentSsoId ? \Illuminate\Support\Str::limit($currentSsoId, 30) : 'Not Set' }}
+                    </div>
+                </div>
+                <div>
+                    <span style="font-size: 11px; color: #64748b; font-weight: 600; text-transform: uppercase;">Redirect URI</span>
+                    <div style="font-size: 12px; font-weight: 700; color: #ea4335;">
+                        @php
+                            $currentRedirect = \DB::table('system_settings')->where('key', 'google_sso_redirect_uri')->value('value') ?: env('GOOGLE_REDIRECT_URI', 'dynamic');
+                        @endphp
+                        {{ $currentRedirect === 'dynamic' ? 'Dynamic (Auto-detect)' : $currentRedirect }}
+                    </div>
+                </div>
+                <div>
+                    <span style="font-size: 11px; color: #64748b; font-weight: 600; text-transform: uppercase;">Source</span>
+                    <div style="font-size: 12px; font-weight: 700; color: #059669;">
+                        @php
+                            $fromDb = \DB::table('system_settings')->where('key', 'google_sso_client_id')->value('value');
+                        @endphp
+                        {{ $fromDb ? 'Database (Live Override)' : 'Environment (.env)' }}
+                    </div>
+                </div>
+            </div>
+
+            @if ($ssoTestResult)
+                <div style="padding: 10px 14px; border-radius: 8px; font-size: 12px; font-weight: 600; margin-bottom: 14px; background: {{ str_contains($ssoTestResult, '✅') ? '#f0fdf4' : (str_contains($ssoTestResult, '⚠️') ? '#fffbeb' : '#fef2f2') }}; color: {{ str_contains($ssoTestResult, '✅') ? '#166534' : (str_contains($ssoTestResult, '⚠️') ? '#92400e' : '#991b1b') }}; border: 1px solid {{ str_contains($ssoTestResult, '✅') ? '#bbf7d0' : (str_contains($ssoTestResult, '⚠️') ? '#fde68a' : '#fecaca') }};">
+                    {{ $ssoTestResult }}
+                </div>
+            @endif
+
+            <div style="display: flex; gap: 10px; flex-wrap: wrap;">
+                <button type="button" wire:click="testSsoConnection" wire:loading.attr="disabled" style="background: #ea4335; color: white; border: none; padding: 8px 14px; border-radius: 6px; font-weight: 600; font-size: 12px; cursor: pointer; display: inline-flex; align-items: center; gap: 6px;">
+                    <i class="fa-solid fa-plug" wire:loading.remove wire:target="testSsoConnection"></i>
+                    <i class="fa-solid fa-spinner fa-spin" wire:loading wire:target="testSsoConnection"></i>
+                    <span>Validate SSO Credentials</span>
+                </button>
+
+                <button type="button" wire:click="toggleSsoEditForm" style="background: #0284c7; color: white; border: none; padding: 8px 14px; border-radius: 6px; font-weight: 600; font-size: 12px; cursor: pointer; display: inline-flex; align-items: center; gap: 6px;">
+                    <i class="fa-solid fa-gear"></i>
+                    <span>{{ $showSsoEditForm ? 'Close Editor' : 'Edit SSO Credentials' }}</span>
+                </button>
+            </div>
+
+            @if ($showSsoEditForm)
+                <div style="margin-top: 16px; padding-top: 16px; border-top: 2px dashed #e2e8f0; background: #f8fafc; padding: 16px; border-radius: 8px;">
+                    <h4 style="margin: 0 0 12px 0; font-size: 14px; font-weight: 700; color: #0f172a; display: flex; align-items: center; gap: 8px;">
+                        <i class="fa-solid fa-key" style="color: #ea4335;"></i> Update Google SSO Credentials
+                    </h4>
+
+                    <div style="background: #eff6ff; border: 1px solid #bfdbfe; border-radius: 8px; padding: 10px 14px; margin-bottom: 14px; font-size: 12px; color: #1e40af; display: flex; align-items: flex-start; gap: 8px;">
+                        <i class="fa-solid fa-circle-info" style="margin-top: 2px;"></i>
+                        <span>These credentials are from your <strong>Google Cloud Console</strong> OAuth 2.0 Client ID (Web Application type). Changes take effect immediately — no app restart needed. The Authorized Redirect URI must be <code style="background: #dbeafe; padding: 1px 6px; border-radius: 4px;">{{ url('/auth/google/callback') }}</code></span>
+                    </div>
+
+                    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 12px;">
+                        <div>
+                            <label style="display: block; font-size: 11px; font-weight: 700; color: #334155; margin-bottom: 4px;">Client ID (GOOGLE_CLIENT_ID)</label>
+                            <input type="text" wire:model="ssoClientId" placeholder="e.g. 459768812355-xxx.apps.googleusercontent.com" style="width: 100%; padding: 8px 10px; border: 1px solid #cbd5e1; border-radius: 6px; font-size: 12px; font-family: monospace;">
+                        </div>
+
+                        <div>
+                            <label style="display: block; font-size: 11px; font-weight: 700; color: #334155; margin-bottom: 4px;">Client Secret (GOOGLE_CLIENT_SECRET)</label>
+                            <input type="password" wire:model="ssoClientSecret" placeholder="e.g. GOCSPX-xxxxxxxxxxxxxx" style="width: 100%; padding: 8px 10px; border: 1px solid #cbd5e1; border-radius: 6px; font-size: 12px; font-family: monospace;">
+                        </div>
+
+                        <div>
+                            <label style="display: block; font-size: 11px; font-weight: 700; color: #334155; margin-bottom: 4px;">Redirect URI (GOOGLE_REDIRECT_URI)</label>
+                            <input type="text" wire:model="ssoRedirectUri" placeholder="dynamic (auto-detects from APP_URL)" style="width: 100%; padding: 8px 10px; border: 1px solid #cbd5e1; border-radius: 6px; font-size: 12px; font-family: monospace;">
+                            <span style="font-size: 10px; color: #64748b; margin-top: 2px; display: block;">Set to "dynamic" to auto-detect, or enter a fixed URL like https://yourdomain.com/auth/google/callback</span>
+                        </div>
+                    </div>
+
+                    <div style="display: flex; gap: 8px; margin-top: 12px;">
+                        <button type="button" wire:click="saveSsoCredentials" style="background: #16a34a; color: white; border: none; padding: 8px 16px; border-radius: 6px; font-weight: 700; font-size: 12px; cursor: pointer; display: inline-flex; align-items: center; gap: 6px;">
+                            <i class="fa-solid fa-floppy-disk"></i> Save SSO Credentials
+                        </button>
+                        <button type="button" wire:click="toggleSsoEditForm" style="background: #e2e8f0; color: #475569; border: none; padding: 8px 14px; border-radius: 6px; font-weight: 700; font-size: 12px; cursor: pointer;">
                             Cancel
                         </button>
                     </div>

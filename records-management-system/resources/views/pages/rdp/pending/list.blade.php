@@ -202,6 +202,14 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Pending List
         $statuses = DB::table('rdp_pending_status')->where('is_active', true)->get();
         $clustersCollection = collect();
 
+        $user = Auth::user();
+        $perms = $user?->permissions;
+        $canViewAll = (bool)($perms?->is_sadm ?? false)
+            || (bool)($perms?->is_rdp_view_all_pending_list ?? false)
+            || (bool)($perms?->can_access_rdp_admin ?? false)
+            || (bool)($perms?->rdp_view_all_files ?? false);
+        $userOffice = $user?->details?->office_code ?? null;
+
         // 1. Fetch NAP Form 2 Series Clusters if tab is 'all' or 'nap2'
         if ($this->activeTab === 'all' || $this->activeTab === 'nap2') {
             $qSeries = DB::table('main_pending_id')
@@ -223,6 +231,10 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Pending List
                     DB::raw("'nap2' as form_code"),
                     DB::raw("(SELECT COUNT(*) FROM rdp_grouped_record_series WHERE group_head = rdp_pending_record_series.cluster_id) as total_items")
                 ]);
+
+            if (!$canViewAll && $userOffice) {
+                $qSeries->where('rdp_pending_record_series.office', $userOffice);
+            }
 
             if (!empty($this->statusFilter)) {
                 $qSeries->where('rdp_pending_record_series.status_id', $this->statusFilter);
@@ -262,6 +274,10 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Pending List
                     DB::raw("CASE WHEN rdp_pending_record.is_for_nap_three = true THEN 'nap3' ELSE 'nap1' END as form_code"),
                     DB::raw("(SELECT COUNT(*) FROM rdp_grouped_record WHERE group_head = rdp_pending_record.cluster_id) as total_items")
                 ]);
+
+            if (!$canViewAll && $userOffice) {
+                $qRec->where('rdp_pending_record.office', $userOffice);
+            }
 
             if ($this->activeTab === 'nap1') {
                 $qRec->where('rdp_pending_record.is_for_nap_one', true);
@@ -532,43 +548,149 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Pending List
 
         /* Print Modal & Media Query Defaults */
         @media print {
+            @page {
+                size: portrait;
+                margin: 10px;
+            }
+
+            :root {
+                zoom: 1 !important;
+            }
+
             html, body {
                 background: #ffffff !important;
                 margin: 0 !important;
                 padding: 0 !important;
-                font-family: Arial, Helvetica, sans-serif !important;
+                height: auto !important;
+                min-height: 0 !important;
+                max-height: none !important;
+                overflow: visible !important;
+                position: static !important;
+                font-family: Arial, sans-serif !important;
+                font-size: 12px !important;
             }
 
-            body * {
-                visibility: hidden !important;
+            /* Hide web application layout components (header, sidebar, chatify, etc.) */
+            header,
+            nav,
+            .navigation,
+            #navigation,
+            .chatify-floating-widget,
+            .header-card,
+            .controls-group,
+            .pending-table-wrapper,
+            .card-grid,
+            .no-print,
+            .modal-card > *:not(.printable-report-area) {
+                display: none !important;
             }
 
-            .printable-report-area,
-            .printable-report-area * {
-                visibility: visible !important;
-                font-family: Arial, Helvetica, sans-serif !important;
+            section,
+            .article-container,
+            #article-container,
+            .pending-list-page {
+                display: block !important;
+                position: static !important;
+                float: none !important;
+                margin: 0 !important;
+                padding: 0 !important;
+                width: 100% !important;
+                max-width: 100% !important;
+                height: auto !important;
+                min-height: 0 !important;
+                max-height: none !important;
+                overflow: visible !important;
+            }
+
+            .modal-overlay {
+                position: static !important;
+                display: block !important;
+                float: none !important;
+                width: 100% !important;
+                height: auto !important;
+                min-height: 0 !important;
+                max-height: none !important;
+                overflow: visible !important;
+                margin: 0 !important;
+                padding: 0 !important;
+                background: #ffffff !important;
+            }
+
+            .modal-card {
+                position: static !important;
+                display: block !important;
+                width: 100% !important;
+                max-width: 100% !important;
+                height: auto !important;
+                max-height: none !important;
+                overflow: visible !important;
+                margin: 0 !important;
+                padding: 0 !important;
+                background: #ffffff !important;
+                border: none !important;
+                box-shadow: none !important;
             }
 
             .printable-report-area {
-                position: fixed !important;
-                left: 0 !important;
-                top: 0 !important;
+                display: block !important;
+                visibility: visible !important;
+                position: static !important;
                 width: 100% !important;
                 height: auto !important;
+                overflow: visible !important;
                 margin: 0 !important;
                 padding: 10px !important;
                 box-sizing: border-box !important;
                 border: none !important;
                 background: #ffffff !important;
                 box-shadow: none !important;
-                z-index: 999999 !important;
-                font-family: Arial, Helvetica, sans-serif !important;
+                font-family: Arial, sans-serif !important;
+                font-size: 12px !important;
             }
 
-            .no-print,
-            .no-print * {
-                display: none !important;
-                visibility: hidden !important;
+            .printable-report-area * {
+                visibility: visible !important;
+            }
+
+            .printable-report-area table {
+                font-size: 12px !important;
+                width: 100% !important;
+            }
+
+            .printable-report-area thead {
+                display: table-header-group !important;
+            }
+
+            .printable-report-area tr {
+                page-break-inside: avoid !important;
+                break-inside: avoid !important;
+            }
+
+            .nap-form-2-print,
+            .nap-form-2-print *,
+            .nap-form-3-print,
+            .nap-form-3-print * {
+                font-family: Arial, sans-serif !important;
+                font-size: 12px !important;
+            }
+
+            .nap-form-2-print table,
+            .nap-form-3-print table {
+                font-size: 12px !important;
+            }
+
+            .nap-form-2-print th, .nap-form-2-print td,
+            .nap-form-3-print th, .nap-form-3-print td {
+                font-size: 12px !important;
+                padding: 6px 8px !important;
+            }
+
+            .print-signatures-block {
+                page-break-before: always !important;
+                break-before: page !important;
+                page-break-inside: avoid !important;
+                break-inside: avoid !important;
+                display: block !important;
             }
         }
     </style>
@@ -596,12 +718,6 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Pending List
                 @endif
             </button>
 
-            <select wire:model.live="statusFilter" class="select-filter">
-                <option value="">All Statuses</option>
-                @foreach($statuses as $st)
-                    <option value="{{ $st->id }}">{{ $st->status_name }}</option>
-                @endforeach
-            </select>
             <input type="text" wire:model.live.debounce.250ms="search" class="search-input" placeholder="Search cluster or office...">
         </div>
     </div>
@@ -616,7 +732,6 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Pending List
                         <th>Submitting Office</th>
                         <th>Submitted By</th>
                         <th style="width: 110px; text-align: center;">Total Items</th>
-                        <th style="width: 150px;">Status</th>
                         <th style="width: 140px;">Date Submitted</th>
                         <th style="width: 160px; text-align: center;">Actions</th>
                     </tr>
@@ -632,11 +747,6 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Pending List
                             <td>{{ $c->office_name ?? $c->office ?? 'N/A' }}</td>
                             <td>{{ $c->submitter_name ?: 'System User' }}</td>
                             <td style="text-align: center;"><strong>{{ $c->total_items }}</strong></td>
-                            <td>
-                                <span class="status-badge status-{{ $c->status_id ?? 'null' }}">
-                                    {{ $c->status_name ?? 'Draft Group' }}
-                                </span>
-                            </td>
                             <td>{{ \Carbon\Carbon::parse($c->created_at)->format('M d, Y g:i A') }}</td>
                             <td style="text-align: center;">
                                 <button wire:click="openDetailModal({{ $c->cluster_id }}, '{{ $c->form_code }}')" class="btn-view">View</button>
@@ -645,7 +755,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Pending List
                         </tr>
                     @empty
                         <tr>
-                            <td colspan="8" style="text-align: center; padding: 48px; color: #64748b;">
+                            <td colspan="7" style="text-align: center; padding: 48px; color: #64748b;">
                                 No pending clusters found matching your query.
                             </td>
                         </tr>
@@ -663,9 +773,6 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Pending List
                                 <span class="form-type-pill">{{ $c->form_label }}</span>
                                 <span style="font-size: 12px; font-weight: 700; color: #64748b;">#{{ $c->main_id }}</span>
                             </div>
-                            <span class="status-badge status-{{ $c->status_id ?? 'null' }}">
-                                {{ $c->status_name ?? 'Draft Group' }}
-                            </span>
                         </div>
                         <h3 class="card-title">{{ $c->cluster_name }}</h3>
                         <div class="card-meta">
@@ -842,7 +949,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Pending List
                     </div>
                 @endif
 
-                <div class="printable-report-area" style="background: #ffffff; padding: 24px; font-family: Arial, Helvetica, sans-serif; color: #000000;">
+                <div class="printable-report-area" style="background: #ffffff; padding: 10px; font-family: Arial, sans-serif; font-size: 12px; color: #000000;">
                     @if(strtolower($printCluster->form_code ?? '') === 'nap1' || str_contains(strtolower($printCluster->form_label ?? ''), 'form 1'))
                         <!-- OFFICIAL 2024 NAP FORM 1: RECORDS INVENTORY AND APPRAISAL -->
                         <div style="font-size: 9px; margin-bottom: 2px; font-weight: bold;">NAP Records Inventory and Appraisal Form</div>
@@ -1007,6 +1114,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Pending List
                             Page ___ of ___ Pages
                         </div>
                     @elseif(strtolower($printCluster->form_code ?? '') === 'nap2' || str_contains(strtolower($printCluster->form_label ?? ''), 'form 2'))
+                        <div class="nap-form-2-print" style="font-family: Arial, sans-serif; font-size: 12px; padding: 10px; color: #000000;">
                         <!-- OFFICIAL NAP FORM 2: RECORDS DISPOSITION SCHEDULE -->
                         <div style="font-size: 9px; margin-bottom: 2px; font-weight: bold;">NAP Form 2</div>
                         <div style="font-size: 9px; margin-bottom: 6px; font-weight: bold;">2008</div>
@@ -1091,10 +1199,8 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Pending List
                         <div style="font-size: 8px; margin-top: 12px; margin-bottom: 12px; line-height: 1.4;">
                             <strong>IMPORTANT:</strong> Pursuant to Section 18, Article III, RA 9470 s. 2007, "No government department, bureau, agency and instrumentality shall dispose of, destroy or authorize the disposal or destruction of any public records, which are in the custody or under its control except with the prior written authority of the executive director."
                         </div>
-                        <div style="text-align: right; font-size: 8px; font-weight: bold; margin-bottom: 24px;">Page 1 of 2 Pages</div>
-
-                        <!-- PAGE 2 SIGNATURES & APPROVAL SECTION -->
-                        <div style="page-break-before: always; padding-top: 12px;">
+                        <!-- PAGE 2 SIGNATURES & APPROVAL SECTION (Always clean final page) -->
+                        <div class="print-signatures-block" style="page-break-before: always; break-before: page; page-break-inside: avoid; break-inside: avoid; padding-top: 12px;">
                             <div style="font-size: 9px; margin-bottom: 4px; font-weight: bold;">NAP Form 2</div>
                             <div style="font-size: 9px; margin-bottom: 8px; font-weight: bold;">2008</div>
 
@@ -1178,6 +1284,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Pending List
                         </div>
 
                     @else
+                        <div class="nap-form-3-print" style="font-family: Arial, sans-serif; font-size: 12px; padding: 10px; color: #000000;">
                         <!-- OFFICIAL NAP FORM 3: REQUEST FOR AUTHORITY TO DISPOSE OF RECORDS -->
                         <div style="display: flex; justify-content: space-between; font-size: 9px; font-weight: bold; margin-bottom: 6px;">
                             <div>

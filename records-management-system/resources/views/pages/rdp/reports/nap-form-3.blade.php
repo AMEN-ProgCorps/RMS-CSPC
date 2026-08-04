@@ -390,6 +390,8 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 3')
                 'office.office_name as recorded_office_name',
             ]);
 
+        $query->where('rdp_record.is_verified', false);
+
         if (!empty($this->officeFilter)) {
             $query->where('rdp_record_series.recorded_at_office', $this->officeFilter);
         }

@@ -33,9 +33,11 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Pending For 
     {
         $perms = Auth::user()?->permissions;
         $isSadm = (bool)($perms->is_sadm ?? false);
+        $canViewAllPending = (bool)($perms->is_rdp_view_all_pending_list ?? false);
+        $canRdpAdmin = (bool)($perms->can_access_rdp_admin ?? false);
         $canModifySeries = (bool)($perms->can_rdp_modify_series ?? true);
 
-        if (!$perms || (!$isSadm && !$canModifySeries)) {
+        if (!$perms || (!$isSadm && !$canViewAllPending && !$canRdpAdmin && !$canModifySeries)) {
             redirect()->route('rdp')->send();
             return;
         }
@@ -181,11 +183,16 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Pending For 
         try {
             DB::beginTransaction();
 
-            if ($this->targetCluster->form_label === 'NAP Form 2') {
+            $formCode = $this->targetCluster->form_code ?? '';
+            $formLabel = $this->targetCluster->form_label ?? '';
+
+            if ($formLabel === 'NAP Form 2' || $formCode === 'nap2') {
+                // NAP Form 2: Verify cluster AND all contained Record Series so they become official and leave NAP Form 2 draft list
                 DB::table('rdp_pending_record_series')
                     ->where('cluster_id', $this->targetCluster->cluster_id)
                     ->update([
-                        'status_id'  => 2, // Approved
+                        'is_verified' => true,
+                        'status_id'  => 2, // Verified
                         'updated_at' => now(),
                     ]);
 
@@ -199,22 +206,43 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Pending For 
                             'updated_at'  => now(),
                         ]);
                 }
-            } else {
+            } elseif ($formLabel === 'NAP Form 3' || $formCode === 'nap3') {
+                // NAP Form 3: Verify cluster AND all contained Records so they are marked disposed/verified
                 DB::table('rdp_pending_record')
                     ->where('cluster_id', $this->targetCluster->cluster_id)
                     ->update([
-                        'status_id'  => 2,
+                        'is_verified' => true,
+                        'status_id'  => 2, // Verified
+                        'updated_at' => now(),
+                    ]);
+
+                $recordIds = array_column($this->clusterItems, 'id');
+                if (!empty($recordIds)) {
+                    DB::table('rdp_record')
+                        ->whereIn('id', $recordIds)
+                        ->update([
+                            'is_verified' => true,
+                            'updated_at'  => now(),
+                        ]);
+                }
+            } else {
+                // NAP Form 1: Verify cluster ONLY. Record series/records inside remain unchanged
+                DB::table('rdp_pending_record')
+                    ->where('cluster_id', $this->targetCluster->cluster_id)
+                    ->update([
+                        'is_verified' => true,
+                        'status_id'  => 2, // Verified
                         'updated_at' => now(),
                     ]);
             }
 
             DB::commit();
 
-            $this->successMessage = "Submission cluster '{$this->targetCluster->cluster_name}' successfully APPROVED and added to official References!";
+            $this->successMessage = "Submission cluster '{$this->targetCluster->cluster_name}' successfully VERIFIED!";
             $this->closeApprovalModal();
         } catch (\Exception $e) {
             DB::rollBack();
-            $this->errorMessage = 'Approval failed: ' . $e->getMessage();
+            $this->errorMessage = 'Verification failed: ' . $e->getMessage();
         }
     }
 
@@ -602,10 +630,95 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Pending For 
         .btn-reject { background: #dc2626; color: #ffffff; border: none; padding: 10px 18px; border-radius: 8px; font-weight: 600; cursor: pointer; }
 
         @media print {
-            body * { visibility: hidden; }
-            .printable-report-area, .printable-report-area * { visibility: visible; }
-            .printable-report-area { position: absolute; left: 0; top: 0; width: 100%; }
-            .no-print { display: none !important; }
+            @page {
+                size: portrait;
+                margin: 10px;
+            }
+            :root {
+                zoom: 1 !important;
+            }
+            html, body {
+                background: #ffffff !important;
+                margin: 0 !important;
+                padding: 0 !important;
+                height: auto !important;
+                min-height: 0 !important;
+                max-height: none !important;
+                overflow: visible !important;
+                position: static !important;
+                font-family: Arial, sans-serif !important;
+                font-size: 12px !important;
+            }
+            header,
+            nav,
+            .navigation,
+            #navigation,
+            .chatify-floating-widget,
+            .header-card,
+            .controls-group,
+            .approval-table-wrapper,
+            .card-grid,
+            .no-print,
+            .modal-card > *:not(.printable-report-area) {
+                display: none !important;
+            }
+            section,
+            .article-container,
+            #article-container {
+                display: block !important;
+                position: static !important;
+                float: none !important;
+                margin: 0 !important;
+                padding: 0 !important;
+                width: 100% !important;
+                max-width: 100% !important;
+                height: auto !important;
+                min-height: 0 !important;
+                max-height: none !important;
+                overflow: visible !important;
+            }
+            .modal-overlay {
+                position: static !important;
+                display: block !important;
+                width: 100% !important;
+                height: auto !important;
+                min-height: 0 !important;
+                max-height: none !important;
+                overflow: visible !important;
+                margin: 0 !important;
+                padding: 0 !important;
+                background: #ffffff !important;
+            }
+            .modal-card {
+                position: static !important;
+                display: block !important;
+                width: 100% !important;
+                max-width: 100% !important;
+                height: auto !important;
+                max-height: none !important;
+                overflow: visible !important;
+                margin: 0 !important;
+                padding: 0 !important;
+                background: #ffffff !important;
+                border: none !important;
+                box-shadow: none !important;
+            }
+            .printable-report-area {
+                display: block !important;
+                visibility: visible !important;
+                position: static !important;
+                width: 100% !important;
+                height: auto !important;
+                overflow: visible !important;
+                margin: 0 !important;
+                padding: 10px !important;
+                box-sizing: border-box !important;
+                font-family: Arial, sans-serif !important;
+                font-size: 12px !important;
+            }
+            .printable-report-area * {
+                visibility: visible !important;
+            }
         }
     </style>
 
@@ -784,9 +897,9 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Pending For 
                 </div>
 
                 <div class="modal-actions">
-                    <button wire:click="rejectCluster" class="btn-reject">Reject</button>
+                    <button wire:click="rejectCluster" class="btn-reject">Unverify / Reject</button>
                     <button wire:click="returnCluster" class="btn-return">Return for Correction</button>
-                    <button wire:click="approveCluster" class="btn-approve">Approve & Publish to References</button>
+                    <button wire:click="approveCluster" class="btn-approve">Verify Cluster</button>
                 </div>
             </div>
         </div>

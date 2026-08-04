@@ -174,34 +174,54 @@ function setupIconModeInteractions() {
                 const titleSpan = buttonContainer.querySelector('.button-label span');
                 const titleText = titleSpan ? titleSpan.textContent.trim().toUpperCase() : 'SECTION';
                 const iconSvg = buttonContainer.querySelector('.button-icon svg');
-                const iconHtml = iconSvg ? iconSvg.outerHTML : '';
 
                 const flyout = document.createElement('div');
                 flyout.className = 'nav-flyout-popover';
                 flyout.style.top = `${Math.max(10, rect.top)}px`;
                 flyout.style.left = `${rect.right + 12}px`;
 
-                let menuHtml = `
-                    <div class="flyout-header">
-                        <div class="flyout-icon">${iconHtml}</div>
-                        <span class="flyout-title">${titleText}</span>
-                    </div>
-                    <div class="flyout-menu-list">
-                `;
+                const header = document.createElement('div');
+                header.className = 'flyout-header';
+
+                const iconContainer = document.createElement('div');
+                iconContainer.className = 'flyout-icon';
+                if (iconSvg) {
+                    iconContainer.appendChild(iconSvg.cloneNode(true));
+                }
+
+                const titleEl = document.createElement('span');
+                titleEl.className = 'flyout-title';
+                titleEl.textContent = titleText;
+
+                header.appendChild(iconContainer);
+                header.appendChild(titleEl);
+
+                const menuList = document.createElement('div');
+                menuList.className = 'flyout-menu-list';
 
                 subButtons.forEach(sub => {
                     const subText = sub.textContent.trim();
                     const isActive = sub.classList.contains('force-active');
                     const onclickAttr = sub.getAttribute('onclick') || '';
-                    menuHtml += `
-                        <div class="flyout-item ${isActive ? 'force-active' : ''}" onclick="closeNavFlyout(); ${onclickAttr}">
-                            ${subText}
-                        </div>
-                    `;
+
+                    const item = document.createElement('div');
+                    item.className = `flyout-item ${isActive ? 'force-active' : ''}`;
+                    item.textContent = subText;
+
+                    item.addEventListener('click', () => {
+                        closeNavFlyout();
+
+                        const urlMatch = onclickAttr.match(/proccedto\('([^']+)'\)/);
+                        if (urlMatch && urlMatch[1]) {
+                            proccedto(urlMatch[1]);
+                        }
+                    });
+
+                    menuList.appendChild(item);
                 });
 
-                menuHtml += `</div>`;
-                flyout.innerHTML = menuHtml;
+                flyout.appendChild(header);
+                flyout.appendChild(menuList);
                 document.body.appendChild(flyout);
             }
         });

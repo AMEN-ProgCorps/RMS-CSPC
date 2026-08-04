@@ -124,10 +124,10 @@ try {
     // Non-fatal
 }
 
-// Load user communication settings (default OFF for all users)
+// Load user communication settings (default ON for all users)
 $user_comm_settings = [
-    'allow_typing_preview'     => false,
-    'allow_see_typing_preview' => false,
+    'allow_typing_preview'     => true,
+    'allow_see_typing_preview' => true,
     'allow_live_draft_preview' => false,
 ];
 try {
@@ -136,9 +136,9 @@ try {
     $stmt->execute([$_current_account_id]);
     $cRow = $stmt->fetch();
     if ($cRow) {
-        $user_comm_settings['allow_typing_preview']     = (bool) ($cRow['allow_typing_preview'] ?? false);
-        $user_comm_settings['allow_see_typing_preview'] = (bool) ($cRow['allow_see_typing_preview'] ?? false);
-        $user_comm_settings['allow_live_draft_preview'] = (bool) ($cRow['allow_live_draft_preview'] ?? false);
+        $user_comm_settings['allow_typing_preview']     = isset($cRow['allow_typing_preview']) ? (bool) $cRow['allow_typing_preview'] : true;
+        $user_comm_settings['allow_see_typing_preview'] = isset($cRow['allow_see_typing_preview']) ? (bool) $cRow['allow_see_typing_preview'] : true;
+        $user_comm_settings['allow_live_draft_preview'] = isset($cRow['allow_live_draft_preview']) ? (bool) $cRow['allow_live_draft_preview'] : false;
     }
 } catch (Throwable $e) {
     // Non-fatal

@@ -1342,12 +1342,20 @@
       const rawText = textInput.value || '';
       const cleanText = rawText.substring(0, 1000);
 
+      // Default to true when settings object is missing (e.g. DB unavailable on load)
+      const _senderAllowTyping = window.currentUserCommSettings
+        ? window.currentUserCommSettings.allow_typing_preview !== false
+        : true;
+      const _senderAllowSee = window.currentUserCommSettings
+        ? window.currentUserCommSettings.allow_see_typing_preview !== false
+        : true;
+
       const payload = {
         type: 'typing_preview',
         recipient_id: activeDMAccountId,
         preview: cleanText,
-        allow_typing_preview: !!(window.currentUserCommSettings && window.currentUserCommSettings.allow_typing_preview),
-        allow_see_typing_preview: !!(window.currentUserCommSettings && window.currentUserCommSettings.allow_see_typing_preview)
+        allow_typing_preview: _senderAllowTyping,
+        allow_see_typing_preview: _senderAllowSee
       };
 
       ws.send(JSON.stringify(payload));
@@ -1362,7 +1370,11 @@
       const senderId = Number(data.sender_id);
       if (!senderId || senderId === wsConfig.accountId) return;
 
-      if (!window.currentUserCommSettings || !window.currentUserCommSettings.allow_see_typing_preview) {
+      // Only block if explicitly set to false; missing settings defaults to ON
+      const allowSeePreview = window.currentUserCommSettings
+        ? window.currentUserCommSettings.allow_see_typing_preview !== false
+        : true;
+      if (!allowSeePreview) {
         clientActivePreviews.delete(senderId);
         updateSidebarPreviewState(senderId, null);
         return;
@@ -1442,6 +1454,27 @@
       }
     }
 
+    // Immediately apply a comm setting change: update memory, broadcast via WS,
+    // and persist to DB in the background (fire-and-forget).
+    function applyCommSettingsChange(settings) {
+      window.currentUserCommSettings = Object.assign(
+        {}, window.currentUserCommSettings || {}, settings
+      );
+      if (ws && ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify({
+          type: 'update_comm_settings',
+          account_id: wsConfig.accountId,
+          ...window.currentUserCommSettings
+        }));
+      }
+      // Persist in background — failures are non-fatal; in-memory + WS state is already correct
+      fetch('save_comm_settings.php', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(window.currentUserCommSettings)
+      }).catch(() => {});
+    }
+
     window.openCommSettingsModal = function() {
       const modal = document.getElementById('commSettingsModal');
       if (!modal) return;
@@ -1449,8 +1482,23 @@
       const chk1 = document.getElementById('chkAllowTypingPreview');
       const chk2 = document.getElementById('chkAllowSeeTypingPreview');
 
-      if (chk1) chk1.checked = !!(window.currentUserCommSettings && window.currentUserCommSettings.allow_typing_preview);
-      if (chk2) chk2.checked = !!(window.currentUserCommSettings && window.currentUserCommSettings.allow_see_typing_preview);
+      const s = window.currentUserCommSettings || {};
+      if (chk1) chk1.checked = s.allow_typing_preview !== false;
+      if (chk2) chk2.checked = s.allow_see_typing_preview !== false;
+
+      // Live toggle: apply change immediately on every checkbox click
+      if (chk1 && !chk1._commListener) {
+        chk1._commListener = true;
+        chk1.addEventListener('change', () => {
+          applyCommSettingsChange({ allow_typing_preview: chk1.checked });
+        });
+      }
+      if (chk2 && !chk2._commListener) {
+        chk2._commListener = true;
+        chk2.addEventListener('change', () => {
+          applyCommSettingsChange({ allow_see_typing_preview: chk2.checked });
+        });
+      }
 
       modal.classList.add('active');
       modal.setAttribute('aria-hidden', 'false');
@@ -1465,37 +1513,9 @@
     };
 
     window.saveCommSettings = function() {
-      const chk1 = document.getElementById('chkAllowTypingPreview');
-      const chk2 = document.getElementById('chkAllowSeeTypingPreview');
-
-      const settings = {
-        allow_typing_preview: chk1 ? chk1.checked : false,
-        allow_see_typing_preview: chk2 ? chk2.checked : false
-      };
-
-      window.currentUserCommSettings = settings;
-
-      fetch('save_comm_settings.php', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(settings)
-      })
-      .then(res => res.json())
-      .then(data => {
-        if (data.success) {
-          if (ws && ws.readyState === WebSocket.OPEN) {
-            ws.send(JSON.stringify({
-              type: 'update_comm_settings',
-              account_id: wsConfig.accountId,
-              ...settings
-            }));
-          }
-          closeCommSettingsModal();
-        }
-      })
-      .catch(err => {
-        closeCommSettingsModal();
-      });
+      // Settings are already applied in real-time via checkbox change listeners.
+      // "Save Settings" just closes the modal.
+      closeCommSettingsModal();
     };
 
     // Backdrop click listener for closing comm settings modal

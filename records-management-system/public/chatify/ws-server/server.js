@@ -699,23 +699,26 @@ wss.on('connection', (ws) => {
     // 4a2. Handle Communication Settings Update Event
     if (data.type === 'update_comm_settings') {
       const targetAccId = Number(data.account_id || state.accountId);
-      userCommSettings.set(targetAccId, {
+      const prevSettings = getUserCommSettings(targetAccId);
+      const newSettings = {
         allow_typing_preview: !!data.allow_typing_preview,
         allow_see_typing_preview: !!data.allow_see_typing_preview
-      });
+      };
+      userCommSettings.set(targetAccId, newSettings);
 
-      log(`Communication settings updated for account ${targetAccId}: typing_preview=${!!data.allow_typing_preview}, see_preview=${!!data.allow_see_typing_preview}`);
+      log(`Communication settings updated for account ${targetAccId}: typing_preview=${newSettings.allow_typing_preview}, see_preview=${newSettings.allow_see_typing_preview}`);
 
-      // If user turned off allow_typing_preview, clear previews sent by this user
-      if (!data.allow_typing_preview) {
+      // If user turned OFF allow_typing_preview, clear previews sent by this user
+      if (!newSettings.allow_typing_preview) {
         for (const [key, entry] of activeTypingPreviews.entries()) {
           if (entry.sender_id === targetAccId) {
             clearPreview(key, true, 'settings_disabled');
           }
         }
       }
-      // If user turned off allow_see_typing_preview, send clear event to this user's sockets
-      if (!data.allow_see_typing_preview) {
+
+      // If user turned OFF allow_see_typing_preview, clear all previews from this user's view
+      if (!newSettings.allow_see_typing_preview) {
         for (const [key, entry] of activeTypingPreviews.entries()) {
           if (entry.recipient_id === targetAccId) {
             const clearStr = JSON.stringify({
@@ -728,6 +731,24 @@ wss.on('connection', (ws) => {
           }
         }
       }
+
+      // If user just turned ON allow_see_typing_preview, replay any active previews immediately
+      if (newSettings.allow_see_typing_preview && !prevSettings.allow_see_typing_preview) {
+        for (const [key, entry] of activeTypingPreviews.entries()) {
+          if (entry.recipient_id === targetAccId) {
+            const senderSettings = getUserCommSettings(entry.sender_id);
+            if (senderSettings.allow_typing_preview) {
+              broadcastToAccounts([targetAccId], JSON.stringify({
+                type: 'typing_preview',
+                sender_id: entry.sender_id,
+                recipient_id: targetAccId,
+                preview: entry.preview
+              }));
+            }
+          }
+        }
+      }
+
       return;
     }
 

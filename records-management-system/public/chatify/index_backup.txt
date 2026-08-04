@@ -2937,7 +2937,7 @@ try {
             <span>Allow Real-Time Typing Preview</span>
           </div>
           <span style="font-size:12px;color:var(--text-secondary);margin-left:26px;line-height:1.4;">
-            When enabled, people you're chatting with can see your message as you type before sending.
+            Let others see your message in real time before you send it. Enabled by default for faster and more engaging conversations.
           </span>
         </label>
 
@@ -2947,7 +2947,7 @@ try {
             <span>Show Live Typing Previews</span>
           </div>
           <span style="font-size:12px;color:var(--text-secondary);margin-left:26px;line-height:1.4;">
-            When disabled, you will not see real-time typing previews from others even if they have enabled it.
+            View messages as others type them in real time. Turn this off if you prefer to only see messages after they are sent.
           </span>
         </label>
 

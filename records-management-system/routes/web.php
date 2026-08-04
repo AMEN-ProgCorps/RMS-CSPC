@@ -11,26 +11,36 @@ Volt::route('/', 'pages.portal.login')
 Route::post('/', fn () => redirect()->route('login'));
 
 // Google OAuth SSO
-Route::get('/auth/google', function () {
+// Helper closure to resolve SSO credentials from DB (Admin Console) → config → env
+$resolveGoogleSsoCredentials = function () {
+    $clientId = \Illuminate\Support\Facades\DB::table('system_settings')->where('key', 'google_sso_client_id')->value('value')
+        ?: config('services.google.client_id')
+        ?: env('GOOGLE_CLIENT_ID');
+
+    $clientSecret = \Illuminate\Support\Facades\DB::table('system_settings')->where('key', 'google_sso_client_secret')->value('value')
+        ?: config('services.google.client_secret')
+        ?: env('GOOGLE_CLIENT_SECRET');
+
+    $dbRedirect = \Illuminate\Support\Facades\DB::table('system_settings')->where('key', 'google_sso_redirect_uri')->value('value');
+    $envRedirect = $dbRedirect ?: env('GOOGLE_REDIRECT_URI');
+    $redirectUrl = (!empty($envRedirect) && $envRedirect !== 'dynamic')
+        ? $envRedirect
+        : url('/auth/google/callback');
+
+    return compact('clientId', 'clientSecret', 'redirectUrl');
+};
+
+Route::get('/auth/google', function () use ($resolveGoogleSsoCredentials) {
     $allowGoogleLogin = \Illuminate\Support\Facades\DB::table('system_settings')->where('key', 'allow_google_login')->value('value') !== 'false';
     if (!$allowGoogleLogin) {
         return redirect('/')->with('error', 'Google Sign-In is currently disabled by administrator.');
     }
 
-    $clientId = config('services.google.client_id')
-        ?: env('GOOGLE_CLIENT_ID');
-
-    $clientSecret = config('services.google.client_secret')
-        ?: env('GOOGLE_CLIENT_SECRET');
+    ['clientId' => $clientId, 'clientSecret' => $clientSecret, 'redirectUrl' => $redirectUrl] = $resolveGoogleSsoCredentials();
 
     if (empty($clientId) || empty($clientSecret)) {
-        return redirect('/')->with('error', 'Google Auth credentials (GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET) are missing in environment configuration.');
+        return redirect('/')->with('error', 'Google Auth credentials (GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET) are missing. Configure them in Admin Console → Settings.');
     }
-
-    $envRedirect = env('GOOGLE_REDIRECT_URI');
-    $redirectUrl = (!empty($envRedirect) && $envRedirect !== 'dynamic')
-        ? $envRedirect
-        : url('/auth/google/callback');
 
     return \Laravel\Socialite\Facades\Socialite::buildProvider(
         \Laravel\Socialite\Two\GoogleProvider::class,
@@ -42,17 +52,9 @@ Route::get('/auth/google', function () {
     )->stateless()->redirect();
 })->name('auth.google');
 
-Route::get('/auth/google/callback', function () {
+Route::get('/auth/google/callback', function () use ($resolveGoogleSsoCredentials) {
     try {
-        $clientId = config('services.google.client_id')
-            ?: env('GOOGLE_CLIENT_ID');
-
-        $clientSecret = config('services.google.client_secret')
-            ?: env('GOOGLE_CLIENT_SECRET');
-        $envRedirect = env('GOOGLE_REDIRECT_URI');
-        $redirectUrl = (!empty($envRedirect) && $envRedirect !== 'dynamic')
-            ? $envRedirect
-            : url('/auth/google/callback');
+        ['clientId' => $clientId, 'clientSecret' => $clientSecret, 'redirectUrl' => $redirectUrl] = $resolveGoogleSsoCredentials();
 
         $googleUser = \Laravel\Socialite\Facades\Socialite::buildProvider(
             \Laravel\Socialite\Two\GoogleProvider::class,

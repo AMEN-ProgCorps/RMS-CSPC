@@ -71,6 +71,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Roles')] class extends C
 
     // RDP Specific Clearance flags
     public bool $rdpViewAllFiles = false;
+    public bool $isRdpViewAllPendingList = false;
     public bool $canRdpModifySeries = true;
     public bool $canRdpGenerateReports = true;
 
@@ -234,6 +235,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Roles')] class extends C
 
                 // RDP Clearances
                 $this->rdpViewAllFiles = (bool) ($perms->rdp_view_all_files ?? false);
+                $this->isRdpViewAllPendingList = (bool) ($perms->is_rdp_view_all_pending_list ?? false);
                 $this->canRdpModifySeries = (bool) ($perms->can_rdp_modify_series ?? true);
                 $this->canRdpGenerateReports = (bool) ($perms->can_rdp_generate_reports ?? true);
                 // Per-form clearances
@@ -457,6 +459,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Roles')] class extends C
 
         // RDP Clearances
         $perms->rdp_view_all_files        = ($this->isSadm || $this->isAdmin) ? $this->rdpViewAllFiles : false;
+        $perms->is_rdp_view_all_pending_list = $this->isRdpViewAllPendingList;
         $perms->can_rdp_modify_series     = $this->canRdpModifySeries;
         $perms->can_rdp_generate_reports  = $this->canRdpGenerateReports;
         // Per-form clearances
@@ -990,6 +993,17 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Roles')] class extends C
                                         </div>
                                         <label class="switch">
                                             <input type="checkbox" wire:model="rdpViewAllFiles" {{ (!$isSadm && !$isAdmin) ? 'disabled' : '' }}>
+                                            <span class="slider"></span>
+                                        </label>
+                                    </div>
+                                    <!-- View All Pending List -->
+                                    <div class="permission-toggle-row">
+                                        <div class="permission-toggle-info">
+                                            <span class="permission-toggle-title">View All Pending List (RDP)</span>
+                                            <span class="permission-toggle-desc">Clearance to view pending submission clusters from all college offices instead of only user's own office.</span>
+                                        </div>
+                                        <label class="switch">
+                                            <input type="checkbox" wire:model="isRdpViewAllPendingList">
                                             <span class="slider"></span>
                                         </label>
                                     </div>

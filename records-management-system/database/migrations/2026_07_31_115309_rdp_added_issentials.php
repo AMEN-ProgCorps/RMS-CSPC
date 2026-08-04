@@ -12,6 +12,12 @@ return new class extends Migration
      */
     public function up(): void
     {
+        Schema::create('main_pending_id', function (Blueprint $table) {
+            $table->id();
+            $table->enum('status', ['USED', 'UNUSED'])->default('UNUSED');
+            $table->boolean('is_active')->default(true);
+            $table->timestamps();
+        });
         Schema::create('rdp_pending_status', function (Blueprint $table) {
             $table->id();
             $table->string('status_name');
@@ -31,10 +37,10 @@ return new class extends Migration
         }
 
         Schema::create('rdp_pending_record_series', function (Blueprint $table) {
-            $table->id('cluster_id');
+            $table->foreignId('cluster_id')->primary()->constrained('main_pending_id')->onDelete('cascade');
             $table->string('cluster_name');
-            $table->unsignedBigInteger('status_id');
-            $table->unsignedBigInteger('group_id')->nullable();
+            $table->unsignedBigInteger('status_id')->nullable();
+            $table->integer('group_id')->nullable();
             $table->string('office')->nullable();
             $table->unsignedBigInteger('created_by');
             $table->boolean('is_active')->default(true);
@@ -46,7 +52,7 @@ return new class extends Migration
 
         Schema::create('rdp_grouped_record_series', function (Blueprint $table) {
             $table->id('group_id');
-            $table->unsignedBigInteger('group_head');
+            $table->integer('group_head');
             $table->unsignedBigInteger('record_series_id');
             $table->boolean('is_active')->default(true);
             $table->foreign('group_head')->references('cluster_id')->on('rdp_pending_record_series')->onDelete('cascade');
@@ -55,14 +61,14 @@ return new class extends Migration
         });
 
         Schema::create('rdp_pending_record', function (Blueprint $table) {
-            $table->id('cluster_id');
+            $table->foreignId('cluster_id')->primary()->constrained('main_pending_id')->onDelete('cascade');
             $table->string('cluster_name');
-            $table->unsignedBigInteger('status_id');
-            $table->unsignedBigInteger('group_id')->nullable();
+            $table->unsignedBigInteger('status_id')->nullable();
+            $table->integer('group_id')->nullable();
             $table->string('office')->nullable();
             $table->unsignedBigInteger('created_by');
             $table->boolean('is_for_nap_one')->default(false);
-            $table->boolean('is_for_nap_two')->default(false);
+            $table->boolean('is_for_nap_three')->default(false);
             $table->boolean('is_active')->default(true);
             $table->foreign('status_id')->references('id')->on('rdp_pending_status')->onDelete('cascade');
             $table->foreign('office')->references('office_code')->on('office')->onDelete('cascade');
@@ -72,7 +78,7 @@ return new class extends Migration
 
         Schema::create('rdp_grouped_record', function (Blueprint $table) {
             $table->id('group_id');
-            $table->unsignedBigInteger('group_head');
+            $table->integer('group_head');
             $table->unsignedBigInteger('record_id');
             $table->boolean('is_active')->default(true);
             $table->foreign('group_head')->references('cluster_id')->on('rdp_pending_record')->onDelete('cascade');
@@ -91,5 +97,6 @@ return new class extends Migration
         Schema::dropIfExists('rdp_grouped_record_series');
         Schema::dropIfExists('rdp_pending_record_series');
         Schema::dropIfExists('rdp_pending_status');
+        Schema::dropIfExists('main_pending_id');
     }
 };

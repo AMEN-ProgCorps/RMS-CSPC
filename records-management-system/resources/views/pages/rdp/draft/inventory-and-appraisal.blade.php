@@ -11,12 +11,99 @@ new #[Layout('layouts.rdp')] #[Title('Draft Inventory and Appraisal')] class ext
     public string $successMessage = '';
     public string $errorMessage = '';
 
+    public bool $showEditModal = false;
+    public ?int $editingDraftId = null;
+    public string $editSeriesTitle = '';
+    public string $editDescription = '';
+    public string $editVolume = '';
+    public string $editLocation = '';
+    public string $editActivePeriod = '';
+    public string $editStoragePeriod = '';
+    public bool $editIsPermanent = false;
+
     public function mount(): void
     {
         $perms = Auth::user()?->permissions;
         if (!$perms || (!(bool)($perms->is_sadm ?? false) && !(bool)($perms->can_access_rdp ?? true))) {
             redirect()->route('rdp')->send();
             return;
+        }
+    }
+
+    public function openEditDraftModal(int $recordId): void
+    {
+        $rec = DB::table('rdp_record')
+            ->leftJoin('rdp_record_series', 'rdp_record.record_series_id', '=', 'rdp_record_series.id')
+            ->leftJoin('rdp_retention_period', 'rdp_record.period_id', '=', 'rdp_retention_period.id')
+            ->where('rdp_record.id', $recordId)
+            ->select([
+                'rdp_record.*',
+                'rdp_record_series.series_title',
+                'rdp_retention_period.active_period',
+                'rdp_retention_period.storage_period',
+                'rdp_retention_period.total_period'
+            ])
+            ->first();
+
+        if (!$rec) return;
+
+        $this->editingDraftId = $rec->id;
+        $this->editSeriesTitle = $rec->series_title ?? '';
+        $this->editDescription = $rec->description ?? '';
+        $this->editVolume = $rec->volume ?? '';
+        $this->editLocation = $rec->records_location ?? '';
+        $this->editActivePeriod = $rec->active_period ?? '';
+        $this->editStoragePeriod = $rec->storage_period ?? '';
+        $this->editIsPermanent = strtolower($rec->total_period ?? '') === 'permanent' || strtolower($rec->active_period ?? '') === 'permanent';
+        $this->showEditModal = true;
+    }
+
+    public function closeEditDraftModal(): void
+    {
+        $this->showEditModal = false;
+        $this->editingDraftId = null;
+    }
+
+    public function saveDraftEdits(bool $andSubmit = false): void
+    {
+        if (!$this->editingDraftId) return;
+
+        try {
+            DB::beginTransaction();
+
+            $rec = DB::table('rdp_record')->where('id', $this->editingDraftId)->first();
+            if ($rec) {
+                DB::table('rdp_record')->where('id', $this->editingDraftId)->update([
+                    'description'      => mb_strtoupper($this->editDescription),
+                    'volume'           => mb_strtoupper($this->editVolume),
+                    'records_location' => mb_strtoupper($this->editLocation),
+                    'is_draft'         => !$andSubmit,
+                    'updated_at'       => now(),
+                ]);
+
+                if ($rec->period_id) {
+                    $activeP = $this->editIsPermanent ? 'Permanent' : (trim($this->editActivePeriod) ?: null);
+                    $storageP = $this->editIsPermanent ? 'Permanent' : (trim($this->editStoragePeriod) ?: null);
+                    $totalP = $this->editIsPermanent ? 'Permanent' : (trim($this->editActivePeriod) . ' / ' . trim($this->editStoragePeriod));
+
+                    DB::table('rdp_retention_period')->where('id', $rec->period_id)->update([
+                        'active_period'  => $activeP,
+                        'storage_period' => $storageP,
+                        'total_period'   => $totalP,
+                        'updated_at'     => now(),
+                    ]);
+                }
+            }
+
+            DB::commit();
+
+            $this->successMessage = $andSubmit 
+                ? 'Draft record updated and submitted successfully!' 
+                : 'Draft record updated successfully!';
+            $this->closeEditDraftModal();
+        } catch (\Exception $e) {
+            DB::rollBack();
+            $this->errorMessage = 'Failed to save draft edits: ' . $e->getMessage();
         }
     }
 
@@ -197,6 +284,74 @@ new #[Layout('layouts.rdp')] #[Title('Draft Inventory and Appraisal')] class ext
             font-weight: 600;
             cursor: pointer;
         }
+
+        /* Modal Styles */
+        .ia-modal-overlay {
+            position: fixed;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background: rgba(15, 23, 42, 0.6);
+            backdrop-filter: blur(4px);
+            z-index: 9999;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+        }
+        .ia-modal-card {
+            background: #ffffff;
+            border-radius: 14px;
+            max-width: 650px;
+            width: 100%;
+            box-shadow: 0 20px 25px -5px rgba(0,0,0,0.1), 0 10px 10px -5px rgba(0,0,0,0.04);
+            overflow: hidden;
+        }
+        .ia-modal-header {
+            padding: 18px 24px;
+            background: #f8fafc;
+            border-bottom: 1px solid #e2e8f0;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .ia-modal-header h3 {
+            font-size: 17px;
+            font-weight: 700;
+            color: #0f172a;
+            margin: 0;
+        }
+        .ia-modal-body {
+            padding: 24px;
+            display: flex;
+            flex-direction: column;
+            gap: 16px;
+            max-height: 70vh;
+            overflow-y: auto;
+        }
+        .ia-modal-footer {
+            padding: 16px 24px;
+            background: #f8fafc;
+            border-top: 1px solid #e2e8f0;
+            display: flex;
+            justify-content: flex-end;
+            gap: 10px;
+        }
+        .form-group {
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+        }
+        .form-group label {
+            font-size: 13px;
+            font-weight: 600;
+            color: #334155;
+        }
+        .form-control {
+            padding: 9px 12px;
+            border: 1px solid #cbd5e1;
+            border-radius: 8px;
+            font-size: 14px;
+            outline: none;
+        }
     </style>
 
     <div class="header-card">
@@ -220,7 +375,6 @@ new #[Layout('layouts.rdp')] #[Title('Draft Inventory and Appraisal')] class ext
         <table class="draft-table">
             <thead>
                 <tr>
-                    <th style="width: 80px;">ID</th>
                     <th>Series Title</th>
                     <th>Description / Details</th>
                     <th style="width: 140px;">Retention</th>
@@ -232,21 +386,20 @@ new #[Layout('layouts.rdp')] #[Title('Draft Inventory and Appraisal')] class ext
             <tbody>
                 @forelse($drafts as $d)
                     <tr>
-                        <td><strong>#{{ $d->id }}</strong></td>
                         <td><strong>{{ $d->series_title ?? 'Unassigned Series' }}</strong></td>
                         <td>{{ $d->description ?: 'No description entered' }}</td>
                         <td>{{ $d->total_period ?? '—' }}</td>
                         <td><span class="draft-badge">Draft</span></td>
                         <td>{{ \Carbon\Carbon::parse($d->updated_at)->format('M d, Y g:i A') }}</td>
                         <td style="text-align: center;">
-                            <button onclick="proccedto('{{ route('rdp.add-records.inventory-and-appraisal') }}')" class="btn-resume">Edit</button>
+                            <button wire:click="openEditDraftModal({{ $d->id }})" class="btn-resume">Edit</button>
                             <button wire:click="submitDraft({{ $d->id }})" class="btn-submit">Submit</button>
                             <button wire:click="deleteDraft({{ $d->id }})" wire:confirm="Delete this draft?" class="btn-delete">Delete</button>
                         </td>
                     </tr>
                 @empty
                     <tr>
-                        <td colspan="7" style="text-align: center; padding: 48px; color: #64748b;">
+                        <td colspan="6" style="text-align: center; padding: 48px; color: #64748b;">
                             No draft Inventory & Appraisal records found.
                         </td>
                     </tr>
@@ -254,4 +407,57 @@ new #[Layout('layouts.rdp')] #[Title('Draft Inventory and Appraisal')] class ext
             </tbody>
         </table>
     </div>
+
+    <!-- Edit Draft Modal Container -->
+    @if($showEditModal)
+        <div class="ia-modal-overlay">
+            <div class="ia-modal-card">
+                <div class="ia-modal-header">
+                    <h3>Edit Draft Inventory Record</h3>
+                    <button wire:click="closeEditDraftModal" style="background: none; border: none; font-size: 20px; cursor: pointer; color: #64748b;">&times;</button>
+                </div>
+                <div class="ia-modal-body">
+                    <div class="form-group">
+                        <label>Record Series Title</label>
+                        <input type="text" class="form-control" value="{{ $editSeriesTitle }}" disabled style="background: #f1f5f9; color: #64748b;">
+                    </div>
+                    <div class="form-group">
+                        <label>Description / Specific Details</label>
+                        <textarea class="form-control" wire:model="editDescription" rows="3"></textarea>
+                    </div>
+                    <div class="form-group">
+                        <label>Volume / Quantity</label>
+                        <input type="text" class="form-control" wire:model="editVolume" placeholder="e.g. 0.5 cu. m.">
+                    </div>
+                    <div class="form-group">
+                        <label>Location of Records</label>
+                        <input type="text" class="form-control" wire:model="editLocation" placeholder="e.g. Records Office Cabinet 1">
+                    </div>
+                    <div class="form-group">
+                        <label style="display: flex; align-items: center; gap: 8px;">
+                            <input type="checkbox" wire:model.live="editIsPermanent">
+                            Permanent Record
+                        </label>
+                    </div>
+                    @if(!$editIsPermanent)
+                        <div style="display: flex; gap: 12px;">
+                            <div class="form-group" style="flex: 1;">
+                                <label>Active Period</label>
+                                <input type="text" class="form-control" wire:model="editActivePeriod" placeholder="e.g. 1 Year">
+                            </div>
+                            <div class="form-group" style="flex: 1;">
+                                <label>Storage Period</label>
+                                <input type="text" class="form-control" wire:model="editStoragePeriod" placeholder="e.g. 4 Years">
+                            </div>
+                        </div>
+                    @endif
+                </div>
+                <div class="ia-modal-footer">
+                    <button type="button" wire:click="closeEditDraftModal" class="btn-delete" style="border: 1px solid #cbd5e1; background: #ffffff; color: #475569;">Cancel</button>
+                    <button type="button" wire:click="saveDraftEdits(false)" class="btn-resume" style="padding: 8px 16px;">Save</button>
+                    <button type="button" wire:click="saveDraftEdits(true)" class="btn-submit" style="padding: 8px 16px;">Save & Submit</button>
+                </div>
+            </div>
+        </div>
+    @endif
 </div>

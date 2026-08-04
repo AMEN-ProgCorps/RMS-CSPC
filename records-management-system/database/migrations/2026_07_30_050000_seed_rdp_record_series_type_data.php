@@ -22,11 +22,6 @@ return new class extends Migration
                 'shorted_type' => 'CSPC',
                 'is_active'    => true,
             ],
-            [
-                'type_name'    => 'No Labels',
-                'shorted_type' => 'OTHERS',
-                'is_active'    => true,
-            ],
         ];
 
         foreach ($types as $type) {
@@ -43,7 +38,7 @@ return new class extends Migration
     public function down(): void
     {
         DB::table('rdp_record_series_type')
-            ->whereIn('shorted_type', [ 'PH-NAP', 'CSPC', 'OTHERS'])
+            ->whereIn('shorted_type', [ 'PH-NAP', 'CSPC'])
             ->delete();
     }
 };

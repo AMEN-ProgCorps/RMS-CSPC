@@ -12,7 +12,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Cockpit File
     use WithPagination;
 
     #[Url]
-    public string $activeTab = 'dts'; // 'dts', 'rdp', 'shared'
+    public string $activeTab = 'all'; // 'all', 'dts', 'rdp', 'shared'
     public string $viewMode = 'grid'; // 'grid' or 'list'
     public int $perPage = 12; // Dynamic pagination size
     public string $search = '';
@@ -152,15 +152,23 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Cockpit File
             $query->where(function ($q) {
                 $q->whereIn('document_data.document_id', function ($sub) {
                     $sub->select('document_id')->from('dts_sequence_list');
-                })->orWhere('document_data.document_path', 'like', '%dts%');
+                })
+                ->orWhere('document_data.document_id', 'like', 'DTS%')
+                ->orWhere('document_data.document_path', 'like', '%dts%')
+                ->orWhere('document_data.document_path', 'like', '%DTS%');
             });
         } elseif ($this->activeTab === 'rdp') {
             $query->where(function ($q) {
                 $q->whereIn('document_data.document_id', function ($sub) {
                     $sub->select('upload_doc_id_handler')->from('rdp_record')->whereNotNull('upload_doc_id_handler');
-                })->orWhereIn('document_data.document_id', function ($sub) {
+                })
+                ->orWhereIn('document_data.document_id', function ($sub) {
                     $sub->select('parent_id')->from('rdp_document_record');
-                })->orWhere('document_data.document_path', 'like', '%rdp%');
+                })
+                ->orWhere('document_data.document_id', 'like', 'RDP%')
+                ->orWhere('document_data.document_path', 'like', '%rdp%')
+                ->orWhere('document_data.document_path', 'like', '%RDP%')
+                ->orWhere('document_data.document_path', 'like', '%records%');
             });
         } elseif ($this->activeTab === 'shared') {
             $query->where(function ($q) {
@@ -230,6 +238,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Cockpit File
 };
 ?>
 
+<div>
 @if(isset($hasOfficeAccess) && !$hasOfficeAccess)
 <div class="rms-container cockpit-wrapper">
     <div style="background: #ffffff; border: 2px dashed #cbd5e1; border-radius: 16px; padding: 48px 32px; text-align: center; margin: 40px auto; max-width: 620px; box-shadow: 0 10px 25px -5px rgba(0,0,0,0.05);">
@@ -735,7 +744,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Cockpit File
 
     <!-- Cockpit Quick Metrics Bar -->
     <div class="cockpit-stats-grid">
-        <div class="stat-card">
+        <div class="stat-card" wire:click="setTab('all')" style="cursor: pointer; {{ $activeTab === 'all' ? 'border-color: #2563eb; background: #f8fafc;' : '' }}">
             <div class="stat-info">
                 <div class="stat-label">Total Registry Files</div>
                 <div class="stat-value">{{ number_format($stats['total']) }}</div>
@@ -745,7 +754,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Cockpit File
             </div>
         </div>
 
-        <div class="stat-card">
+        <div class="stat-card" wire:click="setTab('dts')" style="cursor: pointer; {{ $activeTab === 'dts' ? 'border-color: #16a34a; background: #f0fdf4;' : '' }}">
             <div class="stat-info">
                 <div class="stat-label">DTS Tracking Files</div>
                 <div class="stat-value">{{ number_format($stats['dts']) }}</div>
@@ -755,7 +764,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Cockpit File
             </div>
         </div>
 
-        <div class="stat-card">
+        <div class="stat-card" wire:click="setTab('rdp')" style="cursor: pointer; {{ $activeTab === 'rdp' ? 'border-color: #ea580c; background: #fff7ed;' : '' }}">
             <div class="stat-info">
                 <div class="stat-label">RDP Inventory Files</div>
                 <div class="stat-value">{{ number_format($stats['rdp']) }}</div>
@@ -765,7 +774,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Cockpit File
             </div>
         </div>
 
-        <div class="stat-card">
+        <div class="stat-card" wire:click="setTab('shared')" style="cursor: pointer; {{ $activeTab === 'shared' ? 'border-color: #9333ea; background: #faf5ff;' : '' }}">
             <div class="stat-info">
                 <div class="stat-label">Shared & Duplicated</div>
                 <div class="stat-value">{{ number_format($stats['shared']) }}</div>
@@ -779,6 +788,12 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Cockpit File
     <!-- Subsystem Navigation Tabs & Top Office Selector -->
     <div class="subsystem-bar">
         <div class="subsystem-tabs">
+            <button type="button" 
+                    class="subsystem-tab-btn {{ $activeTab === 'all' ? 'active' : '' }}" 
+                    wire:click="setTab('all')">
+                All Files
+            </button>
+
             <button type="button" 
                     class="subsystem-tab-btn {{ $activeTab === 'dts' ? 'active' : '' }}" 
                     wire:click="setTab('dts')">
@@ -1018,3 +1033,4 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Cockpit File
     </div>
 </div>
 @endif
+</div>

@@ -55,14 +55,33 @@ class GoogleDriveServiceProvider extends ServiceProvider
                 ]);
                 $client->setHttpClient($guzzleClient);
 
+                // Set scopes BEFORE any token fetch so the client knows what permissions to request
+                $client->addScope(\Google\Service\Drive::DRIVE);
+
                 // 1. OAuth 2.0 Client credentials auth (User Account - Recommended for Personal Drive)
                 if (!empty($config['clientId']) && !empty($config['clientSecret']) && !empty($config['refreshToken'])) {
                     $client->setClientId($config['clientId']);
                     $client->setClientSecret($config['clientSecret']);
                     try {
-                        $client->fetchAccessTokenWithRefreshToken($config['refreshToken']);
+                        $token = $client->fetchAccessTokenWithRefreshToken($config['refreshToken']);
+
+                        // Validate that we actually got a valid access token
+                        if (!empty($token['error'])) {
+                            logger()->error('Google Drive OAuth token fetch returned error: ' . ($token['error_description'] ?? $token['error']));
+                            throw new \RuntimeException('Google Drive OAuth token error: ' . ($token['error_description'] ?? $token['error']));
+                        }
+
+                        $accessToken = $client->getAccessToken();
+                        if (empty($accessToken) || empty($accessToken['access_token'])) {
+                            logger()->error('Google Drive OAuth token fetch completed but no access token was returned. Check Client ID, Client Secret, and Refresh Token.');
+                            throw new \RuntimeException('Google Drive authentication failed: no access token obtained. Verify your Client ID, Client Secret, and Refresh Token are correct and not expired.');
+                        }
+                    } catch (\RuntimeException $e) {
+                        // Re-throw our own validation exceptions so the disk creation fails loudly
+                        throw $e;
                     } catch (\Throwable $e) {
-                        logger()->warning('Google Drive refresh token pre-fetch warning: ' . $e->getMessage());
+                        logger()->error('Google Drive refresh token authentication failed: ' . $e->getMessage());
+                        throw new \RuntimeException('Google Drive authentication failed: ' . $e->getMessage(), 0, $e);
                     }
                 }
                 // 2. Service Account JSON file auth fallback
@@ -86,16 +105,24 @@ class GoogleDriveServiceProvider extends ServiceProvider
 
                     if (!empty($jsonPath) && file_exists($jsonPath)) {
                         $client->setAuthConfig($jsonPath);
-                        $client->addScope(\Google\Service\Drive::DRIVE);
                         try {
                             $client->fetchAccessTokenWithAssertion($guzzleClient);
+
+                            $accessToken = $client->getAccessToken();
+                            if (empty($accessToken) || empty($accessToken['access_token'])) {
+                                logger()->error('Google Drive Service Account auth completed but no access token was returned. Check your JSON key file.');
+                                throw new \RuntimeException('Google Drive Service Account authentication failed: no access token obtained.');
+                            }
+                        } catch (\RuntimeException $e) {
+                            throw $e;
                         } catch (\Throwable $e) {
-                            logger()->warning('Google Drive access token pre-fetch warning: ' . $e->getMessage());
+                            logger()->error('Google Drive Service Account authentication failed: ' . $e->getMessage());
+                            throw new \RuntimeException('Google Drive Service Account authentication failed: ' . $e->getMessage(), 0, $e);
                         }
+                    } else {
+                        logger()->error('Google Drive: No OAuth credentials and no valid Service Account JSON file found. Drive storage will not work.');
                     }
                 }
-
-                $client->addScope(\Google\Service\Drive::DRIVE);
 
                 $folderId = $config['folder'] ?? 'root';
                 $options = [];

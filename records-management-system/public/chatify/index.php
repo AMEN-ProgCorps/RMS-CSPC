@@ -458,25 +458,6 @@ try {
 
 
   <?php if ($is_admin): ?>
-  <!-- Delete All Messages Modal (Admin only) -->
-  <div class="modal" id="deleteAllModal" aria-hidden="true">
-    <div class="modal-content">
-      <div class="modal-header">
-        <h3 style="color:#c0392b;">Delete all messages</h3>
-      </div>
-      <div class="modal-body">
-        <p>This will <strong>permanently delete</strong> every message in the entire system — all DMs, and Global Chat will be remove.</p>
-        <label for="deleteAllSecretInput" style="display:block;margin-top:10px;">Enter secret key to confirm:</label>
-        <input type="password" id="deleteAllSecretInput" autocomplete="off" class="secret-key-input" />
-        <div id="deleteAllSecretError" style="font-size:12px;display:none;margin-top:5px;text-align:center;"></div>
-      </div>
-      <div class="modal-footer">
-        <button class="modal-button cancel-button" id="cancelDeleteAll">Cancel</button>
-        <button class="modal-button confirm-button" id="confirmDeleteAll">Delete Everything</button>
-      </div>
-    </div>
-  </div>
-
   <!-- Change Secret Key Modal (Admin only) -->
   <div class="modal" id="adminKeyModal" aria-hidden="true">
     <div class="modal-content" style="max-width:400px;">
@@ -580,6 +561,25 @@ try {
       </div>
       <div class="modal-footer">
         <button type="button" class="modal-button confirm-button" id="uploadErrorCloseBtn" style="border-right:none;" onclick="closeUploadErrorModal()">Close</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Clearing Chat Progress Modal — mirrors the file upload progress modal -->
+  <div class="modal" id="clearingChatModal" aria-hidden="true" style="display:none;align-items:center;justify-content:center;z-index:99999;">
+    <div class="modal-content" style="max-width:320px;min-height:0;">
+      <div class="modal-header">
+        <h3>Clearing Chat...</h3>
+      </div>
+      <div class="modal-body" style="text-align:center;padding:14px 16px;">
+        <div style="margin-bottom:10px;display:flex;justify-content:center;align-items:center;">
+          <div class="upload-spinner" style="width:32px;height:32px;border:3px solid rgba(27,116,228,0.2);border-top-color:#1b74e4;border-radius:50%;animation:uploadSpin 0.8s linear infinite;"></div>
+        </div>
+        <p id="clearingChatLabel" style="margin:0 0 10px 0;font-size:13px;color:var(--text-secondary);word-break:break-all;line-height:1.4;max-height:calc(1.4em * 2);overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;">Clearing conversation...</p>
+        <div style="width:100%;height:6px;background:var(--border-color, #e4e6eb);border-radius:4px;overflow:hidden;margin-bottom:4px;">
+          <div id="clearingChatProgressBar" style="width:0%;height:100%;background:linear-gradient(90deg, #1b74e4, #00c3ff);transition:width 0.15s ease;border-radius:4px;"></div>
+        </div>
+        <div id="clearingChatProgressText" style="font-size:12px;font-weight:600;color:#1b74e4;text-align:right;">0%</div>
       </div>
     </div>
   </div>

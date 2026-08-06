@@ -51,6 +51,8 @@ class ConversationManager
                         unread_user_1     INTEGER NOT NULL DEFAULT 0,
                         unread_user_2     INTEGER NOT NULL DEFAULT 0,
                         msg_count         INTEGER NOT NULL DEFAULT 1,
+                        is_active         BOOLEAN NOT NULL DEFAULT true,
+                        cleared_at        TIMESTAMPTZ(6),
                         created_at        TIMESTAMPTZ(6) NOT NULL,
                         updated_at        TIMESTAMPTZ(6) NOT NULL
                     )
@@ -102,6 +104,16 @@ class ConversationManager
         } catch (Throwable $t) {
             error_log('ConversationManager::ensureConversationsTable() msg_count backfill fail — ' . $t->getMessage());
         }
+
+        // Self-heal schema drift: chat_conversations may pre-date the soft-delete
+        // "clear chat" columns. Run unconditionally so existing tables pick them
+        // up regardless of which branch above ran.
+        try {
+            $pdo->exec("ALTER TABLE chat_conversations ADD COLUMN IF NOT EXISTS is_active BOOLEAN NOT NULL DEFAULT true");
+            $pdo->exec("ALTER TABLE chat_conversations ADD COLUMN IF NOT EXISTS cleared_at TIMESTAMPTZ(6)");
+        } catch (Throwable $t) {
+            error_log('ConversationManager::ensureConversationsTable() is_active/cleared_at backfill fail — ' . $t->getMessage());
+        }
     }
 
     // -------------------------------------------------------------------------
@@ -121,16 +133,18 @@ class ConversationManager
 
             if ($beforeUuid === null) {
                 $stmt = $pdo->prepare(
-                    'SELECT msg_uuid AS id,
-                            sender_id,
-                            receiver_id,
-                            message,
-                            msg_type AS type,
-                            is_edited,
-                            to_char(created_at AT TIME ZONE \'Asia/Manila\', \'YYYY-MM-DD HH24:MI:SS.US\') AS timestamp
-                     FROM chat_messages
-                     WHERE conv_id = :conv_id
-                     ORDER BY created_at DESC, id DESC
+                    'SELECT m.msg_uuid AS id,
+                            m.sender_id,
+                            m.receiver_id,
+                            m.message,
+                            m.msg_type AS type,
+                            m.is_edited,
+                            to_char(m.created_at AT TIME ZONE \'Asia/Manila\', \'YYYY-MM-DD HH24:MI:SS.US\') AS timestamp
+                     FROM chat_messages m
+                     LEFT JOIN chat_conversations c ON c.conv_id = m.conv_id
+                     WHERE m.conv_id = :conv_id
+                       AND (c.cleared_at IS NULL OR m.created_at > c.cleared_at)
+                     ORDER BY m.created_at DESC, m.id DESC
                      LIMIT :lim'
                 );
                 $stmt->bindValue(':conv_id', $convId);
@@ -147,17 +161,19 @@ class ConversationManager
                 }
 
                 $stmt = $pdo->prepare(
-                    'SELECT msg_uuid AS id,
-                            sender_id,
-                            receiver_id,
-                            message,
-                            msg_type AS type,
-                            is_edited,
-                            to_char(created_at AT TIME ZONE \'Asia/Manila\', \'YYYY-MM-DD HH24:MI:SS.US\') AS timestamp
-                     FROM chat_messages
-                     WHERE conv_id = :conv_id
-                       AND (created_at, id) < (:cur_ts, :cur_id)
-                     ORDER BY created_at DESC, id DESC
+                    'SELECT m.msg_uuid AS id,
+                            m.sender_id,
+                            m.receiver_id,
+                            m.message,
+                            m.msg_type AS type,
+                            m.is_edited,
+                            to_char(m.created_at AT TIME ZONE \'Asia/Manila\', \'YYYY-MM-DD HH24:MI:SS.US\') AS timestamp
+                     FROM chat_messages m
+                     LEFT JOIN chat_conversations c ON c.conv_id = m.conv_id
+                     WHERE m.conv_id = :conv_id
+                       AND (m.created_at, m.id) < (:cur_ts, :cur_id)
+                       AND (c.cleared_at IS NULL OR m.created_at > c.cleared_at)
+                     ORDER BY m.created_at DESC, m.id DESC
                      LIMIT :lim'
                 );
                 $stmt->bindValue(':conv_id', $convId);
@@ -196,17 +212,19 @@ class ConversationManager
             }
 
             $stmt = $pdo->prepare(
-                'SELECT msg_uuid AS id,
-                        sender_id,
-                        receiver_id,
-                        message,
-                        msg_type AS type,
-                        is_edited,
-                        to_char(created_at AT TIME ZONE \'Asia/Manila\', \'YYYY-MM-DD HH24:MI:SS.US\') AS timestamp
-                 FROM chat_messages
-                 WHERE conv_id = :conv_id
-                   AND (created_at, id) > (:cur_ts, :cur_id)
-                 ORDER BY created_at ASC, id ASC
+                'SELECT m.msg_uuid AS id,
+                        m.sender_id,
+                        m.receiver_id,
+                        m.message,
+                        m.msg_type AS type,
+                        m.is_edited,
+                        to_char(m.created_at AT TIME ZONE \'Asia/Manila\', \'YYYY-MM-DD HH24:MI:SS.US\') AS timestamp
+                 FROM chat_messages m
+                 LEFT JOIN chat_conversations c ON c.conv_id = m.conv_id
+                 WHERE m.conv_id = :conv_id
+                   AND (m.created_at, m.id) > (:cur_ts, :cur_id)
+                   AND (c.cleared_at IS NULL OR m.created_at > c.cleared_at)
+                 ORDER BY m.created_at ASC, m.id ASC
                  LIMIT :lim'
             );
             $stmt->bindValue(':conv_id', $convId);
@@ -316,20 +334,47 @@ class ConversationManager
             }
 
             if ($isAdmin) {
-                self::backupConversation($pdo, $convId, $accountId);
-
-                $stmt = $pdo->prepare('DELETE FROM chat_messages WHERE conv_id = :conv_id');
+                // Soft-delete: chat_messages rows are NEVER removed here. We only
+                // flag the conversation inactive and stamp cleared_at, so every
+                // message up to this instant is hidden from loadRaw/loadIncrementalRaw
+                // and the sidebar, while remaining fully intact in the database.
+                self::ensureConversationsTable($pdo);
+                $stmt = $pdo->prepare(
+                    'UPDATE chat_conversations
+                     SET is_active     = false,
+                         cleared_at    = NOW(),
+                         msg_count     = 0,
+                         unread_user_1 = 0,
+                         unread_user_2 = 0,
+                         updated_at    = NOW()
+                     WHERE conv_id = :conv_id'
+                );
                 $stmt->execute([':conv_id' => $convId]);
 
-                $mrk = $pdo->prepare('DELETE FROM chat_read_markers WHERE conv_id = :conv_id');
-                $mrk->execute([':conv_id' => $convId]);
-
-                // Remove the metadata row entirely
-                try {
-                    self::ensureConversationsTable($pdo);
-                    $pdo->prepare('DELETE FROM chat_conversations WHERE conv_id = :conv_id')
-                        ->execute([':conv_id' => $convId]);
-                } catch (Throwable $t) {}
+                if ($stmt->rowCount() === 0) {
+                    // No metadata row existed yet (edge case) — create one so the
+                    // clear still "sticks" even though there's nothing to hide.
+                    $pdo->prepare(
+                        'INSERT INTO chat_conversations
+                            (conv_id, user_1, user_2, last_message, last_msg_type, last_message_time,
+                             is_active, cleared_at, msg_count, unread_user_1, unread_user_2, created_at, updated_at)
+                         SELECT :conv_id,
+                                LEAST(sender_id, receiver_id),
+                                GREATEST(sender_id, receiver_id),
+                                \'\', \'text\', NOW(),
+                                false, NOW(), 0, 0, 0, NOW(), NOW()
+                         FROM chat_messages
+                         WHERE conv_id = :conv_id2
+                         LIMIT 1
+                         ON CONFLICT (conv_id) DO UPDATE SET
+                            is_active     = false,
+                            cleared_at    = NOW(),
+                            msg_count     = 0,
+                            unread_user_1 = 0,
+                            unread_user_2 = 0,
+                            updated_at    = NOW()'
+                    )->execute([':conv_id' => $convId, ':conv_id2' => $convId]);
+                }
             } else {
                 $stmt = $pdo->prepare('DELETE FROM chat_messages WHERE conv_id = :conv_id AND sender_id = :sender_id');
                 $stmt->execute([':conv_id' => $convId, ':sender_id' => $accountId]);
@@ -550,14 +595,14 @@ class ConversationManager
             $pdo  = Database::getConnection();
             self::ensureConversationsTable($pdo);
             $stmt = $pdo->prepare(
-                'SELECT last_message AS message, last_msg_type AS type, last_message_time AS timestamp
+                'SELECT last_message AS message, last_msg_type AS type, last_message_time AS timestamp, is_active
                  FROM chat_conversations
                  WHERE conv_id = :conv_id'
             );
             $stmt->execute([':conv_id' => $convId]);
             $last = $stmt->fetch();
 
-            if (!$last) {
+            if (!$last || $last['is_active'] === false || $last['is_active'] === 'f') {
                 return ['text' => '', 'timestamp' => 0, 'type' => ''];
             }
 
@@ -606,7 +651,8 @@ class ConversationManager
                          ELSE c.unread_user_2
                      END AS unread_count
                  FROM chat_conversations c
-                 WHERE c.user_1 = :my_id3 OR c.user_2 = :my_id4
+                 WHERE (c.user_1 = :my_id3 OR c.user_2 = :my_id4)
+                   AND c.is_active = true
                  ORDER BY c.last_message_time DESC"
             );
             $stmt->execute([
@@ -631,7 +677,7 @@ class ConversationManager
             $searchQuery = trim($searchQuery);
             $params = [];
             
-            $whereClause = "WHERE COALESCE(c.msg_count, 0) > 0";
+            $whereClause = "WHERE COALESCE(c.msg_count, 0) > 0 AND c.is_active = true";
 
             if ($searchQuery !== '') {
                 $like = '%' . str_replace(['%', '_', '\\'], ['\\%', '\\_', '\\\\'], $searchQuery) . '%';
@@ -786,6 +832,7 @@ class ConversationManager
                  LEFT JOIN office o2 ON o2.id = ad2.office_id
                  WHERE (c.user_1 = :target_id OR c.user_2 = :target_id)
                    AND COALESCE(c.msg_count, 0) > 0
+                   AND c.is_active = true
                  ORDER BY c.last_message_time DESC
                  LIMIT :lim OFFSET :off";
 
@@ -1097,9 +1144,9 @@ class ConversationManager
 
                 $upsert = $pdo->prepare(
                     'INSERT INTO chat_conversations
-                        (conv_id, user_1, user_2, last_message, last_msg_type, last_msg_uuid, last_message_time, unread_user_1, unread_user_2, created_at, updated_at, msg_count)
+                        (conv_id, user_1, user_2, last_message, last_msg_type, last_msg_uuid, last_message_time, unread_user_1, unread_user_2, created_at, updated_at, msg_count, is_active)
                      VALUES
-                        (:conv_id, :u1, :u2, :last_msg, :msg_type, :last_uuid, :ts, :un1, :un2, :ts2, :ts3, 1)
+                        (:conv_id, :u1, :u2, :last_msg, :msg_type, :last_uuid, :ts, :un1, :un2, :ts2, :ts3, 1, true)
                      ON CONFLICT (conv_id) DO UPDATE SET
                         last_message      = EXCLUDED.last_message,
                         last_msg_type     = EXCLUDED.last_msg_type,
@@ -1108,7 +1155,8 @@ class ConversationManager
                         unread_user_1     = chat_conversations.unread_user_1 + EXCLUDED.unread_user_1,
                         unread_user_2     = chat_conversations.unread_user_2 + EXCLUDED.unread_user_2,
                         msg_count         = COALESCE(chat_conversations.msg_count, 0) + 1,
-                        updated_at        = EXCLUDED.updated_at'
+                        updated_at        = EXCLUDED.updated_at,
+                        is_active         = true'
                 );
                 $upsert->execute([
                     ':conv_id'   => $convId,

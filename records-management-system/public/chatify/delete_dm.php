@@ -18,6 +18,14 @@ if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
 $myAccountId = Auth::accountId();
 $isAdmin     = Auth::isAdmin();
 
+// ── Admin-only endpoint ────────────────────────────────────────────────────────
+// Clearing a conversation is now a Super Admin action only. Regular users no
+// longer have a self-service "clear my chat" path through this endpoint.
+if (!$isAdmin) {
+    http_response_code(403);
+    die('Forbidden — administrator access required');
+}
+
 $targetId  = isset($_POST['target_id']) ? (int) trim($_POST['target_id']) : 0;
 $convId    = trim($_POST['conv_id'] ?? '');
 $secret    = trim($_POST['secret'] ?? '');
@@ -49,24 +57,13 @@ if (empty($convId)) {
 }
 
 // ── Secret key check (required for admin delete) ──────────────────────────────
-if ($isAdmin) {
-    if (empty($secret)) {
-        http_response_code(403);
-        die('Secret key required');
-    }
-    if (!ConversationManager::verifySecretKey($secret)) {
-        http_response_code(403);
-        die('Invalid secret key');
-    }
+if (empty($secret)) {
+    http_response_code(403);
+    die('Secret key required');
 }
-
-// ── Confirm the conv involves the current user (unless admin) ─────────────────
-if (!$isAdmin) {
-    $parts = explode('_', $convId);
-    if (count($parts) !== 2 || (!in_array((string) $myAccountId, $parts))) {
-        http_response_code(403);
-        die('Forbidden');
-    }
+if (!ConversationManager::verifySecretKey($secret)) {
+    http_response_code(403);
+    die('Invalid secret key');
 }
 
 // ── Backup conversation before deletion ──────────────────────────────────────
@@ -94,15 +91,11 @@ if ($deleted) {
     ]);
 }
 
-if ($isAdmin) {
-    echo $deleted ? 'Entire conversation deleted successfully' : 'Conversation cleared';
-} else {
-    echo 'Conversation cleared';
-}
+echo $deleted ? 'Conversation cleared' : 'Nothing to clear';
 
 // ── Audit log (fire-and-forget) ───────────────────────────────────────────────
 ChatAuditLogger::log($myAccountId, 'clear_chat', $convId, [
-    'is_admin'      => $isAdmin,
-    'fully_deleted' => $isAdmin && $deleted,
-    'conv_id'       => $convId,
+    'is_admin'   => true,
+    'soft_clear' => true,
+    'conv_id'    => $convId,
 ]);

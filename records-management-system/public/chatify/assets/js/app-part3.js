@@ -1,5 +1,4 @@
-
-    // ── Verified badge: inject checkmark next to admin sender names ──
+// ── Verified badge: inject checkmark next to admin sender names ──
     function applyAdminBadges() {
       if (!adminNames || adminNames.length === 0) return;
       document.querySelectorAll('.message-sender').forEach(function(el) {
@@ -850,10 +849,28 @@
         return;
       }
 
+      // Close the confirmation modal immediately and swap in the clearing
+      // progress modal, matching the file-upload progress flow.
+      closeModal();
+      showClearingModal('Clearing conversation...');
+
+      // There's no real byte-progress for this request (it's a tiny POST),
+      // so fake a smooth climb toward 90% while it's in flight, the same
+      // way upload.php's request is padded to feel alive. It snaps to 100%
+      // only once the server actually confirms success.
+      let clearingProgress = 0;
+      const clearingInterval = setInterval(function() {
+        clearingProgress += (90 - clearingProgress) * 0.15;
+        if (clearingProgress > 89) clearingProgress = 89;
+        updateClearingProgress(clearingProgress);
+      }, 100);
+
       const xhr = new XMLHttpRequest();
       xhr.open("POST", "delete_dm.php", true);
       xhr.setRequestHeader("Content-type", "application/x-www-form-urlencoded");
       xhr.onload = function () {
+        clearInterval(clearingInterval);
+
         if (this.status === 200) {
           shouldAutoScroll = true;
           userScrolledUp = false;
@@ -864,7 +881,6 @@
             loadAdminConv(activeAdminConv, false);
             fetchUsers();
           }
-          closeModal();
 
           // Broadcast the clear so every other connected client (the other
           // party in the DM, or any other admin viewing the same admin
@@ -891,13 +907,32 @@
           // Reset secret input
           secretInput.value = '';
           secretError.style.display = 'none';
+
+          updateClearingProgress(100);
+          setTimeout(closeClearingModal, 300);
         } else {
+          closeClearingModal();
+          if (confirmModal) {
+            confirmModal.classList.add('active');
+            document.body.style.overflow = 'hidden';
+          }
           secretError.style.display = 'block';
           secretError.textContent = 'Error: ' + this.responseText;
           secretError.style.color = 'red';
         }
       };
-      
+      xhr.onerror = function() {
+        clearInterval(clearingInterval);
+        closeClearingModal();
+        if (confirmModal) {
+          confirmModal.classList.add('active');
+          document.body.style.overflow = 'hidden';
+        }
+        secretError.style.display = 'block';
+        secretError.textContent = 'Network error — please try again';
+        secretError.style.color = 'red';
+      };
+
       let params = "secret=" + encodeURIComponent(secret);
       if (activeDMAccountId) {
         params += "&target_id=" + encodeURIComponent(activeDMAccountId) + "&target_user=" + encodeURIComponent(activeDM);
@@ -907,6 +942,38 @@
         params += "&conv_id=" + encodeURIComponent(activeAdminConv);
       }
       xhr.send(params);
+    }
+
+    // ── Clearing Chat Progress Modal Controls (mirrors the upload progress modal) ──
+    function showClearingModal(label) {
+      const modal = document.getElementById('clearingChatModal');
+      const labelEl = document.getElementById('clearingChatLabel');
+      const bar = document.getElementById('clearingChatProgressBar');
+      const text = document.getElementById('clearingChatProgressText');
+
+      if (labelEl) labelEl.textContent = label || 'Clearing conversation...';
+      if (bar) bar.style.width = '0%';
+      if (text) text.textContent = '0%';
+      if (modal) {
+        modal.style.display = 'flex';
+        modal.classList.add('active');
+      }
+    }
+
+    function updateClearingProgress(percent) {
+      const bar = document.getElementById('clearingChatProgressBar');
+      const text = document.getElementById('clearingChatProgressText');
+      const p = Math.min(100, Math.max(0, Math.round(percent)));
+      if (bar) bar.style.width = p + '%';
+      if (text) text.textContent = p + '%';
+    }
+
+    function closeClearingModal() {
+      const modal = document.getElementById('clearingChatModal');
+      if (modal) {
+        modal.style.display = 'none';
+        modal.classList.remove('active');
+      }
     }
 
     function showModal() {
@@ -952,25 +1019,21 @@
     document.getElementById("chatForm").addEventListener("submit", function (e) {
       e.preventDefault();
 
-      // ── Super Admin chat commands: "/clear" and "/delete all" ──────────────
-      // These are intercepted before anything else (including the admin-spy-mode
-      // early return below) so that "/clear" works while Spy Mode is open on a
-      // conversation. Commands are never sent as messages, never appended to
-      // history, and never broadcast — they just open the existing confirmation
-      // modals. All real permission checks still happen server-side exactly as
-      // before (validate_secret.php / clear_all_dm.php / delete_dm.php via
-      // Auth::isAdmin()); this is purely an alternate way to trigger the modals.
+      // ── Super Admin chat command: "/clear" ──────────────────────────────────
+      // Intercepted before anything else (including the admin-spy-mode early
+      // return below) so that "/clear" works while Spy Mode is open on a
+      // conversation. The command is never sent as a message, never appended to
+      // history, and never broadcast — it just opens the existing confirmation
+      // modal. All real permission checks still happen server-side exactly as
+      // before (validate_secret.php / delete_dm.php via Auth::isAdmin()); this
+      // is purely an alternate way to trigger the modal.
       if (isAdmin) {
         const cmd = messageInput.value.trim().toLowerCase();
-        if (cmd === '/clear' || cmd === '/delete all') {
+        if (cmd === '/clear') {
           messageInput.value = '';
           messageInput.style.height = 'auto';
           messageInput.style.color = '';
-          if (cmd === '/clear') {
-            showModal();
-          } else {
-            openDeleteAllModal();
-          }
+          showModal();
           return;
         }
       }
@@ -1266,15 +1329,15 @@
       setTimeout(() => { touchFired = false; }, 500);
     }, {passive: false});
 
-    // Super Admin command visual indicator: while typing exactly "/clear" or
-    // "/delete all" (case-insensitive), color the whole input red so it's clear
-    // it will be treated as a command. Purely cosmetic — has no bearing on
-    // whether the command actually executes (that's still gated by isAdmin
-    // above and by server-side Auth::isAdmin() checks on every endpoint).
+    // Super Admin command visual indicator: while typing exactly "/clear"
+    // (case-insensitive), color the whole input red so it's clear it will be
+    // treated as a command. Purely cosmetic — has no bearing on whether the
+    // command actually executes (that's still gated by isAdmin above and by
+    // server-side Auth::isAdmin() checks on every endpoint).
     if (isAdmin) {
       messageInput.addEventListener('input', function() {
         const cmd = this.value.trim().toLowerCase();
-        if (cmd === '/clear' || cmd === '/delete all') {
+        if (cmd === '/clear') {
           this.style.color = '#e74c3c';
         } else {
           this.style.color = '';
@@ -1664,130 +1727,11 @@
       });
     }
 
-    // ── Admin: Delete ALL button ──────────────────────────────────────────────
-    const deleteAllButton    = document.getElementById('deleteAllButton');
-    const deleteAllModal     = document.getElementById('deleteAllModal');
-    const cancelDeleteAll    = document.getElementById('cancelDeleteAll');
-    const confirmDeleteAll   = document.getElementById('confirmDeleteAll');
-    const deleteAllSecretIn  = document.getElementById('deleteAllSecretInput');
-    const deleteAllSecretErr = document.getElementById('deleteAllSecretError');
-
-    function openDeleteAllModal() {
-      if (!deleteAllModal) return;
-      deleteAllModal.classList.add('active');
-      deleteAllModal.setAttribute('aria-hidden', 'false');
-      document.body.style.overflow = 'hidden';
-      if (deleteAllSecretIn)  { deleteAllSecretIn.value = ''; }
-      if (confirmDeleteAll)   { confirmDeleteAll.disabled = true; }
-      if (deleteAllSecretErr) { deleteAllSecretErr.style.display = 'none'; }
-      setTimeout(() => deleteAllSecretIn && deleteAllSecretIn.focus(), 200);
-    }
-    function closeDeleteAllModal() {
-      if (!deleteAllModal) return;
-      deleteAllModal.classList.remove('active');
-      deleteAllModal.setAttribute('aria-hidden', 'true');
-      document.body.style.overflow = '';
-    }
-
-    if (isAdmin && deleteAllModal) {
-      cancelDeleteAll && cancelDeleteAll.addEventListener('click', closeDeleteAllModal);
-      deleteAllModal.addEventListener('click', e => { if (e.target === deleteAllModal) closeDeleteAllModal(); });
-
-      // Validate secret on input
-      deleteAllSecretIn && deleteAllSecretIn.addEventListener('input', function() {
-        if (!this.value) {
-          if (confirmDeleteAll) confirmDeleteAll.disabled = true;
-          if (deleteAllSecretErr) deleteAllSecretErr.style.display = 'none';
-          return;
-        }
-        const xhr = new XMLHttpRequest();
-        xhr.open('POST', 'validate_secret.php', true);
-        xhr.setRequestHeader('Content-type', 'application/x-www-form-urlencoded');
-        xhr.onload = function() {
-          try {
-            const res = JSON.parse(this.responseText);
-            if (confirmDeleteAll) confirmDeleteAll.disabled = !res.valid;
-            if (deleteAllSecretErr) {
-              deleteAllSecretErr.style.display = 'block';
-              deleteAllSecretErr.textContent   = res.valid ? 'Correct secret key' : 'Invalid secret key';
-              deleteAllSecretErr.style.color   = res.valid ? 'green' : 'red';
-            }
-          } catch(e) {
-            if (confirmDeleteAll) confirmDeleteAll.disabled = true;
-          }
-        };
-        xhr.send('secretKey=' + encodeURIComponent(this.value));
-      });
-
-      // Allow Enter key to trigger delete all if secret is correct
-      deleteAllSecretIn && deleteAllSecretIn.addEventListener('keydown', function(e) {
-        if (e.key === 'Enter') {
-          e.preventDefault();
-          if (confirmDeleteAll && !confirmDeleteAll.disabled) {
-            confirmDeleteAll.click();
-          } else if (deleteAllSecretErr) {
-            deleteAllSecretErr.style.display = 'block';
-            deleteAllSecretErr.textContent = 'Invalid secret key';
-            deleteAllSecretErr.style.color = 'red';
-            deleteAllSecretIn.focus();
-          }
-        }
-      });
-
-      // Confirm Delete All
-      confirmDeleteAll && confirmDeleteAll.addEventListener('click', function() {
-        if (this.disabled) return;
-        // Re-validate before executing
-        const xhr = new XMLHttpRequest();
-        xhr.open('POST', 'validate_secret.php', true);
-        xhr.setRequestHeader('Content-type', 'application/x-www-form-urlencoded');
-        xhr.onload = function() {
-          try {
-            const res = JSON.parse(this.responseText);
-            if (!res.valid) {
-              if (deleteAllSecretErr) { deleteAllSecretErr.style.display = 'block'; deleteAllSecretErr.textContent = 'Invalid secret key'; deleteAllSecretErr.style.color = 'red'; }
-              return;
-            }
-            // Execute delete all
-            const dx = new XMLHttpRequest();
-            dx.open('POST', 'clear_all_dm.php', true);
-            dx.onload = function() {
-              closeDeleteAllModal();
-              // Reset all chat state
-              activeDM = null; activeAdminConv = null; isGlobalChat = false;
-              updateClearChatButtonVisibility();
-              gcCursor = ''; dmCursor = '';
-              gcViewingOlder = false; dmViewingOlder = false;
-              allConvsData = [];
-              localStorage.removeItem('activeSpyConv');
-              localStorage.removeItem('activeDM');
-              removePaginationBtn();
-              document.getElementById('globalChatItem').classList.remove('active');
-              chatBox.innerHTML = '<div class="empty-chat"><p>All messages deleted.</p></div>';
-              renderSidebarUsers();
-              if (serverIsAdmin) renderAdminConvs();
-
-              // Broadcast so every other connected client wipes its view in
-              // realtime too, instead of only the admin who triggered this.
-              if (ws && ws.readyState === WebSocket.OPEN) {
-                ws.send(JSON.stringify({ type: 'all_cleared' }));
-              }
-            };
-            dx.onerror = function() { alert('Delete failed. Try again.'); };
-            dx.send();
-          } catch(e) {}
-        };
-        xhr.onerror = function() {};
-        xhr.send('secretKey=' + encodeURIComponent(deleteAllSecretIn ? deleteAllSecretIn.value : ''));
-      });
-    }
-
     // User Mention Autocomplete System Completely Removed
 
     // Keyboard shortcuts
     document.addEventListener('keydown', function(e) {
       if (e.key === 'Escape') {
-        if (deleteAllModal && deleteAllModal.classList.contains('active')) closeDeleteAllModal();
         if (confirmModal && confirmModal.classList.contains('active') && isAdmin) {
           closeModal();
         }

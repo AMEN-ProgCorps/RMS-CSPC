@@ -3,9 +3,11 @@
 use Livewire\Attributes\Layout;
 use Livewire\Attributes\Title;
 use Livewire\Volt\Component;
+use Livewire\WithFileUploads;
 
 new #[Layout('layouts.admin')] #[Title('Admin Console - System Settings')] class extends Component {
-    
+    use WithFileUploads;
+
     public bool $pagePrewarmingEnabled = true;
     public bool $allowManualLogin = true;
     public bool $allowGoogleLogin = true;
@@ -17,6 +19,16 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - System Settings')] class
     public bool $dtsRequiredUploadFile = false;
     public string $successMessage = '';
     public string $errorMessage = '';
+
+    // Backup & Recovery System State
+    public array $backupsList = [];
+    public string $backupStatus = 'unknown';
+    public string $backupTestResult = '';
+    public $uploadedBackupFile = null;
+    public string $selectedTargetBackup = '';
+    public bool $showRevertConfirmModal = false;
+    public bool $isBackupProcessing = false;
+    public string $backupConfirmInput = '';
 
     // Google Drive Diagnostics & Management
     public string $driveTestResult = '';
@@ -292,6 +304,8 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - System Settings')] class
 
         $dtsReq = \DB::table('system_settings')->where('key', 'dts_required_upload_file')->value('value');
         $this->dtsRequiredUploadFile = ($dtsReq === 'true');
+
+        $this->checkBackups();
     }
 
     public function testDriveConnection(): void
@@ -587,6 +601,469 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - System Settings')] class
         } catch (\Exception $e) {
             $this->errorMessage = 'Failed to update system settings: ' . $e->getMessage();
         }
+    }
+
+    public function ensureBackupDirectoriesExist(): void
+    {
+        // 1. Check & create local storage/app/backups folder
+        try {
+            if (!\Illuminate\Support\Facades\Storage::disk('local')->exists('backups')) {
+                \Illuminate\Support\Facades\Storage::disk('local')->makeDirectory('backups');
+            }
+        } catch (\Throwable $e) {
+            logger()->warning("Failed creating local backups folder: " . $e->getMessage());
+        }
+
+        // 2. Check & create Google Drive backup/ folder
+        try {
+            if (!\Illuminate\Support\Facades\Storage::disk('google')->exists('backup')) {
+                \Illuminate\Support\Facades\Storage::disk('google')->makeDirectory('backup');
+            }
+        } catch (\Throwable $e) {
+            logger()->warning("Failed creating Google Drive backup folder: " . $e->getMessage());
+        }
+    }
+
+    public function checkBackups(): void
+    {
+        $this->isBackupProcessing = true;
+        $this->backupTestResult = '';
+        $this->backupsList = [];
+
+        try {
+            $this->ensureBackupDirectoriesExist();
+
+            $foundBackups = [];
+
+            // 1. Scan Google Drive backup/ folder
+            try {
+                $googleFiles = \Illuminate\Support\Facades\Storage::disk('google')->files('backup');
+                foreach ($googleFiles as $file) {
+                    $filename = basename($file);
+                    if (str_ends_with($filename, '.json') || str_starts_with($filename, 'rms_backup_')) {
+                        $size = 0;
+                        try {
+                            $size = \Illuminate\Support\Facades\Storage::disk('google')->size($file);
+                        } catch (\Throwable) {}
+
+                        $lastModified = time();
+                        try {
+                            $lastModified = \Illuminate\Support\Facades\Storage::disk('google')->lastModified($file);
+                        } catch (\Throwable) {}
+
+                        $foundBackups[$filename] = [
+                            'filename' => $filename,
+                            'path' => $file,
+                            'source' => 'Google Drive',
+                            'source_icon' => 'fa-brands fa-google-drive',
+                            'source_color' => '#2563eb',
+                            'size_formatted' => $this->formatBytes($size),
+                            'size' => $size,
+                            'last_modified' => $lastModified,
+                            'date_formatted' => date('M d, Y h:i A', $lastModified),
+                        ];
+                    }
+                }
+            } catch (\Throwable $e) {
+                logger()->warning("Check Google Drive backups warning: " . $e->getMessage());
+            }
+
+            // 2. Scan Local storage/app/backups folder
+            try {
+                $localFiles = \Illuminate\Support\Facades\Storage::disk('local')->files('backups');
+                foreach ($localFiles as $file) {
+                    $filename = basename($file);
+                    if (str_ends_with($filename, '.json') || str_starts_with($filename, 'rms_backup_')) {
+                        $size = \Illuminate\Support\Facades\Storage::disk('local')->size($file);
+                        $lastModified = \Illuminate\Support\Facades\Storage::disk('local')->lastModified($file);
+
+                        if (isset($foundBackups[$filename])) {
+                            $foundBackups[$filename]['source'] = 'Google Drive & Local';
+                            $foundBackups[$filename]['source_icon'] = 'fa-solid fa-cloud-arrow-down';
+                            $foundBackups[$filename]['source_color'] = '#059669';
+                        } else {
+                            $foundBackups[$filename] = [
+                                'filename' => $filename,
+                                'path' => $file,
+                                'source' => 'Local Only',
+                                'source_icon' => 'fa-solid fa-hard-drive',
+                                'source_color' => '#64748b',
+                                'size_formatted' => $this->formatBytes($size),
+                                'size' => $size,
+                                'last_modified' => $lastModified,
+                                'date_formatted' => date('M d, Y h:i A', $lastModified),
+                            ];
+                        }
+                    }
+                }
+            } catch (\Throwable $e) {
+                logger()->warning("Check local backups warning: " . $e->getMessage());
+            }
+
+            // Sort by last modified descending (newest first)
+            usort($foundBackups, fn($a, $b) => $b['last_modified'] <=> $a['last_modified']);
+
+            $this->backupsList = array_values($foundBackups);
+            $this->backupStatus = 'success';
+            $count = count($this->backupsList);
+            $this->backupTestResult = "✅ Checked backup storage. Found {$count} backup bundle(s) available.";
+
+        } catch (\Throwable $e) {
+            $this->backupStatus = 'error';
+            $this->backupTestResult = "❌ Error checking backup storage: " . $e->getMessage();
+        }
+
+        $this->isBackupProcessing = false;
+    }
+
+    public function createBackup(): void
+    {
+        $this->isBackupProcessing = true;
+        $this->successMessage = '';
+        $this->errorMessage = '';
+
+        try {
+            // Check & ensure backup folders exist on Google Drive and Local storage
+            $this->ensureBackupDirectoriesExist();
+
+            // Fetch list of database tables
+            $tables = $this->getAllDatabaseTables();
+
+            $backupData = [
+                'app_name' => config('app.name', 'RMS CSPC'),
+                'version' => '1.0',
+                'created_at' => now()->toIso8601String(),
+                'created_by' => auth()->user()?->email ?: 'Admin',
+                'tables_count' => count($tables),
+                'total_records' => 0,
+                'tables' => [],
+            ];
+
+            $totalRecords = 0;
+            foreach ($tables as $table) {
+                try {
+                    $rows = \DB::table($table)->get()->map(function ($item) {
+                        return (array) $item;
+                    })->toArray();
+
+                    $backupData['tables'][$table] = $rows;
+                    $totalRecords += count($rows);
+                } catch (\Throwable $e) {
+                    logger()->warning("Failed backing up table {$table}: " . $e->getMessage());
+                }
+            }
+
+            $backupData['total_records'] = $totalRecords;
+
+            $jsonContent = json_encode($backupData, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+            $filename = 'rms_backup_' . date('Y-m-d_His') . '.json';
+
+            // 1. Save to local storage
+            \Illuminate\Support\Facades\Storage::disk('local')->put("backups/{$filename}", $jsonContent);
+
+            // 2. Save to Google Drive backup/ folder
+            $driveSaved = false;
+            try {
+                $driveSaved = \Illuminate\Support\Facades\Storage::disk('google')->put("backup/{$filename}", $jsonContent);
+            } catch (\Throwable $e) {
+                logger()->error("Failed uploading backup to Google Drive: " . $e->getMessage());
+            }
+
+            \DB::table('admin_logs')->insert([
+                'changes' => "Created system backup [{$filename}] ({$totalRecords} records across " . count($tables) . " tables). Saved to " . ($driveSaved ? "Google Drive & Local" : "Local Storage"),
+                'admin_id' => auth()->id(),
+                'what_system' => 3,
+                'when_changes' => now(),
+            ]);
+
+            $this->successMessage = "🎉 System backup [{$filename}] created successfully! (" . count($tables) . " tables, {$totalRecords} total records backupped to Google Drive backup folder and local storage).";
+
+            $this->checkBackups();
+
+        } catch (\Throwable $e) {
+            $this->errorMessage = "❌ Failed to create backup: " . $e->getMessage();
+        }
+
+        $this->isBackupProcessing = false;
+    }
+
+    public function downloadBackup(string $filename)
+    {
+        $filename = basename($filename);
+        $localPath = "backups/{$filename}";
+        $googlePath = "backup/{$filename}";
+
+        $content = null;
+
+        if (\Illuminate\Support\Facades\Storage::disk('local')->exists($localPath)) {
+            $content = \Illuminate\Support\Facades\Storage::disk('local')->get($localPath);
+        } elseif (\Illuminate\Support\Facades\Storage::disk('google')->exists($googlePath)) {
+            $content = \Illuminate\Support\Facades\Storage::disk('google')->get($googlePath);
+            // Save local cache copy as well
+            try {
+                \Illuminate\Support\Facades\Storage::disk('local')->put($localPath, $content);
+            } catch (\Throwable) {}
+        }
+
+        if (!$content) {
+            $this->errorMessage = "Requested backup file [{$filename}] could not be found for download.";
+            return;
+        }
+
+        return response()->streamDownload(function () use ($content) {
+            echo $content;
+        }, $filename, [
+            'Content-Type' => 'application/json',
+            'Content-Disposition' => 'attachment; filename="' . $filename . '"',
+        ]);
+    }
+
+    public function importBackup(): void
+    {
+        $this->isBackupProcessing = true;
+        $this->successMessage = '';
+        $this->errorMessage = '';
+
+        try {
+            if (!$this->uploadedBackupFile) {
+                $this->errorMessage = 'Please select a valid backup JSON file to import.';
+                $this->isBackupProcessing = false;
+                return;
+            }
+
+            $rawJson = file_get_contents($this->uploadedBackupFile->getRealPath());
+            $decoded = json_decode($rawJson, true);
+
+            if (!$decoded || !is_array($decoded) || !isset($decoded['tables'])) {
+                $this->errorMessage = 'Invalid backup file format. The file must be a valid RMS JSON backup payload.';
+                $this->isBackupProcessing = false;
+                return;
+            }
+
+            $origName = $this->uploadedBackupFile->getClientOriginalName();
+            $cleanName = preg_replace('/[^a-zA-Z0-9_\-\.]/', '', $origName);
+            if (!str_ends_with($cleanName, '.json')) {
+                $cleanName = 'rms_imported_' . date('Y-m-d_His') . '.json';
+            }
+
+            $this->ensureBackupDirectoriesExist();
+
+            // Save to local disk
+            \Illuminate\Support\Facades\Storage::disk('local')->put("backups/{$cleanName}", $rawJson);
+
+            // Save to Google Drive
+            $driveUploaded = false;
+            try {
+                $driveUploaded = \Illuminate\Support\Facades\Storage::disk('google')->put("backup/{$cleanName}", $rawJson);
+            } catch (\Throwable $e) {
+                logger()->error("Import backup Google Drive upload notice: " . $e->getMessage());
+            }
+
+            $tableCount = count($decoded['tables']);
+
+            \DB::table('admin_logs')->insert([
+                'changes' => "Imported external backup file [{$cleanName}] ({$tableCount} tables). Stored on " . ($driveUploaded ? "Google Drive & Local" : "Local Storage"),
+                'admin_id' => auth()->id(),
+                'what_system' => 3,
+                'when_changes' => now(),
+            ]);
+
+            $this->uploadedBackupFile = null;
+            $this->successMessage = "✅ Successfully imported backup file [{$cleanName}]! It is now available in your target backups list.";
+
+            $this->checkBackups();
+
+        } catch (\Throwable $e) {
+            $this->errorMessage = "Failed importing backup file: " . $e->getMessage();
+        }
+
+        $this->isBackupProcessing = false;
+    }
+
+    public function confirmRevertModal(string $filename): void
+    {
+        $this->selectedTargetBackup = basename($filename);
+        $this->backupConfirmInput = '';
+        $this->showRevertConfirmModal = true;
+    }
+
+    public function cancelRevertModal(): void
+    {
+        $this->showRevertConfirmModal = false;
+        $this->selectedTargetBackup = '';
+        $this->backupConfirmInput = '';
+    }
+
+    public function revertToTargetBackup(): void
+    {
+        $this->successMessage = '';
+        $this->errorMessage = '';
+
+        if (trim(strtoupper($this->backupConfirmInput)) !== 'REVERT') {
+            $this->errorMessage = 'Confirmation text mismatch. Please type REVERT to confirm emergency system restoration.';
+            return;
+        }
+
+        $filename = basename($this->selectedTargetBackup);
+        $localPath = "backups/{$filename}";
+        $googlePath = "backup/{$filename}";
+
+        $jsonContent = null;
+        if (\Illuminate\Support\Facades\Storage::disk('local')->exists($localPath)) {
+            $jsonContent = \Illuminate\Support\Facades\Storage::disk('local')->get($localPath);
+        } elseif (\Illuminate\Support\Facades\Storage::disk('google')->exists($googlePath)) {
+            $jsonContent = \Illuminate\Support\Facades\Storage::disk('google')->get($googlePath);
+        }
+
+        if (!$jsonContent) {
+            $this->errorMessage = "Target backup file [{$filename}] could not be retrieved from storage.";
+            $this->showRevertConfirmModal = false;
+            return;
+        }
+
+        $payload = json_decode($jsonContent, true);
+        if (!$payload || !isset($payload['tables']) || !is_array($payload['tables'])) {
+            $this->errorMessage = "Failed to parse target backup file [{$filename}]. Invalid or corrupted JSON content.";
+            $this->showRevertConfirmModal = false;
+            return;
+        }
+
+        $this->isBackupProcessing = true;
+
+        try {
+            $tablesData = $payload['tables'];
+            $driver = \DB::getDriverName();
+
+            \DB::transaction(function () use ($tablesData, $driver, $filename) {
+                // 1. Disable FK checks depending on DB driver
+                if ($driver === 'pgsql') {
+                    \DB::statement('SET CONSTRAINTS ALL DEFERRED;');
+                } elseif ($driver === 'sqlite') {
+                    \DB::statement('PRAGMA foreign_keys = OFF;');
+                } elseif ($driver === 'mysql') {
+                    \DB::statement('SET FOREIGN_KEY_CHECKS = 0;');
+                }
+
+                // 2. Restore each table
+                foreach ($tablesData as $tableName => $rows) {
+                    if (in_array($tableName, ['migrations', 'sessions', 'cache', 'cache_locks', 'jobs', 'failed_jobs'])) {
+                        continue;
+                    }
+
+                    if (!\Schema::hasTable($tableName)) {
+                        continue;
+                    }
+
+                    \DB::table($tableName)->truncate();
+
+                    if (!empty($rows)) {
+                        $chunks = array_chunk($rows, 200);
+                        foreach ($chunks as $chunk) {
+                            \DB::table($tableName)->insert($chunk);
+                        }
+                    }
+                }
+
+                // 3. Re-enable FK checks
+                if ($driver === 'sqlite') {
+                    \DB::statement('PRAGMA foreign_keys = ON;');
+                } elseif ($driver === 'mysql') {
+                    \DB::statement('SET FOREIGN_KEY_CHECKS = 1;');
+                }
+
+                \DB::table('admin_logs')->insert([
+                    'changes' => "EMERGENCY REVERT PERFORMED: System database restored to target backup [{$filename}]",
+                    'admin_id' => auth()->id(),
+                    'what_system' => 3,
+                    'when_changes' => now(),
+                ]);
+            });
+
+            $this->showRevertConfirmModal = false;
+            $this->selectedTargetBackup = '';
+            $this->backupConfirmInput = '';
+            $this->successMessage = "🎉 System successfully reverted to target backup [{$filename}]! Database records have been restored.";
+
+        } catch (\Throwable $e) {
+            $this->errorMessage = "❌ Revert process failed: " . $e->getMessage();
+        }
+
+        $this->isBackupProcessing = false;
+    }
+
+    public function deleteBackup(string $filename): void
+    {
+        $filename = basename($filename);
+        $localPath = "backups/{$filename}";
+        $googlePath = "backup/{$filename}";
+
+        try {
+            if (\Illuminate\Support\Facades\Storage::disk('local')->exists($localPath)) {
+                \Illuminate\Support\Facades\Storage::disk('local')->delete($localPath);
+            }
+
+            if (\Illuminate\Support\Facades\Storage::disk('google')->exists($googlePath)) {
+                \Illuminate\Support\Facades\Storage::disk('google')->delete($googlePath);
+            }
+
+            \DB::table('admin_logs')->insert([
+                'changes' => "Deleted backup file [{$filename}] from Google Drive & Local storage",
+                'admin_id' => auth()->id(),
+                'what_system' => 3,
+                'when_changes' => now(),
+            ]);
+
+            $this->successMessage = "Backup file [{$filename}] deleted successfully.";
+            $this->checkBackups();
+
+        } catch (\Throwable $e) {
+            $this->errorMessage = "Failed to delete backup file: " . $e->getMessage();
+        }
+    }
+
+    protected function getAllDatabaseTables(): array
+    {
+        $driver = \DB::getDriverName();
+        $tables = [];
+
+        if ($driver === 'pgsql') {
+            $results = \DB::select("SELECT table_name FROM information_schema.tables WHERE table_schema = 'public' AND table_type = 'BASE TABLE'");
+            foreach ($results as $row) {
+                $tables[] = $row->table_name;
+            }
+        } elseif ($driver === 'sqlite') {
+            $results = \DB::select("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'");
+            foreach ($results as $row) {
+                $tables[] = $row->name;
+            }
+        } elseif ($driver === 'mysql') {
+            $results = \DB::select('SHOW TABLES');
+            foreach ($results as $row) {
+                $val = array_values((array) $row)[0];
+                $tables[] = $val;
+            }
+        } else {
+            $tables = [
+                'system_settings', 'users', 'account_details', 'condition_key', 'condition_details',
+                'office', 'folder_data', 'subsystems', 'document_data', 'dts_transaction_flow',
+                'dts_action_options', 'dts_transaction_details', 'dts_flow_logs', 'rdp_documents',
+                'rdp_references', 'rdp_inventory_and_appraisal', 'rdp_records_disposition_schedule',
+                'admin_logs', 'security_logs', 'file_upload_logs', 'notifications', 'chat_messages',
+                'chat_conversations', 'personal_settings'
+            ];
+        }
+
+        return array_values(array_filter($tables, fn($t) => !in_array($t, ['migrations', 'sessions', 'cache', 'cache_locks', 'jobs', 'failed_jobs'])));
+    }
+
+    protected function formatBytes($bytes, $precision = 2): string
+    {
+        $units = ['B', 'KB', 'MB', 'GB', 'TB'];
+        $bytes = max($bytes, 0);
+        $pow = floor(($bytes ? log($bytes) : 0) / log(1024));
+        $pow = min($pow, count($units) - 1);
+        $bytes /= pow(1024, $pow);
+        return round($bytes, $precision) . ' ' . $units[$pow];
     }
 };
 ?>
@@ -1055,6 +1532,170 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - System Settings')] class
                 </div>
             @endif
         </div>
+
+        <!-- System Backup & Recovery Manager Card (Google Drive & Local Storage) -->
+        <div class="settings-card" style="border-top: 4px solid #10b981; margin-bottom: 16px;">
+            <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px; margin-bottom: 12px;">
+                <div style="display: flex; align-items: center; gap: 10px;">
+                    <i class="fa-solid fa-box-archive" style="font-size: 24px; color: #10b981;"></i>
+                    <div>
+                        <h3 style="font-size: 17px; font-weight: 800; color: #0f172a; margin: 0;">System Backup & Recovery Manager</h3>
+                        <span style="font-size: 12px; color: #64748b;">Emergency database backups saved to Google Drive (backup/ folder) and local storage</span>
+                    </div>
+                </div>
+                <div style="display: flex; align-items: center; gap: 8px;">
+                    <span style="display: inline-flex; align-items: center; gap: 6px; padding: 4px 12px; border-radius: 9999px; font-size: 12px; font-weight: 700; background: #ecfdf5; color: #047857;">
+                        <i class="fa-solid fa-shield-halved"></i> Emergency Data Protection
+                    </span>
+                </div>
+            </div>
+
+            <!-- Operational Status Banner & Quick Functions -->
+            <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px; background: #f8fafc; padding: 14px; border-radius: 8px; margin-bottom: 14px; border: 1px solid #e2e8f0;">
+                <div style="display: flex; gap: 10px; flex-wrap: wrap; align-items: center;">
+                    <!-- Function 1: Check if there's backup -->
+                    <button type="button" wire:click="checkBackups" wire:loading.attr="disabled" style="background: #0f172a; color: white; border: none; padding: 8px 14px; border-radius: 6px; font-weight: 600; font-size: 12px; cursor: pointer; display: inline-flex; align-items: center; gap: 6px;">
+                        <i class="fa-solid fa-magnifying-glass" wire:loading.remove wire:target="checkBackups"></i>
+                        <i class="fa-solid fa-spinner fa-spin" wire:loading wire:target="checkBackups"></i>
+                        <span>Check if there's backup</span>
+                    </button>
+
+                    <!-- Function 2: Create Backup -->
+                    <button type="button" wire:click="createBackup" wire:loading.attr="disabled" style="background: #10b981; color: white; border: none; padding: 8px 14px; border-radius: 6px; font-weight: 600; font-size: 12px; cursor: pointer; display: inline-flex; align-items: center; gap: 6px; box-shadow: 0 2px 6px rgba(16, 185, 129, 0.25);">
+                        <i class="fa-solid fa-cloud-arrow-up" wire:loading.remove wire:target="createBackup"></i>
+                        <i class="fa-solid fa-spinner fa-spin" wire:loading wire:target="createBackup"></i>
+                        <span>Create Backup</span>
+                    </button>
+                </div>
+
+                <!-- Function 3: Import a backup (Upload) -->
+                <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
+                    <div style="position: relative;">
+                        <input type="file" wire:model="uploadedBackupFile" id="importedBackupFileInput" accept=".json" style="display: none;">
+                        <label for="importedBackupFileInput" style="background: #0284c7; color: white; border: none; padding: 8px 14px; border-radius: 6px; font-weight: 600; font-size: 12px; cursor: pointer; display: inline-flex; align-items: center; gap: 6px; margin: 0;">
+                            <i class="fa-solid fa-file-import"></i>
+                            <span>{{ $uploadedBackupFile ? $uploadedBackupFile->getClientOriginalName() : 'Import a Backup (.json)' }}</span>
+                        </label>
+                    </div>
+
+                    @if ($uploadedBackupFile)
+                        <button type="button" wire:click="importBackup" wire:loading.attr="disabled" style="background: #16a34a; color: white; border: none; padding: 8px 14px; border-radius: 6px; font-weight: 700; font-size: 12px; cursor: pointer; display: inline-flex; align-items: center; gap: 6px;">
+                            <i class="fa-solid fa-upload" wire:loading.remove wire:target="importBackup"></i>
+                            <i class="fa-solid fa-spinner fa-spin" wire:loading wire:target="importBackup"></i>
+                            <span>Upload & Register</span>
+                        </button>
+                    @endif
+                </div>
+            </div>
+
+            @if ($backupTestResult)
+                <div style="padding: 10px 14px; border-radius: 8px; font-size: 12px; font-weight: 600; margin-bottom: 14px; background: {{ str_contains($backupTestResult, '✅') ? '#f0fdf4' : '#fef2f2' }}; color: {{ str_contains($backupTestResult, '✅') ? '#166534' : '#991b1b' }}; border: 1px solid {{ str_contains($backupTestResult, '✅') ? '#bbf7d0' : '#fecaca' }};">
+                    {{ $backupTestResult }}
+                </div>
+            @endif
+
+            <!-- Backups Inventory Table -->
+            <div style="overflow-x: auto; background: #ffffff; border: 1px solid #e2e8f0; border-radius: 8px;">
+                <table style="width: 100%; border-collapse: collapse; text-align: left; font-size: 12px;">
+                    <thead>
+                        <tr style="background: #f1f5f9; color: #475569; font-weight: 700; text-transform: uppercase; font-size: 11px; border-bottom: 1px solid #cbd5e1;">
+                            <th style="padding: 10px 14px;">Backup File Name</th>
+                            <th style="padding: 10px 14px;">Storage Location</th>
+                            <th style="padding: 10px 14px;">Date Created</th>
+                            <th style="padding: 10px 14px;">File Size</th>
+                            <th style="padding: 10px 14px; text-align: right;">Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @forelse ($backupsList as $backup)
+                            <tr style="border-bottom: 1px solid #f1f5f9; transition: background 0.15s;">
+                                <td style="padding: 10px 14px; font-weight: 700; color: #0f172a; font-family: monospace;">
+                                    <i class="fa-solid fa-file-code" style="color: #64748b; margin-right: 6px;"></i>
+                                    {{ $backup['filename'] }}
+                                </td>
+                                <td style="padding: 10px 14px;">
+                                    <span style="display: inline-flex; align-items: center; gap: 5px; font-size: 11px; font-weight: 700; color: {{ $backup['source_color'] }}; background: #f8fafc; padding: 2px 8px; border-radius: 4px; border: 1px solid #e2e8f0;">
+                                        <i class="{{ $backup['source_icon'] }}"></i>
+                                        {{ $backup['source'] }}
+                                    </span>
+                                </td>
+                                <td style="padding: 10px 14px; color: #334155;">
+                                    {{ $backup['date_formatted'] }}
+                                </td>
+                                <td style="padding: 10px 14px; color: #64748b; font-family: monospace;">
+                                    {{ $backup['size_formatted'] }}
+                                </td>
+                                <td style="padding: 10px 14px; text-align: right;">
+                                    <div style="display: flex; gap: 6px; justify-content: flex-end;">
+                                        <!-- Option: Download Local Backup -->
+                                        <button type="button" wire:click="downloadBackup('{{ $backup['filename'] }}')" style="background: #2563eb; color: white; border: none; padding: 5px 10px; border-radius: 5px; font-size: 11px; font-weight: 700; cursor: pointer; display: inline-flex; align-items: center; gap: 4px;" title="Download to local machine">
+                                            <i class="fa-solid fa-download"></i> Download
+                                        </button>
+
+                                        <!-- Function 4: Revert to Target Backup -->
+                                        <button type="button" wire:click="confirmRevertModal('{{ $backup['filename'] }}')" style="background: #d97706; color: white; border: none; padding: 5px 10px; border-radius: 5px; font-size: 11px; font-weight: 700; cursor: pointer; display: inline-flex; align-items: center; gap: 4px;" title="Revert system database to this target backup">
+                                            <i class="fa-solid fa-rotate-left"></i> Revert
+                                        </button>
+
+                                        <!-- Delete Option -->
+                                        <button type="button" wire:click="deleteBackup('{{ $backup['filename'] }}')" wire:confirm="Are you sure you want to delete this backup file?" style="background: #ef4444; color: white; border: none; padding: 5px 8px; border-radius: 5px; font-size: 11px; font-weight: 700; cursor: pointer;" title="Delete backup file">
+                                            <i class="fa-solid fa-trash-can"></i>
+                                        </button>
+                                    </div>
+                                </td>
+                            </tr>
+                        @empty
+                            <tr>
+                                <td colspan="5" style="padding: 24px; text-align: center; color: #64748b;">
+                                    <i class="fa-solid fa-box-open" style="font-size: 28px; color: #cbd5e1; margin-bottom: 8px; display: block;"></i>
+                                    <span>No backup files found on Google Drive backup/ folder or local storage.</span>
+                                    <div style="margin-top: 8px;">
+                                        <button type="button" wire:click="createBackup" style="background: #10b981; color: white; border: none; padding: 6px 14px; border-radius: 6px; font-weight: 700; font-size: 11px; cursor: pointer; display: inline-flex; align-items: center; gap: 6px;">
+                                            <i class="fa-solid fa-plus"></i> Create First Backup Now
+                                        </button>
+                                    </div>
+                                </td>
+                            </tr>
+                        @endforelse
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- Revert Confirmation Modal -->
+        @if ($showRevertConfirmModal)
+        <div style="position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(15, 23, 42, 0.85); backdrop-filter: blur(6px); z-index: 99999; display: flex; align-items: center; justify-content: center; color: white; padding: 20px;">
+            <div style="background: #ffffff; color: #0f172a; padding: 28px 32px; border-radius: 16px; box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.45); width: 100%; max-width: 520px; border: 2px solid #f59e0b;">
+                <div style="display: flex; align-items: center; gap: 12px; margin-bottom: 14px; color: #d97706;">
+                    <i class="fa-solid fa-triangle-exclamation" style="font-size: 28px;"></i>
+                    <h3 style="font-size: 19px; font-weight: 800; margin: 0; color: #0f172a;">Confirm Reverting System Database</h3>
+                </div>
+
+                <div style="background: #fffbeb; border: 1px solid #fde68a; border-radius: 8px; padding: 12px 14px; font-size: 12px; color: #92400e; margin-bottom: 16px; line-height: 1.5;">
+                    <strong>⚠️ CAUTION & EMERGENCY WARNING:</strong> You are about to restore the system database to target backup <code style="background: #fef3c7; padding: 2px 6px; border-radius: 4px; font-family: monospace; font-weight: 700; color: #78350f;">{{ $selectedTargetBackup }}</code>.
+                    All current database records will be replaced with data from this target backup file.
+                </div>
+
+                <div style="margin-bottom: 16px;">
+                    <label style="display: block; font-size: 12px; font-weight: 700; color: #334155; margin-bottom: 6px;">
+                        Type <span style="color: #ef4444; font-family: monospace;">REVERT</span> below to authorize:
+                    </label>
+                    <input type="text" wire:model="backupConfirmInput" placeholder="Type REVERT" style="width: 100%; padding: 10px 12px; border: 1px solid #cbd5e1; border-radius: 8px; font-size: 13px; font-family: monospace; font-weight: 700; color: #0f172a;">
+                </div>
+
+                <div style="display: flex; gap: 10px; justify-content: flex-end;">
+                    <button type="button" wire:click="cancelRevertModal" style="background: #e2e8f0; color: #475569; border: none; padding: 10px 18px; border-radius: 8px; font-weight: 700; font-size: 13px; cursor: pointer;">
+                        Cancel
+                    </button>
+                    <button type="button" wire:click="revertToTargetBackup" wire:loading.attr="disabled" style="background: #d97706; color: #ffffff; border: none; padding: 10px 20px; border-radius: 8px; font-weight: 700; font-size: 13px; cursor: pointer; display: inline-flex; align-items: center; gap: 8px; box-shadow: 0 4px 12px rgba(217, 119, 6, 0.3);">
+                        <i class="fa-solid fa-rotate-left" wire:loading.remove wire:target="revertToTargetBackup"></i>
+                        <i class="fa-solid fa-spinner fa-spin" wire:loading wire:target="revertToTargetBackup"></i>
+                        <span>Execute Target Revert</span>
+                    </button>
+                </div>
+            </div>
+        </div>
+        @endif
 
         <!-- 2-Column Responsive Dashboard Grid -->
         <div class="settings-dashboard-grid">

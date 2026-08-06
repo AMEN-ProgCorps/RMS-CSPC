@@ -24,9 +24,6 @@ new #[Layout('layouts.profile')] #[Title('Profile Manager - Details')] class ext
     /** @var string Masked email address of the user */
     public string $email         = '';
 
-    /** @var string Masked contact number of the user */
-    public string $contactNumber = '';
-
     /** @var int Account ID of the authenticated user */
     public int    $accountId     = 0;
 
@@ -126,7 +123,6 @@ new #[Layout('layouts.profile')] #[Title('Profile Manager - Details')] class ext
             $this->lastName      = $details->last_name      ?? '';
             $this->middleName    = $details->middle_name    ?? '';
             $this->email         = $details->email          ?? '';
-            $this->contactNumber = $details->contact_number ?? '';
             $this->accountId     = $details->account_id;
         }
 
@@ -201,18 +197,6 @@ new #[Layout('layouts.profile')] #[Title('Profile Manager - Details')] class ext
                 <div class="masked-field">
                     <span class="masked-value" data-masked="true" x-text="masked ? '{{ str_repeat('•', max(strlen($email), 12)) }}' : '{{ addslashes($email) }}'">{{ str_repeat('•', max(strlen($email), 12)) }}</span>
                     <button type="button" class="mask-toggle" data-target="email" @click="masked = !masked" aria-label="Show hidden email">
-                        <span class="eye-icon">
-                            <i class="fa-solid" :class="masked ? 'fa-eye' : 'fa-eye-slash'"></i>
-                        </span>
-                    </button>
-                </div>
-            </div>
-            
-            <div class="detail-row" setid="contacts" x-data="{ masked: true }">
-                <span class="detail-label">Contact Number</span>
-                <div class="masked-field">
-                    <span class="masked-value" data-masked="true" x-text="masked ? '••••••••' : '{{ addslashes($contactNumber ?: '—') }}'">••••••••</span>
-                    <button type="button" class="mask-toggle" data-target="contacts" @click="masked = !masked" aria-label="Show hidden contact number">
                         <span class="eye-icon">
                             <i class="fa-solid" :class="masked ? 'fa-eye' : 'fa-eye-slash'"></i>
                         </span>

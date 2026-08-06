@@ -1117,6 +1117,7 @@
     function showBackupAlreadyDoneModal() {
       const modal = document.getElementById('backupAlreadyDoneModal');
       if (!modal) return;
+      modal.style.display = 'flex';
       modal.classList.add('active');
       modal.setAttribute('aria-hidden', 'false');
       document.body.style.overflow = 'hidden';
@@ -1127,6 +1128,7 @@
       if (modal) {
         modal.classList.remove('active');
         modal.setAttribute('aria-hidden', 'true');
+        modal.style.display = 'none';
       }
       document.body.style.overflow = '';
     }

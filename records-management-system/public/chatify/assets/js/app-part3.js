@@ -1242,13 +1242,17 @@
         }
         let res;
         try { res = JSON.parse(this.responseText); } catch (e) { res = null; }
-        if (!res || !res.ok || !res.job_id) {
+        if (!res || !res.ok) {
           finishBackupError('Could not start backup: ' + (res && res.error ? res.error : 'unknown error'));
           return;
         }
         if (res.already_backed_up) {
           closeBackupProgressModal();
           showBackupAlreadyDoneModal();
+          return;
+        }
+        if (!res.job_id) {
+          finishBackupError('Could not start backup: ' + (res.error || 'unknown error'));
           return;
         }
         startBackupPolling(res.job_id);

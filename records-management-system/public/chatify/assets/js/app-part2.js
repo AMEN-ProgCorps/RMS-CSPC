@@ -20,13 +20,11 @@
       const chatForm = document.getElementById('chatForm');
       const spyNotice = document.getElementById('spyModeNotice');
       if (inputSection) inputSection.style.display = isAdminAllChatsView ? 'none' : '';
-      // NOTE: chatForm (the message box) is intentionally NEVER hidden here,
-      // even while browsing "all conversations". Normal message sending is
-      // already blocked in that mode by the isAdminAllChatsView/activeAdminConv
-      // guard in the chatForm submit handler — but "/backup" is a global
-      // Super Admin command that must stay typeable from this exact screen
-      // (no conversation selected). Hiding the whole form used to make
-      // "/backup" impossible to trigger while spying on all conversations.
+      // chatForm (the "Type a message..." box) is now hidden in spy mode too,
+      // so only the Super Admin Spy Mode notice shows on this screen.
+      // "/backup" only works when the message box is visible/typeable, so
+      // it's no longer usable from this screen — that's intentional now.
+      if (chatForm) chatForm.style.display = isAdminAllChatsView ? 'none' : '';
       if (spyNotice) spyNotice.style.display = isAdminAllChatsView ? 'flex' : 'none';
 
       if (isAdminAllChatsView) {

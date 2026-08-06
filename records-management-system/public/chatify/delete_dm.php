@@ -66,15 +66,13 @@ if (!ConversationManager::verifySecretKey($secret)) {
     die('Invalid secret key');
 }
 
-// ── Backup conversation before deletion ──────────────────────────────────────
-try {
-    $pdo = Database::getConnection();
-    ConversationManager::backupConversation($pdo, $convId, $myAccountId);
-} catch (Throwable $e) {
-    // Non-fatal — continue with deletion
-}
-
 // ── Perform deletion via ConversationManager (PostgreSQL) ─────────────────────
+// NOTE: /clear no longer writes to chatify_chat_backup. It ONLY flags the
+// conversation inactive in chat_conversations (see deleteConversation()'s
+// admin branch) — chat_messages stays the single source of truth and is
+// never touched or cloned here. Backups are now a separate, explicit admin
+// action (/backup — see backup_dm.php) so the two operations can't be
+// silently coupled again.
 $deleted = ConversationManager::deleteConversation($convId, $myAccountId, $isAdmin);
 
 if ($deleted) {

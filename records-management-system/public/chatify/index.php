@@ -389,6 +389,27 @@ try {
   </div>
   <?php endif; ?>
 
+  <!-- Backup Confirmation Modal - Only show if admin -->
+  <?php if ($is_admin): ?>
+  <div class="modal" id="backupConfirmModal" aria-hidden="true">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h3>Run Full Chat Backup</h3>
+      </div>
+      <div class="modal-body">
+        <p>This snapshots every conversation (all DMs + global chat) into the backup archive as it stands right now. Nothing in the live chat is changed or deleted.</p>
+        <label for="backupSecretInput" style="display:block;margin-top:10px;">Enter secret key to confirm:</label>
+        <input type="password" id="backupSecretInput" autocomplete="off" class="secret-key-input" />
+        <div id="backupSecretError" style="color:#b00;font-size:12px;display:none;margin-top:5px;text-align:center;">Invalid secret key.</div>
+      </div>
+      <div class="modal-footer">
+        <button class="modal-button cancel-button" id="cancelBackup">[n] Cancel</button>
+        <button class="modal-button confirm-button" id="confirmBackup" disabled>[y] Backup</button>
+      </div>
+    </div>
+  </div>
+  <?php endif; ?>
+
   <!-- Logout Confirmation Modal -->
   <div class="modal" id="logoutModal" aria-hidden="true">
     <div class="modal-content">
@@ -583,6 +604,54 @@ try {
       </div>
     </div>
   </div>
+
+  <!-- Backup Progress Modal — mirrors the clearing-chat progress modal, but
+       adds a "Run in background" option since a full backup can take a while
+       and there's no reason to force the admin to sit and watch it. -->
+  <?php if ($is_admin): ?>
+  <div class="modal" id="backupChatModal" aria-hidden="true" style="display:none;align-items:center;justify-content:center;z-index:99999;">
+    <div class="modal-content" style="max-width:320px;min-height:0;">
+      <div class="modal-header">
+        <h3>Backing Up Chats...</h3>
+      </div>
+      <div class="modal-body" style="text-align:center;padding:14px 16px;">
+        <div style="margin-bottom:10px;display:flex;justify-content:center;align-items:center;">
+          <div class="upload-spinner" style="width:32px;height:32px;border:3px solid rgba(27,116,228,0.2);border-top-color:#1b74e4;border-radius:50%;animation:uploadSpin 0.8s linear infinite;"></div>
+        </div>
+        <p id="backupChatLabel" style="margin:0 0 10px 0;font-size:13px;color:var(--text-secondary);word-break:break-all;line-height:1.4;">Backup in progress...</p>
+        <div style="width:100%;height:6px;background:var(--border-color, #e4e6eb);border-radius:4px;overflow:hidden;margin-bottom:4px;">
+          <div id="backupChatProgressBar" style="width:0%;height:100%;background:linear-gradient(90deg, #1b74e4, #00c3ff);transition:width 0.15s ease;border-radius:4px;"></div>
+        </div>
+        <div id="backupChatProgressText" style="font-size:12px;font-weight:600;color:#1b74e4;text-align:right;margin-bottom:10px;">0%</div>
+        <button type="button" class="modal-button" id="backupRunInBackgroundBtn" style="width:100%;">Continue in background</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Small pill shown while a backup job is running in the background.
+       Clicking it reopens the progress modal. -->
+  <div id="backupBgIndicator" style="display:none;position:fixed;bottom:16px;right:16px;z-index:99998;background:#1b74e4;color:#fff;padding:8px 14px;border-radius:20px;font-size:12px;font-weight:600;box-shadow:0 2px 8px rgba(0,0,0,0.25);cursor:pointer;align-items:center;gap:8px;">
+    <span class="upload-spinner" style="width:12px;height:12px;border:2px solid rgba(255,255,255,0.4);border-top-color:#fff;border-radius:50%;animation:uploadSpin 0.8s linear infinite;display:inline-block;"></span>
+    <span id="backupBgIndicatorText">Backup running…</span>
+  </div>
+
+  <!-- "Already backed up" info modal — same structure as uploadErrorModal
+       (header / body / single Close button) so it matches the rest of the
+       app's simple info modals instead of introducing a new pattern. -->
+  <div class="modal" id="backupAlreadyDoneModal" aria-hidden="true">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h3>Backup</h3>
+      </div>
+      <div class="modal-body">
+        Everything is already backed up. There are no cleared (inactive) messages waiting to be archived right now.
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="modal-button confirm-button" id="backupAlreadyDoneCloseBtn" style="border-right:none;" onclick="closeBackupAlreadyDoneModal()">Close</button>
+      </div>
+    </div>
+  </div>
+  <?php endif; ?>
 
   <?php
   // Generate HMAC SHA256 token for WebSocket authentication.

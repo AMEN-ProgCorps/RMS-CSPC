@@ -1038,6 +1038,248 @@
       }
     }
 
+    // =========================================================================
+    // "/backup" — explicit, job-tracked full backup (separate from /clear)
+    // =========================================================================
+
+    // Module-level state so polling survives the progress modal being closed
+    // or "backgrounded" — the whole point is the backup keeps going and the
+    // admin can check back in on it.
+    let backupJobId = null;
+    let backupPollTimer = null;
+    let backupFakeProgress = 0;
+    let backupFakeProgressTimer = null;
+
+    function showBackupConfirmModal() {
+      if (!isAdmin) {
+        alert("Only administrators can run a backup.");
+        return;
+      }
+      const modal = document.getElementById('backupConfirmModal');
+      const secretInputEl = document.getElementById('backupSecretInput');
+      const secretErrorEl = document.getElementById('backupSecretError');
+      const confirmBtn = document.getElementById('confirmBackup');
+      if (!modal) return;
+
+      modal.classList.add('active');
+      modal.setAttribute('aria-hidden', 'false');
+      document.body.style.overflow = 'hidden';
+      if (secretInputEl) secretInputEl.value = '';
+      if (secretErrorEl) secretErrorEl.style.display = 'none';
+      if (confirmBtn) confirmBtn.disabled = true;
+      setTimeout(() => secretInputEl && secretInputEl.focus(), 200);
+    }
+
+    function closeBackupConfirmModal() {
+      const modal = document.getElementById('backupConfirmModal');
+      if (modal) {
+        modal.classList.remove('active');
+        modal.setAttribute('aria-hidden', 'true');
+      }
+      document.body.style.overflow = '';
+    }
+
+    function showBackupProgressModal() {
+      const modal = document.getElementById('backupChatModal');
+      const bar = document.getElementById('backupChatProgressBar');
+      const text = document.getElementById('backupChatProgressText');
+      const label = document.getElementById('backupChatLabel');
+      if (!modal) return;
+
+      if (label) label.textContent = 'Backup in progress...';
+      if (bar) bar.style.width = '0%';
+      if (text) text.textContent = '0%';
+
+      modal.style.display = 'flex';
+      modal.classList.add('active');
+      modal.setAttribute('aria-hidden', 'false');
+      document.body.style.overflow = 'hidden';
+      hideBackupBgIndicator();
+    }
+
+    function updateBackupProgress(percent) {
+      const bar = document.getElementById('backupChatProgressBar');
+      const text = document.getElementById('backupChatProgressText');
+      const p = Math.min(100, Math.max(0, Math.round(percent)));
+      if (bar) bar.style.width = p + '%';
+      if (text) text.textContent = p + '%';
+    }
+
+    function closeBackupProgressModal() {
+      const modal = document.getElementById('backupChatModal');
+      if (modal) {
+        modal.style.display = 'none';
+        modal.classList.remove('active');
+        modal.setAttribute('aria-hidden', 'true');
+      }
+      document.body.style.overflow = '';
+    }
+
+    function showBackupAlreadyDoneModal() {
+      const modal = document.getElementById('backupAlreadyDoneModal');
+      if (!modal) return;
+      modal.classList.add('active');
+      modal.setAttribute('aria-hidden', 'false');
+      document.body.style.overflow = 'hidden';
+    }
+
+    function closeBackupAlreadyDoneModal() {
+      const modal = document.getElementById('backupAlreadyDoneModal');
+      if (modal) {
+        modal.classList.remove('active');
+        modal.setAttribute('aria-hidden', 'true');
+      }
+      document.body.style.overflow = '';
+    }
+
+    function showBackupBgIndicator(text) {
+      const el = document.getElementById('backupBgIndicator');
+      const textEl = document.getElementById('backupBgIndicatorText');
+      if (textEl) textEl.textContent = text || 'Backup running…';
+      if (el) {
+        el.style.display = 'flex';
+        el.onclick = function() {
+          // Re-open the modal without losing whatever progress we already faked
+          const modal = document.getElementById('backupChatModal');
+          if (modal) {
+            modal.style.display = 'flex';
+            modal.classList.add('active');
+            modal.setAttribute('aria-hidden', 'false');
+            document.body.style.overflow = 'hidden';
+          }
+          hideBackupBgIndicator();
+        };
+      }
+    }
+
+    function hideBackupBgIndicator() {
+      const el = document.getElementById('backupBgIndicator');
+      if (el) el.style.display = 'none';
+    }
+
+    function stopBackupPolling() {
+      if (backupPollTimer) { clearInterval(backupPollTimer); backupPollTimer = null; }
+      if (backupFakeProgressTimer) { clearInterval(backupFakeProgressTimer); backupFakeProgressTimer = null; }
+    }
+
+    // There's no per-row progress from the server (it's a single INSERT...SELECT),
+    // so — EXACT same trick as the clear-chat modal — fake a smooth climb toward
+    // 90% while the job is "running" (same 0.15 easing factor, same 100ms tick,
+    // same 89% cap), and only snap to 100% once backup_status.php actually
+    // reports status=completed, respecting the same minimum-visible-time before
+    // closing so it never looks like it flashed and vanished.
+    const BACKUP_MIN_VISIBLE_MS = 900;
+    let backupStartedAt = 0;
+
+    function finishBackupSuccess(rowsBackedUp) {
+      const elapsed = Date.now() - backupStartedAt;
+      const remaining = Math.max(0, BACKUP_MIN_VISIBLE_MS - elapsed);
+      setTimeout(function() {
+        updateBackupProgress(100);
+        const label = document.getElementById('backupChatLabel');
+        if (label) label.textContent = 'Backup complete (' + rowsBackedUp + ' messages archived)';
+        setTimeout(function() {
+          closeBackupProgressModal();
+          hideBackupBgIndicator();
+        }, 300);
+      }, remaining);
+    }
+
+    function finishBackupError(message) {
+      const elapsed = Date.now() - backupStartedAt;
+      const remaining = Math.max(0, BACKUP_MIN_VISIBLE_MS - elapsed);
+      setTimeout(function() {
+        const label = document.getElementById('backupChatLabel');
+        if (label) label.textContent = message;
+        showBackupBgIndicator('Backup failed ✕');
+      }, remaining);
+    }
+
+    function startBackupPolling(jobId) {
+      backupJobId = jobId;
+      backupFakeProgress = 0;
+      backupStartedAt = Date.now();
+      stopBackupPolling();
+
+      backupFakeProgressTimer = setInterval(function() {
+        backupFakeProgress += (90 - backupFakeProgress) * 0.15;
+        if (backupFakeProgress > 89) backupFakeProgress = 89;
+        updateBackupProgress(backupFakeProgress);
+      }, 100);
+
+      backupPollTimer = setInterval(function() {
+        const xhr = new XMLHttpRequest();
+        xhr.open('GET', 'backup_status.php?job_id=' + encodeURIComponent(jobId), true);
+        xhr.onload = function() {
+          if (this.status !== 200) return;
+          let res;
+          try { res = JSON.parse(this.responseText); } catch (e) { return; }
+          if (!res || !res.ok) return;
+
+          if (res.status === 'completed') {
+            stopBackupPolling();
+            finishBackupSuccess(res.rows_backed_up);
+          } else if (res.status === 'failed') {
+            stopBackupPolling();
+            finishBackupError('Backup failed: ' + (res.error || 'unknown error'));
+          }
+          // status === 'running' → keep polling, keep faking progress
+        };
+        xhr.send();
+      }, 1500);
+    }
+
+    function runBackup() {
+      const secretInputEl = document.getElementById('backupSecretInput');
+      const secretErrorEl = document.getElementById('backupSecretError');
+      const secret = secretInputEl ? secretInputEl.value.trim() : '';
+
+      if (!secret) {
+        if (secretErrorEl) {
+          secretErrorEl.style.display = 'block';
+          secretErrorEl.textContent = 'Please enter secret key';
+          secretErrorEl.style.color = 'red';
+        }
+        if (secretInputEl) secretInputEl.focus();
+        return;
+      }
+
+      closeBackupConfirmModal();
+      showBackupProgressModal();
+
+      const xhr = new XMLHttpRequest();
+      xhr.open('POST', 'backup_dm.php', true);
+      xhr.setRequestHeader('Content-type', 'application/x-www-form-urlencoded');
+      xhr.onload = function() {
+        if (this.status !== 200) {
+          const label = document.getElementById('backupChatLabel');
+          if (label) label.textContent = 'Could not start backup: ' + this.responseText;
+          return;
+        }
+        let res;
+        try { res = JSON.parse(this.responseText); } catch (e) { res = null; }
+        if (!res || !res.ok || !res.job_id) {
+          const label = document.getElementById('backupChatLabel');
+          if (label) label.textContent = 'Could not start backup: ' + (res && res.error ? res.error : 'unknown error');
+          return;
+        }
+        if (res.already_backed_up) {
+          closeBackupProgressModal();
+          showBackupAlreadyDoneModal();
+          return;
+        }
+        startBackupPolling(res.job_id);
+      };
+      xhr.onerror = function() {
+        const label = document.getElementById('backupChatLabel');
+        if (label) label.textContent = 'Network error — please try again';
+      };
+      xhr.send('secret=' + encodeURIComponent(secret));
+
+      if (secretInputEl) secretInputEl.value = '';
+      if (secretErrorEl) secretErrorEl.style.display = 'none';
+    }
+
     // Counter for unique sending-indicator IDs (supports rapid-fire sends)
     let sendingUidCounter = 0;
 
@@ -1067,6 +1309,21 @@
           messageInput.style.height = 'auto';
           messageInput.style.color = '';
           showModal();
+          return;
+        }
+
+        // ── Super Admin chat command: "/backup" ──────────────────────────
+        // Opens the backup confirmation modal. Unlike "/clear" this isn't
+        // tied to a specific conversation — it always backs up everything,
+        // so it deliberately has NO activeDM/activeAdminConv/isGlobalChat
+        // requirement anywhere in its path. Works from a totally empty
+        // "no conversation selected" screen as long as the admin can type
+        // into the message box and hit send.
+        if (cmd === '/backup') {
+          messageInput.value = '';
+          messageInput.style.height = 'auto';
+          messageInput.style.color = '';
+          showBackupConfirmModal();
           return;
         }
       }
@@ -1370,7 +1627,7 @@
     if (isAdmin) {
       messageInput.addEventListener('input', function() {
         const cmd = this.value.trim().toLowerCase();
-        if (cmd === '/clear') {
+        if (cmd === '/clear' || cmd === '/backup') {
           this.style.color = '#e74c3c';
         } else {
           this.style.color = '';
@@ -1760,6 +2017,91 @@
       });
     }
 
+    // ── "/backup" modal wiring (mirrors the /clear wiring above) ──────────────
+    const backupConfirmModalEl = document.getElementById('backupConfirmModal');
+    const backupSecretInputEl  = document.getElementById('backupSecretInput');
+    const backupSecretErrorEl  = document.getElementById('backupSecretError');
+    const confirmBackupBtn     = document.getElementById('confirmBackup');
+    const cancelBackupBtn      = document.getElementById('cancelBackup');
+    const backupRunInBgBtn     = document.getElementById('backupRunInBackgroundBtn');
+
+    if (isAdmin && backupConfirmModalEl && cancelBackupBtn && confirmBackupBtn && backupSecretInputEl) {
+      backupSecretInputEl.addEventListener('input', function() {
+        if (backupSecretInputEl.value.length === 0) {
+          confirmBackupBtn.disabled = true;
+          backupSecretErrorEl.style.display = 'none';
+          backupSecretErrorEl.textContent = '';
+          return;
+        }
+
+        const xhr = new XMLHttpRequest();
+        xhr.open('POST', 'validate_secret.php', true);
+        xhr.setRequestHeader('Content-type', 'application/x-www-form-urlencoded');
+        xhr.onload = function() {
+          if (this.status === 200) {
+            try {
+              const res = JSON.parse(this.responseText);
+              confirmBackupBtn.disabled = !res.valid;
+              backupSecretErrorEl.style.display = 'block';
+              backupSecretErrorEl.textContent = res.valid ? 'Correct secret key' : 'Invalid secret key';
+              backupSecretErrorEl.style.color = res.valid ? 'green' : 'red';
+            } catch (e) {
+              confirmBackupBtn.disabled = true;
+              backupSecretErrorEl.style.display = 'block';
+              backupSecretErrorEl.textContent = 'Invalid secret key';
+              backupSecretErrorEl.style.color = 'red';
+            }
+          } else {
+            confirmBackupBtn.disabled = true;
+            backupSecretErrorEl.style.display = 'block';
+            backupSecretErrorEl.textContent = 'Invalid secret key';
+            backupSecretErrorEl.style.color = 'red';
+          }
+        };
+        xhr.send('secretKey=' + encodeURIComponent(backupSecretInputEl.value));
+      });
+
+      backupSecretInputEl.addEventListener('keydown', function(e) {
+        if (e.key === 'Enter') {
+          e.preventDefault();
+          if (confirmBackupBtn.disabled) {
+            backupSecretErrorEl.style.display = 'block';
+            backupSecretInputEl.focus();
+            return;
+          }
+          runBackup();
+        }
+      });
+
+      cancelBackupBtn.addEventListener('click', closeBackupConfirmModal);
+      confirmBackupBtn.addEventListener('click', function() {
+        if (confirmBackupBtn.disabled) {
+          backupSecretErrorEl.style.display = 'block';
+          backupSecretInputEl.focus();
+          return;
+        }
+        runBackup();
+      });
+
+      backupConfirmModalEl.addEventListener('click', function(e) {
+        if (e.target === backupConfirmModalEl) closeBackupConfirmModal();
+      });
+    }
+
+    if (backupRunInBgBtn) {
+      backupRunInBgBtn.addEventListener('click', function() {
+        closeBackupProgressModal();
+        if (backupJobId) showBackupBgIndicator('Backup running…');
+      });
+    }
+
+    const backupAlreadyDoneModalEl = document.getElementById('backupAlreadyDoneModal');
+    if (backupAlreadyDoneModalEl) {
+      backupAlreadyDoneModalEl.addEventListener('click', function(e) {
+        if (e.target === backupAlreadyDoneModalEl) closeBackupAlreadyDoneModal();
+      });
+    }
+
     // User Mention Autocomplete System Completely Removed
 
     // Keyboard shortcuts
@@ -1767,6 +2109,12 @@
       if (e.key === 'Escape') {
         if (confirmModal && confirmModal.classList.contains('active') && isAdmin) {
           closeModal();
+        }
+        if (backupConfirmModalEl && backupConfirmModalEl.classList.contains('active') && isAdmin) {
+          closeBackupConfirmModal();
+        }
+        if (backupAlreadyDoneModalEl && backupAlreadyDoneModalEl.classList.contains('active') && isAdmin) {
+          closeBackupAlreadyDoneModal();
         }
         if (logoutModal && logoutModal.classList.contains('active')) {
           closeLogoutModal();

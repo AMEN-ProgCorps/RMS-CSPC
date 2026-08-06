@@ -117,6 +117,29 @@ class ConversationManager
     }
 
     // -------------------------------------------------------------------------
+    // Message status ('active' | 'inactive') — self-heal on-the-fly
+    // -------------------------------------------------------------------------
+
+    /**
+     * Ensure chat_messages.status exists (safety net if the migration hasn't
+     * run yet — mirrors the ensureConversationsTable() self-heal pattern
+     * used elsewhere in this class).
+     */
+    private static function ensureMessageStatusColumn(PDO $pdo): void
+    {
+        static $checked = false;
+        if ($checked) return;
+        $checked = true;
+
+        try {
+            $pdo->exec("ALTER TABLE chat_messages ADD COLUMN IF NOT EXISTS status VARCHAR(10) NOT NULL DEFAULT 'active'");
+            $pdo->exec("CREATE INDEX IF NOT EXISTS idx_chat_messages_status ON chat_messages (conv_id, status)");
+        } catch (Throwable $t) {
+            error_log('ConversationManager::ensureMessageStatusColumn() — ' . $t->getMessage());
+        }
+    }
+
+    // -------------------------------------------------------------------------
     // Message Read / Write
     // -------------------------------------------------------------------------
 
@@ -130,6 +153,7 @@ class ConversationManager
     ): array {
         try {
             $pdo = Database::getConnection();
+            self::ensureMessageStatusColumn($pdo);
 
             if ($beforeUuid === null) {
                 $stmt = $pdo->prepare(
@@ -141,9 +165,8 @@ class ConversationManager
                             m.is_edited,
                             to_char(m.created_at AT TIME ZONE \'Asia/Manila\', \'YYYY-MM-DD HH24:MI:SS.US\') AS timestamp
                      FROM chat_messages m
-                     LEFT JOIN chat_conversations c ON c.conv_id = m.conv_id
                      WHERE m.conv_id = :conv_id
-                       AND (c.cleared_at IS NULL OR m.created_at > c.cleared_at)
+                       AND m.status = \'active\'
                      ORDER BY m.created_at DESC, m.id DESC
                      LIMIT :lim'
                 );
@@ -169,10 +192,9 @@ class ConversationManager
                             m.is_edited,
                             to_char(m.created_at AT TIME ZONE \'Asia/Manila\', \'YYYY-MM-DD HH24:MI:SS.US\') AS timestamp
                      FROM chat_messages m
-                     LEFT JOIN chat_conversations c ON c.conv_id = m.conv_id
                      WHERE m.conv_id = :conv_id
                        AND (m.created_at, m.id) < (:cur_ts, :cur_id)
-                       AND (c.cleared_at IS NULL OR m.created_at > c.cleared_at)
+                       AND m.status = \'active\'
                      ORDER BY m.created_at DESC, m.id DESC
                      LIMIT :lim'
                 );
@@ -200,6 +222,7 @@ class ConversationManager
     ): array {
         try {
             $pdo = Database::getConnection();
+            self::ensureMessageStatusColumn($pdo);
 
             $cur = $pdo->prepare(
                 'SELECT created_at, id FROM chat_messages WHERE msg_uuid = :uuid LIMIT 1'
@@ -220,10 +243,9 @@ class ConversationManager
                         m.is_edited,
                         to_char(m.created_at AT TIME ZONE \'Asia/Manila\', \'YYYY-MM-DD HH24:MI:SS.US\') AS timestamp
                  FROM chat_messages m
-                 LEFT JOIN chat_conversations c ON c.conv_id = m.conv_id
                  WHERE m.conv_id = :conv_id
                    AND (m.created_at, m.id) > (:cur_ts, :cur_id)
-                   AND (c.cleared_at IS NULL OR m.created_at > c.cleared_at)
+                   AND m.status = \'active\'
                  ORDER BY m.created_at ASC, m.id ASC
                  LIMIT :lim'
             );
@@ -334,10 +356,24 @@ class ConversationManager
             }
 
             if ($isAdmin) {
-                // Soft-delete: chat_messages rows are NEVER removed here. We only
-                // flag the conversation inactive and stamp cleared_at, so every
-                // message up to this instant is hidden from loadRaw/loadIncrementalRaw
-                // and the sidebar, while remaining fully intact in the database.
+                // Row-level clear: flip every currently-active message in this
+                // conversation to 'inactive'. Rows stay in chat_messages —
+                // this is the ONLY place their status ever changes to
+                // 'inactive', and it's the thing loadRaw()/loadIncrementalRaw()
+                // now filter on directly (no more chat_conversations cutoff-
+                // timestamp indirection).
+                self::ensureMessageStatusColumn($pdo);
+                $pdo->prepare(
+                    "UPDATE chat_messages
+                     SET status = 'inactive', updated_at = NOW()
+                     WHERE conv_id = :conv_id AND status = 'active'"
+                )->execute([':conv_id' => $convId]);
+
+                // Soft-delete metadata bookkeeping: chat_conversations rows are
+                // also flagged inactive/cleared so the sidebar/last-message
+                // summary hides this conversation. This is separate from the
+                // per-message status above — it's about the conversation-list
+                // entry, not individual message visibility.
                 self::ensureConversationsTable($pdo);
                 $stmt = $pdo->prepare(
                     'UPDATE chat_conversations
@@ -992,13 +1028,34 @@ class ConversationManager
     // Backup helpers
     // -------------------------------------------------------------------------
 
-    public static function backupConversation(PDO $pdo, string $convId, int $archivedBy): void
+    /**
+     * Snapshot ONE conversation into chatify_chat_backup. NOT called by
+     * /clear anymore — kept available for a possible future "backup this
+     * conversation only" admin action, but currently only reachable via
+     * code, not any HTTP endpoint.
+     */
+    /**
+     * Snapshot ONE conversation's INACTIVE (cleared) messages into
+     * chatify_chat_backup, then remove them from chat_messages — i.e. this
+     * moves rows rather than cloning them, so running backup twice with
+     * nothing newly cleared in between finds nothing left to move. NOT
+     * called by /clear anymore — kept available for a possible future
+     * "backup this conversation only" admin action, but currently only
+     * reachable via code, not any HTTP endpoint.
+     */
+    public static function backupConversation(PDO $pdo, string $convId, int $archivedBy): int
     {
         try {
             self::ensureBackupTable($pdo);
+            self::ensureMessageStatusColumn($pdo);
 
-            $pdo->prepare(
-                "INSERT INTO chatify_chat_backup
+            $stmt = $pdo->prepare(
+                "WITH moved AS (
+                    DELETE FROM chat_messages
+                    WHERE conv_id = :conv_id AND status = 'inactive'
+                    RETURNING conv_id, sender_id, receiver_id, message, msg_type, created_at, updated_at, msg_uuid
+                 )
+                 INSERT INTO chatify_chat_backup
                     (conv_id, sender_id, receiver_id, message, msg_type,
                      created_at, updated_at, msg_uuid,
                      status, is_active, archived_at, archived_by)
@@ -1006,21 +1063,37 @@ class ConversationManager
                     conv_id, sender_id, receiver_id, message, msg_type,
                     created_at, updated_at, msg_uuid,
                     'inactive', false, NOW(), :archived_by
-                 FROM chat_messages
-                 WHERE conv_id = :conv_id"
-            )->execute([':conv_id' => $convId, ':archived_by' => $archivedBy]);
+                 FROM moved"
+            );
+            $stmt->execute([':conv_id' => $convId, ':archived_by' => $archivedBy]);
+            return $stmt->rowCount();
         } catch (PDOException $e) {
             error_log('ConversationManager::backupConversation() — ' . $e->getMessage());
+            return 0;
         }
     }
 
-    public static function backupAll(PDO $pdo, int $archivedBy): void
+    /**
+     * Snapshot every DM conversation's INACTIVE (cleared) messages into
+     * chatify_chat_backup and remove them from chat_messages. Conversations
+     * (or messages within a conversation) that haven't been cleared are
+     * never touched — only rows a /clear already flagged 'inactive' are
+     * eligible. Only ever called explicitly via the /backup command
+     * (backup_dm.php) — never as a side effect of /clear.
+     */
+    public static function backupAll(PDO $pdo, int $archivedBy): int
     {
         try {
             self::ensureBackupTable($pdo);
+            self::ensureMessageStatusColumn($pdo);
 
-            $pdo->prepare(
-                "INSERT INTO chatify_chat_backup
+            $stmt = $pdo->prepare(
+                "WITH moved AS (
+                    DELETE FROM chat_messages
+                    WHERE conv_id != 'global' AND status = 'inactive'
+                    RETURNING conv_id, sender_id, receiver_id, message, msg_type, created_at, updated_at, msg_uuid
+                 )
+                 INSERT INTO chatify_chat_backup
                     (conv_id, sender_id, receiver_id, message, msg_type,
                      created_at, updated_at, msg_uuid,
                      status, is_active, archived_at, archived_by)
@@ -1028,21 +1101,29 @@ class ConversationManager
                     conv_id, sender_id, receiver_id, message, msg_type,
                     created_at, updated_at, msg_uuid,
                     'inactive', false, NOW(), :archived_by
-                 FROM chat_messages
-                 WHERE conv_id != 'global'"
-            )->execute([':archived_by' => $archivedBy]);
+                 FROM moved"
+            );
+            $stmt->execute([':archived_by' => $archivedBy]);
+            return $stmt->rowCount();
         } catch (PDOException $e) {
             error_log('ConversationManager::backupAll() — ' . $e->getMessage());
+            return 0;
         }
     }
 
-    public static function backupGlobal(PDO $pdo, int $archivedBy): void
+    public static function backupGlobal(PDO $pdo, int $archivedBy): int
     {
         try {
             self::ensureBackupTable($pdo);
+            self::ensureMessageStatusColumn($pdo);
 
-            $pdo->prepare(
-                "INSERT INTO chatify_chat_backup
+            $stmt = $pdo->prepare(
+                "WITH moved AS (
+                    DELETE FROM chat_messages
+                    WHERE conv_id = 'global' AND status = 'inactive'
+                    RETURNING conv_id, sender_id, receiver_id, message, msg_type, created_at, updated_at, msg_uuid
+                 )
+                 INSERT INTO chatify_chat_backup
                     (conv_id, sender_id, receiver_id, message, msg_type,
                      created_at, updated_at, msg_uuid,
                      status, is_active, archived_at, archived_by)
@@ -1050,11 +1131,33 @@ class ConversationManager
                     conv_id, sender_id, receiver_id, message, msg_type,
                     created_at, updated_at, msg_uuid,
                     'inactive', false, NOW(), :archived_by
-                 FROM chat_messages
-                 WHERE conv_id = 'global'"
-            )->execute([':archived_by' => $archivedBy]);
+                 FROM moved"
+            );
+            $stmt->execute([':archived_by' => $archivedBy]);
+            return $stmt->rowCount();
         } catch (PDOException $e) {
             error_log('ConversationManager::backupGlobal() — ' . $e->getMessage());
+            return 0;
+        }
+    }
+
+    /**
+     * How many messages are sitting in 'inactive' status right now, waiting
+     * to be archived. Used by backup_dm.php to decide whether there's
+     * anything to actually back up, or whether to just tell the admin
+     * "already backed up".
+     */
+    public static function countInactiveMessages(): int
+    {
+        try {
+            $pdo = Database::getConnection();
+            self::ensureMessageStatusColumn($pdo);
+            $stmt = $pdo->query("SELECT COUNT(*) AS c FROM chat_messages WHERE status = 'inactive'");
+            $row = $stmt->fetch();
+            return $row ? (int) $row['c'] : 0;
+        } catch (Throwable $e) {
+            error_log('ConversationManager::countInactiveMessages() — ' . $e->getMessage());
+            return 0;
         }
     }
 
@@ -1088,6 +1191,106 @@ class ConversationManager
     }
 
     // -------------------------------------------------------------------------
+    // Backup Jobs (explicit /backup command — tracked so the progress modal
+    // can poll status and keep running after the admin closes/backgrounds it)
+    // -------------------------------------------------------------------------
+
+    private static function ensureBackupJobsTable(PDO $pdo): void
+    {
+        static $checked = false;
+        if ($checked) return;
+        $checked = true;
+
+        try {
+            $pdo->query("SELECT 1 FROM chatify_backup_jobs LIMIT 1");
+        } catch (PDOException $e) {
+            $pdo->exec("
+                CREATE TABLE IF NOT EXISTS chatify_backup_jobs (
+                    id              BIGSERIAL PRIMARY KEY,
+                    status          VARCHAR(20)  NOT NULL DEFAULT 'running',
+                    triggered_by    INTEGER,
+                    rows_backed_up  INTEGER      NOT NULL DEFAULT 0,
+                    error_message   TEXT,
+                    started_at      TIMESTAMPTZ(6) NOT NULL DEFAULT NOW(),
+                    finished_at     TIMESTAMPTZ(6)
+                )
+            ");
+        }
+    }
+
+    /**
+     * Create a new backup job row (status=running) and return its ID.
+     * Call this BEFORE doing any real work so the frontend has a job_id to
+     * poll immediately, even if the actual backup runs after the HTTP
+     * response has already been sent (see backup_dm.php).
+     */
+    public static function createBackupJob(int $triggeredBy): ?int
+    {
+        try {
+            $pdo = Database::getConnection();
+            self::ensureBackupJobsTable($pdo);
+            $stmt = $pdo->prepare(
+                "INSERT INTO chatify_backup_jobs (status, triggered_by, started_at)
+                 VALUES ('running', :by, NOW()) RETURNING id"
+            );
+            $stmt->execute([':by' => $triggeredBy]);
+            $row = $stmt->fetch();
+            return $row ? (int) $row['id'] : null;
+        } catch (Throwable $e) {
+            error_log('ConversationManager::createBackupJob() — ' . $e->getMessage());
+            return null;
+        }
+    }
+
+    /**
+     * Run the actual full backup (all DM conversations + global chat) for a
+     * job and mark it completed/failed. Safe to call after the HTTP response
+     * for the triggering request has already been closed out (fastcgi_finish_request)
+     * — that's the whole point: the job row is how the client checks on it.
+     */
+    public static function runFullBackupJob(int $jobId, int $triggeredBy): void
+    {
+        try {
+            $pdo = Database::getConnection();
+            $rows  = self::backupAll($pdo, $triggeredBy);
+            $rows += self::backupGlobal($pdo, $triggeredBy);
+
+            self::ensureBackupJobsTable($pdo);
+            $pdo->prepare(
+                "UPDATE chatify_backup_jobs
+                 SET status = 'completed', rows_backed_up = :rows, finished_at = NOW()
+                 WHERE id = :id"
+            )->execute([':rows' => $rows, ':id' => $jobId]);
+        } catch (Throwable $e) {
+            error_log('ConversationManager::runFullBackupJob() — ' . $e->getMessage());
+            try {
+                $pdo = Database::getConnection();
+                self::ensureBackupJobsTable($pdo);
+                $pdo->prepare(
+                    "UPDATE chatify_backup_jobs
+                     SET status = 'failed', error_message = :err, finished_at = NOW()
+                     WHERE id = :id"
+                )->execute([':err' => substr($e->getMessage(), 0, 500), ':id' => $jobId]);
+            } catch (Throwable $t2) {}
+        }
+    }
+
+    public static function getBackupJob(int $jobId): ?array
+    {
+        try {
+            $pdo = Database::getConnection();
+            self::ensureBackupJobsTable($pdo);
+            $stmt = $pdo->prepare('SELECT * FROM chatify_backup_jobs WHERE id = :id LIMIT 1');
+            $stmt->execute([':id' => $jobId]);
+            $row = $stmt->fetch();
+            return $row ?: null;
+        } catch (Throwable $e) {
+            error_log('ConversationManager::getBackupJob() — ' . $e->getMessage());
+            return null;
+        }
+    }
+
+    // -------------------------------------------------------------------------
     // Private helpers
     // -------------------------------------------------------------------------
 
@@ -1117,11 +1320,12 @@ class ConversationManager
 
         try {
             $pdo  = Database::getConnection();
+            self::ensureMessageStatusColumn($pdo);
 
             // 1. Insert message record into chat_messages (Primary source of truth)
             $stmt = $pdo->prepare(
-                'INSERT INTO chat_messages (conv_id, sender_id, receiver_id, message, msg_type, created_at, updated_at, msg_uuid)
-                 VALUES (:conv_id, :sender_id, :receiver_id, :message, :msg_type, :created_at, :created_at, :msg_uuid)'
+                'INSERT INTO chat_messages (conv_id, sender_id, receiver_id, message, msg_type, status, created_at, updated_at, msg_uuid)
+                 VALUES (:conv_id, :sender_id, :receiver_id, :message, :msg_type, \'active\', :created_at, :created_at, :msg_uuid)'
             );
             $stmt->execute([
                 ':conv_id'     => $convId,

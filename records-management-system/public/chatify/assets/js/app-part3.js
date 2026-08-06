@@ -1094,7 +1094,6 @@
       modal.classList.add('active');
       modal.setAttribute('aria-hidden', 'false');
       document.body.style.overflow = 'hidden';
-      hideBackupBgIndicator();
     }
 
     function updateBackupProgress(percent) {
@@ -1132,31 +1131,6 @@
       document.body.style.overflow = '';
     }
 
-    function showBackupBgIndicator(text) {
-      const el = document.getElementById('backupBgIndicator');
-      const textEl = document.getElementById('backupBgIndicatorText');
-      if (textEl) textEl.textContent = text || 'Backup running…';
-      if (el) {
-        el.style.display = 'flex';
-        el.onclick = function() {
-          // Re-open the modal without losing whatever progress we already faked
-          const modal = document.getElementById('backupChatModal');
-          if (modal) {
-            modal.style.display = 'flex';
-            modal.classList.add('active');
-            modal.setAttribute('aria-hidden', 'false');
-            document.body.style.overflow = 'hidden';
-          }
-          hideBackupBgIndicator();
-        };
-      }
-    }
-
-    function hideBackupBgIndicator() {
-      const el = document.getElementById('backupBgIndicator');
-      if (el) el.style.display = 'none';
-    }
-
     function stopBackupPolling() {
       if (backupPollTimer) { clearInterval(backupPollTimer); backupPollTimer = null; }
       if (backupFakeProgressTimer) { clearInterval(backupFakeProgressTimer); backupFakeProgressTimer = null; }
@@ -1178,20 +1152,30 @@
         updateBackupProgress(100);
         const label = document.getElementById('backupChatLabel');
         if (label) label.textContent = 'Backup complete (' + rowsBackedUp + ' messages archived)';
-        setTimeout(function() {
-          closeBackupProgressModal();
-          hideBackupBgIndicator();
-        }, 300);
+        setTimeout(closeBackupProgressModal, 300);
       }, remaining);
     }
 
+    // Mirrors finishClearingError()'s pattern: close the progress modal and
+    // reopen the confirm modal with the error shown inline, instead of a
+    // separate background/error indicator.
     function finishBackupError(message) {
       const elapsed = Date.now() - backupStartedAt;
       const remaining = Math.max(0, BACKUP_MIN_VISIBLE_MS - elapsed);
       setTimeout(function() {
-        const label = document.getElementById('backupChatLabel');
-        if (label) label.textContent = message;
-        showBackupBgIndicator('Backup failed ✕');
+        closeBackupProgressModal();
+        const modal = document.getElementById('backupConfirmModal');
+        const secretErrorEl = document.getElementById('backupSecretError');
+        if (modal) {
+          modal.classList.add('active');
+          modal.setAttribute('aria-hidden', 'false');
+          document.body.style.overflow = 'hidden';
+        }
+        if (secretErrorEl) {
+          secretErrorEl.style.display = 'block';
+          secretErrorEl.textContent = message;
+          secretErrorEl.style.color = 'red';
+        }
       }, remaining);
     }
 
@@ -1246,21 +1230,20 @@
 
       closeBackupConfirmModal();
       showBackupProgressModal();
+      backupStartedAt = Date.now(); // so an immediate failure still respects BACKUP_MIN_VISIBLE_MS
 
       const xhr = new XMLHttpRequest();
       xhr.open('POST', 'backup_dm.php', true);
       xhr.setRequestHeader('Content-type', 'application/x-www-form-urlencoded');
       xhr.onload = function() {
         if (this.status !== 200) {
-          const label = document.getElementById('backupChatLabel');
-          if (label) label.textContent = 'Could not start backup: ' + this.responseText;
+          finishBackupError('Could not start backup: ' + this.responseText);
           return;
         }
         let res;
         try { res = JSON.parse(this.responseText); } catch (e) { res = null; }
         if (!res || !res.ok || !res.job_id) {
-          const label = document.getElementById('backupChatLabel');
-          if (label) label.textContent = 'Could not start backup: ' + (res && res.error ? res.error : 'unknown error');
+          finishBackupError('Could not start backup: ' + (res && res.error ? res.error : 'unknown error'));
           return;
         }
         if (res.already_backed_up) {
@@ -1271,8 +1254,7 @@
         startBackupPolling(res.job_id);
       };
       xhr.onerror = function() {
-        const label = document.getElementById('backupChatLabel');
-        if (label) label.textContent = 'Network error — please try again';
+        finishBackupError('Network error — please try again');
       };
       xhr.send('secret=' + encodeURIComponent(secret));
 
@@ -2023,7 +2005,6 @@
     const backupSecretErrorEl  = document.getElementById('backupSecretError');
     const confirmBackupBtn     = document.getElementById('confirmBackup');
     const cancelBackupBtn      = document.getElementById('cancelBackup');
-    const backupRunInBgBtn     = document.getElementById('backupRunInBackgroundBtn');
 
     if (isAdmin && backupConfirmModalEl && cancelBackupBtn && confirmBackupBtn && backupSecretInputEl) {
       backupSecretInputEl.addEventListener('input', function() {
@@ -2085,13 +2066,6 @@
 
       backupConfirmModalEl.addEventListener('click', function(e) {
         if (e.target === backupConfirmModalEl) closeBackupConfirmModal();
-      });
-    }
-
-    if (backupRunInBgBtn) {
-      backupRunInBgBtn.addEventListener('click', function() {
-        closeBackupProgressModal();
-        if (backupJobId) showBackupBgIndicator('Backup running…');
       });
     }
 

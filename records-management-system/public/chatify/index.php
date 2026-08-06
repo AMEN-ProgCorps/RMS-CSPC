@@ -605,9 +605,10 @@ try {
     </div>
   </div>
 
-  <!-- Backup Progress Modal — mirrors the clearing-chat progress modal, but
-       adds a "Run in background" option since a full backup can take a while
-       and there's no reason to force the admin to sit and watch it. -->
+  <!-- Backup Progress Modal — mirrors the clearing-chat progress modal
+       exactly (same size, same "no buttons while running" behavior). The
+       admin waits for it like /clear; if it fails, this closes and the
+       confirm modal reopens with the error shown, same as /clear does. -->
   <?php if ($is_admin): ?>
   <div class="modal" id="backupChatModal" aria-hidden="true" style="display:none;align-items:center;justify-content:center;z-index:99999;">
     <div class="modal-content" style="max-width:320px;min-height:0;">
@@ -622,24 +623,16 @@ try {
         <div style="width:100%;height:6px;background:var(--border-color, #e4e6eb);border-radius:4px;overflow:hidden;margin-bottom:4px;">
           <div id="backupChatProgressBar" style="width:0%;height:100%;background:linear-gradient(90deg, #1b74e4, #00c3ff);transition:width 0.15s ease;border-radius:4px;"></div>
         </div>
-        <div id="backupChatProgressText" style="font-size:12px;font-weight:600;color:#1b74e4;text-align:right;margin-bottom:10px;">0%</div>
-        <button type="button" class="modal-button" id="backupRunInBackgroundBtn" style="width:100%;">Continue in background</button>
+        <div id="backupChatProgressText" style="font-size:12px;font-weight:600;color:#1b74e4;text-align:right;">0%</div>
       </div>
     </div>
   </div>
 
-  <!-- Small pill shown while a backup job is running in the background.
-       Clicking it reopens the progress modal. -->
-  <div id="backupBgIndicator" style="display:none;position:fixed;bottom:16px;right:16px;z-index:99998;background:#1b74e4;color:#fff;padding:8px 14px;border-radius:20px;font-size:12px;font-weight:600;box-shadow:0 2px 8px rgba(0,0,0,0.25);cursor:pointer;align-items:center;gap:8px;">
-    <span class="upload-spinner" style="width:12px;height:12px;border:2px solid rgba(255,255,255,0.4);border-top-color:#fff;border-radius:50%;animation:uploadSpin 0.8s linear infinite;display:inline-block;"></span>
-    <span id="backupBgIndicatorText">Backup running…</span>
-  </div>
-
-  <!-- "Already backed up" info modal — same structure as uploadErrorModal
-       (header / body / single Close button) so it matches the rest of the
-       app's simple info modals instead of introducing a new pattern. -->
-  <div class="modal" id="backupAlreadyDoneModal" aria-hidden="true">
-    <div class="modal-content">
+  <!-- "Already backed up" info modal — same structure AND same compact
+       sizing as uploadErrorModal (header / body / single Close button)
+       so it matches the rest of the app's simple info modals. -->
+  <div class="modal" id="backupAlreadyDoneModal" aria-hidden="true" style="display:none;align-items:center;justify-content:center;z-index:99999;">
+    <div class="modal-content" style="max-width:320px;min-height:0;">
       <div class="modal-header">
         <h3>Backup</h3>
       </div>

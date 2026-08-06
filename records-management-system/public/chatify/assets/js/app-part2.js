@@ -1,5 +1,4 @@
-
-    // ── Admin: eye-button toggle for "all users chatting" view ──────────────
+// ── Admin: eye-button toggle for "all users chatting" view ──────────────
     const adminEyeToggleBtn = document.getElementById('adminEyeToggleBtn');
     const adminKeyToggleBtn = document.getElementById('adminKeyToggleBtn');
     const ownSidebarSearch = document.getElementById('ownSidebarSearch');
@@ -21,7 +20,13 @@
       const chatForm = document.getElementById('chatForm');
       const spyNotice = document.getElementById('spyModeNotice');
       if (inputSection) inputSection.style.display = isAdminAllChatsView ? 'none' : '';
-      if (chatForm) chatForm.style.display = isAdminAllChatsView ? 'none' : '';
+      // NOTE: chatForm (the message box) is intentionally NEVER hidden here,
+      // even while browsing "all conversations". Normal message sending is
+      // already blocked in that mode by the isAdminAllChatsView/activeAdminConv
+      // guard in the chatForm submit handler — but "/backup" is a global
+      // Super Admin command that must stay typeable from this exact screen
+      // (no conversation selected). Hiding the whole form used to make
+      // "/backup" impossible to trigger while spying on all conversations.
       if (spyNotice) spyNotice.style.display = isAdminAllChatsView ? 'flex' : 'none';
 
       if (isAdminAllChatsView) {
@@ -231,4 +236,3 @@
         if (errDiv) { errDiv.textContent = 'Network or server error while updating secret key.'; errDiv.style.display = 'block'; }
       });
     }
-

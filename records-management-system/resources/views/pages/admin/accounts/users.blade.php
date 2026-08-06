@@ -28,6 +28,9 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Users')] class extends C
     /** @var string Sorting order direction ('asc' or 'desc') */
     public string $sortDir = 'asc';
 
+    /** @var string View Mode toggle ('table' or 'grid') */
+    public string $viewMode = 'table';
+
     /** @var int|null The ID of the currently selected user profile being viewed/edited. (-1 = create mode) */
     public ?int $selectedUserId = null;
 
@@ -513,35 +516,94 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Users')] class extends C
                     @endif
                 </button>
             </div>
+
+            <!-- View Mode Toggle -->
+            <div class="view-mode-toggle" style="display: flex; gap: 2px; background: #f1f5f9; padding: 2px; border-radius: 6px; border: 1px solid #cbd5e1; margin-left: auto;">
+                <button type="button" wire:click="$set('viewMode', 'grid')" title="Cards Grid Layout" style="padding: 4px 10px; border-radius: 4px; border: none; font-size: 11px; font-weight: 600; cursor: pointer; background: {{ $viewMode === 'grid' ? '#ffffff' : 'transparent' }}; color: {{ $viewMode === 'grid' ? '#0f172a' : '#64748b' }}; box-shadow: {{ $viewMode === 'grid' ? '0 1px 2px rgba(0,0,0,0.08)' : 'none' }}; display: flex; align-items: center; gap: 4px; font-family: 'Inter', sans-serif;">
+                    <i class="fa-solid fa-border-all"></i> Cards
+                </button>
+                <button type="button" wire:click="$set('viewMode', 'table')" title="Table Layout" style="padding: 4px 10px; border-radius: 4px; border: none; font-size: 11px; font-weight: 600; cursor: pointer; background: {{ $viewMode === 'table' ? '#ffffff' : 'transparent' }}; color: {{ $viewMode === 'table' ? '#0f172a' : '#64748b' }}; box-shadow: {{ $viewMode === 'table' ? '0 1px 2px rgba(0,0,0,0.08)' : 'none' }}; display: flex; align-items: center; gap: 4px; font-family: 'Inter', sans-serif;">
+                    <i class="fa-solid fa-table-list"></i> Table
+                </button>
+            </div>
         </div>
-        
-        <div class="users-list">
-            @forelse($users as $user)
-                @php
-                    $userDet = $user->details;
-                    $initials = strtoupper(substr($userDet?->first_name ?: '?', 0, 1) . substr($userDet?->last_name ?: '?', 0, 1));
-                    $displayName = $userDet ? ($userDet->first_name . ' ' . $userDet->last_name) : $user->username;
-                    $roleKey = \DB::table('condition_key')->where('id', $user->account_role)->first();
-                @endphp
-                <div class="user-item-card {{ $selectedUserId === $user->id ? 'active' : '' }}" wire:key="user-{{ $user->id }}" wire:click="selectUser({{ $user->id }})">
-                    <div class="user-avatar-small">
-                        <span>{{ $initials }}</span>
+
+        @if($viewMode === 'table')
+            <!-- Table Layout View -->
+            <div style="overflow-x: auto; max-height: calc(100vh - 280px); overflow-y: auto;">
+                <table style="width: 100%; border-collapse: collapse; font-family: 'Inter', sans-serif; font-size: 12.5px;">
+                    <thead>
+                        <tr style="background: #f8fafc; color: #475569; text-align: left; position: sticky; top: 0; z-index: 10; font-weight: 600; font-size: 11.5px; border-bottom: 1.5px solid #cbd5e1;">
+                            <th style="padding: 8px 10px;">User Name</th>
+                            <th style="padding: 8px 10px;">Email (Google Account)</th>
+                            <th style="padding: 8px 10px;">Assigned Role</th>
+                            <th style="padding: 8px 10px; text-align: center;">Status</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @forelse($users as $user)
+                            @php
+                                $userDet = $user->details;
+                                $displayName = $userDet ? ($userDet->first_name . ' ' . $userDet->last_name) : $user->username;
+                                $roleKey = \DB::table('condition_key')->where('id', $user->account_role)->first();
+                            @endphp
+                            <tr class="user-tbl-row {{ $selectedUserId === $user->id ? 'selected-row' : '' }}" 
+                                wire:key="user-tbl-{{ $user->id }}" 
+                                wire:click="selectUser({{ $user->id }})"
+                                style="border-bottom: 1px solid #f1f5f9; cursor: pointer; background: {{ $selectedUserId === $user->id ? '#eff6ff' : '#ffffff' }}; transition: background 0.12s ease;">
+                                <td style="padding: 8px 10px; font-weight: 600; color: #1e293b;">{{ $displayName }}</td>
+                                <td style="padding: 8px 10px; color: #0284c7;">{{ $userDet?->email ?: '—' }}</td>
+                                <td style="padding: 8px 10px; color: #475569;">
+                                    <span style="background: #f1f5f9; color: #334155; padding: 2px 6px; border-radius: 4px; font-size: 11px; font-weight: 600; border: 1px solid #cbd5e1;">
+                                        {{ $roleKey?->key_name ?: 'User' }}
+                                    </span>
+                                </td>
+                                <td style="padding: 8px 10px; text-align: center;">
+                                    @if($user->account_active)
+                                        <span style="padding: 2px 8px; border-radius: 4px; font-size: 10.5px; font-weight: 600; background: #dcfce7; color: #166534; border: 1px solid #bbf7d0;">Active</span>
+                                    @else
+                                        <span style="padding: 2px 8px; border-radius: 4px; font-size: 10.5px; font-weight: 600; background: #fee2e2; color: #991b1b; border: 1px solid #fecdd3;">Blocked</span>
+                                    @endif
+                                </td>
+                            </tr>
+                        @empty
+                            <tr>
+                                <td colspan="4" style="text-align: center; color: #94a3b8; padding: 20px;">No users found matching your search.</td>
+                            </tr>
+                        @endforelse
+                    </tbody>
+                </table>
+            </div>
+        @else
+            <!-- Cards Grid Layout View -->
+            <div class="users-list">
+                @forelse($users as $user)
+                    @php
+                        $userDet = $user->details;
+                        $initials = strtoupper(substr($userDet?->first_name ?: '?', 0, 1) . substr($userDet?->last_name ?: '?', 0, 1));
+                        $displayName = $userDet ? ($userDet->first_name . ' ' . $userDet->last_name) : $user->username;
+                        $roleKey = \DB::table('condition_key')->where('id', $user->account_role)->first();
+                    @endphp
+                    <div class="user-item-card {{ $selectedUserId === $user->id ? 'active' : '' }}" wire:key="user-{{ $user->id }}" wire:click="selectUser({{ $user->id }})">
+                        <div class="user-avatar-small">
+                            <span>{{ $initials }}</span>
+                        </div>
+                        <div class="user-meta-info">
+                            <span class="user-display-name">{{ $displayName }}</span>
+                            <span class="user-display-email">{{ $userDet?->email ?: '@' . $user->username }}</span>
+                            <span class="user-display-role-badge">{{ $roleKey?->key_name ?: 'User' }}</span>
+                        </div>
+                        @if(!$user->account_active)
+                            <i class="fa-solid fa-ban" style="color: #ef4444; font-size: 13px;" title="Account Blocked"></i>
+                        @endif
                     </div>
-                    <div class="user-meta-info">
-                        <span class="user-display-name">{{ $displayName }}</span>
-                        <span class="user-display-email">{{ $userDet?->email ?: '@' . $user->username }}</span>
-                        <span class="user-display-role-badge">{{ $roleKey?->key_name ?: 'User' }}</span>
+                @empty
+                    <div style="text-align: center; color: #94a3b8; padding: 20px; font-family: 'Inter', sans-serif; font-size: 13.5px;">
+                        No users found matching your search.
                     </div>
-                    @if(!$user->account_active)
-                        <i class="fa-solid fa-ban" style="color: #ef4444; font-size: 13px;" title="Account Blocked"></i>
-                    @endif
-                </div>
-            @empty
-                <div style="text-align: center; color: #94a3b8; padding: 20px; font-family: 'Inter', sans-serif; font-size: 13.5px;">
-                    No users found matching your search.
-                </div>
-            @endforelse
-        </div>
+                @endforelse
+            </div>
+        @endif
 
         @if($users->hasPages())
             <div class="users-pagination-bar">

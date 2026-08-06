@@ -727,7 +727,7 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create Internal
                     'date_added' => now(),
                     'flow_use' => 'internal',
                     'flow_for' => 'system',
-                    'referenced_flow' => $flow ? ($flow->referenced_flow ?? $flow->flow_name) : ($this->type_of_document ?: null),
+                    'referenced_flow' => $flow ? ('REF-' . (str_starts_with($flow->flow_code, 'FLOW-PREDEFINED') || str_starts_with($flow->flow_code, 'PREDEFINED') ? 'PREDEFINED' : 'CUSTOM') . '-' . $flow->id) : null,
                 ]);
 
                 foreach ($this->flow_offices as $rank => $officeCode) {

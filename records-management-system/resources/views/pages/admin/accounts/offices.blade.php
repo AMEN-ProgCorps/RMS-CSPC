@@ -28,6 +28,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Offices & Clusters')] cl
 
     // ---- OFFICES DIRECTORY PROPERTIES ----
     public string $search = '';
+    public string $officeViewMode = 'table'; // 'table' or 'grid'
     public ?int $selectedOfficeId = null;
     public $officeFile;
     public array $selectedOfficeIds = [];
@@ -40,6 +41,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Offices & Clusters')] cl
 
     // ---- CLUSTERS DIRECTORY PROPERTIES ----
     public string $clusterSearch = '';
+    public string $clusterViewMode = 'table'; // 'table' or 'grid'
     public ?int $selectedClusterId = null;
     public $clusterFile;
     public array $selectedClusterIds = [];
@@ -1228,44 +1230,102 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Offices & Clusters')] cl
                     </div>
                 @endif
 
-                <div style="display: flex; align-items: center; gap: 8px; padding: 6px 12px; border-bottom: 1px solid #e2e8f0;">
-                    <input type="checkbox" wire:click="toggleAllOffices" style="width: 16px; height: 16px; cursor: pointer; accent-color: #3b82f6;" {{ count($selectedOfficeIds) > 0 ? 'checked' : '' }}>
-                    <span style="font-size: 12px; color: #64748b; font-weight: 500;">Select All</span>
+                <div style="display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 6px 12px; border-bottom: 1px solid #e2e8f0;">
+                    <div style="display: flex; align-items: center; gap: 8px;">
+                        <input type="checkbox" wire:click="toggleAllOffices" style="width: 16px; height: 16px; cursor: pointer; accent-color: #3b82f6;" {{ count($selectedOfficeIds) > 0 ? 'checked' : '' }}>
+                        <span style="font-size: 12px; color: #64748b; font-weight: 500;">Select All</span>
+                    </div>
+
+                    <!-- Layout View Mode Toggle -->
+                    <div class="view-mode-toggle" style="display: flex; gap: 2px; background: #f1f5f9; padding: 2px; border-radius: 6px; border: 1px solid #cbd5e1;">
+                        <button type="button" wire:click="$set('officeViewMode', 'grid')" title="Cards Grid Layout" style="padding: 4px 10px; border-radius: 4px; border: none; font-size: 11px; font-weight: 600; cursor: pointer; background: {{ $officeViewMode === 'grid' ? '#ffffff' : 'transparent' }}; color: {{ $officeViewMode === 'grid' ? '#0f172a' : '#64748b' }}; box-shadow: {{ $officeViewMode === 'grid' ? '0 1px 2px rgba(0,0,0,0.08)' : 'none' }}; display: flex; align-items: center; gap: 4px; font-family: 'Inter', sans-serif;">
+                            <i class="fa-solid fa-border-all"></i> Cards
+                        </button>
+                        <button type="button" wire:click="$set('officeViewMode', 'table')" title="Table Layout" style="padding: 4px 10px; border-radius: 4px; border: none; font-size: 11px; font-weight: 600; cursor: pointer; background: {{ $officeViewMode === 'table' ? '#ffffff' : 'transparent' }}; color: {{ $officeViewMode === 'table' ? '#0f172a' : '#64748b' }}; box-shadow: {{ $officeViewMode === 'table' ? '0 1px 2px rgba(0,0,0,0.08)' : 'none' }}; display: flex; align-items: center; gap: 4px; font-family: 'Inter', sans-serif;">
+                            <i class="fa-solid fa-table-list"></i> Table
+                        </button>
+                    </div>
                 </div>
 
-                <div class="offices-list">
-                    @forelse($offices as $office)
-                        @php
-                            $officeInitials = strtoupper(substr($office->office_code ?: '?', 0, 3));
-                        @endphp
-                        <div class="office-item-card {{ $selectedOfficeId === $office->id ? 'active' : '' }}" wire:key="office-{{ $office->id }}" wire:click="selectOffice({{ $office->id }})">
-                            @if(!in_array($office->office_code, ['ORIGIN', '[H]']))
-                                <input type="checkbox" wire:click.stop="toggleOfficeSelection({{ $office->id }})" {{ in_array($office->id, $selectedOfficeIds) ? 'checked' : '' }} style="width: 16px; height: 16px; cursor: pointer; accent-color: #3b82f6; flex-shrink: 0;">
-                            @endif
-                            <div class="office-avatar-small">
-                                <span>{{ $officeInitials }}</span>
-                            </div>
-                            <div class="office-meta-info">
-                                <span class="office-display-name">{{ $office->office_name }}</span>
-                                <span class="office-display-code">Code: {{ $office->office_code }}</span>
-                                @if($office->cluster)
-                                    <span class="office-status-badge" style="background: rgba(14, 165, 233, 0.08); color: #0284c7; border: 1px solid rgba(14, 165, 233, 0.2); font-weight: 600; padding: 2px 6px; border-radius: 4px; font-size: 11px; display: inline-block; margin-top: 4px;">
-                                        <i class="fa-solid fa-sitemap" style="font-size: 9px; margin-right: 3px;"></i> {{ $office->cluster }}
-                                    </span>
+                @if($officeViewMode === 'table')
+                    <!-- Table Layout View -->
+                    <div style="overflow-x: auto; max-height: calc(100vh - 280px); overflow-y: auto;">
+                        <table style="width: 100%; border-collapse: collapse; font-family: 'Inter', sans-serif; font-size: 12.5px;">
+                            <thead>
+                                <tr style="background: #f8fafc; color: #475569; text-align: left; position: sticky; top: 0; z-index: 10; font-weight: 600; font-size: 11.5px; border-bottom: 1.5px solid #cbd5e1;">
+                                    <th style="padding: 8px 10px; width: 36px;"></th>
+                                    <th style="padding: 8px 10px;">Code</th>
+                                    <th style="padding: 8px 10px;">Office Name</th>
+                                    <th style="padding: 8px 10px;">Cluster</th>
+                                    <th style="padding: 8px 10px; text-align: center;">Status</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @forelse($offices as $office)
+                                    <tr class="office-tbl-row {{ $selectedOfficeId === $office->id ? 'selected-row' : '' }}" 
+                                        wire:key="office-tbl-{{ $office->id }}" 
+                                        wire:click="selectOffice({{ $office->id }})"
+                                        style="border-bottom: 1px solid #f1f5f9; cursor: pointer; background: {{ $selectedOfficeId === $office->id ? '#eff6ff' : '#ffffff' }}; transition: background 0.12s ease;">
+                                        <td style="padding: 8px 10px;" onclick="event.stopPropagation()">
+                                            @if(!in_array($office->office_code, ['ORIGIN', '[H]']))
+                                                <input type="checkbox" wire:click.stop="toggleOfficeSelection({{ $office->id }})" {{ in_array($office->id, $selectedOfficeIds) ? 'checked' : '' }} style="width: 15px; height: 15px; cursor: pointer; accent-color: #3b82f6;">
+                                            @endif
+                                        </td>
+                                        <td style="padding: 8px 10px; font-weight: 700; color: #0284c7; font-family: monospace; font-size: 12px;">{{ $office->office_code }}</td>
+                                        <td style="padding: 8px 10px; font-weight: 600; color: #1e293b;">{{ $office->office_name }}</td>
+                                        <td style="padding: 8px 10px; color: #64748b;">{{ $office->cluster ?: '—' }}</td>
+                                        <td style="padding: 8px 10px; text-align: center;">
+                                            @if($office->is_active)
+                                                <span style="padding: 2px 8px; border-radius: 4px; font-size: 10.5px; font-weight: 600; background: #dcfce7; color: #166534; border: 1px solid #bbf7d0;">Active</span>
+                                            @else
+                                                <span style="padding: 2px 8px; border-radius: 4px; font-size: 10.5px; font-weight: 600; background: #fee2e2; color: #991b1b; border: 1px solid #fecdd3;">Suspended</span>
+                                            @endif
+                                        </td>
+                                    </tr>
+                                @empty
+                                    <tr>
+                                        <td colspan="5" style="text-align: center; color: #94a3b8; padding: 20px;">No offices configured.</td>
+                                    </tr>
+                                @endforelse
+                            </tbody>
+                        </table>
+                    </div>
+                @else
+                    <!-- Cards Grid Layout View -->
+                    <div class="offices-list">
+                        @forelse($offices as $office)
+                            @php
+                                $officeInitials = strtoupper(substr($office->office_code ?: '?', 0, 3));
+                            @endphp
+                            <div class="office-item-card {{ $selectedOfficeId === $office->id ? 'active' : '' }}" wire:key="office-{{ $office->id }}" wire:click="selectOffice({{ $office->id }})">
+                                @if(!in_array($office->office_code, ['ORIGIN', '[H]']))
+                                    <input type="checkbox" wire:click.stop="toggleOfficeSelection({{ $office->id }})" {{ in_array($office->id, $selectedOfficeIds) ? 'checked' : '' }} style="width: 16px; height: 16px; cursor: pointer; accent-color: #3b82f6; flex-shrink: 0;">
                                 @endif
-                                @if($office->is_active)
-                                    <span class="office-status-badge active-badge" style="display: block; width: fit-content; margin-top: 4px;">Active</span>
-                                @else
-                                    <span class="office-status-badge inactive-badge" style="display: block; width: fit-content; margin-top: 4px;">Suspended</span>
-                                @endif
+                                <div class="office-avatar-small">
+                                    <span>{{ $officeInitials }}</span>
+                                </div>
+                                <div class="office-meta-info">
+                                    <span class="office-display-name">{{ $office->office_name }}</span>
+                                    <span class="office-display-code">Code: {{ $office->office_code }}</span>
+                                    @if($office->cluster)
+                                        <span class="office-status-badge" style="background: rgba(14, 165, 233, 0.08); color: #0284c7; border: 1px solid rgba(14, 165, 233, 0.2); font-weight: 600; padding: 2px 6px; border-radius: 4px; font-size: 11px; display: inline-block; margin-top: 4px;">
+                                            <i class="fa-solid fa-sitemap" style="font-size: 9px; margin-right: 3px;"></i> {{ $office->cluster }}
+                                        </span>
+                                    @endif
+                                    @if($office->is_active)
+                                        <span class="office-status-badge active-badge" style="display: block; width: fit-content; margin-top: 4px;">Active</span>
+                                    @else
+                                        <span class="office-status-badge inactive-badge" style="display: block; width: fit-content; margin-top: 4px;">Suspended</span>
+                                    @endif
+                                </div>
                             </div>
-                        </div>
-                    @empty
-                        <div style="text-align: center; color: #94a3b8; padding: 20px; font-family: 'Inter', sans-serif; font-size: 13.5px;">
-                            No offices configured.
-                        </div>
-                    @endforelse
-                </div>
+                        @empty
+                            <div style="text-align: center; color: #94a3b8; padding: 20px; font-family: 'Inter', sans-serif; font-size: 13.5px;">
+                                No offices configured.
+                            </div>
+                        @endforelse
+                    </div>
+                @endif
 
                 @if($offices->hasPages())
                     <div class="offices-pagination-bar">
@@ -1480,40 +1540,96 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Offices & Clusters')] cl
                     </div>
                 @endif
 
-                <div style="display: flex; align-items: center; gap: 8px; padding: 6px 12px; border-bottom: 1px solid #e2e8f0;">
-                    <input type="checkbox" wire:click="toggleAllClusters" style="width: 16px; height: 16px; cursor: pointer; accent-color: #3b82f6;" {{ count($selectedClusterIds) > 0 ? 'checked' : '' }}>
-                    <span style="font-size: 12px; color: #64748b; font-weight: 500;">Select All</span>
+                <div style="display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 6px 12px; border-bottom: 1px solid #e2e8f0;">
+                    <div style="display: flex; align-items: center; gap: 8px;">
+                        <input type="checkbox" wire:click="toggleAllClusters" style="width: 16px; height: 16px; cursor: pointer; accent-color: #3b82f6;" {{ count($selectedClusterIds) > 0 ? 'checked' : '' }}>
+                        <span style="font-size: 12px; color: #64748b; font-weight: 500;">Select All</span>
+                    </div>
+
+                    <!-- Layout View Mode Toggle -->
+                    <div class="view-mode-toggle" style="display: flex; gap: 2px; background: #f1f5f9; padding: 2px; border-radius: 6px; border: 1px solid #cbd5e1;">
+                        <button type="button" wire:click="$set('clusterViewMode', 'grid')" title="Cards Grid Layout" style="padding: 4px 10px; border-radius: 4px; border: none; font-size: 11px; font-weight: 600; cursor: pointer; background: {{ $clusterViewMode === 'grid' ? '#ffffff' : 'transparent' }}; color: {{ $clusterViewMode === 'grid' ? '#0f172a' : '#64748b' }}; box-shadow: {{ $clusterViewMode === 'grid' ? '0 1px 2px rgba(0,0,0,0.08)' : 'none' }}; display: flex; align-items: center; gap: 4px; font-family: 'Inter', sans-serif;">
+                            <i class="fa-solid fa-border-all"></i> Cards
+                        </button>
+                        <button type="button" wire:click="$set('clusterViewMode', 'table')" title="Table Layout" style="padding: 4px 10px; border-radius: 4px; border: none; font-size: 11px; font-weight: 600; cursor: pointer; background: {{ $clusterViewMode === 'table' ? '#ffffff' : 'transparent' }}; color: {{ $clusterViewMode === 'table' ? '#0f172a' : '#64748b' }}; box-shadow: {{ $clusterViewMode === 'table' ? '0 1px 2px rgba(0,0,0,0.08)' : 'none' }}; display: flex; align-items: center; gap: 4px; font-family: 'Inter', sans-serif;">
+                            <i class="fa-solid fa-table-list"></i> Table
+                        </button>
+                    </div>
                 </div>
                 
-                <div class="offices-list">
-                    @forelse($clusters as $cluster)
-                        @php
-                            $clusterInitials = strtoupper(substr($cluster->cluster_code ?: '?', 0, 3));
-                        @endphp
-                        <div class="office-item-card {{ $selectedClusterId === $cluster->id ? 'active' : '' }}" wire:key="cluster-{{ $cluster->id }}" wire:click="selectCluster({{ $cluster->id }})">
-                            <input type="checkbox" wire:click.stop="toggleClusterSelection({{ $cluster->id }})" {{ in_array($cluster->id, $selectedClusterIds) ? 'checked' : '' }} style="width: 16px; height: 16px; cursor: pointer; accent-color: #3b82f6; flex-shrink: 0;">
-                            <div class="office-avatar-small" style="background-color: #f0fdf4; color: #166534;">
-                                <span>{{ $clusterInitials }}</span>
+                @if($clusterViewMode === 'table')
+                    <!-- Table Layout View -->
+                    <div style="overflow-x: auto; max-height: calc(100vh - 280px); overflow-y: auto;">
+                        <table style="width: 100%; border-collapse: collapse; font-family: 'Inter', sans-serif; font-size: 12.5px;">
+                            <thead>
+                                <tr style="background: #f8fafc; color: #475569; text-align: left; position: sticky; top: 0; z-index: 10; font-weight: 600; font-size: 11.5px; border-bottom: 1.5px solid #cbd5e1;">
+                                    <th style="padding: 8px 10px; width: 36px;"></th>
+                                    <th style="padding: 8px 10px;">Code</th>
+                                    <th style="padding: 8px 10px;">Cluster Name</th>
+                                    <th style="padding: 8px 10px;">Cluster Head</th>
+                                    <th style="padding: 8px 10px; text-align: center;">Status</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @forelse($clusters as $cluster)
+                                    <tr class="cluster-tbl-row {{ $selectedClusterId === $cluster->id ? 'selected-row' : '' }}" 
+                                        wire:key="cluster-tbl-{{ $cluster->id }}" 
+                                        wire:click="selectCluster({{ $cluster->id }})"
+                                        style="border-bottom: 1px solid #f1f5f9; cursor: pointer; background: {{ $selectedClusterId === $cluster->id ? '#eff6ff' : '#ffffff' }}; transition: background 0.12s ease;">
+                                        <td style="padding: 8px 10px;" onclick="event.stopPropagation()">
+                                            <input type="checkbox" wire:click.stop="toggleClusterSelection({{ $cluster->id }})" {{ in_array($cluster->id, $selectedClusterIds) ? 'checked' : '' }} style="width: 15px; height: 15px; cursor: pointer; accent-color: #3b82f6;">
+                                        </td>
+                                        <td style="padding: 8px 10px; font-weight: 700; color: #166534; font-family: monospace; font-size: 12px;">{{ $cluster->cluster_code }}</td>
+                                        <td style="padding: 8px 10px; font-weight: 600; color: #1e293b;">{{ $cluster->cluster_name }}</td>
+                                        <td style="padding: 8px 10px; color: #64748b;">{{ $cluster->cluster_head ?: '—' }}</td>
+                                        <td style="padding: 8px 10px; text-align: center;">
+                                            @if($cluster->is_active)
+                                                <span style="padding: 2px 8px; border-radius: 4px; font-size: 10.5px; font-weight: 600; background: #dcfce7; color: #166534; border: 1px solid #bbf7d0;">Active</span>
+                                            @else
+                                                <span style="padding: 2px 8px; border-radius: 4px; font-size: 10.5px; font-weight: 600; background: #fee2e2; color: #991b1b; border: 1px solid #fecdd3;">Suspended</span>
+                                            @endif
+                                        </td>
+                                    </tr>
+                                @empty
+                                    <tr>
+                                        <td colspan="5" style="text-align: center; color: #94a3b8; padding: 20px;">No clusters configured.</td>
+                                    </tr>
+                                @endforelse
+                            </tbody>
+                        </table>
+                    </div>
+                @else
+                    <!-- Cards Grid Layout View -->
+                    <div class="offices-list">
+                        @forelse($clusters as $cluster)
+                            @php
+                                $clusterInitials = strtoupper(substr($cluster->cluster_code ?: '?', 0, 3));
+                            @endphp
+                            <div class="office-item-card {{ $selectedClusterId === $cluster->id ? 'active' : '' }}" wire:key="cluster-{{ $cluster->id }}" wire:click="selectCluster({{ $cluster->id }})">
+                                <input type="checkbox" wire:click.stop="toggleClusterSelection({{ $cluster->id }})" {{ in_array($cluster->id, $selectedClusterIds) ? 'checked' : '' }} style="width: 16px; height: 16px; cursor: pointer; accent-color: #3b82f6; flex-shrink: 0;">
+                                <div class="office-avatar-small" style="background-color: #f0fdf4; color: #166534;">
+                                    <span>{{ $clusterInitials }}</span>
+                                </div>
+                                <div class="office-meta-info">
+                                    <span class="office-display-name">{{ $cluster->cluster_name }}</span>
+                                    <span class="office-display-code">Code: {{ $cluster->cluster_code }}</span>
+                                    @if($cluster->cluster_head)
+                                        <span class="office-display-code" style="color: #64748b; font-size: 11px;">Head: {{ $cluster->cluster_head }}</span>
+                                    @endif
+                                    @if($cluster->is_active)
+                                        <span class="office-status-badge active-badge" style="display: block; width: fit-content; margin-top: 4px;">Active</span>
+                                    @else
+                                        <span class="office-status-badge inactive-badge" style="display: block; width: fit-content; margin-top: 4px;">Suspended</span>
+                                    @endif
+                                </div>
                             </div>
-                            <div class="office-meta-info">
-                                <span class="office-display-name">{{ $cluster->cluster_name }}</span>
-                                <span class="office-display-code">Code: {{ $cluster->cluster_code }}</span>
-                                @if($cluster->cluster_head)
-                                    <span class="office-display-code" style="color: #64748b; font-size: 11px;">Head: {{ $cluster->cluster_head }}</span>
-                                @endif
-                                @if($cluster->is_active)
-                                    <span class="office-status-badge active-badge" style="display: block; width: fit-content; margin-top: 4px;">Active</span>
-                                @else
-                                    <span class="office-status-badge inactive-badge" style="display: block; width: fit-content; margin-top: 4px;">Suspended</span>
-                                @endif
+                        @empty
+                            <div style="text-align: center; color: #94a3b8; padding: 20px; font-family: 'Inter', sans-serif; font-size: 13.5px;">
+                                No clusters configured.
                             </div>
-                        </div>
-                    @empty
-                        <div style="text-align: center; color: #94a3b8; padding: 20px; font-family: 'Inter', sans-serif; font-size: 13.5px;">
-                            No clusters configured.
-                        </div>
-                    @endforelse
-                </div>
+                        @endforelse
+                    </div>
+                @endif
 
                 @if($clusters->hasPages())
                     <div class="clusters-pagination-bar">

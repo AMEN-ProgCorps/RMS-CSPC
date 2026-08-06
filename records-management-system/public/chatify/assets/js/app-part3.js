@@ -854,16 +854,54 @@
       closeModal();
       showClearingModal('Clearing conversation...');
 
+      // Force the browser to paint the 0% frame before we start mutating
+      // the bar. Without this, on a very fast (e.g. local) response the
+      // "show modal" + "animate" + "close modal" calls can all happen
+      // inside the same tick and the browser never actually renders a
+      // frame in between — the modal opens and closes in one paint cycle,
+      // which looks indistinguishable from "never showed up" even though
+      // the DOM technically went through the motions.
+      const clearingModalEl = document.getElementById('clearingChatModal');
+      if (clearingModalEl) void clearingModalEl.offsetHeight;
+
+      const clearingStartedAt = Date.now();
+      const CLEARING_MIN_VISIBLE_MS = 900; // guarantee the modal is on screen long enough to register
+
       // There's no real byte-progress for this request (it's a tiny POST),
       // so fake a smooth climb toward 90% while it's in flight, the same
       // way upload.php's request is padded to feel alive. It snaps to 100%
-      // only once the server actually confirms success.
+      // only once the server actually confirms success AND the minimum
+      // visible duration above has elapsed.
       let clearingProgress = 0;
       const clearingInterval = setInterval(function() {
         clearingProgress += (90 - clearingProgress) * 0.15;
         if (clearingProgress > 89) clearingProgress = 89;
         updateClearingProgress(clearingProgress);
       }, 100);
+
+      function finishClearingSuccess() {
+        const elapsed = Date.now() - clearingStartedAt;
+        const remaining = Math.max(0, CLEARING_MIN_VISIBLE_MS - elapsed);
+        setTimeout(function() {
+          updateClearingProgress(100);
+          setTimeout(closeClearingModal, 300);
+        }, remaining);
+      }
+
+      function finishClearingError(message) {
+        const elapsed = Date.now() - clearingStartedAt;
+        const remaining = Math.max(0, CLEARING_MIN_VISIBLE_MS - elapsed);
+        setTimeout(function() {
+          closeClearingModal();
+          if (confirmModal) {
+            confirmModal.classList.add('active');
+            document.body.style.overflow = 'hidden';
+          }
+          secretError.style.display = 'block';
+          secretError.textContent = message;
+          secretError.style.color = 'red';
+        }, remaining);
+      }
 
       const xhr = new XMLHttpRequest();
       xhr.open("POST", "delete_dm.php", true);
@@ -908,29 +946,14 @@
           secretInput.value = '';
           secretError.style.display = 'none';
 
-          updateClearingProgress(100);
-          setTimeout(closeClearingModal, 300);
+          finishClearingSuccess();
         } else {
-          closeClearingModal();
-          if (confirmModal) {
-            confirmModal.classList.add('active');
-            document.body.style.overflow = 'hidden';
-          }
-          secretError.style.display = 'block';
-          secretError.textContent = 'Error: ' + this.responseText;
-          secretError.style.color = 'red';
+          finishClearingError('Error: ' + this.responseText);
         }
       };
       xhr.onerror = function() {
         clearInterval(clearingInterval);
-        closeClearingModal();
-        if (confirmModal) {
-          confirmModal.classList.add('active');
-          document.body.style.overflow = 'hidden';
-        }
-        secretError.style.display = 'block';
-        secretError.textContent = 'Network error — please try again';
-        secretError.style.color = 'red';
+        finishClearingError('Network error — please try again');
       };
 
       let params = "secret=" + encodeURIComponent(secret);
@@ -951,13 +974,21 @@
       const bar = document.getElementById('clearingChatProgressBar');
       const text = document.getElementById('clearingChatProgressText');
 
+      if (!modal) {
+        // If this fires, #clearingChatModal isn't in the DOM — almost always
+        // means index.php wasn't redeployed/refreshed with the updated markup.
+        console.error('[clearChat] #clearingChatModal not found in DOM — is index.php up to date?');
+        return;
+      }
+
       if (labelEl) labelEl.textContent = label || 'Clearing conversation...';
       if (bar) bar.style.width = '0%';
       if (text) text.textContent = '0%';
-      if (modal) {
-        modal.style.display = 'flex';
-        modal.classList.add('active');
-      }
+
+      modal.style.display = 'flex';
+      modal.classList.add('active');
+      modal.setAttribute('aria-hidden', 'false');
+      document.body.style.overflow = 'hidden';
     }
 
     function updateClearingProgress(percent) {
@@ -973,7 +1004,9 @@
       if (modal) {
         modal.style.display = 'none';
         modal.classList.remove('active');
+        modal.setAttribute('aria-hidden', 'true');
       }
+      document.body.style.overflow = '';
     }
 
     function showModal() {

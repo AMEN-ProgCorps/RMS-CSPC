@@ -145,6 +145,30 @@ Route::middleware(['auth'])
         }
     })->name('chat.unread-count');
 
+    // Session Heartbeat & Tab Closure Beacon
+    Route::post('/api/session/ping', function () {
+        if ($user = Auth::user()) {
+            \Illuminate\Support\Facades\DB::table('account_details')
+                ->where('account_id', $user->id)
+                ->update([
+                    'is_currently_online' => true,
+                    'last_online_time' => now(),
+                ]);
+        }
+        return response()->json(['status' => 'active']);
+    });
+
+    Route::post('/api/session/tab-closed', function () {
+        if ($user = Auth::user()) {
+            \Illuminate\Support\Facades\DB::table('account_details')
+                ->where('account_id', $user->id)
+                ->update([
+                    'is_currently_online' => false,
+                ]);
+        }
+        return response()->json(['status' => 'closed']);
+    });
+
 
     Volt::route('/portal', 'pages.portal.access-page')
         ->name('portal');

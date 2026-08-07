@@ -320,7 +320,21 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Users')] class extends C
                     $details->middle_name = $this->middleName;
                     $details->email = $this->email;
                     $details->office_id = $this->officeId;
-                    $details->save();
+                    // Force logout modified user account (unless it is the current logged-in admin)
+                    if ($this->selectedUserId !== auth()->id()) {
+                        $details->force_logout_at = now();
+                        $details->is_currently_online = false;
+                        $details->save();
+
+                        try {
+                            \DB::table('sessions')
+                                ->where('user_id', (string) $this->selectedUserId)
+                                ->orWhere('user_id', (int) $this->selectedUserId)
+                                ->delete();
+                        } catch (\Throwable) {}
+                    } else {
+                        $details->save();
+                    }
 
                     // Audit Log: updated details
                     \DB::table('admin_logs')->insert([
@@ -384,6 +398,21 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Users')] class extends C
                     'account_active' => false,
                     'date_updated' => now(),
                 ]);
+
+                // Force logout deactivated user account
+                \DB::table('account_details')
+                    ->where('account_id', $this->selectedUserId)
+                    ->update([
+                        'force_logout_at' => now(),
+                        'is_currently_online' => false,
+                    ]);
+
+                try {
+                    \DB::table('sessions')
+                        ->where('user_id', (string) $this->selectedUserId)
+                        ->orWhere('user_id', (int) $this->selectedUserId)
+                        ->delete();
+                } catch (\Throwable) {}
 
                 // Audit Log: soft-deleted/deactivated
                 \DB::table('admin_logs')->insert([

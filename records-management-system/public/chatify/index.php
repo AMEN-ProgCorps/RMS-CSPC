@@ -228,8 +228,8 @@ try {
       </div>
       <!-- Pinned Global Chat entry -->
       <div class="user-item" id="globalChatItem" onclick="selectGlobalChat()" style="border-bottom:1px solid var(--border-color);">
-        <div class="user-avatar" style="background:linear-gradient(135deg,#1b74e4,#00c3ff);">
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="white"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 17.93c-3.95-.49-7-3.85-7-7.93 0-.62.08-1.21.21-1.79L9 15v1c0 1.1.9 2 2 2v1.93zm6.9-2.54c-.26-.81-1-1.39-1.9-1.39h-1v-3c0-.55-.45-1-1-1H8v-2h2c.55 0 1-.45 1-1V7h2c1.1 0 2-.9 2-2v-.41c2.93 1.19 5 4.06 5 7.41 0 2.08-.8 3.97-2.1 5.39z"/></svg>
+        <div class="user-avatar" style="background:none !important;background-color:transparent !important;">
+          <img src="cspc.webp" width="40" height="40" alt="CSPC logo" style="width:40px;height:40px;object-fit:contain;background:transparent;" draggable="false" ondragstart="return false;" oncontextmenu="return false;">
         </div>
         <div class="user-info">
           <div class="user-name">Global Chat</div>
@@ -265,7 +265,6 @@ try {
           <button id="backButton" class="clear-button" style="display:none;margin-right:10px;padding:0 10px;min-width:auto;" aria-label="Go back" title="Go back">
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="19" y1="12" x2="5" y2="12"></line><polyline points="12 19 5 12 12 5"></polyline></svg>
           </button>
-          <img src="cspc.webp" width="28" height="28" alt="GhostLAN ghost logo" class="header-logo" draggable="false" ondragstart="return false;" oncontextmenu="return false;">
           <h1 id="chatHeaderTitle"></h1>
         </div>
       

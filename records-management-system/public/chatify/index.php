@@ -585,6 +585,36 @@ try {
     </div>
   </div>
 
+  <!-- Attach/Staging Modal — opens whenever file(s) are picked via the
+       attach button OR dropped/dragged into the chat, for BOTH images and
+       any other allowed file type. Lets the user review what's about to be
+       sent, remove items, or drag & drop in more, before anything actually
+       uploads/sends — selecting a file never sends it immediately. Thumbnail
+       grid scrolls but keeps its scrollbar hidden (matches the rest of the
+       app's modals). Uses the same responsive .modal/.modal-content rules
+       as every other modal, so it behaves the same on mobile. -->
+  <div class="modal" id="imageStagingModal" aria-hidden="true" style="display:none;align-items:center;justify-content:center;z-index:99999;">
+    <div class="modal-content image-staging-content">
+      <div class="modal-header">
+        <h3>Send Files</h3>
+      </div>
+      <div class="modal-body image-staging-body">
+        <label class="image-staging-dropzone" id="imageStagingDropzone" for="imageStagingFileInput">
+          <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><polyline points="17 8 12 3 7 8" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><line x1="12" y1="3" x2="12" y2="15" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          <span>Drag &amp; drop more files here</span>
+          <input type="file" id="imageStagingFileInput" accept="image/*,.gif,.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.csv,.zip,.rar,.7z,.mp3,.wav,.ogg,.flac,.aac,.m4a,.mp4,.webm,.mov" multiple style="display:none;">
+        </label>
+        <div class="image-staging-grid" id="imageStagingGrid">
+          <div class="image-staging-empty">No files added yet.</div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="modal-button cancel-button" id="imageStagingCancelBtn">Cancel</button>
+        <button type="button" class="modal-button confirm-button" id="imageStagingSendBtn" disabled>Send</button>
+      </div>
+    </div>
+  </div>
+
   <!-- Clearing Chat Progress Modal — mirrors the file upload progress modal -->
   <div class="modal" id="clearingChatModal" aria-hidden="true" style="display:none;align-items:center;justify-content:center;z-index:99999;">
     <div class="modal-content" style="max-width:320px;min-height:0;">

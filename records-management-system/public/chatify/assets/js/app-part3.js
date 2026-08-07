@@ -2146,6 +2146,11 @@
     // ── Image extensions (same list as PHP) ────────────────────────────────────
     const IMAGE_EXTS = new Set(['jpg','jpeg','png','gif','webp','bmp','svg','ico']);
 
+    function isImageFile(file) {
+      const ext = (file.name.split('.').pop() || '').toLowerCase();
+      return IMAGE_EXTS.has(ext);
+    }
+
     const dropOverlay       = document.getElementById('dropOverlay');
     const fileAttachInput   = document.getElementById('fileAttachmentInput');
 
@@ -2176,14 +2181,23 @@
       dragCount = 0;
       if (dropOverlay) dropOverlay.classList.remove('visible');
       const files = e.dataTransfer ? Array.from(e.dataTransfer.files) : [];
-      if (files.length > 0) handleFileUploads(files);
+      if (files.length === 0) return;
+
+      // All dropped files (images and any other type) go into the staging
+      // modal so the user can review them — and drag & drop in a few more —
+      // before anything is actually sent.
+      openImageStagingModal(files);
     }, false);
 
     // ── File input (attachment button) ─────────────────────────────────────────
+    // Selecting file(s) via the attach button no longer sends immediately —
+    // they're staged in the modal first so the user can review/remove them
+    // and confirm with "Send". Same behavior on mobile, since it's the same
+    // input/modal, just triggered via the mobile-friendly tap listener below.
     if (fileAttachInput) {
       fileAttachInput.addEventListener('change', function() {
         const files = Array.from(this.files || []);
-        if (files.length > 0) handleFileUploads(files);
+        if (files.length > 0) openImageStagingModal(files);
         this.value = ''; // reset so same file can be re-picked
       });
     }
@@ -2197,6 +2211,200 @@
       });
     }
 
+    // ==========================================================================
+    // IMAGE STAGING MODAL — drop an image, then drop in more before sending
+    // ==========================================================================
+    const imageStagingModal     = document.getElementById('imageStagingModal');
+    const imageStagingDropzone  = document.getElementById('imageStagingDropzone');
+    const imageStagingGrid      = document.getElementById('imageStagingGrid');
+    const imageStagingFileInput = document.getElementById('imageStagingFileInput');
+    const imageStagingCancelBtn = document.getElementById('imageStagingCancelBtn');
+    const imageStagingSendBtn   = document.getElementById('imageStagingSendBtn');
+
+    let stagedImages     = []; // { id, file, url }
+    let stagedImageSeq   = 0;
+    let stagingDragCount = 0;  // prevents dropzone flicker on child enter/leave
+
+    function renderImageStagingGrid() {
+      if (!imageStagingGrid) return;
+
+      if (stagedImages.length === 0) {
+        imageStagingGrid.innerHTML = '<div class="image-staging-empty">No files added yet.</div>';
+        if (imageStagingSendBtn) imageStagingSendBtn.disabled = true;
+        return;
+      }
+
+      if (imageStagingSendBtn) imageStagingSendBtn.disabled = false;
+      imageStagingGrid.innerHTML = stagedImages.map(function(item) {
+        if (item.isImage) {
+          return '<div class="image-staging-thumb" data-id="' + item.id + '">' +
+                   '<img src="' + item.url + '" alt="">' +
+                   '<button type="button" class="image-staging-remove" data-id="' + item.id + '" title="Remove" aria-label="Remove file">&times;</button>' +
+                 '</div>';
+        }
+
+        // Non-image files get a generic file card: icon + extension badge + name.
+        const fullName = item.file.name || 'file';
+        const shortName = fullName.length > 22 ? fullName.substring(0, 19).trim() + '...' : fullName;
+        const extLabel = (item.ext || 'file').toUpperCase().substring(0, 5);
+        return '<div class="image-staging-thumb image-staging-file" data-id="' + item.id + '">' +
+                 '<div class="image-staging-file-inner">' +
+                   '<div class="image-staging-file-icon">' +
+                     '<svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><polyline points="14 2 14 8 20 8" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>' +
+                     '<span class="image-staging-file-ext">' + escapeHtml(extLabel) + '</span>' +
+                   '</div>' +
+                   '<span class="image-staging-file-name" title="' + escapeHtml(fullName) + '">' + escapeHtml(shortName) + '</span>' +
+                 '</div>' +
+                 '<button type="button" class="image-staging-remove" data-id="' + item.id + '" title="Remove" aria-label="Remove file">&times;</button>' +
+               '</div>';
+      }).join('');
+
+      imageStagingGrid.querySelectorAll('.image-staging-remove').forEach(function(btn) {
+        btn.addEventListener('click', function(e) {
+          e.preventDefault();
+          e.stopPropagation();
+          removeStagedImage(this.getAttribute('data-id'));
+        });
+      });
+    }
+
+    function addImagesToStaging(files) {
+      const rejected = [];
+      for (const file of files) {
+        const ext = (file.name.split('.').pop() || '').toLowerCase();
+        if (REJECTED_EXTS.has(ext)) { rejected.push(file.name); continue; }
+        stagedImageSeq++;
+        const isImg = isImageFile(file);
+        stagedImages.push({
+          id: 'simg_' + stagedImageSeq,
+          file: file,
+          url: isImg ? URL.createObjectURL(file) : null, // only images get a preview thumbnail
+          isImage: isImg,
+          ext: ext
+        });
+      }
+      if (rejected.length > 0) {
+        showUploadErrorModal(rejected.map(f => `'${f}' was rejected: executable or script files are not allowed.`));
+      }
+      renderImageStagingGrid();
+    }
+
+    function removeStagedImage(id) {
+      const idx = stagedImages.findIndex(i => i.id === id);
+      if (idx === -1) return;
+      if (stagedImages[idx].url) URL.revokeObjectURL(stagedImages[idx].url);
+      stagedImages.splice(idx, 1);
+      renderImageStagingGrid();
+    }
+
+    function openImageStagingModal(files) {
+      if (isAdminAllChatsView || activeAdminConv) return;
+      if (!activeDM && !isGlobalChat) return;
+
+      addImagesToStaging(files);
+      if (imageStagingModal) {
+        imageStagingModal.style.display = 'flex';
+        imageStagingModal.classList.add('active');
+        imageStagingModal.setAttribute('aria-hidden', 'false');
+      }
+    }
+
+    function closeImageStagingModal(clearImages) {
+      if (imageStagingModal) {
+        imageStagingModal.classList.remove('active');
+        imageStagingModal.setAttribute('aria-hidden', 'true');
+        setTimeout(function() {
+          if (!imageStagingModal.classList.contains('active')) imageStagingModal.style.display = 'none';
+        }, 300); // matches .modal { transition: all 0.3s ease; }
+      }
+      if (clearImages) {
+        stagedImages.forEach(function(item) { if (item.url) URL.revokeObjectURL(item.url); });
+        stagedImages = [];
+        renderImageStagingGrid();
+      }
+      if (imageStagingDropzone) imageStagingDropzone.classList.remove('drag-active');
+      stagingDragCount = 0;
+    }
+
+    if (imageStagingCancelBtn) {
+      imageStagingCancelBtn.addEventListener('click', function() {
+        closeImageStagingModal(true);
+      });
+    }
+
+    if (imageStagingSendBtn) {
+      imageStagingSendBtn.addEventListener('click', function() {
+        if (stagedImages.length === 0) return;
+
+        // Images are sent together as a single grid message; every other
+        // file type is sent individually — same grouping handleFileUploads
+        // used to do before files went through staging.
+        const imageBatch = stagedImages.filter(function(item) { return item.isImage; })
+                                        .map(function(item) { return item.file; });
+        const otherFiles = stagedImages.filter(function(item) { return !item.isImage; })
+                                        .map(function(item) { return item.file; });
+
+        if (imageBatch.length > 0) uploadAndSend(imageBatch, true);
+        for (const file of otherFiles) uploadAndSend([file], false);
+
+        closeImageStagingModal(true);
+      });
+    }
+
+    if (imageStagingFileInput) {
+      imageStagingFileInput.addEventListener('change', function() {
+        const files = Array.from(this.files || []);
+        if (files.length > 0) addImagesToStaging(files);
+        this.value = ''; // allow re-picking the same file
+      });
+    }
+
+    if (imageStagingDropzone) {
+      // The dropzone doubles as a <label> for the hidden file input (click
+      // = browse); these listeners only add the drag & drop behavior.
+      imageStagingDropzone.addEventListener('dragenter', function(e) {
+        e.preventDefault();
+        e.stopPropagation();
+        stagingDragCount++;
+        imageStagingDropzone.classList.add('drag-active');
+      }, false);
+
+      imageStagingDropzone.addEventListener('dragleave', function(e) {
+        e.preventDefault();
+        e.stopPropagation();
+        stagingDragCount--;
+        if (stagingDragCount <= 0) {
+          stagingDragCount = 0;
+          imageStagingDropzone.classList.remove('drag-active');
+        }
+      }, false);
+
+      imageStagingDropzone.addEventListener('dragover', function(e) {
+        e.preventDefault();
+        e.stopPropagation();
+      }, false);
+
+      imageStagingDropzone.addEventListener('drop', function(e) {
+        e.preventDefault();
+        e.stopPropagation();
+        stagingDragCount = 0;
+        imageStagingDropzone.classList.remove('drag-active');
+        const files = e.dataTransfer ? Array.from(e.dataTransfer.files) : [];
+        if (files.length > 0) addImagesToStaging(files);
+      }, false);
+    }
+
+    // Also let the whole modal accept a drop anywhere over it, not just the
+    // dropzone box itself, without triggering the underlying chat drop handler.
+    if (imageStagingModal) {
+      imageStagingModal.addEventListener('dragover', function(e) { e.preventDefault(); }, false);
+      imageStagingModal.addEventListener('drop', function(e) {
+        e.preventDefault();
+        e.stopPropagation();
+        const files = e.dataTransfer ? Array.from(e.dataTransfer.files) : [];
+        if (files.length > 0) addImagesToStaging(files);
+      }, false);
+    }
 
     // ── Upload Progress & Error Modal Controls ────────────────────────────────
     function showUploadingModal(names) {
@@ -2310,6 +2518,11 @@
     }
 
     // ── Core upload handler ───────────────────────────────────────────────────
+    // NOTE: no longer called directly from the attach button or from
+    // drag-and-drop — both now route through openImageStagingModal() so
+    // every file (image or not) is staged/previewed before it's sent.
+    // Left in place since uploadAndSend() (which it calls) is still used
+    // by the staging modal's Send button.
     function handleFileUploads(files) {
       if (isAdminAllChatsView || activeAdminConv) {
         return;

@@ -3,9 +3,11 @@
 use Livewire\Attributes\Layout;
 use Livewire\Attributes\Title;
 use Livewire\Volt\Component;
+use Livewire\WithFileUploads;
 
 new #[Layout('layouts.admin')] #[Title('Admin Console - System Settings')] class extends Component {
-    
+    use WithFileUploads;
+
     public bool $pagePrewarmingEnabled = true;
     public bool $allowManualLogin = true;
     public bool $allowGoogleLogin = true;
@@ -15,6 +17,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - System Settings')] class
     public bool $allowManualCompletionButton = false;
     public bool $rdpRequiredUploadFile = false;
     public bool $dtsRequiredUploadFile = false;
+    public int $tabCloseIdleTimeoutMinutes = 15;
     public string $successMessage = '';
     public string $errorMessage = '';
 
@@ -292,6 +295,9 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - System Settings')] class
 
         $dtsReq = \DB::table('system_settings')->where('key', 'dts_required_upload_file')->value('value');
         $this->dtsRequiredUploadFile = ($dtsReq === 'true');
+
+        $timeoutVal = \DB::table('system_settings')->where('key', 'tab_close_idle_timeout_minutes')->value('value');
+        $this->tabCloseIdleTimeoutMinutes = ($timeoutVal !== null && is_numeric($timeoutVal)) ? (int) $timeoutVal : 15;
     }
 
     public function testDriveConnection(): void
@@ -564,6 +570,14 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - System Settings')] class
                     ]
                 );
 
+                \DB::table('system_settings')->updateOrInsert(
+                    ['key' => 'tab_close_idle_timeout_minutes'],
+                    [
+                        'value' => (string) max(1, (int) $this->tabCloseIdleTimeoutMinutes),
+                        'updated_at' => now(),
+                    ]
+                );
+
                 // Log activity
                 $logText = "Updated system settings. Prewarming: " . ($this->pagePrewarmingEnabled ? 'true' : 'false') . 
                              ", ManualLogin: " . ($this->allowManualLogin ? 'true' : 'false') .
@@ -573,7 +587,8 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - System Settings')] class
                              ", IntEmail: " . ($this->emailAccessRequiredInternal ? 'true' : 'false') .
                              ", ManualBtn: " . ($this->allowManualCompletionButton ? 'true' : 'false') .
                              ", RDPReq: " . ($this->rdpRequiredUploadFile ? 'true' : 'false') .
-                             ", DTSReq: " . ($this->dtsRequiredUploadFile ? 'true' : 'false');
+                             ", DTSReq: " . ($this->dtsRequiredUploadFile ? 'true' : 'false') .
+                             ", InactivityTimeout: " . $this->tabCloseIdleTimeoutMinutes . " mins";
 
                 \DB::table('admin_logs')->insert([
                     'changes' => \Illuminate\Support\Str::limit($logText, 250),
@@ -587,6 +602,74 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - System Settings')] class
         } catch (\Exception $e) {
             $this->errorMessage = 'Failed to update system settings: ' . $e->getMessage();
         }
+    }
+
+    public function ensureBackupDirectoriesExist(): void
+    {
+        // 1. Check & create local storage/app/backups folder
+        try {
+            if (!\Illuminate\Support\Facades\Storage::disk('local')->exists('backups')) {
+                \Illuminate\Support\Facades\Storage::disk('local')->makeDirectory('backups');
+            }
+        } catch (\Throwable $e) {
+            logger()->warning("Failed creating local backups folder: " . $e->getMessage());
+        }
+
+        // 2. Check & create Google Drive backup/ folder
+        try {
+            if (!\Illuminate\Support\Facades\Storage::disk('google')->exists('backup')) {
+                \Illuminate\Support\Facades\Storage::disk('google')->makeDirectory('backup');
+            }
+        } catch (\Throwable $e) {
+            logger()->warning("Failed creating Google Drive backup folder: " . $e->getMessage());
+        }
+    }
+
+
+
+    protected function getAllDatabaseTables(): array
+    {
+        $driver = \DB::getDriverName();
+        $tables = [];
+
+        if ($driver === 'pgsql') {
+            $results = \DB::select("SELECT table_name FROM information_schema.tables WHERE table_schema = 'public' AND table_type = 'BASE TABLE'");
+            foreach ($results as $row) {
+                $tables[] = $row->table_name;
+            }
+        } elseif ($driver === 'sqlite') {
+            $results = \DB::select("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'");
+            foreach ($results as $row) {
+                $tables[] = $row->name;
+            }
+        } elseif ($driver === 'mysql') {
+            $results = \DB::select('SHOW TABLES');
+            foreach ($results as $row) {
+                $val = array_values((array) $row)[0];
+                $tables[] = $val;
+            }
+        } else {
+            $tables = [
+                'system_settings', 'users', 'account_details', 'condition_key', 'condition_details',
+                'office', 'folder_data', 'subsystems', 'document_data', 'dts_transaction_flow',
+                'dts_action_options', 'dts_transaction_details', 'dts_flow_logs', 'rdp_documents',
+                'rdp_references', 'rdp_inventory_and_appraisal', 'rdp_records_disposition_schedule',
+                'admin_logs', 'security_logs', 'file_upload_logs', 'notifications', 'chat_messages',
+                'chat_conversations', 'personal_settings'
+            ];
+        }
+
+        return array_values(array_filter($tables, fn($t) => !in_array($t, ['migrations', 'sessions', 'cache', 'cache_locks', 'jobs', 'failed_jobs'])));
+    }
+
+    protected function formatBytes($bytes, $precision = 2): string
+    {
+        $units = ['B', 'KB', 'MB', 'GB', 'TB'];
+        $bytes = max($bytes, 0);
+        $pow = floor(($bytes ? log($bytes) : 0) / log(1024));
+        $pow = min($pow, count($units) - 1);
+        $bytes /= pow(1024, $pow);
+        return round($bytes, $precision) . ' ' . $units[$pow];
     }
 };
 ?>
@@ -1123,6 +1206,44 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - System Settings')] class
                             <input type="checkbox" wire:model="allowGoogleLogin">
                             <span class="slider"></span>
                         </label>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Card: Session & Security Settings -->
+            <div class="settings-card">
+                <div>
+                    <div class="settings-card-header">
+                        <i class="fa-solid fa-shield-halved"></i>
+                        <h3>Session & Inactivity Security Settings</h3>
+                    </div>
+
+                    <!-- Setting: Tab-Close & Inactivity Timeout -->
+                    <div class="setting-item" style="flex-direction: column; align-items: flex-start; gap: 8px;">
+                        <div class="setting-details">
+                            <span class="setting-title">Tab-Close & Inactivity Auto-Logout Timeout</span>
+                            <span class="setting-desc">Automatically logs out users when their tab is closed or idle without activity for the configured duration.</span>
+                        </div>
+                        <div style="display: flex; align-items: center; gap: 10px; width: 100%; margin-top: 4px;">
+                            <select wire:model="tabCloseIdleTimeoutMinutes" class="form-input" style="max-width: 220px; font-size: 13px; font-weight: 600; color: #1e293b; border: 1.5px solid #cbd5e1; border-radius: 8px; padding: 6px 12px; cursor: pointer; background: #ffffff;">
+                                <option value="1">1 Minute</option>
+                                <option value="2">2 Minutes</option>
+                                <option value="3">3 Minutes</option>
+                                <option value="5">5 Minutes</option>
+                                <option value="10">10 Minutes</option>
+                                <option value="15">15 Minutes (Default)</option>
+                                <option value="30">30 Minutes</option>
+                                <option value="60">60 Minutes (1 Hour)</option>
+                            </select>
+                            <span style="font-size: 12px; color: #64748b; font-weight: 500;">Minutes until auto-logout</span>
+                        </div>
+                    </div>
+
+                    <div style="margin-top: 14px; padding: 10px 12px; background: #eff6ff; border: 1px solid #bfdbfe; border-radius: 8px; font-size: 11.5px; color: #1e40af; display: flex; align-items: flex-start; gap: 8px;">
+                        <i class="fa-solid fa-user-shield" style="margin-top: 2px; font-size: 13px;"></i>
+                        <span>
+                            <strong>Admin Account Modification Protection:</strong> Whenever an Admin modifies or deactivates any user in <em>User Management</em>, the system automatically invalidates active sessions and forces an immediate logout for that account.
+                        </span>
                     </div>
                 </div>
             </div>

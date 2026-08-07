@@ -22,6 +22,7 @@ export default defineConfig({
                 'resources/css/admin/accounts_offices.css',
                 'resources/css/admin/console_dashboard.css',
                 'resources/css/admin/console.css',
+                'resources/css/admin/record-series.css',
                 'resources/css/admin/activity_logs.css',
                 'resources/css/dts/receive.css',
                 'resources/css/dts/list_transaction.css',

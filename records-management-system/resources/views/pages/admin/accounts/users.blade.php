@@ -28,6 +28,9 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Users')] class extends C
     /** @var string Sorting order direction ('asc' or 'desc') */
     public string $sortDir = 'asc';
 
+    /** @var string View Mode toggle ('table' or 'grid') */
+    public string $viewMode = 'table';
+
     /** @var int|null The ID of the currently selected user profile being viewed/edited. (-1 = create mode) */
     public ?int $selectedUserId = null;
 
@@ -69,17 +72,8 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Users')] class extends C
     /** @var string Holds the active user's email address for editing */
     public string $email = '';
 
-    /** @var string Holds the active user's contact number for editing */
-    public string $contactNumber = '';
-
     /** @var string Holds the active user's username */
     public string $username = '';
-
-    /** @var string Holds the password for creation mode */
-    public string $password = '';
-
-    /** @var string Holds the password confirmation for creation mode */
-    public string $password_confirmation = '';
 
     /** @var int|null ID of the selected role (references key_id/id in condition_key) */
     public ?int $roleId = null;
@@ -110,16 +104,6 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Users')] class extends C
     public bool $showRoleDropdown = false;
     public string $officeSearch = '';
     public bool $showOfficeDropdown = false;
-    public bool $showResetPasswordContainer = false;
-
-    public function toggleResetPasswordContainer(): void
-    {
-        $this->showResetPasswordContainer = !$this->showResetPasswordContainer;
-        if (!$this->showResetPasswordContainer) {
-            $this->password = '';
-            $this->password_confirmation = '';
-        }
-    }
 
     /**
      * Initializes "Create Mode" for configuring a new user profile.
@@ -163,7 +147,6 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Users')] class extends C
                 $this->lastName = $details->last_name ?? '';
                 $this->middleName = $details->middle_name ?? '';
                 $this->email = $details->email ?? '';
-                $this->contactNumber = $details->contact_number ?? '';
                 $this->officeId = $details->office_id;
                 if ($this->officeId) {
                     $office = \App\Models\office::find($this->officeId);
@@ -195,9 +178,6 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Users')] class extends C
         $this->lastName = '';
         $this->middleName = '';
         $this->email = '';
-        $this->contactNumber = '';
-        $this->password = '';
-        $this->password_confirmation = '';
         $this->roleId = null;
         $this->officeId = null;
         $this->isActive = true;
@@ -205,7 +185,6 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Users')] class extends C
         $this->showRoleDropdown = false;
         $this->officeSearch = '';
         $this->showOfficeDropdown = false;
-        $this->showResetPasswordContainer = false;
         $this->clearMessages();
     }
 
@@ -244,45 +223,46 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Users')] class extends C
 
         // 1. Validation Rules
         if ($this->selectedUserId === -1) {
-            // Create mode validation rules
+            // Create mode validation rules (Email-First registration: First & Last Name are optional and auto-sync on 1st login)
             $this->validate([
-                'username' => 'required|string|max:255|unique:account,username',
-                'password' => 'required|string|min:8|confirmed',
-                'firstName' => 'required|string|max:255',
-                'lastName' => 'required|string|max:255',
+                'firstName' => 'nullable|string|max:255',
+                'lastName' => 'nullable|string|max:255',
                 'middleName' => 'nullable|string|max:255',
                 'email' => 'required|email|max:255|unique:account_details,email',
-                'contactNumber' => 'nullable|string|max:25',
                 'roleId' => 'required|exists:condition_key,id',
                 'officeId' => 'nullable|exists:office,id',
             ]);
         } else {
             // Edit mode validation rules
-            $rules = [
-                'username' => 'required|string|max:255|unique:account,username,' . $this->selectedUserId . ',id',
+            $this->validate([
                 'firstName' => 'required|string|max:255',
                 'lastName' => 'required|string|max:255',
                 'middleName' => 'nullable|string|max:255',
                 'email' => 'required|email|max:255|unique:account_details,email,' . $this->selectedUserId . ',account_id',
-                'contactNumber' => 'nullable|string|max:25',
                 'roleId' => 'required|exists:condition_key,id',
                 'officeId' => 'nullable|exists:office,id',
-            ];
-
-            if ($this->password !== '') {
-                $rules['password'] = 'required|string|min:8|confirmed';
-            }
-
-            $this->validate($rules);
+            ]);
         }
 
         try {
             \DB::transaction(function () {
                 if ($this->selectedUserId === -1) {
-                    // Create account record
+                    // Derive unique username from email prefix for system record
+                    $baseUsername = strtolower(preg_replace('/[^a-zA-Z0-9]/', '', explode('@', $this->email)[0] ?? 'user'));
+                    if (empty($baseUsername)) {
+                        $baseUsername = 'user';
+                    }
+                    $derivedUsername = $baseUsername;
+                    $counter = 1;
+                    while (\App\Models\User::where('username', $derivedUsername)->exists()) {
+                        $derivedUsername = $baseUsername . $counter;
+                        $counter++;
+                    }
+
+                    // Create account record with auto-generated secure random password
                     $user = new \App\Models\User();
-                    $user->username = $this->username;
-                    $user->password = \Hash::make($this->password);
+                    $user->username = $derivedUsername;
+                    $user->password = \Hash::make(\Illuminate\Support\Str::random(32));
                     $user->account_status = 1;
                     $user->account_role = $this->roleId;
                     $user->account_active = $this->isActive;
@@ -290,21 +270,20 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Users')] class extends C
                     $user->date_updated = now();
                     $user->save();
 
-                    // Create account details record
+                    // Create account details record (Auto-sync placeholders if name not entered)
                     $details = new \App\Models\AccountDetail();
                     $details->account_id = $user->id;
-                    $details->first_name = $this->firstName;
-                    $details->last_name = $this->lastName;
+                    $details->first_name = !empty(trim($this->firstName)) ? trim($this->firstName) : 'Pending';
+                    $details->last_name = !empty(trim($this->lastName)) ? trim($this->lastName) : 'Google Sync';
                     $details->middle_name = $this->middleName;
                     $details->email = $this->email;
-                    $details->contact_number = $this->contactNumber;
                     $details->office_id = $this->officeId;
                     $details->is_currently_online = false;
                     $details->save();
 
                     // Audit Log: created user account
                     \DB::table('admin_logs')->insert([
-                        'changes' => "Created user account: {$user->username} ({$this->firstName} {$this->lastName})",
+                        'changes' => "Created user account via Google SSO: {$user->username} ({$this->firstName} {$this->lastName} <{$this->email}>)",
                         'admin_id' => auth()->id(),
                         'what_system' => 3, // Admin Console
                         'when_changes' => now()
@@ -312,10 +291,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Users')] class extends C
 
                     // Update local state to switch into edit mode for the new user
                     $this->selectedUserId = $user->id;
-                    
-                    // Clear out sensitive password inputs
-                    $this->password = '';
-                    $this->password_confirmation = '';
+                    $this->username = $user->username;
                     
                     $this->successMessage = 'User account created successfully!';
                 } else {
@@ -326,30 +302,12 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Users')] class extends C
                     $statusChanged = $user->account_active != $this->isActive;
 
                     $userData = [
-                        'username' => $this->username,
                         'account_role' => $this->roleId,
                         'account_active' => $this->isActive,
                         'date_updated' => now(),
                     ];
 
-                    if ($this->password !== '') {
-                        $userData['password'] = \Hash::make($this->password);
-                    }
-
                     $user->update($userData);
-
-                    if ($this->password !== '') {
-                        \DB::table('admin_logs')->insert([
-                            'changes' => "Reset password for user: {$user->username}",
-                            'admin_id' => auth()->id(),
-                            'what_system' => 3, // Admin Console
-                            'when_changes' => now()
-                        ]);
-                    }
-
-                    // Clear out sensitive password inputs
-                    $this->password = '';
-                    $this->password_confirmation = '';
 
                     // Update/Create personal Profile details
                     $details = \App\Models\AccountDetail::find($this->selectedUserId);
@@ -361,13 +319,26 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Users')] class extends C
                     $details->last_name = $this->lastName;
                     $details->middle_name = $this->middleName;
                     $details->email = $this->email;
-                    $details->contact_number = $this->contactNumber;
                     $details->office_id = $this->officeId;
-                    $details->save();
+                    // Force logout modified user account (unless it is the current logged-in admin)
+                    if ($this->selectedUserId !== auth()->id()) {
+                        $details->force_logout_at = now();
+                        $details->is_currently_online = false;
+                        $details->save();
+
+                        try {
+                            \DB::table('sessions')
+                                ->where('user_id', (string) $this->selectedUserId)
+                                ->orWhere('user_id', (int) $this->selectedUserId)
+                                ->delete();
+                        } catch (\Throwable) {}
+                    } else {
+                        $details->save();
+                    }
 
                     // Audit Log: updated details
                     \DB::table('admin_logs')->insert([
-                        'changes' => "Updated details for user: {$user->username}",
+                        'changes' => "Updated details for user: {$user->username} ({$this->firstName} {$this->lastName})",
                         'admin_id' => auth()->id(),
                         'what_system' => 3, // Admin Console
                         'when_changes' => now()
@@ -427,6 +398,21 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Users')] class extends C
                     'account_active' => false,
                     'date_updated' => now(),
                 ]);
+
+                // Force logout deactivated user account
+                \DB::table('account_details')
+                    ->where('account_id', $this->selectedUserId)
+                    ->update([
+                        'force_logout_at' => now(),
+                        'is_currently_online' => false,
+                    ]);
+
+                try {
+                    \DB::table('sessions')
+                        ->where('user_id', (string) $this->selectedUserId)
+                        ->orWhere('user_id', (int) $this->selectedUserId)
+                        ->delete();
+                } catch (\Throwable) {}
 
                 // Audit Log: soft-deleted/deactivated
                 \DB::table('admin_logs')->insert([
@@ -559,35 +545,98 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Users')] class extends C
                     @endif
                 </button>
             </div>
+
+            <!-- View Mode Toggle -->
+            <div class="view-mode-toggle" style="display: flex; gap: 2px; background: #f1f5f9; padding: 2px; border-radius: 6px; border: 1px solid #cbd5e1; margin-left: auto;">
+                <button type="button" wire:click="$set('viewMode', 'grid')" title="Cards Grid Layout" style="padding: 4px 10px; border-radius: 4px; border: none; font-size: 11px; font-weight: 600; cursor: pointer; background: {{ $viewMode === 'grid' ? '#ffffff' : 'transparent' }}; color: {{ $viewMode === 'grid' ? '#0f172a' : '#64748b' }}; box-shadow: {{ $viewMode === 'grid' ? '0 1px 2px rgba(0,0,0,0.08)' : 'none' }}; display: flex; align-items: center; gap: 4px; font-family: 'Inter', sans-serif;">
+                    <i class="fa-solid fa-border-all"></i> Cards
+                </button>
+                <button type="button" wire:click="$set('viewMode', 'table')" title="Table Layout" style="padding: 4px 10px; border-radius: 4px; border: none; font-size: 11px; font-weight: 600; cursor: pointer; background: {{ $viewMode === 'table' ? '#ffffff' : 'transparent' }}; color: {{ $viewMode === 'table' ? '#0f172a' : '#64748b' }}; box-shadow: {{ $viewMode === 'table' ? '0 1px 2px rgba(0,0,0,0.08)' : 'none' }}; display: flex; align-items: center; gap: 4px; font-family: 'Inter', sans-serif;">
+                    <i class="fa-solid fa-table-list"></i> Table
+                </button>
+            </div>
         </div>
-        
-        <div class="users-list">
-            @forelse($users as $user)
-                @php
-                    $userDet = $user->details;
-                    $initials = strtoupper(substr($userDet?->first_name ?: '?', 0, 1) . substr($userDet?->last_name ?: '?', 0, 1));
-                    $displayName = $userDet ? ($userDet->first_name . ' ' . $userDet->last_name) : $user->username;
-                    $roleKey = \DB::table('condition_key')->where('id', $user->account_role)->first();
-                @endphp
-                <div class="user-item-card {{ $selectedUserId === $user->id ? 'active' : '' }}" wire:key="user-{{ $user->id }}" wire:click="selectUser({{ $user->id }})">
-                    <div class="user-avatar-small">
-                        <span>{{ $initials }}</span>
+
+        @if($viewMode === 'table')
+            <!-- Table Layout View -->
+            <div style="overflow-x: auto; max-height: calc(100vh - 280px); overflow-y: auto;">
+                <table style="width: 100%; border-collapse: collapse; font-family: 'Inter', sans-serif; font-size: 12.5px;">
+                    <thead>
+                        <tr style="background: #f8fafc; color: #475569; text-align: left; position: sticky; top: 0; z-index: 10; font-weight: 600; font-size: 11.5px; border-bottom: 1.5px solid #cbd5e1;">
+                            <th style="padding: 8px 10px;">User Name</th>
+                            <th style="padding: 8px 10px;">Email (Google Account)</th>
+                            <th style="padding: 8px 10px;">Assigned Role</th>
+                            <th style="padding: 8px 10px; text-align: center;">Status</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @forelse($users as $user)
+                            @php
+                                $userDet = $user->details;
+                                $displayName = $userDet ? ($userDet->first_name . ' ' . $userDet->last_name) : $user->username;
+                                $roleKey = \DB::table('condition_key')->where('id', $user->account_role)->first();
+                            @endphp
+                            <tr class="user-tbl-row {{ $selectedUserId === $user->id ? 'selected-row' : '' }}" 
+                                wire:key="user-tbl-{{ $user->id }}" 
+                                wire:click="selectUser({{ $user->id }})"
+                                style="border-bottom: 1px solid #f1f5f9; cursor: pointer; background: {{ $selectedUserId === $user->id ? '#eff6ff' : '#ffffff' }}; transition: background 0.12s ease;">
+                                <td style="padding: 8px 10px; font-weight: 600; color: #1e293b;">{{ $displayName }}</td>
+                                <td style="padding: 8px 10px; color: #0284c7;">{{ $userDet?->email ?: '—' }}</td>
+                                <td style="padding: 8px 10px; color: #475569;">
+                                    <span style="background: #f1f5f9; color: #334155; padding: 2px 6px; border-radius: 4px; font-size: 11px; font-weight: 600; border: 1px solid #cbd5e1;">
+                                        {{ $roleKey?->key_name ?: 'User' }}
+                                    </span>
+                                </td>
+                                <td style="padding: 8px 10px; text-align: center;">
+                                    @if($user->account_active)
+                                        <span style="padding: 2px 8px; border-radius: 4px; font-size: 10.5px; font-weight: 600; background: #dcfce7; color: #166534; border: 1px solid #bbf7d0;">Active</span>
+                                    @else
+                                        <span style="padding: 2px 8px; border-radius: 4px; font-size: 10.5px; font-weight: 600; background: #fee2e2; color: #991b1b; border: 1px solid #fecdd3;">Blocked</span>
+                                    @endif
+                                </td>
+                            </tr>
+                        @empty
+                            <tr>
+                                <td colspan="4" style="text-align: center; color: #94a3b8; padding: 20px;">No users found matching your search.</td>
+                            </tr>
+                        @endforelse
+                    </tbody>
+                </table>
+            </div>
+        @else
+            <!-- Cards Grid Layout View -->
+            <div class="users-list">
+                @forelse($users as $user)
+                    @php
+                        $userDet = $user->details;
+                        $initials = strtoupper(substr($userDet?->first_name ?: '?', 0, 1) . substr($userDet?->last_name ?: '?', 0, 1));
+                        $displayName = $userDet ? ($userDet->first_name . ' ' . $userDet->last_name) : $user->username;
+                        $roleKey = \DB::table('condition_key')->where('id', $user->account_role)->first();
+                    @endphp
+                    <div class="user-item-card {{ $selectedUserId === $user->id ? 'active' : '' }}" wire:key="user-{{ $user->id }}" wire:click="selectUser({{ $user->id }})">
+                        <div class="user-avatar-small">
+                            @if(!empty($userDet?->avatar_url))
+                                <img src="{{ $userDet->avatar_url }}" alt="Avatar" style="width: 100%; height: 100%; border-radius: 50%; object-fit: cover;">
+                            @else
+                                <span>{{ $initials }}</span>
+                            @endif
+                        </div>
+                        <div class="user-meta-info">
+                            <span class="user-display-name">{{ $displayName }}</span>
+                            <span class="user-display-email">{{ $userDet?->email ?: '@' . $user->username }}</span>
+                            <span class="user-display-role-badge">{{ $roleKey?->key_name ?: 'User' }}</span>
+                        </div>
+                        @if(!$user->account_active)
+                            <i class="fa-solid fa-ban" style="color: #ef4444; font-size: 13px;" title="Account Blocked"></i>
+                        @endif
                     </div>
-                    <div class="user-meta-info">
-                        <span class="user-display-name">{{ $displayName }}</span>
-                        <span class="user-display-email">{{ $userDet?->email ?: '@' . $user->username }}</span>
-                        <span class="user-display-role-badge">{{ $roleKey?->key_name ?: 'User' }}</span>
+                @empty
+                    <div style="text-align: center; color: #94a3b8; padding: 20px; font-family: 'Inter', sans-serif; font-size: 13.5px;">
+                        No users found matching your search.
                     </div>
-                    @if(!$user->account_active)
-                        <i class="fa-solid fa-ban" style="color: #ef4444; font-size: 13px;" title="Account Blocked"></i>
-                    @endif
-                </div>
-            @empty
-                <div style="text-align: center; color: #94a3b8; padding: 20px; font-family: 'Inter', sans-serif; font-size: 13.5px;">
-                    No users found matching your search.
-                </div>
-            @endforelse
-        </div>
+                @endforelse
+            </div>
+        @endif
 
         @if($users->hasPages())
             <div class="users-pagination-bar">
@@ -621,6 +670,8 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Users')] class extends C
                 <div class="details-header-avatar">
                     @if($selectedUserId === -1)
                         <i class="fa-solid fa-user-plus" style="font-size: 20px;"></i>
+                    @elseif(!empty($selectedUserDet?->avatar_url))
+                        <img src="{{ $selectedUserDet->avatar_url }}" alt="Avatar" style="width: 100%; height: 100%; border-radius: 50%; object-fit: cover;">
                     @else
                         <span>{{ $selInitials }}</span>
                     @endif
@@ -659,35 +710,12 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Users')] class extends C
                 @endif
 
                 <form wire:submit.prevent="saveUserChanges" class="form-grid-layout">
-                    <!-- Username -->
-                    <div class="form-group">
-                        <span class="form-label">Username</span>
-                        <input type="text" class="form-input" placeholder="e.g. jdoe" wire:model="username">
-                        @error('username') <span style="color:#ef4444; font-size:11px; margin-top:2px;">{{ $message }}</span> @enderror
-                    </div>
-
                     <!-- Email -->
-                    <div class="form-group">
-                        <span class="form-label">Email Address</span>
+                    <div class="form-group full-width">
+                        <span class="form-label">Email Address (Google Account)</span>
                         <input type="email" class="form-input" placeholder="e.g. john.doe@cspc.edu.ph" wire:model="email">
                         @error('email') <span style="color:#ef4444; font-size:11px; margin-top:2px;">{{ $message }}</span> @enderror
                     </div>
-
-                    @if($selectedUserId === -1)
-                        <!-- Password -->
-                        <div class="form-group">
-                            <span class="form-label">Password</span>
-                            <input type="password" class="form-input" placeholder="Choose a secure password..." wire:model="password">
-                            @error('password') <span style="color:#ef4444; font-size:11px; margin-top:2px;">{{ $message }}</span> @enderror
-                        </div>
-
-                        <!-- Confirm Password -->
-                        <div class="form-group">
-                            <span class="form-label">Confirm Password</span>
-                            <input type="password" class="form-input" placeholder="Confirm your password..." wire:model="password_confirmation">
-                            @error('password_confirmation') <span style="color:#ef4444; font-size:11px; margin-top:2px;">{{ $message }}</span> @enderror
-                        </div>
-                    @endif
 
                     <!-- First Name -->
                     <div class="form-group">
@@ -704,17 +732,10 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Users')] class extends C
                     </div>
 
                     <!-- Middle Name -->
-                    <div class="form-group">
+                    <div class="form-group full-width">
                         <span class="form-label">Middle Name</span>
                         <input type="text" class="form-input" placeholder="Enter middle name..." wire:model="middleName">
                         @error('middleName') <span style="color:#ef4444; font-size:11px; margin-top:2px;">{{ $message }}</span> @enderror
-                    </div>
-
-                    <!-- Contact Number -->
-                    <div class="form-group">
-                        <span class="form-label">Contact Number</span>
-                        <input type="text" class="form-input" placeholder="Enter contact number..." wire:model="contactNumber">
-                        @error('contactNumber') <span style="color:#ef4444; font-size:11px; margin-top:2px;">{{ $message }}</span> @enderror
                     </div>
 
                     <!-- Role -->
@@ -793,32 +814,6 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Users')] class extends C
                         @error('officeId') <span style="color:#ef4444; font-size:11px; margin-top:2px;">{{ $message }}</span> @enderror
                     </div>
 
-                    <!-- Reset Password Container (Edit Mode Only, toggled by Reset Password button) -->
-                    @if($selectedUserId > 0 && $showResetPasswordContainer)
-                        @if(auth()->user()?->permissions?->is_sadm || auth()->user()?->permissions?->can_sadm_modify_pass)
-                            <div class="form-group full-width" style="margin-top: 15px; background: #f8fafc; border: 1.5px solid #cbd5e1; border-radius: 10px; padding: 16px; animation: fadeIn 0.2s ease-out;">
-                                <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px;">
-                                    <span style="font-size: 13.5px; font-weight: 700; color: #1e293b; display: flex; align-items: center; gap: 8px;">
-                                        <i class="fa-solid fa-key" style="color: #0284c7;"></i> Reset Account Password
-                                    </span>
-                                    <button type="button" wire:click="toggleResetPasswordContainer" style="background: none; border: none; font-size: 18px; color: #94a3b8; cursor: pointer; padding: 0 4px;" onmouseover="this.style.color='#64748b'" onmouseout="this.style.color='#94a3b8'">&times;</button>
-                                </div>
-                                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px; width: 100%;">
-                                    <div class="form-group" style="margin-bottom: 0;">
-                                        <span class="form-label">New Password</span>
-                                        <input type="password" class="form-input" style="height: 38px; background: #ffffff;" placeholder="Enter new password..." wire:model="password">
-                                        @error('password') <span style="color:#ef4444; font-size:11px; margin-top:2px;">{{ $message }}</span> @enderror
-                                    </div>
-                                    <div class="form-group" style="margin-bottom: 0;">
-                                        <span class="form-label">Confirm New Password</span>
-                                        <input type="password" class="form-input" style="height: 38px; background: #ffffff;" placeholder="Confirm new password..." wire:model="password_confirmation">
-                                        @error('password_confirmation') <span style="color:#ef4444; font-size:11px; margin-top:2px;">{{ $message }}</span> @enderror
-                                    </div>
-                                </div>
-                            </div>
-                        @endif
-                    @endif
-
                     <!-- Active Toggle Wrapper -->
                     <div class="form-group full-width">
                         <div class="status-toggle-wrapper">
@@ -839,17 +834,11 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Users')] class extends C
             <div class="details-footer">
                 @php
                     $canModify = auth()->user()?->permissions?->is_sadm || auth()->user()?->permissions?->can_sadm_modify_account;
-                    $canResetPass = auth()->user()?->permissions?->is_sadm || auth()->user()?->permissions?->can_sadm_modify_pass;
                 @endphp
                 @if($selectedUserId > 0)
                     <button type="button" class="btn-delete" wire:click="deleteUser" style="margin-right: auto;" {{ !$canModify ? 'disabled style=opacity:0.6;cursor:not-allowed;' : '' }}>
                         <i class="fa-solid fa-trash-can"></i> Delete Account
                     </button>
-                    @if($canResetPass)
-                        <button type="button" class="btn-cancel" wire:click="toggleResetPasswordContainer" style="margin-right: 8px; border-color: #0284c7; color: #0284c7; background-color: {{ $showResetPasswordContainer ? '#e0f2fe' : '#ffffff' }}; font-weight: 600; display: inline-flex; align-items: center; gap: 6px; padding: 8px 16px; border-radius: 20px;" onmouseover="this.style.backgroundColor='#e0f2fe'" onmouseout="this.style.backgroundColor='{{ $showResetPasswordContainer ? '#e0f2fe' : '#ffffff' }}'">
-                            <i class="fa-solid fa-key"></i> Reset Password
-                        </button>
-                    @endif
                 @endif
                 <button type="button" class="btn-cancel" wire:click="cancelSelection">Cancel</button>
                 <button type="button" class="btn-save" wire:click="saveUserChanges" {{ !$canModify ? 'disabled style=opacity:0.6;cursor:not-allowed;' : '' }}>

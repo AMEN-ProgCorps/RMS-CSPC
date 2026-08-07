@@ -21,13 +21,37 @@ new #[Layout('layouts.portal')] #[Title('RMS CSPC Login')] class extends Compone
     @vite(['resources/css/login.css'])
     <style data-navigate-track>
         body {
-            background-image: url('{{ asset('images/1cw2k34d.webp') }}');
+            position: relative;
+            background-image: url('{{ asset('images/Login.png') }}');
             background-repeat: no-repeat !important;
             background-size: cover !important;
             background-attachment: fixed !important;
-            background-position: center !important;
-            min-height: 100vh !important;
+            background-position: center center !important;
+            min-height: 95vh !important;
         }
+
+        body::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: -100px;
+            width: clamp(600px, 40vw, 750px);
+            height: clamp(766px, 50vh, 820px);
+            z-index: 0;
+            background-image: url('{{ asset('images/Welcomebg.png') }}');
+            background-repeat: no-repeat;
+            background-size: 100% 100%;
+            background-position: top left;
+            border-radius: 0 28px 28px 0;
+            border: 4px solid rgb(255, 183, 0);
+            pointer-events: none;
+        }
+
+        .body-container {
+            position: relative;
+            z-index: 1;
+        }
+
         @media screen and (min-width: 769px) {
             :root {
                 zoom: clamp(0.72, calc(100vw / 1920), 1);
@@ -37,6 +61,25 @@ new #[Layout('layouts.portal')] #[Title('RMS CSPC Login')] class extends Compone
 @endpush
 
 <div class="body-container">
+    <div class="welcome-panel">
+        <div class="welcome-inner">
+            <h1 class="welcome-title">WELCOME!</h1>
+            <p class="welcome-copy">to the centralized portal for the Records Management System (RMS) at Camarines Sur Polytechnic Colleges (CSPC). Developed under the leadership of the Records and Freedom of Information Unit (RFIU) in collaboration with the Information and Communications Technology Unit (ICTU), this modernized web application platform enhances institutional transparency, document traceability, and operational accountability across all campus administrative offices.</p>
+
+            <div class="developers">
+                <h3>Developers</h3>
+                <ul>
+                    <li>John Albert T. Lagriada</li>
+                    <li>Jan Russel S. Lucena</li>
+                    <li>Shanice R. Magbanua</li>
+                    <li>Jeroboam T. Oliveros</li>
+                    <li>Kurt Gabrielle B. Zabala</li>
+                </ul>
+            </div>
+
+            <div class="welcome-footer">CSPC Records Management System</div>
+        </div>
+    </div>
     <div class="td-container">
         <a href="{{ route('track-document') }}" class="td-button">
             Track Document
@@ -44,10 +87,6 @@ new #[Layout('layouts.portal')] #[Title('RMS CSPC Login')] class extends Compone
                 <path fill="currentColor" d="M2,11V13H40L34.5,18.5L35.92,19.92L43.84,12L35.92,4.08L34.5,5.5L40,11H2Z" />
             </svg>
         </a>
-    </div>
-    <div class="header-container">
-        <div class="institute">CSPC</div>
-        <div class="system">Records Management System</div>
     </div>
     <div class="login-container sso-only">
         <div class="logo-container">

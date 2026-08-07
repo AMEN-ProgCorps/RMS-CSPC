@@ -105,12 +105,39 @@ Route::get('/auth/google/callback', function () use ($resolveGoogleSsoCredential
             'time'        => now(),
         ]);
 
+        // Auto-sync Google Cloud CDN Avatar URL & Names (Approach 1)
+        $avatarUrl = $googleUser->getAvatar();
+        if ($avatarUrl && str_contains($avatarUrl, '=s96-c')) {
+            $avatarUrl = str_replace('=s96-c', '=s256-c', $avatarUrl);
+        }
+
+        $rawUser = $googleUser->getRaw();
+        $givenName = trim($rawUser['given_name'] ?? $googleUser->getName() ?? '');
+        $familyName = trim($rawUser['family_name'] ?? '');
+
+        $updateData = [
+            'is_currently_online' => true,
+            'last_online_time'    => now(),
+        ];
+
+        if (!empty($avatarUrl)) {
+            $updateData['avatar_url'] = $avatarUrl;
+        }
+
+        if (empty($accountDetail->first_name) || $accountDetail->first_name === 'Pending' || $accountDetail->first_name === 'Google Sync') {
+            if (!empty($givenName)) {
+                $updateData['first_name'] = $givenName;
+            }
+        }
+        if (empty($accountDetail->last_name) || $accountDetail->last_name === 'Google Sync' || $accountDetail->last_name === 'Pending') {
+            if (!empty($familyName)) {
+                $updateData['last_name'] = $familyName;
+            }
+        }
+
         \Illuminate\Support\Facades\DB::table('account_details')
             ->where('account_id', $accountDetail->account_id)
-            ->update([
-                'is_currently_online' => true,
-                'last_online_time'    => now(),
-            ]);
+            ->update($updateData);
 
         return redirect('/portal');
     } catch (\Throwable $e) {
@@ -144,6 +171,30 @@ Route::middleware(['auth'])
             return response()->json(['unread' => 0]);
         }
     })->name('chat.unread-count');
+
+    // Session Heartbeat & Tab Closure Beacon
+    Route::post('/api/session/ping', function () {
+        if ($user = Auth::user()) {
+            \Illuminate\Support\Facades\DB::table('account_details')
+                ->where('account_id', $user->id)
+                ->update([
+                    'is_currently_online' => true,
+                    'last_online_time' => now(),
+                ]);
+        }
+        return response()->json(['status' => 'active']);
+    });
+
+    Route::post('/api/session/tab-closed', function () {
+        if ($user = Auth::user()) {
+            \Illuminate\Support\Facades\DB::table('account_details')
+                ->where('account_id', $user->id)
+                ->update([
+                    'is_currently_online' => false,
+                ]);
+        }
+        return response()->json(['status' => 'closed']);
+    });
 
 
     Volt::route('/portal', 'pages.portal.access-page')
@@ -188,6 +239,7 @@ Route::middleware(['auth'])
         Volt::route('/admin/subsystems/deactivate', 'pages.admin.subsystems.deactivate')->name('admin.subsystems.deactivate');
         Volt::route('/admin/subsystems/changes-logs', 'pages.admin.subsystems.changes-logs')->name('admin.subsystems.changes-logs');
         Volt::route('/admin/settings', 'pages.admin.settings.index')->name('admin.settings.index');
+        Volt::route('/admin/backup', 'pages.admin.backup.index')->name('admin.backup.index');
         Volt::route('/admin/recycle-bin', 'pages.admin.recycle-bin')->name('admin.recycle-bin');
     });
 
@@ -216,24 +268,40 @@ Route::middleware(['auth'])
 
     // DTS — Document Tracking System (requires can_access_dts or is_sadm)
     Route::middleware(['can.access.dts'])->group(function () {
+        // Transactions Section Pages
         Volt::route('/dts', 'pages.dts.index')->name('dts');
+        Volt::route('/dts/incoming', 'pages.dts.index')->name('dts.incoming');
+        Volt::route('/dts/my-transactions', 'pages.dts.index')->name('dts.my-transactions');
+        Volt::route('/dts/received', 'pages.dts.index')->name('dts.received');
+        Volt::route('/dts/forwarded', 'pages.dts.index')->name('dts.forwarded');
+
+        // Scanner Page
         Volt::route('/dts/receive', 'pages.dts.receive')->name('dts.receive');
         Route::get('/dts/scanner', fn () => redirect()->route('dts.receive'))->name('dts.scanner');
-        // Sub-filter pages merged into index; these redirect to keep old links working
-        Route::get('/dts/internal', fn () => redirect()->route('dts'))->name('dts.internal');
-        Route::get('/dts/external', fn () => redirect()->route('dts'))->name('dts.external');
-        Route::get('/dts/applications', fn () => redirect()->route('dts'))->name('dts.applications');
-        Route::get('/dts/issuances', fn () => redirect()->route('dts'))->name('dts.issuances');
 
+        // Legacy sub-filter redirects
+        Route::get('/dts/internal', fn () => redirect()->route('dts.incoming'))->name('dts.internal');
+        Route::get('/dts/external', fn () => redirect()->route('dts.incoming'))->name('dts.external');
+        Route::get('/dts/applications', fn () => redirect()->route('dts.incoming'))->name('dts.applications');
+        Route::get('/dts/issuances', fn () => redirect()->route('dts.incoming'))->name('dts.issuances');
+
+        // Create Section Pages
         Volt::route('/dts/create/internal', 'pages.dts.create.internal')->name('dts.create.internal');
         Volt::route('/dts/create/external', 'pages.dts.create.external')->name('dts.create.external');
         Volt::route('/dts/create/application-letters', 'pages.dts.create.application-letters')->name('dts.create.application-letters');
         Volt::route('/dts/create/issuances', 'pages.dts.create.issuances')->name('dts.create.issuances');
 
+        // List of Transactions Section Pages (Completed Created Transactions)
         Volt::route('/dts/list/internal', 'pages.dts.list.internal')->name('dts.list.internal');
         Volt::route('/dts/list/external', 'pages.dts.list.external')->name('dts.list.external');
         Volt::route('/dts/list/application-letters', 'pages.dts.list.application-letters')->name('dts.list.application-letters');
         Volt::route('/dts/list/issuances', 'pages.dts.list.issuances')->name('dts.list.issuances');
+
+        // Transaction History Section Pages (Passed Through Transactions from Other Offices)
+        Volt::route('/dts/history/internal', 'pages.dts.history.internal')->name('dts.history.internal');
+        Volt::route('/dts/history/external', 'pages.dts.history.external')->name('dts.history.external');
+        Volt::route('/dts/history/application-letters', 'pages.dts.history.application-letters')->name('dts.history.application-letters');
+        Volt::route('/dts/history/issuances', 'pages.dts.history.issuances')->name('dts.history.issuances');
 
         Route::get('/dts/view-document', function (\Illuminate\Http\Request $request) {
             $path = $request->query('path');

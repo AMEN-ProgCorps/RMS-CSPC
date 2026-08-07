@@ -561,8 +561,12 @@
       font-size: 12px;
     }
 
-    /* Thumbnail grid — scrolls once it grows past a few rows, scrollbar
-       hidden via the shared modal rule above. */
+    /* Thumbnail grid — shows exactly 2 rows (3 cols × 2 rows = 6 thumbs)
+       before scrolling; JS (updateStagingGridMaxHeight) sets the precise
+       inline max-height from the actual rendered thumb size so it's exact
+       on every screen width. The 260px below is only a pre-JS fallback.
+       Scrollbar stays hidden via the shared modal rule above, but the
+       grid remains scrollable (overflow-y: auto) for anything past 6. */
     .image-staging-grid {
       display: grid;
       grid-template-columns: repeat(3, 1fr);

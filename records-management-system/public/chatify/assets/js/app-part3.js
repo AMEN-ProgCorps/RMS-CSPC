@@ -2266,7 +2266,39 @@
           removeStagedImage(this.getAttribute('data-id'));
         });
       });
+
+      updateStagingGridMaxHeight();
     }
+
+    // Caps the staging grid to exactly 2 rows (3 columns × 2 rows = 6
+    // thumbnails) of visible height — anything beyond that scrolls, with
+    // the scrollbar itself hidden via the shared modal CSS rule. Computed
+    // from the actual rendered thumb size (which is a % of the grid width,
+    // so it scales with screen size) rather than a hardcoded pixel value,
+    // so it stays exactly 6-visible on any viewport, including mobile.
+    const STAGING_ROWS_VISIBLE = 2; // 3 cols × 2 rows = 6 thumbnails before scroll
+    function updateStagingGridMaxHeight() {
+      if (!imageStagingGrid) return;
+      const firstThumb = imageStagingGrid.querySelector('.image-staging-thumb');
+      if (!firstThumb) {
+        imageStagingGrid.style.maxHeight = '';
+        return;
+      }
+      const rowHeight = firstThumb.getBoundingClientRect().height;
+      if (!rowHeight) return;
+      const gridStyles = getComputedStyle(imageStagingGrid);
+      const rowGap = parseFloat(gridStyles.rowGap || gridStyles.gap) || 0;
+      const maxHeight = (rowHeight * STAGING_ROWS_VISIBLE) + (rowGap * (STAGING_ROWS_VISIBLE - 1));
+      imageStagingGrid.style.maxHeight = Math.ceil(maxHeight) + 'px';
+    }
+
+    // Recompute on resize/orientation-change while the modal is open, since
+    // the thumb size (and therefore the 6-item cutoff) is width-dependent.
+    window.addEventListener('resize', function() {
+      if (imageStagingModal && imageStagingModal.classList.contains('active')) {
+        updateStagingGridMaxHeight();
+      }
+    });
 
     function addImagesToStaging(files) {
       const rejected = [];

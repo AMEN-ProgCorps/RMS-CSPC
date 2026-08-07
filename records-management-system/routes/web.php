@@ -239,6 +239,7 @@ Route::middleware(['auth'])
         Volt::route('/admin/subsystems/deactivate', 'pages.admin.subsystems.deactivate')->name('admin.subsystems.deactivate');
         Volt::route('/admin/subsystems/changes-logs', 'pages.admin.subsystems.changes-logs')->name('admin.subsystems.changes-logs');
         Volt::route('/admin/settings', 'pages.admin.settings.index')->name('admin.settings.index');
+        Volt::route('/admin/backup', 'pages.admin.backup.index')->name('admin.backup.index');
         Volt::route('/admin/recycle-bin', 'pages.admin.recycle-bin')->name('admin.recycle-bin');
     });
 
@@ -268,11 +269,11 @@ Route::middleware(['auth'])
     // DTS — Document Tracking System (requires can_access_dts or is_sadm)
     Route::middleware(['can.access.dts'])->group(function () {
         // Transactions Section Pages
-        Volt::route('/dts', 'pages.dts.incoming')->name('dts');
-        Volt::route('/dts/incoming', 'pages.dts.incoming')->name('dts.incoming');
-        Volt::route('/dts/my-transactions', 'pages.dts.my-transactions')->name('dts.my-transactions');
-        Volt::route('/dts/received', 'pages.dts.received')->name('dts.received');
-        Volt::route('/dts/forwarded', 'pages.dts.forwarded')->name('dts.forwarded');
+        Volt::route('/dts', 'pages.dts.index')->name('dts');
+        Volt::route('/dts/incoming', 'pages.dts.index')->name('dts.incoming');
+        Volt::route('/dts/my-transactions', 'pages.dts.index')->name('dts.my-transactions');
+        Volt::route('/dts/received', 'pages.dts.index')->name('dts.received');
+        Volt::route('/dts/forwarded', 'pages.dts.index')->name('dts.forwarded');
 
         // Scanner Page
         Volt::route('/dts/receive', 'pages.dts.receive')->name('dts.receive');

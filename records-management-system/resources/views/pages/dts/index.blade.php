@@ -102,6 +102,8 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
                 ->update(['dt.current_office' => DB::raw('dtd.originated_from')]);
         } catch (\Throwable $e) {}
 
+        $routeName = request()->route()?->getName();
+
         $query = DB::table('dts_transactions as dt')
             ->join('dts_transaction_details as dtd', 'dtd.id', '=', 'dt.transaction_id')
             ->leftJoin('office as originated_office', 'originated_office.office_code', '=', 'dtd.originated_from')
@@ -109,14 +111,31 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
             ->leftJoin('dts_transaction_flow as flow', 'flow.flow_code', '=', 'dtd.transaction_flow')
             ->leftJoin('document_data as doc', 'doc.document_path', '=', 'dt.doc_dir')
             ->where('dtd.is_active', 1)
-            ->where(function($q) use ($userOfficeCode) {
+            ->whereNotIn('dt.status', ['completed', 'cancelled']);
+
+        if ($routeName === 'dts.my-transactions') {
+            $query->where(function($q) use ($userOfficeCode) {
+                $q->where('dtd.originated_from', $userOfficeCode)
+                  ->orWhere('dtd.created_by', auth()->id());
+            });
+        } elseif ($routeName === 'dts.forwarded') {
+            $query->where('dt.current_office', '!=', $userOfficeCode)
+                  ->whereExists(function($q) use ($userOfficeCode) {
+                      $q->select(DB::raw(1))
+                        ->from('sub_document_tracking_system_logs as log')
+                        ->whereColumn('log.transaction_id', 'dt.transaction_id')
+                        ->where('log.office_code', $userOfficeCode)
+                        ->whereNotNull('log.date_out');
+                  });
+        } else {
+            $query->where(function($q) use ($userOfficeCode) {
                 $q->where('dt.current_office', $userOfficeCode)
                   ->orWhere(function($sub) use ($userOfficeCode) {
                       $sub->where('dt.current_office', 'ORIGIN')
                           ->where('dtd.originated_from', $userOfficeCode);
                   });
-            })
-            ->whereNotIn('dt.status', ['completed', 'cancelled']);
+            });
+        }
 
         $perms = auth()->user()?->permissions;
         if ($perms && !$perms->is_sadm) {
@@ -265,6 +284,27 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
 
             return $t;
         });
+
+        if (in_array($routeName, ['dts', 'dts.incoming', 'dts.received', 'dts.forwarded'])) {
+            $filteredCollection = $list->getCollection()->filter(function ($t) use ($routeName, $userOfficeCode) {
+                if ($routeName === 'dts.received') {
+                    return $t->is_received === true;
+                }
+                if ($routeName === 'dts.forwarded') {
+                    $destLog = DB::table('sub_document_tracking_system_logs')
+                        ->where('transaction_id', $t->transaction_id)
+                        ->where('office_code', $t->current_office)
+                        ->orderBy('id', 'desc')
+                        ->first();
+                    $destReceived = $destLog && ($destLog->type === 'received' || (!empty($destLog->date_in) && $destLog->type !== 'forwarded'));
+                    return !$destReceived;
+                }
+                // Default & dts.incoming: incoming only (not received at user office)
+                return $t->is_received === false;
+            })->values();
+
+            $list->setCollection($filteredCollection);
+        }
 
         return $list;
     }

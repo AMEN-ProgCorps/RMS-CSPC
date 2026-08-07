@@ -1897,7 +1897,7 @@
 
 
       .input-area {
-        border-radius: 0 0 12px 12px;
+        border-radius: 0 0 12px 0;
       }
 
       #chat-box {

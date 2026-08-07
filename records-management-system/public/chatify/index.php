@@ -772,7 +772,6 @@ try {
       </div>
     </div>
   </div>
-
   <script src="assets/js/legal-modal.js"></script>
 </body>
 </html>

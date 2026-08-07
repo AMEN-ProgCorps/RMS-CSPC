@@ -267,24 +267,40 @@ Route::middleware(['auth'])
 
     // DTS — Document Tracking System (requires can_access_dts or is_sadm)
     Route::middleware(['can.access.dts'])->group(function () {
-        Volt::route('/dts', 'pages.dts.index')->name('dts');
+        // Transactions Section Pages
+        Volt::route('/dts', 'pages.dts.incoming')->name('dts');
+        Volt::route('/dts/incoming', 'pages.dts.incoming')->name('dts.incoming');
+        Volt::route('/dts/my-transactions', 'pages.dts.my-transactions')->name('dts.my-transactions');
+        Volt::route('/dts/received', 'pages.dts.received')->name('dts.received');
+        Volt::route('/dts/forwarded', 'pages.dts.forwarded')->name('dts.forwarded');
+
+        // Scanner Page
         Volt::route('/dts/receive', 'pages.dts.receive')->name('dts.receive');
         Route::get('/dts/scanner', fn () => redirect()->route('dts.receive'))->name('dts.scanner');
-        // Sub-filter pages merged into index; these redirect to keep old links working
-        Route::get('/dts/internal', fn () => redirect()->route('dts'))->name('dts.internal');
-        Route::get('/dts/external', fn () => redirect()->route('dts'))->name('dts.external');
-        Route::get('/dts/applications', fn () => redirect()->route('dts'))->name('dts.applications');
-        Route::get('/dts/issuances', fn () => redirect()->route('dts'))->name('dts.issuances');
 
+        // Legacy sub-filter redirects
+        Route::get('/dts/internal', fn () => redirect()->route('dts.incoming'))->name('dts.internal');
+        Route::get('/dts/external', fn () => redirect()->route('dts.incoming'))->name('dts.external');
+        Route::get('/dts/applications', fn () => redirect()->route('dts.incoming'))->name('dts.applications');
+        Route::get('/dts/issuances', fn () => redirect()->route('dts.incoming'))->name('dts.issuances');
+
+        // Create Section Pages
         Volt::route('/dts/create/internal', 'pages.dts.create.internal')->name('dts.create.internal');
         Volt::route('/dts/create/external', 'pages.dts.create.external')->name('dts.create.external');
         Volt::route('/dts/create/application-letters', 'pages.dts.create.application-letters')->name('dts.create.application-letters');
         Volt::route('/dts/create/issuances', 'pages.dts.create.issuances')->name('dts.create.issuances');
 
+        // List of Transactions Section Pages (Completed Created Transactions)
         Volt::route('/dts/list/internal', 'pages.dts.list.internal')->name('dts.list.internal');
         Volt::route('/dts/list/external', 'pages.dts.list.external')->name('dts.list.external');
         Volt::route('/dts/list/application-letters', 'pages.dts.list.application-letters')->name('dts.list.application-letters');
         Volt::route('/dts/list/issuances', 'pages.dts.list.issuances')->name('dts.list.issuances');
+
+        // Transaction History Section Pages (Passed Through Transactions from Other Offices)
+        Volt::route('/dts/history/internal', 'pages.dts.history.internal')->name('dts.history.internal');
+        Volt::route('/dts/history/external', 'pages.dts.history.external')->name('dts.history.external');
+        Volt::route('/dts/history/application-letters', 'pages.dts.history.application-letters')->name('dts.history.application-letters');
+        Volt::route('/dts/history/issuances', 'pages.dts.history.issuances')->name('dts.history.issuances');
 
         Route::get('/dts/view-document', function (\Illuminate\Http\Request $request) {
             $path = $request->query('path');

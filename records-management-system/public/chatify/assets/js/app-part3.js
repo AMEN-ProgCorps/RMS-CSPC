@@ -2302,9 +2302,11 @@
 
     function addImagesToStaging(files) {
       const rejected = [];
+      let acceptedCount = 0;
       for (const file of files) {
         const ext = (file.name.split('.').pop() || '').toLowerCase();
         if (REJECTED_EXTS.has(ext)) { rejected.push(file.name); continue; }
+        acceptedCount++;
         stagedImageSeq++;
         const isImg = isImageFile(file);
         stagedImages.push({
@@ -2319,6 +2321,7 @@
         showUploadErrorModal(rejected.map(f => `'${f}' was rejected: executable or script files are not allowed.`));
       }
       renderImageStagingGrid();
+      return acceptedCount;
     }
 
     function removeStagedImage(id) {
@@ -2333,7 +2336,13 @@
       if (isAdminAllChatsView || activeAdminConv) return;
       if (!activeDM && !isGlobalChat) return;
 
-      addImagesToStaging(files);
+      const acceptedCount = addImagesToStaging(files);
+
+      // If every dropped/selected file was rejected (e.g. executable/script
+      // extensions), addImagesToStaging() already showed the error modal —
+      // don't also pop open the staging modal with nothing valid in it.
+      if (acceptedCount === 0) return;
+
       if (imageStagingModal) {
         imageStagingModal.style.display = 'flex';
         imageStagingModal.classList.add('active');

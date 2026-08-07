@@ -24,6 +24,8 @@
       
       --border-color: #e4e6eb;
       --border-input: #e4e6eb;
+      --message-input-border: #909299;
+      --message-input-bg: #f0f2f5;
       
       --button-bg: transparent;
       --button-text: #050505;
@@ -68,6 +70,8 @@
       
       --border-color: #3a3b3c;
       --border-input: #3a3b3c;
+      --message-input-border: #55575c;
+      --message-input-bg: #3a3b3c;
       
       --button-bg: transparent;
       --button-text: #e4e6eb;
@@ -1487,8 +1491,8 @@
       /* Its own distinct fill so it still reads as an input field —
          it's the .input-area bar behind it that now blends with the
          chat view instead of being a separate container. */
-      border: 1px solid #909299;
-      background-color: var(--bg-input);
+      border: 1px solid var(--message-input-border);
+      background-color: var(--message-input-bg);
       color: var(--text-primary);
       font-size: 14px;
       font-family: 'Inter', sans-serif;

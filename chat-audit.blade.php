@@ -242,7 +242,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Chat Audit Trail')] clas
                 <span class="live-status-pill">
                     <span class="pulse-dot"></span> Live Chat Activity
                 </span>
-            </div>s
+            </div>
         </div>
     </div>
 

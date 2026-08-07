@@ -180,6 +180,23 @@
 </div>
 @endif
 
+@if(auth()->user()?->permissions?->is_sadm || auth()->user()?->permissions?->can_access_settings)
+<div id="admin-backup-id" class="button-section-container {{ request()->routeIs(['admin.backup', 'admin.backup.*']) ? 'show' : '' }}">
+    <div class="button-container {{ request()->routeIs(['admin.backup', 'admin.backup.*']) ? 'force-active' : '' }}" onclick="proccedto('{{ route('admin.backup.index') }}')">
+        <div class="button-icon">
+            <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#4F4F4F" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M21 8v13H3V8"/>
+                <path d="M1 3h22v5H1z"/>
+                <path d="M10 12h4"/>
+            </svg>
+        </div>
+        <div class="button-label">
+            <span>Backup & Recovery</span>
+        </div>
+    </div>
+</div>
+@endif
+
 @if(auth()->user()?->permissions?->is_sadm || auth()->user()?->permissions?->can_access_recycle_bin)
 <div id="admin-recycle-bin-id" class="button-section-container {{ request()->routeIs('admin.recycle-bin') ? 'show' : '' }}">
     <div class="button-container {{ request()->routeIs('admin.recycle-bin') ? 'force-active' : '' }}" onclick="proccedto('{{ route('admin.recycle-bin') }}')">

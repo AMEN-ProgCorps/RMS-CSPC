@@ -72,7 +72,7 @@ new #[Layout('layouts.portal')] #[Title('RMS CSPC Login')] class extends Compone
                     <li>John Albert T. Lagriada</li>
                     <li>Jan Russel S. Lucena</li>
                     <li>Shanice R. Magbanua</li>
-                    <li>Jeroboam T. Oliveros</li>s
+                    <li>Jeroboam T. Oliveros</li>
                     <li>Kurt Gabrielle B. Zabala</li>
                 </ul>
             </div>

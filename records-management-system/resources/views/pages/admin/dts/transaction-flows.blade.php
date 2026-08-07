@@ -31,6 +31,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - DTS Transaction Flows')]
     // ---- PREDEFINED FLOW EDITOR PROPERTIES ----
     /** @var string Selected action/subsystem option (empty, 'new', or numeric ID) */
     public string $selectedPredefined = '';
+    public string $predefinedViewMode = 'table'; // 'table' or 'grid'
 
     public string $flowName = '';
     public string $flowCode = '';
@@ -48,6 +49,23 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - DTS Transaction Flows')]
     public array $cfOffices = []; // list of office codes for predefined copy furnished
     public string $cfSearch = ''; // text query for searching copy furnished offices to add
     public string $selectedCfOffice = ''; // selected office from dropdown for copy furnished
+
+    // ---- CUSTOM FLOW EDITOR PROPERTIES ----
+    public string $selectedCustom = '';
+    public string $customViewMode = 'table';
+    public string $customFlowName = '';
+    public string $customFlowCode = '';
+    public bool $customIsActive = true;
+    public string $customFlowUse = 'none';
+    public string $customFlowFor = 'system'; // 'system', 'office', or 'user'
+    public array $customFlowOffices = [];
+    public string $customSelectedOffice = '';
+    public string $customOfficeSearch = '';
+    public array $customCfOffices = [];
+    public string $customCfSearch = '';
+    public string $customSelectedCfOffice = '';
+    public array $selectedCustomFlowIds = [];
+    public string $customPurposeFilter = 'all';
 
     // ---- SEARCH FOR CUSTOM FLOWS ----
     public string $searchCustom = '';
@@ -158,6 +176,314 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - DTS Transaction Flows')]
     {
         if (isset($this->cfOffices[$index])) {
             array_splice($this->cfOffices, $index, 1);
+        }
+    }
+
+    // ---- CUSTOM FLOW MANAGER METHODS ----
+    public function selectCustomFlow($id): void
+    {
+        $this->clearMessages();
+        $this->selectedCustom = (string) $id;
+        $this->updatedSelectedCustom((string) $id);
+    }
+
+    public function startCreateCustom(): void
+    {
+        $this->clearMessages();
+        $this->selectedCustom = 'new';
+        $this->updatedSelectedCustom('new');
+    }
+
+    public function updatedSelectedCustom(string $value): void
+    {
+        $this->clearMessages();
+
+        if ($value === '' || $value === 'new') {
+            $this->customFlowName = '';
+            $this->customFlowCode = '';
+            $this->customIsActive = true;
+            $this->customFlowUse = 'none';
+            $this->customFlowFor = 'system';
+            $this->customFlowOffices = ['ORIGIN', 'ORIGIN'];
+            $this->customOfficeSearch = '';
+            $this->customCfOffices = [];
+            $this->customCfSearch = '';
+            $this->customSelectedCfOffice = '';
+            return;
+        }
+
+        $flow = \DB::table('dts_transaction_flow')->where('id', $value)->first();
+        if ($flow) {
+            $this->customFlowName = $flow->flow_name;
+            $this->customFlowCode = $flow->flow_code;
+            $this->customIsActive = (bool) $flow->is_active;
+            $this->customFlowUse = $flow->flow_use ?? 'none';
+            $this->customFlowFor = $flow->flow_for ?? 'system';
+
+            $offices = \DB::table('dts_sequence_list')
+                ->where('control_id', $flow->id)
+                ->orderBy('sequence_ranking')
+                ->pluck('office_code')
+                ->toArray();
+
+            if (empty($offices)) {
+                $offices = ['ORIGIN'];
+            } elseif ($offices[0] !== 'ORIGIN') {
+                array_unshift($offices, 'ORIGIN');
+            }
+            $this->customFlowOffices = $offices;
+
+            $cfTx = \DB::table('dts_copy_filled_transaction')
+                ->where('control_num', $flow->flow_code)
+                ->first();
+            if ($cfTx) {
+                $this->customCfOffices = \DB::table('dts_copy_filled_to_office')
+                    ->where('control_id', $cfTx->assign_offices_id)
+                    ->pluck('office_code')
+                    ->toArray();
+            } else {
+                $this->customCfOffices = [];
+            }
+            $this->customCfSearch = '';
+            $this->customSelectedCfOffice = '';
+        }
+    }
+
+    public function selectCustomOfficeForAppend(string $code, string $name): void
+    {
+        $this->customSelectedOffice = $code;
+        $this->customOfficeSearch = "$name ($code)";
+    }
+
+    public function addCustomOfficeToPath(): void
+    {
+        if ($this->customSelectedOffice === '') return;
+
+        if (empty($this->customFlowOffices)) {
+            $this->customFlowOffices[] = 'ORIGIN';
+        } elseif ($this->customFlowOffices[0] !== 'ORIGIN') {
+            array_unshift($this->customFlowOffices, 'ORIGIN');
+        }
+
+        $count = count($this->customFlowOffices);
+        if ($count > 1 && $this->customFlowOffices[$count - 1] === 'ORIGIN') {
+            array_splice($this->customFlowOffices, $count - 1, 0, $this->customSelectedOffice);
+        } else {
+            $this->customFlowOffices[] = $this->customSelectedOffice;
+        }
+
+        $this->customSelectedOffice = '';
+        $this->customOfficeSearch = '';
+    }
+
+    public function moveCustomOfficeUp(int $index): void
+    {
+        if ($index <= 1 || !isset($this->customFlowOffices[$index])) return;
+        $temp = $this->customFlowOffices[$index - 1];
+        $this->customFlowOffices[$index - 1] = $this->customFlowOffices[$index];
+        $this->customFlowOffices[$index] = $temp;
+    }
+
+    public function moveCustomOfficeDown(int $index): void
+    {
+        if ($index === 0 || $index >= count($this->customFlowOffices) - 1 || !isset($this->customFlowOffices[$index])) return;
+        $temp = $this->customFlowOffices[$index + 1];
+        $this->customFlowOffices[$index + 1] = $this->customFlowOffices[$index];
+        $this->customFlowOffices[$index] = $temp;
+    }
+
+    public function removeCustomOffice(int $index): void
+    {
+        if ($index === 0 || !isset($this->customFlowOffices[$index])) return;
+        array_splice($this->customFlowOffices, $index, 1);
+    }
+
+    public function selectCustomCfOfficeForAppend(string $code, string $name): void
+    {
+        $this->customSelectedCfOffice = $code;
+        $this->customCfSearch = "$name ($code)";
+    }
+
+    public function addCustomCfOfficeToPath(): void
+    {
+        if ($this->customSelectedCfOffice === '') return;
+        if (!in_array($this->customSelectedCfOffice, $this->customCfOffices)) {
+            $this->customCfOffices[] = $this->customSelectedCfOffice;
+        }
+        $this->customSelectedCfOffice = '';
+        $this->customCfSearch = '';
+    }
+
+    public function removeCustomCfOffice(int $index): void
+    {
+        if (isset($this->customCfOffices[$index])) {
+            array_splice($this->customCfOffices, $index, 1);
+        }
+    }
+
+    public function saveCustomFlow(): void
+    {
+        $this->clearMessages();
+
+        if ($this->selectedCustom === '') {
+            $this->errorMessage = 'Please select a custom flow option.';
+            return;
+        }
+
+        if (count($this->customFlowOffices) === 0) {
+            $this->errorMessage = 'A custom transaction flow must contain at least one office in its routing path.';
+            return;
+        }
+
+        if ($this->selectedCustom === 'new') {
+            $codeToUse = !empty($this->customFlowCode) ? strtoupper(trim($this->customFlowCode)) : ('FLOW-CUSTOM-' . time() . '-' . rand(100, 999));
+            $this->validate([
+                'customFlowName' => 'required|string|max:255',
+                'customFlowUse' => 'required|string|in:internal,external,issuances,application,others,none',
+                'customFlowFor' => 'required|string|in:system,office,user',
+            ]);
+        } else {
+            $codeToUse = $this->customFlowCode;
+            $this->validate([
+                'customFlowName' => 'required|string|max:255',
+                'customFlowUse' => 'required|string|in:internal,external,issuances,application,others,none',
+                'customFlowFor' => 'required|string|in:system,office,user',
+            ]);
+        }
+
+        try {
+            \DB::transaction(function () use ($codeToUse) {
+                $flowId = null;
+
+                if ($this->selectedCustom === 'new') {
+                    $maxId = \DB::table('dts_transaction_flow')->max('id') ?? 0;
+                    $flowId = $maxId + 1;
+
+                    \DB::table('dts_transaction_flow')->insert([
+                        'id' => $flowId,
+                        'flow_name' => trim($this->customFlowName),
+                        'flow_code' => $codeToUse,
+                        'is_active' => $this->customIsActive,
+                        'flow_use' => $this->customFlowUse,
+                        'flow_for' => $this->customFlowFor,
+                        'added_by' => auth()->id() ?? 1,
+                        'date_added' => now(),
+                    ]);
+                } else {
+                    $flowId = (int) $this->selectedCustom;
+                    \DB::table('dts_transaction_flow')
+                        ->where('id', $flowId)
+                        ->update([
+                            'flow_name' => trim($this->customFlowName),
+                            'is_active' => $this->customIsActive,
+                            'flow_use' => $this->customFlowUse,
+                            'flow_for' => $this->customFlowFor,
+                        ]);
+                }
+
+                // Sync sequence list
+                \DB::table('dts_sequence_list')->where('control_id', $flowId)->delete();
+                foreach ($this->customFlowOffices as $rank => $officeCode) {
+                    \DB::table('dts_sequence_list')->insert([
+                        'control_id' => $flowId,
+                        'sequence_ranking' => $rank + 1,
+                        'office_code' => $officeCode,
+                    ]);
+                }
+
+                // Sync Copy Furnished offices
+                $existingCfTx = \DB::table('dts_copy_filled_transaction')->where('control_num', $codeToUse)->first();
+                if ($existingCfTx) {
+                    \DB::table('dts_copy_filled_to_office')->where('control_id', $existingCfTx->assign_offices_id)->delete();
+                    \DB::table('dts_copy_filled_transaction')->where('control_num', $codeToUse)->delete();
+                }
+
+                if (count($this->customCfOffices) > 0) {
+                    $assignOfficesId = (\DB::table('dts_copy_filled_transaction')->max('assign_offices_id') ?? 1000) + 1;
+                    \DB::table('dts_copy_filled_transaction')->insert([
+                        'control_num' => $codeToUse,
+                        'total_office' => count($this->customCfOffices),
+                        'assign_offices_id' => $assignOfficesId,
+                        'data_created' => now(),
+                        'date_modified' => now(),
+                    ]);
+
+                    foreach ($this->customCfOffices as $cfOffice) {
+                        \DB::table('dts_copy_filled_to_office')->insert([
+                            'control_id' => $assignOfficesId,
+                            'office_code' => $cfOffice,
+                        ]);
+                    }
+                }
+
+                $this->selectedCustom = (string) $flowId;
+            });
+
+            $this->successMessage = 'Custom transaction flow successfully saved!';
+        } catch (\Exception $e) {
+            $this->errorMessage = 'Failed to save custom flow: ' . $e->getMessage();
+        }
+    }
+
+    public function deleteCustomFlow(): void
+    {
+        $this->clearMessages();
+        if (empty($this->selectedCustom) || $this->selectedCustom === 'new') return;
+
+        try {
+            $flowId = (int) $this->selectedCustom;
+            \DB::table('dts_transaction_flow')
+                ->where('id', $flowId)
+                ->update(['is_active' => false]);
+
+            $this->successMessage = 'Custom flow successfully deactivated.';
+            $this->selectedCustom = '';
+            $this->updatedSelectedCustom('');
+        } catch (\Exception $e) {
+            $this->errorMessage = 'Failed to deactivate custom flow: ' . $e->getMessage();
+        }
+    }
+
+    public function toggleCustomFlowSelection(int $id): void
+    {
+        if (in_array($id, $this->selectedCustomFlowIds)) {
+            $this->selectedCustomFlowIds = array_values(array_diff($this->selectedCustomFlowIds, [$id]));
+        } else {
+            $this->selectedCustomFlowIds[] = $id;
+        }
+    }
+
+    public function toggleAllCustomFlows(): void
+    {
+        $customFlows = \DB::table('dts_transaction_flow')
+            ->where('flow_code', 'like', 'FLOW-CUSTOM-%')
+            ->whereNull('referenced_flow')
+            ->where('flow_name', 'not like', 'Flow for %')
+            ->pluck('id')
+            ->toArray();
+
+        if (count($this->selectedCustomFlowIds) === count($customFlows)) {
+            $this->selectedCustomFlowIds = [];
+        } else {
+            $this->selectedCustomFlowIds = $customFlows;
+        }
+    }
+
+    public function bulkDeleteCustomFlows(): void
+    {
+        if (empty($this->selectedCustomFlowIds)) return;
+
+        try {
+            \DB::table('dts_transaction_flow')
+                ->whereIn('id', $this->selectedCustomFlowIds)
+                ->update(['is_active' => false]);
+
+            $count = count($this->selectedCustomFlowIds);
+            $this->successMessage = "Successfully deactivated {$count} custom flow(s).";
+            $this->selectedCustomFlowIds = [];
+            $this->selectedCustom = '';
+        } catch (\Exception $e) {
+            $this->errorMessage = 'Failed to bulk deactivate custom flows: ' . $e->getMessage();
         }
     }
 
@@ -956,16 +1282,24 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - DTS Transaction Flows')]
         $customFlows = collect();
         if ($this->activeTab === 'custom') {
             $customQuery = \DB::table('dts_transaction_flow')
-                ->leftJoin('dts_transaction_details', 'dts_transaction_flow.flow_code', '=', 'dts_transaction_details.transaction_flow')
+                ->leftJoin('account_details', 'dts_transaction_flow.added_by', '=', 'account_details.account_id')
+                ->leftJoin('office', 'account_details.office_id', '=', 'office.id')
                 ->where('dts_transaction_flow.flow_code', 'like', 'FLOW-CUSTOM-%')
-                ->where('dts_transaction_flow.added_by', auth()->id())
+                ->whereNull('dts_transaction_flow.referenced_flow')
+                ->where('dts_transaction_flow.flow_name', 'not like', 'Flow for %')
                 ->select([
                     'dts_transaction_flow.id',
                     'dts_transaction_flow.flow_code',
                     'dts_transaction_flow.flow_name',
-                    'dts_transaction_details.control_number',
-                    'dts_transaction_details.type as transaction_type',
-                    'dts_transaction_details.date_created',
+                    'dts_transaction_flow.flow_use',
+                    'dts_transaction_flow.flow_for',
+                    'dts_transaction_flow.is_active',
+                    'dts_transaction_flow.added_by',
+                    'dts_transaction_flow.date_added',
+                    'account_details.first_name',
+                    'account_details.last_name',
+                    'office.office_name as owner_office_name',
+                    'office.office_code as owner_office_code',
                 ]);
 
             if ($this->searchCustom !== '') {
@@ -973,28 +1307,18 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - DTS Transaction Flows')]
                 $customQuery->where(function ($q) use ($searchVal) {
                     $q->where('dts_transaction_flow.flow_code', 'like', $searchVal)
                       ->orWhere('dts_transaction_flow.flow_name', 'like', $searchVal)
-                      ->orWhere('dts_transaction_details.control_number', 'like', $searchVal);
+                      ->orWhere('account_details.first_name', 'like', $searchVal)
+                      ->orWhere('account_details.last_name', 'like', $searchVal)
+                      ->orWhere('office.office_name', 'like', $searchVal)
+                      ->orWhere('office.office_code', 'like', $searchVal);
                 });
             }
 
-            $customFlows = $customQuery->orderBy('dts_transaction_details.date_created', 'desc')->paginate(15);
-
-            // Emulate Eager Loading: Retrieve all sequences for custom flows on current page in 1 single query
-            if ($customFlows->count() > 0) {
-                $flowIds = $customFlows->pluck('id')->toArray();
-                $sequences = \DB::table('dts_sequence_list')
-                    ->leftJoin('office', 'dts_sequence_list.office_code', '=', 'office.office_code')
-                    ->whereIn('control_id', $flowIds)
-                    ->orderBy('sequence_ranking')
-                    ->select(['control_id', 'sequence_ranking', 'office.office_name', 'office.office_code'])
-                    ->get()
-                    ->groupBy('control_id');
-
-                // Map sequences back onto customFlows collection
-                $customFlows->each(function ($item) use ($sequences) {
-                    $item->path = $sequences->get($item->id) ?? collect();
-                });
+            if ($this->customPurposeFilter !== 'all') {
+                $customQuery->where('dts_transaction_flow.flow_use', $this->customPurposeFilter);
             }
+
+            $customFlows = $customQuery->orderBy('dts_transaction_flow.flow_name', 'asc')->paginate(20);
         }
 
         return [
@@ -1212,7 +1536,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - DTS Transaction Flows')]
                     </div>
                 @endif
 
-                <div style="display: flex; align-items: center; justify-content: space-between; padding: 6px 12px; border-bottom: 1px solid #e2e8f0;">
+                <div style="display: flex; align-items: center; justify-content: space-between; padding: 6px 12px; border-bottom: 1px solid #e2e8f0; gap: 8px;">
                     @if($predefinedFlows->count() > 0)
                         <div style="display: flex; align-items: center; gap: 8px;">
                             <input type="checkbox" wire:click="toggleAllFlows" style="width: 16px; height: 16px; cursor: pointer; accent-color: #3b82f6;" {{ count($selectedFlowIds) > 0 && count($selectedFlowIds) === $predefinedFlows->count() ? 'checked' : '' }}>
@@ -1221,8 +1545,8 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - DTS Transaction Flows')]
                     @else
                         <div></div>
                     @endif
-                    <div>
-                        <select wire:model.live="predefinedPurposeFilter" style="padding: 6px 12px; border-radius: 6px; border: 1.5px solid #e2e8f0; outline: none; font-size: 12px; font-family: 'Inter', sans-serif; color: #64748b; cursor: pointer; transition: all 0.2s ease; background: #fff; font-weight: 500;">
+                    <div style="display: flex; align-items: center; gap: 8px;">
+                        <select wire:model.live="predefinedPurposeFilter" style="padding: 5px 10px; border-radius: 6px; border: 1.5px solid #e2e8f0; outline: none; font-size: 11.5px; font-family: 'Inter', sans-serif; color: #64748b; cursor: pointer; transition: all 0.2s ease; background: #fff; font-weight: 500;">
                             <option value="all">All Purposes</option>
                             <option value="internal">Internal</option>
                             <option value="external">External</option>
@@ -1231,34 +1555,89 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - DTS Transaction Flows')]
                             <option value="others">Others</option>
                             <option value="none">None</option>
                         </select>
+
+                        <!-- Layout View Mode Toggle -->
+                        <div class="view-mode-toggle" style="display: flex; gap: 2px; background: #f1f5f9; padding: 2px; border-radius: 6px; border: 1px solid #cbd5e1;">
+                            <button type="button" wire:click="$set('predefinedViewMode', 'grid')" title="Cards Grid Layout" style="padding: 4px 10px; border-radius: 4px; border: none; font-size: 11px; font-weight: 600; cursor: pointer; background: {{ $predefinedViewMode === 'grid' ? '#ffffff' : 'transparent' }}; color: {{ $predefinedViewMode === 'grid' ? '#0f172a' : '#64748b' }}; box-shadow: {{ $predefinedViewMode === 'grid' ? '0 1px 2px rgba(0,0,0,0.08)' : 'none' }}; display: flex; align-items: center; gap: 4px; font-family: 'Inter', sans-serif;">
+                                <i class="fa-solid fa-border-all"></i> Cards
+                            </button>
+                            <button type="button" wire:click="$set('predefinedViewMode', 'table')" title="Table Layout" style="padding: 4px 10px; border-radius: 4px; border: none; font-size: 11px; font-weight: 600; cursor: pointer; background: {{ $predefinedViewMode === 'table' ? '#ffffff' : 'transparent' }}; color: {{ $predefinedViewMode === 'table' ? '#0f172a' : '#64748b' }}; box-shadow: {{ $predefinedViewMode === 'table' ? '0 1px 2px rgba(0,0,0,0.08)' : 'none' }}; display: flex; align-items: center; gap: 4px; font-family: 'Inter', sans-serif;">
+                                <i class="fa-solid fa-table-list"></i> Table
+                            </button>
+                        </div>
                     </div>
                 </div>
 
-                <div class="offices-list">
-                    @forelse($predefinedFlows as $flow)
-                        @php
-                            $isSelected = $selectedPredefined === (string) $flow->id;
-                            $flowInitials = strtoupper(substr($flow->flow_code ?: '?', 0, 3));
-                        @endphp
-                        <div class="office-item-card {{ $isSelected ? 'active' : '' }}" wire:key="flow-item-{{ $flow->id }}" wire:click="selectFlow({{ $flow->id }})">
-                            <input type="checkbox" wire:click.stop="toggleFlowSelection({{ $flow->id }})" {{ in_array($flow->id, $selectedFlowIds) ? 'checked' : '' }} style="width: 16px; height: 16px; cursor: pointer; accent-color: #3b82f6; flex-shrink: 0;">
-                            <div class="office-avatar-small">
-                                <span>{{ $flowInitials }}</span>
+                @if($predefinedViewMode === 'table')
+                    <!-- Table Layout View -->
+                    <div style="overflow-x: auto; max-height: calc(100vh - 280px); overflow-y: auto;">
+                        <table style="width: 100%; border-collapse: collapse; font-family: 'Inter', sans-serif; font-size: 12.5px;">
+                            <thead>
+                                <tr style="background: #f8fafc; color: #475569; text-align: left; position: sticky; top: 0; z-index: 10; font-weight: 600; font-size: 11.5px; border-bottom: 1.5px solid #cbd5e1;">
+                                    <th style="padding: 8px 10px; width: 36px;"></th>
+                                    <th style="padding: 8px 10px;">Code</th>
+                                    <th style="padding: 8px 10px;">Flow Name</th>
+                                    <th style="padding: 8px 10px; text-align: center;">Status</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @forelse($predefinedFlows as $flow)
+                                    @php
+                                        $isSelected = $selectedPredefined === (string) $flow->id;
+                                    @endphp
+                                    <tr class="flow-tbl-row {{ $isSelected ? 'selected-row' : '' }}" 
+                                        wire:key="flow-tbl-{{ $flow->id }}" 
+                                        wire:click="selectFlow({{ $flow->id }})"
+                                        style="border-bottom: 1px solid #f1f5f9; cursor: pointer; background: {{ $isSelected ? '#eff6ff' : '#ffffff' }}; transition: background 0.12s ease;">
+                                        <td style="padding: 8px 10px;" onclick="event.stopPropagation()">
+                                            <input type="checkbox" wire:click.stop="toggleFlowSelection({{ $flow->id }})" {{ in_array($flow->id, $selectedFlowIds) ? 'checked' : '' }} style="width: 15px; height: 15px; cursor: pointer; accent-color: #3b82f6;">
+                                        </td>
+                                        <td style="padding: 8px 10px; font-weight: 700; color: #003699; font-family: monospace; font-size: 12px;">{{ $flow->flow_code }}</td>
+                                        <td style="padding: 8px 10px; font-weight: 600; color: #1e293b;">{{ $flow->flow_name }}</td>
+                                        <td style="padding: 8px 10px; text-align: center;">
+                                            @if($flow->is_active)
+                                                <span style="padding: 2px 8px; border-radius: 4px; font-size: 10.5px; font-weight: 600; background: #dcfce7; color: #166534; border: 1px solid #bbf7d0;">Active</span>
+                                            @else
+                                                <span style="padding: 2px 8px; border-radius: 4px; font-size: 10.5px; font-weight: 600; background: #fee2e2; color: #991b1b; border: 1px solid #fecdd3;">Inactive</span>
+                                            @endif
+                                        </td>
+                                    </tr>
+                                @empty
+                                    <tr>
+                                        <td colspan="4" style="text-align: center; color: #94a3b8; padding: 20px;">No predefined flows found.</td>
+                                    </tr>
+                                @endforelse
+                            </tbody>
+                        </table>
+                    </div>
+                @else
+                    <!-- Cards Grid Layout View -->
+                    <div class="offices-list">
+                        @forelse($predefinedFlows as $flow)
+                            @php
+                                $isSelected = $selectedPredefined === (string) $flow->id;
+                                $flowInitials = strtoupper(substr($flow->flow_code ?: '?', 0, 3));
+                            @endphp
+                            <div class="office-item-card {{ $isSelected ? 'active' : '' }}" wire:key="flow-item-{{ $flow->id }}" wire:click="selectFlow({{ $flow->id }})">
+                                <input type="checkbox" wire:click.stop="toggleFlowSelection({{ $flow->id }})" {{ in_array($flow->id, $selectedFlowIds) ? 'checked' : '' }} style="width: 16px; height: 16px; cursor: pointer; accent-color: #3b82f6; flex-shrink: 0;">
+                                <div class="office-avatar-small">
+                                    <span>{{ $flowInitials }}</span>
+                                </div>
+                                <div class="office-meta-info">
+                                    <span class="office-display-name">{{ $flow->flow_name }}</span>
+                                    <span class="office-display-code">Code: {{ $flow->flow_code }}</span>
+                                    <span class="office-status-badge {{ $flow->is_active ? 'active-badge' : 'inactive-badge' }}">
+                                        {{ $flow->is_active ? 'Active' : 'Inactive' }}
+                                    </span>
+                                </div>
                             </div>
-                            <div class="office-meta-info">
-                                <span class="office-display-name">{{ $flow->flow_name }}</span>
-                                <span class="office-display-code">Code: {{ $flow->flow_code }}</span>
-                                <span class="office-status-badge {{ $flow->is_active ? 'active-badge' : 'inactive-badge' }}">
-                                    {{ $flow->is_active ? 'Active' : 'Inactive' }}
-                                </span>
+                        @empty
+                            <div style="text-align: center; color: #94a3b8; font-size: 13.5px; padding: 24px 10px;">
+                                No predefined flows found.
                             </div>
-                        </div>
-                    @empty
-                        <div style="text-align: center; color: #94a3b8; font-size: 13.5px; padding: 24px 10px;">
-                            No predefined flows found.
-                        </div>
-                    @endforelse
-                </div>
+                        @endforelse
+                    </div>
+                @endif
 
                 @if($predefinedFlows->hasPages())
                     <div class="flows-pagination-bar">
@@ -1544,129 +1923,366 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - DTS Transaction Flows')]
         </div>
     @endif
 
-    <!-- Tab 2: Custom Flows Directory -->
+    <!-- Tab 2: Custom Flow Manager -->
     @if($activeTab === 'custom')
-        @if($successMessage)
-            <div class="toast-alert success" style="margin-bottom: 16px;">
-                <i class="fa-solid fa-circle-check"></i>
-                <span>{{ $successMessage }}</span>
-            </div>
-        @endif
-
-        @if($errorMessage)
-            <div class="toast-alert error" style="margin-bottom: 16px;">
-                <i class="fa-solid fa-circle-exclamation"></i>
-                <span>{{ $errorMessage }}</span>
-            </div>
-        @endif
-        <!-- Search -->
-        <div class="logs-controls-card">
-            <div class="search-filter-group">
-                <div class="search-box-wrapper">
-                    <i class="fa-solid fa-magnifying-glass search-icon"></i>
-                    <input type="text" 
-                           class="search-input" 
-                           placeholder="Search custom flow or control number..." 
-                           wire:model.live="searchCustom">
+        <div class="admin-offices-container {{ !$selectedCustom ? 'no-selection' : 'has-selection' }}">
+            <!-- Left Pane: Custom Flows Directory -->
+            <div class="directory-panel">
+                <div class="directory-header-row">
+                    <span class="form-label" style="margin: 0; font-size: 13px; color: #334155;">Custom Flows</span>
+                    <div style="display: flex; gap: 6px;">
+                        <button type="button" class="btn-create-new" wire:click="startCreateCustom">
+                            <i class="fa-solid fa-plus"></i> New Flow
+                        </button>
+                    </div>
                 </div>
-                @if($searchCustom !== '')
-                    <button type="button" class="btn-clear-filters" wire:click="clearFilters">
-                        <i class="fa-solid fa-filter-circle-xmark"></i> Clear Search
-                    </button>
+
+                <div class="search-box-wrapper" style="flex: none; position: relative; width: 100%;">
+                    <i class="fa-solid fa-magnifying-glass search-icon" style="position: absolute; left: 14px; top: 50%; transform: translateY(-50%); color: #94a3b8; font-size: 14px; margin: 0; line-height: 1;"></i>
+                    <input type="text" class="search-box" placeholder="Search custom flows..." wire:model.live="searchCustom">
+                </div>
+
+                @if(count($selectedCustomFlowIds) > 0)
+                    <div style="display: flex; align-items: center; justify-content: space-between; padding: 8px 12px; background: #fff1f2; border: 1px solid #fecdd3; border-radius: 8px; margin-bottom: 8px;">
+                        <span style="font-size: 12px; font-weight: 600; color: #be123c;">{{ count($selectedCustomFlowIds) }} selected</span>
+                        <button type="button" wire:click="bulkDeleteCustomFlows" wire:confirm="Are you sure you want to deactivate {{ count($selectedCustomFlowIds) }} flow(s)? They will be soft-deleted (hidden) but retained for transparency." style="background: #e11d48; color: #fff; border: none; padding: 5px 12px; border-radius: 6px; font-size: 11px; font-weight: 600; cursor: pointer; font-family: 'Inter', sans-serif;">
+                            <i class="fa-solid fa-trash-can" style="margin-right: 4px;"></i> Delete Selected
+                        </button>
+                    </div>
+                @endif
+
+                <div style="display: flex; align-items: center; justify-content: space-between; padding: 6px 12px; border-bottom: 1px solid #e2e8f0; gap: 8px;">
+                    @if($customFlows->count() > 0)
+                        <div style="display: flex; align-items: center; gap: 8px;">
+                            <input type="checkbox" wire:click="toggleAllCustomFlows" style="width: 16px; height: 16px; cursor: pointer; accent-color: #3b82f6;" {{ count($selectedCustomFlowIds) > 0 && count($selectedCustomFlowIds) === $customFlows->count() ? 'checked' : '' }}>
+                            <span style="font-size: 12px; color: #64748b; font-weight: 500;">Select All</span>
+                        </div>
+                    @else
+                        <div></div>
+                    @endif
+                    <div style="display: flex; align-items: center; gap: 8px;">
+                        <select wire:model.live="customPurposeFilter" style="padding: 5px 10px; border-radius: 6px; border: 1.5px solid #e2e8f0; outline: none; font-size: 11.5px; font-family: 'Inter', sans-serif; color: #64748b; cursor: pointer; transition: all 0.2s ease; background: #fff; font-weight: 500;">
+                            <option value="all">All Purposes</option>
+                            <option value="internal">Internal</option>
+                            <option value="external">External</option>
+                            <option value="issuances">Issuances</option>
+                            <option value="application">Application</option>
+                            <option value="others">Others</option>
+                            <option value="none">None</option>
+                        </select>
+
+                        <!-- Layout View Mode Toggle -->
+                        <div class="view-mode-toggle" style="display: flex; gap: 2px; background: #f1f5f9; padding: 2px; border-radius: 6px; border: 1px solid #cbd5e1;">
+                            <button type="button" wire:click="$set('customViewMode', 'grid')" title="Cards Grid Layout" style="padding: 4px 10px; border-radius: 4px; border: none; font-size: 11px; font-weight: 600; cursor: pointer; background: {{ $customViewMode === 'grid' ? '#ffffff' : 'transparent' }}; color: {{ $customViewMode === 'grid' ? '#0f172a' : '#64748b' }}; box-shadow: {{ $customViewMode === 'grid' ? '0 1px 2px rgba(0,0,0,0.08)' : 'none' }}; display: flex; align-items: center; gap: 4px; font-family: 'Inter', sans-serif;">
+                                <i class="fa-solid fa-border-all"></i> Cards
+                            </button>
+                            <button type="button" wire:click="$set('customViewMode', 'table')" title="Table Layout" style="padding: 4px 10px; border-radius: 4px; border: none; font-size: 11px; font-weight: 600; cursor: pointer; background: {{ $customViewMode === 'table' ? '#ffffff' : 'transparent' }}; color: {{ $customViewMode === 'table' ? '#0f172a' : '#64748b' }}; box-shadow: {{ $customViewMode === 'table' ? '0 1px 2px rgba(0,0,0,0.08)' : 'none' }}; display: flex; align-items: center; gap: 4px; font-family: 'Inter', sans-serif;">
+                                <i class="fa-solid fa-table-list"></i> Table
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                @if($customViewMode === 'table')
+                    <!-- Table Layout View -->
+                    <div style="overflow-x: auto; max-height: calc(100vh - 280px); overflow-y: auto;">
+                        <table style="width: 100%; border-collapse: collapse; font-family: 'Inter', sans-serif; font-size: 12.5px;">
+                            <thead>
+                                <tr style="background: #f8fafc; color: #475569; text-align: left; position: sticky; top: 0; z-index: 10; font-weight: 600; font-size: 11.5px; border-bottom: 1.5px solid #cbd5e1;">
+                                    <th style="padding: 8px 10px; width: 36px;"></th>
+                                    <th style="padding: 8px 10px;">Code</th>
+                                    <th style="padding: 8px 10px;">Flow Name</th>
+                                    <th style="padding: 8px 10px;">Visibility</th>
+                                    <th style="padding: 8px 10px;">Office Owner</th>
+                                    <th style="padding: 8px 10px;">Created By</th>
+                                    <th style="padding: 8px 10px;">Date Created</th>
+                                    <th style="padding: 8px 10px; text-align: center;">Status</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @forelse($customFlows as $flow)
+                                    @php
+                                        $isSelected = $selectedCustom === (string) $flow->id;
+                                        $creatorName = trim(($flow->first_name ?? '') . ' ' . ($flow->last_name ?? '')) ?: 'System / Admin';
+                                        $officeOwner = $flow->owner_office_name ? ($flow->owner_office_name . ' (' . $flow->owner_office_code . ')') : 'Global / Unassigned';
+                                        $dateCreatedFormatted = $flow->date_added ? \Carbon\Carbon::parse($flow->date_added)->format('M d, Y') : '—';
+                                    @endphp
+                                    <tr class="flow-tbl-row {{ $isSelected ? 'selected-row' : '' }}" 
+                                        wire:key="custom-flow-tbl-{{ $flow->id }}" 
+                                        wire:click="selectCustomFlow({{ $flow->id }})"
+                                        style="border-bottom: 1px solid #f1f5f9; cursor: pointer; background: {{ $isSelected ? '#eff6ff' : '#ffffff' }}; transition: background 0.12s ease;">
+                                        <td style="padding: 8px 10px;" onclick="event.stopPropagation()">
+                                            <input type="checkbox" wire:click.stop="toggleCustomFlowSelection({{ $flow->id }})" {{ in_array($flow->id, $selectedCustomFlowIds) ? 'checked' : '' }} style="width: 15px; height: 15px; cursor: pointer; accent-color: #3b82f6;">
+                                        </td>
+                                        <td style="padding: 8px 10px; font-weight: 700; color: #003699; font-family: monospace; font-size: 12px;">{{ $flow->flow_code }}</td>
+                                        <td style="padding: 8px 10px; font-weight: 600; color: #1e293b;">{{ $flow->flow_name }}</td>
+                                        <td style="padding: 8px 10px;">
+                                            @if(($flow->flow_for ?? 'system') === 'system')
+                                                <span style="padding: 2px 7px; border-radius: 4px; font-size: 10.5px; font-weight: 600; background: #e0f2fe; color: #0369a1; border: 1px solid #bae6fd;">System-Wide</span>
+                                            @elseif(($flow->flow_for ?? 'system') === 'office')
+                                                <span style="padding: 2px 7px; border-radius: 4px; font-size: 10.5px; font-weight: 600; background: #f0fdf4; color: #15803d; border: 1px solid #bbf7d0;">Office-Wide</span>
+                                            @else
+                                                <span style="padding: 2px 7px; border-radius: 4px; font-size: 10.5px; font-weight: 600; background: #faf5ff; color: #7e22ce; border: 1px solid #e9d5ff;">Personal</span>
+                                            @endif
+                                        </td>
+                                        <td style="padding: 8px 10px; color: #0369a1; font-weight: 500;">{{ $officeOwner }}</td>
+                                        <td style="padding: 8px 10px; color: #475569;">{{ $creatorName }}</td>
+                                        <td style="padding: 8px 10px; color: #64748b; font-size: 11.5px;">{{ $dateCreatedFormatted }}</td>
+                                        <td style="padding: 8px 10px; text-align: center;">
+                                            @if($flow->is_active)
+                                                <span style="padding: 2px 8px; border-radius: 4px; font-size: 10.5px; font-weight: 600; background: #dcfce7; color: #166534; border: 1px solid #bbf7d0;">Active</span>
+                                            @else
+                                                <span style="padding: 2px 8px; border-radius: 4px; font-size: 10.5px; font-weight: 600; background: #fee2e2; color: #991b1b; border: 1px solid #fecdd3;">Inactive</span>
+                                            @endif
+                                        </td>
+                                    </tr>
+                                @empty
+                                    <tr>
+                                        <td colspan="8" style="text-align: center; color: #94a3b8; padding: 20px;">No custom flows found.</td>
+                                    </tr>
+                                @endforelse
+                            </tbody>
+                        </table>
+                    </div>
+                @else
+                    <!-- Cards Grid Layout View -->
+                    <div class="offices-list">
+                        @forelse($customFlows as $flow)
+                            @php
+                                $isSelected = $selectedCustom === (string) $flow->id;
+                                $flowInitials = strtoupper(substr($flow->flow_code ?: '?', 0, 3));
+                                $creatorName = trim(($flow->first_name ?? '') . ' ' . ($flow->last_name ?? '')) ?: 'System / Admin';
+                                $officeOwner = $flow->owner_office_code ?: 'N/A';
+                            @endphp
+                            <div class="office-item-card {{ $isSelected ? 'active' : '' }}" wire:key="custom-flow-item-{{ $flow->id }}" wire:click="selectCustomFlow({{ $flow->id }})">
+                                <input type="checkbox" wire:click.stop="toggleCustomFlowSelection({{ $flow->id }})" {{ in_array($flow->id, $selectedCustomFlowIds) ? 'checked' : '' }} style="width: 16px; height: 16px; cursor: pointer; accent-color: #3b82f6; flex-shrink: 0;">
+                                <div class="office-avatar-small">
+                                    <span>{{ $flowInitials }}</span>
+                                </div>
+                                <div class="office-meta-info">
+                                    <span class="office-display-name">{{ $flow->flow_name }}</span>
+                                    <span class="office-display-code">Code: {{ $flow->flow_code }} | Owner: {{ $officeOwner }}</span>
+                                    <span class="office-display-code" style="color: #64748b; font-size: 11px;">By: {{ $creatorName }}</span>
+                                    <span class="office-status-badge {{ $flow->is_active ? 'active-badge' : 'inactive-badge' }}" style="margin-top: 4px; display: block; width: fit-content;">
+                                        {{ $flow->is_active ? 'Active' : 'Inactive' }}
+                                    </span>
+                                </div>
+                            </div>
+                        @empty
+                            <div style="text-align: center; color: #94a3b8; font-size: 13.5px; padding: 24px 10px;">
+                                No custom flows found.
+                            </div>
+                        @endforelse
+                    </div>
+                @endif
+
+                @if($customFlows->hasPages())
+                    <div class="flows-pagination-bar">
+                        {{ $customFlows->links('components.pagination') }}
+                    </div>
                 @endif
             </div>
-        </div>
 
-        <!-- Table Grid -->
-        <div class="logs-table-card">
-            <div class="table-responsive">
-                <table class="logs-table">
-                    <thead>
-                        <tr>
-                            <th style="width: 20%">Flow Code</th>
-                            <th style="width: 25%">Used by Transaction</th>
-                            <th style="width: 40%">Sequential Office Route</th>
-                            <th style="width: 15%">Created On</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        @forelse($customFlows as $flow)
-                            <tr wire:key="custom-flow-{{ $flow->id }}">
-                                <td>
-                                    <span style="font-family: monospace; font-size: 12.5px; font-weight: 600; color: #475569;">{{ $flow->flow_code }}</span>
-                                </td>
-                                <td>
-                                    <div class="admin-name-cell">
-                                        @if($flow->control_number)
-                                            <span class="name" style="color: #003699;">{{ $flow->control_number }}</span>
-                                            <span class="email-sub">Type: {{ strtoupper($flow->transaction_type) }}</span>
-                                        @else
-                                            <span class="name" style="color: #94a3b8; font-style: italic;">No Transaction Linked</span>
-                                        @endif
-                                    </div>
-                                </td>
-                                <td>
-                                    <div class="office-flow-path">
-                                        @forelse($flow->path as $nodeIndex => $node)
-                                            @if($nodeIndex > 0)
-                                                <i class="fa-solid fa-angle-right flow-separator"></i>
-                                            @endif
-                                            <span class="office-flow-node" title="{{ $node->office_name }}">{{ $node->office_code }}</span>
-                                        @empty
-                                            <span style="color: #94a3b8; font-style: italic; font-size: 12px;">No sequence loaded</span>
-                                        @endforelse
-                                    </div>
-                                </td>
-                                <td>
-                                    <div class="log-timestamp">
-                                        {{ $flow->date_created ? \Carbon\Carbon::parse($flow->date_created)->format('Y-m-d H:i:s') : 'N/A' }}
-                                        @if($flow->date_created)
-                                            <span class="time-ago">{{ \Carbon\Carbon::parse($flow->date_created)->diffForHumans() }}</span>
-                                        @endif
-                                    </div>
-                                </td>
-                            </tr>
-                        @empty
-                            <tr>
-                                <td colspan="4">
-                                    <div class="empty-state">
-                                        <i class="fa-solid fa-bezier-curve"></i>
-                                        <h3>No Custom Flows Found</h3>
-                                        <p>No customized office routing paths recorded in system database.</p>
-                                    </div>
-                                </td>
-                            </tr>
-                        @endforelse
-                    </tbody>
-                </table>
-            </div>
+            <!-- Right Pane: Custom Flow Configurator -->
+            @if($selectedCustom)
+                <div class="details-panel">
+                    @if($successMessage)
+                        <div class="toast-alert success" style="margin: 20px 20px 0 20px;">
+                            <i class="fa-solid fa-circle-check"></i>
+                            <span>{{ $successMessage }}</span>
+                        </div>
+                    @endif
 
-            <!-- Custom Pagination -->
-            @if($customFlows->hasPages())
-                <div class="pagination-container">
-                    <div class="pagination-info">
-                        Showing {{ $customFlows->firstItem() ?? 0 }} to {{ $customFlows->lastItem() ?? 0 }} of {{ $customFlows->total() }} entries
-                    </div>
-                    <div class="pagination-links">
-                        @if ($customFlows->onFirstPage())
-                            <button type="button" class="pagination-btn" disabled>&laquo;</button>
-                        @else
-                            <button type="button" class="pagination-btn" wire:click="previousPage" wire:loading.attr="disabled">&laquo;</button>
-                        @endif
+                    @if($errorMessage)
+                        <div class="toast-alert error" style="margin: 20px 20px 0 20px;">
+                            <i class="fa-solid fa-circle-exclamation"></i>
+                            <span>{{ $errorMessage }}</span>
+                        </div>
+                    @endif
 
-                        @foreach ($customFlows->getUrlRange(max(1, $customFlows->currentPage() - 2), min($customFlows->lastPage(), $customFlows->currentPage() + 2)) as $page => $url)
-                            @if ($page == $customFlows->currentPage())
-                                <button type="button" class="pagination-btn active">{{ $page }}</button>
-                            @else
-                                <button type="button" class="pagination-btn" wire:click="gotoPage({{ $page }})" wire:loading.attr="disabled">{{ $page }}</button>
+                    <!-- Header -->
+                    <div class="details-header">
+                        <div class="details-header-avatar">
+                            <i class="fa-solid fa-bezier-curve"></i>
+                        </div>
+                        <div class="details-header-info">
+                            <h2 class="details-header-name">
+                                {{ $selectedCustom === 'new' ? 'Configure New Custom Flow' : $customFlowName }}
+                            </h2>
+                            <span class="details-header-sub">
+                                {{ $selectedCustom === 'new' ? 'Create a custom routing sequence' : 'Review & adjust custom transaction flow office routing' }}
+                            </span>
+                            @if($selectedCustom !== 'new')
+                                @php
+                                    $curFlow = \DB::table('dts_transaction_flow')
+                                        ->leftJoin('account_details', 'dts_transaction_flow.added_by', '=', 'account_details.account_id')
+                                        ->leftJoin('office', 'account_details.office_id', '=', 'office.id')
+                                        ->where('dts_transaction_flow.id', (int) $selectedCustom)
+                                        ->select(['account_details.first_name', 'account_details.last_name', 'office.office_name', 'office.office_code', 'dts_transaction_flow.date_added'])
+                                        ->first();
+                                    $curCreator = trim(($curFlow?->first_name ?? '') . ' ' . ($curFlow?->last_name ?? '')) ?: 'System / Admin';
+                                    $curOffice = $curFlow?->office_name ? ($curFlow->office_name . ' (' . $curFlow->office_code . ')') : 'Global / Unassigned';
+                                    $curDate = $curFlow?->date_added ? \Carbon\Carbon::parse($curFlow->date_added)->format('M d, Y h:i A') : '—';
+                                @endphp
+                                <div style="display: flex; flex-wrap: wrap; gap: 10px; margin-top: 10px; font-size: 11.5px;">
+                                    <span style="display: inline-flex; align-items: center; gap: 5px; background: rgba(255, 255, 255, 0.15); padding: 3px 10px; border-radius: 6px; border: 1px solid rgba(255, 255, 255, 0.25); color: #ffffff;">
+                                        <i class="fa-solid fa-building" style="color: #93c5fd;"></i>
+                                        <strong style="color: #ffffff;">Owner Office:</strong>
+                                        <span style="color: #e0f2fe;">{{ $curOffice }}</span>
+                                    </span>
+                                    <span style="display: inline-flex; align-items: center; gap: 5px; background: rgba(255, 255, 255, 0.15); padding: 3px 10px; border-radius: 6px; border: 1px solid rgba(255, 255, 255, 0.25); color: #ffffff;">
+                                        <i class="fa-solid fa-user" style="color: #93c5fd;"></i>
+                                        <strong style="color: #ffffff;">Created By:</strong>
+                                        <span style="color: #e0f2fe;">{{ $curCreator }}</span>
+                                    </span>
+                                    <span style="display: inline-flex; align-items: center; gap: 5px; background: rgba(255, 255, 255, 0.15); padding: 3px 10px; border-radius: 6px; border: 1px solid rgba(255, 255, 255, 0.25); color: #ffffff;">
+                                        <i class="fa-solid fa-calendar-day" style="color: #93c5fd;"></i>
+                                        <strong style="color: #ffffff;">Date Created:</strong>
+                                        <span style="color: #e0f2fe;">{{ $curDate }}</span>
+                                    </span>
+                                </div>
                             @endif
-                        @endforeach
+                        </div>
+                    </div>
 
-                        @if ($customFlows->hasMorePages())
-                            <button type="button" class="pagination-btn" wire:click="nextPage" wire:loading.attr="disabled">&raquo;</button>
-                        @else
-                            <button type="button" class="pagination-btn" disabled>&raquo;</button>
+                    <!-- Form Body -->
+                    <div class="details-body">
+                        <form wire:submit.prevent="saveCustomFlow" style="display: flex; flex-direction: column; gap: 20px;">
+                            <!-- Flow Name -->
+                            <div class="form-group">
+                                <span class="form-label">Flow Name</span>
+                                <input type="text" class="form-input" placeholder="e.g. Special Department Project Route" wire:model="customFlowName">
+                                @error('customFlowName') <span style="color:#ef4444; font-size:11px; margin-top:2px;">{{ $message }}</span> @enderror
+                            </div>
+
+                            <!-- Flow Short Code -->
+                            <div class="form-group">
+                                <span class="form-label">Flow Code</span>
+                                <input type="text" class="form-input" placeholder="e.g. FLOW-CUSTOM-01" wire:model="customFlowCode" {{ $selectedCustom !== 'new' ? 'disabled' : '' }}>
+                                @error('customFlowCode') <span style="color:#ef4444; font-size:11px; margin-top:2px;">{{ $message }}</span> @enderror
+                            </div>
+
+                            <!-- Flow Purpose -->
+                            <div class="form-group">
+                                <span class="form-label">Subsystem Purpose / Category</span>
+                                <select class="form-input" wire:model="customFlowUse" style="cursor: pointer;">
+                                    <option value="none">General / All Subsystems</option>
+                                    <option value="internal">Internal Transactions</option>
+                                    <option value="external">External Communications</option>
+                                    <option value="issuances">Document Issuances</option>
+                                    <option value="application">Application Letters</option>
+                                    <option value="others">Others</option>
+                                </select>
+                                @error('customFlowUse') <span style="color:#ef4444; font-size:11px; margin-top:2px;">{{ $message }}</span> @enderror
+                            </div>
+
+                            <!-- Flow Visibility / Who Can See This Flow -->
+                            <div class="form-group">
+                                <span class="form-label">Flow Visibility / Who Can See This Flow</span>
+                                <select class="form-input" wire:model="customFlowFor" style="cursor: pointer;">
+                                    <option value="system">🌐 System-Wide (Visible to All Offices & Users)</option>
+                                    <option value="office">🏢 Office-Wide (Visible to Creator's Office/Department Only)</option>
+                                    <option value="user">👤 Personal / Private (Visible ONLY to Creator)</option>
+                                </select>
+                                <span style="font-size: 11.5px; color: #64748b; margin-top: 4px; display: block;">
+                                    Controls which users can select this flow template when creating a new transaction in DTS.
+                                </span>
+                                @error('customFlowFor') <span style="color:#ef4444; font-size:11px; margin-top:2px;">{{ $message }}</span> @enderror
+                            </div>
+
+                            <!-- Active Status Toggle -->
+                            @if($selectedCustom !== 'new')
+                                <div class="form-group">
+                                    <div class="status-toggle-wrapper">
+                                        <div class="status-toggle-label">
+                                            <span class="status-toggle-title">Flow Active Status</span>
+                                            <span class="status-toggle-desc">Soft-deactivate to temporarily hide from routing options.</span>
+                                        </div>
+                                        <label class="switch">
+                                            <input type="checkbox" wire:model="customIsActive">
+                                            <span class="slider"></span>
+                                        </label>
+                                    </div>
+                                </div>
+                            @endif
+
+                            <!-- Office Routing Sequence -->
+                            <div class="form-group">
+                                <span class="form-label">Sequential Office Route</span>
+                                <span style="font-size: 11.5px; color: #64748b; margin-bottom: 8px; display: block;">
+                                    Step 1 is fixed to <strong>ORIGIN</strong> (Requesting Office). Add intermediate recipient offices below.
+                                </span>
+
+                                <div style="display: flex; gap: 8px; position: relative;" x-data="{ open: false }" @click.outside="open = false">
+                                    <div style="flex: 1; position: relative;">
+                                        <input type="text" class="form-input" placeholder="Search office to insert into route..." wire:model.live="customOfficeSearch" @focus="open = true">
+                                        <div class="suggestions-dropdown" x-show="open" x-cloak>
+                                            @php
+                                                $cSearchLower = strtolower($customOfficeSearch);
+                                                $filteredOffices = $activeOffices->filter(function($o) use ($cSearchLower) {
+                                                    return empty($cSearchLower) || str_contains(strtolower($o->office_name), $cSearchLower) || str_contains(strtolower($o->office_code), $cSearchLower);
+                                                });
+                                            @endphp
+                                            @forelse($filteredOffices as $off)
+                                                <div class="suggestion-item" @click="open = false" wire:click="selectCustomOfficeForAppend('{{ $off->office_code }}', '{{ $off->office_name }}')">
+                                                    <span style="font-weight: 500; color: #1e293b;">{{ $off->office_name }}</span>
+                                                    <span style="color: #64748b; font-weight: 600;">{{ $off->office_code }}</span>
+                                                </div>
+                                            @empty
+                                                <div style="padding: 10px 14px; color: #94a3b8; font-size: 13px; font-style: italic; text-align: center;">No offices found</div>
+                                            @endforelse
+                                        </div>
+                                    </div>
+                                    <button type="button" class="btn-save" style="padding: 10px 18px; display: inline-flex; align-items: center; gap: 5px; flex-shrink: 0;" wire:click="addCustomOfficeToPath">
+                                        <i class="fa-solid fa-plus"></i> Add Step
+                                    </button>
+                                </div>
+
+                                <div class="sequence-editor-box">
+                                    @foreach($customFlowOffices as $index => $officeCode)
+                                        @php
+                                            $officeObj = $activeOffices->firstWhere('office_code', $officeCode);
+                                            $displayName = $officeObj ? $officeObj->office_name : ($officeCode === 'ORIGIN' ? 'Origin Office' : ($officeCode === '[H]' ? 'Cluster Head' : $officeCode));
+                                            $isOrigin = $index === 0;
+                                        @endphp
+                                        <div class="sequence-list-item">
+                                            <div>
+                                                <span class="seq-index">Step {{ $index + 1 }}:</span>
+                                                <span class="seq-name">{{ $displayName }} ({{ $officeCode }})</span>
+                                            </div>
+                                            <div class="seq-actions">
+                                                @if(!$isOrigin)
+                                                    <button type="button" class="btn-seq-nav" wire:click="moveCustomOfficeUp({{ $index }})" {{ $index <= 1 ? 'disabled' : '' }}>
+                                                        <i class="fa-solid fa-arrow-up"></i>
+                                                    </button>
+                                                    <button type="button" class="btn-seq-nav" wire:click="moveCustomOfficeDown({{ $index }})" {{ $index >= count($customFlowOffices) - 1 ? 'disabled' : '' }}>
+                                                        <i class="fa-solid fa-arrow-down"></i>
+                                                    </button>
+                                                    <button type="button" class="btn-seq-remove" wire:click="removeCustomOffice({{ $index }})">
+                                                        <i class="fa-solid fa-trash"></i>
+                                                    </button>
+                                                @else
+                                                    <span style="font-size: 11px; color: #94a3b8; font-style: italic; padding: 4px 8px;">Initial Origin</span>
+                                                @endif
+                                            </div>
+                                        </div>
+                                    @endforeach
+                                </div>
+                            </div>
+                        </form>
+                    </div>
+
+                    <!-- Footer Actions -->
+                    <div class="details-footer">
+                        @if($selectedCustom !== 'new')
+                            <button type="button" class="btn-delete" wire:click="deleteCustomFlow" wire:confirm="Are you sure you want to deactivate this custom flow? It will be soft-deleted (hidden) but retained for transparency." style="margin-right: auto;">
+                                <i class="fa-solid fa-trash-can"></i> Delete Flow
+                            </button>
                         @endif
+                        <button type="button" class="btn-cancel" wire:click="$set('selectedCustom', '')">Cancel</button>
+                        <button type="button" class="btn-save" wire:click="saveCustomFlow">
+                            <i class="fa-solid fa-floppy-disk"></i> Save Configuration
+                        </button>
                     </div>
                 </div>
             @endif

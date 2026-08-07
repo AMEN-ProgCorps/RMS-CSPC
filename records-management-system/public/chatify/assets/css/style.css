@@ -1463,60 +1463,20 @@
       display: block;
     }
 
-    .name-input-wrapper {
-      display: flex;
-      align-items: center;
-      gap: 8px;
-    }
-
-    .name-field-inner {
-      position: relative;
-      display: flex;
-      align-items: center;
-      flex: 1;
-      min-width: 0;
-    }
-
-    /* By default this just shrink-wraps the attach button (same footprint
-       as before). Only while editing (.editing) do we pin its width to
-       match #sendButton via JS, so the name field lines up with the
-       message field specifically when the cancel-edit X button is showing. */
-    .input-actions {
-      display: flex;
-      align-items: center;
-      justify-content: flex-end;
-      gap: 6px;
-      flex-shrink: 0;
-    }
-
-    #nameInput {
-      width: 100%;
-      padding: 8px 12px 8px 36px;
-      border-radius: 20px;
-      border: 1px solid var(--border-input);
-      background-color: var(--bg-input);
-      color: var(--text-primary);
-      font-size: 14px;
-      font-family: 'Inter', sans-serif;
-      transition: all 0.2s ease;
-      user-select: none;
-    }
-
-    .name-icon {
-      position: absolute;
-      left: 12px;
-      width: 16px;
-      height: 16px;
-      fill: var(--icon-color);
-      z-index: 10;
-      transition: fill 0.3s ease;
-    }
+    /* #nameInput is kept in the DOM (send logic still reads its value)
+       but is no longer shown as a field — see index.php, hidden inline. */
 
     .message-input-container {
       display: flex;
       align-items: center;
       gap: 8px;
       position: relative;
+    }
+
+    /* Attach button now sits inline inside the message row itself,
+       to the left of the textarea. */
+    .message-input-container .attachment-btn {
+      flex-shrink: 0;
     }
 
     #messageInput {
@@ -2367,41 +2327,6 @@
       background: var(--bg-input);
     }
 
-    /* ── Admin POV: verified badge inside name input ── */
-    .name-input-wrapper.is-admin-user #nameInput {
-      padding-right: 36px;
-    }
-    .admin-input-badge {
-      position: absolute;
-      right: 12px;
-      top: 50%;
-      transform: translateY(-50%);
-      display: none;
-      align-items: center;
-      gap: 4px;
-      pointer-events: none;
-      z-index: 11;
-    }
-    .name-input-wrapper.is-admin-user .admin-input-badge {
-      display: flex;
-    }
-    .admin-input-badge svg {
-      width: 15px;
-      height: 15px;
-      flex-shrink: 0;
-    }
-    .admin-input-badge span {
-      font-size: 10px;
-      font-weight: 700;
-      color: #1b74e4;
-      letter-spacing: 0.4px;
-      text-transform: uppercase;
-    }
-    /* Dark mode: keep badge text color consistent */
-    html[data-theme="dark"] .admin-input-badge span {
-      color: #5ea8ff;
-    }
-
     /* ── Verified (admin) badge on sender name ── */
     .verified-badge {
       display: inline-flex;
@@ -2519,7 +2444,7 @@
       gap: 4px;
       font-size: 11px;
       color: var(--text-secondary);
-      margin-left: 8px;
+      margin-left: 61px;
       margin-bottom: 2px;
       transition: opacity 0.15s ease-in-out;
       

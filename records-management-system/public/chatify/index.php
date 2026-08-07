@@ -317,41 +317,24 @@ try {
       </div>
 
 
-      <div class="input-section">
-        <div class="name-input-wrapper<?php echo $is_admin ? ' is-admin-user' : ''; ?>">
-          <div class="name-field-inner">
-            <svg class="name-icon" viewBox="0 0 24 24">
-              <path d="M12 2C13.1 2 14 2.9 14 4C14 5.1 13.1 6 12 6C10.9 6 10 5.1 10 4C10 2.9 10.9 2 12 2ZM21 9V7L15 4V6L21 9ZM15 10.26L21 7.26V9.26L15 12.26V10.26ZM12 7C16.42 7 20 8.79 20 11V13C20 15.21 16.42 17 12 17S4 15.21 4 13V11C4 8.79 7.58 7 12 7Z"/>
-            </svg>
-            <input type="text" id="nameInput" placeholder="" required readonly aria-label="Your display name" value="<?php echo htmlspecialchars($user_name); ?>">
-            <?php if ($is_admin): ?>
-            <span class="admin-input-badge" title="You are the Super Admin">
-              <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                <circle cx="12" cy="12" r="12" fill="#1b74e4"/>
-                <path d="M7 12.5l3.5 3.5 6.5-7" stroke="#fff" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
-              </svg>
-              <span></span>
-            </span>
-            <?php endif; ?>
-          </div>
-          <div class="input-actions">
-            <label id="attachBtn" class="attachment-btn" title="Attach image or file" for="fileAttachmentInput">
-              <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" width="20" height="20">
-                <path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-              </svg>
-            </label>
-            <input type="file" id="fileAttachmentInput" multiple accept="image/*,.gif,.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.csv,.zip,.rar,.7z,.mp3,.wav,.ogg,.flac,.aac,.m4a,.mp4,.webm,.mov" style="display:none;">
-            <button type="button" id="cancelEditXBtn" title="Cancel editing" aria-label="Cancel editing">
-              <svg viewBox="0 0 24 24" width="12" height="12" fill="#fff">
-                <path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/>
-              </svg>
-            </button>
-          </div>
-        </div>
-      </div>
+      <!-- Display-name field kept in the DOM (send logic still reads its
+           value) but no longer shown as a visible row. The attach button
+           now lives inline with the message box below. -->
+      <input type="text" id="nameInput" aria-hidden="true" tabindex="-1" required readonly value="<?php echo htmlspecialchars($user_name); ?>" style="display:none;">
 
       <form id="chatForm" class="message-input-container">
+        <label id="attachBtn" class="attachment-btn" title="Attach image or file" for="fileAttachmentInput">
+          <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" width="20" height="20">
+            <path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+        </label>
+        <input type="file" id="fileAttachmentInput" multiple accept="image/*,.gif,.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.csv,.zip,.rar,.7z,.mp3,.wav,.ogg,.flac,.aac,.m4a,.mp4,.webm,.mov" style="display:none;">
         <textarea id="messageInput" placeholder="Type a message..." required autocomplete="off" rows="1" enterkeyhint="enter"></textarea>
+        <button type="button" id="cancelEditXBtn" title="Cancel editing" aria-label="Cancel editing">
+          <svg viewBox="0 0 24 24" width="12" height="12" fill="#fff">
+            <path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/>
+          </svg>
+        </button>
         <button type="submit" id="sendButton">Send</button>
       </form>
 

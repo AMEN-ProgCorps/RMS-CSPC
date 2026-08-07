@@ -1,4 +1,4 @@
-    // ── All DOM element references first ──────────────────────────────────────
+// ── All DOM element references first ──────────────────────────────────────
 
     const chatBox         = document.getElementById("chat-box");
     const nameInput       = document.getElementById("nameInput");
@@ -23,34 +23,21 @@
     const burgerButton    = document.getElementById('burgerButton');
     const closeSidebarBtn = document.getElementById('closeSidebarBtn');
 
-    // Keep the name-row's action column (attach button + cancel-edit X
-    // button) exactly as wide as the real rendered #sendButton, but ONLY
-    // while editing — the rest of the time it stays its normal shrink-wrap
-    // size (just the attach button), same as before.
-    const inputActions = document.querySelector('.input-actions');
-    function syncInputActionsWidth() {
-      if (!inputActions || !sendButton) return;
-      const w = sendButton.getBoundingClientRect().width;
-      if (w > 0) inputActions.style.width = w + 'px';
-    }
-    window.addEventListener('resize', function () {
-      if (editingMsgId !== null) syncInputActionsWidth();
-    });
-
+    // The cancel-edit X button now lives inline in the message row itself
+    // (next to Send), so no separate width-sync against #sendButton is
+    // needed anymore — that was only for lining up the old two-row layout.
     let editingMsgId = null;
 
     function showEditBanner(msgId) {
       editingMsgId = msgId;
       const xBtn = document.getElementById('cancelEditXBtn');
       if (xBtn) xBtn.style.display = 'flex';
-      syncInputActionsWidth();
     }
 
     function hideEditBanner() {
       editingMsgId = null;
       const xBtn = document.getElementById('cancelEditXBtn');
       if (xBtn) xBtn.style.display = 'none';
-      if (inputActions) inputActions.style.width = ''; // back to auto (shrink-wrap)
     }
     const notifyModal        = document.getElementById('notifyModal');
     const notifyTargetName   = document.getElementById('notifyTargetName');
@@ -2124,4 +2111,3 @@
       // Also sweep any stragglers that landed directly in chatBox
       document.querySelectorAll('[data-sending-uid]').forEach(el => el.remove());
     }
-

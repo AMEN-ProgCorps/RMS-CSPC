@@ -38,6 +38,9 @@ new #[Layout('layouts.profile')] #[Title('Profile Manager - Details')] class ext
     /** @var bool Personal preference for auto-opening Chatify widget upon login */
     public bool $autoOpenChat = true;
 
+    /** @var string Google Cloud CDN Avatar URL */
+    public string $avatarUrl = '';
+
     /**
      * Component Mount hook - populates user attributes and maps roles/permissions.
      */
@@ -123,6 +126,7 @@ new #[Layout('layouts.profile')] #[Title('Profile Manager - Details')] class ext
             $this->lastName      = $details->last_name      ?? '';
             $this->middleName    = $details->middle_name    ?? '';
             $this->email         = $details->email          ?? '';
+            $this->avatarUrl     = $details->avatar_url      ?? '';
             $this->accountId     = $details->account_id;
         }
 
@@ -145,8 +149,12 @@ new #[Layout('layouts.profile')] #[Title('Profile Manager - Details')] class ext
     <!-- Hero Banner -->
     <div class="profile-hero-banner">
         <div class="hero-left">
-            <div class="avatar-circle">
-                <span>{{ strtoupper(substr($firstName ?: '?', 0, 1) . substr($lastName ?: '?', 0, 1)) }}</span>
+            <div class="avatar-circle" style="overflow: hidden; display: flex; align-items: center; justify-content: center;">
+                @if(!empty($avatarUrl))
+                    <img src="{{ $avatarUrl }}" alt="{{ $firstName }}" style="width: 100%; height: 100%; object-fit: cover; border-radius: 50%;">
+                @else
+                    <span>{{ strtoupper(substr($firstName ?: '?', 0, 1) . substr($lastName ?: '?', 0, 1)) }}</span>
+                @endif
             </div>
             <div class="hero-user-info">
                 <span class="hero-greeting">Welcome back,</span>

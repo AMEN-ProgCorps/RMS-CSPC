@@ -6,7 +6,6 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 
 new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create Application Letter')] class extends Component {
-    public bool $enableBeta = false;
     public string $availabilityMessage = '';
     public ?bool $isAvailable = null;
 
@@ -57,7 +56,6 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create Applicat
             abort(403, 'Unauthorized access to Application Letter transactions.');
         }
 
-        $this->enableBeta = session('enable_beta', false);
         $this->offices = DB::table('office')
             ->where('is_active', true)
             ->whereNotIn('office_code', ['ORIGIN', '[H]'])
@@ -98,11 +96,6 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create Applicat
         if ($userOfficeCode) {
             $this->unit_college = $userOfficeCode;
         }
-    }
-
-    public function updatedEnableBeta($value): void
-    {
-        session(['enable_beta' => $value]);
     }
 
     public function checkAvailability(): void
@@ -956,328 +949,12 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create Applicat
 <div class="rms-container">
 
     <!-- Header Section -->
-    <div class="rms-header" style="display: flex; justify-content: space-between; align-items: center;">
+    <div class="rms-header">
         <h2>Application Document</h2>
-        
-        <!-- Enable Beta Toggle -->
-        <div style="display: flex; align-items: center; gap: 8px;">
-            <span style="font-size: 11px; font-weight: 700; color: #475569; text-transform: uppercase; letter-spacing: 0.5px;">Enable Beta</span>
-            <label class="switch" style="position: relative; display: inline-block; width: 44px; height: 22px; margin: 0;">
-                <input type="checkbox" wire:model.live="enableBeta" style="opacity: 0; width: 0; height: 0;">
-                <span class="slider" style="position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0; background-color: #cbd5e1; transition: .4s; border-radius: 34px;"></span>
-            </label>
-        </div>
     </div>
 
-    @if($enableBeta)
-        <!-- Beta Layout Form -->
-        <form wire:submit.prevent="save">
-            <div class="beta-layout-container" style="position: relative; min-height: 520px; box-sizing: border-box;">
-                
-                <!-- Left Side Form Fields -->
-                <div style="margin-right: 220px; display: flex; flex-direction: column; gap: 24px;">
-                    
-                    <!-- Generated Control Number Identity Badge -->
-                    @if(auth()->user()?->permissions?->can_dts_modify_control_no)
-                    <div class="beta-control-badge">
-                        <span class="badge-label">Generated Control Number</span>
-                        <div style="display: flex; gap: 8px; align-items: center; margin-top: 4px;">
-                            <div class="beta-value" style="display: flex; align-items: center;">
-                                <span class="beta-prefix">APL-{{ now()->format('Y-m') }}-</span>
-                                <input type="text" wire:model.live="seq_number" class="beta-input badge-input" placeholder="0001">
-                            </div>
-                            @if(empty($seq_number))
-                                <button type="button" wire:click="generateRandomSeq" class="beta-btn-add" style="background: #3b82f6; border: 1px solid rgba(255, 255, 255, 0.4); color: #ffffff; height: 32px; font-size: 11px; padding: 0 12px; border-radius: 6px;">
-                                    Generate
-                                </button>
-                            @else
-                                <button type="button" wire:click="checkAvailability" class="beta-btn-add" style="background: rgba(255, 255, 255, 0.2); border: 1px solid rgba(255, 255, 255, 0.4); color: #ffffff; height: 32px; font-size: 11px; padding: 0 12px; border-radius: 6px;">
-                                    Check Availability
-                                </button>
-                            @endif
-
-                        </div>
-                        @if($availabilityMessage)
-                            <span style="font-size: 12px; margin-top: 4px; display: block; font-weight: 600; color: {{ $isAvailable ? '#a7f3d0' : '#fca5a5' }};">
-                                {{ $availabilityMessage }}
-                            </span>
-                        @endif
-                        @error('seq_number')
-                            <span class="beta-error" style="color: #fca5a5; font-size: 12px; margin-top: 4px; display: block;">{{ $message }}</span>
-                        @enderror
-                    </div>
-                    @endif
-
-                    <!-- Card 1: Document Details -->
-                    <div class="beta-card">
-                        <h3 class="beta-card-title"><i class="fa-solid fa-file-invoice"></i> Document Details</h3>
-                        <div class="beta-form-grid">
-                            <div class="beta-form-group">
-                                <label class="beta-label">Name of Applicant</label>
-                                <input type="text" wire:model="applicant_name" class="beta-input" placeholder="e.g. Jane Smith">
-                                @error('applicant_name') <span class="beta-error">{{ $message }}</span> @enderror
-                            </div>
-
-                            <div class="beta-form-group">
-                                <label class="beta-label">Position</label>
-                                <input type="text" wire:model="position" class="beta-input" placeholder="e.g. Assistant Professor I">
-                                @error('position') <span class="beta-error">{{ $message }}</span> @enderror
-                            </div>
-
-                            @if(auth()->user()?->permissions?->is_sadm)
-                            <div class="beta-form-group full-width">
-                                <label class="beta-label">Unit/College</label>
-                                <select wire:model="unit_college" class="beta-select">
-                                    <option value="">Select Unit/College</option>
-                                    @foreach($offices as $office)
-                                        <option value="{{ $office['office_code'] }}">{{ $office['office_name'] }} ({{ $office['office_code'] }})</option>
-                                    @endforeach
-                                </select>
-                                @error('unit_college') <span class="beta-error">{{ $message }}</span> @enderror
-                            </div>
-                            @endif
-
-                             <div class="beta-form-group full-width" style="position: relative;">
-                                <label class="beta-label">Type of Document</label>
-                                <div style="position: relative;" wire:click.outside="$set('showDocTypeDropdown', false)">
-                                    <input type="text" wire:model.live="type_of_document" wire:focus="$set('showDocTypeDropdown', true)" class="beta-input" placeholder="e.g. Application Letter" autocomplete="off" style="padding-right: 32px;">
-                                    <span style="position: absolute; right: 10px; top: 50%; transform: translateY(-50%); pointer-events: none; color: #94a3b8; font-size: 10px;">▼</span>
-                                    @if($showDocTypeDropdown)
-                                        <div style="position: absolute; top: 100%; left: 0; right: 0; margin-top: 4px; background: #ffffff; border: 1.5px solid #cbd5e1; border-radius: 8px; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1), 0 2px 4px -1px rgba(0,0,0,0.06); max-height: 220px; overflow-y: auto; z-index: 50;">
-                                            @php
-                                                $searchTerm = strtolower($type_of_document);
-                                                $filteredFlows = array_filter($flows, fn($f) => empty($searchTerm) || str_contains(strtolower($f['flow_name']), $searchTerm));
-                                                $predefinedFlows = array_filter($filteredFlows, fn($f) => !str_starts_with($f['flow_code'], 'FLOW-CUSTOM-'));
-                                                $customFlows = array_filter($filteredFlows, fn($f) => str_starts_with($f['flow_code'], 'FLOW-CUSTOM-'));
-                                            @endphp
-                                            
-                                            @if(count($predefinedFlows) > 0)
-                                                <div style="padding: 6px 12px; font-size: 10px; font-weight: 700; text-transform: uppercase; color: #64748b; background: #f8fafc; letter-spacing: 0.5px; border-bottom: 1px solid #e2e8f0;">Predefined Flows</div>
-                                                @foreach($predefinedFlows as $flow)
-                                                    <div wire:click="selectDocumentType('{{ addslashes($flow['flow_name']) }}')" style="padding: 9px 14px; font-size: 13px; color: #334155; cursor: pointer; transition: background 0.1s; border-bottom: 1px solid #f1f5f9;" onmouseover="this.style.backgroundColor='#f1f5f9'" onmouseout="this.style.backgroundColor='transparent'">
-                                                        {{ $flow['flow_name'] }}
-                                                    </div>
-                                                @endforeach
-                                            @endif
-
-                                            @if(count($customFlows) > 0)
-                                                <div style="padding: 6px 12px; font-size: 10px; font-weight: 700; text-transform: uppercase; color: #64748b; background: #f8fafc; letter-spacing: 0.5px; border-bottom: 1px solid #e2e8f0; @if(count($predefinedFlows) > 0) border-top: 1px solid #e2e8f0; @endif">Custom Flows</div>
-                                                @foreach($customFlows as $flow)
-                                                    <div wire:click="selectDocumentType('{{ addslashes($flow['flow_name']) }}')" style="padding: 9px 14px; font-size: 13px; color: #334155; cursor: pointer; transition: background 0.1s; border-bottom: 1px solid #f1f5f9;" onmouseover="this.style.backgroundColor='#f1f5f9'" onmouseout="this.style.backgroundColor='transparent'">
-                                                        {{ $flow['flow_name'] }}
-                                                    </div>
-                                                @endforeach
-                                            @endif
-
-                                            @if(count($predefinedFlows) === 0 && count($customFlows) === 0)
-                                                <div style="padding: 12px 14px; font-size: 13px; color: #94a3b8; text-align: center;">No matching documents found</div>
-                                            @endif
-                                        </div>
-                                    @endif
-                                </div>
-                                @error('type_of_document') <span class="beta-error">{{ $message }}</span> @enderror
-                            </div>
-                        </div>
-                    </div>
-
-                    <!-- Card 2: Routing Sequence -->
-                    <div class="beta-card">
-                        <h3 class="beta-card-title"><i class="fa-solid fa-route"></i> Routing Sequence</h3>
-                        
-                        <div class="beta-form-group full-width" style="margin-bottom: 20px;">
-                            <label class="beta-label">Transaction Flow Path</label>
-                            <input type="text" class="beta-input" value="{{ $transaction_flow ? $transaction_flow : 'No flow selected' }}" readonly>
-                            @error('transaction_flow') <span class="beta-error">{{ $message }}</span> @enderror
-                            <a href="#" wire:click.prevent="openCustomFlowCreator" style="font-size: 11.5px; color: #3b82f6; text-decoration: none; font-weight: 600; margin-top: 4px; display: inline-block;">Flow Can't be found?</a>
-                        </div>
-
-                        @if(!empty($transaction_flow))
-                        <!-- Horizontal Inline Timeline Flow Visualizer -->
-                        <div class="beta-timeline-container">
-                            <div class="beta-timeline-scroll">
-                                @foreach($flow_offices as $index => $officeCode)
-                                    @php
-                                        $officeName = collect($offices)->firstWhere('office_code', $officeCode)['office_name'] ?? $officeCode;
-                                    @endphp
-                                    <div class="beta-timeline-node">
-                                        <div class="node-badge">{{ $index + 1 }}</div>
-                                        <div class="node-content">
-                                            <span class="node-code">{{ $officeCode }}</span>
-                                            <span class="node-name">{{ $officeName }}</span>
-                                        </div>
-                                        <button type="button" class="node-remove" wire:click="removeOfficeFromFlow({{ $index }})" title="Remove from sequence">×</button>
-                                    </div>
-                                    @if(!$loop->last)
-                                        <div class="beta-timeline-arrow"><i class="fa-solid fa-arrow-right-long"></i></div>
-                                    @endif
-                                @endforeach
-                            </div>
-                            
-                            <!-- Add Office Inline Control -->
-                            <div class="beta-timeline-controls">
-                                <div style="display: flex; gap: 8px; width: 100%; max-width: 450px;">
-                                    <select wire:model="selected_gap_index" class="beta-select" style="flex: 1;">
-                                        <option value="">Insert Position...</option>
-                                        <option value="0">At the Beginning</option>
-                                        @for($i = 1; $i <= count($flow_offices); $i++)
-                                            <option value="{{ $i }}">After Step {{ $i }}</option>
-                                        @endfor
-                                    </select>
-                                    <div x-data="{ open: false }" @click.outside="open = false" style="position: relative; flex: 1.5; display: flex;">
-                                        <div style="position: relative; flex: 1;">
-                                            <input type="text" 
-                                                   class="beta-select" 
-                                                   placeholder="Search office..." 
-                                                   wire:model.live="insert_office_search"
-                                                   @focus="open = true"
-                                                   style="width: 100%; box-sizing: border-box; outline: none; background: #ffffff;">
-                                            
-                                            <div x-show="open" style="position: absolute; bottom: 100%; left: 0; right: 0; background: #ffffff; border: 1.5px solid #cbd5e1; border-radius: 6px; max-height: 150px; overflow-y: auto; z-index: 2000; margin-bottom: 4px; box-shadow: 0 -4px 12px rgba(0,0,0,0.08);">
-                                                @php
-                                                    $filtered = collect($offices)->filter(function($off) {
-                                                        if (empty($this->insert_office_search)) return true;
-                                                        return stripos($off['office_name'], $this->insert_office_search) !== false 
-                                                            || stripos($off['office_code'], $this->insert_office_search) !== false;
-                                                    });
-                                                @endphp
-                                                
-                                                @forelse($filtered as $off)
-                                                    <div @click="open = false"
-                                                         wire:click="selectOfficeForInsert('{{ $off['office_code'] }}', '{{ $off['office_name'] }}')"
-                                                         style="padding: 6px 10px; cursor: pointer; display: flex; justify-content: space-between; font-size: 11.5px; font-family: 'Inter', sans-serif; transition: background 0.15s ease; border-bottom: 1px solid #f1f5f9; text-align: left;"
-                                                         onmouseover="this.style.backgroundColor='#f1f5f9'"
-                                                         onmouseout="this.style.backgroundColor='transparent'">
-                                                        <span style="font-weight: 500; color: #1e293b; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 180px;">{{ $off['office_name'] }}</span>
-                                                        <span style="color: #64748b; font-weight: 600; flex-shrink: 0;">{{ $off['office_code'] }}</span>
-                                                    </div>
-                                                @empty
-                                                    <div style="padding: 6px 10px; color: #94a3b8; font-size: 11.5px; font-style: italic; text-align: center;">No offices found</div>
-                                                @endforelse
-                                            </div>
-                                        </div>
-                                    </div>
-                                    <button type="button" wire:click="insertOffice" class="beta-btn-add" {{ $selected_gap_index === null || empty($insert_office_code) ? 'disabled' : '' }}>
-                                        <i class="fa-solid fa-plus"></i> Add
-                                    </button>
-                                </div>
-                                <button type="button" wire:click="resetFlowToDefault" class="beta-btn-reset">Reset to Default</button>
-                            </div>
-                        </div>
-                        @endif
-                    </div>
-
-                    <!-- Card 3: Distribution & Remarks -->
-                    <div class="beta-card">
-                        <h3 class="beta-card-title"><i class="fa-solid fa-share-nodes"></i> Distribution & Remarks</h3>
-                        
-                        <div class="beta-form-group full-width" style="margin-top: 15px;">
-                            <label class="beta-label">Search & Add Recipient Offices</label>
-                            <div class="beta-search-wrapper" style="position: relative;">
-                                <i class="fa-solid fa-magnifying-glass search-icon" style="position: absolute; left: 12px; top: 12px; color: #94a3b8; font-size: 13px;"></i>
-                                <input type="text" wire:model.live="cf_search" class="beta-input" placeholder="Type to search offices..." style="padding-left: 36px; width: 100%; box-sizing: border-box;">
-                                
-                                @if(!empty($cf_search))
-                                    <div class="beta-autocomplete-dropdown">
-                                        @php
-                                            $cfList = array_merge([
-                                                ['office_code' => 'ALL', 'office_name' => 'All Office']
-                                            ], $offices);
-
-                                            $filteredCfOffices = collect($cfList)
-                                                ->filter(fn($o) => 
-                                                    (stripos($o['office_name'], $cf_search) !== false || 
-                                                    stripos($o['office_code'], $cf_search) !== false) &&
-                                                    !in_array($o['office_code'], $cf_selected_offices) &&
-                                                    $o['office_code'] !== $unit_college
-                                                )
-                                                ->take(6);
-                                        @endphp
-                                        @forelse($filteredCfOffices as $office)
-                                            <div class="dropdown-item" wire:click="selectCfOffice('{{ $office['office_code'] }}')">
-                                                <strong>{{ $office['office_code'] }}</strong> - {{ $office['office_name'] }}
-                                            </div>
-                                        @empty
-                                            <div class="dropdown-no-results">No offices found.</div>
-                                        @endforelse
-                                    </div>
-                                @endif
-                            </div>
-                            @error('cf_selected_offices') <span class="beta-error">{{ $message }}</span> @enderror
-
-                            <!-- Selected Office Badges -->
-                            <div class="beta-badges-list" style="margin-top: 12px;">
-                                @foreach($cf_selected_offices as $index => $officeCode)
-                                    @php
-                                        $cfList = array_merge([
-                                            ['office_code' => 'ALL', 'office_name' => 'All Office']
-                                        ], $offices);
-                                        $officeName = collect($cfList)->firstWhere('office_code', $officeCode)['office_name'] ?? $officeCode;
-                                    @endphp
-                                    <span class="beta-badge">
-                                        {{ $officeName }}
-                                        <button type="button" class="remove-btn" wire:click="removeCfOffice({{ $index }})"><i class="fa-solid fa-xmark"></i></button>
-                                    </span>
-                                @endforeach
-                            </div>
-                        </div>
-                    </div>
-
-                </div>
-
-                <!-- Right Side Absolute QR Code Box -->
-                <div style="position: absolute; top: 24px; right: 24px; width: 180px; display: flex; flex-direction: column; align-items: center; gap: 10px; box-sizing: border-box; z-index: 10;">
-                    @if($generatedQrCode)
-                        <div id="printable-qr-area-apl" style="display: flex; flex-direction: column; align-items: center; gap: 8px; background: white; padding: 16px; border-radius: 8px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); border: 1px solid #cbd5e1; box-sizing: border-box; width: 180px;">
-                            <img src="https://api.qrserver.com/v1/create-qr-code/?size=150x150&data={{ urlencode(base64_encode($generatedQrCode)) }}" alt="QR Code" style="width: 148px; height: 148px;">
-                            <span style="font-family: monospace; font-weight: bold; font-size: 13px; color: #1e293b; text-align: center; word-break: break-all;">{{ $generatedQrCode }}</span>
-                        </div>
-                        <button type="button" onclick="openDynamicPrintModal('{{ $generatedQrCode }}')" style="background: #10b981; color: white; border: none; border-radius: 6px; padding: 8px 16px; font-weight: bold; font-size: 13px; cursor: pointer; display: flex; align-items: center; gap: 6px; width: 100%; justify-content: center; box-shadow: 0 2px 4px rgba(16, 185, 129, 0.2);">
-                            <i class="fa-solid fa-print"></i> Print QR Code
-                        </button>
-                    @else
-                        <div style="display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; background: #ffffff; border: 2px dashed #cbd5e1; padding: 20px; border-radius: 8px; box-sizing: border-box; width: 180px; height: 210px; color: #64748b; text-align: center; box-shadow: 0 1px 3px rgba(0,0,0,0.05);">
-                            <i class="fa-solid fa-qrcode" style="font-size: 36px; color: #94a3b8;"></i>
-                            <span style="font-size: 12px; font-weight: 600; color: #1e293b;">QR Code Output</span>
-                        </div>
-                    @endif
-                </div>
-
-                <!-- Submit Footer -->
-                <div class="beta-form-footer" style="display: flex; gap: 12px; align-items: center; margin-top: 24px; clear: both;">
-                    @if (session()->has('error'))
-                        <span class="beta-error" style="margin-right: 15px; align-self: center;">{{ session('error') }}</span>
-                    @endif
-                    <button type="button" wire:click="generateQrCode" class="beta-btn-submit" style="background-color: #3b82f6; box-shadow: 0 4px 10px rgba(59, 130, 246, 0.25);" {{ $generatedQrCode ? 'disabled style=background-color:#cbd5e1;cursor:not-allowed;box-shadow:none;' : '' }}>
-                        <i class="fa-solid fa-gear"></i> Generate QR Code
-                    </button>
-                    @php
-                        $emailAccessRequired = DB::table('system_settings')->where('key', 'dts_email_access_required_application')->value('value') === 'true';
-                        $hasEmailInput = !empty($email_access_input);
-                        $hasPasswordInput = !empty($document_password_input);
-                        $hasAnyInput = $hasEmailInput || $hasPasswordInput;
-                        $isValidEmail = $hasEmailInput && filter_var($email_access_input, FILTER_VALIDATE_EMAIL) !== false;
-                        $isConfigured = $isValidEmail && $hasPasswordInput;
-                        $hasInvalidAttempt = $hasAnyInput && !$isConfigured;
-                        $isRed = $isConfigured ? false : ($emailAccessRequired || $hasInvalidAttempt);
-
-                        $btnBg = $isConfigured ? '#10b981' : ($isRed ? '#ef4444' : '#3b82f6');
-                        $btnHoverBg = $isConfigured ? '#059669' : ($isRed ? '#dc2626' : '#2563eb');
-                        $btnShadow = $isConfigured ? 'rgba(16, 185, 129, 0.25)' : ($isRed ? 'rgba(239, 68, 68, 0.25)' : 'rgba(59, 130, 246, 0.25)');
-                        $btnIcon = $isConfigured ? 'fa-circle-check' : ($isRed ? 'fa-triangle-exclamation' : 'fa-envelope');
-                    @endphp
-                    <button type="button" wire:click="toggleEmailAccessModal" class="beta-btn-submit" style="background-color: {{ $btnBg }}; box-shadow: 0 4px 10px {{ $btnShadow }}; transition: background-color 0.15s;" onmouseover="this.style.backgroundColor='{{ $btnHoverBg }}'" onmouseout="this.style.backgroundColor='{{ $btnBg }}'">
-                        <i class="fa-solid {{ $btnIcon }}"></i> Manage Email Access
-                    </button>
-                    <button type="submit" class="beta-btn-submit" @if(!$generatedQrCode) disabled style="background: #cbd5e1; color: #94a3b8; cursor: not-allowed; box-shadow: none;" @endif>
-                        <i class="fa-solid fa-floppy-disk"></i> Create Transaction
-                    </button>
-                </div>
-
-            </div>
-        </form>
-    @else
-        <!-- Document Transaction Form -->
-        <form class="rms-form" wire:submit.prevent="save" style="position: relative; min-height: 520px; box-sizing: border-box;">
+    <!-- Document Transaction Form -->
+    <form class="rms-form" wire:submit.prevent="save" style="position: relative; min-height: 520px; box-sizing: border-box;">
             
             <!-- Left Side Form Fields -->
             <div style="margin-right: 220px;">
@@ -1543,7 +1220,6 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create Applicat
         </form>
 <!-- QR-CODE FUNCTION HERE -->
         <!-- Dynamic QR Code Print Modal moved to root -->
-    @endif
 
     <!-- Flow Diagram Modal -->
     @if($showFlowModal)

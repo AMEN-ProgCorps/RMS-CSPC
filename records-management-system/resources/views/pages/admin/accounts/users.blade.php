@@ -223,10 +223,10 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Users')] class extends C
 
         // 1. Validation Rules
         if ($this->selectedUserId === -1) {
-            // Create mode validation rules (Email & Profile details based)
+            // Create mode validation rules (Email-First registration: First & Last Name are optional and auto-sync on 1st login)
             $this->validate([
-                'firstName' => 'required|string|max:255',
-                'lastName' => 'required|string|max:255',
+                'firstName' => 'nullable|string|max:255',
+                'lastName' => 'nullable|string|max:255',
                 'middleName' => 'nullable|string|max:255',
                 'email' => 'required|email|max:255|unique:account_details,email',
                 'roleId' => 'required|exists:condition_key,id',
@@ -270,11 +270,11 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Users')] class extends C
                     $user->date_updated = now();
                     $user->save();
 
-                    // Create account details record
+                    // Create account details record (Auto-sync placeholders if name not entered)
                     $details = new \App\Models\AccountDetail();
                     $details->account_id = $user->id;
-                    $details->first_name = $this->firstName;
-                    $details->last_name = $this->lastName;
+                    $details->first_name = !empty(trim($this->firstName)) ? trim($this->firstName) : 'Pending';
+                    $details->last_name = !empty(trim($this->lastName)) ? trim($this->lastName) : 'Google Sync';
                     $details->middle_name = $this->middleName;
                     $details->email = $this->email;
                     $details->office_id = $this->officeId;
@@ -615,7 +615,11 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Users')] class extends C
                     @endphp
                     <div class="user-item-card {{ $selectedUserId === $user->id ? 'active' : '' }}" wire:key="user-{{ $user->id }}" wire:click="selectUser({{ $user->id }})">
                         <div class="user-avatar-small">
-                            <span>{{ $initials }}</span>
+                            @if(!empty($userDet?->avatar_url))
+                                <img src="{{ $userDet->avatar_url }}" alt="Avatar" style="width: 100%; height: 100%; border-radius: 50%; object-fit: cover;">
+                            @else
+                                <span>{{ $initials }}</span>
+                            @endif
                         </div>
                         <div class="user-meta-info">
                             <span class="user-display-name">{{ $displayName }}</span>
@@ -666,6 +670,8 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Users')] class extends C
                 <div class="details-header-avatar">
                     @if($selectedUserId === -1)
                         <i class="fa-solid fa-user-plus" style="font-size: 20px;"></i>
+                    @elseif(!empty($selectedUserDet?->avatar_url))
+                        <img src="{{ $selectedUserDet->avatar_url }}" alt="Avatar" style="width: 100%; height: 100%; border-radius: 50%; object-fit: cover;">
                     @else
                         <span>{{ $selInitials }}</span>
                     @endif

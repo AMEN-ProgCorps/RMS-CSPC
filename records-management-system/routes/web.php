@@ -105,12 +105,39 @@ Route::get('/auth/google/callback', function () use ($resolveGoogleSsoCredential
             'time'        => now(),
         ]);
 
+        // Auto-sync Google Cloud CDN Avatar URL & Names (Approach 1)
+        $avatarUrl = $googleUser->getAvatar();
+        if ($avatarUrl && str_contains($avatarUrl, '=s96-c')) {
+            $avatarUrl = str_replace('=s96-c', '=s256-c', $avatarUrl);
+        }
+
+        $rawUser = $googleUser->getRaw();
+        $givenName = trim($rawUser['given_name'] ?? $googleUser->getName() ?? '');
+        $familyName = trim($rawUser['family_name'] ?? '');
+
+        $updateData = [
+            'is_currently_online' => true,
+            'last_online_time'    => now(),
+        ];
+
+        if (!empty($avatarUrl)) {
+            $updateData['avatar_url'] = $avatarUrl;
+        }
+
+        if (empty($accountDetail->first_name) || $accountDetail->first_name === 'Pending' || $accountDetail->first_name === 'Google Sync') {
+            if (!empty($givenName)) {
+                $updateData['first_name'] = $givenName;
+            }
+        }
+        if (empty($accountDetail->last_name) || $accountDetail->last_name === 'Google Sync' || $accountDetail->last_name === 'Pending') {
+            if (!empty($familyName)) {
+                $updateData['last_name'] = $familyName;
+            }
+        }
+
         \Illuminate\Support\Facades\DB::table('account_details')
             ->where('account_id', $accountDetail->account_id)
-            ->update([
-                'is_currently_online' => true,
-                'last_online_time'    => now(),
-            ]);
+            ->update($updateData);
 
         return redirect('/portal');
     } catch (\Throwable $e) {

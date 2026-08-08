@@ -919,7 +919,7 @@
         const notice = document.createElement('div');
         notice.className = 'search-limit-notice';
         notice.style.cssText = 'padding:10px 16px;font-size:12px;color:var(--text-secondary);text-align:center;font-weight:500;border-top:1px dashed var(--border-color);margin-top:4px;';
-        notice.textContent = 'Showing the first 10 matches. Enter a more specific search term.';
+        notice.textContent = 'Enter a more specific search term.';
         sidebarUsers.appendChild(notice);
       }
     }

@@ -2356,7 +2356,7 @@
       cursor: default;
     }
     .verified-badge::after {
-      content: 'Super Admin';
+      content: 'Verified';
       position: absolute;
       bottom: calc(100% + 4px);
       left: 50%;

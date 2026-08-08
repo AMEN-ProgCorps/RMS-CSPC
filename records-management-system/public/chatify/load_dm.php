@@ -95,8 +95,11 @@ $readUpTo = ConversationManager::getReadMarker($convId, $targetId);
 // Cursor for the next "load older" request = UUID of the now-oldest shown message.
 $nextCursor = !empty($rawMessages) ? $rawMessages[0]['id'] : null;
 
-// ── Name cache ────────────────────────────────────────────────────────────────
+// ── Name cache ───────────────────────────────────────────────────
 $nameMap = UserResolver::buildNameMap();
+
+// ── Verification cache (lazily populated per-sender inside the loop) ─────
+$verifiedIds = [];
 
 // ── Render helpers ────────────────────────────────────────────────────────────
 $imageExts = ['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp', 'svg'];
@@ -138,7 +141,6 @@ foreach ($rawMessages as $msg) {
     $senderId    = (int) $msg['sender_id'];
     $msgId       = htmlspecialchars($msg['id'] ?? '', ENT_QUOTES);
     $isSent      = ($senderId === $myAccountId);
-    $isAdminMsg  = ($senderId === $adminId);
     $msgClass    = $isSent ? 'sent' : 'received';
     $type        = $msg['type'] ?? 'text';
 
@@ -146,10 +148,14 @@ foreach ($rawMessages as $msg) {
     $initials    = dmInitials2($senderName);
     $senderLabel = htmlspecialchars(strtolower($senderName), ENT_QUOTES);
 
-    // Admin badge
+    // Verified badge — driven by is_chatify_verified from DB
+    if (!isset($verifiedIds[$senderId])) {
+        $senderInfo = UserResolver::getUserInfo($senderId);
+        $verifiedIds[$senderId] = (bool) ($senderInfo['is_chatify_verified'] ?? false);
+    }
     $adminBadge = '';
-    if ($isAdminMsg) {
-        $adminBadge = " <span class='verified-badge' title='Admin'>"
+    if ($verifiedIds[$senderId]) {
+        $adminBadge = " <span class='verified-badge' title='Verified'>"
             . "<svg viewBox='0 0 24 24' fill='none' xmlns='http://www.w3.org/2000/svg'>"
             . "<circle cx='12' cy='12' r='12' fill='#1b74e4'/>"
             . "<path d='M7 12.5l3.5 3.5 6.5-7' stroke='#fff' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'/>"
@@ -300,7 +306,7 @@ foreach ($rawMessages as $msg) {
         continue;
     }
 
-    $html .= "<div class='message-container {$msgClass}' data-msg-id='{$msgId}'>";
+    $html .= "<div class='message-container {$msgClass}' data-msg-id='{$msgId}' data-sender-id='{$senderId}'>";
     $html .= "<div class='message-avatar'>{$initials}</div>";
     $html .= $msgBodyHtml;
     $html .= "</div>"; // .message-container

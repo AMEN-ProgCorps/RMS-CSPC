@@ -1,12 +1,19 @@
-// ── Verified badge: inject checkmark next to admin sender names ──
+// ── Verified badge: inject checkmark next to verified sender names in messages ──
     function applyAdminBadges() {
-      if (!adminNames || adminNames.length === 0) return;
-      document.querySelectorAll('.message-sender').forEach(function(el) {
-        // Skip if badge already added
-        if (el.querySelector('.verified-badge')) return;
-        const senderText = el.textContent.trim().toLowerCase();
-        if (adminNames.includes(senderText)) {
-          injectBadge(el);
+      if (!verifiedAccountIds || verifiedAccountIds.size === 0) {
+        // Remove any stale badges if no one is verified anymore
+        document.querySelectorAll('.message-sender .verified-badge').forEach(b => b.remove());
+        return;
+      }
+      document.querySelectorAll('.message-container[data-sender-id]').forEach(function(container) {
+        const sid = Number(container.dataset.senderId);
+        const senderEl = container.querySelector('.message-sender');
+        if (!senderEl) return;
+        const badge = senderEl.querySelector('.verified-badge');
+        if (verifiedAccountIds.has(sid)) {
+          if (!badge) injectBadge(senderEl);
+        } else if (badge) {
+          badge.remove();
         }
       });
     }
@@ -22,16 +29,12 @@
     }
 
     // ── Verified badge on the chat header (1-on-1 DM title) ──
-    // Whenever the header title is set to the name of the person being
-    // chatted with, show the blue checkmark next to it if that person is
-    // the super admin. Re-checks every time so switching between an admin
-    // DM and a regular-user DM correctly adds/removes the badge.
+    // Re-checks every time so switching between conversations correctly adds/removes the badge.
     function applyHeaderAdminBadge() {
       const existing = chatHeaderTitle.querySelector('.verified-badge');
       if (existing) existing.remove();
-      if (!adminNames || adminNames.length === 0) return;
-      const headerText = chatHeaderTitle.textContent.trim().toLowerCase();
-      if (headerText && adminNames.includes(headerText)) {
+      if (!verifiedAccountIds || verifiedAccountIds.size === 0) return;
+      if (activeDMAccountId && verifiedAccountIds.has(Number(activeDMAccountId))) {
         injectBadge(chatHeaderTitle);
       }
     }
@@ -1871,6 +1874,133 @@
         e.preventDefault();
         e.stopPropagation();
         openCommSettingsModal();
+      });
+    }
+
+    // ── User Verification Modal (Super Admin only) ──────────────────────────────
+    let _verifySearchTimer = null;
+
+    window.openUserVerificationModal = function() {
+      closeCommSettingsModal();
+      const modal = document.getElementById('userVerificationModal');
+      if (!modal) return;
+      modal.classList.add('active');
+      modal.setAttribute('aria-hidden', 'false');
+      const input = document.getElementById('verifySearchInput');
+      if (input) {
+        input.value = '';
+        setTimeout(() => input.focus(), 80);
+      }
+      document.getElementById('verifySearchResults').innerHTML = '';
+    };
+
+    window.closeUserVerificationModal = function() {
+      const modal = document.getElementById('userVerificationModal');
+      if (modal) {
+        modal.classList.remove('active');
+        modal.setAttribute('aria-hidden', 'true');
+      }
+    };
+
+    // Backdrop click closes the modal
+    document.getElementById('userVerificationModal')?.addEventListener('click', function(e) {
+      if (e.target === this) closeUserVerificationModal();
+    });
+
+    // Search on input with 400ms debounce — no fetch-all
+    const verifyInput = document.getElementById('verifySearchInput');
+    if (verifyInput) {
+      verifyInput.addEventListener('input', function() {
+        clearTimeout(_verifySearchTimer);
+        const q = this.value.trim();
+        const resultsEl = document.getElementById('verifySearchResults');
+        if (q === '') {
+          resultsEl.innerHTML = '';
+          return;
+        }
+        _verifySearchTimer = setTimeout(() => {
+          resultsEl.innerHTML = '<div style="font-size:13px;color:var(--text-secondary);padding:8px 0;">Searching…</div>';
+          fetch('search_users_verify.php?q=' + encodeURIComponent(q))
+            .then(r => r.json())
+            .then(data => {
+              const users = data.users || [];
+              if (users.length === 0) {
+                resultsEl.innerHTML = '<div style="font-size:13px;color:var(--text-secondary);padding:8px 0;">No users found.</div>';
+                return;
+              }
+              resultsEl.innerHTML = '';
+              users.forEach(u => {
+                const row = document.createElement('div');
+                row.style.cssText = 'display:flex;align-items:center;gap:10px;padding:10px 12px;border:1px solid var(--border-color);border-radius:8px;background:var(--bg-secondary);';
+
+                // Name + badge
+                const nameSpan = document.createElement('span');
+                nameSpan.style.cssText = 'flex:1;font-size:14px;font-weight:600;color:var(--text-primary);display:flex;align-items:center;gap:6px;';
+                nameSpan.textContent = u.full_name;
+                if (u.is_chatify_verified) {
+                  const b = document.createElement('span');
+                  b.className = 'verified-badge';
+                  b.innerHTML = `<svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><circle cx="12" cy="12" r="12" fill="#1b74e4"/><path d="M7 12.5l3.5 3.5 6.5-7" stroke="#fff" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
+                  nameSpan.appendChild(b);
+                }
+
+                // Toggle switch
+                const label = document.createElement('label');
+                label.style.cssText = 'position:relative;display:inline-block;width:40px;height:22px;flex-shrink:0;cursor:pointer;';
+                const chk = document.createElement('input');
+                chk.type = 'checkbox';
+                chk.checked = !!u.is_chatify_verified;
+                chk.style.cssText = 'opacity:0;width:0;height:0;position:absolute;';
+                const slider = document.createElement('span');
+                slider.style.cssText = `position:absolute;inset:0;border-radius:22px;transition:background 0.2s;background:${chk.checked ? '#1b74e4' : 'var(--border-color)'};`;
+                const knob = document.createElement('span');
+                knob.style.cssText = `position:absolute;top:3px;left:${chk.checked ? '21px' : '3px'};width:16px;height:16px;border-radius:50%;background:#fff;transition:left 0.2s,background 0.2s;box-shadow:0 1px 3px rgba(0,0,0,0.3);`;
+                slider.appendChild(knob);
+                label.appendChild(chk);
+                label.appendChild(slider);
+
+                chk.addEventListener('change', function() {
+                  const newVal = this.checked;
+                  slider.style.background = newVal ? '#1b74e4' : 'var(--border-color)';
+                  knob.style.left = newVal ? '21px' : '3px';
+                  // Add or remove badge from the name in the result row
+                  const existingBadge = nameSpan.querySelector('.verified-badge');
+                  if (newVal && !existingBadge) {
+                    const b = document.createElement('span');
+                    b.className = 'verified-badge';
+                    b.innerHTML = `<svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><circle cx="12" cy="12" r="12" fill="#1b74e4"/><path d="M7 12.5l3.5 3.5 6.5-7" stroke="#fff" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
+                    nameSpan.appendChild(b);
+                  } else if (!newVal && existingBadge) {
+                    existingBadge.remove();
+                  }
+                  // Persist via backend (WS broadcast is handled server-side)
+                  fetch('set_verification.php', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ account_id: u.account_id, is_verified: newVal })
+                  }).then(r => r.json()).then(res => {
+                    if (!res.ok) {
+                      // Revert toggle on failure
+                      chk.checked = !newVal;
+                      slider.style.background = !newVal ? '#1b74e4' : 'var(--border-color)';
+                      knob.style.left = !newVal ? '21px' : '3px';
+                    }
+                  }).catch(() => {
+                    chk.checked = !newVal;
+                    slider.style.background = !newVal ? '#1b74e4' : 'var(--border-color)';
+                    knob.style.left = !newVal ? '21px' : '3px';
+                  });
+                });
+
+                row.appendChild(nameSpan);
+                row.appendChild(label);
+                resultsEl.appendChild(row);
+              });
+            })
+            .catch(() => {
+              resultsEl.innerHTML = '<div style="font-size:13px;color:var(--text-secondary);padding:8px 0;">Search failed. Please try again.</div>';
+            });
+        }, 400);
       });
     }
 

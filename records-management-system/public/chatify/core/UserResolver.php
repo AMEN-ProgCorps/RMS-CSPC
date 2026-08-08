@@ -102,6 +102,7 @@ class UserResolver
             'last_online_time'    => $row['last_online_time'] ?? null,
             'allow_typing_preview' => isset($row['allow_typing_preview']) ? (bool) $row['allow_typing_preview'] : true,
             'allow_see_typing_preview' => isset($row['allow_see_typing_preview']) ? (bool) $row['allow_see_typing_preview'] : true,
+            'is_chatify_verified' => (bool) ($row['is_chatify_verified'] ?? false),
         ];
     }
 
@@ -134,6 +135,7 @@ class UserResolver
                 'last_online_time'    => $row['last_online_time'] ?? null,
                 'allow_typing_preview' => isset($row['allow_typing_preview']) ? (bool) $row['allow_typing_preview'] : true,
                 'allow_see_typing_preview' => isset($row['allow_see_typing_preview']) ? (bool) $row['allow_see_typing_preview'] : true,
+                'is_chatify_verified' => (bool) ($row['is_chatify_verified'] ?? false),
             ];
         }
 
@@ -203,7 +205,8 @@ class UserResolver
                         o.office_name,
                         o.office_code,
                         ad.is_currently_online,
-                        ad.last_online_time
+                        ad.last_online_time,
+                        COALESCE(ad.is_chatify_verified, FALSE) AS is_chatify_verified
                  FROM account_details ad
                  LEFT JOIN office o ON o.id = ad.office_id
                  WHERE (:exclude = 0 OR ad.account_id != :exclude)
@@ -264,6 +267,7 @@ class UserResolver
                     'office_code'         => $row['office_code'] ?? null,
                     'is_currently_online' => (bool) ($row['is_currently_online'] ?? false),
                     'last_online_time'    => $row['last_online_time'] ?? null,
+                    'is_chatify_verified' => (bool) ($row['is_chatify_verified'] ?? false),
                 ];
             }
             return ['users' => $users, 'hasMore' => $hasMore];
@@ -334,7 +338,8 @@ class UserResolver
                 'SELECT ad.account_id, ad.first_name, ad.last_name, ad.middle_name,
                         ad.office_id, o.office_name, o.office_code, ad.email, ad.is_currently_online, ad.last_online_time,
                         COALESCE(ad.allow_typing_preview, TRUE) AS allow_typing_preview,
-                        COALESCE(ad.allow_see_typing_preview, TRUE) AS allow_see_typing_preview
+                        COALESCE(ad.allow_see_typing_preview, TRUE) AS allow_see_typing_preview,
+                        COALESCE(ad.is_chatify_verified, FALSE) AS is_chatify_verified
                  FROM account_details ad
                  LEFT JOIN office o ON o.id = ad.office_id
                  WHERE ad.account_id = :id
@@ -366,7 +371,8 @@ class UserResolver
                 'SELECT ad.account_id, ad.first_name, ad.last_name, ad.middle_name,
                         ad.office_id, o.office_name, o.office_code, ad.email, ad.is_currently_online, ad.last_online_time,
                         COALESCE(ad.allow_typing_preview, TRUE) AS allow_typing_preview,
-                        COALESCE(ad.allow_see_typing_preview, TRUE) AS allow_see_typing_preview
+                        COALESCE(ad.allow_see_typing_preview, TRUE) AS allow_see_typing_preview,
+                        COALESCE(ad.is_chatify_verified, FALSE) AS is_chatify_verified
                  FROM account_details ad
                  LEFT JOIN office o ON o.id = ad.office_id
                  ORDER BY ad.last_name, ad.first_name'

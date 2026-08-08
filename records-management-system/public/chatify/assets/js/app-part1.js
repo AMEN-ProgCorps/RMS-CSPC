@@ -161,6 +161,7 @@
       const container = document.createElement('div');
       container.className = 'message-container ' + (isSentByMe ? 'sent' : 'received') + ' msg-animate-' + (isSentByMe ? 'sent' : 'received');
       if (msgId) container.setAttribute('data-msg-id', msgId);
+      if (msgData.sender_id) container.setAttribute('data-sender-id', String(msgData.sender_id));
       container.addEventListener('animationend', () => container.classList.remove('msg-animate-sent', 'msg-animate-received'), { once: true });
 
       const msgText = msgData.message || msgData.plaintext || '';
@@ -449,6 +450,23 @@
           // covers everything else without needing a blind poll for it.
           console.log('Received WebSocket real-time update notice:', data);
           fetchUsers();
+        } else if (data.type === 'verification_update') {
+          // Broadcast from set_verification.php when Super Admin toggles a user's badge
+          const changedId = Number(data.account_id);
+          const nowVerified = !!data.is_verified;
+          if (nowVerified) {
+            verifiedAccountIds.add(changedId);
+          } else {
+            verifiedAccountIds.delete(changedId);
+          }
+          // Re-render sidebar badges
+          renderSidebarUsers();
+          // Re-apply header badge for current DM if it's the changed user
+          if (activeDMAccountId === changedId) {
+            applyHeaderAdminBadge();
+          }
+          // Re-apply badges on all visible message-sender elements
+          applyAdminBadges();
         }
       };
 
@@ -805,11 +823,11 @@
           applyHeaderAdminBadge();
         }
 
-        const targetIsAdmin = Number(u.account_id) === 1;
+        const targetIsVerified = verifiedAccountIds && verifiedAccountIds.has(Number(u.account_id));
 
-        // Verified badge next to the super admin's name in the sidebar
+        // Verified badge next to verified users' names in the sidebar
         const sidebarBadge = nameEl.querySelector('.verified-badge');
-        if (targetIsAdmin) {
+        if (targetIsVerified) {
           if (!sidebarBadge) injectBadge(nameEl);
         } else if (sidebarBadge) {
           sidebarBadge.remove();
@@ -856,41 +874,24 @@
         let badge = actionsRight.querySelector('.user-unread-badge');
         let notifyBtn = actionsRight.querySelector('.notify-btn');
 
-        if (targetIsAdmin) {
-          if (notifyBtn) {
-            notifyBtn.remove();
-            notifyBtn = null;
-          }
+        if (notifyBtn) {
+          notifyBtn.remove();
+          notifyBtn = null;
+        }
 
-          if (hasUnread) {
-            const badgeText = u.unreadCount > 99 ? '99+' : String(u.unreadCount);
-            if (!badge) {
-              badge = document.createElement('span');
-              badge.className = 'user-unread-badge';
-              actionsRight.insertBefore(badge, actionsRight.firstChild);
-              badge.textContent = badgeText;
-            } else if (badge.textContent !== badgeText) {
-              badge.textContent = badgeText;
-            }
-          } else if (badge) {
-            badge.remove();
-            badge = null;
+        if (hasUnread) {
+          const badgeText = u.unreadCount > 99 ? '99+' : String(u.unreadCount);
+          if (!badge) {
+            badge = document.createElement('span');
+            badge.className = 'user-unread-badge';
+            actionsRight.insertBefore(badge, actionsRight.firstChild);
+            badge.textContent = badgeText;
+          } else if (badge.textContent !== badgeText) {
+            badge.textContent = badgeText;
           }
-        } else {
-          if (hasUnread) {
-            const badgeText = u.unreadCount > 99 ? '99+' : String(u.unreadCount);
-            if (!badge) {
-              badge = document.createElement('span');
-              badge.className = 'user-unread-badge';
-              actionsRight.insertBefore(badge, actionsRight.firstChild);
-              badge.textContent = badgeText;
-            } else if (badge.textContent !== badgeText) {
-              badge.textContent = badgeText;
-            }
-          } else if (badge) {
-            badge.remove();
-            badge = null;
-          }
+        } else if (badge) {
+          badge.remove();
+          badge = null;
         }
 
         // Clean up any old action buttons if present

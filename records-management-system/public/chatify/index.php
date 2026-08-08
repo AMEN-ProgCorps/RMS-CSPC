@@ -71,33 +71,16 @@ $_current_account_id = (int) ($_SESSION['account_id'] ?? 0);
 $is_admin = ($_current_account_id === 1);
 $_SESSION['is_admin'] = $is_admin;
 
-// Admin display names: always just account_id 1's full_name
-$admin_names = [];
-if (!empty($_SESSION['full_name'])) {
-    if ($is_admin) {
-        $admin_names[] = strtolower(trim($_SESSION['full_name']));
-        $admin_names[] = 'you'; // 'you' label when admin sees own messages
-    } else {
-        // We'll inject admin name when we know it via JS
-    }
-}
-// Resolve the admin's full name from DB fresh on every load (not from
-// session) so a name change made in the main system shows up immediately on
-// the badge shown on the admin's messages to other users.
+// Load the list of account_ids with is_chatify_verified = TRUE for real-time badge injection.
+// The Super Admin manages this list via the User Verification modal.
+$verified_account_ids = [];
 try {
     $pdo  = Database::getConnection();
-    $stmt = $pdo->prepare('SELECT first_name, last_name FROM account_details WHERE account_id = 1 LIMIT 1');
-    $stmt->execute();
-    $adminRow = $stmt->fetch();
-    if ($adminRow) {
-        $adminFullNameDisplay = trim(preg_replace('/\s+/', ' ', $adminRow['first_name'] . ' ' . $adminRow['last_name']));
-        $adminFullName = strtolower($adminFullNameDisplay);
-        if (!in_array($adminFullName, $admin_names)) {
-            $admin_names[] = $adminFullName;
-        }
-    }
+    $stmt = $pdo->query('SELECT account_id FROM account_details WHERE is_chatify_verified = TRUE');
+    $rows = $stmt->fetchAll(PDO::FETCH_COLUMN);
+    $verified_account_ids = array_map('intval', $rows);
 } catch (Throwable $e) {
-    // Non-fatal
+    // Non-fatal — verified badges simply won't show if DB is unavailable
 }
 
 // Resolve the CURRENT user's own full name from DB fresh on every load, so
@@ -115,14 +98,12 @@ try {
             $user_name = $ownFullNameDisplay;
             $_SESSION['name'] = $ownFullNameDisplay;
             $_SESSION['full_name'] = $ownFullNameDisplay;
-            if ($is_admin) {
-                $admin_names[0] = strtolower($ownFullNameDisplay); // keep 'you' badge match in sync too
-            }
         }
     }
 } catch (Throwable $e) {
     // Non-fatal
 }
+
 
 // Load user communication settings (default ON for all users)
 $user_comm_settings = [
@@ -177,6 +158,8 @@ try {
   <script>
     window.currentUserCommSettings = <?php echo json_encode($user_comm_settings); ?>;
     window._chatifyHasAgreedToLegal = <?php echo json_encode($hasAgreedToLegal); ?>;
+    window.verifiedAccountIds = <?php echo json_encode($verified_account_ids); ?>;
+    const verifiedAccountIds = new Set((window.verifiedAccountIds || []).map(Number));
   </script>
   <!-- Apply dark mode BEFORE page renders to prevent flash -->
   <script>
@@ -499,14 +482,15 @@ try {
   </div>
   <?php endif; ?>
 
-  <!-- Communication Settings Modal -->
+  <!-- Settings Modal (Communication Settings + Admin: User Verification) -->
   <div class="modal" id="commSettingsModal" aria-hidden="true">
     <div class="modal-content" style="max-width:440px;">
       <div class="modal-header" style="padding:16px;border-bottom:1px solid var(--border-color);">
-        <h3 style="margin:0;font-size:16px;font-weight:600;color:var(--text-primary);">Communication Settings</h3>
+        <h3 style="margin:0;font-size:16px;font-weight:600;color:var(--text-primary);">Settings</h3>
       </div>
-      <div class="modal-body" style="padding:16px;display:flex;flex-direction:column;gap:16px;text-align:left;">
-        <label style="display:flex;flex-direction:column;gap:4px;cursor:pointer;">
+      <div class="modal-body" style="padding:16px;display:flex;flex-direction:column;gap:0;text-align:left;">
+        <p style="margin:0 0 10px 0;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.08em;color:var(--text-secondary);">Communication</p>
+        <label style="display:flex;flex-direction:column;gap:4px;cursor:pointer;padding:8px 0;">
           <div style="display:flex;align-items:center;gap:8px;font-weight:600;color:var(--text-primary);font-size:14px;">
             <input type="checkbox" id="chkAllowTypingPreview" style="accent-color:var(--primary-color);width:18px;height:18px;">
             <span>Allow Real-Time Typing Preview</span>
@@ -516,7 +500,7 @@ try {
           </span>
         </label>
 
-        <label style="display:flex;flex-direction:column;gap:4px;cursor:pointer;">
+        <label style="display:flex;flex-direction:column;gap:4px;cursor:pointer;padding:8px 0;">
           <div style="display:flex;align-items:center;gap:8px;font-weight:600;color:var(--text-primary);font-size:14px;">
             <input type="checkbox" id="chkAllowSeeTypingPreview" style="accent-color:var(--primary-color);width:18px;height:18px;">
             <span>Show Live Typing Previews</span>
@@ -526,10 +510,45 @@ try {
           </span>
         </label>
 
+        <?php if ($is_admin): ?>
+        <div style="border-top:1px solid var(--border-color);margin-top:8px;padding-top:14px;">
+          <p style="margin:0 0 10px 0;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.08em;color:var(--text-secondary);">Administration</p>
+          <button type="button" id="openUserVerificationBtn"
+            style="display:flex;align-items:center;gap:10px;width:100%;background:none;border:1px solid var(--border-color);border-radius:8px;padding:10px 14px;cursor:pointer;color:var(--text-primary);font-size:14px;font-weight:600;text-align:left;transition:background 0.15s;"
+            onmouseover="this.style.background='var(--bg-drop-overlay)'"
+            onmouseout="this.style.background='none'"
+            onclick="openUserVerificationModal()">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
+            User Verification
+            <svg style="margin-left:auto;opacity:0.4;" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
+          </button>
+        </div>
+        <?php endif; ?>
       </div>
       <div class="modal-footer">
-        <button type="button" class="modal-button cancel-button" onclick="closeCommSettingsModal()">Cancel</button>
-        <button type="button" class="modal-button confirm-button" onclick="saveCommSettings()">Save Settings</button>
+        <button type="button" class="modal-button cancel-button" onclick="closeCommSettingsModal()">Close</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- User Verification Modal (Super Admin only) -->
+  <div class="modal" id="userVerificationModal" aria-hidden="true">
+    <div class="modal-content" style="max-width:460px;">
+      <div class="modal-header" style="padding:16px;border-bottom:1px solid var(--border-color);display:flex;align-items:center;gap:10px;">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
+        <h3 style="margin:0;font-size:16px;font-weight:600;color:var(--text-primary);">User Verification</h3>
+      </div>
+      <div class="modal-body" style="padding:16px;display:flex;flex-direction:column;gap:14px;text-align:left;">
+        <p style="margin:0;font-size:13px;color:var(--text-secondary);line-height:1.5;">Search for a user by name and toggle their blue verification badge.</p>
+        <div style="position:relative;">
+          <svg style="position:absolute;left:10px;top:50%;transform:translateY(-50%);opacity:0.45;pointer-events:none;" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+          <input type="text" id="verifySearchInput" placeholder="Search by first or last name..." autocomplete="off"
+            style="width:100%;box-sizing:border-box;padding:9px 12px 9px 34px;border:1px solid var(--border-color);border-radius:8px;background:var(--bg-secondary);color:var(--text-primary);font-size:14px;outline:none;">
+        </div>
+        <div id="verifySearchResults" style="display:flex;flex-direction:column;gap:8px;min-height:40px;"></div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="modal-button cancel-button" onclick="closeUserVerificationModal()">Close</button>
       </div>
     </div>
   </div>
@@ -691,8 +710,10 @@ try {
   </script>
   <script src="assets/js/app-part2.js"></script>
   <script>
-    // Admin display names for verified badge (lowercased)
-    const adminNames = <?php echo json_encode($admin_names); ?>;
+    // Verified account IDs for badge injection (array of integers)
+    // Replaces the old name-based adminNames approach.
+    const adminNames = []; // kept for backward-compat; badge logic now uses verifiedAccountIds
+    // verifiedAccountIds is already defined in the header block as a Set
   </script>
   <script src="assets/js/app-part3.js"></script>
   <!-- ═══════════════════════════════════════════════════════════════════════

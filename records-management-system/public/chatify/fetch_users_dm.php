@@ -97,6 +97,7 @@ if ($searchQuery !== '') {
             'unreadCount'         => $unreadCount,
             'allow_typing_preview'     => isset($user['allow_typing_preview']) ? (bool) $user['allow_typing_preview'] : true,
             'allow_see_typing_preview' => isset($user['allow_see_typing_preview']) ? (bool) $user['allow_see_typing_preview'] : true,
+            'is_chatify_verified' => (bool) ($user['is_chatify_verified'] ?? false),
         ];
     }
 } else {
@@ -141,6 +142,7 @@ if ($searchQuery !== '') {
             'unreadCount'         => (int) ($conv['unread_count'] ?? 0),
             'allow_typing_preview'     => isset($userInfo['allow_typing_preview']) ? (bool) $userInfo['allow_typing_preview'] : true,
             'allow_see_typing_preview' => isset($userInfo['allow_see_typing_preview']) ? (bool) $userInfo['allow_see_typing_preview'] : true,
+            'is_chatify_verified' => (bool) ($userInfo['is_chatify_verified'] ?? false),
         ];
     }
 

@@ -1,4 +1,4 @@
-    // ── All DOM element references first ──────────────────────────────────────
+// ── All DOM element references first ──────────────────────────────────────
 
     const chatBox         = document.getElementById("chat-box");
     const nameInput       = document.getElementById("nameInput");
@@ -23,34 +23,21 @@
     const burgerButton    = document.getElementById('burgerButton');
     const closeSidebarBtn = document.getElementById('closeSidebarBtn');
 
-    // Keep the name-row's action column (attach button + cancel-edit X
-    // button) exactly as wide as the real rendered #sendButton, but ONLY
-    // while editing — the rest of the time it stays its normal shrink-wrap
-    // size (just the attach button), same as before.
-    const inputActions = document.querySelector('.input-actions');
-    function syncInputActionsWidth() {
-      if (!inputActions || !sendButton) return;
-      const w = sendButton.getBoundingClientRect().width;
-      if (w > 0) inputActions.style.width = w + 'px';
-    }
-    window.addEventListener('resize', function () {
-      if (editingMsgId !== null) syncInputActionsWidth();
-    });
-
+    // The cancel-edit X button now lives inline in the message row itself
+    // (next to Send), so no separate width-sync against #sendButton is
+    // needed anymore — that was only for lining up the old two-row layout.
     let editingMsgId = null;
 
     function showEditBanner(msgId) {
       editingMsgId = msgId;
       const xBtn = document.getElementById('cancelEditXBtn');
       if (xBtn) xBtn.style.display = 'flex';
-      syncInputActionsWidth();
     }
 
     function hideEditBanner() {
       editingMsgId = null;
       const xBtn = document.getElementById('cancelEditXBtn');
       if (xBtn) xBtn.style.display = 'none';
-      if (inputActions) inputActions.style.width = ''; // back to auto (shrink-wrap)
     }
     const notifyModal        = document.getElementById('notifyModal');
     const notifyTargetName   = document.getElementById('notifyTargetName');
@@ -174,6 +161,7 @@
       const container = document.createElement('div');
       container.className = 'message-container ' + (isSentByMe ? 'sent' : 'received') + ' msg-animate-' + (isSentByMe ? 'sent' : 'received');
       if (msgId) container.setAttribute('data-msg-id', msgId);
+      if (msgData.sender_id) container.setAttribute('data-sender-id', String(msgData.sender_id));
       container.addEventListener('animationend', () => container.classList.remove('msg-animate-sent', 'msg-animate-received'), { once: true });
 
       const msgText = msgData.message || msgData.plaintext || '';
@@ -462,6 +450,27 @@
           // covers everything else without needing a blind poll for it.
           console.log('Received WebSocket real-time update notice:', data);
           fetchUsers();
+        } else if (data.type === 'verification_update') {
+          // Broadcast from set_verification.php when Super Admin toggles a user's badge
+          const changedId = Number(data.account_id);
+          const nowVerified = !!data.is_verified;
+          if (nowVerified) {
+            verifiedAccountIds.add(changedId);
+          } else {
+            verifiedAccountIds.delete(changedId);
+          }
+          // Re-render sidebar badges
+          renderSidebarUsers();
+          // Re-apply header badge for current DM if it's the changed user
+          if (activeDMAccountId === changedId) {
+            applyHeaderAdminBadge();
+          }
+          // Re-apply badges on all visible message-sender elements
+          applyAdminBadges();
+          // If the User Verification modal is open, sync toggle rows in real-time
+          if (typeof window._syncVerifyModalRow === 'function') {
+            window._syncVerifyModalRow(changedId, nowVerified);
+          }
         }
       };
 
@@ -496,6 +505,16 @@
       }
     }
 
+    // Caps a display name to a max length so it can't blow out the
+    // typing indicator's layout (long names, or names with repeated
+    // characters like "Officeeeeeeeeeee") — cut and add an ellipsis.
+    function truncateTypingName(name, maxLen) {
+      maxLen = maxLen || 22;
+      if (!name) return name;
+      name = String(name).trim();
+      return name.length > maxLen ? name.slice(0, maxLen).trim() + '…' : name;
+    }
+
     function showTypingIndicator(senderName, isTyping) {
       const indicator = document.getElementById('typingIndicator');
       const textEl = document.getElementById('typingIndicatorText');
@@ -506,7 +525,7 @@
       }
 
       if (isTyping && activeDM) {
-        textEl.textContent = `${senderName} is typing`;
+        textEl.textContent = `${truncateTypingName(senderName)} is typing`;
         indicator.classList.add('active');
 
         // Auto-expire after 4 seconds as a safety cleanup
@@ -818,11 +837,11 @@
           applyHeaderAdminBadge();
         }
 
-        const targetIsAdmin = Number(u.account_id) === 1;
+        const targetIsVerified = verifiedAccountIds && verifiedAccountIds.has(Number(u.account_id));
 
-        // Verified badge next to the super admin's name in the sidebar
+        // Verified badge next to verified users' names in the sidebar
         const sidebarBadge = nameEl.querySelector('.verified-badge');
-        if (targetIsAdmin) {
+        if (targetIsVerified) {
           if (!sidebarBadge) injectBadge(nameEl);
         } else if (sidebarBadge) {
           sidebarBadge.remove();
@@ -869,41 +888,24 @@
         let badge = actionsRight.querySelector('.user-unread-badge');
         let notifyBtn = actionsRight.querySelector('.notify-btn');
 
-        if (targetIsAdmin) {
-          if (notifyBtn) {
-            notifyBtn.remove();
-            notifyBtn = null;
-          }
+        if (notifyBtn) {
+          notifyBtn.remove();
+          notifyBtn = null;
+        }
 
-          if (hasUnread) {
-            const badgeText = u.unreadCount > 99 ? '99+' : String(u.unreadCount);
-            if (!badge) {
-              badge = document.createElement('span');
-              badge.className = 'user-unread-badge';
-              actionsRight.insertBefore(badge, actionsRight.firstChild);
-              badge.textContent = badgeText;
-            } else if (badge.textContent !== badgeText) {
-              badge.textContent = badgeText;
-            }
-          } else if (badge) {
-            badge.remove();
-            badge = null;
+        if (hasUnread) {
+          const badgeText = u.unreadCount > 99 ? '99+' : String(u.unreadCount);
+          if (!badge) {
+            badge = document.createElement('span');
+            badge.className = 'user-unread-badge';
+            actionsRight.insertBefore(badge, actionsRight.firstChild);
+            badge.textContent = badgeText;
+          } else if (badge.textContent !== badgeText) {
+            badge.textContent = badgeText;
           }
-        } else {
-          if (hasUnread) {
-            const badgeText = u.unreadCount > 99 ? '99+' : String(u.unreadCount);
-            if (!badge) {
-              badge = document.createElement('span');
-              badge.className = 'user-unread-badge';
-              actionsRight.insertBefore(badge, actionsRight.firstChild);
-              badge.textContent = badgeText;
-            } else if (badge.textContent !== badgeText) {
-              badge.textContent = badgeText;
-            }
-          } else if (badge) {
-            badge.remove();
-            badge = null;
-          }
+        } else if (badge) {
+          badge.remove();
+          badge = null;
         }
 
         // Clean up any old action buttons if present
@@ -931,7 +933,7 @@
         const notice = document.createElement('div');
         notice.className = 'search-limit-notice';
         notice.style.cssText = 'padding:10px 16px;font-size:12px;color:var(--text-secondary);text-align:center;font-weight:500;border-top:1px dashed var(--border-color);margin-top:4px;';
-        notice.textContent = 'Showing the first 10 matches. Enter a more specific search term.';
+        notice.textContent = 'Enter a more specific search term.';
         sidebarUsers.appendChild(notice);
       }
     }
@@ -1531,10 +1533,7 @@
       return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
     }
 
-    function escapeHtml(str) {
-      if (!str) return '';
-      return String(str).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
-    }
+
 
     function fetchAdminConvs(query = '', offset = 0, isAppend = false, targetId = 0) {
       // Use isAdmin (available synchronously from PHP on page load) as a fallback,
@@ -2124,4 +2123,3 @@
       // Also sweep any stragglers that landed directly in chatBox
       document.querySelectorAll('[data-sending-uid]').forEach(el => el.remove());
     }
-

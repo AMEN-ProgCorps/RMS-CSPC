@@ -1,5 +1,4 @@
-
-    // ── Admin: eye-button toggle for "all users chatting" view ──────────────
+// ── Admin: eye-button toggle for "all users chatting" view ──────────────
     const adminEyeToggleBtn = document.getElementById('adminEyeToggleBtn');
     const adminKeyToggleBtn = document.getElementById('adminKeyToggleBtn');
     const ownSidebarSearch = document.getElementById('ownSidebarSearch');
@@ -21,6 +20,10 @@
       const chatForm = document.getElementById('chatForm');
       const spyNotice = document.getElementById('spyModeNotice');
       if (inputSection) inputSection.style.display = isAdminAllChatsView ? 'none' : '';
+      // chatForm (the "Type a message..." box) is now hidden in spy mode too,
+      // so only the Super Admin Spy Mode notice shows on this screen.
+      // "/backup" only works when the message box is visible/typeable, so
+      // it's no longer usable from this screen — that's intentional now.
       if (chatForm) chatForm.style.display = isAdminAllChatsView ? 'none' : '';
       if (spyNotice) spyNotice.style.display = isAdminAllChatsView ? 'flex' : 'none';
 
@@ -231,4 +234,3 @@
         if (errDiv) { errDiv.textContent = 'Network or server error while updating secret key.'; errDiv.style.display = 'block'; }
       });
     }
-

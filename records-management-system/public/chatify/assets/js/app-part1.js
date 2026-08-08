@@ -505,6 +505,16 @@
       }
     }
 
+    // Caps a display name to a max length so it can't blow out the
+    // typing indicator's layout (long names, or names with repeated
+    // characters like "Officeeeeeeeeeee") — cut and add an ellipsis.
+    function truncateTypingName(name, maxLen) {
+      maxLen = maxLen || 22;
+      if (!name) return name;
+      name = String(name).trim();
+      return name.length > maxLen ? name.slice(0, maxLen).trim() + '…' : name;
+    }
+
     function showTypingIndicator(senderName, isTyping) {
       const indicator = document.getElementById('typingIndicator');
       const textEl = document.getElementById('typingIndicatorText');
@@ -515,7 +525,7 @@
       }
 
       if (isTyping && activeDM) {
-        textEl.textContent = `${senderName} is typing`;
+        textEl.textContent = `${truncateTypingName(senderName)} is typing`;
         indicator.classList.add('active');
 
         // Auto-expire after 4 seconds as a safety cleanup

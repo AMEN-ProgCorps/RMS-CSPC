@@ -1931,10 +1931,12 @@
               resultsEl.innerHTML = '';
               users.forEach(u => {
                 const row = document.createElement('div');
+                row.dataset.accountId = u.account_id;
                 row.style.cssText = 'display:flex;align-items:center;gap:10px;padding:10px 12px;border:1px solid var(--border-color);border-radius:8px;background:var(--bg-secondary);';
 
                 // Name + badge
                 const nameSpan = document.createElement('span');
+                nameSpan.className = 'verify-name-span';
                 nameSpan.style.cssText = 'flex:1;font-size:14px;font-weight:600;color:var(--text-primary);display:flex;align-items:center;gap:6px;';
                 nameSpan.textContent = u.full_name;
                 if (u.is_chatify_verified) {
@@ -1952,8 +1954,10 @@
                 chk.checked = !!u.is_chatify_verified;
                 chk.style.cssText = 'opacity:0;width:0;height:0;position:absolute;';
                 const slider = document.createElement('span');
+                slider.className = 'slider-bg';
                 slider.style.cssText = `position:absolute;inset:0;border-radius:22px;transition:background 0.2s;background:${chk.checked ? '#1b74e4' : 'var(--border-color)'};`;
                 const knob = document.createElement('span');
+                knob.className = 'slider-knob';
                 knob.style.cssText = `position:absolute;top:3px;left:${chk.checked ? '21px' : '3px'};width:16px;height:16px;border-radius:50%;background:#fff;transition:left 0.2s,background 0.2s;box-shadow:0 1px 3px rgba(0,0,0,0.3);`;
                 slider.appendChild(knob);
                 label.appendChild(chk);
@@ -2003,6 +2007,37 @@
         }, 400);
       });
     }
+
+    window._syncVerifyModalRow = function(accountId, isVerified) {
+      const row = document.querySelector(`#verifySearchResults [data-account-id="${accountId}"]`);
+      if (!row) return;
+
+      const chk = row.querySelector('input[type="checkbox"]');
+      if (chk && chk.checked !== isVerified) {
+        chk.checked = isVerified;
+        
+        // update slider and knob
+        const slider = row.querySelector('.slider-bg');
+        const knob = row.querySelector('.slider-knob');
+        if (slider) slider.style.background = isVerified ? '#1b74e4' : 'var(--border-color)';
+        if (knob) knob.style.left = isVerified ? '21px' : '3px';
+
+        // update name badge
+        const nameSpan = row.querySelector('.verify-name-span');
+        if (nameSpan) {
+          const existingBadge = nameSpan.querySelector('.verified-badge');
+          if (isVerified && !existingBadge) {
+            const b = document.createElement('span');
+            b.className = 'verified-badge';
+            b.innerHTML = `<svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><circle cx="12" cy="12" r="12" fill="#1b74e4"/><path d="M7 12.5l3.5 3.5 6.5-7" stroke="#fff" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
+            nameSpan.appendChild(b);
+          } else if (!isVerified && existingBadge) {
+            existingBadge.remove();
+          }
+        }
+      }
+    };
+
 
 
     // Enter behavior differs by device:

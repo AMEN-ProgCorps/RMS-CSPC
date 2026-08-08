@@ -467,6 +467,10 @@
           }
           // Re-apply badges on all visible message-sender elements
           applyAdminBadges();
+          // If the User Verification modal is open, sync toggle rows in real-time
+          if (typeof window._syncVerifyModalRow === 'function') {
+            window._syncVerifyModalRow(changedId, nowVerified);
+          }
         }
       };
 

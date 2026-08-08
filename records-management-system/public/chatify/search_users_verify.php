@@ -31,9 +31,9 @@ if ($q === '') {
     exit;
 }
 
-// Search up to 5 users matching first or last name
+// Search up to 3 users matching first or last name
 // Pass 0 as excludeAccountId so Super Admin can see all users (including themselves if needed)
-$result = UserResolver::searchUsers($q, 0, 5);
+$result = UserResolver::searchUsers($q, 0, 3);
 $matched = $result['users'] ?? [];
 
 $users = [];

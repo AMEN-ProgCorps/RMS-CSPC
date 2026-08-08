@@ -1519,10 +1519,7 @@
       return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
     }
 
-    function escapeHtml(str) {
-      if (!str) return '';
-      return String(str).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
-    }
+
 
     function fetchAdminConvs(query = '', offset = 0, isAppend = false, targetId = 0) {
       // Use isAdmin (available synchronously from PHP on page load) as a fallback,

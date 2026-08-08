@@ -47,21 +47,13 @@ if ($searchQuery !== '') {
         }
     }
 
-    // Server-side search — returns up to 10 matching users
-    $searchResult = UserResolver::searchUsers($searchQuery, $myAccountId, 10);
+    // Server-side search — returns up to 50 matching users
+    $searchResult = UserResolver::searchUsers($searchQuery, $myAccountId, 50);
     $matched      = $searchResult['users'] ?? [];
     $hasMoreUsers = !empty($searchResult['hasMore']);
 
     foreach ($matched as $user) {
         $uid = (int) $user['account_id'];
-
-        // Exclude admin from search results unless a conversation exists
-        if ($uid === 1 && $myAccountId !== 1) {
-            $convId = ConversationManager::convId(1, $myAccountId);
-            if (!ConversationManager::conversationExists($convId)) {
-                continue;
-            }
-        }
 
         $lastMessageText = '';
         $lastTimestamp   = 0;

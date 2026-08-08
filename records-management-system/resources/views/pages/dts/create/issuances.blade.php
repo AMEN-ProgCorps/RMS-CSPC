@@ -31,6 +31,16 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create Issuance
     public string $customFlowFor = 'user';
     public string $toastMessage = '';
 
+    // Success Modal properties
+    public bool $showSuccessModal = false;
+    public array $createdTransactionSummary = [];
+
+    public function closeSuccessModal(): void
+    {
+        $this->showSuccessModal = false;
+        $this->createdTransactionSummary = [];
+    }
+
     // Flow Diagram modal states
     public bool $showFlowModal = false;
     public array $flow_offices = [];
@@ -563,9 +573,12 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create Issuance
             return;
         }
 
+        if (empty($this->seq_number)) {
+            $this->generateRandomSeq();
+        }
+
         if (!$this->generatedQrCode) {
-            $this->addError('seq_number', 'Please generate a QR Code first.');
-            return;
+            $this->generateQrCode();
         }
 
         $controlNumber = $this->issuance_type . '-' . now()->format('Y-m') . '-' . $this->seq_number;
@@ -587,11 +600,39 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create Issuance
             DB::table('dts_qr_code')
                 ->where('code_id', $this->generatedQrCode)
                 ->update(['qr_status' => 'used']);
+
+            // Resolve or create requestor in dts_requestor_history
+            $reqName = auth()->user()?->details ? (auth()->user()->details->first_name . ' ' . auth()->user()->details->last_name) : 'Authorized User';
+            $reqPos = auth()->user()?->details?->job_position ?? '';
+            $reqOffice = $userOfficeCode;
+
+            $existingReq = DB::table('dts_requestor_history')
+                ->where('requestor_name', $reqName)
+                ->where('office', $reqOffice)
+                ->first();
+
+            if ($existingReq) {
+                $requestorId = $existingReq->id;
+                if (!empty($reqPos) && $existingReq->requestor_position !== $reqPos) {
+                    DB::table('dts_requestor_history')
+                        ->where('id', $existingReq->id)
+                        ->update(['requestor_position' => $reqPos]);
+                }
+            } else {
+                $requestorId = DB::table('dts_requestor_history')->insertGetId([
+                    'requestor_name' => $reqName,
+                    'requestor_position' => $reqPos,
+                    'office' => $reqOffice,
+                    'is_active' => true,
+                    'created_at' => now(),
+                    'updated_at' => now(),
+                ]);
+            }
+
             // Check if flow sequence was modified
             $flowCode = $this->transaction_flow;
             $flow = DB::table('dts_transaction_flow')->where('flow_code', $this->transaction_flow)->first();
             
-            // Find cluster head of the originating office
             $originOfficeCode = $userOfficeCode;
             $originOffice = DB::table('office')->where('office_code', $originOfficeCode)->first();
             $clusterHead = null;
@@ -602,7 +643,6 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create Issuance
                 }
             }
 
-            // Resolve dynamic ORIGIN and [H] to the creator's office / cluster head for all elements (used dynamically)
             $resolvedOffices = [];
             foreach ($this->flow_offices as $officeCode) {
                 $resolved = $officeCode;
@@ -612,77 +652,50 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create Issuance
                     $resolved = $clusterHead ?: $originOfficeCode;
                 }
                 
-                // Deduplicate adjacent/consecutive identical offices
                 if (empty($resolvedOffices) || end($resolvedOffices) !== $resolved) {
                     $resolvedOffices[] = $resolved;
                 }
             }
 
-            $resolvedPredefined = [];
-            if ($flow) {
-                $predefinedOffices = DB::table('dts_sequence_list')
-                    ->where('control_id', $flow->id)
-                    ->orderBy('sequence_ranking', 'asc')
-                    ->pluck('office_code')
-                    ->toArray();
+            // Always copy custom flow
+            $flowCode = 'FLOW-CUSTOM-' . strtoupper(Str::random(10));
+            $maxId = DB::table('dts_transaction_flow')->max('id') ?? 0;
+            $newFlowId = $maxId + 1;
 
-                foreach ($predefinedOffices as $officeCode) {
-                    $resolved = $officeCode;
-                    if ($officeCode === 'ORIGIN') {
-                        $resolved = $originOfficeCode;
-                    } elseif ($officeCode === '[H]') {
-                        $resolved = $clusterHead ?: $originOfficeCode;
-                    }
-                    if (empty($resolvedPredefined) || end($resolvedPredefined) !== $resolved) {
-                        $resolvedPredefined[] = $resolved;
-                    }
+            DB::table('dts_transaction_flow')->insert([
+                'flow_code' => $flowCode,
+                'flow_name' => 'Flow for ' . $controlNumber . ' (' . $flowCode . ')',
+                'id' => $newFlowId,
+                'is_active' => 1,
+                'added_by' => auth()->id() ?? 1,
+                'date_added' => now(),
+                'flow_use' => 'issuances',
+                'flow_for' => 'system',
+                'referenced_flow' => $flow ? ('REF-' . (str_starts_with($flow->flow_code, 'FLOW-PREDEFINED') || str_starts_with($flow->flow_code, 'PREDEFINED') ? 'PREDEFINED' : 'CUSTOM') . '-' . $flow->id) : null,
+            ]);
+
+            foreach ($this->flow_offices as $rank => $officeCode) {
+                $toSave = $officeCode;
+                if ($officeCode === $originOfficeCode) {
+                    $toSave = 'ORIGIN';
+                } elseif ($officeCode === $clusterHead) {
+                    $toSave = '[H]';
                 }
-            }
 
-            // Always copy the flow to dts_sequence_list to make it unique per transaction
-            if (true) {
-                 // Generate custom flow
-                 $flowCode = 'FLOW-CUSTOM-' . strtoupper(Str::random(10));
-                 $maxId = DB::table('dts_transaction_flow')->max('id') ?? 0;
-                 $newFlowId = $maxId + 1;
- 
-                 DB::table('dts_transaction_flow')->insert([
-                     'flow_code' => $flowCode,
-                     'flow_name' => 'Flow for ' . $controlNumber . ' (' . $flowCode . ')',
-                     'id' => $newFlowId,
-                     'is_active' => 1,
-                     'added_by' => auth()->id() ?? 1,
-                     'date_added' => now(),
-                     'flow_use' => 'issuances',
-                     'flow_for' => 'system',
-                     'referenced_flow' => $flow ? ('REF-' . (str_starts_with($flow->flow_code, 'FLOW-PREDEFINED') || str_starts_with($flow->flow_code, 'PREDEFINED') ? 'PREDEFINED' : 'CUSTOM') . '-' . $flow->id) : null,
-                 ]);
- 
-                 foreach ($this->flow_offices as $rank => $officeCode) {
-                     $toSave = $officeCode;
-                     if ($officeCode === $originOfficeCode) {
-                         $toSave = 'ORIGIN';
-                     } elseif ($officeCode === $clusterHead) {
-                         $toSave = '[H]';
-                     }
-  
-                     DB::table('dts_sequence_list')->insert([
-                         'control_id' => $newFlowId,
-                         'sequence_ranking' => $rank + 1,
-                         'office_code' => $toSave,
-                         'date_in' => ($rank === 0) ? now() : null,
-                         'date_out' => null,
-                         'action_needed' => ($rank === 0) ? 'Created' : null,
-                         'note' => ($rank === 0) ? 'Created issuance transaction' : null,
-                         'total_time_completed' => null,
-                     ]);
-                 }
+                DB::table('dts_sequence_list')->insert([
+                    'control_id' => $newFlowId,
+                    'sequence_ranking' => $rank + 1,
+                    'office_code' => $toSave,
+                    'date_in' => ($rank === 0) ? now() : null,
+                    'date_out' => null,
+                    'action_needed' => ($rank === 0) ? 'Created' : null,
+                    'note' => ($rank === 0) ? 'Created issuance transaction' : null,
+                    'total_time_completed' => null,
+                ]);
             }
 
             $currentOffice = $resolvedOffices[0] ?? $userOfficeCode;
-
             $qrCodeId = $this->generatedQrCode;
-
             $transactionId = 'TRANS-' . strtoupper(Str::random(10));
 
             // Insert into dts_transactions
@@ -698,7 +711,6 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create Issuance
             ]);
 
             $copyFilledId = null;
-            // Insert Copy Furnished records into dts_copy_filled_transaction and dts_copy_filled_to_office tables
             if ($this->copy_furnished === 'Yes' && count($this->cf_selected_offices) > 0) {
                 $assignOfficesId = (DB::table('dts_copy_filled_transaction')->max('assign_offices_id') ?? 1000) + 1;
 
@@ -737,7 +749,8 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create Issuance
                 'type' => 'memorandom',
                 'created_by' => auth()->id(),
                 'originated_from' => $userOfficeCode,
-                'requestor_name' => auth()->user()?->details ? (auth()->user()->details->first_name . ' ' . auth()->user()->details->last_name) : 'Authorized User',
+                'requestor_id' => $requestorId,
+                'source_office' => null,
                 'subject' => $this->subject,
                 'classification' => null,
                 'action_needed' => 'For action',
@@ -749,116 +762,50 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create Issuance
                 'is_active' => 1,
                 'date_created' => now(),
                 'control_number' => $controlNumber,
-                'copy_filled_id' => $copyFilledId,
+                'copy_filled_id' => $copyFilledId ?: null,
             ]);
 
-            // Log the creation
+            // Initial tracking log
             DB::table('sub_document_tracking_system_logs')->insert([
                 'transaction_id' => $transactionId,
                 'office_code' => $userOfficeCode,
-                'type' => 'created',
+                'type' => 'received',
                 'date_in' => now(),
                 'date_out' => null,
                 'notes' => 'Created issuance transaction',
                 'performed_by' => auth()->id(),
             ]);
 
-            // Send notification to all users of the Origin office
-            $subsystemId = DB::table('subsystems')->where('subsystem_name', 'Document Tracking System')->value('subsystem_id');
-            if ($subsystemId) {
-                $originOffice = DB::table('office')->where('office_code', $userOfficeCode)->first();
-                if ($originOffice) {
-                    $usersInOffice = DB::table('account')
-                        ->join('account_details', 'account_details.account_id', '=', 'account.id')
-                        ->where('account_details.office_id', $originOffice->id)
-                        ->select('account.id')
-                        ->get();
-
-                    if ($usersInOffice->isNotEmpty()) {
-                        $senderName = auth()->user()?->details ? (auth()->user()->details->first_name . ' ' . auth()->user()->details->last_name) : 'Authorized User';
-                        $contentId = DB::table('notif_content')->insertGetId([
-                            'system' => $subsystemId,
-                            'content' => "A transaction has been created by {$senderName}. Transaction ID: {$controlNumber}",
-                            'redirect_url' => '/dts',
-                            'created_at' => now(),
-                        ]);
-
-                        $notificationId = DB::table('notifications')->insertGetId([
-                            'office' => $userOfficeCode,
-                            'contents' => $contentId,
-                            'created_at' => now(),
-                        ]);
-
-                        foreach ($usersInOffice as $u) {
-                            DB::table('notification_div')->insert([
-                                'id' => $notificationId,
-                                'account_rec' => $u->id,
-                                'status' => 'unread',
-                                'processed_on' => now(),
-                                'is_in_user_list' => true,
-                            ]);
-                        }
-                    }
-                }
-            }
-
-            // Send notification to copy furnished offices
-            if ($copyFilledId && $subsystemId) {
-                if (in_array('ALL', $this->cf_selected_offices)) {
-                    $cfNotifyOffices = DB::table('office')
-                        ->where('is_active', 1)
-                        ->where('office_code', '!=', $userOfficeCode)
-                        ->get();
-                } else {
-                    $cfNotifyOffices = DB::table('office')
-                        ->where('is_active', 1)
-                        ->whereIn('office_code', $this->cf_selected_offices)
-                        ->get();
-                }
-
-                $senderName = auth()->user()?->details ? (auth()->user()->details->first_name . ' ' . auth()->user()->details->last_name) : 'Authorized User';
-                $cfContentId = DB::table('notif_content')->insertGetId([
-                    'system' => $subsystemId,
-                    'content' => "A document has been copy furnished to your office by {$senderName}. Transaction ID: {$controlNumber}",
-                    'redirect_url' => '/dts',
-                    'created_at' => now(),
-                ]);
-
-                foreach ($cfNotifyOffices as $officeRow) {
-                    $usersInCFOffice = DB::table('account')
-                        ->join('account_details', 'account_details.account_id', '=', 'account.id')
-                        ->where('account_details.office_id', $officeRow->id)
-                        ->select('account.id')
-                        ->get();
-
-                    if ($usersInCFOffice->isNotEmpty()) {
-                        $cfNotificationId = DB::table('notifications')->insertGetId([
-                            'office' => $officeRow->office_code,
-                            'contents' => $cfContentId,
-                            'created_at' => now(),
-                        ]);
-
-                        foreach ($usersInCFOffice as $u) {
-                            DB::table('notification_div')->insert([
-                                'id' => $cfNotificationId,
-                                'account_rec' => $u->id,
-                                'status' => 'unread',
-                                'processed_on' => now(),
-                                'is_in_user_list' => true,
-                            ]);
-                        }
-                    }
-                }
-            }
-
             DB::commit();
 
-            session()->flash('message', 'Transaction created successfully!');
-            return $this->redirectRoute('dts');
+            // Save summary for modal
+            $this->createdTransactionSummary = [
+                'control_number' => $controlNumber,
+                'subject' => $this->subject,
+                'requestor' => $reqName,
+                'requestor_position' => $reqPos,
+                'qr_code' => $this->generatedQrCode,
+                'office' => $userOfficeCode,
+                'type' => 'Issuance (' . $this->issuance_type . ')',
+            ];
+
+            // Reset form
+            $this->seq_number = '';
+            $this->subject = '';
+            $this->transaction_flow = '';
+            $this->receiving_office = '';
+            $this->copy_furnished = 'Yes';
+            $this->cf_selected_offices = [];
+            $this->generatedQrCode = null;
+            $this->availabilityMessage = '';
+            $this->isAvailable = null;
+            $this->flow_offices = [];
+
+            $this->showSuccessModal = true;
 
         } catch (\Exception $e) {
             DB::rollBack();
-            session()->flash('error', 'Error creating transaction: ' . $e->getMessage());
+            $this->addError('seq_number', 'Error creating transaction: ' . $e->getMessage());
         }
     }
 };
@@ -1370,6 +1317,104 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create Issuance
                 to { transform: translateX(0); opacity: 1; }
             }
         </style>
+    @endif
+
+    <!-- Success Modal with Print QR Code -->
+    @if($showSuccessModal && !empty($createdTransactionSummary))
+        <div style="position: fixed; inset: 0; background: rgba(15, 23, 42, 0.5); backdrop-filter: blur(4px); display: flex; align-items: center; justify-content: center; z-index: 10000; font-family: 'Inter', sans-serif;">
+            <div style="background: #ffffff; border-radius: 16px; width: 100%; max-width: 480px; box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25); display: flex; flex-direction: column; overflow: hidden; border: 1px solid #e2e8f0;">
+                
+                <!-- Success Header -->
+                <div style="padding: 24px 24px 16px 24px; text-align: center; background: #f0fdf4; border-bottom: 1px solid #dcfce7;">
+                    <div style="width: 56px; height: 56px; border-radius: 50%; background: #22c55e; color: #ffffff; display: flex; align-items: center; justify-content: center; font-size: 28px; margin: 0 auto 12px auto; box-shadow: 0 4px 12px rgba(34, 197, 94, 0.3);">
+                        <i class="fa-solid fa-check"></i>
+                    </div>
+                    <h3 style="font-size: 18px; font-weight: 700; color: #15803d; margin: 0 0 4px 0;">Transaction Created Successfully!</h3>
+                    <p style="font-size: 12px; color: #166534; margin: 0;">Control No: <strong>{{ $createdTransactionSummary['control_number'] }}</strong></p>
+                </div>
+
+                <!-- Modal Content Details -->
+                <div style="padding: 20px 24px; display: flex; flex-direction: column; gap: 16px; align-items: center;">
+                    <!-- QR Code Image -->
+                    <div style="padding: 12px; background: #ffffff; border: 2px solid #e2e8f0; border-radius: 12px; text-align: center; box-shadow: 0 2px 4px rgba(0,0,0,0.05);">
+                        <img src="https://api.qrserver.com/v1/create-qr-code/?size=180x180&data={{ urlencode($createdTransactionSummary['qr_code']) }}" alt="QR Code" style="width: 160px; height: 160px; display: block; margin: 0 auto 8px auto;">
+                        <div style="font-size: 13px; font-weight: 700; color: #0f172a; font-family: monospace;">{{ $createdTransactionSummary['control_number'] }}</div>
+                        <div style="font-size: 11px; color: #64748b; margin-top: 2px;">{{ $createdTransactionSummary['office'] }} • {{ $createdTransactionSummary['type'] }}</div>
+                    </div>
+
+                    <!-- Summary Table -->
+                    <div style="width: 100%; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 12px; font-size: 12px;">
+                        <div style="display: flex; justify-content: space-between; padding: 4px 0; border-bottom: 1px solid #f1f5f9;">
+                            <span style="color: #64748b; font-weight: 500;">Issuer/Encoder:</span>
+                            <span style="color: #0f172a; font-weight: 600;">{{ $createdTransactionSummary['requestor'] }} @if(!empty($createdTransactionSummary['requestor_position'])) ({{ $createdTransactionSummary['requestor_position'] }}) @endif</span>
+                        </div>
+                        <div style="display: flex; justify-content: space-between; padding: 4px 0; border-bottom: 1px solid #f1f5f9;">
+                            <span style="color: #64748b; font-weight: 500;">Originating Office:</span>
+                            <span style="color: #0f172a; font-weight: 600;">{{ $createdTransactionSummary['office'] }}</span>
+                        </div>
+                        <div style="display: flex; justify-content: space-between; padding: 4px 0;">
+                            <span style="color: #64748b; font-weight: 500;">Subject:</span>
+                            <span style="color: #0f172a; font-weight: 600; max-width: 260px; text-align: right; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">{{ $createdTransactionSummary['subject'] }}</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Footer Actions -->
+                <div style="padding: 16px 24px; border-top: 1px solid #f1f5f9; display: flex; justify-content: space-between; align-items: center; background: #fafafa;">
+                    <button type="button" onclick="printQrCodeOnly()" style="background: #0284c7; border: none; color: #ffffff; padding: 9px 18px; border-radius: 8px; font-size: 13px; font-weight: 600; cursor: pointer; display: flex; align-items: center; gap: 8px;">
+                        <i class="fa-solid fa-print"></i> Print QR Code
+                    </button>
+                    <button type="button" wire:click="closeSuccessModal" style="background: #475569; border: none; color: #ffffff; padding: 9px 20px; border-radius: 8px; font-size: 13px; font-weight: 600; cursor: pointer;">
+                        Done / Create Another
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <script>
+            function printQrCodeOnly() {
+                const controlNo = "{{ $createdTransactionSummary['control_number'] }}";
+                const office = "{{ $createdTransactionSummary['office'] }}";
+                const type = "{{ $createdTransactionSummary['type'] }}";
+                const subject = "{{ addslashes($createdTransactionSummary['subject']) }}";
+                const requestor = "{{ addslashes($createdTransactionSummary['requestor']) }}";
+                const qrUrl = "https://api.qrserver.com/v1/create-qr-code/?size=220x220&data={{ urlencode($createdTransactionSummary['qr_code']) }}";
+
+                const printWin = window.open('', '_blank', 'width=600,height=600');
+                printWin.document.write(`
+                    <!DOCTYPE html>
+                    <html>
+                    <head>
+                        <title>Print QR Code - \${controlNo}</title>
+                        <style>
+                            body { font-family: 'Inter', sans-serif; text-align: center; padding: 40px; }
+                            .print-box { border: 2px solid #000; padding: 24px; border-radius: 12px; display: inline-block; max-width: 350px; }
+                            .qr-img { width: 200px; height: 200px; }
+                            .ctrl-no { font-size: 18px; font-weight: bold; font-family: monospace; margin-top: 12px; }
+                            .meta { font-size: 12px; color: #333; margin-top: 6px; }
+                            @media print {
+                                body { padding: 0; }
+                            }
+                        </style>
+                    </head>
+                    <body>
+                        <div class="print-box">
+                            <img src="\${qrUrl}" class="qr-img" />
+                            <div class="ctrl-no">\${controlNo}</div>
+                            <div class="meta"><strong>Office:</strong> \${office}</div>
+                            <div class="meta"><strong>Issuer:</strong> \${requestor}</div>
+                            <div class="meta"><strong>Type:</strong> \${type}</div>
+                            <div class="meta" style="margin-top:8px; font-size:11px;">\${subject}</div>
+                        </div>
+                        <script>
+                            window.onload = function() { window.print(); window.close(); }
+                        <\/script>
+                    </body>
+                    </html>
+                `);
+                printWin.document.close();
+            }
+        </script>
     @endif
 
     <!-- Dynamic QR Code Print Modal -->

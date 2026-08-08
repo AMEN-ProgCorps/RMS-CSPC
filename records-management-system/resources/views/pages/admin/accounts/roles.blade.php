@@ -21,8 +21,33 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Roles')] class extends C
     /** @var string Holds the active search input query */
     public string $search = '';
 
+    /** @var string Holds column key to sort roles by */
+    public string $sortBy = 'name';
+
+    /** @var string Sorting direction ('asc' or 'desc') */
+    public string $sortDir = 'asc';
+
+    /** @var string View Mode ('table' or 'grid') */
+    public string $viewMode = 'table';
+
     public function updatingSearch(): void
     {
+        $this->resetPage();
+    }
+
+    public function updatingSortBy(): void
+    {
+        $this->resetPage();
+    }
+
+    public function updatingSortDir(): void
+    {
+        $this->resetPage();
+    }
+
+    public function toggleSortDir(): void
+    {
+        $this->sortDir = $this->sortDir === 'asc' ? 'desc' : 'asc';
         $this->resetPage();
     }
 
@@ -634,7 +659,23 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Roles')] class extends C
             });
         }
 
-        $roles = $query->orderBy('key_name', 'asc')->paginate(20);
+        switch ($this->sortBy) {
+            case 'description':
+                $query->orderBy('key_description', $this->sortDir);
+                break;
+            case 'status':
+                $query->orderBy('is_active', $this->sortDir);
+                break;
+            case 'id':
+                $query->orderBy('id', $this->sortDir);
+                break;
+            case 'name':
+            default:
+                $query->orderBy('key_name', $this->sortDir);
+                break;
+        }
+
+        $roles = $query->paginate(20);
 
         return [
             'roles' => $roles,
@@ -644,7 +685,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Roles')] class extends C
 ?>
 
 @push('styles')
-    @vite('resources/css/admin/accounts_roles.css')
+    @vite(['resources/css/admin/accounts_roles.css', 'resources/css/admin/accounts_users.css'])
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css">
 @endpush
 
@@ -658,36 +699,123 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Roles')] class extends C
             </button>
         </div>
 
-        <div class="search-box-wrapper">
-            <i class="fa-solid fa-magnifying-glass search-icon"></i>
-            <input type="text" class="search-box" placeholder="Search roles..." wire:model.live="search">
+        <div class="directory-controls-bar">
+            <div class="search-box-wrapper">
+                <i class="fa-solid fa-magnifying-glass search-icon"></i>
+                <input type="text" class="search-box" placeholder="Search roles..." wire:model.live="search">
+            </div>
+
+            <div class="sort-controls-wrapper">
+                <span class="sort-label">Sort By:</span>
+                <select class="sort-select" wire:model.live="sortBy">
+                    <option value="name">Name</option>
+                    <option value="description">Description</option>
+                    <option value="status">Status</option>
+                    <option value="id">ID</option>
+                </select>
+                <button type="button" wire:click="toggleSortDir" class="btn-sort-dir" title="Toggle Order Direction ({{ strtoupper($sortDir) }})">
+                    @if($sortDir === 'asc')
+                        <i class="fa-solid fa-arrow-up-a-z"></i>
+                    @else
+                        <i class="fa-solid fa-arrow-down-z-a"></i>
+                    @endif
+                </button>
+            </div>
+
+            <!-- View Mode Toggle -->
+            <div class="view-mode-toggle" style="display: flex; gap: 2px; background: #f1f5f9; padding: 2px; border-radius: 6px; border: 1px solid #cbd5e1; margin-left: auto;">
+                <button type="button" wire:click="$set('viewMode', 'grid')" title="Cards Grid Layout" style="padding: 4px 10px; border-radius: 4px; border: none; font-size: 11px; font-weight: 600; cursor: pointer; background: {{ $viewMode === 'grid' ? '#ffffff' : 'transparent' }}; color: {{ $viewMode === 'grid' ? '#0f172a' : '#64748b' }}; box-shadow: {{ $viewMode === 'grid' ? '0 1px 2px rgba(0,0,0,0.08)' : 'none' }}; display: flex; align-items: center; gap: 4px; font-family: 'Inter', sans-serif;">
+                    <i class="fa-solid fa-border-all"></i> Cards
+                </button>
+                <button type="button" wire:click="$set('viewMode', 'table')" title="Table Layout" style="padding: 4px 10px; border-radius: 4px; border: none; font-size: 11px; font-weight: 600; cursor: pointer; background: {{ $viewMode === 'table' ? '#ffffff' : 'transparent' }}; color: {{ $viewMode === 'table' ? '#0f172a' : '#64748b' }}; box-shadow: {{ $viewMode === 'table' ? '0 1px 2px rgba(0,0,0,0.08)' : 'none' }}; display: flex; align-items: center; gap: 4px; font-family: 'Inter', sans-serif;">
+                    <i class="fa-solid fa-table-list"></i> Table
+                </button>
+            </div>
         </div>
         
-        <div class="roles-list">
-            @forelse($roles as $role)
-                @php
-                    $roleInitials = strtoupper(substr($role->key_name ?: '?', 0, 2));
-                @endphp
-                <div class="role-item-card {{ $selectedRoleId === $role->id ? 'active' : '' }}" wire:key="role-{{ $role->id }}" wire:click="selectRole({{ $role->id }})">
-                    <div class="role-avatar-small">
-                        <span>{{ $roleInitials }}</span>
+        @if($viewMode === 'table')
+            <div class="roles-table-container" style="margin-top: 12px; overflow-x: auto;">
+                <table class="users-data-table" style="width: 100%; border-collapse: collapse; font-size: 13px;">
+                    <thead>
+                        <tr style="background: #f8fafc; border-bottom: 2px solid #e2e8f0; text-align: left; color: #475569;">
+                            <th style="padding: 10px 12px;">Role Name</th>
+                            <th style="padding: 10px 12px;">Description</th>
+                            <th style="padding: 10px 12px;">Assigned Users</th>
+                            <th style="padding: 10px 12px;">Status</th>
+                            <th style="padding: 10px 12px; text-align: right;">Action</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @forelse($roles as $role)
+                            @php
+                                $userCount = \App\Models\User::where('account_role', $role->id)->count();
+                                $roleInitials = strtoupper(substr($role->key_name ?: '?', 0, 2));
+                            @endphp
+                            <tr style="border-bottom: 1px solid #f1f5f9; cursor: pointer; background: {{ $selectedRoleId === $role->id ? '#f0f9ff' : 'transparent' }};" wire:click="selectRole({{ $role->id }})" wire:key="role-tbl-{{ $role->id }}">
+                                <td style="padding: 10px 12px; font-weight: 600; color: #0f172a;">
+                                    <div style="display: flex; align-items: center; gap: 8px;">
+                                        <div style="width: 28px; height: 28px; border-radius: 50%; background: #003699; color: #fff; display: flex; align-items: center; justify-content: center; font-size: 10px; font-weight: 700;">
+                                            {{ $roleInitials }}
+                                        </div>
+                                        <span>{{ $role->key_name }}</span>
+                                    </div>
+                                </td>
+                                <td style="padding: 10px 12px; color: #475569; max-width: 250px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                                    {{ $role->key_description ?: 'No description provided.' }}
+                                </td>
+                                <td style="padding: 10px 12px; color: #334155;">
+                                    <span style="font-weight: 600;">{{ $userCount }}</span> {{ \Illuminate\Support\Str::plural('user', $userCount) }}
+                                </td>
+                                <td style="padding: 10px 12px;">
+                                    @if($role->is_active)
+                                        <span class="role-status-badge active-badge">Active</span>
+                                    @else
+                                        <span class="role-status-badge inactive-badge">Suspended</span>
+                                    @endif
+                                </td>
+                                <td style="padding: 10px 12px; text-align: right;">
+                                    <button type="button" class="btn-table-action" wire:click.stop="selectRole({{ $role->id }})" style="padding: 4px 8px; font-size: 11px; border-radius: 4px; border: 1px solid #cbd5e1; background: #fff; cursor: pointer;">
+                                        Configure
+                                    </button>
+                                </td>
+                            </tr>
+                        @empty
+                            <tr>
+                                <td colspan="5" style="padding: 24px; text-align: center; color: #94a3b8;">
+                                    No roles configured.
+                                </td>
+                            </tr>
+                        @endforelse
+                    </tbody>
+                </table>
+            </div>
+        @else
+            <div class="roles-list" style="margin-top: 12px;">
+                @forelse($roles as $role)
+                    @php
+                        $roleInitials = strtoupper(substr($role->key_name ?: '?', 0, 2));
+                    @endphp
+                    <div class="role-item-card {{ $selectedRoleId === $role->id ? 'active' : '' }}" wire:key="role-{{ $role->id }}" wire:click="selectRole({{ $role->id }})">
+                        <div class="role-avatar-small">
+                            <span>{{ $roleInitials }}</span>
+                        </div>
+                        <div class="role-meta-info">
+                            <span class="role-display-name">{{ $role->key_name }}</span>
+                            <span class="role-display-desc">{{ $role->key_description ?: 'No description provided.' }}</span>
+                            @if($role->is_active)
+                                <span class="role-status-badge active-badge">Active</span>
+                            @else
+                                <span class="role-status-badge inactive-badge">Suspended</span>
+                            @endif
+                        </div>
                     </div>
-                    <div class="role-meta-info">
-                        <span class="role-display-name">{{ $role->key_name }}</span>
-                        <span class="role-display-desc">{{ $role->key_description ?: 'No description provided.' }}</span>
-                        @if($role->is_active)
-                            <span class="role-status-badge active-badge">Active</span>
-                        @else
-                            <span class="role-status-badge inactive-badge">Suspended</span>
-                        @endif
+                @empty
+                    <div style="text-align: center; color: #94a3b8; padding: 20px; font-family: 'Inter', sans-serif; font-size: 13.5px;">
+                        No roles configured.
                     </div>
-                </div>
-            @empty
-                <div style="text-align: center; color: #94a3b8; padding: 20px; font-family: 'Inter', sans-serif; font-size: 13.5px;">
-                    No roles configured.
-                </div>
-            @endforelse
-        </div>
+                @endforelse
+            </div>
+        @endif
 
         @if($roles->hasPages())
             <div class="roles-pagination-bar" style="padding-top: 10px; border-top: 1px solid #f1f5f9; display: flex; justify-content: center;">

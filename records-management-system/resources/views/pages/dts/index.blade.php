@@ -106,6 +106,8 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
 
         $query = DB::table('dts_transactions as dt')
             ->join('dts_transaction_details as dtd', 'dtd.id', '=', 'dt.transaction_id')
+            ->leftJoin('dts_requestor_history as req', 'req.id', '=', 'dtd.requestor_id')
+            ->leftJoin('dts_source_office as src', 'src.s_office_code', '=', 'dtd.source_office')
             ->leftJoin('office as originated_office', 'originated_office.office_code', '=', 'dtd.originated_from')
             ->leftJoin('office as current_office', 'current_office.office_code', '=', 'dt.current_office')
             ->leftJoin('dts_transaction_flow as flow', 'flow.flow_code', '=', 'dtd.transaction_flow')
@@ -181,7 +183,8 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
             $query->where(function($q) use ($searchVal) {
                 $q->where('dtd.control_number', 'like', '%' . $searchVal . '%')
                   ->orWhere('dtd.subject', 'like', '%' . $this->searchQuery . '%')
-                  ->orWhere('dtd.requestor_name', 'like', '%' . $this->searchQuery . '%')
+                  ->orWhere('req.requestor_name', 'like', '%' . $this->searchQuery . '%')
+                  ->orWhere('src.s_office_name', 'like', '%' . $this->searchQuery . '%')
                   ->orWhere('dt.qr_code', 'like', '%' . $searchVal . '%');
             });
         }
@@ -194,8 +197,11 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
             'dt.current_office',
             'dt.trans_type',
             'dtd.control_number',
-            'dtd.requestor_name',
-            'dtd.requestor_label',
+            'dtd.requestor_id',
+            'dtd.source_office',
+            'req.requestor_name',
+            'req.requestor_position as requestor_label',
+            'src.s_office_name as source_office_name',
             'dtd.subject',
             'dtd.classification',
             'dtd.action_needed',
@@ -583,10 +589,12 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
     {
         $this->selectedTransaction = DB::table('dts_transactions as dt')
             ->join('dts_transaction_details as dtd', 'dtd.id', '=', 'dt.transaction_id')
+            ->leftJoin('dts_requestor_history as req', 'req.id', '=', 'dtd.requestor_id')
+            ->leftJoin('dts_source_office as src', 'src.s_office_code', '=', 'dtd.source_office')
             ->leftJoin('office as originated_office', 'originated_office.office_code', '=', 'dtd.originated_from')
             ->leftJoin('dts_email_access as dea', 'dea.id', '=', 'dtd.email_access')
             ->where('dt.transaction_id', $this->selectedTransactionId)
-            ->select('dt.*', 'dtd.*', 'dea.email as access_email', 'originated_office.office_name as originated_office_name')
+            ->select('dt.*', 'dtd.*', 'req.requestor_name', 'req.requestor_position as requestor_label', 'src.s_office_name as source_office_name', 'dea.email as access_email', 'originated_office.office_name as originated_office_name')
             ->first();
 
         if ($this->selectedTransaction) {
@@ -1273,6 +1281,32 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
                 }
             }
 
+            $reqId = null;
+            if (!empty($this->requestorName)) {
+                $reqOffice = $this->selectedTransaction->source_office ?? ($this->selectedTransaction->originated_from ?? 'ORIGIN');
+                $existingReq = DB::table('dts_requestor_history')
+                    ->where('requestor_name', trim($this->requestorName))
+                    ->where('office', $reqOffice)
+                    ->first();
+                if ($existingReq) {
+                    $reqId = $existingReq->id;
+                    if (!empty($this->requestorPosition)) {
+                        DB::table('dts_requestor_history')
+                            ->where('id', $existingReq->id)
+                            ->update(['requestor_position' => trim($this->requestorPosition)]);
+                    }
+                } else {
+                    $reqId = DB::table('dts_requestor_history')->insertGetId([
+                        'requestor_name' => trim($this->requestorName),
+                        'requestor_position' => trim($this->requestorPosition ?? ''),
+                        'office' => $reqOffice,
+                        'is_active' => true,
+                        'created_at' => now(),
+                        'updated_at' => now(),
+                    ]);
+                }
+            }
+
             DB::table('dts_transaction_details')
                 ->where('id', $this->selectedTransactionId)
                 ->update([
@@ -1281,8 +1315,7 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
                     'subject' => $this->particulars,
                     'classification' => $this->classification ?: null,
                     'action_needed' => $this->actionNeeded ?: null,
-                    'requestor_name' => $this->requestorName ?: null,
-                    'requestor_label' => $this->requestorPosition ?: null,
+                    'requestor_id' => $reqId,
                     'email_access' => $emailAccessId,
                     'document_password' => $this->docPassword ?: null,
                     'transaction_flow' => $this->transactionFlow,
@@ -1514,7 +1547,7 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
                         <th>ACTION NEEDED</th>
                         <th>ELAPSED DAY</th>
                         <th>STATUS</th>
-                        <th style="width: 60px;">View</th>
+                        <th style="width: 60px;">{{ request()->routeIs('dts.incoming') ? 'Scan' : 'View' }}</th>
                     </tr>
                 </thead>
 
@@ -1565,7 +1598,11 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
                                         </span>
                                     </td>
                                     <td style="text-align: center;">
-                                        <button type="button" wire:click="openTransaction('{{ $t->transaction_id }}')" class="rms-select" style="text-decoration: none; display: inline-block; border: none; background: transparent; cursor: pointer; color: #043899; font-weight: 500;">View</button>
+                                        @if(request()->routeIs('dts.incoming'))
+                                            <button type="button" wire:click="openTransaction('{{ $t->transaction_id }}')" class="rms-select" style="text-decoration: none; display: inline-block; border: none; background: transparent; cursor: pointer; color: #0284c7; font-weight: 600;">Scan</button>
+                                        @else
+                                            <button type="button" wire:click="openTransaction('{{ $t->transaction_id }}')" class="rms-select" style="text-decoration: none; display: inline-block; border: none; background: transparent; cursor: pointer; color: #043899; font-weight: 500;">View</button>
+                                        @endif
                                     </td>
                                 </tr>
                             @endforeach
@@ -1597,7 +1634,11 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
                                     </span>
                                 </td>
                                 <td style="text-align: center;">
-                                    <button type="button" wire:click="openTransaction('{{ $t->transaction_id }}')" class="rms-select" style="text-decoration: none; display: inline-block; border: none; background: transparent; cursor: pointer; color: #043899; font-weight: 500;">View</button>
+                                    @if(request()->routeIs('dts.incoming'))
+                                        <button type="button" wire:click="openTransaction('{{ $t->transaction_id }}')" class="rms-select" style="text-decoration: none; display: inline-block; border: none; background: transparent; cursor: pointer; color: #0284c7; font-weight: 600;">Scan</button>
+                                    @else
+                                        <button type="button" wire:click="openTransaction('{{ $t->transaction_id }}')" class="rms-select" style="text-decoration: none; display: inline-block; border: none; background: transparent; cursor: pointer; color: #043899; font-weight: 500;">View</button>
+                                    @endif
                                 </td>
                             </tr>
                         @empty
@@ -1686,7 +1727,11 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
                                         <i class="fa-solid fa-download"></i> Receive
                                     </button>
                                 @endif
-                                <button type="button" wire:click="openTransaction('{{ $t->transaction_id }}')" class="rms-select" style="text-decoration: none; display: inline-block; border: none; background: transparent; cursor: pointer; color: #043899; font-weight: 500;">View</button>
+                                @if(request()->routeIs('dts.incoming'))
+                                    <button type="button" wire:click="openTransaction('{{ $t->transaction_id }}')" class="rms-select" style="text-decoration: none; display: inline-block; border: none; background: transparent; cursor: pointer; color: #0284c7; font-weight: 600;">Scan</button>
+                                @else
+                                    <button type="button" wire:click="openTransaction('{{ $t->transaction_id }}')" class="rms-select" style="text-decoration: none; display: inline-block; border: none; background: transparent; cursor: pointer; color: #043899; font-weight: 500;">View</button>
+                                @endif
                             </div>
                         </div>
                     @endforeach
@@ -1745,7 +1790,11 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
 
                         <!-- Card Footer action -->
                         <div style="display: flex; justify-content: flex-end; margin-top: 16px;">
-                            <button type="button" wire:click="openTransaction('{{ $t->transaction_id }}')" class="rms-select" style="text-decoration: none; display: inline-block; border: none; background: transparent; cursor: pointer; color: #043899; font-weight: 500;">View</button>
+                            @if(request()->routeIs('dts.incoming'))
+                                <button type="button" wire:click="openTransaction('{{ $t->transaction_id }}')" class="rms-select" style="text-decoration: none; display: inline-block; border: none; background: transparent; cursor: pointer; color: #0284c7; font-weight: 600;">Scan</button>
+                            @else
+                                <button type="button" wire:click="openTransaction('{{ $t->transaction_id }}')" class="rms-select" style="text-decoration: none; display: inline-block; border: none; background: transparent; cursor: pointer; color: #043899; font-weight: 500;">View</button>
+                            @endif
                         </div>
                     </div>
                 @empty

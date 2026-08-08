@@ -403,7 +403,7 @@ new #[Layout('layouts.dts')] #[Title('Incoming Transactions - Document Tracking 
                                 </td>
                                 <td style="padding: 14px 16px; text-align: right; white-space: nowrap;">
                                     <button wire:click="receiveIncoming('{{ $t->transaction_id }}')" class="btn-receive-action">
-                                        📥 Receive Document
+                                        📷 Scan
                                     </button>
                                 </td>
                             </tr>
@@ -430,7 +430,7 @@ new #[Layout('layouts.dts')] #[Title('Incoming Transactions - Document Tracking 
                         </div>
                         <div style="padding-top: 12px; border-top: 1px solid #f1f5f9; display: flex; justify-content: flex-end;">
                             <button wire:click="receiveIncoming('{{ $t->transaction_id }}')" class="btn-receive-action" style="width: 100%; justify-content: center;">
-                                📥 Receive Document
+                                📷 Scan
                             </button>
                         </div>
                     </div>

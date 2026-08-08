@@ -69,7 +69,10 @@
         <div class="function-button {{ request()->routeIs('admin.activity.dts.transaction-logs') ? 'force-active' : '' }}" onclick="proccedto('{{ route('admin.activity.dts.transaction-logs') }}')">[DTS] Transactions Logs</div>
         <div class="function-button {{ request()->routeIs('admin.activity.dts.update-logs') ? 'force-active' : '' }}" onclick="proccedto('{{ route('admin.activity.dts.update-logs') }}')">[DTS] Update Logs</div>
         <div class="function-button {{ request()->routeIs('admin.activity.dts.flow-logs') ? 'force-active' : '' }}" onclick="proccedto('{{ route('admin.activity.dts.flow-logs') }}')">[DTS] Flows Logs</div>
-        <div class="function-button {{ request()->routeIs('admin.activity.chat-audit') ? 'force-active' : '' }}" onclick="proccedto('{{ route('admin.activity.chat-audit') }}')">[Chat] Audit Trail</div>
+        <div class="function-button {{ request()->routeIs('admin.activity.rdp.records-logs') ? 'force-active' : '' }}" onclick="proccedto('{{ route('admin.activity.rdp.records-logs') }}')">[RDP] Records Logs</div>
+        <div class="function-button {{ request()->routeIs(['admin.activity.rdp.volume-conversion-logs', 'admin.activity.rdp.update-logs']) ? 'force-active' : '' }}" onclick="proccedto('{{ route('admin.activity.rdp.volume-conversion-logs') }}')">[RDP] Volume Conversion Logs</div>
+        <div class="function-button {{ request()->routeIs('admin.activity.rdp.record-series-logs') ? 'force-active' : '' }}" onclick="proccedto('{{ route('admin.activity.rdp.record-series-logs') }}')">[RDP] Record Series Logs</div>
+        <div class="function-button {{ request()->routeIs('admin.activity.chat-audit') ? 'force-active' : '' }}" onclick="proccedto('{{ route('admin.activity.chat-audit') }}')">[Chatify] Audit Trail</div>
     </div>
 </div>
 @endif
@@ -156,9 +159,6 @@
         </div>
     </div>
     <div class="functions-container">
-        <div class="function-button {{ request()->routeIs('admin.rdp.records-logs') ? 'force-active' : '' }}" onclick="proccedto('{{ route('admin.rdp.records-logs') }}')">Records Logs</div>
-        <div class="function-button {{ request()->routeIs(['admin.rdp.volume-conversion-logs', 'admin.rdp.update-logs']) ? 'force-active' : '' }}" onclick="proccedto('{{ route('admin.rdp.volume-conversion-logs') }}')">Volume Conversion Logs</div>
-        <div class="function-button {{ request()->routeIs('admin.rdp.record-series-logs') ? 'force-active' : '' }}" onclick="proccedto('{{ route('admin.rdp.record-series-logs') }}')">Record Series Logs</div>
         <div class="function-button {{ request()->routeIs('admin.rdp.conversions') ? 'force-active' : '' }}" onclick="proccedto('{{ route('admin.rdp.conversions') }}')">Volume Conversions</div>
         <div class="function-button {{ request()->routeIs('admin.rdp.record-series') ? 'force-active' : '' }}" onclick="proccedto('{{ route('admin.rdp.record-series') }}')">Record Series</div>
     </div>

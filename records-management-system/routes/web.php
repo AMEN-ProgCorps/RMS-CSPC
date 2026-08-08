@@ -220,6 +220,10 @@ Route::middleware(['auth'])
         Volt::route('/admin/activity/dts/transaction-logs', 'pages.admin.activity.dts.transaction-logs')->name('admin.activity.dts.transaction-logs');
         Volt::route('/admin/activity/dts/update-logs', 'pages.admin.activity.dts.update-logs')->name('admin.activity.dts.update-logs');
         Volt::route('/admin/activity/dts/flow-logs', 'pages.admin.activity.dts.flow-logs')->name('admin.activity.dts.flow-logs');
+        Volt::route('/admin/activity/rdp/records-logs', 'pages.admin.activity.rdp.records-logs')->name('admin.activity.rdp.records-logs');
+        Volt::route('/admin/activity/rdp/volume-conversion-logs', 'pages.admin.activity.rdp.volume-conversion-logs')->name('admin.activity.rdp.volume-conversion-logs');
+        Volt::route('/admin/activity/rdp/update-logs', 'pages.admin.activity.rdp.update-logs')->name('admin.activity.rdp.update-logs');
+        Volt::route('/admin/activity/rdp/record-series-logs', 'pages.admin.activity.rdp.record-series-logs')->name('admin.activity.rdp.record-series-logs');
         Volt::route('/admin/activity/chat-audit', 'pages.admin.activity.chat-audit')->name('admin.activity.chat-audit');
 
 
@@ -227,10 +231,6 @@ Route::middleware(['auth'])
         Volt::route('/admin/dts/transaction-flows', 'pages.admin.dts.transaction-flows')->name('admin.dts.transaction-flows');
 
         Route::redirect('/admin/rdp', '/admin/rdp/records-logs')->name('admin.rdp.index');
-        Volt::route('/admin/rdp/records-logs', 'pages.admin.rdp.records-logs')->name('admin.rdp.records-logs');
-        Volt::route('/admin/rdp/volume-conversion-logs', 'pages.admin.rdp.update-logs')->name('admin.rdp.volume-conversion-logs');
-        Volt::route('/admin/rdp/update-logs', 'pages.admin.rdp.update-logs')->name('admin.rdp.update-logs');
-        Volt::route('/admin/rdp/record-series-logs', 'pages.admin.rdp.record-series-logs')->name('admin.rdp.record-series-logs');
         Volt::route('/admin/rdp/conversions', 'pages.admin.rdp.conversions')->name('admin.rdp.conversions');
         Volt::route('/admin/rdp/record-series', 'pages.admin.rdp.record-series')->name('admin.rdp.record-series');
 

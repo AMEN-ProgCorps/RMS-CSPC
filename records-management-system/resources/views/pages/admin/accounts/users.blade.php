@@ -22,6 +22,149 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Users')] class extends C
     /** @var string Holds the active search input value */
     public string $search = '';
 
+    /** @var string Holds the active tab ('users' or 'requestors') */
+    public string $activeTab = 'users';
+
+    // Requestor Management Properties
+    public string $requestorSearch = '';
+    public string $reqSortBy = 'name';
+    public string $reqSortDir = 'asc';
+    public string $reqViewMode = 'table';
+    public ?int $selectedRequestorId = null;
+    public string $reqName = '';
+    public string $reqPosition = '';
+    public string $reqOffice = '';
+    public bool $reqIsActive = true;
+
+    public function toggleReqSortDir(): void
+    {
+        $this->reqSortDir = $this->reqSortDir === 'asc' ? 'desc' : 'asc';
+    }
+
+    public function setTab(string $tab): void
+    {
+        $this->activeTab = $tab;
+        $this->cancelSelection();
+        $this->cancelRequestorSelection();
+    }
+
+    public function startCreateRequestor(): void
+    {
+        $this->cancelRequestorSelection();
+        $this->selectedRequestorId = -1;
+    }
+
+    public function selectRequestorItem(int $id): void
+    {
+        $this->cancelRequestorSelection();
+        $this->selectedRequestorId = $id;
+
+        $req = \DB::table('dts_requestor_history')->where('id', $id)->first();
+        if ($req) {
+            $this->reqName = $req->requestor_name;
+            $this->reqPosition = $req->requestor_position ?? '';
+            $this->reqOffice = $req->office ?? '';
+            $this->reqIsActive = (bool) $req->is_active;
+        }
+    }
+
+    public function cancelRequestorSelection(): void
+    {
+        $this->selectedRequestorId = null;
+        $this->reqName = '';
+        $this->reqPosition = '';
+        $this->reqOffice = '';
+        $this->reqIsActive = true;
+        $this->clearMessages();
+    }
+
+    public function saveRequestorChanges(): void
+    {
+        $this->clearMessages();
+        $this->validate([
+            'reqName' => 'required|string|max:255',
+            'reqOffice' => 'required|string|max:100',
+            'reqPosition' => 'nullable|string|max:255',
+        ], [
+            'reqName.required' => 'Requestor Name is required.',
+            'reqOffice.required' => 'Office / Agency is required.',
+        ]);
+
+        try {
+            if ($this->selectedRequestorId === -1) {
+                $newId = \DB::table('dts_requestor_history')->insertGetId([
+                    'requestor_name' => trim($this->reqName),
+                    'requestor_position' => trim($this->reqPosition),
+                    'office' => trim($this->reqOffice),
+                    'is_active' => $this->reqIsActive,
+                    'created_at' => now(),
+                    'updated_at' => now(),
+                ]);
+
+                \DB::table('admin_logs')->insert([
+                    'changes' => "Created new requestor contact: {$this->reqName} ({$this->reqOffice})",
+                    'admin_id' => auth()->id(),
+                    'what_system' => 3,
+                    'when_changes' => now(),
+                ]);
+
+                $this->selectRequestorItem($newId);
+                $this->successMessage = 'Requestor contact created successfully!';
+            } elseif ($this->selectedRequestorId > 0) {
+                \DB::table('dts_requestor_history')
+                    ->where('id', $this->selectedRequestorId)
+                    ->update([
+                        'requestor_name' => trim($this->reqName),
+                        'requestor_position' => trim($this->reqPosition),
+                        'office' => trim($this->reqOffice),
+                        'is_active' => $this->reqIsActive,
+                        'updated_at' => now(),
+                    ]);
+
+                \DB::table('admin_logs')->insert([
+                    'changes' => "Updated requestor contact ID {$this->selectedRequestorId}: {$this->reqName}",
+                    'admin_id' => auth()->id(),
+                    'what_system' => 3,
+                    'when_changes' => now(),
+                ]);
+
+                $this->successMessage = 'Requestor details updated successfully!';
+            }
+        } catch (\Exception $e) {
+            $this->errorMessage = 'Failed to save requestor: ' . $e->getMessage();
+        }
+    }
+
+    public function deleteRequestor(): void
+    {
+        if ($this->selectedRequestorId === null || $this->selectedRequestorId <= 0) {
+            return;
+        }
+
+        $this->clearMessages();
+
+        try {
+            $req = \DB::table('dts_requestor_history')->where('id', $this->selectedRequestorId)->first();
+            if ($req) {
+                \DB::table('dts_requestor_history')
+                    ->where('id', $this->selectedRequestorId)
+                    ->update(['is_active' => false, 'updated_at' => now()]);
+
+                \DB::table('admin_logs')->insert([
+                    'changes' => "Deactivated requestor contact: {$req->requestor_name}",
+                    'admin_id' => auth()->id(),
+                    'what_system' => 3,
+                    'when_changes' => now(),
+                ]);
+
+                $this->cancelRequestorSelection();
+                $this->successMessage = 'Requestor contact deactivated successfully!';
+            }
+        } catch (\Exception $e) {
+            $this->errorMessage = 'Failed to deactivate requestor: ' . $e->getMessage();
+        }
+    }
+
     /** @var string Holds the column key to sort users by */
     public string $sortBy = 'name';
 
@@ -492,11 +635,54 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Users')] class extends C
         // Fetch auxiliary lists for form dropdown lists (only active ones)
         $roles = \App\Models\role_list::where('is_active', true)->orderBy('key_name')->get();
         $offices = \App\Models\office::where('is_active', true)->orderBy('office_name')->get();
+        $sourceOffices = \DB::table('dts_source_office')->where('is_active', true)->orderBy('s_office_name')->get();
+
+        $requestorsQuery = \DB::table('dts_requestor_history as req')
+            ->leftJoin('office as off', 'off.office_code', '=', 'req.office')
+            ->leftJoin('dts_source_office as src', 'src.s_office_code', '=', 'req.office')
+            ->when(!empty($this->requestorSearch), function($q) {
+                $s = trim($this->requestorSearch);
+                $q->where(function($sub) use ($s) {
+                    $sub->where('req.requestor_name', 'like', "%{$s}%")
+                        ->orWhere('req.requestor_position', 'like', "%{$s}%")
+                        ->orWhere('req.office', 'like', "%{$s}%")
+                        ->orWhere('off.office_name', 'like', "%{$s}%")
+                        ->orWhere('src.s_office_name', 'like', "%{$s}%");
+                });
+            })
+            ->select(
+                'req.*',
+                \DB::raw("COALESCE(off.office_name, src.s_office_name, req.office) as office_display_name"),
+                \DB::raw("CASE WHEN off.office_code IS NOT NULL THEN 'Internal' WHEN src.s_office_code IS NOT NULL THEN 'External' ELSE 'Custom' END as office_category")
+            );
+
+        switch ($this->reqSortBy) {
+            case 'position':
+                $requestorsQuery->orderBy('req.requestor_position', $this->reqSortDir);
+                break;
+            case 'office':
+                $requestorsQuery->orderBy('req.office', $this->reqSortDir);
+                break;
+            case 'status':
+                $requestorsQuery->orderBy('req.is_active', $this->reqSortDir);
+                break;
+            case 'date_created':
+                $requestorsQuery->orderBy('req.created_at', $this->reqSortDir);
+                break;
+            case 'name':
+            default:
+                $requestorsQuery->orderBy('req.requestor_name', $this->reqSortDir);
+                break;
+        }
+
+        $requestors = $requestorsQuery->get();
 
         return [
             'users' => $users,
             'roles' => $roles,
             'offices' => $offices,
+            'sourceOffices' => $sourceOffices,
+            'requestors' => $requestors,
         ];
     }
 };
@@ -505,9 +691,58 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Users')] class extends C
 @push('styles')
     @vite('resources/css/admin/accounts_users.css')
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css">
+    <style>
+        .tabs-header {
+            display: flex;
+            gap: 12px;
+            border-bottom: 2px solid #e2e8f0;
+            margin-bottom: 20px;
+        }
+        .tab-btn {
+            background: none;
+            border: none;
+            padding: 12px 20px;
+            font-size: 14.5px;
+            font-weight: 600;
+            color: #64748b;
+            cursor: pointer;
+            position: relative;
+            outline: none;
+            transition: all 0.2s ease;
+            font-family: 'Outfit', sans-serif;
+        }
+        .tab-btn.active {
+            color: #003699;
+        }
+        .tab-btn.active::after {
+            content: '';
+            position: absolute;
+            bottom: -2px;
+            left: 0;
+            right: 0;
+            height: 3px;
+            background: #003699;
+            border-radius: 99px;
+        }
+        .admin-users-outer {
+            padding: 12px 24px;
+        }
+    </style>
 @endpush
 
-<div class="admin-users-container {{ !$selectedUserId ? 'no-selection' : 'has-selection' }}">
+<div class="admin-users-outer">
+    <!-- Tabs Header -->
+    <div class="tabs-header">
+        <button type="button" class="tab-btn {{ $activeTab === 'users' ? 'active' : '' }}" wire:click="setTab('users')">
+            <i class="fa-solid fa-users" style="margin-right: 6px;"></i> System Users
+        </button>
+        <button type="button" class="tab-btn {{ $activeTab === 'requestors' ? 'active' : '' }}" wire:click="setTab('requestors')">
+            <i class="fa-solid fa-user-pen" style="margin-right: 6px;"></i> Requestor Users
+        </button>
+    </div>
+
+    @if($activeTab === 'users')
+        <div class="admin-users-container {{ !$selectedUserId ? 'no-selection' : 'has-selection' }}" wire:key="tab-users-view">
     <!-- Left Pane: Users Directory -->
     <div class="directory-panel">
         <div class="directory-header-row">
@@ -845,6 +1080,238 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Users')] class extends C
                     <i class="fa-solid fa-floppy-disk"></i> {{ $selectedUserId === -1 ? 'Create User' : 'Save Changes' }}
                 </button>
             </div>
+        @endif
+    </div>
+    @elseif($activeTab === 'requestors')
+        <div class="admin-users-container {{ !$selectedRequestorId ? 'no-selection' : 'has-selection' }}" wire:key="tab-requestors-view">
+            <!-- Left Pane: Requestors Directory -->
+            <div class="directory-panel">
+                <div class="directory-header-row">
+                    <span class="form-label" style="margin: 0; font-size: 13px; color: #334155;">Requestor Contacts Directory</span>
+                    @php
+                        $canModify = auth()->user()?->permissions?->is_sadm || auth()->user()?->permissions?->can_sadm_modify_account;
+                    @endphp
+                    @if($canModify)
+                    <button type="button" class="btn-create-new" wire:click="startCreateRequestor">
+                        <i class="fa-solid fa-plus"></i> New Requestor
+                    </button>
+                    @endif
+                </div>
+
+                <div class="directory-controls-bar">
+                    <div class="search-box-wrapper">
+                        <i class="fa-solid fa-magnifying-glass search-icon"></i>
+                        <input type="text" class="search-box" placeholder="Search by name, position, office..." wire:model.live="requestorSearch">
+                    </div>
+                    
+                    <div class="sort-controls-wrapper">
+                        <span class="sort-label">Sort By:</span>
+                        <select class="sort-select" wire:model.live="reqSortBy">
+                            <option value="name">Name</option>
+                            <option value="position">Position</option>
+                            <option value="office">Office</option>
+                            <option value="status">Status</option>
+                            <option value="date_created">Date Created</option>
+                        </select>
+                        <button type="button" wire:click="toggleReqSortDir" class="btn-sort-dir" title="Toggle Order Direction ({{ strtoupper($reqSortDir) }})">
+                            @if($reqSortDir === 'asc')
+                                <i class="fa-solid fa-arrow-up-a-z"></i>
+                            @else
+                                <i class="fa-solid fa-arrow-down-z-a"></i>
+                            @endif
+                        </button>
+                    </div>
+
+                    <!-- View Mode Toggle -->
+                    <div class="view-mode-toggle" style="display: flex; gap: 2px; background: #f1f5f9; padding: 2px; border-radius: 6px; border: 1px solid #cbd5e1; margin-left: auto;">
+                        <button type="button" wire:click="$set('reqViewMode', 'grid')" title="Cards Grid Layout" style="padding: 4px 10px; border-radius: 4px; border: none; font-size: 11px; font-weight: 600; cursor: pointer; background: {{ $reqViewMode === 'grid' ? '#ffffff' : 'transparent' }}; color: {{ $reqViewMode === 'grid' ? '#0f172a' : '#64748b' }}; box-shadow: {{ $reqViewMode === 'grid' ? '0 1px 2px rgba(0,0,0,0.08)' : 'none' }}; display: flex; align-items: center; gap: 4px; font-family: 'Inter', sans-serif;">
+                            <i class="fa-solid fa-border-all"></i> Cards
+                        </button>
+                        <button type="button" wire:click="$set('reqViewMode', 'table')" title="Table Layout" style="padding: 4px 10px; border-radius: 4px; border: none; font-size: 11px; font-weight: 600; cursor: pointer; background: {{ $reqViewMode === 'table' ? '#ffffff' : 'transparent' }}; color: {{ $reqViewMode === 'table' ? '#0f172a' : '#64748b' }}; box-shadow: {{ $reqViewMode === 'table' ? '0 1px 2px rgba(0,0,0,0.08)' : 'none' }}; display: flex; align-items: center; gap: 4px; font-family: 'Inter', sans-serif;">
+                            <i class="fa-solid fa-table-list"></i> Table
+                        </button>
+                    </div>
+                </div>
+
+                @if($reqViewMode === 'table')
+                    <div class="users-table-container" style="margin-top: 12px; overflow-x: auto;">
+                        <table class="users-data-table" style="width: 100%; border-collapse: collapse; font-size: 13px;">
+                            <thead>
+                                <tr style="background: #f8fafc; border-bottom: 2px solid #e2e8f0; text-align: left; color: #475569;">
+                                    <th style="padding: 10px 12px;">Requestor Name</th>
+                                    <th style="padding: 10px 12px;">Position / Title</th>
+                                    <th style="padding: 10px 12px;">Office / Agency</th>
+                                    <th style="padding: 10px 12px;">Category</th>
+                                    <th style="padding: 10px 12px;">Status</th>
+                                    <th style="padding: 10px 12px; text-align: right;">Action</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @forelse($requestors as $req)
+                                    <tr style="border-bottom: 1px solid #f1f5f9; cursor: pointer; background: {{ $selectedRequestorId === $req->id ? '#f0f9ff' : 'transparent' }};" wire:click="selectRequestorItem({{ $req->id }})" wire:key="req-tbl-{{ $req->id }}">
+                                        <td style="padding: 10px 12px; font-weight: 600; color: #0f172a;">
+                                            <div style="display: flex; align-items: center; gap: 8px;">
+                                                <div style="width: 28px; height: 28px; border-radius: 50%; background: #0284c7; color: #fff; display: flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 700;">
+                                                    <i class="fa-solid fa-user-pen"></i>
+                                                </div>
+                                                <span>{{ $req->requestor_name }}</span>
+                                            </div>
+                                        </td>
+                                        <td style="padding: 10px 12px; color: #475569;">
+                                            {{ $req->requestor_position ?: '—' }}
+                                        </td>
+                                        <td style="padding: 10px 12px; color: #334155; font-weight: 500;">
+                                            {{ $req->office_display_name }} <span style="font-size: 11px; color: #64748b;">({{ $req->office }})</span>
+                                        </td>
+                                        <td style="padding: 10px 12px;">
+                                            <span style="font-size: 10px; padding: 2px 6px; border-radius: 4px; font-weight: 600; background: {{ $req->office_category === 'External' ? '#e0f2fe' : '#f1f5f9' }}; color: {{ $req->office_category === 'External' ? '#0369a1' : '#475569' }};">
+                                                {{ $req->office_category }}
+                                            </span>
+                                        </td>
+                                        <td style="padding: 10px 12px;">
+                                            <span class="badge {{ $req->is_active ? 'badge-active' : 'badge-inactive' }}">
+                                                {{ $req->is_active ? 'Active' : 'Inactive' }}
+                                            </span>
+                                        </td>
+                                        <td style="padding: 10px 12px; text-align: right;">
+                                            <button type="button" class="btn-table-action" wire:click.stop="selectRequestorItem({{ $req->id }})" style="padding: 4px 8px; font-size: 11px; border-radius: 4px; border: 1px solid #cbd5e1; background: #fff; cursor: pointer;">
+                                                Configure
+                                            </button>
+                                        </td>
+                                    </tr>
+                                @empty
+                                    <tr>
+                                        <td colspan="6" style="padding: 24px; text-align: center; color: #94a3b8;">
+                                            No requestor contacts found.
+                                        </td>
+                                    </tr>
+                                @endforelse
+                            </tbody>
+                        </table>
+                    </div>
+                @else
+                    <div class="directory-list" style="margin-top: 12px;">
+                        @forelse($requestors as $req)
+                            <div class="directory-item {{ $selectedRequestorId === $req->id ? 'selected' : '' }}" wire:click="selectRequestorItem({{ $req->id }})" wire:key="req-item-{{ $req->id }}">
+                                <div class="item-avatar" style="background-color: #0284c7; color: white;">
+                                    <i class="fa-solid fa-user-pen"></i>
+                                </div>
+                                <div class="item-details">
+                                    <span class="item-title">{{ $req->requestor_name }}</span>
+                                    <span class="item-subtitle">
+                                        @if(!empty($req->requestor_position)) {{ $req->requestor_position }} • @endif {{ $req->office_display_name }} ({{ $req->office }})
+                                    </span>
+                                </div>
+                                <div style="margin-left: auto; display: flex; align-items: center; gap: 6px;">
+                                    <span style="font-size: 10px; padding: 2px 6px; border-radius: 4px; font-weight: 600; background: {{ $req->office_category === 'External' ? '#e0f2fe' : '#f1f5f9' }}; color: {{ $req->office_category === 'External' ? '#0369a1' : '#475569' }};">
+                                        {{ $req->office_category }}
+                                    </span>
+                                    <span class="badge {{ $req->is_active ? 'badge-active' : 'badge-inactive' }}">
+                                        {{ $req->is_active ? 'Active' : 'Inactive' }}
+                                    </span>
+                                </div>
+                            </div>
+                        @empty
+                            <div style="padding: 24px; text-align: center; color: #94a3b8; font-size: 13px;">
+                                No requestor contacts recorded yet.
+                            </div>
+                        @endforelse
+                    </div>
+                @endif
+            </div>
+
+            <!-- Right Pane: Details / Form Panel -->
+            @if($selectedRequestorId)
+                <div class="details-panel" wire:key="req-details-panel-{{ $selectedRequestorId }}">
+                    <!-- Header -->
+                    <div class="details-header">
+                        <div class="header-content">
+                            <h3>{{ $selectedRequestorId === -1 ? 'Create Requestor Contact' : 'Requestor Configuration' }}</h3>
+                            <p>{{ $selectedRequestorId === -1 ? 'Register a new frequent requestor for internal or external transactions.' : 'Update requestor name, job position, and assigned office.' }}</p>
+                        </div>
+                        <button type="button" class="btn-close" wire:click="cancelRequestorSelection">&times;</button>
+                    </div>
+
+                    <!-- Alerts -->
+                    @if($successMessage)
+                        <div class="alert alert-success" style="margin: 12px 24px 0 24px; padding: 10px 14px; background: #ecfdf5; border: 1px solid #a7f3d0; color: #047857; border-radius: 8px; font-size: 13px;">
+                            <i class="fa-solid fa-circle-check"></i> {{ $successMessage }}
+                        </div>
+                    @endif
+                    @if($errorMessage)
+                        <div class="alert alert-error" style="margin: 12px 24px 0 24px; padding: 10px 14px; background: #fef2f2; border: 1px solid #fecaca; color: #b91c1c; border-radius: 8px; font-size: 13px;">
+                            <i class="fa-solid fa-triangle-exclamation"></i> {{ $errorMessage }}
+                        </div>
+                    @endif
+
+                    <!-- Body -->
+                    <div class="details-body">
+                        <form wire:submit.prevent="saveRequestorChanges">
+                            <div class="form-grid">
+                                <!-- Requestor Full Name -->
+                                <div class="form-group full-width">
+                                    <label class="form-label">Requestor Name <span style="color:#ef4444;">*</span></label>
+                                    <input type="text" class="form-control" wire:model="reqName" placeholder="e.g. Dr. Juan Dela Cruz">
+                                    @error('reqName') <span style="color:#ef4444; font-size:11px; margin-top:2px;">{{ $message }}</span> @enderror
+                                </div>
+
+                                <!-- Requestor Job Position -->
+                                <div class="form-group full-width">
+                                    <label class="form-label">Job Position / Title <span style="font-size: 11px; color: #94a3b8; font-weight: normal;">(Optional)</span></label>
+                                    <input type="text" class="form-control" wire:model="reqPosition" placeholder="e.g. Regional Director / Faculty Officer">
+                                    @error('reqPosition') <span style="color:#ef4444; font-size:11px; margin-top:2px;">{{ $message }}</span> @enderror
+                                </div>
+
+                                <!-- Office / Agency Dropdown -->
+                                <div class="form-group full-width">
+                                    <label class="form-label">Office / Agency <span style="color:#ef4444;">*</span></label>
+                                    <select class="form-control" wire:model="reqOffice">
+                                        <option value="">Select Office / Agency</option>
+                                        <optgroup label="Internal CSPC Offices">
+                                            @foreach($offices as $o)
+                                                <option value="{{ $o->office_code }}">{{ $o->office_name }} ({{ $o->office_code }})</option>
+                                            @endforeach
+                                        </optgroup>
+                                        <optgroup label="External Source Offices">
+                                            @foreach($sourceOffices as $so)
+                                                <option value="{{ $so->s_office_code }}">{{ $so->s_office_name }} ({{ $so->s_office_code }})</option>
+                                            @endforeach
+                                        </optgroup>
+                                    </select>
+                                    @error('reqOffice') <span style="color:#ef4444; font-size:11px; margin-top:2px;">{{ $message }}</span> @enderror
+                                </div>
+
+                                <!-- Active Status -->
+                                <div class="form-group full-width">
+                                    <div class="status-toggle-wrapper">
+                                        <div class="status-toggle-label">
+                                            <span class="status-toggle-title">Active Status</span>
+                                            <span class="status-toggle-desc">Toggle whether this requestor contact appears in transaction forms.</span>
+                                        </div>
+                                        <label class="switch">
+                                            <input type="checkbox" wire:model="reqIsActive">
+                                            <span class="slider"></span>
+                                        </label>
+                                    </div>
+                                </div>
+                            </div>
+                        </form>
+                    </div>
+
+                    <!-- Footer -->
+                    <div class="details-footer">
+                        @if($selectedRequestorId > 0)
+                            <button type="button" class="btn-delete" wire:click="deleteRequestor" wire:confirm="Are you sure you want to deactivate this requestor?" style="margin-right: auto;" {{ !$canModify ? 'disabled style=opacity:0.6;cursor:not-allowed;' : '' }}>
+                                <i class="fa-solid fa-trash-can"></i> Deactivate Requestor
+                            </button>
+                        @endif
+                        <button type="button" class="btn-cancel" wire:click="cancelRequestorSelection">Cancel</button>
+                        <button type="button" class="btn-save" wire:click="saveRequestorChanges" {{ !$canModify ? 'disabled style=opacity:0.6;cursor:not-allowed;' : '' }}>
+                            <i class="fa-solid fa-floppy-disk"></i> {{ $selectedRequestorId === -1 ? 'Create Requestor' : 'Save Changes' }}
+                        </button>
+                    </div>
+                </div>
+            @endif
         </div>
     @endif
 </div>

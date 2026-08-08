@@ -23,6 +23,106 @@
     max-width: 100%;
 }
 
+/* Directory Controls Row */
+.directory-controls-bar {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    width: 100%;
+    flex-wrap: wrap;
+}
+
+.directory-controls-bar .search-box-wrapper {
+    flex: 1;
+    min-width: 240px;
+}
+
+.sort-controls-wrapper {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.sort-label {
+    font-size: 11px;
+    font-weight: 700;
+    color: #8b95a5;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    white-space: nowrap;
+}
+
+.sort-select {
+    height: 36px !important;
+    padding: 0 32px 0 14px !important;
+    font-size: 13px !important;
+    line-height: 34px !important;
+    border-radius: 99px !important;
+    border: 1.5px solid #cbd5e1 !important;
+    font-family: 'Inter', sans-serif !important;
+    outline: none !important;
+    background-color: #ffffff !important;
+    color: #1e293b !important;
+    box-sizing: border-box !important;
+    cursor: pointer !important;
+    appearance: none !important;
+    -webkit-appearance: none !important;
+    -moz-appearance: none !important;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%2364748b' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E") !important;
+    background-repeat: no-repeat !important;
+    background-position: right 12px center !important;
+}
+
+.sort-select:focus {
+    border-color: #003699;
+    box-shadow: 0 0 0 3px rgba(0, 54, 153, 0.08);
+}
+
+.btn-sort-dir {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 36px;
+    height: 36px;
+    border-radius: 50%;
+    border: 1.5px solid #cbd5e1;
+    background: #ffffff;
+    cursor: pointer;
+    color: #003699;
+    font-size: 13.5px;
+    transition: all 0.2s ease;
+    padding: 0;
+    flex-shrink: 0;
+    box-sizing: border-box;
+}
+
+.btn-sort-dir:hover {
+    background: #f8fafc;
+    border-color: #94a3b8;
+    color: #002873;
+}
+
+.admin-roles-container.has-selection .directory-controls-bar {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 12px;
+}
+
+.admin-roles-container.has-selection .sort-controls-wrapper {
+    width: 100%;
+}
+
+.admin-roles-container.has-selection .sort-select {
+    flex: 1;
+}
+
+.roles-table-container {
+    flex: 1;
+    overflow-y: auto;
+    border-radius: 12px;
+    border: 1px solid #e2e8f0;
+}
+
 /* Left Pane: Roles Directory */
 .directory-panel {
     background: #ffffff;

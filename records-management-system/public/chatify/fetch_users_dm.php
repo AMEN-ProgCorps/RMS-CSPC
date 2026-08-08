@@ -48,7 +48,7 @@ if ($searchQuery !== '') {
     }
 
     // Server-side search — returns up to 9 matching users; type more to narrow results
-    $searchResult = UserResolver::searchUsers($searchQuery, $myAccountId, 9);
+    $searchResult = UserResolver::searchUsers($searchQuery, $myAccountId, 8);
     $matched      = $searchResult['users'] ?? [];
     $hasMoreUsers = !empty($searchResult['hasMore']);
 

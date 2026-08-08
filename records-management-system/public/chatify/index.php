@@ -700,22 +700,22 @@ try {
       token: <?php echo json_encode($ws_token); ?>
     };
   </script>
-  <script src="assets/js/websocket-reauth.js"></script>
+  <script src="assets/js/websocket-reauth.js?v=<?php echo filemtime(__DIR__ . '/assets/js/websocket-reauth.js'); ?>"></script>
 
-  <script src="assets/js/app-part1.js"></script>
+  <script src="assets/js/app-part1.js?v=<?php echo filemtime(__DIR__ . '/assets/js/app-part1.js'); ?>"></script>
   <script>
     // Get the user's name and admin status from PHP
     const userName = "<?php echo addslashes($user_name); ?>";
     const isAdmin = <?php echo $is_admin ? 'true' : 'false'; ?>;
   </script>
-  <script src="assets/js/app-part2.js"></script>
+  <script src="assets/js/app-part2.js?v=<?php echo filemtime(__DIR__ . '/assets/js/app-part2.js'); ?>"></script>
   <script>
     // Verified account IDs for badge injection (array of integers)
     // Replaces the old name-based adminNames approach.
     const adminNames = []; // kept for backward-compat; badge logic now uses verifiedAccountIds
     // verifiedAccountIds is already defined in the header block as a Set
   </script>
-  <script src="assets/js/app-part3.js"></script>
+  <script src="assets/js/app-part3.js?v=<?php echo filemtime(__DIR__ . '/assets/js/app-part3.js'); ?>"></script>
   <!-- ═══════════════════════════════════════════════════════════════════════
        LEGAL AUTHORIZATION MODAL
        Uses the existing Chatify .modal / .modal.active pattern.
@@ -793,6 +793,6 @@ try {
       </div>
     </div>
   </div>
-  <script src="assets/js/legal-modal.js"></script>
+  <script src="assets/js/legal-modal.js?v=<?php echo filemtime(__DIR__ . '/assets/js/legal-modal.js'); ?>"></script>
 </body>
 </html>

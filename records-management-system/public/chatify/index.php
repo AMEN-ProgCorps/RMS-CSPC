@@ -89,7 +89,7 @@ try {
 // value can otherwise go stale until they log out and log back in.
 try {
     $pdo  = Database::getConnection();
-    $stmt = $pdo->prepare('SELECT first_name, last_name FROM account_details WHERE account_id = ? LIMIT 1');
+    $stmt = $pdo->prepare('SELECT first_name, last_name, avatar_url FROM account_details WHERE account_id = ? LIMIT 1');
     $stmt->execute([$_current_account_id]);
     $ownRow = $stmt->fetch();
     if ($ownRow) {
@@ -99,6 +99,7 @@ try {
             $_SESSION['name'] = $ownFullNameDisplay;
             $_SESSION['full_name'] = $ownFullNameDisplay;
         }
+        $_SESSION['avatar_url'] = (!empty($ownRow['avatar_url'])) ? $ownRow['avatar_url'] : null;
     }
 } catch (Throwable $e) {
     // Non-fatal
@@ -207,7 +208,7 @@ try {
         </div>
       </div>
       <div class="sidebar-search" id="ownSidebarSearch">
-        <input type="text" id="searchInput" placeholder="Search for a user or office..." autocomplete="off">
+        <input type="text" id="searchInput" name="csp_srch_own_2k9" placeholder="Search for a user or office..." autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" data-lpignore="true" data-1p-ignore="true" data-form-type="other" role="combobox" aria-autocomplete="list">
       </div>
       <!-- Pinned Global Chat entry -->
       <div class="user-item" id="globalChatItem" onclick="selectGlobalChat()" style="border-bottom:1px solid var(--border-color);">
@@ -227,7 +228,7 @@ try {
       <div id="adminConvsSection" style="display:none;position:relative;">
         <div id="adminConvsHeaderTitle" style="padding:8px 16px 4px;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.8px;color:var(--text-secondary);margin-top:4px;text-align:center;"></div>
         <div class="admin-search" style="padding: 6px 16px;">
-          <input type="text" id="adminSearchInput" placeholder="Search for a user or office..." autocomplete="off">
+          <input type="text" id="adminSearchInput" name="csp_srch_adm_7v3" placeholder="Search for a user or office..." autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" data-lpignore="true" data-1p-ignore="true" data-form-type="other" role="combobox" aria-autocomplete="list">
         </div>
         <div class="sidebar-users" id="adminConvsList"></div>
       </div>
@@ -697,7 +698,8 @@ try {
       accountId: <?php echo $_current_account_id; ?>,
       name: <?php echo json_encode($user_name); ?>,
       expires: <?php echo $ws_expires; ?>,
-      token: <?php echo json_encode($ws_token); ?>
+      token: <?php echo json_encode($ws_token); ?>,
+      avatarUrl: <?php echo json_encode($_SESSION['avatar_url'] ?? null); ?>
     };
   </script>
   <script src="assets/js/websocket-reauth.js?v=<?php echo filemtime(__DIR__ . '/assets/js/websocket-reauth.js'); ?>"></script>

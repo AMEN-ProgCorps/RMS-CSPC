@@ -62,10 +62,15 @@ $sinceUuid  = isset($_GET['since_uuid'])  && $_GET['since_uuid']  !== '' ? (stri
 // ── Load data ────────────────────────────────────────────────────────────────────
 $convId = ConversationManager::convId($myAccountId, $targetId);
 
-if ($beforeUuid === null && $sinceUuid === null) {
-    // Mark conversation as read on initial view
-    ConversationManager::markRead($convId, $myAccountId);
-}
+// NOTE: Conversations are intentionally NOT auto-marked read here just
+// because this is a fresh (non-paginated) fetch. This endpoint is also
+// called by loadChatForced() to render an incoming image/file's HTML —
+// which can happen while the tab is hidden or the user isn't actually
+// looking at the chat — so marking read unconditionally here caused
+// attachments to show a premature "Seen" indicator even when the
+// recipient hadn't seen them yet. The client is responsible for marking
+// read (via mark_read.php / markRead()), and it only does so when
+// `!document.hidden`, i.e. when the user is genuinely viewing the chat.
 
 if ($sinceUuid !== null) {
     // Incremental update: fetch only messages created AFTER sinceUuid
@@ -153,6 +158,7 @@ foreach ($rawMessages as $msg) {
         $senderInfo = UserResolver::getUserInfo($senderId);
         $verifiedIds[$senderId] = (bool) ($senderInfo['is_chatify_verified'] ?? false);
     }
+    $avatarInner = UserResolver::avatarInner($senderId, $initials);
     $adminBadge = '';
     if ($verifiedIds[$senderId]) {
         $adminBadge = " <span class='verified-badge' title='Verified'>"
@@ -307,7 +313,7 @@ foreach ($rawMessages as $msg) {
     }
 
     $html .= "<div class='message-container {$msgClass}' data-msg-id='{$msgId}' data-sender-id='{$senderId}'>";
-    $html .= "<div class='message-avatar'>{$initials}</div>";
+    $html .= "<div class='message-avatar'>{$avatarInner}</div>";
     $html .= $msgBodyHtml;
     $html .= "</div>"; // .message-container
 }

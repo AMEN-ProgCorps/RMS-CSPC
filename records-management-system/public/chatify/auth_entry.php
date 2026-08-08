@@ -53,7 +53,8 @@ try {
     $pdo  = Database::getConnection();
     $stmt = $pdo->prepare(
         'SELECT account_id, first_name, last_name, middle_name, office_id,
-                email, contact_number, is_currently_online, last_online_time
+                email, contact_number, is_currently_online, last_online_time,
+                avatar_url
          FROM account_details
          WHERE account_id = :id
          LIMIT 1'

@@ -110,10 +110,12 @@ foreach ($rawMessages as $msg) {
     $senderLabel = htmlspecialchars(strtolower($senderName), ENT_QUOTES);
 
     // Verified badge markup — driven by is_chatify_verified from DB
+    // (also doubles as the avatar_url lookup below, via UserResolver's cache)
     if (!isset($verifiedIds[$senderId])) {
         $senderInfo = UserResolver::getUserInfo($senderId);
         $verifiedIds[$senderId] = (bool) ($senderInfo['is_chatify_verified'] ?? false);
     }
+    $avatarInner = UserResolver::avatarInner($senderId, $initials);
     $adminBadge = '';
     if ($verifiedIds[$senderId]) {
         $adminBadge = " <span class='verified-badge' title='Verified'>"
@@ -136,7 +138,7 @@ foreach ($rawMessages as $msg) {
     }
 
     $html .= "<div class='message-container {$msgClass}' data-msg-id='{$msgId}' data-sender-id='{$senderId}'>";
-    $html .= "<div class='message-avatar'>{$initials}</div>";
+    $html .= "<div class='message-avatar'>{$avatarInner}</div>";
 
     if ($type === 'text') {
         // Decrypt message content

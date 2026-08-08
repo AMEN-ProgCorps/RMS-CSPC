@@ -249,8 +249,12 @@
       const contentEl = container.querySelector('.message-bubble .message-content');
       if (!contentEl) return;
       
-      // If it contains an attachment (like an anchor link or image or audio), do not edit
-      if (contentEl.querySelector('a') || container.querySelector('img') || container.querySelector('audio')) {
+      // If it contains an attachment (like an anchor link or image or audio), do not edit.
+      // Scoped to .bubble-wrapper (not the whole .message-container) so the
+      // sender's own avatar <img> — rendered separately in .message-avatar —
+      // is never mistaken for an image/file attachment.
+      const bubbleWrapperEl = container.querySelector('.bubble-wrapper');
+      if (contentEl.querySelector('a') || (bubbleWrapperEl && bubbleWrapperEl.querySelector('img, audio'))) {
         return;
       }
       
@@ -1383,7 +1387,7 @@
           <div class="message-bubble sending-bubble">
             <div class="message-content sending-dots"><span></span><span></span><span></span></div>
           </div>
-          <div class="message-avatar">${getInitials(name)}</div>
+          <div class="message-avatar">${avatarInnerHtml(wsConfig.avatarUrl, getInitials(name))}</div>
         `;
         sendingBubble.addEventListener('animationend', () => sendingBubble.classList.remove('msg-animate-sent'), { once: true });
         // Append optimistic sending bubble into floating overlay so it doesn't reflow chat
@@ -1512,7 +1516,7 @@
                 sendingBubble.className = 'message-container sent';
                 const emojiOnlyClass = isEmojiOnly(msgContent) ? ' emoji-only' : '';
                 sendingBubble.innerHTML = `
-                  <div class="message-avatar">${getInitials(name)}</div>
+                  <div class="message-avatar">${avatarInnerHtml(wsConfig.avatarUrl, getInitials(name))}</div>
                   <div class="bubble-wrapper">
                     <div class="message-click-timestamp">${fullTimeDisplay}</div>
                     <div class="message-bubble${emojiOnlyClass}">
@@ -2720,7 +2724,7 @@
 
     function attachImageLoadListeners() {
       if (!chatBox) return;
-      chatBox.querySelectorAll('img').forEach(img => {
+      chatBox.querySelectorAll('img:not(.avatar-img)').forEach(img => {
         if (img.dataset.scrollListener) return;
         img.dataset.scrollListener = '1';
         img.addEventListener('load', () => {

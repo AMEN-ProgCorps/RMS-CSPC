@@ -90,6 +90,7 @@ if ($searchQuery !== '') {
             'allow_typing_preview'     => isset($user['allow_typing_preview']) ? (bool) $user['allow_typing_preview'] : true,
             'allow_see_typing_preview' => isset($user['allow_see_typing_preview']) ? (bool) $user['allow_see_typing_preview'] : true,
             'is_chatify_verified' => (bool) ($user['is_chatify_verified'] ?? false),
+            'avatar_url'          => $user['avatar_url'] ?? null,
         ];
     }
 } else {
@@ -135,6 +136,7 @@ if ($searchQuery !== '') {
             'allow_typing_preview'     => isset($userInfo['allow_typing_preview']) ? (bool) $userInfo['allow_typing_preview'] : true,
             'allow_see_typing_preview' => isset($userInfo['allow_see_typing_preview']) ? (bool) $userInfo['allow_see_typing_preview'] : true,
             'is_chatify_verified' => (bool) ($userInfo['is_chatify_verified'] ?? false),
+            'avatar_url'          => $userInfo['avatar_url'] ?? null,
         ];
     }
 
@@ -203,6 +205,7 @@ echo json_encode([
         'full_name'  => $myInfo['full_name'] ?? Auth::fullName(),
         'office_id'  => $_SESSION['office_id'] ?? null,
         'is_admin'   => $isAdmin,
+        'avatar_url' => $myInfo['avatar_url'] ?? ($_SESSION['avatar_url'] ?? null),
     ],
     'conversations' => $adminSpyResponse['conversations'] ?? [],
     'adminConvs'    => $adminSpyResponse,

@@ -169,6 +169,7 @@
       const senderUser = allUsersData.find(u => Number(u.account_id) === Number(msgData.sender_id));
       const displayName = msgData.sender_name || (senderUser ? (senderUser.full_name || senderUser.username) : (isSentByMe ? wsConfig.name : 'User'));
       const initials = getInitials(displayName);
+      const senderAvatarUrl = isSentByMe ? wsConfig.avatarUrl : (senderUser ? senderUser.avatar_url : null);
 
       let timeDisplay = '';
       if (msgData.created_at) {
@@ -181,7 +182,7 @@
       }
 
       container.innerHTML = `
-        <div class="message-avatar">${escapeHtml(initials)}</div>
+        <div class="message-avatar">${avatarInnerHtml(senderAvatarUrl, initials)}</div>
         <div class="bubble-wrapper">
           <div class="message-click-timestamp">${escapeHtml(timeDisplay)}</div>
           <div class="message-bubble${emojiOnlyClass}">
@@ -293,11 +294,19 @@
                 if (sender !== wsConfig.accountId) {
                   // Incoming message from the other person — render it via WS
                   if (data.has_upload) {
+                    // loadChatForced() is an async network round-trip — the
+                    // image/file HTML isn't actually in the DOM yet when we
+                    // get here. loadChat()'s own completion handler (processChatData)
+                    // calls markRead(activeDM) once the fetched HTML (with the real
+                    // attachment) has been rendered, AND — same as the text path
+                    // below — only does so if `!document.hidden`, so the attachment
+                    // is never flagged "Seen" unless the recipient is genuinely
+                    // looking at the chat. Skip calling markRead again here.
                     loadChatForced();
                   } else {
                     renderAndAppendWsMessage(data);
+                    if (!document.hidden) markRead(activeDM);
                   }
-                  if (!document.hidden) markRead(activeDM);
                 } else {
                   // This is an echo of our own sent message (WS server broadcasts back to sender).
                   // The XHR optimistic path already rendered it — skip renderAndAppendWsMessage
@@ -821,11 +830,12 @@
         const newClassName = 'user-item' + (activeDM === u.username ? ' active' : '') + (hasUnread ? ' has-unread' : '');
         if (item.className !== newClassName) item.className = newClassName;
 
-        if (avatar.dataset.initials !== u.name) {
+        if (avatar.dataset.initials !== u.name || avatar.dataset.avatarUrl !== (u.avatar_url || '')) {
           const initials = getInitials(u.name);
-          avatar.textContent = initials;
+          avatar.innerHTML = avatarInnerHtml(u.avatar_url, initials);
           avatar.appendChild(dot);
           avatar.dataset.initials = u.name;
+          avatar.dataset.avatarUrl = u.avatar_url || '';
         }
         const newDotClass = 'status-dot ' + (u.status || 'offline');
         if (dot.className !== newDotClass) dot.className = newDotClass;
@@ -1163,6 +1173,15 @@
       const div = document.createElement('div');
       div.textContent = String(str == null ? '' : str);
       return div.innerHTML;
+    }
+
+    // Renders either an <img> (Google/account avatar_url) or plain initials
+    // text as the inner content of a .user-avatar / .message-avatar circle.
+    function avatarInnerHtml(avatarUrl, initials) {
+      if (avatarUrl) {
+        return `<img src="${escapeHtml(avatarUrl)}" class="avatar-img" alt="" loading="lazy" referrerpolicy="no-referrer">`;
+      }
+      return escapeHtml(initials);
     }
 
     // Tab title notification system
@@ -1677,7 +1696,7 @@
             const avatar = document.createElement('div');
             avatar.className = 'user-avatar';
             avatar.style.background = 'linear-gradient(135deg, #1b74e4, #00c3ff)';
-            avatar.textContent = getInitialsFromFullName(u.full_name);
+            avatar.innerHTML = avatarInnerHtml(u.avatar_url, getInitialsFromFullName(u.full_name));
 
             const info = document.createElement('div');
             info.className = 'user-info';

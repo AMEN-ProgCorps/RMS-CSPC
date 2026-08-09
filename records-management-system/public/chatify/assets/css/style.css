@@ -961,6 +961,25 @@
       transform: scale(0.92);
     }
 
+    /* Back arrow button: plain icon, no circle/pill container — same
+       treatment as #burgerButton above. */
+    #backButton {
+      background: transparent;
+      color: var(--text-primary);
+      border-radius: 0;
+      min-width: auto;
+      padding: 0;
+    }
+
+    #backButton:hover {
+      background: transparent;
+    }
+
+    #backButton:active {
+      background: transparent;
+      transform: scale(0.92);
+    }
+
     #adminEyeToggleBtn.active {
       background: #ff0000;
     }

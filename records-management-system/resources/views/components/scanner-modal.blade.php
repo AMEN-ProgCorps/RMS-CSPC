@@ -120,6 +120,7 @@ new class extends Component {
 
         $transaction = DB::table('dts_transactions as dt')
             ->join('dts_transaction_details as dtd', 'dtd.id', '=', 'dt.transaction_id')
+            ->leftJoin('dts_requestor_history as req', 'req.id', '=', 'dtd.requestor_id')
             ->leftJoin('office as originated_office', 'originated_office.office_code', '=', 'dtd.originated_from')
             ->leftJoin('office as current_office_tb', 'current_office_tb.office_code', '=', 'dt.current_office')
             ->leftJoin('document_data as doc', 'doc.document_path', '=', 'dt.doc_dir')
@@ -137,7 +138,8 @@ new class extends Component {
                 'current_office_tb.office_name as current_office_name',
                 'dtd.transaction_flow',
                 'dtd.control_number',
-                'dtd.requestor_name',
+                'req.requestor_name',
+                'req.requestor_position as requestor_label',
                 'dtd.subject',
                 'dtd.classification',
                 'dtd.originated_from',
@@ -176,7 +178,7 @@ new class extends Component {
                     ->where('sequence_ranking', $transaction->sequence + 1)
                     ->first();
                 if ($nextSeq) {
-                    $nextOfficeCode = $nextSeq->department;
+                    $nextOfficeCode = $nextSeq->office_code;
                     $nextOfficeName = DB::table('office')->where('office_code', $nextOfficeCode)->value('office_name') ?: $nextOfficeCode;
                 }
             }
@@ -521,6 +523,7 @@ new class extends Component {
                 </div>
             </div>
         </div>
+    @endif
 
         <script>
             document.addEventListener('livewire:initialized', () => {
@@ -580,5 +583,4 @@ new class extends Component {
                 Livewire.dispatch('open-scanner-modal', { code: code });
             };
         </script>
-    @endif
 </div>

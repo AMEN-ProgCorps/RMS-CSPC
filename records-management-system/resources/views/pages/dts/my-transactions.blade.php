@@ -50,6 +50,7 @@ new #[Layout('layouts.dts')] #[Title('My Transactions - Document Tracking System
 
         $query = DB::table('dts_transactions as dt')
             ->join('dts_transaction_details as dtd', 'dtd.id', '=', 'dt.transaction_id')
+            ->leftJoin('dts_requestor_history as req', 'req.id', '=', 'dtd.requestor_id')
             ->leftJoin('office as originated_office', 'originated_office.office_code', '=', 'dtd.originated_from')
             ->leftJoin('office as current_office', 'current_office.office_code', '=', 'dt.current_office')
             ->leftJoin('dts_transaction_flow as flow', 'flow.flow_code', '=', 'dtd.transaction_flow')
@@ -77,7 +78,7 @@ new #[Layout('layouts.dts')] #[Title('My Transactions - Document Tracking System
             'dt.current_office',
             'dt.trans_type',
             'dtd.control_number',
-            'dtd.requestor_name',
+            'req.requestor_name',
             'dtd.subject',
             'dtd.date_created',
             'dtd.originated_from',

@@ -872,6 +872,11 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create Applicat
 
             DB::commit();
 
+            // Notify target office that transaction is waiting to be received
+            if (!empty($currentOffice)) {
+                \App\Services\DtsNotificationService::notifyWaitingToBeReceived($currentOffice, $controlNumber, $transactionId);
+            }
+
             // Save summary for modal
             $this->createdTransactionSummary = [
                 'control_number' => $controlNumber,

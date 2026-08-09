@@ -882,6 +882,11 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create External
 
             DB::commit();
 
+            // Notify target office that transaction is waiting to be received
+            if (!empty($currentOffice)) {
+                \App\Services\DtsNotificationService::notifyWaitingToBeReceived($currentOffice, $controlNumber, $transactionId);
+            }
+
             // Source office display name
             $soName = DB::table('dts_source_office')->where('s_office_code', $this->source_office)->value('s_office_name') ?: $this->source_office;
 

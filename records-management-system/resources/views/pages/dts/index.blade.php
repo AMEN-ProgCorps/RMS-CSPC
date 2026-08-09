@@ -70,6 +70,21 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
     public string $uploadErrorMessage = '';
     public string $attachedDocName = '';
 
+    public string $currentRouteName = '';
+
+    public function mount(): void
+    {
+        $this->currentRouteName = request()->route()?->getName() ?: 'dts';
+
+        $openId = request()->query('open');
+        if (!empty($openId)) {
+            $exists = DB::table('dts_transactions')->where('transaction_id', $openId)->exists();
+            if ($exists) {
+                $this->openTransaction($openId);
+            }
+        }
+    }
+
     public function toggleLayout(): void
     {
         $this->layoutMode = $this->layoutMode === 'table' ? 'box' : 'table';
@@ -111,7 +126,7 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
                 ->update(['dt.current_office' => DB::raw('dtd.originated_from')]);
         } catch (\Throwable $e) {}
 
-        $routeName = request()->route()?->getName();
+        $routeName = !empty($this->currentRouteName) ? $this->currentRouteName : request()->route()?->getName();
 
         $query = DB::table('dts_transactions as dt')
             ->join('dts_transaction_details as dtd', 'dtd.id', '=', 'dt.transaction_id')
@@ -768,6 +783,18 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
                 'notes' => 'Completed transaction flow.',
                 'performed_by' => auth()->id(),
             ]);
+
+            $controlNo = $this->selectedTransaction->control_number ?? $this->controlNumber ?? '';
+            $transId = $this->selectedTransactionId;
+
+            if ($userOfficeCode) {
+                \App\Services\DtsNotificationService::notifyCompleted($userOfficeCode, $controlNo, $transId);
+            }
+
+            $originatedFrom = $this->selectedTransaction->originated_from ?? null;
+            if ($originatedFrom && $originatedFrom !== $userOfficeCode) {
+                \App\Services\DtsNotificationService::notifyCompleted($originatedFrom, $controlNo, $transId);
+            }
         });
 
         $this->closeTransaction();
@@ -969,6 +996,21 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
                         'scanned_id' => true,
                     ]);
             }
+
+            $userFirstName = auth()->user()?->details?->first_name 
+                ?: DB::table('account_details')->where('account_id', auth()->id())->value('first_name')
+                ?: auth()->user()?->username 
+                ?: 'User';
+
+            $controlNumber = DB::table('dts_transaction_details')->where('id', $targetId)->value('control_number') ?? '';
+
+            if ($userOfficeCode) {
+                \App\Services\DtsNotificationService::notifyReceived($userOfficeCode, $userFirstName, $controlNumber, $targetId);
+            }
+
+            if (!empty($trans->originated_from) && $trans->originated_from !== $userOfficeCode) {
+                \App\Services\DtsNotificationService::notifyReceived($trans->originated_from, $userFirstName, $controlNumber, $targetId);
+            }
         });
 
         if ($this->selectedTransactionId === $targetId) {
@@ -1145,6 +1187,22 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
                     'notes' => 'Forwarded from ' . auth()->user()?->details?->office?->office_name,
                     'performed_by' => auth()->id(),
                 ]);
+
+                $userFirstName = auth()->user()?->details?->first_name 
+                    ?: DB::table('account_details')->where('account_id', auth()->id())->value('first_name')
+                    ?: auth()->user()?->username 
+                    ?: 'User';
+
+                $controlNo = $this->selectedTransaction->control_number ?? $this->controlNumber ?? '';
+                $transId = $this->selectedTransactionId;
+
+                if ($userOfficeCode) {
+                    \App\Services\DtsNotificationService::notifyForwarded($userOfficeCode, $userFirstName, $controlNo, $transId);
+                }
+
+                if (!empty($destOfficeCode)) {
+                    \App\Services\DtsNotificationService::notifyWaitingToBeReceived($destOfficeCode, $controlNo, $transId);
+                }
             } else {
                 // Flow sequence complete - keep transaction in Current Transactions for file upload
                 // User will explicitly finalize via Complete Transaction double-verification modal.
@@ -1601,11 +1659,11 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
                                         </span>
                                     </td>
                                     <td style="text-align: center; white-space: nowrap;">
-                                        @if(request()->routeIs('dts.incoming'))
+                                        @if(request()->routeIs('dts.incoming') || $this->currentRouteName === 'dts.incoming' || $activeTab === 'incoming')
                                             <button type="button" onclick="if(window.openScannerModal) window.openScannerModal('{{ $t->control_number }}');" class="rms-select" style="text-decoration: none; display: inline-flex; align-items: center; gap: 4px; border: none; background: transparent; cursor: pointer; color: #0284c7; font-weight: 600;">
                                                 <i class="fa-solid fa-qrcode"></i> Scan
                                             </button>
-                                        @elseif(request()->routeIs('dts.received'))
+                                        @elseif(request()->routeIs('dts.received') || $this->currentRouteName === 'dts.received' || $activeTab === 'received')
                                             <div style="display: flex; align-items: center; justify-content: center; gap: 8px;">
                                                 <button type="button" wire:click="openTransaction('{{ $t->transaction_id }}')" class="rms-select" style="text-decoration: none; display: inline-block; border: none; background: transparent; cursor: pointer; color: #043899; font-weight: 500;">View</button>
                                                 <button type="button" onclick="if(window.openScannerModal) window.openScannerModal('{{ $t->control_number }}');" class="rms-select" style="text-decoration: none; display: inline-flex; align-items: center; gap: 4px; border: none; background: transparent; cursor: pointer; color: #0284c7; font-weight: 600;">
@@ -1646,11 +1704,11 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
                                     </span>
                                 </td>
                                 <td style="text-align: center; white-space: nowrap;">
-                                    @if(request()->routeIs('dts.incoming'))
+                                    @if(request()->routeIs('dts.incoming') || $this->currentRouteName === 'dts.incoming' || $activeTab === 'incoming')
                                         <button type="button" onclick="if(window.openScannerModal) window.openScannerModal('{{ $t->control_number }}');" class="rms-select" style="text-decoration: none; display: inline-flex; align-items: center; gap: 4px; border: none; background: transparent; cursor: pointer; color: #0284c7; font-weight: 600;">
                                             <i class="fa-solid fa-qrcode"></i> Scan
                                         </button>
-                                    @elseif(request()->routeIs('dts.received'))
+                                    @elseif(request()->routeIs('dts.received') || $this->currentRouteName === 'dts.received' || $activeTab === 'received')
                                         <div style="display: flex; align-items: center; justify-content: center; gap: 8px;">
                                             <button type="button" wire:click="openTransaction('{{ $t->transaction_id }}')" class="rms-select" style="text-decoration: none; display: inline-block; border: none; background: transparent; cursor: pointer; color: #043899; font-weight: 500;">View</button>
                                             <button type="button" onclick="if(window.openScannerModal) window.openScannerModal('{{ $t->control_number }}');" class="rms-select" style="text-decoration: none; display: inline-flex; align-items: center; gap: 4px; border: none; background: transparent; cursor: pointer; color: #0284c7; font-weight: 600;">
@@ -1743,11 +1801,11 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
 
                             <!-- Card Footer action -->
                             <div style="display: flex; justify-content: flex-end; align-items: center; gap: 8px; margin-top: 16px;">
-                                @if(request()->routeIs('dts.incoming'))
+                                @if(request()->routeIs('dts.incoming') || $this->currentRouteName === 'dts.incoming' || $activeTab === 'incoming')
                                     <button type="button" onclick="if(window.openScannerModal) window.openScannerModal('{{ $t->control_number }}');" class="rms-select" style="text-decoration: none; display: inline-flex; align-items: center; gap: 4px; border: none; background: transparent; cursor: pointer; color: #0284c7; font-weight: 600;">
                                         <i class="fa-solid fa-qrcode"></i> Scan
                                     </button>
-                                @elseif(request()->routeIs('dts.received'))
+                                @elseif(request()->routeIs('dts.received') || $this->currentRouteName === 'dts.received' || $activeTab === 'received')
                                     <button type="button" wire:click="openTransaction('{{ $t->transaction_id }}')" class="rms-select" style="text-decoration: none; display: inline-block; border: none; background: transparent; cursor: pointer; color: #043899; font-weight: 500;">View</button>
                                     <button type="button" onclick="if(window.openScannerModal) window.openScannerModal('{{ $t->control_number }}');" class="rms-select" style="text-decoration: none; display: inline-flex; align-items: center; gap: 4px; border: none; background: transparent; cursor: pointer; color: #0284c7; font-weight: 600;">
                                         <i class="fa-solid fa-qrcode"></i> Scan
@@ -1813,11 +1871,11 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
 
                         <!-- Card Footer action -->
                         <div style="display: flex; justify-content: flex-end; align-items: center; gap: 8px; margin-top: 16px;">
-                            @if(request()->routeIs('dts.incoming'))
+                            @if(request()->routeIs('dts.incoming') || $this->currentRouteName === 'dts.incoming' || $activeTab === 'incoming')
                                 <button type="button" onclick="if(window.openScannerModal) window.openScannerModal('{{ $t->control_number }}');" class="rms-select" style="text-decoration: none; display: inline-flex; align-items: center; gap: 4px; border: none; background: transparent; cursor: pointer; color: #0284c7; font-weight: 600;">
                                     <i class="fa-solid fa-qrcode"></i> Scan
                                 </button>
-                            @elseif(request()->routeIs('dts.received'))
+                            @elseif(request()->routeIs('dts.received') || $this->currentRouteName === 'dts.received' || $activeTab === 'received')
                                 <button type="button" wire:click="openTransaction('{{ $t->transaction_id }}')" class="rms-select" style="text-decoration: none; display: inline-block; border: none; background: transparent; cursor: pointer; color: #043899; font-weight: 500;">View</button>
                                 <button type="button" onclick="if(window.openScannerModal) window.openScannerModal('{{ $t->control_number }}');" class="rms-select" style="text-decoration: none; display: inline-flex; align-items: center; gap: 4px; border: none; background: transparent; cursor: pointer; color: #0284c7; font-weight: 600;">
                                     <i class="fa-solid fa-qrcode"></i> Scan

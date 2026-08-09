@@ -65,6 +65,7 @@ window.openDynamicPrintModal = function(qrCodeValue) {
 
     // Set display to flex FIRST so layout calculations and scrollWidth measurements work
     qrModal.style.display = 'flex';
+    qrModal.style.zIndex = '99999';
     document.body.style.overflow = 'hidden';
 
     var qrUrl = 'https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=' + encodeURIComponent(btoa(qrCodeValue));

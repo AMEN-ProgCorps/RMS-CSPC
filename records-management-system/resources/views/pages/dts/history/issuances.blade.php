@@ -1,6 +1,7 @@
 <?php
 use Livewire\Attributes\Layout;
 use Livewire\Attributes\Title;
+use Livewire\Attributes\On;
 use Livewire\Volt\Component;
 use Livewire\WithPagination;
 use Livewire\WithFileUploads;
@@ -10,6 +11,13 @@ use Illuminate\Support\Str;
 new #[Layout('layouts.dts')] #[Title('DTS - Issuances History')] class extends Component {
     use WithPagination;
     use WithFileUploads;
+
+    #[On('dts-transaction-updated')]
+    #[On('refresh-transactions')]
+    public function refreshTransactionsList(): void
+    {
+        $this->resetPage();
+    }
 
     public int $perPage = 10;
     public string $searchQuery = '';
@@ -107,7 +115,7 @@ new #[Layout('layouts.dts')] #[Title('DTS - Issuances History')] class extends C
     @vite(['resources/css/dts/list_transaction.css', 'resources/css/dts/receive.css'])
 @endpush
 
-<div class="rms-container">
+<div class="rms-container" wire:poll.10s.keep-alive>
     <div class="rms-header">
         <h2>Issuances History</h2>
     </div>

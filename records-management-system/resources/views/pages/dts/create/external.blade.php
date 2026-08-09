@@ -639,6 +639,10 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create External
             ]);
         }
 
+        if (empty($this->seq_number)) {
+            $this->generateRandomSeq();
+        }
+
         $this->validate([
             'source_office' => 'required|string',
             'requestor_name' => 'required|string|max:255',
@@ -654,30 +658,34 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create External
             return;
         }
 
-        if (empty($this->seq_number)) {
-            $this->generateRandomSeq();
-        }
-
-        if (!$this->generatedQrCode) {
-            $this->generateQrCode();
-        }
-
-        $controlNumber = 'EXT-' . now()->format('Y-m') . '-' . $this->seq_number;
-
-        // Check if control number already exists
-        $exists = DB::table('dts_transaction_details')
-            ->where('control_number', $controlNumber)
-            ->exists();
-        if ($exists) {
-            $this->addError('seq_number', 'This control number is already taken.');
-            return;
-        }
-
-        $userOfficeCode = !empty($this->unit_college) ? $this->unit_college : (auth()->user()?->details?->office?->office_code ?? 'RMO');
-
         DB::beginTransaction();
         try {
-            // Mark QR code as used
+            $attempts = 0;
+            $controlNumber = '';
+            $collision = false;
+
+            do {
+                $attempts++;
+                if ($attempts > 1 || empty($this->seq_number)) {
+                    $this->generateRandomSeq();
+                    $this->generatedQrCode = null;
+                }
+
+                if (!$this->generatedQrCode) {
+                    $this->generateQrCode();
+                }
+
+                $controlNumber = 'EXT-' . now()->format('Y-m') . '-' . $this->seq_number;
+                $collision = DB::table('dts_transaction_details')->where('control_number', $controlNumber)->exists();
+            } while ($collision && $attempts < 5);
+
+            if ($collision) {
+                DB::rollBack();
+                $this->addError('seq_number', 'High concurrency detected. Please click Create Transaction again.');
+                return;
+            }
+
+            // Mark the QR code as used
             DB::table('dts_qr_code')
                 ->where('code_id', $this->generatedQrCode)
                 ->update(['qr_status' => 'used']);
@@ -714,6 +722,7 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create External
             $flowCode = $this->transaction_flow;
             $flow = DB::table('dts_transaction_flow')->where('flow_code', $this->transaction_flow)->first();
             
+            $userOfficeCode = auth()->user()?->details?->office?->office_code ?? 'RMO';
             $originOfficeCode = $userOfficeCode;
             $originOffice = DB::table('office')->where('office_code', $originOfficeCode)->first();
             $clusterHead = null;
@@ -899,6 +908,7 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create External
             $this->availabilityMessage = '';
             $this->isAvailable = null;
             $this->showSuccessModal = true;
+            $this->dispatch('dts-transaction-updated');
 
         } catch (\Exception $e) {
             DB::rollBack();
@@ -921,10 +931,10 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create External
     </div>
 
     <!-- External Transaction Form -->
-    <form class="rms-form" wire:submit.prevent="save" style="position: relative; min-height: 520px; box-sizing: border-box;">
+    <form class="rms-form" wire:submit.prevent="save">
             
-            <!-- Left Side Form Fields -->
-            <div style="margin-right: 220px;">
+            <!-- Form Fields -->
+            <div>
                 
                 @if(auth()->user()?->permissions?->can_dts_modify_control_no)
                     <!-- Original Control Number Input Field -->
@@ -1185,31 +1195,11 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create External
 
             </div>
 
-            <!-- Right Side Absolute QR Code Box -->
-            <div style="position: absolute; top: 0; right: 0; width: 180px; display: flex; flex-direction: column; align-items: center; gap: 10px; box-sizing: border-box;">
-                @if($generatedQrCode)
-                    <div id="printable-qr-area-external" style="display: flex; flex-direction: column; align-items: center; gap: 8px; background: white; padding: 16px; border-radius: 8px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); border: 1px solid #cbd5e1; box-sizing: border-box; width: 180px;">
-                        <img src="https://api.qrserver.com/v1/create-qr-code/?size=150x150&data={{ urlencode(base64_encode($generatedQrCode)) }}" alt="QR Code" style="width: 148px; height: 148px;">
-                    </div>
-                    <button type="button" onclick="openDynamicPrintModal('{{ $generatedQrCode }}')" style="background: #10b981; color: white; border: none; border-radius: 6px; padding: 8px 16px; font-weight: bold; font-size: 13px; cursor: pointer; display: flex; align-items: center; gap: 6px; width: 100%; justify-content: center; box-shadow: 0 2px 4px rgba(16, 185, 129, 0.2);">
-                        <i class="fa-solid fa-print"></i> Print QR Code
-                    </button>
-                @else
-                    <div style="display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; background: #f8fafc; border: 2px dashed #cbd5e1; padding: 20px; border-radius: 8px; box-sizing: border-box; width: 180px; height: 210px; color: #64748b; text-align: center;">
-                        <i class="fa-solid fa-qrcode" style="font-size: 36px; color: #94a3b8;"></i>
-                        <span style="font-size: 12px; font-weight: 600;">QR Code Output</span>
-                    </div>
-                @endif
-            </div>
-
-            <!-- Submit button and Generate QR next to it -->
+            <!-- Submit button -->
             <div class="actions-row" style="display: flex; gap: 12px; align-items: center; margin-top: 24px; clear: both;">
                 @if (session()->has('error'))
                     <span style="color: #dc2626; font-size: 13px; align-self: center; margin-right: 15px;">{{ session('error') }}</span>
                 @endif
-                <button type="button" wire:click="generateQrCode" class="btn-primary" style="background-color: #3b82f6; border-radius: 4px; padding: 10px 20px; font-size: 13px; font-weight: 600; cursor: pointer; display: flex; align-items: center; gap: 6px; box-shadow: 0 2px 4px rgba(59, 130, 246, 0.2);" {{ $generatedQrCode ? 'disabled style=background-color:#cbd5e1;cursor:not-allowed;box-shadow:none;' : '' }}>
-                    <i class="fa-solid fa-gear"></i> Generate QR Code
-                </button>
                 @php
                     $emailAccessRequired = DB::table('system_settings')->where('key', 'dts_email_access_required_external')->value('value') === 'true';
                     $hasEmailInput = !empty($email_access_input);
@@ -1228,7 +1218,9 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create External
                 <button type="button" wire:click="toggleEmailAccessModal" class="btn-primary" style="background-color: {{ $btnBg }}; border-radius: 4px; padding: 10px 20px; font-size: 13px; font-weight: 600; cursor: pointer; display: flex; align-items: center; gap: 6px; box-shadow: 0 2px 4px {{ $btnShadow }}; transition: background-color 0.15s;" onmouseover="this.style.backgroundColor='{{ $btnHoverBg }}'" onmouseout="this.style.backgroundColor='{{ $btnBg }}'">
                     <i class="fa-solid {{ $btnIcon }}"></i> Manage Email Access
                 </button>
-                <button type="submit" class="btn-primary" @if(!$generatedQrCode) disabled style="background-color: #cbd5e1; color: #94a3b8; cursor: not-allowed; box-shadow: none;" @endif>CREATE TRANSACTION</button>
+                <button type="submit" class="btn-primary" style="background-color: #3b82f6; border-radius: 4px; padding: 10px 24px; font-size: 13px; font-weight: 600; cursor: pointer; display: flex; align-items: center; gap: 6px; box-shadow: 0 2px 4px rgba(59, 130, 246, 0.2);">
+                    <i class="fa-solid fa-plus"></i> CREATE TRANSACTION
+                </button>
             </div>
         </form>
 <!-- QR-CODE-MODIFY-HERE -->
@@ -1639,7 +1631,7 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create External
 
                 <!-- Footer Actions -->
                 <div style="padding: 16px 24px; border-top: 1px solid #f1f5f9; display: flex; justify-content: space-between; align-items: center; background: #fafafa;">
-                    <button type="button" onclick="printQrCodeOnly()" style="background: #0284c7; border: none; color: #ffffff; padding: 9px 18px; border-radius: 8px; font-size: 13px; font-weight: 600; cursor: pointer; display: flex; align-items: center; gap: 8px;">
+                    <button type="button" onclick="if(window.openDynamicPrintModal) { openDynamicPrintModal('{{ $createdTransactionSummary['qr_code'] }}'); } else { printQrCodeOnly(); }" style="background: #0284c7; border: none; color: #ffffff; padding: 9px 18px; border-radius: 8px; font-size: 13px; font-weight: 600; cursor: pointer; display: flex; align-items: center; gap: 8px;">
                         <i class="fa-solid fa-print"></i> Print QR Code
                     </button>
                     <button type="button" wire:click="closeSuccessModal" style="background: #475569; border: none; color: #ffffff; padding: 9px 20px; border-radius: 8px; font-size: 13px; font-weight: 600; cursor: pointer;">
@@ -1656,7 +1648,7 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create External
                 const type = "{{ $createdTransactionSummary['type'] }}";
                 const subject = "{{ addslashes($createdTransactionSummary['subject']) }}";
                 const requestor = "{{ addslashes($createdTransactionSummary['requestor']) }}";
-                const qrUrl = "https://api.qrserver.com/v1/create-qr-code/?size=220x220&data={{ urlencode($createdTransactionSummary['qr_code']) }}";
+                const qrUrl = "https://api.qrserver.com/v1/create-qr-code/?size=220x220&data={{ urlencode(base64_encode($createdTransactionSummary['qr_code'])) }}";
 
                 const printWin = window.open('', '_blank', 'width=600,height=600');
                 printWin.document.write(`

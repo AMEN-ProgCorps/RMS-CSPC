@@ -1,5 +1,5 @@
 <!-- Dynamic Movable QR Print Modal Component -->
-<div id="dynamicQrPrintModal" wire:ignore style="display: none; position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; background: rgba(0,0,0,0.7); z-index: 9999; flex-direction: column;">
+<div id="dynamicQrPrintModal" wire:ignore style="display: none; position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; background: rgba(0,0,0,0.7); z-index: 99999; flex-direction: column;">
     
     <!-- Header/Toolbar -->
     <div style="background: #ffffff; padding: 16px 24px; display: flex; justify-content: space-between; align-items: center; box-shadow: 0 2px 10px rgba(0,0,0,0.1); z-index: 2;">

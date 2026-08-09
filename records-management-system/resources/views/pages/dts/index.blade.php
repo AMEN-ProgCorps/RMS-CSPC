@@ -1,6 +1,7 @@
 <?php
 use Livewire\Attributes\Layout;
 use Livewire\Attributes\Title;
+use Livewire\Attributes\On;
 use Livewire\Volt\Component;
 use Livewire\WithPagination;
 use Livewire\WithFileUploads;
@@ -10,6 +11,13 @@ use Illuminate\Support\Str;
 new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends Component {
     use WithPagination;
     use WithFileUploads;
+
+    #[On('dts-transaction-updated')]
+    #[On('refresh-transactions')]
+    public function refreshTransactionsList(): void
+    {
+        $this->resetPage();
+    }
 
     public string $activeTab = 'all';
     public string $searchQuery = '';
@@ -1436,7 +1444,7 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
     @vite(['resources/css/dts/internal.css', 'resources/css/dts/receive.css', 'resources/css/dts/list_transaction.css'])
 @endpush
 
-<div class="dts-page min-h-screen" wire:poll.30s>
+<div class="dts-page min-h-screen" wire:poll.5s.keep-alive>
     @php
         $perms = auth()->user()?->permissions;
         $isSadm = $perms?->is_sadm ?? false;

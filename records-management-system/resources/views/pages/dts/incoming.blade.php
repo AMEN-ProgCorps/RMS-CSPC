@@ -1,6 +1,7 @@
 <?php
 use Livewire\Attributes\Layout;
 use Livewire\Attributes\Title;
+use Livewire\Attributes\On;
 use Livewire\Volt\Component;
 use Livewire\WithPagination;
 use Livewire\WithFileUploads;
@@ -10,6 +11,13 @@ use Illuminate\Support\Str;
 new #[Layout('layouts.dts')] #[Title('Incoming Transactions - Document Tracking System')] class extends Component {
     use WithPagination;
     use WithFileUploads;
+
+    #[On('dts-transaction-updated')]
+    #[On('refresh-transactions')]
+    public function refreshTransactionsList(): void
+    {
+        $this->resetPage();
+    }
 
     public string $activeTab = 'all';
     public string $searchQuery = '';
@@ -249,7 +257,7 @@ new #[Layout('layouts.dts')] #[Title('Incoming Transactions - Document Tracking 
 };
 ?>
 
-<div>
+<div wire:poll.5s.keep-alive>
     <link rel="stylesheet" href="{{ asset('css/dts/internal.css') }}">
     <style>
         .dts-badge-incoming {

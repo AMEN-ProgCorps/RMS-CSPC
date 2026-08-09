@@ -338,6 +338,12 @@
       white-space: nowrap;
       overflow: hidden;
       text-overflow: ellipsis;
+      /* Sized to content but free to shrink inside .user-name-row (a flex
+         row) so it truncates on its own instead of growing to fill the row
+         and clipping the verified-badge sibling that sits after it. Has no
+         effect where .user-name isn't inside a flex parent. */
+      flex: 0 1 auto;
+      min-width: 0;
     }
     
     .user-office {

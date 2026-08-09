@@ -18,6 +18,7 @@
     const adminSearchInput = document.getElementById('adminSearchInput');
 
     const chatHeaderTitle = document.getElementById('chatHeaderTitle');
+    const chatHeaderAvatar = document.getElementById('chatHeaderAvatar');
     const sidebar         = document.getElementById('sidebar');
     const backButton      = document.getElementById('backButton');
     const burgerButton    = document.getElementById('burgerButton');
@@ -790,7 +791,8 @@
           info.className = 'user-info';
 
           nameRow = document.createElement('div');
-          nameRow.style.cssText = 'display:flex;align-items:center;justify-content:space-between;gap:4px;';
+          nameRow.className = 'user-name-row';
+          nameRow.style.cssText = 'display:flex;align-items:center;justify-content:flex-start;gap:4px;min-width:0;';
           nameEl = document.createElement('div');
           nameEl.className = 'user-name';
           nameRow.appendChild(nameEl);
@@ -812,6 +814,7 @@
           item._avatar = avatar;
           item._dot = dot;
           item._info = info;
+          item._nameRow = nameRow;
           item._nameEl = nameEl;
           item._officeEl = officeEl;
           item._actionsRight = actionsRight;
@@ -821,6 +824,7 @@
           avatar = item._avatar || item.querySelector('.user-avatar');
           dot = item._dot || item.querySelector('.status-dot');
           info = item._info || item.querySelector('.user-info');
+          nameRow = item._nameRow || item.querySelector('.user-name-row');
           nameEl = item._nameEl || item.querySelector('.user-name');
           officeEl = item._officeEl || item.querySelector('.user-office');
           actionsRight = item._actionsRight || item.querySelector('.user-actions-right');
@@ -846,13 +850,23 @@
           chatHeaderTitle.textContent = u.name;
           applyHeaderAdminBadge();
         }
+        if (activeDM === u.username) {
+          applyHeaderAvatar(u);
+        }
 
         const targetIsVerified = verifiedAccountIds && verifiedAccountIds.has(Number(u.account_id));
 
-        // Verified badge next to verified users' names in the sidebar
-        const sidebarBadge = nameEl.querySelector('.verified-badge');
+        // Verified badge next to verified users' names in the sidebar.
+        // Injected into nameRow (a flex sibling of nameEl), NOT nameEl itself.
+        // nameEl has text-overflow:ellipsis for long names — appending the
+        // badge inside it let the browser's own truncation swallow the SVG
+        // whenever the name nearly filled the row, showing "…" instead of
+        // the checkmark. nameEl keeps flex:0 1 auto + min-width:0 so it still
+        // truncates on its own, while the badge sits outside that box and
+        // always stays visible.
+        const sidebarBadge = nameRow.querySelector('.verified-badge');
         if (targetIsVerified) {
-          if (!sidebarBadge) injectBadge(nameEl);
+          if (!sidebarBadge) injectBadge(nameRow);
         } else if (sidebarBadge) {
           sidebarBadge.remove();
         }
@@ -1331,6 +1345,7 @@
       localStorage.setItem('activeDM', u.username);
       chatHeaderTitle.textContent = u.name;
       applyHeaderAdminBadge();
+      applyHeaderAvatar(u);
       // Note: we deliberately don't blank chatBox here. The previous chat's
       // messages stay on screen (harmlessly) until loadChat's diff logic swaps
       // them out the instant the new conversation's data arrives. Clearing it
@@ -1389,6 +1404,8 @@
 
       localStorage.setItem('activeDM', '__global__');
       chatHeaderTitle.innerHTML = `Global Chat`;
+      applyHeaderAdminBadge(); // activeDMAccountId is null here — clears any leftover badge from the previous DM
+      applyHeaderAvatar(null); // no single DM partner — hide the header avatar
       chatBox.innerHTML = '';
 
       removePaginationBtn();
@@ -2051,6 +2068,8 @@
       localStorage.setItem('activeSpyConv', c.convId);
 
       chatHeaderTitle.textContent = c.name1 + ' & ' + c.name2;
+      applyHeaderAdminBadge(); // activeDMAccountId is null for spied conversations — clears any leftover badge
+      applyHeaderAvatar(null); // two participants, no single avatar to show
       chatBox.innerHTML = '<div class="empty-chat"><p>Loading...</p></div>';
       
       removePaginationBtn();

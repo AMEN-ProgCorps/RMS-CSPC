@@ -338,6 +338,12 @@
       white-space: nowrap;
       overflow: hidden;
       text-overflow: ellipsis;
+      /* Sized to content but free to shrink inside .user-name-row (a flex
+         row) so it truncates on its own instead of growing to fill the row
+         and clipping the verified-badge sibling that sits after it. Has no
+         effect where .user-name isn't inside a flex parent. */
+      flex: 0 1 auto;
+      min-width: 0;
     }
     
     .user-office {
@@ -813,6 +819,47 @@
       overflow: hidden;
     }
 
+    /* Small profile picture shown in the header, to the left of the DM
+       partner's name — reuses .avatar-img sizing rules for the <img> case,
+       falls back to initials text like .user-avatar does. Sized to match
+       .message-avatar (32px) so it's the same size as the sender avatars
+       shown next to messages in the chat itself. */
+    .header-avatar {
+      width: 32px;
+      height: 32px;
+      border-radius: 50%;
+      background-color: var(--bg-avatar-sent);
+      color: #fff;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-weight: 600;
+      font-size: 13px;
+      text-transform: uppercase;
+      flex-shrink: 0;
+      min-width: 32px;
+      margin-right: 10px;
+      overflow: hidden;
+    }
+    .header-avatar img.avatar-img {
+      width: 100%;
+      height: 100%;
+      border-radius: 50%;
+      object-fit: cover;
+      display: block;
+    }
+
+    /* Desktop: nudge the header avatar right by 4px so its left edge lines
+       up with .message-avatar's left edge in the chat below (chat-box has
+       12px padding + the avatar's own 8px margin = 20px from the viewport
+       edge, vs. the header's 16px padding alone). Not needed on mobile,
+       where the back/burger button sits before the avatar instead. */
+    @media (min-width: 992px) {
+      .header-avatar {
+        margin-left: 4px;
+      }
+    }
+
     .header-logo {
       height: 28px;
       width: 28px;
@@ -924,6 +971,25 @@
     }
 
     #burgerButton:active {
+      background: transparent;
+      transform: scale(0.92);
+    }
+
+    /* Back arrow button: plain icon, no circle/pill container — same
+       treatment as #burgerButton above. */
+    #backButton {
+      background: transparent;
+      color: var(--text-primary);
+      border-radius: 0;
+      min-width: auto;
+      padding: 0;
+    }
+
+    #backButton:hover {
+      background: transparent;
+    }
+
+    #backButton:active {
       background: transparent;
       transform: scale(0.92);
     }
@@ -2358,32 +2424,6 @@
       flex-shrink: 0;
       aspect-ratio: 1 / 1;
       display: block;
-    }
-    /* Tooltip on hover */
-    .verified-badge {
-      position: relative;
-      cursor: default;
-    }
-    .verified-badge::after {
-      content: 'Verified';
-      position: absolute;
-      bottom: calc(100% + 4px);
-      left: 50%;
-      transform: translateX(-50%);
-      background: rgba(27, 116, 228, 0.92);
-      color: #fff;
-      font-size: 10px;
-      font-weight: 600;
-      padding: 2px 6px;
-      border-radius: 6px;
-      white-space: nowrap;
-      pointer-events: none;
-      opacity: 0;
-      transition: opacity 0.15s ease;
-      letter-spacing: 0.3px;
-    }
-    .verified-badge:hover::after {
-      opacity: 1;
     }
 
     /* ── Reaction count next to emoji badge ── */

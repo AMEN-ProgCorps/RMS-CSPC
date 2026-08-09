@@ -118,7 +118,7 @@ foreach ($rawMessages as $msg) {
     $avatarInner = UserResolver::avatarInner($senderId, $initials);
     $adminBadge = '';
     if ($verifiedIds[$senderId]) {
-        $adminBadge = " <span class='verified-badge' title='Verified'>"
+        $adminBadge = " <span class='verified-badge'>"
             . "<svg viewBox='0 0 24 24' fill='none' xmlns='http://www.w3.org/2000/svg'>"
             . "<circle cx='12' cy='12' r='12' fill='#1b74e4'/>"
             . "<path d='M7 12.5l3.5 3.5 6.5-7' stroke='#fff' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'/>"

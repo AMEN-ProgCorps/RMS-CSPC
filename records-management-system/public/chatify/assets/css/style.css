@@ -821,10 +821,12 @@
 
     /* Small profile picture shown in the header, to the left of the DM
        partner's name — reuses .avatar-img sizing rules for the <img> case,
-       falls back to initials text like .user-avatar does. */
+       falls back to initials text like .user-avatar does. Sized to match
+       .message-avatar (32px) so it's the same size as the sender avatars
+       shown next to messages in the chat itself. */
     .header-avatar {
-      width: 34px;
-      height: 34px;
+      width: 32px;
+      height: 32px;
       border-radius: 50%;
       background-color: var(--bg-avatar-sent);
       color: #fff;
@@ -835,6 +837,7 @@
       font-size: 13px;
       text-transform: uppercase;
       flex-shrink: 0;
+      min-width: 32px;
       margin-right: 10px;
       overflow: hidden;
     }
@@ -844,6 +847,17 @@
       border-radius: 50%;
       object-fit: cover;
       display: block;
+    }
+
+    /* Desktop: nudge the header avatar right by 4px so its left edge lines
+       up with .message-avatar's left edge in the chat below (chat-box has
+       12px padding + the avatar's own 8px margin = 20px from the viewport
+       edge, vs. the header's 16px padding alone). Not needed on mobile,
+       where the back/burger button sits before the avatar instead. */
+    @media (min-width: 992px) {
+      .header-avatar {
+        margin-left: 4px;
+      }
     }
 
     .header-logo {

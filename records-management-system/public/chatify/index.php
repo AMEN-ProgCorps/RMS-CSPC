@@ -249,6 +249,7 @@ try {
           <button id="backButton" class="clear-button" style="display:none;margin-right:10px;padding:0 10px;min-width:auto;" aria-label="Go back" title="Go back">
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="19" y1="12" x2="5" y2="12"></line><polyline points="12 19 5 12 12 5"></polyline></svg>
           </button>
+          <div class="header-avatar" id="chatHeaderAvatar" style="display:none;"></div>
           <h1 id="chatHeaderTitle"></h1>
         </div>
       

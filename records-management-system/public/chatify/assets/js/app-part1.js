@@ -18,6 +18,7 @@
     const adminSearchInput = document.getElementById('adminSearchInput');
 
     const chatHeaderTitle = document.getElementById('chatHeaderTitle');
+    const chatHeaderAvatar = document.getElementById('chatHeaderAvatar');
     const sidebar         = document.getElementById('sidebar');
     const backButton      = document.getElementById('backButton');
     const burgerButton    = document.getElementById('burgerButton');
@@ -849,6 +850,9 @@
           chatHeaderTitle.textContent = u.name;
           applyHeaderAdminBadge();
         }
+        if (activeDM === u.username) {
+          applyHeaderAvatar(u);
+        }
 
         const targetIsVerified = verifiedAccountIds && verifiedAccountIds.has(Number(u.account_id));
 
@@ -1341,6 +1345,7 @@
       localStorage.setItem('activeDM', u.username);
       chatHeaderTitle.textContent = u.name;
       applyHeaderAdminBadge();
+      applyHeaderAvatar(u);
       // Note: we deliberately don't blank chatBox here. The previous chat's
       // messages stay on screen (harmlessly) until loadChat's diff logic swaps
       // them out the instant the new conversation's data arrives. Clearing it
@@ -1400,6 +1405,7 @@
       localStorage.setItem('activeDM', '__global__');
       chatHeaderTitle.innerHTML = `Global Chat`;
       applyHeaderAdminBadge(); // activeDMAccountId is null here — clears any leftover badge from the previous DM
+      applyHeaderAvatar(null); // no single DM partner — hide the header avatar
       chatBox.innerHTML = '';
 
       removePaginationBtn();
@@ -2063,6 +2069,7 @@
 
       chatHeaderTitle.textContent = c.name1 + ' & ' + c.name2;
       applyHeaderAdminBadge(); // activeDMAccountId is null for spied conversations — clears any leftover badge
+      applyHeaderAvatar(null); // two participants, no single avatar to show
       chatBox.innerHTML = '<div class="empty-chat"><p>Loading...</p></div>';
       
       removePaginationBtn();

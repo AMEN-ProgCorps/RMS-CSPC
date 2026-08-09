@@ -819,6 +819,33 @@
       overflow: hidden;
     }
 
+    /* Small profile picture shown in the header, to the left of the DM
+       partner's name — reuses .avatar-img sizing rules for the <img> case,
+       falls back to initials text like .user-avatar does. */
+    .header-avatar {
+      width: 34px;
+      height: 34px;
+      border-radius: 50%;
+      background-color: var(--bg-avatar-sent);
+      color: #fff;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-weight: 600;
+      font-size: 13px;
+      text-transform: uppercase;
+      flex-shrink: 0;
+      margin-right: 10px;
+      overflow: hidden;
+    }
+    .header-avatar img.avatar-img {
+      width: 100%;
+      height: 100%;
+      border-radius: 50%;
+      object-fit: cover;
+      display: block;
+    }
+
     .header-logo {
       height: 28px;
       width: 28px;

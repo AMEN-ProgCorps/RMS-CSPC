@@ -56,6 +56,7 @@
           
           chatHeaderTitle.textContent = '';
           applyHeaderAdminBadge(); // activeDMAccountId is null here — clears any leftover badge from the previous DM
+          applyHeaderAvatar(null);
           removePaginationBtn();
           chatBox.innerHTML = '<div class="empty-chat"><p>Camarines Sur Polytechnic Colleges</p></div>';
 
@@ -124,6 +125,7 @@
             localStorage.removeItem('activeDM');
             chatHeaderTitle.textContent = '';
             applyHeaderAdminBadge(); // activeDMAccountId is null here — clears any leftover badge
+            applyHeaderAvatar(null);
             removePaginationBtn();
             chatBox.innerHTML = '<div class="empty-chat"><p>Camarines Sur Polytechnic Colleges</p></div>';
           }

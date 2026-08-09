@@ -27,6 +27,35 @@
       el.appendChild(badge);
     }
 
+    // ── Profile picture in the header, next to the DM partner's name ──
+    // Pass the user object (needs .name/.full_name + .avatar_url) to show
+    // their avatar, or null/undefined to hide it (Global Chat, admin spy
+    // conversations, or no conversation open).
+    function applyHeaderAvatar(u) {
+      if (!chatHeaderAvatar) return;
+      if (!u) {
+        if (chatHeaderAvatar.style.display !== 'none') {
+          chatHeaderAvatar.style.display = 'none';
+          chatHeaderAvatar.innerHTML = '';
+          delete chatHeaderAvatar.dataset.avatarUrl;
+          delete chatHeaderAvatar.dataset.initials;
+        }
+        return;
+      }
+      const displayName = u.name || u.full_name || '';
+      const initials = getInitials(displayName || '?');
+      const avatarUrl = u.avatar_url || '';
+      // Cache last-rendered values so re-syncing on every poll doesn't
+      // needlessly rebuild the <img> (and re-trigger its network load).
+      if (chatHeaderAvatar.dataset.avatarUrl === avatarUrl && chatHeaderAvatar.dataset.initials === initials && chatHeaderAvatar.style.display === 'flex') {
+        return;
+      }
+      chatHeaderAvatar.innerHTML = avatarInnerHtml(u.avatar_url, initials);
+      chatHeaderAvatar.dataset.avatarUrl = avatarUrl;
+      chatHeaderAvatar.dataset.initials = initials;
+      chatHeaderAvatar.style.display = 'flex';
+    }
+
     // ── Verified badge on the chat header (1-on-1 DM title) ──
     // Re-checks every time so switching between conversations correctly adds/removes the badge.
     // Injected into chatHeaderTitle.parentElement (.header-left, a flex row),

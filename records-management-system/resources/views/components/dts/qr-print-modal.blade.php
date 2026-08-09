@@ -50,7 +50,7 @@
             <!-- Draggable QR Code -->
             <div id="draggableQrContainer" style="position: absolute; top: 40px; right: 40px; width: 150px; display: flex; flex-direction: column; align-items: center; gap: 4px; cursor: grab; padding: 8px; border: 2px dashed #94a3b8; background: rgba(255,255,255,0.8); border-radius: 8px; user-select: none; z-index: 10;">
                 <img id="dynamicQrImage" src="" alt="QR Code" style="width: 130px; height: 130px; pointer-events: none;">
-                <span id="dynamicQrText" style="font-family: monospace; font-weight: bold; font-size: 11px; color: #000; text-align: center; word-break: break-all; pointer-events: none;"></span>
+                <span id="dynamicQrText" style="display: none; font-family: monospace; font-weight: bold; font-size: 11px; color: #000; text-align: center; word-break: break-all; pointer-events: none;"></span>
             </div>
 
         </div>

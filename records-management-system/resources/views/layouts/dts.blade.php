@@ -94,6 +94,7 @@
             {{ $slot }}
     </section>
     <x-chatify.floating-widget />
+    <livewire:components.scanner-modal />
     @stack('scripts')
     <script>
         document.addEventListener('submit', () => {

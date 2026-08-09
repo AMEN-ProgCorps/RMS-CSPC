@@ -649,27 +649,33 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create Internal
             return;
         }
 
-        if (empty($this->seq_number)) {
-            $this->generateRandomSeq();
-        }
-
-        if (!$this->generatedQrCode) {
-            $this->generateQrCode();
-        }
-
-        $controlNumber = 'INT-' . now()->format('Y-m') . '-' . $this->seq_number;
-
-        // Check if control number already exists
-        $exists = DB::table('dts_transaction_details')
-            ->where('control_number', $controlNumber)
-            ->exists();
-        if ($exists) {
-            $this->addError('seq_number', 'This control number is already taken.');
-            return;
-        }
-
         DB::beginTransaction();
         try {
+            $attempts = 0;
+            $controlNumber = '';
+            $collision = false;
+
+            do {
+                $attempts++;
+                if ($attempts > 1 || empty($this->seq_number)) {
+                    $this->generateRandomSeq();
+                    $this->generatedQrCode = null;
+                }
+
+                if (!$this->generatedQrCode) {
+                    $this->generateQrCode();
+                }
+
+                $controlNumber = 'INT-' . now()->format('Y-m') . '-' . $this->seq_number;
+                $collision = DB::table('dts_transaction_details')->where('control_number', $controlNumber)->exists();
+            } while ($collision && $attempts < 5);
+
+            if ($collision) {
+                DB::rollBack();
+                $this->addError('seq_number', 'High concurrency detected. Please click Create Transaction again.');
+                return;
+            }
+
             // Mark the QR code as used
             DB::table('dts_qr_code')
                 ->where('code_id', $this->generatedQrCode)
@@ -1223,7 +1229,6 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create Internal
                 @if($generatedQrCode)
                     <div id="printable-qr-area-internal" style="display: flex; flex-direction: column; align-items: center; gap: 8px; background: white; padding: 16px; border-radius: 8px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); border: 1px solid #cbd5e1; box-sizing: border-box; width: 180px;">
                         <img src="https://api.qrserver.com/v1/create-qr-code/?size=150x150&data={{ urlencode(base64_encode($generatedQrCode)) }}" alt="QR Code" style="width: 148px; height: 148px;">
-                        <span style="font-family: monospace; font-weight: bold; font-size: 13px; color: #1e293b; text-align: center; word-break: break-all;">{{ $generatedQrCode }}</span>
                     </div>
                     <button type="button" onclick="openDynamicPrintModal('{{ $generatedQrCode }}')" style="background: #10b981; color: white; border: none; border-radius: 6px; padding: 8px 16px; font-weight: bold; font-size: 13px; cursor: pointer; display: flex; align-items: center; gap: 6px; width: 100%; justify-content: center; box-shadow: 0 2px 4px rgba(16, 185, 129, 0.2);">
                         <i class="fa-solid fa-print"></i> Print QR Code
@@ -1681,11 +1686,6 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create Internal
                     <body>
                         <div class="print-box">
                             <img src="\${qrUrl}" class="qr-img" />
-                            <div class="ctrl-no">\${controlNo}</div>
-                            <div class="meta"><strong>Office:</strong> \${office}</div>
-                            <div class="meta"><strong>Requestor:</strong> \${requestor}</div>
-                            <div class="meta"><strong>Type:</strong> \${type}</div>
-                            <div class="meta" style="margin-top:8px; font-size:11px;">\${subject}</div>
                         </div>
                         <script>
                             window.onload = function() { window.print(); window.close(); }

@@ -92,6 +92,7 @@
         </div>
     </section>
     <x-chatify.floating-widget />
+    <livewire:components.scanner-modal />
     @auth
     <script>
         document.addEventListener("DOMContentLoaded", () => {

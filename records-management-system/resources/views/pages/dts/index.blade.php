@@ -1547,7 +1547,7 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
                         <th>ACTION NEEDED</th>
                         <th>ELAPSED DAY</th>
                         <th>STATUS</th>
-                        <th style="width: 60px;">{{ request()->routeIs('dts.incoming') ? 'Scan' : 'View' }}</th>
+                        <th style="width: 100px; text-align: center;">Action</th>
                     </tr>
                 </thead>
 
@@ -1597,9 +1597,18 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
                                             {{ $t->status }}
                                         </span>
                                     </td>
-                                    <td style="text-align: center;">
+                                    <td style="text-align: center; white-space: nowrap;">
                                         @if(request()->routeIs('dts.incoming'))
-                                            <button type="button" wire:click="openTransaction('{{ $t->transaction_id }}')" class="rms-select" style="text-decoration: none; display: inline-block; border: none; background: transparent; cursor: pointer; color: #0284c7; font-weight: 600;">Scan</button>
+                                            <button type="button" onclick="if(window.openScannerModal) window.openScannerModal('{{ $t->control_number }}');" class="rms-select" style="text-decoration: none; display: inline-flex; align-items: center; gap: 4px; border: none; background: transparent; cursor: pointer; color: #0284c7; font-weight: 600;">
+                                                <i class="fa-solid fa-qrcode"></i> Scan
+                                            </button>
+                                        @elseif(request()->routeIs('dts.received'))
+                                            <div style="display: flex; align-items: center; justify-content: center; gap: 8px;">
+                                                <button type="button" wire:click="openTransaction('{{ $t->transaction_id }}')" class="rms-select" style="text-decoration: none; display: inline-block; border: none; background: transparent; cursor: pointer; color: #043899; font-weight: 500;">View</button>
+                                                <button type="button" onclick="if(window.openScannerModal) window.openScannerModal('{{ $t->control_number }}');" class="rms-select" style="text-decoration: none; display: inline-flex; align-items: center; gap: 4px; border: none; background: transparent; cursor: pointer; color: #0284c7; font-weight: 600;">
+                                                    <i class="fa-solid fa-qrcode"></i> Scan
+                                                </button>
+                                            </div>
                                         @else
                                             <button type="button" wire:click="openTransaction('{{ $t->transaction_id }}')" class="rms-select" style="text-decoration: none; display: inline-block; border: none; background: transparent; cursor: pointer; color: #043899; font-weight: 500;">View</button>
                                         @endif
@@ -1633,9 +1642,18 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
                                         {{ $t->status }}
                                     </span>
                                 </td>
-                                <td style="text-align: center;">
+                                <td style="text-align: center; white-space: nowrap;">
                                     @if(request()->routeIs('dts.incoming'))
-                                        <button type="button" wire:click="openTransaction('{{ $t->transaction_id }}')" class="rms-select" style="text-decoration: none; display: inline-block; border: none; background: transparent; cursor: pointer; color: #0284c7; font-weight: 600;">Scan</button>
+                                        <button type="button" onclick="if(window.openScannerModal) window.openScannerModal('{{ $t->control_number }}');" class="rms-select" style="text-decoration: none; display: inline-flex; align-items: center; gap: 4px; border: none; background: transparent; cursor: pointer; color: #0284c7; font-weight: 600;">
+                                            <i class="fa-solid fa-qrcode"></i> Scan
+                                        </button>
+                                    @elseif(request()->routeIs('dts.received'))
+                                        <div style="display: flex; align-items: center; justify-content: center; gap: 8px;">
+                                            <button type="button" wire:click="openTransaction('{{ $t->transaction_id }}')" class="rms-select" style="text-decoration: none; display: inline-block; border: none; background: transparent; cursor: pointer; color: #043899; font-weight: 500;">View</button>
+                                            <button type="button" onclick="if(window.openScannerModal) window.openScannerModal('{{ $t->control_number }}');" class="rms-select" style="text-decoration: none; display: inline-flex; align-items: center; gap: 4px; border: none; background: transparent; cursor: pointer; color: #0284c7; font-weight: 600;">
+                                                <i class="fa-solid fa-qrcode"></i> Scan
+                                            </button>
+                                        </div>
                                     @else
                                         <button type="button" wire:click="openTransaction('{{ $t->transaction_id }}')" class="rms-select" style="text-decoration: none; display: inline-block; border: none; background: transparent; cursor: pointer; color: #043899; font-weight: 500;">View</button>
                                     @endif
@@ -1722,13 +1740,15 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
 
                             <!-- Card Footer action -->
                             <div style="display: flex; justify-content: flex-end; align-items: center; gap: 8px; margin-top: 16px;">
-                                @if (!$t->is_received && $t->current_office === auth()->user()?->details?->office?->office_code && $canProcess)
-                                    <button type="button" wire:click="receiveTransaction('{{ $t->transaction_id }}')" style="background: #16a34a; color: white; border: none; border-radius: 6px; padding: 6px 14px; font-size: 12px; font-weight: 600; cursor: pointer; display: inline-flex; align-items: center; gap: 6px;">
-                                        <i class="fa-solid fa-download"></i> Receive
-                                    </button>
-                                @endif
                                 @if(request()->routeIs('dts.incoming'))
-                                    <button type="button" wire:click="openTransaction('{{ $t->transaction_id }}')" class="rms-select" style="text-decoration: none; display: inline-block; border: none; background: transparent; cursor: pointer; color: #0284c7; font-weight: 600;">Scan</button>
+                                    <button type="button" onclick="if(window.openScannerModal) window.openScannerModal('{{ $t->control_number }}');" class="rms-select" style="text-decoration: none; display: inline-flex; align-items: center; gap: 4px; border: none; background: transparent; cursor: pointer; color: #0284c7; font-weight: 600;">
+                                        <i class="fa-solid fa-qrcode"></i> Scan
+                                    </button>
+                                @elseif(request()->routeIs('dts.received'))
+                                    <button type="button" wire:click="openTransaction('{{ $t->transaction_id }}')" class="rms-select" style="text-decoration: none; display: inline-block; border: none; background: transparent; cursor: pointer; color: #043899; font-weight: 500;">View</button>
+                                    <button type="button" onclick="if(window.openScannerModal) window.openScannerModal('{{ $t->control_number }}');" class="rms-select" style="text-decoration: none; display: inline-flex; align-items: center; gap: 4px; border: none; background: transparent; cursor: pointer; color: #0284c7; font-weight: 600;">
+                                        <i class="fa-solid fa-qrcode"></i> Scan
+                                    </button>
                                 @else
                                     <button type="button" wire:click="openTransaction('{{ $t->transaction_id }}')" class="rms-select" style="text-decoration: none; display: inline-block; border: none; background: transparent; cursor: pointer; color: #043899; font-weight: 500;">View</button>
                                 @endif
@@ -1789,9 +1809,16 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
                         </div>
 
                         <!-- Card Footer action -->
-                        <div style="display: flex; justify-content: flex-end; margin-top: 16px;">
+                        <div style="display: flex; justify-content: flex-end; align-items: center; gap: 8px; margin-top: 16px;">
                             @if(request()->routeIs('dts.incoming'))
-                                <button type="button" wire:click="openTransaction('{{ $t->transaction_id }}')" class="rms-select" style="text-decoration: none; display: inline-block; border: none; background: transparent; cursor: pointer; color: #0284c7; font-weight: 600;">Scan</button>
+                                <button type="button" onclick="if(window.openScannerModal) window.openScannerModal('{{ $t->control_number }}');" class="rms-select" style="text-decoration: none; display: inline-flex; align-items: center; gap: 4px; border: none; background: transparent; cursor: pointer; color: #0284c7; font-weight: 600;">
+                                    <i class="fa-solid fa-qrcode"></i> Scan
+                                </button>
+                            @elseif(request()->routeIs('dts.received'))
+                                <button type="button" wire:click="openTransaction('{{ $t->transaction_id }}')" class="rms-select" style="text-decoration: none; display: inline-block; border: none; background: transparent; cursor: pointer; color: #043899; font-weight: 500;">View</button>
+                                <button type="button" onclick="if(window.openScannerModal) window.openScannerModal('{{ $t->control_number }}');" class="rms-select" style="text-decoration: none; display: inline-flex; align-items: center; gap: 4px; border: none; background: transparent; cursor: pointer; color: #0284c7; font-weight: 600;">
+                                    <i class="fa-solid fa-qrcode"></i> Scan
+                                </button>
                             @else
                                 <button type="button" wire:click="openTransaction('{{ $t->transaction_id }}')" class="rms-select" style="text-decoration: none; display: inline-block; border: none; background: transparent; cursor: pointer; color: #043899; font-weight: 500;">View</button>
                             @endif

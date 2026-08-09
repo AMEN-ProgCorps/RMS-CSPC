@@ -394,9 +394,14 @@ new #[Layout('layouts.dts')] #[Title('Received Transactions - Document Tracking 
                                     </span>
                                 </td>
                                 <td style="padding: 14px 16px; text-align: right; white-space: nowrap;">
-                                    <button wire:click="openForwardModal('{{ $t->transaction_id }}')" class="btn-forward-action">
-                                        📤 Forward Transaction
-                                    </button>
+                                    <div style="display: flex; align-items: center; justify-content: flex-end; gap: 8px;">
+                                        <button wire:click="openForwardModal('{{ $t->transaction_id }}')" class="btn-forward-action">
+                                            👁 View
+                                        </button>
+                                        <button type="button" onclick="if(window.openScannerModal) window.openScannerModal('{{ $t->control_number }}');" class="btn-forward-action" style="background: #0284c7;">
+                                            📷 Scan
+                                        </button>
+                                    </div>
                                 </td>
                             </tr>
                         @endforeach
@@ -420,9 +425,12 @@ new #[Layout('layouts.dts')] #[Title('Received Transactions - Document Tracking 
                                 <div><strong>Type:</strong> {{ $t->doc_type_name ?: ucfirst($t->trans_type) }}</div>
                             </div>
                         </div>
-                        <div style="padding-top: 12px; border-top: 1px solid #f1f5f9; display: flex; justify-content: flex-end;">
-                            <button wire:click="openForwardModal('{{ $t->transaction_id }}')" class="btn-forward-action" style="width: 100%; justify-content: center;">
-                                📤 Forward Transaction
+                        <div style="padding-top: 12px; border-top: 1px solid #f1f5f9; display: flex; justify-content: flex-end; gap: 8px;">
+                            <button wire:click="openForwardModal('{{ $t->transaction_id }}')" class="btn-forward-action" style="flex: 1; justify-content: center;">
+                                👁 View
+                            </button>
+                            <button type="button" onclick="if(window.openScannerModal) window.openScannerModal('{{ $t->control_number }}');" class="btn-forward-action" style="flex: 1; justify-content: center; background: #0284c7;">
+                                📷 Scan
                             </button>
                         </div>
                     </div>

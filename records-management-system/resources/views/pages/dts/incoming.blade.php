@@ -319,7 +319,7 @@ new #[Layout('layouts.dts')] #[Title('Incoming Transactions - Document Tracking 
             </p>
         </div>
         <div>
-            <a href="{{ route('dts.receive') }}" class="btn-receive-action" style="text-decoration: none; background: #3b82f6;">
+            <a href="javascript:void(0)" onclick="if(window.openScannerModal) window.openScannerModal();" class="btn-receive-action" style="text-decoration: none; background: #3b82f6;">
                 📷 Open Scanner
             </a>
         </div>
@@ -402,7 +402,7 @@ new #[Layout('layouts.dts')] #[Title('Incoming Transactions - Document Tracking 
                                     </span>
                                 </td>
                                 <td style="padding: 14px 16px; text-align: right; white-space: nowrap;">
-                                    <button wire:click="receiveIncoming('{{ $t->transaction_id }}')" class="btn-receive-action">
+                                    <button type="button" onclick="if(window.openScannerModal) window.openScannerModal('{{ $t->control_number }}');" class="btn-receive-action">
                                         📷 Scan
                                     </button>
                                 </td>
@@ -429,7 +429,7 @@ new #[Layout('layouts.dts')] #[Title('Incoming Transactions - Document Tracking 
                             </div>
                         </div>
                         <div style="padding-top: 12px; border-top: 1px solid #f1f5f9; display: flex; justify-content: flex-end;">
-                            <button wire:click="receiveIncoming('{{ $t->transaction_id }}')" class="btn-receive-action" style="width: 100%; justify-content: center;">
+                            <button type="button" onclick="if(window.openScannerModal) window.openScannerModal('{{ $t->control_number }}');" class="btn-receive-action" style="width: 100%; justify-content: center;">
                                 📷 Scan
                             </button>
                         </div>

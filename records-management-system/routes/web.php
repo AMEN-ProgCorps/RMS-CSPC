@@ -31,11 +31,6 @@ $resolveGoogleSsoCredentials = function () {
 };
 
 Route::get('/auth/google', function () use ($resolveGoogleSsoCredentials) {
-    $allowGoogleLogin = \Illuminate\Support\Facades\DB::table('system_settings')->where('key', 'allow_google_login')->value('value') !== 'false';
-    if (!$allowGoogleLogin) {
-        return redirect('/')->with('error', 'Google Sign-In is currently disabled by administrator.');
-    }
-
     ['clientId' => $clientId, 'clientSecret' => $clientSecret, 'redirectUrl' => $redirectUrl] = $resolveGoogleSsoCredentials();
 
     if (empty($clientId) || empty($clientSecret)) {

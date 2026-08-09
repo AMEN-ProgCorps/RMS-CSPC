@@ -277,4 +277,46 @@ class DocumentStorageService
 
         return null;
     }
+
+    /**
+     * Resolve the human-readable Document Type / Flow Name from flow attributes.
+     */
+    public static function resolveFlowName(?string $flowCode, ?string $referencedFlow = null, ?string $flowName = null, ?string $transType = null): string
+    {
+        $candidate = $referencedFlow ?: $flowName;
+
+        // If candidate starts with 'REF-', extract ID and query root flow name
+        if (!empty($candidate) && str_starts_with($candidate, 'REF-')) {
+            $parts = explode('-', $candidate);
+            $rootId = end($parts);
+            if (is_numeric($rootId)) {
+                $rootFlow = DB::table('dts_transaction_flow')->where('id', (int)$rootId)->first();
+                if ($rootFlow) {
+                    $candidate = (!empty($rootFlow->referenced_flow) && !str_starts_with($rootFlow->referenced_flow, 'REF-'))
+                        ? $rootFlow->referenced_flow
+                        : $rootFlow->flow_name;
+                }
+            }
+        }
+
+        // If candidate is empty or starts with 'Flow for ' or still starts with 'REF-', fall back to root flow_code lookup or trans_type
+        if (empty($candidate) || str_starts_with($candidate, 'Flow for ') || str_starts_with($candidate, 'REF-')) {
+            if (!empty($flowCode)) {
+                $flow = DB::table('dts_transaction_flow')->where('flow_code', $flowCode)->first();
+                if ($flow) {
+                    if (!empty($flow->referenced_flow) && !str_starts_with($flow->referenced_flow, 'REF-') && !str_starts_with($flow->referenced_flow, 'Flow for ')) {
+                        $candidate = $flow->referenced_flow;
+                    } elseif (!empty($flow->flow_name) && !str_starts_with($flow->flow_name, 'Flow for ') && !str_starts_with($flow->flow_name, 'REF-')) {
+                        $candidate = $flow->flow_name;
+                    }
+                }
+            }
+        }
+
+        if (empty($candidate) || str_starts_with($candidate, 'Flow for ') || str_starts_with($candidate, 'REF-')) {
+            $candidate = !empty($transType) ? ucfirst($transType) : 'Internal';
+        }
+
+        return $candidate;
+    }
 }

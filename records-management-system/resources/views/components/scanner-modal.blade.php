@@ -393,7 +393,7 @@ new class extends Component {
                     <div style="display: grid; grid-template-columns: 1fr; gap: 16px; margin-bottom: 20px;">
                         
                         <!-- Webcam Viewport -->
-                        <div style="background: #0f172a; border-radius: 12px; overflow: hidden; position: relative; min-height: 240px; display: flex; align-items: center; justify-content: center;">
+                        <div wire:ignore style="background: #0f172a; border-radius: 12px; overflow: hidden; position: relative; min-height: 240px; display: flex; align-items: center; justify-content: center;">
                             <div id="modal-qr-preview" style="width: 100%; height: 100%; max-height: 280px;"></div>
                             <div id="camera-loading-placeholder" style="position: absolute; color: #94a3b8; font-size: 13px; font-weight: 500; display: flex; flex-direction: column; align-items: center; gap: 8px;">
                                 <span style="font-size: 24px;">🎥</span>
@@ -529,22 +529,41 @@ new class extends Component {
             document.addEventListener('livewire:initialized', () => {
                 let html5QrCode = null;
 
-                Livewire.on('init-camera-scanner', () => {
-                    setTimeout(() => {
-                        const placeholder = document.getElementById('camera-loading-placeholder');
-                        const codeInput = document.getElementById('global-scanner-code-input');
-                        if (codeInput) codeInput.focus();
+                async function stopScanner() {
+                    if (html5QrCode) {
+                        try {
+                            if (html5QrCode.isScanning) {
+                                await html5QrCode.stop();
+                            }
+                            html5QrCode.clear();
+                        } catch(e) {}
+                        html5QrCode = null;
+                    }
+                }
 
-                        if (!document.getElementById('modal-qr-preview')) return;
+                Livewire.on('init-camera-scanner', async () => {
+                    const placeholder = document.getElementById('camera-loading-placeholder');
+                    const codeInput = document.getElementById('global-scanner-code-input');
+                    if (codeInput) {
+                        codeInput.focus();
+                        codeInput.select();
+                    }
 
-                        if (html5QrCode) {
-                            try { html5QrCode.stop(); } catch(e) {}
-                        }
+                    if (!document.getElementById('modal-qr-preview')) return;
 
+                    // If camera is already actively scanning, keep it running smoothly
+                    if (html5QrCode && html5QrCode.isScanning) {
+                        if (placeholder) placeholder.style.display = 'none';
+                        return;
+                    }
+
+                    await stopScanner();
+
+                    try {
                         html5QrCode = new Html5Qrcode("modal-qr-preview");
-                        html5QrCode.start(
+                        await html5QrCode.start(
                             { facingMode: "environment" },
-                            { fps: 10, qrbox: { width: 220, height: 220 } },
+                            { fps: 15, qrbox: { width: 220, height: 220 } },
                             (decodedText) => {
                                 if (codeInput) {
                                     codeInput.value = decodedText;
@@ -552,27 +571,24 @@ new class extends Component {
                                 @this.set('scannedCode', decodedText);
                                 @this.loadTransaction();
                             },
-                            (errorMessage) => {
-                                // Non-blocking continuous scanning
-                            }
-                        ).then(() => {
-                            if (placeholder) placeholder.style.display = 'none';
-                        }).catch((err) => {
-                            if (placeholder) placeholder.innerHTML = '⚠️ Camera Access Disabled / Unavailable';
-                        });
-                    }, 200);
+                            () => {}
+                        );
+                        if (placeholder) placeholder.style.display = 'none';
+                    } catch (err) {
+                        if (placeholder) placeholder.innerHTML = '⚠️ Camera Access Disabled / Unavailable';
+                    }
                 });
 
-                Livewire.on('stop-camera-scanner', () => {
-                    if (html5QrCode) {
-                        try { html5QrCode.stop(); } catch(e) {}
-                    }
+                Livewire.on('stop-camera-scanner', async () => {
+                    await stopScanner();
                 });
 
                 Livewire.on('scanner-code-invalid', () => {
                     const input = document.getElementById('global-scanner-code-input');
                     if (input) {
                         input.style.borderColor = '#ef4444';
+                        input.focus();
+                        input.select();
                         setTimeout(() => { input.style.borderColor = '#cbd5e1'; }, 2000);
                     }
                 });

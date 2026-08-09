@@ -2365,32 +2365,6 @@
       aspect-ratio: 1 / 1;
       display: block;
     }
-    /* Tooltip on hover */
-    .verified-badge {
-      position: relative;
-      cursor: default;
-    }
-    .verified-badge::after {
-      content: 'Verified';
-      position: absolute;
-      bottom: calc(100% + 4px);
-      left: 50%;
-      transform: translateX(-50%);
-      background: rgba(27, 116, 228, 0.92);
-      color: #fff;
-      font-size: 10px;
-      font-weight: 600;
-      padding: 2px 6px;
-      border-radius: 6px;
-      white-space: nowrap;
-      pointer-events: none;
-      opacity: 0;
-      transition: opacity 0.15s ease;
-      letter-spacing: 0.3px;
-    }
-    .verified-badge:hover::after {
-      opacity: 1;
-    }
 
     /* ── Reaction count next to emoji badge ── */
     .reaction-badge {

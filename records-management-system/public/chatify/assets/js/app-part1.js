@@ -1399,6 +1399,7 @@
 
       localStorage.setItem('activeDM', '__global__');
       chatHeaderTitle.innerHTML = `Global Chat`;
+      applyHeaderAdminBadge(); // activeDMAccountId is null here — clears any leftover badge from the previous DM
       chatBox.innerHTML = '';
 
       removePaginationBtn();
@@ -2061,6 +2062,7 @@
       localStorage.setItem('activeSpyConv', c.convId);
 
       chatHeaderTitle.textContent = c.name1 + ' & ' + c.name2;
+      applyHeaderAdminBadge(); // activeDMAccountId is null for spied conversations — clears any leftover badge
       chatBox.innerHTML = '<div class="empty-chat"><p>Loading...</p></div>';
       
       removePaginationBtn();

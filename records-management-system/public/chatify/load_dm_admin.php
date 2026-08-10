@@ -84,6 +84,7 @@ foreach ($rawMessages as $msg) {
     }
     $senderName = $nameMap[$senderId];
     $initials   = adminGetInitials($senderName);
+    $avatarInner = UserResolver::avatarInner($senderId, $initials);
     
     // Parse timestamp
     $fullTimeDisplay = '';
@@ -209,7 +210,7 @@ foreach ($rawMessages as $msg) {
 
     // In admin view, all shown as received-style
     $html .= "<div class='message-container received' data-msg-id='{$msgId}'>";
-    $html .= "<div class='message-avatar'>{$initials}</div>";
+    $html .= "<div class='message-avatar'>{$avatarInner}</div>";
     $html .= "<div class='bubble-wrapper'>";
     $tsClass = ($type !== 'text') ? 'message-click-timestamp show-timestamp' : 'message-click-timestamp';
     $html .= "<div class='{$tsClass}'>{$fullTimeDisplay}</div>";

@@ -1,4 +1,4 @@
-    // ── All DOM element references first ──────────────────────────────────────
+// ── All DOM element references first ──────────────────────────────────────
 
     const chatBox         = document.getElementById("chat-box");
     const nameInput       = document.getElementById("nameInput");
@@ -18,39 +18,27 @@
     const adminSearchInput = document.getElementById('adminSearchInput');
 
     const chatHeaderTitle = document.getElementById('chatHeaderTitle');
+    const chatHeaderAvatar = document.getElementById('chatHeaderAvatar');
     const sidebar         = document.getElementById('sidebar');
     const backButton      = document.getElementById('backButton');
     const burgerButton    = document.getElementById('burgerButton');
     const closeSidebarBtn = document.getElementById('closeSidebarBtn');
 
-    // Keep the name-row's action column (attach button + cancel-edit X
-    // button) exactly as wide as the real rendered #sendButton, but ONLY
-    // while editing — the rest of the time it stays its normal shrink-wrap
-    // size (just the attach button), same as before.
-    const inputActions = document.querySelector('.input-actions');
-    function syncInputActionsWidth() {
-      if (!inputActions || !sendButton) return;
-      const w = sendButton.getBoundingClientRect().width;
-      if (w > 0) inputActions.style.width = w + 'px';
-    }
-    window.addEventListener('resize', function () {
-      if (editingMsgId !== null) syncInputActionsWidth();
-    });
-
+    // The cancel-edit X button now lives inline in the message row itself
+    // (next to Send), so no separate width-sync against #sendButton is
+    // needed anymore — that was only for lining up the old two-row layout.
     let editingMsgId = null;
 
     function showEditBanner(msgId) {
       editingMsgId = msgId;
       const xBtn = document.getElementById('cancelEditXBtn');
       if (xBtn) xBtn.style.display = 'flex';
-      syncInputActionsWidth();
     }
 
     function hideEditBanner() {
       editingMsgId = null;
       const xBtn = document.getElementById('cancelEditXBtn');
       if (xBtn) xBtn.style.display = 'none';
-      if (inputActions) inputActions.style.width = ''; // back to auto (shrink-wrap)
     }
     const notifyModal        = document.getElementById('notifyModal');
     const notifyTargetName   = document.getElementById('notifyTargetName');
@@ -174,6 +162,7 @@
       const container = document.createElement('div');
       container.className = 'message-container ' + (isSentByMe ? 'sent' : 'received') + ' msg-animate-' + (isSentByMe ? 'sent' : 'received');
       if (msgId) container.setAttribute('data-msg-id', msgId);
+      if (msgData.sender_id) container.setAttribute('data-sender-id', String(msgData.sender_id));
       container.addEventListener('animationend', () => container.classList.remove('msg-animate-sent', 'msg-animate-received'), { once: true });
 
       const msgText = msgData.message || msgData.plaintext || '';
@@ -181,6 +170,7 @@
       const senderUser = allUsersData.find(u => Number(u.account_id) === Number(msgData.sender_id));
       const displayName = msgData.sender_name || (senderUser ? (senderUser.full_name || senderUser.username) : (isSentByMe ? wsConfig.name : 'User'));
       const initials = getInitials(displayName);
+      const senderAvatarUrl = isSentByMe ? wsConfig.avatarUrl : (senderUser ? senderUser.avatar_url : null);
 
       let timeDisplay = '';
       if (msgData.created_at) {
@@ -193,7 +183,7 @@
       }
 
       container.innerHTML = `
-        <div class="message-avatar">${escapeHtml(initials)}</div>
+        <div class="message-avatar">${avatarInnerHtml(senderAvatarUrl, initials)}</div>
         <div class="bubble-wrapper">
           <div class="message-click-timestamp">${escapeHtml(timeDisplay)}</div>
           <div class="message-bubble${emojiOnlyClass}">
@@ -305,11 +295,19 @@
                 if (sender !== wsConfig.accountId) {
                   // Incoming message from the other person — render it via WS
                   if (data.has_upload) {
+                    // loadChatForced() is an async network round-trip — the
+                    // image/file HTML isn't actually in the DOM yet when we
+                    // get here. loadChat()'s own completion handler (processChatData)
+                    // calls markRead(activeDM) once the fetched HTML (with the real
+                    // attachment) has been rendered, AND — same as the text path
+                    // below — only does so if `!document.hidden`, so the attachment
+                    // is never flagged "Seen" unless the recipient is genuinely
+                    // looking at the chat. Skip calling markRead again here.
                     loadChatForced();
                   } else {
                     renderAndAppendWsMessage(data);
+                    if (!document.hidden) markRead(activeDM);
                   }
-                  if (!document.hidden) markRead(activeDM);
                 } else {
                   // This is an echo of our own sent message (WS server broadcasts back to sender).
                   // The XHR optimistic path already rendered it — skip renderAndAppendWsMessage
@@ -462,6 +460,27 @@
           // covers everything else without needing a blind poll for it.
           console.log('Received WebSocket real-time update notice:', data);
           fetchUsers();
+        } else if (data.type === 'verification_update') {
+          // Broadcast from set_verification.php when Super Admin toggles a user's badge
+          const changedId = Number(data.account_id);
+          const nowVerified = !!data.is_verified;
+          if (nowVerified) {
+            verifiedAccountIds.add(changedId);
+          } else {
+            verifiedAccountIds.delete(changedId);
+          }
+          // Re-render sidebar badges
+          renderSidebarUsers();
+          // Re-apply header badge for current DM if it's the changed user
+          if (activeDMAccountId === changedId) {
+            applyHeaderAdminBadge();
+          }
+          // Re-apply badges on all visible message-sender elements
+          applyAdminBadges();
+          // If the User Verification modal is open, sync toggle rows in real-time
+          if (typeof window._syncVerifyModalRow === 'function') {
+            window._syncVerifyModalRow(changedId, nowVerified);
+          }
         }
       };
 
@@ -496,6 +515,16 @@
       }
     }
 
+    // Caps a display name to a max length so it can't blow out the
+    // typing indicator's layout (long names, or names with repeated
+    // characters like "Officeeeeeeeeeee") — cut and add an ellipsis.
+    function truncateTypingName(name, maxLen) {
+      maxLen = maxLen || 22;
+      if (!name) return name;
+      name = String(name).trim();
+      return name.length > maxLen ? name.slice(0, maxLen).trim() + '…' : name;
+    }
+
     function showTypingIndicator(senderName, isTyping) {
       const indicator = document.getElementById('typingIndicator');
       const textEl = document.getElementById('typingIndicatorText');
@@ -506,7 +535,7 @@
       }
 
       if (isTyping && activeDM) {
-        textEl.textContent = `${senderName} is typing`;
+        textEl.textContent = `${truncateTypingName(senderName)} is typing`;
         indicator.classList.add('active');
 
         // Auto-expire after 4 seconds as a safety cleanup
@@ -762,7 +791,8 @@
           info.className = 'user-info';
 
           nameRow = document.createElement('div');
-          nameRow.style.cssText = 'display:flex;align-items:center;justify-content:space-between;gap:4px;';
+          nameRow.className = 'user-name-row';
+          nameRow.style.cssText = 'display:flex;align-items:center;justify-content:flex-start;gap:4px;min-width:0;';
           nameEl = document.createElement('div');
           nameEl.className = 'user-name';
           nameRow.appendChild(nameEl);
@@ -784,6 +814,7 @@
           item._avatar = avatar;
           item._dot = dot;
           item._info = info;
+          item._nameRow = nameRow;
           item._nameEl = nameEl;
           item._officeEl = officeEl;
           item._actionsRight = actionsRight;
@@ -793,6 +824,7 @@
           avatar = item._avatar || item.querySelector('.user-avatar');
           dot = item._dot || item.querySelector('.status-dot');
           info = item._info || item.querySelector('.user-info');
+          nameRow = item._nameRow || item.querySelector('.user-name-row');
           nameEl = item._nameEl || item.querySelector('.user-name');
           officeEl = item._officeEl || item.querySelector('.user-office');
           actionsRight = item._actionsRight || item.querySelector('.user-actions-right');
@@ -802,11 +834,12 @@
         const newClassName = 'user-item' + (activeDM === u.username ? ' active' : '') + (hasUnread ? ' has-unread' : '');
         if (item.className !== newClassName) item.className = newClassName;
 
-        if (avatar.dataset.initials !== u.name) {
+        if (avatar.dataset.initials !== u.name || avatar.dataset.avatarUrl !== (u.avatar_url || '')) {
           const initials = getInitials(u.name);
-          avatar.textContent = initials;
+          avatar.innerHTML = avatarInnerHtml(u.avatar_url, initials);
           avatar.appendChild(dot);
           avatar.dataset.initials = u.name;
+          avatar.dataset.avatarUrl = u.avatar_url || '';
         }
         const newDotClass = 'status-dot ' + (u.status || 'offline');
         if (dot.className !== newDotClass) dot.className = newDotClass;
@@ -817,13 +850,23 @@
           chatHeaderTitle.textContent = u.name;
           applyHeaderAdminBadge();
         }
+        if (activeDM === u.username) {
+          applyHeaderAvatar(u);
+        }
 
-        const targetIsAdmin = Number(u.account_id) === 1;
+        const targetIsVerified = verifiedAccountIds && verifiedAccountIds.has(Number(u.account_id));
 
-        // Verified badge next to the super admin's name in the sidebar
-        const sidebarBadge = nameEl.querySelector('.verified-badge');
-        if (targetIsAdmin) {
-          if (!sidebarBadge) injectBadge(nameEl);
+        // Verified badge next to verified users' names in the sidebar.
+        // Injected into nameRow (a flex sibling of nameEl), NOT nameEl itself.
+        // nameEl has text-overflow:ellipsis for long names — appending the
+        // badge inside it let the browser's own truncation swallow the SVG
+        // whenever the name nearly filled the row, showing "…" instead of
+        // the checkmark. nameEl keeps flex:0 1 auto + min-width:0 so it still
+        // truncates on its own, while the badge sits outside that box and
+        // always stays visible.
+        const sidebarBadge = nameRow.querySelector('.verified-badge');
+        if (targetIsVerified) {
+          if (!sidebarBadge) injectBadge(nameRow);
         } else if (sidebarBadge) {
           sidebarBadge.remove();
         }
@@ -869,41 +912,24 @@
         let badge = actionsRight.querySelector('.user-unread-badge');
         let notifyBtn = actionsRight.querySelector('.notify-btn');
 
-        if (targetIsAdmin) {
-          if (notifyBtn) {
-            notifyBtn.remove();
-            notifyBtn = null;
-          }
+        if (notifyBtn) {
+          notifyBtn.remove();
+          notifyBtn = null;
+        }
 
-          if (hasUnread) {
-            const badgeText = u.unreadCount > 99 ? '99+' : String(u.unreadCount);
-            if (!badge) {
-              badge = document.createElement('span');
-              badge.className = 'user-unread-badge';
-              actionsRight.insertBefore(badge, actionsRight.firstChild);
-              badge.textContent = badgeText;
-            } else if (badge.textContent !== badgeText) {
-              badge.textContent = badgeText;
-            }
-          } else if (badge) {
-            badge.remove();
-            badge = null;
+        if (hasUnread) {
+          const badgeText = u.unreadCount > 99 ? '99+' : String(u.unreadCount);
+          if (!badge) {
+            badge = document.createElement('span');
+            badge.className = 'user-unread-badge';
+            actionsRight.insertBefore(badge, actionsRight.firstChild);
+            badge.textContent = badgeText;
+          } else if (badge.textContent !== badgeText) {
+            badge.textContent = badgeText;
           }
-        } else {
-          if (hasUnread) {
-            const badgeText = u.unreadCount > 99 ? '99+' : String(u.unreadCount);
-            if (!badge) {
-              badge = document.createElement('span');
-              badge.className = 'user-unread-badge';
-              actionsRight.insertBefore(badge, actionsRight.firstChild);
-              badge.textContent = badgeText;
-            } else if (badge.textContent !== badgeText) {
-              badge.textContent = badgeText;
-            }
-          } else if (badge) {
-            badge.remove();
-            badge = null;
-          }
+        } else if (badge) {
+          badge.remove();
+          badge = null;
         }
 
         // Clean up any old action buttons if present
@@ -931,7 +957,7 @@
         const notice = document.createElement('div');
         notice.className = 'search-limit-notice';
         notice.style.cssText = 'padding:10px 16px;font-size:12px;color:var(--text-secondary);text-align:center;font-weight:500;border-top:1px dashed var(--border-color);margin-top:4px;';
-        notice.textContent = 'Showing the first 10 matches. Enter a more specific search term.';
+        notice.textContent = 'Enter a more specific search term.';
         sidebarUsers.appendChild(notice);
       }
     }
@@ -1163,6 +1189,15 @@
       return div.innerHTML;
     }
 
+    // Renders either an <img> (Google/account avatar_url) or plain initials
+    // text as the inner content of a .user-avatar / .message-avatar circle.
+    function avatarInnerHtml(avatarUrl, initials) {
+      if (avatarUrl) {
+        return `<img src="${escapeHtml(avatarUrl)}" class="avatar-img" alt="" loading="lazy" referrerpolicy="no-referrer">`;
+      }
+      return escapeHtml(initials);
+    }
+
     // Tab title notification system
     let originalTitle = document.title;
     let titleFlashInterval = null;
@@ -1310,6 +1345,7 @@
       localStorage.setItem('activeDM', u.username);
       chatHeaderTitle.textContent = u.name;
       applyHeaderAdminBadge();
+      applyHeaderAvatar(u);
       // Note: we deliberately don't blank chatBox here. The previous chat's
       // messages stay on screen (harmlessly) until loadChat's diff logic swaps
       // them out the instant the new conversation's data arrives. Clearing it
@@ -1368,6 +1404,8 @@
 
       localStorage.setItem('activeDM', '__global__');
       chatHeaderTitle.innerHTML = `Global Chat`;
+      applyHeaderAdminBadge(); // activeDMAccountId is null here — clears any leftover badge from the previous DM
+      applyHeaderAvatar(null); // no single DM partner — hide the header avatar
       chatBox.innerHTML = '';
 
       removePaginationBtn();
@@ -1531,10 +1569,7 @@
       return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
     }
 
-    function escapeHtml(str) {
-      if (!str) return '';
-      return String(str).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
-    }
+
 
     function fetchAdminConvs(query = '', offset = 0, isAppend = false, targetId = 0) {
       // Use isAdmin (available synchronously from PHP on page load) as a fallback,
@@ -1678,7 +1713,7 @@
             const avatar = document.createElement('div');
             avatar.className = 'user-avatar';
             avatar.style.background = 'linear-gradient(135deg, #1b74e4, #00c3ff)';
-            avatar.textContent = getInitialsFromFullName(u.full_name);
+            avatar.innerHTML = avatarInnerHtml(u.avatar_url, getInitialsFromFullName(u.full_name));
 
             const info = document.createElement('div');
             info.className = 'user-info';
@@ -2033,6 +2068,8 @@
       localStorage.setItem('activeSpyConv', c.convId);
 
       chatHeaderTitle.textContent = c.name1 + ' & ' + c.name2;
+      applyHeaderAdminBadge(); // activeDMAccountId is null for spied conversations — clears any leftover badge
+      applyHeaderAvatar(null); // two participants, no single avatar to show
       chatBox.innerHTML = '<div class="empty-chat"><p>Loading...</p></div>';
       
       removePaginationBtn();
@@ -2124,4 +2161,3 @@
       // Also sweep any stragglers that landed directly in chatBox
       document.querySelectorAll('[data-sending-uid]').forEach(el => el.remove());
     }
-

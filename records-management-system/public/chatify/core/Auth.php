@@ -43,7 +43,7 @@ class Auth
             if (!isset($_SESSION['chat_authenticated']) || $_SESSION['chat_authenticated'] !== true || (int)$_SESSION['account_id'] !== $laravelUserId) {
                 try {
                     $pdo = Database::getConnection();
-                    $stmt = $pdo->prepare('SELECT account_id, first_name, last_name, email, office_id FROM account_details WHERE account_id = :id LIMIT 1');
+                    $stmt = $pdo->prepare('SELECT account_id, first_name, last_name, email, office_id, avatar_url FROM account_details WHERE account_id = :id LIMIT 1');
                     $stmt->execute([':id' => $laravelUserId]);
                     $userRow = $stmt->fetch();
                     if ($userRow) {
@@ -218,6 +218,7 @@ class Auth
         $_SESSION['last_name']          = $userRow['last_name']  ?? '';
         $_SESSION['office_id']          = isset($userRow['office_id']) ? (int) $userRow['office_id'] : null;
         $_SESSION['full_name']          = $fullName;
+        $_SESSION['avatar_url']         = (!empty($userRow['avatar_url'])) ? $userRow['avatar_url'] : null;
         $_SESSION['chat_expires']       = time() + CHAT_SESSION_LIFETIME;
 
         // Populate keys required by Chat system's frontend index.php

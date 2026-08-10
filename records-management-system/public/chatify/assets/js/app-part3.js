@@ -1,20 +1,25 @@
-
-    // ── Verified badge: inject checkmark next to admin sender names ──
+// ── Verified badge: inject checkmark next to verified sender names in messages ──
     function applyAdminBadges() {
-      if (!adminNames || adminNames.length === 0) return;
-      document.querySelectorAll('.message-sender').forEach(function(el) {
-        // Skip if badge already added
-        if (el.querySelector('.verified-badge')) return;
-        const senderText = el.textContent.trim().toLowerCase();
-        if (adminNames.includes(senderText)) {
-          injectBadge(el);
+      if (!verifiedAccountIds || verifiedAccountIds.size === 0) {
+        // Remove any stale badges if no one is verified anymore
+        document.querySelectorAll('.message-sender .verified-badge').forEach(b => b.remove());
+        return;
+      }
+      document.querySelectorAll('.message-container[data-sender-id]').forEach(function(container) {
+        const sid = Number(container.dataset.senderId);
+        const senderEl = container.querySelector('.message-sender');
+        if (!senderEl) return;
+        const badge = senderEl.querySelector('.verified-badge');
+        if (verifiedAccountIds.has(sid)) {
+          if (!badge) injectBadge(senderEl);
+        } else if (badge) {
+          badge.remove();
         }
       });
     }
     function injectBadge(el) {
       const badge = document.createElement('span');
       badge.className = 'verified-badge';
-      badge.title = '';
       badge.innerHTML = `<svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
         <circle cx="12" cy="12" r="12" fill="#1b74e4"/>
         <path d="M7 12.5l3.5 3.5 6.5-7" stroke="#fff" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
@@ -22,18 +27,49 @@
       el.appendChild(badge);
     }
 
+    // ── Profile picture in the header, next to the DM partner's name ──
+    // Pass the user object (needs .name/.full_name + .avatar_url) to show
+    // their avatar, or null/undefined to hide it (Global Chat, admin spy
+    // conversations, or no conversation open).
+    function applyHeaderAvatar(u) {
+      if (!chatHeaderAvatar) return;
+      if (!u) {
+        if (chatHeaderAvatar.style.display !== 'none') {
+          chatHeaderAvatar.style.display = 'none';
+          chatHeaderAvatar.innerHTML = '';
+          delete chatHeaderAvatar.dataset.avatarUrl;
+          delete chatHeaderAvatar.dataset.initials;
+        }
+        return;
+      }
+      const displayName = u.name || u.full_name || '';
+      const initials = getInitials(displayName || '?');
+      const avatarUrl = u.avatar_url || '';
+      // Cache last-rendered values so re-syncing on every poll doesn't
+      // needlessly rebuild the <img> (and re-trigger its network load).
+      if (chatHeaderAvatar.dataset.avatarUrl === avatarUrl && chatHeaderAvatar.dataset.initials === initials && chatHeaderAvatar.style.display === 'flex') {
+        return;
+      }
+      chatHeaderAvatar.innerHTML = avatarInnerHtml(u.avatar_url, initials);
+      chatHeaderAvatar.dataset.avatarUrl = avatarUrl;
+      chatHeaderAvatar.dataset.initials = initials;
+      chatHeaderAvatar.style.display = 'flex';
+    }
+
     // ── Verified badge on the chat header (1-on-1 DM title) ──
-    // Whenever the header title is set to the name of the person being
-    // chatted with, show the blue checkmark next to it if that person is
-    // the super admin. Re-checks every time so switching between an admin
-    // DM and a regular-user DM correctly adds/removes the badge.
+    // Re-checks every time so switching between conversations correctly adds/removes the badge.
+    // Injected into chatHeaderTitle.parentElement (.header-left, a flex row),
+    // NOT into chatHeaderTitle (the <h1>) itself — the h1 has text-overflow:
+    // ellipsis for long names, and appending the badge inside it let the
+    // browser's own truncation swallow the SVG whenever the name nearly
+    // filled the header, showing "…" instead of the checkmark.
     function applyHeaderAdminBadge() {
-      const existing = chatHeaderTitle.querySelector('.verified-badge');
+      const headerBadgeParent = chatHeaderTitle.parentElement || chatHeaderTitle;
+      const existing = headerBadgeParent.querySelector('.verified-badge');
       if (existing) existing.remove();
-      if (!adminNames || adminNames.length === 0) return;
-      const headerText = chatHeaderTitle.textContent.trim().toLowerCase();
-      if (headerText && adminNames.includes(headerText)) {
-        injectBadge(chatHeaderTitle);
+      if (!verifiedAccountIds || verifiedAccountIds.size === 0) return;
+      if (activeDMAccountId && verifiedAccountIds.has(Number(activeDMAccountId))) {
+        injectBadge(headerBadgeParent);
       }
     }
     
@@ -247,8 +283,12 @@
       const contentEl = container.querySelector('.message-bubble .message-content');
       if (!contentEl) return;
       
-      // If it contains an attachment (like an anchor link or image or audio), do not edit
-      if (contentEl.querySelector('a') || container.querySelector('img') || container.querySelector('audio')) {
+      // If it contains an attachment (like an anchor link or image or audio), do not edit.
+      // Scoped to .bubble-wrapper (not the whole .message-container) so the
+      // sender's own avatar <img> — rendered separately in .message-avatar —
+      // is never mistaken for an image/file attachment.
+      const bubbleWrapperEl = container.querySelector('.bubble-wrapper');
+      if (contentEl.querySelector('a') || (bubbleWrapperEl && bubbleWrapperEl.querySelector('img, audio'))) {
         return;
       }
       
@@ -850,10 +890,66 @@
         return;
       }
 
+      // Close the confirmation modal immediately and swap in the clearing
+      // progress modal, matching the file-upload progress flow.
+      closeModal();
+      showClearingModal('Clearing conversation...');
+
+      // Force the browser to paint the 0% frame before we start mutating
+      // the bar. Without this, on a very fast (e.g. local) response the
+      // "show modal" + "animate" + "close modal" calls can all happen
+      // inside the same tick and the browser never actually renders a
+      // frame in between — the modal opens and closes in one paint cycle,
+      // which looks indistinguishable from "never showed up" even though
+      // the DOM technically went through the motions.
+      const clearingModalEl = document.getElementById('clearingChatModal');
+      if (clearingModalEl) void clearingModalEl.offsetHeight;
+
+      const clearingStartedAt = Date.now();
+      const CLEARING_MIN_VISIBLE_MS = 900; // guarantee the modal is on screen long enough to register
+
+      // There's no real byte-progress for this request (it's a tiny POST),
+      // so fake a smooth climb toward 90% while it's in flight, the same
+      // way upload.php's request is padded to feel alive. It snaps to 100%
+      // only once the server actually confirms success AND the minimum
+      // visible duration above has elapsed.
+      let clearingProgress = 0;
+      const clearingInterval = setInterval(function() {
+        clearingProgress += (90 - clearingProgress) * 0.15;
+        if (clearingProgress > 89) clearingProgress = 89;
+        updateClearingProgress(clearingProgress);
+      }, 100);
+
+      function finishClearingSuccess() {
+        const elapsed = Date.now() - clearingStartedAt;
+        const remaining = Math.max(0, CLEARING_MIN_VISIBLE_MS - elapsed);
+        setTimeout(function() {
+          updateClearingProgress(100);
+          setTimeout(closeClearingModal, 300);
+        }, remaining);
+      }
+
+      function finishClearingError(message) {
+        const elapsed = Date.now() - clearingStartedAt;
+        const remaining = Math.max(0, CLEARING_MIN_VISIBLE_MS - elapsed);
+        setTimeout(function() {
+          closeClearingModal();
+          if (confirmModal) {
+            confirmModal.classList.add('active');
+            document.body.style.overflow = 'hidden';
+          }
+          secretError.style.display = 'block';
+          secretError.textContent = message;
+          secretError.style.color = 'red';
+        }, remaining);
+      }
+
       const xhr = new XMLHttpRequest();
       xhr.open("POST", "delete_dm.php", true);
       xhr.setRequestHeader("Content-type", "application/x-www-form-urlencoded");
       xhr.onload = function () {
+        clearInterval(clearingInterval);
+
         if (this.status === 200) {
           shouldAutoScroll = true;
           userScrolledUp = false;
@@ -864,7 +960,6 @@
             loadAdminConv(activeAdminConv, false);
             fetchUsers();
           }
-          closeModal();
 
           // Broadcast the clear so every other connected client (the other
           // party in the DM, or any other admin viewing the same admin
@@ -891,13 +986,17 @@
           // Reset secret input
           secretInput.value = '';
           secretError.style.display = 'none';
+
+          finishClearingSuccess();
         } else {
-          secretError.style.display = 'block';
-          secretError.textContent = 'Error: ' + this.responseText;
-          secretError.style.color = 'red';
+          finishClearingError('Error: ' + this.responseText);
         }
       };
-      
+      xhr.onerror = function() {
+        clearInterval(clearingInterval);
+        finishClearingError('Network error — please try again');
+      };
+
       let params = "secret=" + encodeURIComponent(secret);
       if (activeDMAccountId) {
         params += "&target_id=" + encodeURIComponent(activeDMAccountId) + "&target_user=" + encodeURIComponent(activeDM);
@@ -907,6 +1006,48 @@
         params += "&conv_id=" + encodeURIComponent(activeAdminConv);
       }
       xhr.send(params);
+    }
+
+    // ── Clearing Chat Progress Modal Controls (mirrors the upload progress modal) ──
+    function showClearingModal(label) {
+      const modal = document.getElementById('clearingChatModal');
+      const labelEl = document.getElementById('clearingChatLabel');
+      const bar = document.getElementById('clearingChatProgressBar');
+      const text = document.getElementById('clearingChatProgressText');
+
+      if (!modal) {
+        // If this fires, #clearingChatModal isn't in the DOM — almost always
+        // means index.php wasn't redeployed/refreshed with the updated markup.
+        console.error('[clearChat] #clearingChatModal not found in DOM — is index.php up to date?');
+        return;
+      }
+
+      if (labelEl) labelEl.textContent = label || 'Clearing conversation...';
+      if (bar) bar.style.width = '0%';
+      if (text) text.textContent = '0%';
+
+      modal.style.display = 'flex';
+      modal.classList.add('active');
+      modal.setAttribute('aria-hidden', 'false');
+      document.body.style.overflow = 'hidden';
+    }
+
+    function updateClearingProgress(percent) {
+      const bar = document.getElementById('clearingChatProgressBar');
+      const text = document.getElementById('clearingChatProgressText');
+      const p = Math.min(100, Math.max(0, Math.round(percent)));
+      if (bar) bar.style.width = p + '%';
+      if (text) text.textContent = p + '%';
+    }
+
+    function closeClearingModal() {
+      const modal = document.getElementById('clearingChatModal');
+      if (modal) {
+        modal.style.display = 'none';
+        modal.classList.remove('active');
+        modal.setAttribute('aria-hidden', 'true');
+      }
+      document.body.style.overflow = '';
     }
 
     function showModal() {
@@ -938,6 +1079,236 @@
       }
     }
 
+    // =========================================================================
+    // "/backup" — explicit, job-tracked full backup (separate from /clear)
+    // =========================================================================
+
+    // Module-level state so polling survives the progress modal being closed
+    // or "backgrounded" — the whole point is the backup keeps going and the
+    // admin can check back in on it.
+    let backupJobId = null;
+    let backupPollTimer = null;
+    let backupFakeProgress = 0;
+    let backupFakeProgressTimer = null;
+
+    function showBackupConfirmModal() {
+      if (!isAdmin) {
+        alert("Only administrators can run a backup.");
+        return;
+      }
+      const modal = document.getElementById('backupConfirmModal');
+      const secretInputEl = document.getElementById('backupSecretInput');
+      const secretErrorEl = document.getElementById('backupSecretError');
+      const confirmBtn = document.getElementById('confirmBackup');
+      if (!modal) return;
+
+      modal.classList.add('active');
+      modal.setAttribute('aria-hidden', 'false');
+      document.body.style.overflow = 'hidden';
+      if (secretInputEl) secretInputEl.value = '';
+      if (secretErrorEl) secretErrorEl.style.display = 'none';
+      if (confirmBtn) confirmBtn.disabled = true;
+      setTimeout(() => secretInputEl && secretInputEl.focus(), 200);
+    }
+
+    function closeBackupConfirmModal() {
+      const modal = document.getElementById('backupConfirmModal');
+      if (modal) {
+        modal.classList.remove('active');
+        modal.setAttribute('aria-hidden', 'true');
+      }
+      document.body.style.overflow = '';
+    }
+
+    function showBackupProgressModal() {
+      const modal = document.getElementById('backupChatModal');
+      const bar = document.getElementById('backupChatProgressBar');
+      const text = document.getElementById('backupChatProgressText');
+      const label = document.getElementById('backupChatLabel');
+      if (!modal) return;
+
+      if (label) label.textContent = 'Backup in progress...';
+      if (bar) bar.style.width = '0%';
+      if (text) text.textContent = '0%';
+
+      modal.style.display = 'flex';
+      modal.classList.add('active');
+      modal.setAttribute('aria-hidden', 'false');
+      document.body.style.overflow = 'hidden';
+    }
+
+    function updateBackupProgress(percent) {
+      const bar = document.getElementById('backupChatProgressBar');
+      const text = document.getElementById('backupChatProgressText');
+      const p = Math.min(100, Math.max(0, Math.round(percent)));
+      if (bar) bar.style.width = p + '%';
+      if (text) text.textContent = p + '%';
+    }
+
+    function closeBackupProgressModal() {
+      const modal = document.getElementById('backupChatModal');
+      if (modal) {
+        modal.style.display = 'none';
+        modal.classList.remove('active');
+        modal.setAttribute('aria-hidden', 'true');
+      }
+      document.body.style.overflow = '';
+    }
+
+    function showBackupAlreadyDoneModal() {
+      const modal = document.getElementById('backupAlreadyDoneModal');
+      if (!modal) return;
+      modal.style.display = 'flex';
+      modal.classList.add('active');
+      modal.setAttribute('aria-hidden', 'false');
+      document.body.style.overflow = 'hidden';
+    }
+
+    function closeBackupAlreadyDoneModal() {
+      const modal = document.getElementById('backupAlreadyDoneModal');
+      if (modal) {
+        modal.classList.remove('active');
+        modal.setAttribute('aria-hidden', 'true');
+        modal.style.display = 'none';
+      }
+      document.body.style.overflow = '';
+    }
+
+    function stopBackupPolling() {
+      if (backupPollTimer) { clearInterval(backupPollTimer); backupPollTimer = null; }
+      if (backupFakeProgressTimer) { clearInterval(backupFakeProgressTimer); backupFakeProgressTimer = null; }
+    }
+
+    // There's no per-row progress from the server (it's a single INSERT...SELECT),
+    // so — EXACT same trick as the clear-chat modal — fake a smooth climb toward
+    // 90% while the job is "running" (same 0.15 easing factor, same 100ms tick,
+    // same 89% cap), and only snap to 100% once backup_status.php actually
+    // reports status=completed, respecting the same minimum-visible-time before
+    // closing so it never looks like it flashed and vanished.
+    const BACKUP_MIN_VISIBLE_MS = 900;
+    let backupStartedAt = 0;
+
+    function finishBackupSuccess(rowsBackedUp) {
+      const elapsed = Date.now() - backupStartedAt;
+      const remaining = Math.max(0, BACKUP_MIN_VISIBLE_MS - elapsed);
+      setTimeout(function() {
+        updateBackupProgress(100);
+        const label = document.getElementById('backupChatLabel');
+        if (label) label.textContent = 'Backup complete (' + rowsBackedUp + ' messages archived)';
+        setTimeout(closeBackupProgressModal, 300);
+      }, remaining);
+    }
+
+    // Mirrors finishClearingError()'s pattern: close the progress modal and
+    // reopen the confirm modal with the error shown inline, instead of a
+    // separate background/error indicator.
+    function finishBackupError(message) {
+      const elapsed = Date.now() - backupStartedAt;
+      const remaining = Math.max(0, BACKUP_MIN_VISIBLE_MS - elapsed);
+      setTimeout(function() {
+        closeBackupProgressModal();
+        const modal = document.getElementById('backupConfirmModal');
+        const secretErrorEl = document.getElementById('backupSecretError');
+        if (modal) {
+          modal.classList.add('active');
+          modal.setAttribute('aria-hidden', 'false');
+          document.body.style.overflow = 'hidden';
+        }
+        if (secretErrorEl) {
+          secretErrorEl.style.display = 'block';
+          secretErrorEl.textContent = message;
+          secretErrorEl.style.color = 'red';
+        }
+      }, remaining);
+    }
+
+    function startBackupPolling(jobId) {
+      backupJobId = jobId;
+      backupFakeProgress = 0;
+      backupStartedAt = Date.now();
+      stopBackupPolling();
+
+      backupFakeProgressTimer = setInterval(function() {
+        backupFakeProgress += (90 - backupFakeProgress) * 0.15;
+        if (backupFakeProgress > 89) backupFakeProgress = 89;
+        updateBackupProgress(backupFakeProgress);
+      }, 100);
+
+      backupPollTimer = setInterval(function() {
+        const xhr = new XMLHttpRequest();
+        xhr.open('GET', 'backup_status.php?job_id=' + encodeURIComponent(jobId), true);
+        xhr.onload = function() {
+          if (this.status !== 200) return;
+          let res;
+          try { res = JSON.parse(this.responseText); } catch (e) { return; }
+          if (!res || !res.ok) return;
+
+          if (res.status === 'completed') {
+            stopBackupPolling();
+            finishBackupSuccess(res.rows_backed_up);
+          } else if (res.status === 'failed') {
+            stopBackupPolling();
+            finishBackupError('Backup failed: ' + (res.error || 'unknown error'));
+          }
+          // status === 'running' → keep polling, keep faking progress
+        };
+        xhr.send();
+      }, 1500);
+    }
+
+    function runBackup() {
+      const secretInputEl = document.getElementById('backupSecretInput');
+      const secretErrorEl = document.getElementById('backupSecretError');
+      const secret = secretInputEl ? secretInputEl.value.trim() : '';
+
+      if (!secret) {
+        if (secretErrorEl) {
+          secretErrorEl.style.display = 'block';
+          secretErrorEl.textContent = 'Please enter secret key';
+          secretErrorEl.style.color = 'red';
+        }
+        if (secretInputEl) secretInputEl.focus();
+        return;
+      }
+
+      closeBackupConfirmModal();
+      showBackupProgressModal();
+      backupStartedAt = Date.now(); // so an immediate failure still respects BACKUP_MIN_VISIBLE_MS
+
+      const xhr = new XMLHttpRequest();
+      xhr.open('POST', 'backup_dm.php', true);
+      xhr.setRequestHeader('Content-type', 'application/x-www-form-urlencoded');
+      xhr.onload = function() {
+        if (this.status !== 200) {
+          finishBackupError('Could not start backup: ' + this.responseText);
+          return;
+        }
+        let res;
+        try { res = JSON.parse(this.responseText); } catch (e) { res = null; }
+        if (!res || !res.ok) {
+          finishBackupError('Could not start backup: ' + (res && res.error ? res.error : 'unknown error'));
+          return;
+        }
+        if (res.already_backed_up) {
+          closeBackupProgressModal();
+          showBackupAlreadyDoneModal();
+          return;
+        }
+        if (!res.job_id) {
+          finishBackupError('Could not start backup: ' + (res.error || 'unknown error'));
+          return;
+        }
+        startBackupPolling(res.job_id);
+      };
+      xhr.onerror = function() {
+        finishBackupError('Network error — please try again');
+      };
+      xhr.send('secret=' + encodeURIComponent(secret));
+
+      if (secretInputEl) secretInputEl.value = '';
+      if (secretErrorEl) secretErrorEl.style.display = 'none';
+    }
+
     // Counter for unique sending-indicator IDs (supports rapid-fire sends)
     let sendingUidCounter = 0;
 
@@ -952,25 +1323,36 @@
     document.getElementById("chatForm").addEventListener("submit", function (e) {
       e.preventDefault();
 
-      // ── Super Admin chat commands: "/clear" and "/delete all" ──────────────
-      // These are intercepted before anything else (including the admin-spy-mode
-      // early return below) so that "/clear" works while Spy Mode is open on a
-      // conversation. Commands are never sent as messages, never appended to
-      // history, and never broadcast — they just open the existing confirmation
-      // modals. All real permission checks still happen server-side exactly as
-      // before (validate_secret.php / clear_all_dm.php / delete_dm.php via
-      // Auth::isAdmin()); this is purely an alternate way to trigger the modals.
+      // ── Super Admin chat command: "/clear" ──────────────────────────────────
+      // Intercepted before anything else (including the admin-spy-mode early
+      // return below) so that "/clear" works while Spy Mode is open on a
+      // conversation. The command is never sent as a message, never appended to
+      // history, and never broadcast — it just opens the existing confirmation
+      // modal. All real permission checks still happen server-side exactly as
+      // before (validate_secret.php / delete_dm.php via Auth::isAdmin()); this
+      // is purely an alternate way to trigger the modal.
       if (isAdmin) {
         const cmd = messageInput.value.trim().toLowerCase();
-        if (cmd === '/clear' || cmd === '/delete all') {
+        if (cmd === '/clear') {
           messageInput.value = '';
           messageInput.style.height = 'auto';
           messageInput.style.color = '';
-          if (cmd === '/clear') {
-            showModal();
-          } else {
-            openDeleteAllModal();
-          }
+          showModal();
+          return;
+        }
+
+        // ── Super Admin chat command: "/backup" ──────────────────────────
+        // Opens the backup confirmation modal. Unlike "/clear" this isn't
+        // tied to a specific conversation — it always backs up everything,
+        // so it deliberately has NO activeDM/activeAdminConv/isGlobalChat
+        // requirement anywhere in its path. Works from a totally empty
+        // "no conversation selected" screen as long as the admin can type
+        // into the message box and hit send.
+        if (cmd === '/backup') {
+          messageInput.value = '';
+          messageInput.style.height = 'auto';
+          messageInput.style.color = '';
+          showBackupConfirmModal();
           return;
         }
       }
@@ -1039,7 +1421,7 @@
           <div class="message-bubble sending-bubble">
             <div class="message-content sending-dots"><span></span><span></span><span></span></div>
           </div>
-          <div class="message-avatar">${getInitials(name)}</div>
+          <div class="message-avatar">${avatarInnerHtml(wsConfig.avatarUrl, getInitials(name))}</div>
         `;
         sendingBubble.addEventListener('animationend', () => sendingBubble.classList.remove('msg-animate-sent'), { once: true });
         // Append optimistic sending bubble into floating overlay so it doesn't reflow chat
@@ -1168,7 +1550,7 @@
                 sendingBubble.className = 'message-container sent';
                 const emojiOnlyClass = isEmojiOnly(msgContent) ? ' emoji-only' : '';
                 sendingBubble.innerHTML = `
-                  <div class="message-avatar">${getInitials(name)}</div>
+                  <div class="message-avatar">${avatarInnerHtml(wsConfig.avatarUrl, getInitials(name))}</div>
                   <div class="bubble-wrapper">
                     <div class="message-click-timestamp">${fullTimeDisplay}</div>
                     <div class="message-bubble${emojiOnlyClass}">
@@ -1266,15 +1648,15 @@
       setTimeout(() => { touchFired = false; }, 500);
     }, {passive: false});
 
-    // Super Admin command visual indicator: while typing exactly "/clear" or
-    // "/delete all" (case-insensitive), color the whole input red so it's clear
-    // it will be treated as a command. Purely cosmetic — has no bearing on
-    // whether the command actually executes (that's still gated by isAdmin
-    // above and by server-side Auth::isAdmin() checks on every endpoint).
+    // Super Admin command visual indicator: while typing exactly "/clear"
+    // (case-insensitive), color the whole input red so it's clear it will be
+    // treated as a command. Purely cosmetic — has no bearing on whether the
+    // command actually executes (that's still gated by isAdmin above and by
+    // server-side Auth::isAdmin() checks on every endpoint).
     if (isAdmin) {
       messageInput.addEventListener('input', function() {
         const cmd = this.value.trim().toLowerCase();
-        if (cmd === '/clear' || cmd === '/delete all') {
+        if (cmd === '/clear' || cmd === '/backup') {
           this.style.color = '#e74c3c';
         } else {
           this.style.color = '';
@@ -1533,6 +1915,176 @@
       });
     }
 
+    // ── User Verification Modal (Super Admin only) ──────────────────────────────
+    let _verifySearchTimer = null;
+
+    window.openUserVerificationModal = function() {
+      closeCommSettingsModal();
+      const modal = document.getElementById('userVerificationModal');
+      if (!modal) return;
+      modal.classList.add('active');
+      modal.setAttribute('aria-hidden', 'false');
+      const input = document.getElementById('verifySearchInput');
+      if (input) {
+        input.value = '';
+        setTimeout(() => input.focus(), 80);
+      }
+      document.getElementById('verifySearchResults').innerHTML = '';
+    };
+
+    window.closeUserVerificationModal = function() {
+      const modal = document.getElementById('userVerificationModal');
+      if (modal) {
+        modal.classList.remove('active');
+        modal.setAttribute('aria-hidden', 'true');
+      }
+    };
+
+    // Backdrop click closes the modal
+    document.getElementById('userVerificationModal')?.addEventListener('click', function(e) {
+      if (e.target === this) closeUserVerificationModal();
+    });
+
+    // Search on input with 400ms debounce — no fetch-all
+    const verifyInput = document.getElementById('verifySearchInput');
+    if (verifyInput) {
+      verifyInput.addEventListener('input', function() {
+        clearTimeout(_verifySearchTimer);
+        const q = this.value.trim();
+        const resultsEl = document.getElementById('verifySearchResults');
+        if (q === '') {
+          resultsEl.innerHTML = '';
+          return;
+        }
+        _verifySearchTimer = setTimeout(() => {
+          resultsEl.innerHTML = '<div style="font-size:13px;color:var(--text-secondary);padding:8px 0;">Searching…</div>';
+          fetch('search_users_verify.php?q=' + encodeURIComponent(q))
+            .then(r => r.json())
+            .then(data => {
+              const users = data.users || [];
+              if (users.length === 0) {
+                resultsEl.innerHTML = '<div style="font-size:13px;color:var(--text-secondary);padding:8px 0;">No users found.</div>';
+                return;
+              }
+              resultsEl.innerHTML = '';
+              users.forEach(u => {
+                const row = document.createElement('div');
+                row.dataset.accountId = u.account_id;
+                row.style.cssText = 'display:flex;align-items:center;gap:10px;padding:10px 12px;border:1px solid var(--border-color);border-radius:8px;background:var(--bg-secondary);';
+
+                // Name + badge
+                const nameSpan = document.createElement('span');
+                nameSpan.className = 'verify-name-span';
+                nameSpan.style.cssText = 'flex:1;min-width:0;font-size:14px;font-weight:600;color:var(--text-primary);display:flex;align-items:center;gap:6px;';
+
+                const nameTextSpan = document.createElement('span');
+                nameTextSpan.className = 'verify-name-text';
+                nameTextSpan.style.cssText = 'flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;';
+                nameTextSpan.textContent = u.full_name;
+                nameTextSpan.title = u.full_name;
+                nameSpan.appendChild(nameTextSpan);
+
+                if (u.is_chatify_verified) {
+                  const b = document.createElement('span');
+                  b.className = 'verified-badge';
+                  b.style.cssText = 'flex-shrink:0;';
+                  b.innerHTML = `<svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><circle cx="12" cy="12" r="12" fill="#1b74e4"/><path d="M7 12.5l3.5 3.5 6.5-7" stroke="#fff" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
+                  nameSpan.appendChild(b);
+                }
+
+                // Toggle switch
+                const label = document.createElement('label');
+                label.style.cssText = 'position:relative;display:inline-block;width:40px;height:22px;flex-shrink:0;cursor:pointer;';
+                const chk = document.createElement('input');
+                chk.type = 'checkbox';
+                chk.checked = !!u.is_chatify_verified;
+                chk.style.cssText = 'opacity:0;width:0;height:0;position:absolute;';
+                const slider = document.createElement('span');
+                slider.className = 'slider-bg';
+                slider.style.cssText = `position:absolute;inset:0;border-radius:22px;transition:background 0.2s;background:${chk.checked ? '#1b74e4' : 'var(--border-color)'};`;
+                const knob = document.createElement('span');
+                knob.className = 'slider-knob';
+                knob.style.cssText = `position:absolute;top:3px;left:${chk.checked ? '21px' : '3px'};width:16px;height:16px;border-radius:50%;background:#fff;transition:left 0.2s,background 0.2s;box-shadow:0 1px 3px rgba(0,0,0,0.3);`;
+                slider.appendChild(knob);
+                label.appendChild(chk);
+                label.appendChild(slider);
+
+                chk.addEventListener('change', function() {
+                  const newVal = this.checked;
+                  slider.style.background = newVal ? '#1b74e4' : 'var(--border-color)';
+                  knob.style.left = newVal ? '21px' : '3px';
+                  // Add or remove badge from the name in the result row
+                  const existingBadge = nameSpan.querySelector('.verified-badge');
+                  if (newVal && !existingBadge) {
+                    const b = document.createElement('span');
+                    b.className = 'verified-badge';
+                    b.innerHTML = `<svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><circle cx="12" cy="12" r="12" fill="#1b74e4"/><path d="M7 12.5l3.5 3.5 6.5-7" stroke="#fff" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
+                    nameSpan.appendChild(b);
+                  } else if (!newVal && existingBadge) {
+                    existingBadge.remove();
+                  }
+                  // Persist via backend (WS broadcast is handled server-side)
+                  fetch('set_verification.php', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ account_id: u.account_id, is_verified: newVal })
+                  }).then(r => r.json()).then(res => {
+                    if (!res.ok) {
+                      // Revert toggle on failure
+                      chk.checked = !newVal;
+                      slider.style.background = !newVal ? '#1b74e4' : 'var(--border-color)';
+                      knob.style.left = !newVal ? '21px' : '3px';
+                    }
+                  }).catch(() => {
+                    chk.checked = !newVal;
+                    slider.style.background = !newVal ? '#1b74e4' : 'var(--border-color)';
+                    knob.style.left = !newVal ? '21px' : '3px';
+                  });
+                });
+
+                row.appendChild(nameSpan);
+                row.appendChild(label);
+                resultsEl.appendChild(row);
+              });
+            })
+            .catch(() => {
+              resultsEl.innerHTML = '<div style="font-size:13px;color:var(--text-secondary);padding:8px 0;">Search failed. Please try again.</div>';
+            });
+        }, 400);
+      });
+    }
+
+    window._syncVerifyModalRow = function(accountId, isVerified) {
+      const row = document.querySelector(`#verifySearchResults [data-account-id="${accountId}"]`);
+      if (!row) return;
+
+      const chk = row.querySelector('input[type="checkbox"]');
+      if (chk && chk.checked !== isVerified) {
+        chk.checked = isVerified;
+        
+        // update slider and knob
+        const slider = row.querySelector('.slider-bg');
+        const knob = row.querySelector('.slider-knob');
+        if (slider) slider.style.background = isVerified ? '#1b74e4' : 'var(--border-color)';
+        if (knob) knob.style.left = isVerified ? '21px' : '3px';
+
+        // update name badge
+        const nameSpan = row.querySelector('.verify-name-span');
+        if (nameSpan) {
+          const existingBadge = nameSpan.querySelector('.verified-badge');
+          if (isVerified && !existingBadge) {
+            const b = document.createElement('span');
+            b.className = 'verified-badge';
+            b.innerHTML = `<svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><circle cx="12" cy="12" r="12" fill="#1b74e4"/><path d="M7 12.5l3.5 3.5 6.5-7" stroke="#fff" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
+            nameSpan.appendChild(b);
+          } else if (!isVerified && existingBadge) {
+            existingBadge.remove();
+          }
+        }
+      }
+    };
+
+
 
     // Enter behavior differs by device:
     //  - Desktop / physical keyboard: Enter sends the message (Shift+Enter
@@ -1664,121 +2216,80 @@
       });
     }
 
-    // ── Admin: Delete ALL button ──────────────────────────────────────────────
-    const deleteAllButton    = document.getElementById('deleteAllButton');
-    const deleteAllModal     = document.getElementById('deleteAllModal');
-    const cancelDeleteAll    = document.getElementById('cancelDeleteAll');
-    const confirmDeleteAll   = document.getElementById('confirmDeleteAll');
-    const deleteAllSecretIn  = document.getElementById('deleteAllSecretInput');
-    const deleteAllSecretErr = document.getElementById('deleteAllSecretError');
+    // ── "/backup" modal wiring (mirrors the /clear wiring above) ──────────────
+    const backupConfirmModalEl = document.getElementById('backupConfirmModal');
+    const backupSecretInputEl  = document.getElementById('backupSecretInput');
+    const backupSecretErrorEl  = document.getElementById('backupSecretError');
+    const confirmBackupBtn     = document.getElementById('confirmBackup');
+    const cancelBackupBtn      = document.getElementById('cancelBackup');
 
-    function openDeleteAllModal() {
-      if (!deleteAllModal) return;
-      deleteAllModal.classList.add('active');
-      deleteAllModal.setAttribute('aria-hidden', 'false');
-      document.body.style.overflow = 'hidden';
-      if (deleteAllSecretIn)  { deleteAllSecretIn.value = ''; }
-      if (confirmDeleteAll)   { confirmDeleteAll.disabled = true; }
-      if (deleteAllSecretErr) { deleteAllSecretErr.style.display = 'none'; }
-      setTimeout(() => deleteAllSecretIn && deleteAllSecretIn.focus(), 200);
-    }
-    function closeDeleteAllModal() {
-      if (!deleteAllModal) return;
-      deleteAllModal.classList.remove('active');
-      deleteAllModal.setAttribute('aria-hidden', 'true');
-      document.body.style.overflow = '';
-    }
-
-    if (isAdmin && deleteAllModal) {
-      cancelDeleteAll && cancelDeleteAll.addEventListener('click', closeDeleteAllModal);
-      deleteAllModal.addEventListener('click', e => { if (e.target === deleteAllModal) closeDeleteAllModal(); });
-
-      // Validate secret on input
-      deleteAllSecretIn && deleteAllSecretIn.addEventListener('input', function() {
-        if (!this.value) {
-          if (confirmDeleteAll) confirmDeleteAll.disabled = true;
-          if (deleteAllSecretErr) deleteAllSecretErr.style.display = 'none';
+    if (isAdmin && backupConfirmModalEl && cancelBackupBtn && confirmBackupBtn && backupSecretInputEl) {
+      backupSecretInputEl.addEventListener('input', function() {
+        if (backupSecretInputEl.value.length === 0) {
+          confirmBackupBtn.disabled = true;
+          backupSecretErrorEl.style.display = 'none';
+          backupSecretErrorEl.textContent = '';
           return;
         }
+
         const xhr = new XMLHttpRequest();
         xhr.open('POST', 'validate_secret.php', true);
         xhr.setRequestHeader('Content-type', 'application/x-www-form-urlencoded');
         xhr.onload = function() {
-          try {
-            const res = JSON.parse(this.responseText);
-            if (confirmDeleteAll) confirmDeleteAll.disabled = !res.valid;
-            if (deleteAllSecretErr) {
-              deleteAllSecretErr.style.display = 'block';
-              deleteAllSecretErr.textContent   = res.valid ? 'Correct secret key' : 'Invalid secret key';
-              deleteAllSecretErr.style.color   = res.valid ? 'green' : 'red';
+          if (this.status === 200) {
+            try {
+              const res = JSON.parse(this.responseText);
+              confirmBackupBtn.disabled = !res.valid;
+              backupSecretErrorEl.style.display = 'block';
+              backupSecretErrorEl.textContent = res.valid ? 'Correct secret key' : 'Invalid secret key';
+              backupSecretErrorEl.style.color = res.valid ? 'green' : 'red';
+            } catch (e) {
+              confirmBackupBtn.disabled = true;
+              backupSecretErrorEl.style.display = 'block';
+              backupSecretErrorEl.textContent = 'Invalid secret key';
+              backupSecretErrorEl.style.color = 'red';
             }
-          } catch(e) {
-            if (confirmDeleteAll) confirmDeleteAll.disabled = true;
+          } else {
+            confirmBackupBtn.disabled = true;
+            backupSecretErrorEl.style.display = 'block';
+            backupSecretErrorEl.textContent = 'Invalid secret key';
+            backupSecretErrorEl.style.color = 'red';
           }
         };
-        xhr.send('secretKey=' + encodeURIComponent(this.value));
+        xhr.send('secretKey=' + encodeURIComponent(backupSecretInputEl.value));
       });
 
-      // Allow Enter key to trigger delete all if secret is correct
-      deleteAllSecretIn && deleteAllSecretIn.addEventListener('keydown', function(e) {
+      backupSecretInputEl.addEventListener('keydown', function(e) {
         if (e.key === 'Enter') {
           e.preventDefault();
-          if (confirmDeleteAll && !confirmDeleteAll.disabled) {
-            confirmDeleteAll.click();
-          } else if (deleteAllSecretErr) {
-            deleteAllSecretErr.style.display = 'block';
-            deleteAllSecretErr.textContent = 'Invalid secret key';
-            deleteAllSecretErr.style.color = 'red';
-            deleteAllSecretIn.focus();
+          if (confirmBackupBtn.disabled) {
+            backupSecretErrorEl.style.display = 'block';
+            backupSecretInputEl.focus();
+            return;
           }
+          runBackup();
         }
       });
 
-      // Confirm Delete All
-      confirmDeleteAll && confirmDeleteAll.addEventListener('click', function() {
-        if (this.disabled) return;
-        // Re-validate before executing
-        const xhr = new XMLHttpRequest();
-        xhr.open('POST', 'validate_secret.php', true);
-        xhr.setRequestHeader('Content-type', 'application/x-www-form-urlencoded');
-        xhr.onload = function() {
-          try {
-            const res = JSON.parse(this.responseText);
-            if (!res.valid) {
-              if (deleteAllSecretErr) { deleteAllSecretErr.style.display = 'block'; deleteAllSecretErr.textContent = 'Invalid secret key'; deleteAllSecretErr.style.color = 'red'; }
-              return;
-            }
-            // Execute delete all
-            const dx = new XMLHttpRequest();
-            dx.open('POST', 'clear_all_dm.php', true);
-            dx.onload = function() {
-              closeDeleteAllModal();
-              // Reset all chat state
-              activeDM = null; activeAdminConv = null; isGlobalChat = false;
-              updateClearChatButtonVisibility();
-              gcCursor = ''; dmCursor = '';
-              gcViewingOlder = false; dmViewingOlder = false;
-              allConvsData = [];
-              localStorage.removeItem('activeSpyConv');
-              localStorage.removeItem('activeDM');
-              removePaginationBtn();
-              document.getElementById('globalChatItem').classList.remove('active');
-              chatBox.innerHTML = '<div class="empty-chat"><p>All messages deleted.</p></div>';
-              renderSidebarUsers();
-              if (serverIsAdmin) renderAdminConvs();
+      cancelBackupBtn.addEventListener('click', closeBackupConfirmModal);
+      confirmBackupBtn.addEventListener('click', function() {
+        if (confirmBackupBtn.disabled) {
+          backupSecretErrorEl.style.display = 'block';
+          backupSecretInputEl.focus();
+          return;
+        }
+        runBackup();
+      });
 
-              // Broadcast so every other connected client wipes its view in
-              // realtime too, instead of only the admin who triggered this.
-              if (ws && ws.readyState === WebSocket.OPEN) {
-                ws.send(JSON.stringify({ type: 'all_cleared' }));
-              }
-            };
-            dx.onerror = function() { alert('Delete failed. Try again.'); };
-            dx.send();
-          } catch(e) {}
-        };
-        xhr.onerror = function() {};
-        xhr.send('secretKey=' + encodeURIComponent(deleteAllSecretIn ? deleteAllSecretIn.value : ''));
+      backupConfirmModalEl.addEventListener('click', function(e) {
+        if (e.target === backupConfirmModalEl) closeBackupConfirmModal();
+      });
+    }
+
+    const backupAlreadyDoneModalEl = document.getElementById('backupAlreadyDoneModal');
+    if (backupAlreadyDoneModalEl) {
+      backupAlreadyDoneModalEl.addEventListener('click', function(e) {
+        if (e.target === backupAlreadyDoneModalEl) closeBackupAlreadyDoneModal();
       });
     }
 
@@ -1787,9 +2298,14 @@
     // Keyboard shortcuts
     document.addEventListener('keydown', function(e) {
       if (e.key === 'Escape') {
-        if (deleteAllModal && deleteAllModal.classList.contains('active')) closeDeleteAllModal();
         if (confirmModal && confirmModal.classList.contains('active') && isAdmin) {
           closeModal();
+        }
+        if (backupConfirmModalEl && backupConfirmModalEl.classList.contains('active') && isAdmin) {
+          closeBackupConfirmModal();
+        }
+        if (backupAlreadyDoneModalEl && backupAlreadyDoneModalEl.classList.contains('active') && isAdmin) {
+          closeBackupAlreadyDoneModal();
         }
         if (logoutModal && logoutModal.classList.contains('active')) {
           closeLogoutModal();
@@ -1841,6 +2357,11 @@
     // ── Image extensions (same list as PHP) ────────────────────────────────────
     const IMAGE_EXTS = new Set(['jpg','jpeg','png','gif','webp','bmp','svg','ico']);
 
+    function isImageFile(file) {
+      const ext = (file.name.split('.').pop() || '').toLowerCase();
+      return IMAGE_EXTS.has(ext);
+    }
+
     const dropOverlay       = document.getElementById('dropOverlay');
     const fileAttachInput   = document.getElementById('fileAttachmentInput');
 
@@ -1871,14 +2392,23 @@
       dragCount = 0;
       if (dropOverlay) dropOverlay.classList.remove('visible');
       const files = e.dataTransfer ? Array.from(e.dataTransfer.files) : [];
-      if (files.length > 0) handleFileUploads(files);
+      if (files.length === 0) return;
+
+      // All dropped files (images and any other type) go into the staging
+      // modal so the user can review them — and drag & drop in a few more —
+      // before anything is actually sent.
+      openImageStagingModal(files);
     }, false);
 
     // ── File input (attachment button) ─────────────────────────────────────────
+    // Selecting file(s) via the attach button no longer sends immediately —
+    // they're staged in the modal first so the user can review/remove them
+    // and confirm with "Send". Same behavior on mobile, since it's the same
+    // input/modal, just triggered via the mobile-friendly tap listener below.
     if (fileAttachInput) {
       fileAttachInput.addEventListener('change', function() {
         const files = Array.from(this.files || []);
-        if (files.length > 0) handleFileUploads(files);
+        if (files.length > 0) openImageStagingModal(files);
         this.value = ''; // reset so same file can be re-picked
       });
     }
@@ -1892,6 +2422,241 @@
       });
     }
 
+    // ==========================================================================
+    // IMAGE STAGING MODAL — drop an image, then drop in more before sending
+    // ==========================================================================
+    const imageStagingModal     = document.getElementById('imageStagingModal');
+    const imageStagingDropzone  = document.getElementById('imageStagingDropzone');
+    const imageStagingGrid      = document.getElementById('imageStagingGrid');
+    const imageStagingFileInput = document.getElementById('imageStagingFileInput');
+    const imageStagingCancelBtn = document.getElementById('imageStagingCancelBtn');
+    const imageStagingSendBtn   = document.getElementById('imageStagingSendBtn');
+
+    let stagedImages     = []; // { id, file, url }
+    let stagedImageSeq   = 0;
+    let stagingDragCount = 0;  // prevents dropzone flicker on child enter/leave
+
+    function renderImageStagingGrid() {
+      if (!imageStagingGrid) return;
+
+      if (stagedImages.length === 0) {
+        imageStagingGrid.innerHTML = '<div class="image-staging-empty">No files added yet.</div>';
+        if (imageStagingSendBtn) imageStagingSendBtn.disabled = true;
+        return;
+      }
+
+      if (imageStagingSendBtn) imageStagingSendBtn.disabled = false;
+      imageStagingGrid.innerHTML = stagedImages.map(function(item) {
+        if (item.isImage) {
+          return '<div class="image-staging-thumb" data-id="' + item.id + '">' +
+                   '<img src="' + item.url + '" alt="">' +
+                   '<button type="button" class="image-staging-remove" data-id="' + item.id + '" title="Remove" aria-label="Remove file">&times;</button>' +
+                 '</div>';
+        }
+
+        // Non-image files get a generic file card: icon + extension badge + name.
+        const fullName = item.file.name || 'file';
+        const shortName = fullName.length > 22 ? fullName.substring(0, 19).trim() + '...' : fullName;
+        const extLabel = (item.ext || 'file').toUpperCase().substring(0, 5);
+        return '<div class="image-staging-thumb image-staging-file" data-id="' + item.id + '">' +
+                 '<div class="image-staging-file-inner">' +
+                   '<div class="image-staging-file-icon">' +
+                     '<svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><polyline points="14 2 14 8 20 8" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>' +
+                     '<span class="image-staging-file-ext">' + escapeHtml(extLabel) + '</span>' +
+                   '</div>' +
+                   '<span class="image-staging-file-name" title="' + escapeHtml(fullName) + '">' + escapeHtml(shortName) + '</span>' +
+                 '</div>' +
+                 '<button type="button" class="image-staging-remove" data-id="' + item.id + '" title="Remove" aria-label="Remove file">&times;</button>' +
+               '</div>';
+      }).join('');
+
+      imageStagingGrid.querySelectorAll('.image-staging-remove').forEach(function(btn) {
+        btn.addEventListener('click', function(e) {
+          e.preventDefault();
+          e.stopPropagation();
+          removeStagedImage(this.getAttribute('data-id'));
+        });
+      });
+
+      updateStagingGridMaxHeight();
+    }
+
+    // Caps the staging grid to exactly 2 rows (3 columns × 2 rows = 6
+    // thumbnails) of visible height — anything beyond that scrolls, with
+    // the scrollbar itself hidden via the shared modal CSS rule. Computed
+    // from the actual rendered thumb size (which is a % of the grid width,
+    // so it scales with screen size) rather than a hardcoded pixel value,
+    // so it stays exactly 6-visible on any viewport, including mobile.
+    const STAGING_ROWS_VISIBLE = 2; // 3 cols × 2 rows = 6 thumbnails before scroll
+    function updateStagingGridMaxHeight() {
+      if (!imageStagingGrid) return;
+      const firstThumb = imageStagingGrid.querySelector('.image-staging-thumb');
+      if (!firstThumb) {
+        imageStagingGrid.style.maxHeight = '';
+        return;
+      }
+      const rowHeight = firstThumb.getBoundingClientRect().height;
+      if (!rowHeight) return;
+      const gridStyles = getComputedStyle(imageStagingGrid);
+      const rowGap = parseFloat(gridStyles.rowGap || gridStyles.gap) || 0;
+      const maxHeight = (rowHeight * STAGING_ROWS_VISIBLE) + (rowGap * (STAGING_ROWS_VISIBLE - 1));
+      imageStagingGrid.style.maxHeight = Math.ceil(maxHeight) + 'px';
+    }
+
+    // Recompute on resize/orientation-change while the modal is open, since
+    // the thumb size (and therefore the 6-item cutoff) is width-dependent.
+    window.addEventListener('resize', function() {
+      if (imageStagingModal && imageStagingModal.classList.contains('active')) {
+        updateStagingGridMaxHeight();
+      }
+    });
+
+    function addImagesToStaging(files) {
+      const rejected = [];
+      let acceptedCount = 0;
+      for (const file of files) {
+        const ext = (file.name.split('.').pop() || '').toLowerCase();
+        if (REJECTED_EXTS.has(ext)) { rejected.push(file.name); continue; }
+        acceptedCount++;
+        stagedImageSeq++;
+        const isImg = isImageFile(file);
+        stagedImages.push({
+          id: 'simg_' + stagedImageSeq,
+          file: file,
+          url: isImg ? URL.createObjectURL(file) : null, // only images get a preview thumbnail
+          isImage: isImg,
+          ext: ext
+        });
+      }
+      if (rejected.length > 0) {
+        showUploadErrorModal(rejected.map(f => `'${f}' was rejected: executable or script files are not allowed.`));
+      }
+      renderImageStagingGrid();
+      return acceptedCount;
+    }
+
+    function removeStagedImage(id) {
+      const idx = stagedImages.findIndex(i => i.id === id);
+      if (idx === -1) return;
+      if (stagedImages[idx].url) URL.revokeObjectURL(stagedImages[idx].url);
+      stagedImages.splice(idx, 1);
+      renderImageStagingGrid();
+    }
+
+    function openImageStagingModal(files) {
+      if (isAdminAllChatsView || activeAdminConv) return;
+      if (!activeDM && !isGlobalChat) return;
+
+      const acceptedCount = addImagesToStaging(files);
+
+      // If every dropped/selected file was rejected (e.g. executable/script
+      // extensions), addImagesToStaging() already showed the error modal —
+      // don't also pop open the staging modal with nothing valid in it.
+      if (acceptedCount === 0) return;
+
+      if (imageStagingModal) {
+        imageStagingModal.style.display = 'flex';
+        imageStagingModal.classList.add('active');
+        imageStagingModal.setAttribute('aria-hidden', 'false');
+      }
+    }
+
+    function closeImageStagingModal(clearImages) {
+      if (imageStagingModal) {
+        imageStagingModal.classList.remove('active');
+        imageStagingModal.setAttribute('aria-hidden', 'true');
+        setTimeout(function() {
+          if (!imageStagingModal.classList.contains('active')) imageStagingModal.style.display = 'none';
+        }, 300); // matches .modal { transition: all 0.3s ease; }
+      }
+      if (clearImages) {
+        stagedImages.forEach(function(item) { if (item.url) URL.revokeObjectURL(item.url); });
+        stagedImages = [];
+        renderImageStagingGrid();
+      }
+      if (imageStagingDropzone) imageStagingDropzone.classList.remove('drag-active');
+      stagingDragCount = 0;
+    }
+
+    if (imageStagingCancelBtn) {
+      imageStagingCancelBtn.addEventListener('click', function() {
+        closeImageStagingModal(true);
+      });
+    }
+
+    if (imageStagingSendBtn) {
+      imageStagingSendBtn.addEventListener('click', function() {
+        if (stagedImages.length === 0) return;
+
+        // Images are sent together as a single grid message; every other
+        // file type is sent individually — same grouping handleFileUploads
+        // used to do before files went through staging.
+        const imageBatch = stagedImages.filter(function(item) { return item.isImage; })
+                                        .map(function(item) { return item.file; });
+        const otherFiles = stagedImages.filter(function(item) { return !item.isImage; })
+                                        .map(function(item) { return item.file; });
+
+        if (imageBatch.length > 0) uploadAndSend(imageBatch, true);
+        for (const file of otherFiles) uploadAndSend([file], false);
+
+        closeImageStagingModal(true);
+      });
+    }
+
+    if (imageStagingFileInput) {
+      imageStagingFileInput.addEventListener('change', function() {
+        const files = Array.from(this.files || []);
+        if (files.length > 0) addImagesToStaging(files);
+        this.value = ''; // allow re-picking the same file
+      });
+    }
+
+    if (imageStagingDropzone) {
+      // The dropzone doubles as a <label> for the hidden file input (click
+      // = browse); these listeners only add the drag & drop behavior.
+      imageStagingDropzone.addEventListener('dragenter', function(e) {
+        e.preventDefault();
+        e.stopPropagation();
+        stagingDragCount++;
+        imageStagingDropzone.classList.add('drag-active');
+      }, false);
+
+      imageStagingDropzone.addEventListener('dragleave', function(e) {
+        e.preventDefault();
+        e.stopPropagation();
+        stagingDragCount--;
+        if (stagingDragCount <= 0) {
+          stagingDragCount = 0;
+          imageStagingDropzone.classList.remove('drag-active');
+        }
+      }, false);
+
+      imageStagingDropzone.addEventListener('dragover', function(e) {
+        e.preventDefault();
+        e.stopPropagation();
+      }, false);
+
+      imageStagingDropzone.addEventListener('drop', function(e) {
+        e.preventDefault();
+        e.stopPropagation();
+        stagingDragCount = 0;
+        imageStagingDropzone.classList.remove('drag-active');
+        const files = e.dataTransfer ? Array.from(e.dataTransfer.files) : [];
+        if (files.length > 0) addImagesToStaging(files);
+      }, false);
+    }
+
+    // Also let the whole modal accept a drop anywhere over it, not just the
+    // dropzone box itself, without triggering the underlying chat drop handler.
+    if (imageStagingModal) {
+      imageStagingModal.addEventListener('dragover', function(e) { e.preventDefault(); }, false);
+      imageStagingModal.addEventListener('drop', function(e) {
+        e.preventDefault();
+        e.stopPropagation();
+        const files = e.dataTransfer ? Array.from(e.dataTransfer.files) : [];
+        if (files.length > 0) addImagesToStaging(files);
+      }, false);
+    }
 
     // ── Upload Progress & Error Modal Controls ────────────────────────────────
     function showUploadingModal(names) {
@@ -1993,7 +2758,7 @@
 
     function attachImageLoadListeners() {
       if (!chatBox) return;
-      chatBox.querySelectorAll('img').forEach(img => {
+      chatBox.querySelectorAll('img:not(.avatar-img)').forEach(img => {
         if (img.dataset.scrollListener) return;
         img.dataset.scrollListener = '1';
         img.addEventListener('load', () => {
@@ -2005,6 +2770,11 @@
     }
 
     // ── Core upload handler ───────────────────────────────────────────────────
+    // NOTE: no longer called directly from the attach button or from
+    // drag-and-drop — both now route through openImageStagingModal() so
+    // every file (image or not) is staged/previewed before it's sent.
+    // Left in place since uploadAndSend() (which it calls) is still used
+    // by the staging modal's Send button.
     function handleFileUploads(files) {
       if (isAdminAllChatsView || activeAdminConv) {
         return;

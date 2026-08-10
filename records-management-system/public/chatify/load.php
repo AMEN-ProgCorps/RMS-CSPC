@@ -58,6 +58,11 @@ $nextCursor = !empty($rawMessages) ? $rawMessages[0]['id'] : null;
 // ── Build a name cache for all senders in this batch ────────────────────────
 $nameMap = UserResolver::buildNameMap();
 
+// ── Build a verification cache: account_id => is_chatify_verified ────────────
+// Loaded lazily per-sender using UserResolver::getUserInfo() which caches rows.
+// We resolve once here to avoid N+1 DB calls inside the loop.
+$verifiedIds = []; // will be populated on demand
+
 // ── Render helpers ───────────────────────────────────────────────────────────
 $imageExts = ['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp', 'svg'];
 $audioExts = ['mp3', 'wav', 'ogg', 'flac', 'aac', 'm4a', 'opus'];
@@ -96,7 +101,6 @@ foreach ($rawMessages as $msg) {
     $senderId   = (int) $msg['sender_id'];
     $msgId      = htmlspecialchars($msg['id'] ?? '', ENT_QUOTES);
     $isSent     = ($senderId === $myAccountId);
-    $isAdmin    = ($senderId === $adminId);
     $msgClass   = $isSent ? 'sent' : 'received';
     $type       = $msg['type'] ?? 'text';
 
@@ -105,10 +109,16 @@ foreach ($rawMessages as $msg) {
     $initials    = gcInitials($senderName);
     $senderLabel = htmlspecialchars(strtolower($senderName), ENT_QUOTES);
 
-    // Admin badge markup
+    // Verified badge markup — driven by is_chatify_verified from DB
+    // (also doubles as the avatar_url lookup below, via UserResolver's cache)
+    if (!isset($verifiedIds[$senderId])) {
+        $senderInfo = UserResolver::getUserInfo($senderId);
+        $verifiedIds[$senderId] = (bool) ($senderInfo['is_chatify_verified'] ?? false);
+    }
+    $avatarInner = UserResolver::avatarInner($senderId, $initials);
     $adminBadge = '';
-    if ($isAdmin) {
-        $adminBadge = " <span class='verified-badge' title='Admin'>"
+    if ($verifiedIds[$senderId]) {
+        $adminBadge = " <span class='verified-badge'>"
             . "<svg viewBox='0 0 24 24' fill='none' xmlns='http://www.w3.org/2000/svg'>"
             . "<circle cx='12' cy='12' r='12' fill='#1b74e4'/>"
             . "<path d='M7 12.5l3.5 3.5 6.5-7' stroke='#fff' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'/>"
@@ -127,8 +137,8 @@ foreach ($rawMessages as $msg) {
         $fullTimeDisplay = date('F j, Y \a\t g:i A');
     }
 
-    $html .= "<div class='message-container {$msgClass}' data-msg-id='{$msgId}'>";
-    $html .= "<div class='message-avatar'>{$initials}</div>";
+    $html .= "<div class='message-container {$msgClass}' data-msg-id='{$msgId}' data-sender-id='{$senderId}'>";
+    $html .= "<div class='message-avatar'>{$avatarInner}</div>";
 
     if ($type === 'text') {
         // Decrypt message content

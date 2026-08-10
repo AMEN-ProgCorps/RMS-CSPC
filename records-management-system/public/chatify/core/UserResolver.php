@@ -102,7 +102,36 @@ class UserResolver
             'last_online_time'    => $row['last_online_time'] ?? null,
             'allow_typing_preview' => isset($row['allow_typing_preview']) ? (bool) $row['allow_typing_preview'] : true,
             'allow_see_typing_preview' => isset($row['allow_see_typing_preview']) ? (bool) $row['allow_see_typing_preview'] : true,
+            'is_chatify_verified' => (bool) ($row['is_chatify_verified'] ?? false),
+            'avatar_url'          => $row['avatar_url'] ?? null,
         ];
+    }
+
+    /**
+     * Return the Google/account avatar URL for an account_id, or null if
+     * the user has none set — callers fall back to initials in that case.
+     */
+    public static function getAvatarUrl(int $accountId): ?string
+    {
+        $row = self::getRow($accountId);
+        $url = $row['avatar_url'] ?? null;
+        return ($url !== null && $url !== '') ? $url : null;
+    }
+
+    /**
+     * Render the inner HTML for an avatar circle (message-avatar / user-avatar):
+     * an <img> tag pointed at the user's avatar_url when one is set, otherwise
+     * the caller-supplied initials as plain (already-escaped-by-caller) text.
+     * `referrerpolicy="no-referrer"` is required for Google-hosted
+     * (googleusercontent.com) profile photos to load reliably when hotlinked.
+     */
+    public static function avatarInner(int $accountId, string $initialsHtml): string
+    {
+        $url = self::getAvatarUrl($accountId);
+        if ($url === null) {
+            return $initialsHtml;
+        }
+        return '<img src="' . htmlspecialchars($url, ENT_QUOTES) . '" class="avatar-img" alt="" loading="lazy" referrerpolicy="no-referrer">';
     }
 
     /**
@@ -134,6 +163,8 @@ class UserResolver
                 'last_online_time'    => $row['last_online_time'] ?? null,
                 'allow_typing_preview' => isset($row['allow_typing_preview']) ? (bool) $row['allow_typing_preview'] : true,
                 'allow_see_typing_preview' => isset($row['allow_see_typing_preview']) ? (bool) $row['allow_see_typing_preview'] : true,
+                'is_chatify_verified' => (bool) ($row['is_chatify_verified'] ?? false),
+                'avatar_url'          => $row['avatar_url'] ?? null,
             ];
         }
 
@@ -203,7 +234,9 @@ class UserResolver
                         o.office_name,
                         o.office_code,
                         ad.is_currently_online,
-                        ad.last_online_time
+                        ad.last_online_time,
+                        ad.avatar_url,
+                        COALESCE(ad.is_chatify_verified, FALSE) AS is_chatify_verified
                  FROM account_details ad
                  LEFT JOIN office o ON o.id = ad.office_id
                  WHERE (:exclude = 0 OR ad.account_id != :exclude)
@@ -264,6 +297,8 @@ class UserResolver
                     'office_code'         => $row['office_code'] ?? null,
                     'is_currently_online' => (bool) ($row['is_currently_online'] ?? false),
                     'last_online_time'    => $row['last_online_time'] ?? null,
+                    'is_chatify_verified' => (bool) ($row['is_chatify_verified'] ?? false),
+                    'avatar_url'          => $row['avatar_url'] ?? null,
                 ];
             }
             return ['users' => $users, 'hasMore' => $hasMore];
@@ -333,8 +368,10 @@ class UserResolver
             $stmt = $pdo->prepare(
                 'SELECT ad.account_id, ad.first_name, ad.last_name, ad.middle_name,
                         ad.office_id, o.office_name, o.office_code, ad.email, ad.is_currently_online, ad.last_online_time,
+                        ad.avatar_url,
                         COALESCE(ad.allow_typing_preview, TRUE) AS allow_typing_preview,
-                        COALESCE(ad.allow_see_typing_preview, TRUE) AS allow_see_typing_preview
+                        COALESCE(ad.allow_see_typing_preview, TRUE) AS allow_see_typing_preview,
+                        COALESCE(ad.is_chatify_verified, FALSE) AS is_chatify_verified
                  FROM account_details ad
                  LEFT JOIN office o ON o.id = ad.office_id
                  WHERE ad.account_id = :id
@@ -365,8 +402,10 @@ class UserResolver
             $stmt = $pdo->query(
                 'SELECT ad.account_id, ad.first_name, ad.last_name, ad.middle_name,
                         ad.office_id, o.office_name, o.office_code, ad.email, ad.is_currently_online, ad.last_online_time,
+                        ad.avatar_url,
                         COALESCE(ad.allow_typing_preview, TRUE) AS allow_typing_preview,
-                        COALESCE(ad.allow_see_typing_preview, TRUE) AS allow_see_typing_preview
+                        COALESCE(ad.allow_see_typing_preview, TRUE) AS allow_see_typing_preview,
+                        COALESCE(ad.is_chatify_verified, FALSE) AS is_chatify_verified
                  FROM account_details ad
                  LEFT JOIN office o ON o.id = ad.office_id
                  ORDER BY ad.last_name, ad.first_name'

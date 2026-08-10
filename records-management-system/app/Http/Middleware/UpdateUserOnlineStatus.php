@@ -32,6 +32,24 @@ class UpdateUserOnlineStatus
             $details = DB::table('account_details')->where('account_id', $user->id)->first();
             $now = now();
 
+            // Helper to build appropriate logout response depending on request type (AJAX vs Chatify iframe vs Main page)
+            $buildLogoutResponse = function (string $reasonMessage) use ($request) {
+                if ($request->ajax() || $request->wantsJson() || $request->header('X-Requested-With') === 'XMLHttpRequest') {
+                    return response()->json([
+                        'error' => 'Unauthenticated',
+                        'message' => $reasonMessage,
+                        'redirect' => route('login'),
+                    ], 401);
+                }
+
+                if ($request->is('open-chat', 'chatify*', 'chat/*')) {
+                    return response('<!DOCTYPE html><html><head><script>if(window.top){window.top.location.href="' . route('login') . '";}</script></head><body></body></html>', 401)
+                        ->header('Content-Type', 'text/html');
+                }
+
+                return redirect()->route('login')->with('error', $reasonMessage);
+            };
+
             // A. Check if Admin modified account (Forced Logout)
             if ($details && $details->force_logout_at !== null) {
                 DB::table('account_details')
@@ -45,7 +63,7 @@ class UpdateUserOnlineStatus
                 $request->session()->invalidate();
                 $request->session()->regenerateToken();
 
-                return redirect()->route('login')->with('error', 'Your account details were updated by an Administrator. Please sign in again.');
+                return $buildLogoutResponse('Your account details were updated by an Administrator. Please sign in again.');
             }
 
             // B. Check if inactive for longer than configured timeout
@@ -60,7 +78,7 @@ class UpdateUserOnlineStatus
                     $request->session()->invalidate();
                     $request->session()->regenerateToken();
 
-                    return redirect()->route('login')->with('error', "Session expired due to {$timeoutMinutes} minutes of inactivity or tab closure.");
+                    return $buildLogoutResponse("Session expired due to {$timeoutMinutes} minutes of inactivity or tab closure.");
                 }
             }
 

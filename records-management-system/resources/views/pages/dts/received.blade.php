@@ -1,6 +1,7 @@
 <?php
 use Livewire\Attributes\Layout;
 use Livewire\Attributes\Title;
+use Livewire\Attributes\On;
 use Livewire\Volt\Component;
 use Livewire\WithPagination;
 use Livewire\WithFileUploads;
@@ -11,6 +12,13 @@ use Carbon\Carbon;
 new #[Layout('layouts.dts')] #[Title('Received Transactions - Document Tracking System')] class extends Component {
     use WithPagination;
     use WithFileUploads;
+
+    #[On('dts-transaction-updated')]
+    #[On('refresh-transactions')]
+    public function refreshTransactionsList(): void
+    {
+        $this->resetPage();
+    }
 
     public string $searchQuery = '';
     public int $perPage = 10;
@@ -216,6 +224,7 @@ new #[Layout('layouts.dts')] #[Title('Received Transactions - Document Tracking 
 
         $query = DB::table('dts_transactions as dt')
             ->join('dts_transaction_details as dtd', 'dtd.id', '=', 'dt.transaction_id')
+            ->leftJoin('dts_requestor_history as req', 'req.id', '=', 'dtd.requestor_id')
             ->leftJoin('office as originated_office', 'originated_office.office_code', '=', 'dtd.originated_from')
             ->leftJoin('office as current_office', 'current_office.office_code', '=', 'dt.current_office')
             ->leftJoin('dts_transaction_flow as flow', 'flow.flow_code', '=', 'dtd.transaction_flow')
@@ -240,7 +249,7 @@ new #[Layout('layouts.dts')] #[Title('Received Transactions - Document Tracking 
             'dt.current_office',
             'dt.trans_type',
             'dtd.control_number',
-            'dtd.requestor_name',
+            'req.requestor_name',
             'dtd.subject',
             'dtd.action_needed',
             'dtd.date_created',
@@ -276,7 +285,7 @@ new #[Layout('layouts.dts')] #[Title('Received Transactions - Document Tracking 
 };
 ?>
 
-<div>
+<div wire:poll.5s.keep-alive>
     <link rel="stylesheet" href="{{ asset('css/dts/internal.css') }}">
     <style>
         .dts-badge-received {
@@ -394,9 +403,14 @@ new #[Layout('layouts.dts')] #[Title('Received Transactions - Document Tracking 
                                     </span>
                                 </td>
                                 <td style="padding: 14px 16px; text-align: right; white-space: nowrap;">
-                                    <button wire:click="openForwardModal('{{ $t->transaction_id }}')" class="btn-forward-action">
-                                        📤 Forward Transaction
-                                    </button>
+                                    <div style="display: flex; align-items: center; justify-content: flex-end; gap: 8px;">
+                                        <button wire:click="openForwardModal('{{ $t->transaction_id }}')" class="btn-forward-action">
+                                            👁 View
+                                        </button>
+                                        <button type="button" onclick="if(window.openScannerModal) window.openScannerModal('{{ $t->control_number }}');" class="btn-forward-action" style="background: #0284c7;">
+                                            📷 Scan
+                                        </button>
+                                    </div>
                                 </td>
                             </tr>
                         @endforeach
@@ -420,9 +434,12 @@ new #[Layout('layouts.dts')] #[Title('Received Transactions - Document Tracking 
                                 <div><strong>Type:</strong> {{ $t->doc_type_name ?: ucfirst($t->trans_type) }}</div>
                             </div>
                         </div>
-                        <div style="padding-top: 12px; border-top: 1px solid #f1f5f9; display: flex; justify-content: flex-end;">
-                            <button wire:click="openForwardModal('{{ $t->transaction_id }}')" class="btn-forward-action" style="width: 100%; justify-content: center;">
-                                📤 Forward Transaction
+                        <div style="padding-top: 12px; border-top: 1px solid #f1f5f9; display: flex; justify-content: flex-end; gap: 8px;">
+                            <button wire:click="openForwardModal('{{ $t->transaction_id }}')" class="btn-forward-action" style="flex: 1; justify-content: center;">
+                                👁 View
+                            </button>
+                            <button type="button" onclick="if(window.openScannerModal) window.openScannerModal('{{ $t->control_number }}');" class="btn-forward-action" style="flex: 1; justify-content: center; background: #0284c7;">
+                                📷 Scan
                             </button>
                         </div>
                     </div>

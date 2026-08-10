@@ -10,6 +10,7 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create External
     public ?bool $isAvailable = null;
 
     public string $seq_number = '';
+    public string $unit_college = '';
     public string $source_office = '';
     public string $requestor_name = '';
     public string $requestor_label = '';
@@ -36,6 +37,65 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create External
     public string $email_access_input = '';
     public string $document_password_input = '';
 
+    // Source Office & Requestor History properties
+    public bool $showSourceOfficeDropdown = false;
+    public bool $showNewSourceOfficeModal = false;
+    public string $newSourceOfficeName = '';
+    public string $newSourceOfficeCode = '';
+
+    public bool $showRequestorDropdown = false;
+    public bool $showSuccessModal = false;
+    public array $createdTransactionSummary = [];
+
+    public function selectSourceOffice(string $code): void
+    {
+        $this->source_office = $code;
+        $this->showSourceOfficeDropdown = false;
+    }
+
+    public function selectRequestor(string $name, string $position): void
+    {
+        $this->requestor_name = $name;
+        $this->requestor_label = $position;
+        $this->showRequestorDropdown = false;
+    }
+
+    public function closeSuccessModal(): void
+    {
+        $this->showSuccessModal = false;
+        $this->createdTransactionSummary = [];
+    }
+
+    public function createNewSourceOffice(): void
+    {
+        $this->validate([
+            'newSourceOfficeName' => 'required|string|max:255',
+            'newSourceOfficeCode' => 'required|string|max:100',
+        ]);
+
+        $code = strtoupper(trim($this->newSourceOfficeCode));
+        $name = trim($this->newSourceOfficeName);
+
+        $userOfficeCode = auth()->user()?->details?->office?->office_code ?? 'RMO';
+
+        $exists = DB::table('dts_source_office')->where('s_office_code', $code)->exists();
+        if (!$exists) {
+            DB::table('dts_source_office')->insert([
+                's_office_name' => $name,
+                's_office_code' => $code,
+                'created_by_office' => $userOfficeCode,
+                'is_active' => true,
+                'created_at' => now(),
+                'updated_at' => now(),
+            ]);
+        }
+
+        $this->source_office = $code;
+        $this->newSourceOfficeName = '';
+        $this->newSourceOfficeCode = '';
+        $this->showNewSourceOfficeModal = false;
+    }
+
     public function toggleEmailAccessModal(): void
     {
         $this->showEmailAccessModal = !$this->showEmailAccessModal;
@@ -54,6 +114,8 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create External
         if ($perms && !$perms->is_sadm && !$perms->can_dts_use_external) {
             abort(403, 'Unauthorized access to External transactions.');
         }
+
+        $this->unit_college = auth()->user()?->details?->office?->office_code ?? 'RMO';
 
         $this->offices = DB::table('office')
             ->where('is_active', true)
@@ -577,9 +639,12 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create External
             ]);
         }
 
+        if (empty($this->seq_number)) {
+            $this->generateRandomSeq();
+        }
+
         $this->validate([
-            'seq_number' => 'required|string|max:50',
-            'source_office' => 'required|string|exists:office,office_code',
+            'source_office' => 'required|string',
             'requestor_name' => 'required|string|max:255',
             'requestor_label' => 'nullable|string|max:255',
             'subject' => 'required|string',
@@ -593,35 +658,72 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create External
             return;
         }
 
-        if (!$this->generatedQrCode) {
-            $this->addError('seq_number', 'Please generate a QR Code first.');
-            return;
-        }
-
-        $controlNumber = 'EXT-' . now()->format('Y-m') . '-' . $this->seq_number;
-
-        // Check if control number already exists
-        $exists = DB::table('dts_transaction_details')
-            ->where('control_number', $controlNumber)
-            ->exists();
-        if ($exists) {
-            $this->addError('seq_number', 'This control number is already taken.');
-            return;
-        }
-
         DB::beginTransaction();
         try {
+            $attempts = 0;
+            $controlNumber = '';
+            $collision = false;
+
+            do {
+                $attempts++;
+                if ($attempts > 1 || empty($this->seq_number)) {
+                    $this->generateRandomSeq();
+                    $this->generatedQrCode = null;
+                }
+
+                if (!$this->generatedQrCode) {
+                    $this->generateQrCode();
+                }
+
+                $controlNumber = 'EXT-' . now()->format('Y-m') . '-' . $this->seq_number;
+                $collision = DB::table('dts_transaction_details')->where('control_number', $controlNumber)->exists();
+            } while ($collision && $attempts < 5);
+
+            if ($collision) {
+                DB::rollBack();
+                $this->addError('seq_number', 'High concurrency detected. Please click Create Transaction again.');
+                return;
+            }
+
             // Mark the QR code as used
             DB::table('dts_qr_code')
                 ->where('code_id', $this->generatedQrCode)
                 ->update(['qr_status' => 'used']);
 
-            // Check if flow sequence was modified
+            // Resolve or create record in dts_requestor_history linked to source_office
+            $reqName = trim($this->requestor_name);
+            $reqPos = trim($this->requestor_label ?? '');
+            $reqOffice = $this->source_office;
+
+            $existingReq = DB::table('dts_requestor_history')
+                ->where('requestor_name', $reqName)
+                ->where('office', $reqOffice)
+                ->first();
+
+            if ($existingReq) {
+                $requestorId = $existingReq->id;
+                if (!empty($reqPos) && $existingReq->requestor_position !== $reqPos) {
+                    DB::table('dts_requestor_history')
+                        ->where('id', $existingReq->id)
+                        ->update(['requestor_position' => $reqPos]);
+                }
+            } else {
+                $requestorId = DB::table('dts_requestor_history')->insertGetId([
+                    'requestor_name' => $reqName,
+                    'requestor_position' => $reqPos,
+                    'office' => $reqOffice,
+                    'is_active' => true,
+                    'created_at' => now(),
+                    'updated_at' => now(),
+                ]);
+            }
+
+            // Check flow sequence
             $flowCode = $this->transaction_flow;
             $flow = DB::table('dts_transaction_flow')->where('flow_code', $this->transaction_flow)->first();
             
-            // Find cluster head of the originating office
-            $originOfficeCode = $this->source_office;
+            $userOfficeCode = auth()->user()?->details?->office?->office_code ?? 'RMO';
+            $originOfficeCode = $userOfficeCode;
             $originOffice = DB::table('office')->where('office_code', $originOfficeCode)->first();
             $clusterHead = null;
             if ($originOffice && $originOffice->cluster) {
@@ -631,7 +733,6 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create External
                 }
             }
 
-            // Resolve dynamic ORIGIN and [H] to the creator's office / cluster head for all elements (used dynamically)
             $resolvedOffices = [];
             foreach ($this->flow_offices as $officeCode) {
                 $resolved = $officeCode;
@@ -641,77 +742,50 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create External
                     $resolved = $clusterHead ?: $originOfficeCode;
                 }
                 
-                // Deduplicate adjacent/consecutive identical offices
                 if (empty($resolvedOffices) || end($resolvedOffices) !== $resolved) {
                     $resolvedOffices[] = $resolved;
                 }
             }
 
-            $resolvedPredefined = [];
-            if ($flow) {
-                $predefinedOffices = DB::table('dts_sequence_list')
-                    ->where('control_id', $flow->id)
-                    ->orderBy('sequence_ranking', 'asc')
-                    ->pluck('office_code')
-                    ->toArray();
+            // Copy custom flow
+            $flowCode = 'FLOW-CUSTOM-' . strtoupper(Str::random(10));
+            $maxId = DB::table('dts_transaction_flow')->max('id') ?? 0;
+            $newFlowId = $maxId + 1;
 
-                foreach ($predefinedOffices as $officeCode) {
-                    $resolved = $officeCode;
-                    if ($officeCode === 'ORIGIN') {
-                        $resolved = $originOfficeCode;
-                    } elseif ($officeCode === '[H]') {
-                        $resolved = $clusterHead ?: $originOfficeCode;
-                    }
-                    if (empty($resolvedPredefined) || end($resolvedPredefined) !== $resolved) {
-                        $resolvedPredefined[] = $resolved;
-                    }
+            DB::table('dts_transaction_flow')->insert([
+                'flow_code' => $flowCode,
+                'flow_name' => 'Flow for ' . $controlNumber . ' (' . $flowCode . ')',
+                'id' => $newFlowId,
+                'is_active' => 1,
+                'added_by' => auth()->id() ?? 1,
+                'date_added' => now(),
+                'flow_use' => 'external',
+                'flow_for' => 'system',
+                'referenced_flow' => $flow ? ('REF-' . (str_starts_with($flow->flow_code, 'FLOW-PREDEFINED') || str_starts_with($flow->flow_code, 'PREDEFINED') ? 'PREDEFINED' : 'CUSTOM') . '-' . $flow->id) : null,
+            ]);
+
+            foreach ($this->flow_offices as $rank => $officeCode) {
+                $toSave = $officeCode;
+                if ($officeCode === $originOfficeCode) {
+                    $toSave = 'ORIGIN';
+                } elseif ($officeCode === $clusterHead) {
+                    $toSave = '[H]';
                 }
+
+                DB::table('dts_sequence_list')->insert([
+                    'control_id' => $newFlowId,
+                    'sequence_ranking' => $rank + 1,
+                    'office_code' => $toSave,
+                    'date_in' => ($rank === 0) ? now() : null,
+                    'date_out' => null,
+                    'action_needed' => ($rank === 0) ? 'Created' : null,
+                    'note' => ($rank === 0) ? 'Created external transaction' : null,
+                    'total_time_completed' => null,
+                ]);
             }
 
-            // Always copy the flow to dts_sequence_list to make it unique per transaction
-            if (true) {
-                 // Generate custom flow
-                 $flowCode = 'FLOW-CUSTOM-' . strtoupper(Str::random(10));
-                 $maxId = DB::table('dts_transaction_flow')->max('id') ?? 0;
-                 $newFlowId = $maxId + 1;
- 
-                 DB::table('dts_transaction_flow')->insert([
-                     'flow_code' => $flowCode,
-                     'flow_name' => 'Flow for ' . $controlNumber . ' (' . $flowCode . ')',
-                     'id' => $newFlowId,
-                     'is_active' => 1,
-                     'added_by' => auth()->id() ?? 1,
-                     'date_added' => now(),
-                     'flow_use' => 'external',
-                     'flow_for' => 'system',
-                     'referenced_flow' => $flow ? ('REF-' . (str_starts_with($flow->flow_code, 'FLOW-PREDEFINED') || str_starts_with($flow->flow_code, 'PREDEFINED') ? 'PREDEFINED' : 'CUSTOM') . '-' . $flow->id) : null,
-                 ]);
- 
-                 foreach ($this->flow_offices as $rank => $officeCode) {
-                     $toSave = $officeCode;
-                     if ($officeCode === $originOfficeCode) {
-                         $toSave = 'ORIGIN';
-                     } elseif ($officeCode === $clusterHead) {
-                         $toSave = '[H]';
-                     }
- 
-                     DB::table('dts_sequence_list')->insert([
-                         'control_id' => $newFlowId,
-                         'sequence_ranking' => $rank + 1,
-                         'office_code' => $toSave,
-                         'date_in' => ($rank === 0) ? now() : null,
-                         'date_out' => null,
-                         'action_needed' => ($rank === 0) ? 'Created' : null,
-                         'note' => ($rank === 0) ? 'Created external transaction' : null,
-                         'total_time_completed' => null,
-                     ]);
-                 }
-             }
-
-            $currentOffice = $resolvedOffices[0] ?? $this->source_office;
-
+            $currentOffice = $resolvedOffices[0] ?? $userOfficeCode;
             $qrCodeId = $this->generatedQrCode;
-
             $transactionId = 'TRANS-' . strtoupper(Str::random(10));
 
             // Insert into dts_transactions
@@ -727,7 +801,6 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create External
             ]);
 
             $copyFilledId = null;
-            // Insert Copy Furnished records into dts_copy_filled_transaction and dts_copy_filled_to_office tables
             if ($this->copy_furnished === 'Yes' && count($this->cf_selected_offices) > 0) {
                 $assignOfficesId = (DB::table('dts_copy_filled_transaction')->max('assign_offices_id') ?? 1000) + 1;
 
@@ -779,9 +852,9 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create External
                 'id' => $transactionId,
                 'type' => 'external',
                 'created_by' => auth()->id(),
-                'originated_from' => $this->source_office,
-                'requestor_name' => $this->requestor_name,
-                'requestor_label' => $this->requestor_label,
+                'originated_from' => $userOfficeCode,
+                'source_office' => $this->source_office,
+                'requestor_id' => $requestorId,
                 'subject' => $this->subject,
                 'classification' => null,
                 'action_needed' => 'For action',
@@ -793,116 +866,58 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create External
                 'is_active' => 1,
                 'date_created' => now(),
                 'control_number' => $controlNumber,
-                'copy_filled_id' => $copyFilledId,
+                'copy_filled_id' => $copyFilledId ?: null,
             ]);
 
-            // Log the creation
+            // Initial tracking log
             DB::table('sub_document_tracking_system_logs')->insert([
                 'transaction_id' => $transactionId,
-                'office_code' => $this->source_office,
-                'type' => 'created',
+                'office_code' => $userOfficeCode,
+                'type' => 'received',
                 'date_in' => now(),
                 'date_out' => null,
-                'notes' => 'Created external transaction',
+                'notes' => 'External transaction created',
                 'performed_by' => auth()->id(),
             ]);
 
-            // Send notification to all users of the Origin office
-            $subsystemId = DB::table('subsystems')->where('subsystem_name', 'Document Tracking System')->value('subsystem_id');
-            if ($subsystemId) {
-                $originOffice = DB::table('office')->where('office_code', $this->source_office)->first();
-                if ($originOffice) {
-                    $usersInOffice = DB::table('account')
-                        ->join('account_details', 'account_details.account_id', '=', 'account.id')
-                        ->where('account_details.office_id', $originOffice->id)
-                        ->select('account.id')
-                        ->get();
-
-                    if ($usersInOffice->isNotEmpty()) {
-                        $senderName = auth()->user()?->details ? (auth()->user()->details->first_name . ' ' . auth()->user()->details->last_name) : 'Authorized User';
-                        $contentId = DB::table('notif_content')->insertGetId([
-                            'system' => $subsystemId,
-                            'content' => "A transaction has been created by {$senderName}. Transaction ID: {$controlNumber}",
-                            'redirect_url' => '/dts',
-                            'created_at' => now(),
-                        ]);
-
-                        $notificationId = DB::table('notifications')->insertGetId([
-                            'office' => $this->source_office,
-                            'contents' => $contentId,
-                            'created_at' => now(),
-                        ]);
-
-                        foreach ($usersInOffice as $u) {
-                            DB::table('notification_div')->insert([
-                                'id' => $notificationId,
-                                'account_rec' => $u->id,
-                                'status' => 'unread',
-                                'processed_on' => now(),
-                                'is_in_user_list' => true,
-                            ]);
-                        }
-                    }
-                }
-            }
-
-            // Send notification to copy furnished offices
-            if ($copyFilledId && $subsystemId) {
-                if (in_array('ALL', $this->cf_selected_offices)) {
-                    $cfNotifyOffices = DB::table('office')
-                        ->where('is_active', 1)
-                        ->where('office_code', '!=', $this->source_office)
-                        ->get();
-                } else {
-                    $cfNotifyOffices = DB::table('office')
-                        ->where('is_active', 1)
-                        ->whereIn('office_code', $this->cf_selected_offices)
-                        ->get();
-                }
-
-                $senderName = auth()->user()?->details ? (auth()->user()->details->first_name . ' ' . auth()->user()->details->last_name) : 'Authorized User';
-                $cfContentId = DB::table('notif_content')->insertGetId([
-                    'system' => $subsystemId,
-                    'content' => "A document has been copy furnished to your office by {$senderName}. Transaction ID: {$controlNumber}",
-                    'redirect_url' => '/dts',
-                    'created_at' => now(),
-                ]);
-
-                foreach ($cfNotifyOffices as $officeRow) {
-                    $usersInCFOffice = DB::table('account')
-                        ->join('account_details', 'account_details.account_id', '=', 'account.id')
-                        ->where('account_details.office_id', $officeRow->id)
-                        ->select('account.id')
-                        ->get();
-
-                    if ($usersInCFOffice->isNotEmpty()) {
-                        $cfNotificationId = DB::table('notifications')->insertGetId([
-                            'office' => $officeRow->office_code,
-                            'contents' => $cfContentId,
-                            'created_at' => now(),
-                        ]);
-
-                        foreach ($usersInCFOffice as $u) {
-                            DB::table('notification_div')->insert([
-                                'id' => $cfNotificationId,
-                                'account_rec' => $u->id,
-                                'status' => 'unread',
-                                'processed_on' => now(),
-                                'is_in_user_list' => true,
-                            ]);
-                        }
-                    }
-                }
-            }
-
             DB::commit();
 
-            session()->flash('message', 'Transaction created successfully!');
-            return $this->redirectRoute('dts');
+            // Notify target office that transaction is waiting to be received
+            if (!empty($currentOffice)) {
+                \App\Services\DtsNotificationService::notifyWaitingToBeReceived($currentOffice, $controlNumber, $transactionId);
+            }
+
+            // Source office display name
+            $soName = DB::table('dts_source_office')->where('s_office_code', $this->source_office)->value('s_office_name') ?: $this->source_office;
+
+            // Summary for modal
+            $this->createdTransactionSummary = [
+                'control_number' => $controlNumber,
+                'subject' => $this->subject,
+                'requestor' => $this->requestor_name,
+                'requestor_position' => $this->requestor_label,
+                'qr_code' => $this->generatedQrCode,
+                'office' => $soName,
+                'type' => 'External Transaction',
+            ];
+
+            // Reset form properties
+            $this->seq_number = '';
+            $this->requestor_name = '';
+            $this->requestor_label = '';
+            $this->subject = '';
+            $this->transaction_flow = '';
+            $this->copy_furnished = 'Yes';
+            $this->cf_selected_offices = [];
+            $this->generatedQrCode = null;
+            $this->availabilityMessage = '';
+            $this->isAvailable = null;
+            $this->showSuccessModal = true;
+            $this->dispatch('dts-transaction-updated');
 
         } catch (\Exception $e) {
             DB::rollBack();
-            session()->flash('error', 'Error creating transaction: ' . $e->getMessage());
+            $this->addError('seq_number', 'Error creating transaction: ' . $e->getMessage());
         }
     }
 };
@@ -921,10 +936,10 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create External
     </div>
 
     <!-- External Transaction Form -->
-    <form class="rms-form" wire:submit.prevent="save" style="position: relative; min-height: 520px; box-sizing: border-box;">
+    <form class="rms-form" wire:submit.prevent="save">
             
-            <!-- Left Side Form Fields -->
-            <div style="margin-right: 220px;">
+            <!-- Form Fields -->
+            <div>
                 
                 @if(auth()->user()?->permissions?->can_dts_modify_control_no)
                     <!-- Original Control Number Input Field -->
@@ -959,29 +974,106 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create External
                     </div>
                 @endif
 
-                <!-- Source office field -->
+                <!-- Originating Unit/College (Internal Encoding Office) field for Admin -->
                 @if(auth()->user()?->permissions?->is_sadm)
                 <div class="form-row">
                     <div class="form-col medium-input">
-                        <label class="input-label">Source Office</label>
-                        <select wire:model="source_office" class="select-input">
-                            <option value="">Select Source Office</option>
+                        <label class="input-label">Originating Unit/College (Internal Encoding Office)</label>
+                        <select wire:model="unit_college" class="select-input">
+                            <option value="">Select Unit/College</option>
                             @foreach($offices as $office)
                                 <option value="{{ $office['office_code'] }}">{{ $office['office_name'] }} ({{ $office['office_code'] }})</option>
                             @endforeach
                         </select>
-                        @error('source_office')
+                        @error('unit_college')
                             <span class="error-msg" style="color: #dc2626; font-size: 12px; margin-top: 4px; display: block;">{{ $message }}</span>
                         @enderror
                     </div>
                 </div>
                 @endif
 
+                <!-- Source Office (External Originator) field -->
+                <div class="form-row">
+                    <div class="form-col medium-input" style="position: relative;">
+                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">
+                            <label class="input-label" style="margin: 0;">Source Office (External Originator)</label>
+                            <button type="button" wire:click="$set('showNewSourceOfficeModal', true)" style="background: none; border: none; font-size: 11.5px; color: #0284c7; font-weight: 600; cursor: pointer; text-decoration: underline; padding: 0;">
+                                + Add New External Office
+                            </button>
+                        </div>
+                        <div style="position: relative;" wire:click.outside="$set('showSourceOfficeDropdown', false)">
+                            @php
+                                $selectedSoName = \DB::table('dts_source_office')->where('s_office_code', $source_office)->value('s_office_name');
+                                $displaySoText = $selectedSoName ? "{$selectedSoName} ({$source_office})" : $source_office;
+                            @endphp
+                            <input type="text" wire:model.live="source_office" wire:focus="$set('showSourceOfficeDropdown', true)" class="text-input" placeholder="Type or select Source Office Code / Name" autocomplete="off" style="padding-right: 32px;">
+                            <span style="position: absolute; right: 10px; top: 50%; transform: translateY(-50%); pointer-events: none; color: #94a3b8; font-size: 10px;">▼</span>
+                            @if($showSourceOfficeDropdown)
+                                <div style="position: absolute; top: 100%; left: 0; right: 0; margin-top: 4px; background: #ffffff; border: 1.5px solid #cbd5e1; border-radius: 8px; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1); max-height: 200px; overflow-y: auto; z-index: 50;">
+                                    @php
+                                        $sourceOffices = \DB::table('dts_source_office')
+                                            ->where('is_active', true)
+                                            ->when(!empty($source_office), function($q) use ($source_office) {
+                                                $q->where('s_office_name', 'like', '%' . $source_office . '%')
+                                                  ->orWhere('s_office_code', 'like', '%' . $source_office . '%');
+                                            })
+                                            ->orderBy('s_office_name')
+                                            ->get();
+                                    @endphp
+                                    @forelse($sourceOffices as $so)
+                                        <div wire:click="selectSourceOffice('{{ addslashes($so->s_office_code) }}')" style="padding: 9px 14px; font-size: 13px; color: #334155; cursor: pointer; border-bottom: 1px solid #f1f5f9;" onmouseover="this.style.backgroundColor='#f1f5f9'" onmouseout="this.style.backgroundColor='transparent'">
+                                            <div style="font-weight: 600;">{{ $so->s_office_name }}</div>
+                                            <div style="font-size: 11px; color: #64748b;">Code: {{ $so->s_office_code }}</div>
+                                        </div>
+                                    @empty
+                                        <div style="padding: 10px 14px; font-size: 12px; color: #64748b; font-style: italic;">
+                                            No external office found. Click "+ Add New External Office" to create one.
+                                        </div>
+                                    @endforelse
+                                </div>
+                            @endif
+                        </div>
+                        @error('source_office')
+                            <span class="error-msg" style="color: #dc2626; font-size: 12px; margin-top: 4px; display: block;">{{ $message }}</span>
+                        @enderror
+                    </div>
+                </div>
+
                 <!-- Name of Requestor field -->
                 <div class="form-row">
-                    <div class="form-col small-input">
+                    <div class="form-col small-input" style="position: relative;">
                         <label class="input-label">Name of Requestor</label>
-                        <input type="text" wire:model="requestor_name" class="text-input" placeholder="Name of Requestor">
+                        <div style="position: relative;" wire:click.outside="$set('showRequestorDropdown', false)">
+                            <input type="text" wire:model.live="requestor_name" wire:focus="$set('showRequestorDropdown', true)" class="text-input" placeholder="Type or select Requestor Name" autocomplete="off" style="padding-right: 32px;">
+                            <span style="position: absolute; right: 10px; top: 50%; transform: translateY(-50%); pointer-events: none; color: #94a3b8; font-size: 10px;">▼</span>
+                            @if($showRequestorDropdown)
+                                <div style="position: absolute; top: 100%; left: 0; right: 0; margin-top: 4px; background: #ffffff; border: 1.5px solid #cbd5e1; border-radius: 8px; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1); max-height: 200px; overflow-y: auto; z-index: 50;">
+                                    @php
+                                        $targetOffice = $source_office;
+                                        $existingRequestors = \DB::table('dts_requestor_history')
+                                            ->where('office', $targetOffice)
+                                            ->where('is_active', true)
+                                            ->when(!empty($requestor_name), function($q) use ($requestor_name) {
+                                                $q->where('requestor_name', 'like', '%' . $requestor_name . '%');
+                                            })
+                                            ->orderBy('requestor_name')
+                                            ->get();
+                                    @endphp
+                                    @forelse($existingRequestors as $req)
+                                        <div wire:click="selectRequestor('{{ addslashes($req->requestor_name) }}', '{{ addslashes($req->requestor_position) }}')" style="padding: 9px 14px; font-size: 13px; color: #334155; cursor: pointer; border-bottom: 1px solid #f1f5f9;" onmouseover="this.style.backgroundColor='#f1f5f9'" onmouseout="this.style.backgroundColor='transparent'">
+                                            <div style="font-weight: 600;">{{ $req->requestor_name }}</div>
+                                            @if(!empty($req->requestor_position))
+                                                <div style="font-size: 11px; color: #64748b;">{{ $req->requestor_position }}</div>
+                                            @endif
+                                        </div>
+                                    @empty
+                                        <div style="padding: 10px 14px; font-size: 12px; color: #64748b; font-style: italic;">
+                                            No existing requestor found for this source office. Typing a new requestor...
+                                        </div>
+                                    @endforelse
+                                </div>
+                            @endif
+                        </div>
                         @error('requestor_name')
                             <span class="error-msg" style="color: #dc2626; font-size: 12px; margin-top: 4px; display: block;">{{ $message }}</span>
                         @enderror
@@ -991,7 +1083,7 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create External
                 <!-- Requestor Job Position field -->
                 <div class="form-row">
                     <div class="form-col small-input">
-                        <label class="input-label">Requestor Job Position</label>
+                        <label class="input-label">Requestor Job Position <span style="font-size: 11px; color: #94a3b8; font-weight: normal;">(Optional)</span></label>
                         <input type="text" wire:model="requestor_label" class="text-input" placeholder="Requestor Job Position">
                         @error('requestor_label')
                             <span class="error-msg" style="color: #dc2626; font-size: 12px; margin-top: 4px; display: block;">{{ $message }}</span>
@@ -1108,32 +1200,11 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create External
 
             </div>
 
-            <!-- Right Side Absolute QR Code Box -->
-            <div style="position: absolute; top: 0; right: 0; width: 180px; display: flex; flex-direction: column; align-items: center; gap: 10px; box-sizing: border-box;">
-                @if($generatedQrCode)
-                    <div id="printable-qr-area-external" style="display: flex; flex-direction: column; align-items: center; gap: 8px; background: white; padding: 16px; border-radius: 8px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); border: 1px solid #cbd5e1; box-sizing: border-box; width: 180px;">
-                        <img src="https://api.qrserver.com/v1/create-qr-code/?size=150x150&data={{ urlencode(base64_encode($generatedQrCode)) }}" alt="QR Code" style="width: 148px; height: 148px;">
-                        <span style="font-family: monospace; font-weight: bold; font-size: 13px; color: #1e293b; text-align: center; word-break: break-all;">{{ $generatedQrCode }}</span>
-                    </div>
-                    <button type="button" onclick="openDynamicPrintModal('{{ $generatedQrCode }}')" style="background: #10b981; color: white; border: none; border-radius: 6px; padding: 8px 16px; font-weight: bold; font-size: 13px; cursor: pointer; display: flex; align-items: center; gap: 6px; width: 100%; justify-content: center; box-shadow: 0 2px 4px rgba(16, 185, 129, 0.2);">
-                        <i class="fa-solid fa-print"></i> Print QR Code
-                    </button>
-                @else
-                    <div style="display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; background: #f8fafc; border: 2px dashed #cbd5e1; padding: 20px; border-radius: 8px; box-sizing: border-box; width: 180px; height: 210px; color: #64748b; text-align: center;">
-                        <i class="fa-solid fa-qrcode" style="font-size: 36px; color: #94a3b8;"></i>
-                        <span style="font-size: 12px; font-weight: 600;">QR Code Output</span>
-                    </div>
-                @endif
-            </div>
-
-            <!-- Submit button and Generate QR next to it -->
+            <!-- Submit button -->
             <div class="actions-row" style="display: flex; gap: 12px; align-items: center; margin-top: 24px; clear: both;">
                 @if (session()->has('error'))
                     <span style="color: #dc2626; font-size: 13px; align-self: center; margin-right: 15px;">{{ session('error') }}</span>
                 @endif
-                <button type="button" wire:click="generateQrCode" class="btn-primary" style="background-color: #3b82f6; border-radius: 4px; padding: 10px 20px; font-size: 13px; font-weight: 600; cursor: pointer; display: flex; align-items: center; gap: 6px; box-shadow: 0 2px 4px rgba(59, 130, 246, 0.2);" {{ $generatedQrCode ? 'disabled style=background-color:#cbd5e1;cursor:not-allowed;box-shadow:none;' : '' }}>
-                    <i class="fa-solid fa-gear"></i> Generate QR Code
-                </button>
                 @php
                     $emailAccessRequired = DB::table('system_settings')->where('key', 'dts_email_access_required_external')->value('value') === 'true';
                     $hasEmailInput = !empty($email_access_input);
@@ -1152,7 +1223,9 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create External
                 <button type="button" wire:click="toggleEmailAccessModal" class="btn-primary" style="background-color: {{ $btnBg }}; border-radius: 4px; padding: 10px 20px; font-size: 13px; font-weight: 600; cursor: pointer; display: flex; align-items: center; gap: 6px; box-shadow: 0 2px 4px {{ $btnShadow }}; transition: background-color 0.15s;" onmouseover="this.style.backgroundColor='{{ $btnHoverBg }}'" onmouseout="this.style.backgroundColor='{{ $btnBg }}'">
                     <i class="fa-solid {{ $btnIcon }}"></i> Manage Email Access
                 </button>
-                <button type="submit" class="btn-primary" @if(!$generatedQrCode) disabled style="background-color: #cbd5e1; color: #94a3b8; cursor: not-allowed; box-shadow: none;" @endif>CREATE TRANSACTION</button>
+                <button type="submit" class="btn-primary" style="background-color: #3b82f6; border-radius: 4px; padding: 10px 24px; font-size: 13px; font-weight: 600; cursor: pointer; display: flex; align-items: center; gap: 6px; box-shadow: 0 2px 4px rgba(59, 130, 246, 0.2);">
+                    <i class="fa-solid fa-plus"></i> CREATE TRANSACTION
+                </button>
             </div>
         </form>
 <!-- QR-CODE-MODIFY-HERE -->
@@ -1491,6 +1564,127 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create External
                 to { transform: translateX(0); opacity: 1; }
             }
         </style>
+    @endif
+
+    <!-- Modal: Create New External Source Office -->
+    @if($showNewSourceOfficeModal)
+        <div style="position: fixed; inset: 0; background: rgba(15, 23, 42, 0.45); backdrop-filter: blur(4px); display: flex; align-items: center; justify-content: center; z-index: 10000; font-family: 'Inter', sans-serif;">
+            <div style="background: #ffffff; border-radius: 16px; width: 100%; max-width: 440px; box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1); display: flex; flex-direction: column; overflow: hidden;">
+                <div style="padding: 20px 24px; border-bottom: 1px solid #f1f5f9; display: flex; align-items: center; justify-content: space-between;">
+                    <h3 style="font-size: 15px; font-weight: 700; color: #0f172a; margin: 0;">Add New External Source Office</h3>
+                    <button type="button" wire:click="$set('showNewSourceOfficeModal', false)" style="background: none; border: none; font-size: 20px; color: #94a3b8; cursor: pointer;">&times;</button>
+                </div>
+                <div style="padding: 24px; display: flex; flex-direction: column; gap: 16px;">
+                    <div>
+                        <label style="font-size: 12px; font-weight: 600; color: #334155;">Office Name <span style="color: #ef4444;">*</span></label>
+                        <input type="text" wire:model="newSourceOfficeName" placeholder="e.g. Commission on Higher Education - Region V" style="width: 100%; padding: 10px 12px; border: 1.5px solid #cbd5e1; border-radius: 8px; font-size: 13px; margin-top: 4px;">
+                        @error('newSourceOfficeName') <span style="font-size: 11.5px; color: #ef4444;">{{ $message }}</span> @enderror
+                    </div>
+                    <div>
+                        <label style="font-size: 12px; font-weight: 600; color: #334155;">Office Code <span style="color: #ef4444;">*</span></label>
+                        <input type="text" wire:model="newSourceOfficeCode" placeholder="e.g. SO-CHED-RO5" style="width: 100%; padding: 10px 12px; border: 1.5px solid #cbd5e1; border-radius: 8px; font-size: 13px; text-transform: uppercase; margin-top: 4px;">
+                        @error('newSourceOfficeCode') <span style="font-size: 11.5px; color: #ef4444;">{{ $message }}</span> @enderror
+                    </div>
+                </div>
+                <div style="padding: 16px 24px; border-top: 1px solid #f1f5f9; display: flex; justify-content: flex-end; gap: 12px; background: #fafafa;">
+                    <button type="button" wire:click="$set('showNewSourceOfficeModal', false)" style="background: #ffffff; border: 1.5px solid #cbd5e1; color: #334155; padding: 8px 16px; border-radius: 8px; font-size: 13px; font-weight: 600; cursor: pointer;">Cancel</button>
+                    <button type="button" wire:click="createNewSourceOffice" style="background: #0284c7; border: none; color: #ffffff; padding: 8px 20px; border-radius: 8px; font-size: 13px; font-weight: 600; cursor: pointer;">Save External Office</button>
+                </div>
+            </div>
+        </div>
+    @endif
+
+    <!-- Success Modal with Print QR Code -->
+    @if($showSuccessModal && !empty($createdTransactionSummary))
+        <div style="position: fixed; inset: 0; background: rgba(15, 23, 42, 0.5); backdrop-filter: blur(4px); display: flex; align-items: center; justify-content: center; z-index: 10000; font-family: 'Inter', sans-serif;">
+            <div style="background: #ffffff; border-radius: 16px; width: 100%; max-width: 480px; box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25); display: flex; flex-direction: column; overflow: hidden; border: 1px solid #e2e8f0;">
+                
+                <!-- Success Header -->
+                <div style="padding: 24px 24px 16px 24px; text-align: center; background: #f0fdf4; border-bottom: 1px solid #dcfce7;">
+                    <div style="width: 56px; height: 56px; border-radius: 50%; background: #22c55e; color: #ffffff; display: flex; align-items: center; justify-content: center; font-size: 28px; margin: 0 auto 12px auto; box-shadow: 0 4px 12px rgba(34, 197, 94, 0.3);">
+                        <i class="fa-solid fa-check"></i>
+                    </div>
+                    <h3 style="font-size: 18px; font-weight: 700; color: #15803d; margin: 0 0 4px 0;">Transaction Created Successfully!</h3>
+                    <p style="font-size: 12px; color: #166534; margin: 0;">Control No: <strong>{{ $createdTransactionSummary['control_number'] }}</strong></p>
+                </div>
+
+                <!-- Modal Content Details -->
+                <div style="padding: 20px 24px; display: flex; flex-direction: column; gap: 16px; align-items: center;">
+                    <!-- QR Code Image -->
+                    <div style="padding: 12px; background: #ffffff; border: 2px solid #e2e8f0; border-radius: 12px; text-align: center; box-shadow: 0 2px 4px rgba(0,0,0,0.05);">
+                        <img src="https://api.qrserver.com/v1/create-qr-code/?size=180x180&data={{ urlencode($createdTransactionSummary['qr_code']) }}" alt="QR Code" style="width: 160px; height: 160px; display: block; margin: 0 auto 8px auto;">
+                        <div style="font-size: 13px; font-weight: 700; color: #0f172a; font-family: monospace;">{{ $createdTransactionSummary['control_number'] }}</div>
+                        <div style="font-size: 11px; color: #64748b; margin-top: 2px;">{{ $createdTransactionSummary['office'] }} • {{ $createdTransactionSummary['type'] }}</div>
+                    </div>
+
+                    <!-- Summary Table -->
+                    <div style="width: 100%; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 12px; font-size: 12px;">
+                        <div style="display: flex; justify-content: space-between; padding: 4px 0; border-bottom: 1px solid #f1f5f9;">
+                            <span style="color: #64748b; font-weight: 500;">Requestor:</span>
+                            <span style="color: #0f172a; font-weight: 600;">{{ $createdTransactionSummary['requestor'] }} @if(!empty($createdTransactionSummary['requestor_position'])) ({{ $createdTransactionSummary['requestor_position'] }}) @endif</span>
+                        </div>
+                        <div style="display: flex; justify-content: space-between; padding: 4px 0; border-bottom: 1px solid #f1f5f9;">
+                            <span style="color: #64748b; font-weight: 500;">Source Office:</span>
+                            <span style="color: #0f172a; font-weight: 600;">{{ $createdTransactionSummary['office'] }}</span>
+                        </div>
+                        <div style="display: flex; justify-content: space-between; padding: 4px 0;">
+                            <span style="color: #64748b; font-weight: 500;">Subject:</span>
+                            <span style="color: #0f172a; font-weight: 600; max-width: 260px; text-align: right; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">{{ $createdTransactionSummary['subject'] }}</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Footer Actions -->
+                <div style="padding: 16px 24px; border-top: 1px solid #f1f5f9; display: flex; justify-content: space-between; align-items: center; background: #fafafa;">
+                    <button type="button" onclick="if(window.openDynamicPrintModal) { openDynamicPrintModal('{{ $createdTransactionSummary['qr_code'] }}'); } else { printQrCodeOnly(); }" style="background: #0284c7; border: none; color: #ffffff; padding: 9px 18px; border-radius: 8px; font-size: 13px; font-weight: 600; cursor: pointer; display: flex; align-items: center; gap: 8px;">
+                        <i class="fa-solid fa-print"></i> Print QR Code
+                    </button>
+                    <button type="button" wire:click="closeSuccessModal" style="background: #475569; border: none; color: #ffffff; padding: 9px 20px; border-radius: 8px; font-size: 13px; font-weight: 600; cursor: pointer;">
+                        Done / Create Another
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <script>
+            function printQrCodeOnly() {
+                const controlNo = "{{ $createdTransactionSummary['control_number'] }}";
+                const office = "{{ $createdTransactionSummary['office'] }}";
+                const type = "{{ $createdTransactionSummary['type'] }}";
+                const subject = "{{ addslashes($createdTransactionSummary['subject']) }}";
+                const requestor = "{{ addslashes($createdTransactionSummary['requestor']) }}";
+                const qrUrl = "https://api.qrserver.com/v1/create-qr-code/?size=220x220&data={{ urlencode(base64_encode($createdTransactionSummary['qr_code'])) }}";
+
+                const printWin = window.open('', '_blank', 'width=600,height=600');
+                printWin.document.write(`
+                    <!DOCTYPE html>
+                    <html>
+                    <head>
+                        <title>Print QR Code - \${controlNo}</title>
+                        <style>
+                            body { font-family: 'Inter', sans-serif; text-align: center; padding: 40px; }
+                            .print-box { border: 2px solid #000; padding: 24px; border-radius: 12px; display: inline-block; max-width: 350px; }
+                            .qr-img { width: 200px; height: 200px; }
+                            .ctrl-no { font-size: 18px; font-weight: bold; font-family: monospace; margin-top: 12px; }
+                            .meta { font-size: 12px; color: #333; margin-top: 6px; }
+                            @media print {
+                                body { padding: 0; }
+                            }
+                        </style>
+                    </head>
+                    <body>
+                        <div class="print-box">
+                            <img src="${qrUrl}" class="qr-img" />
+                        </div>
+                        <script>
+                            window.onload = function() { window.print(); window.close(); }
+                        <\/script>
+                    </body>
+                    </html>
+                `);
+                printWin.document.close();
+            }
+        </script>
     @endif
 
     <!-- Dynamic QR Code Print Modal -->

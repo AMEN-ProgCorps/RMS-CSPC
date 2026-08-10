@@ -121,6 +121,7 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Receive Transac
         // Match either raw QR code sequence ID or control number
         $transaction = DB::table('dts_transactions as dt')
             ->join('dts_transaction_details as dtd', 'dtd.id', '=', 'dt.transaction_id')
+            ->leftJoin('dts_requestor_history as req', 'req.id', '=', 'dtd.requestor_id')
             ->leftJoin('office as originated_office', 'originated_office.office_code', '=', 'dtd.originated_from')
             ->leftJoin('document_data as doc', 'doc.document_path', '=', 'dt.doc_dir')
             ->where(function($q) use ($code) {
@@ -136,7 +137,8 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Receive Transac
                 'dt.current_office',
                 'dtd.transaction_flow',
                 'dtd.control_number',
-                'dtd.requestor_name',
+                'req.requestor_name',
+                'req.requestor_position as requestor_label',
                 'dtd.subject',
                 'dtd.classification',
                 'dtd.originated_from',
@@ -253,6 +255,23 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Receive Transac
                             'date_in' => now(),
                             'scanned_id' => true,
                         ]);
+                }
+
+                $userFirstName = auth()->user()?->details?->first_name 
+                    ?: DB::table('account_details')->where('account_id', auth()->id())->value('first_name')
+                    ?: auth()->user()?->username 
+                    ?: 'User';
+
+                $controlNumber = $this->activeTransaction['control_number'] ?? '';
+                $transId = $this->activeTransaction['transaction_id'] ?? '';
+
+                if ($userOfficeCode) {
+                    \App\Services\DtsNotificationService::notifyReceived($userOfficeCode, $userFirstName, $controlNumber, $transId);
+                }
+
+                $originatedFrom = $this->activeTransaction['originated_from'] ?? null;
+                if ($originatedFrom && $originatedFrom !== $userOfficeCode) {
+                    \App\Services\DtsNotificationService::notifyReceived($originatedFrom, $userFirstName, $controlNumber, $transId);
                 }
 
                 $this->successMessage = "Transaction {$this->activeTransaction['control_number']} has been successfully RECEIVED at your office. Timer reset to 0.";
@@ -380,6 +399,22 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Receive Transac
                         'notes' => 'Forwarded from ' . (auth()->user()?->details?->office?->office_name ?: $userOfficeCode),
                         'performed_by' => auth()->id(),
                     ]);
+
+                    $userFirstName = auth()->user()?->details?->first_name 
+                        ?: DB::table('account_details')->where('account_id', auth()->id())->value('first_name')
+                        ?: auth()->user()?->username 
+                        ?: 'User';
+
+                    $controlNumber = $this->activeTransaction['control_number'] ?? '';
+                    $transId = $this->activeTransaction['transaction_id'] ?? '';
+
+                    if ($userOfficeCode) {
+                        \App\Services\DtsNotificationService::notifyForwarded($userOfficeCode, $userFirstName, $controlNumber, $transId);
+                    }
+
+                    if (!empty($destOfficeCode)) {
+                        \App\Services\DtsNotificationService::notifyWaitingToBeReceived($destOfficeCode, $controlNumber, $transId);
+                    }
 
                     $this->successMessage = "Transaction {$this->activeTransaction['control_number']} successfully forwarded to {$this->activeTransaction['next_office_name']}.";
                 } else {

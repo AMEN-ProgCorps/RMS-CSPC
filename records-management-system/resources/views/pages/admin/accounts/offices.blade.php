@@ -52,6 +52,20 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Offices & Clusters')] cl
     public string $clusterHead = '';
     public bool $clusterIsActive = true;
 
+    // ---- OTHER OFFICES (EXTERNAL SOURCE OFFICES) DIRECTORY PROPERTIES ----
+    public string $otherOfficeSearch = '';
+    public string $otherOfficeViewMode = 'table';
+    public ?int $selectedOtherOfficeId = null;
+    public string $otherOfficeName = '';
+    public string $otherOfficeCode = '';
+    public bool $otherOfficeIsActive = true;
+    public string $otherOfficeCreatedBy = '';
+
+    public function updatingOtherOfficeSearch(): void
+    {
+        $this->resetPage();
+    }
+
     // Searchable dropdown properties
     public string $clusterHeadSearch = '';
     public bool $showClusterHeadDropdown = false;
@@ -109,7 +123,117 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Offices & Clusters')] cl
         $this->clusterFile = null;
         $this->selectedClusterIds = [];
 
+        $this->selectedOtherOfficeId = null;
+        $this->otherOfficeName = '';
+        $this->otherOfficeCode = '';
+        $this->otherOfficeIsActive = true;
+        $this->otherOfficeCreatedBy = '';
+
         $this->clearMessages();
+    }
+
+    public function startCreateOtherOffice(): void
+    {
+        $this->cancelSelection();
+        $this->selectedOtherOfficeId = -1;
+    }
+
+    public function selectOtherOffice(int $id): void
+    {
+        $this->cancelSelection();
+        $sourceOffice = \DB::table('dts_source_office')->where('id', $id)->first();
+        if ($sourceOffice) {
+            $this->selectedOtherOfficeId = $sourceOffice->id;
+            $this->otherOfficeName = $sourceOffice->s_office_name;
+            $this->otherOfficeCode = $sourceOffice->s_office_code;
+            $this->otherOfficeIsActive = (bool) $sourceOffice->is_active;
+            $this->otherOfficeCreatedBy = $sourceOffice->created_by_office;
+        }
+    }
+
+    public function saveOtherOfficeChanges(): void
+    {
+        $this->clearMessages();
+
+        $this->validate([
+            'otherOfficeName' => 'required|string|max:255',
+            'otherOfficeCode' => 'required|string|max:100',
+        ], [
+            'otherOfficeName.required' => 'The External Office Name is required.',
+            'otherOfficeCode.required' => 'The External Office Code is required.',
+        ]);
+
+        $code = strtoupper(trim($this->otherOfficeCode));
+        $name = trim($this->otherOfficeName);
+
+        if ($this->selectedOtherOfficeId === -1) {
+            $exists = \DB::table('dts_source_office')->where('s_office_code', $code)->exists();
+            if ($exists) {
+                $this->errorMessage = "The External Office Code '{$code}' already exists.";
+                return;
+            }
+
+            $userOfficeCode = auth()->user()?->details?->office?->office_code ?? 'ORIGIN';
+
+            \DB::table('dts_source_office')->insert([
+                's_office_name' => $name,
+                's_office_code' => $code,
+                'created_by_office' => $userOfficeCode,
+                'is_active' => $this->otherOfficeIsActive,
+                'created_at' => now(),
+                'updated_at' => now(),
+            ]);
+
+            \DB::table('admin_logs')->insert([
+                'changes' => "Created external source office: {$name} ({$code})",
+                'admin_id' => auth()->id(),
+                'what_system' => 3,
+                'when_changes' => now()
+            ]);
+
+            $this->cancelSelection();
+            $this->successMessage = 'External source office created successfully!';
+        } else {
+            $exists = \DB::table('dts_source_office')
+                ->where('s_office_code', $code)
+                ->where('id', '!=', $this->selectedOtherOfficeId)
+                ->exists();
+            if ($exists) {
+                $this->errorMessage = "The External Office Code '{$code}' is already used by another office.";
+                return;
+            }
+
+            \DB::table('dts_source_office')
+                ->where('id', $this->selectedOtherOfficeId)
+                ->update([
+                    's_office_name' => $name,
+                    's_office_code' => $code,
+                    'is_active' => $this->otherOfficeIsActive,
+                    'updated_at' => now(),
+                ]);
+
+            \DB::table('admin_logs')->insert([
+                'changes' => "Updated external source office: {$name} ({$code})",
+                'admin_id' => auth()->id(),
+                'what_system' => 3,
+                'when_changes' => now()
+            ]);
+
+            $this->cancelSelection();
+            $this->successMessage = 'External source office updated successfully!';
+        }
+    }
+
+    public function deleteOtherOffice(): void
+    {
+        if (!$this->selectedOtherOfficeId) return;
+
+        \DB::table('dts_source_office')
+            ->where('id', $this->selectedOtherOfficeId)
+            ->update(['is_active' => false]);
+
+        $this->cancelSelection();
+        $this->successMessage = 'External source office deactivated successfully!';
     }
 
     /**
@@ -1130,10 +1254,24 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Offices & Clusters')] cl
             }
         }
 
+        $otherOfficeQuery = \DB::table('dts_source_office as so')
+            ->leftJoin('office as creator', 'creator.office_code', '=', 'so.created_by_office')
+            ->select('so.*', 'creator.office_name as creator_office_name')
+            ->where('so.is_active', true);
+        if ($this->otherOfficeSearch !== '') {
+            $oSearchVal = '%' . $this->otherOfficeSearch . '%';
+            $otherOfficeQuery->where(function($q) use ($oSearchVal) {
+                $q->where('so.s_office_name', 'like', $oSearchVal)
+                  ->orWhere('so.s_office_code', 'like', $oSearchVal);
+            });
+        }
+        $otherOffices = $otherOfficeQuery->orderBy('so.s_office_name', 'asc')->paginate(20);
+
         return [
             'offices' => $offices,
             'clusters' => $clusters,
             'clusterOffices' => $clusterOffices,
+            'otherOffices' => $otherOffices,
         ];
     }
 };
@@ -1197,6 +1335,9 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Offices & Clusters')] cl
         </button>
         <button type="button" class="tab-btn {{ $activeTab === 'clusters' ? 'active' : '' }}" wire:click="$set('activeTab', 'clusters')">
             <i class="fa-solid fa-sitemap" style="margin-right: 6px;"></i> Clusters Directory
+        </button>
+        <button type="button" class="tab-btn {{ $activeTab === 'other_offices' ? 'active' : '' }}" wire:click="$set('activeTab', 'other_offices')">
+            <i class="fa-solid fa-building-flag" style="margin-right: 6px;"></i> Other Offices
         </button>
     </div>
 
@@ -1510,7 +1651,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Offices & Clusters')] cl
                 </div>
             @endif
         </div>
-    @else
+    @elseif($activeTab === 'clusters')
         <div class="admin-offices-container {{ !$selectedClusterId ? 'no-selection' : 'has-selection' }}" wire:key="tab-clusters-view">
             <!-- Left Pane: Clusters Directory -->
             <div class="directory-panel">
@@ -1810,6 +1951,98 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Offices & Clusters')] cl
                             </button>
                         </div>
                     @endif
+                </div>
+            @endif
+        </div>
+    @elseif($activeTab === 'other_offices')
+        <div class="admin-offices-container {{ !$selectedOtherOfficeId ? 'no-selection' : 'has-selection' }}" wire:key="tab-other-offices-view">
+            <!-- Left Pane: Other Offices Directory -->
+            <div class="directory-panel">
+                <div class="directory-header-row">
+                    <span class="form-label" style="margin: 0; font-size: 13px; color: #334155;">Other Offices Directory (External Sources)</span>
+                    <div style="display: flex; gap: 6px;">
+                        <button type="button" class="btn-create-new" wire:click="startCreateOtherOffice">
+                            <i class="fa-solid fa-plus"></i> New External Office
+                        </button>
+                    </div>
+                </div>
+
+                <div class="search-box-wrapper">
+                    <i class="fa-solid fa-magnifying-glass search-icon"></i>
+                    <input type="text" class="search-box" placeholder="Search external offices..." wire:model.live="otherOfficeSearch">
+                </div>
+
+                <div class="directory-list" style="margin-top: 12px;">
+                    @forelse($otherOffices as $so)
+                        <div class="directory-item {{ $selectedOtherOfficeId === $so->id ? 'selected' : '' }}" wire:click="selectOtherOffice({{ $so->id }})" wire:key="so-item-{{ $so->id }}">
+                            <div class="item-avatar" style="background-color: #0284c7; color: white;">
+                                <i class="fa-solid fa-building-flag"></i>
+                            </div>
+                            <div class="item-info">
+                                <span class="item-name">{{ $so->s_office_name }}</span>
+                                <span class="item-meta">{{ $so->s_office_code }} • Created by {{ $so->creator_office_name ?: ($so->created_by_office ?: 'System') }}</span>
+                            </div>
+                        </div>
+                    @empty
+                        <div class="no-results-placeholder">
+                            <i class="fa-solid fa-building-circle-exclamation" style="font-size: 24px; color: #94a3b8; margin-bottom: 8px;"></i>
+                            <span>No external offices found.</span>
+                        </div>
+                    @endforelse
+                </div>
+
+                <div style="margin-top: 16px;">
+                    {{ $otherOffices->links() }}
+                </div>
+            </div>
+
+            <!-- Right Pane: Details & Form Panel -->
+            @if($selectedOtherOfficeId !== null)
+                <div class="details-panel" wire:key="so-details-panel">
+                    <div class="details-header">
+                        <h2>{{ $selectedOtherOfficeId === -1 ? 'Create New External Office' : 'External Office Details' }}</h2>
+                    </div>
+
+                    <div class="details-body">
+                        <form wire:submit.prevent="saveOtherOfficeChanges">
+                            <div class="form-group">
+                                <label class="form-label">External Office Name <span style="color: #ef4444;">*</span></label>
+                                <input type="text" class="form-input" wire:model="otherOfficeName" placeholder="e.g. Commission on Higher Education - Region V">
+                            </div>
+
+                            <div class="form-group">
+                                <label class="form-label">External Office Code <span style="color: #ef4444;">*</span></label>
+                                <input type="text" class="form-input" wire:model="otherOfficeCode" placeholder="e.g. SO-CHED-RO5" style="text-transform: uppercase;">
+                            </div>
+
+                            @if($selectedOtherOfficeId > 0)
+                                <div class="form-group">
+                                    <div class="status-toggle-wrapper">
+                                        <div class="status-toggle-label">
+                                            <span class="status-toggle-title">Active Status</span>
+                                            <span class="status-toggle-desc">Toggle whether this external office is active.</span>
+                                        </div>
+                                        <label class="switch">
+                                            <input type="checkbox" wire:model="otherOfficeIsActive">
+                                            <span class="slider"></span>
+                                        </label>
+                                    </div>
+                                </div>
+                            @endif
+                        </form>
+                    </div>
+
+                    <div class="details-footer">
+                        @if($selectedOtherOfficeId > 0)
+                            <button type="button" class="btn-delete" wire:click="deleteOtherOffice" wire:confirm="Are you sure you want to deactivate this external office?" style="margin-right: auto;">
+                                <i class="fa-solid fa-trash-can"></i> Deactivate Office
+                            </button>
+                        @endif
+                        <button type="button" class="btn-cancel" wire:click="cancelSelection">Cancel</button>
+                        <button type="button" class="btn-save" wire:click="saveOtherOfficeChanges">
+                            <i class="fa-solid fa-floppy-disk"></i> Save Office
+                        </button>
+                    </div>
                 </div>
             @endif
         </div>

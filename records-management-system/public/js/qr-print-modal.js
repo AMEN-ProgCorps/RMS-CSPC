@@ -65,6 +65,7 @@ window.openDynamicPrintModal = function(qrCodeValue) {
 
     // Set display to flex FIRST so layout calculations and scrollWidth measurements work
     qrModal.style.display = 'flex';
+    qrModal.style.zIndex = '99999';
     document.body.style.overflow = 'hidden';
 
     var qrUrl = 'https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=' + encodeURIComponent(btoa(qrCodeValue));
@@ -117,7 +118,7 @@ window.changeQrSize = function(sizeValue) {
     img.style.height = config.imgH + 'px';
     
     txt.style.whiteSpace = 'nowrap';
-    txt.style.display = 'block';
+    txt.style.display = 'none';
     txt.style.width = '100%';
 
     // Auto-adjust font size to fit container width
@@ -222,11 +223,7 @@ window.executeDynamicPrint = function() {
     imgEl.setAttribute('src', qrImageSrc);
     imgEl.setAttribute('alt', 'QR');
 
-    var spanEl = doc.createElement('span');
-    spanEl.textContent = qrTextVal;
-
     wrapperEl.appendChild(imgEl);
-    wrapperEl.appendChild(spanEl);
     bodyEl.appendChild(wrapperEl);
 
     htmlEl.appendChild(headEl);

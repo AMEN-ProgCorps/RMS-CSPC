@@ -1,6 +1,7 @@
 <?php
 use Livewire\Attributes\Layout;
 use Livewire\Attributes\Title;
+use Livewire\Attributes\On;
 use Livewire\Volt\Component;
 use Livewire\WithPagination;
 use Livewire\WithFileUploads;
@@ -10,6 +11,13 @@ use Illuminate\Support\Str;
 new #[Layout('layouts.dts')] #[Title('DTS - Application Letters History')] class extends Component {
     use WithPagination;
     use WithFileUploads;
+
+    #[On('dts-transaction-updated')]
+    #[On('refresh-transactions')]
+    public function refreshTransactionsList(): void
+    {
+        $this->resetPage();
+    }
 
     public int $perPage = 10;
     public string $searchQuery = '';
@@ -45,6 +53,7 @@ new #[Layout('layouts.dts')] #[Title('DTS - Application Letters History')] class
 
         $query = DB::table('dts_transactions as dt')
             ->join('dts_transaction_details as dtd', 'dtd.id', '=', 'dt.transaction_id')
+            ->leftJoin('dts_requestor_history as req', 'req.id', '=', 'dtd.requestor_id')
             ->leftJoin('office as originated_office', 'originated_office.office_code', '=', 'dtd.originated_from')
             ->leftJoin('office as current_office', 'current_office.office_code', '=', 'dt.current_office')
             ->leftJoin('dts_transaction_flow as flow', 'flow.flow_code', '=', 'dtd.transaction_flow')
@@ -85,8 +94,8 @@ new #[Layout('layouts.dts')] #[Title('DTS - Application Letters History')] class
             'dt.current_office',
             'dt.trans_type',
             'dtd.control_number',
-            'dtd.requestor_name',
-            'dtd.requestor_label',
+            'req.requestor_name',
+            'req.requestor_position as requestor_label',
             'dtd.subject',
             'dtd.classification',
             'dtd.action_needed',
@@ -107,7 +116,7 @@ new #[Layout('layouts.dts')] #[Title('DTS - Application Letters History')] class
     @vite(['resources/css/dts/list_transaction.css', 'resources/css/dts/receive.css'])
 @endpush
 
-<div class="rms-container">
+<div class="rms-container" wire:poll.10s.keep-alive>
     <div class="rms-header">
         <h2>Application Letters History</h2>
     </div>

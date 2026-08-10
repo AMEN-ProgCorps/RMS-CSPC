@@ -1,6 +1,7 @@
 <?php
 use Livewire\Attributes\Layout;
 use Livewire\Attributes\Title;
+use Livewire\Attributes\On;
 use Livewire\Volt\Component;
 use Livewire\WithPagination;
 use Illuminate\Support\Facades\DB;
@@ -8,6 +9,13 @@ use Illuminate\Support\Str;
 
 new #[Layout('layouts.dts')] #[Title('Forwarded Transactions - Document Tracking System')] class extends Component {
     use WithPagination;
+
+    #[On('dts-transaction-updated')]
+    #[On('refresh-transactions')]
+    public function refreshTransactionsList(): void
+    {
+        $this->resetPage();
+    }
 
     public string $searchQuery = '';
     public int $perPage = 10;
@@ -43,6 +51,7 @@ new #[Layout('layouts.dts')] #[Title('Forwarded Transactions - Document Tracking
         // Transactions where user office performed forward log and destination office hasn't received yet
         $query = DB::table('dts_transactions as dt')
             ->join('dts_transaction_details as dtd', 'dtd.id', '=', 'dt.transaction_id')
+            ->leftJoin('dts_requestor_history as req', 'req.id', '=', 'dtd.requestor_id')
             ->leftJoin('office as originated_office', 'originated_office.office_code', '=', 'dtd.originated_from')
             ->leftJoin('office as current_office', 'current_office.office_code', '=', 'dt.current_office')
             ->leftJoin('dts_transaction_flow as flow', 'flow.flow_code', '=', 'dtd.transaction_flow')
@@ -67,7 +76,7 @@ new #[Layout('layouts.dts')] #[Title('Forwarded Transactions - Document Tracking
             'dt.current_office',
             'dt.trans_type',
             'dtd.control_number',
-            'dtd.requestor_name',
+            'req.requestor_name',
             'dtd.subject',
             'dtd.date_created',
             'dtd.originated_from',
@@ -118,7 +127,7 @@ new #[Layout('layouts.dts')] #[Title('Forwarded Transactions - Document Tracking
 };
 ?>
 
-<div>
+<div wire:poll.5s.keep-alive>
     <link rel="stylesheet" href="{{ asset('css/dts/internal.css') }}">
     <style>
         .dts-badge-forwarded {

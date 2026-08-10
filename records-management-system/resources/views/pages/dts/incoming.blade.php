@@ -1,6 +1,7 @@
 <?php
 use Livewire\Attributes\Layout;
 use Livewire\Attributes\Title;
+use Livewire\Attributes\On;
 use Livewire\Volt\Component;
 use Livewire\WithPagination;
 use Livewire\WithFileUploads;
@@ -10,6 +11,13 @@ use Illuminate\Support\Str;
 new #[Layout('layouts.dts')] #[Title('Incoming Transactions - Document Tracking System')] class extends Component {
     use WithPagination;
     use WithFileUploads;
+
+    #[On('dts-transaction-updated')]
+    #[On('refresh-transactions')]
+    public function refreshTransactionsList(): void
+    {
+        $this->resetPage();
+    }
 
     public string $activeTab = 'all';
     public string $searchQuery = '';
@@ -134,6 +142,7 @@ new #[Layout('layouts.dts')] #[Title('Incoming Transactions - Document Tracking 
 
         $t = DB::table('dts_transactions as dt')
             ->join('dts_transaction_details as dtd', 'dtd.id', '=', 'dt.transaction_id')
+            ->leftJoin('dts_requestor_history as req', 'req.id', '=', 'dtd.requestor_id')
             ->leftJoin('office as originated_office', 'originated_office.office_code', '=', 'dtd.originated_from')
             ->leftJoin('office as current_office', 'current_office.office_code', '=', 'dt.current_office')
             ->leftJoin('dts_transaction_flow as flow', 'flow.flow_code', '=', 'dtd.transaction_flow')
@@ -148,8 +157,8 @@ new #[Layout('layouts.dts')] #[Title('Incoming Transactions - Document Tracking 
                 'dt.trans_type',
                 'dt.doc_dir',
                 'dtd.control_number',
-                'dtd.requestor_name',
-                'dtd.requestor_label',
+                'req.requestor_name',
+                'req.requestor_position as requestor_label',
                 'dtd.subject',
                 'dtd.classification',
                 'dtd.action_needed',
@@ -180,6 +189,7 @@ new #[Layout('layouts.dts')] #[Title('Incoming Transactions - Document Tracking 
 
         $query = DB::table('dts_transactions as dt')
             ->join('dts_transaction_details as dtd', 'dtd.id', '=', 'dt.transaction_id')
+            ->leftJoin('dts_requestor_history as req', 'req.id', '=', 'dtd.requestor_id')
             ->leftJoin('office as originated_office', 'originated_office.office_code', '=', 'dtd.originated_from')
             ->leftJoin('office as current_office', 'current_office.office_code', '=', 'dt.current_office')
             ->leftJoin('dts_transaction_flow as flow', 'flow.flow_code', '=', 'dtd.transaction_flow')
@@ -194,7 +204,7 @@ new #[Layout('layouts.dts')] #[Title('Incoming Transactions - Document Tracking 
             $query->where(function($q) use ($searchVal) {
                 $q->where('dtd.control_number', 'like', '%' . $searchVal . '%')
                   ->orWhere('dtd.subject', 'like', '%' . $searchVal . '%')
-                  ->orWhere('dtd.requestor_name', 'like', '%' . $searchVal . '%')
+                  ->orWhere('req.requestor_name', 'like', '%' . $searchVal . '%')
                   ->orWhere('dt.qr_code', 'like', '%' . $searchVal . '%');
             });
         }
@@ -207,8 +217,8 @@ new #[Layout('layouts.dts')] #[Title('Incoming Transactions - Document Tracking 
             'dt.current_office',
             'dt.trans_type',
             'dtd.control_number',
-            'dtd.requestor_name',
-            'dtd.requestor_label',
+            'req.requestor_name',
+            'req.requestor_position as requestor_label',
             'dtd.subject',
             'dtd.classification',
             'dtd.action_needed',
@@ -249,7 +259,7 @@ new #[Layout('layouts.dts')] #[Title('Incoming Transactions - Document Tracking 
 };
 ?>
 
-<div>
+<div wire:poll.5s.keep-alive>
     <link rel="stylesheet" href="{{ asset('css/dts/internal.css') }}">
     <style>
         .dts-badge-incoming {
@@ -319,7 +329,7 @@ new #[Layout('layouts.dts')] #[Title('Incoming Transactions - Document Tracking 
             </p>
         </div>
         <div>
-            <a href="{{ route('dts.receive') }}" class="btn-receive-action" style="text-decoration: none; background: #3b82f6;">
+            <a href="javascript:void(0)" onclick="if(window.openScannerModal) window.openScannerModal();" class="btn-receive-action" style="text-decoration: none; background: #3b82f6;">
                 📷 Open Scanner
             </a>
         </div>
@@ -402,8 +412,8 @@ new #[Layout('layouts.dts')] #[Title('Incoming Transactions - Document Tracking 
                                     </span>
                                 </td>
                                 <td style="padding: 14px 16px; text-align: right; white-space: nowrap;">
-                                    <button wire:click="receiveIncoming('{{ $t->transaction_id }}')" class="btn-receive-action">
-                                        📥 Receive Document
+                                    <button type="button" onclick="if(window.openScannerModal) window.openScannerModal('{{ $t->control_number }}');" class="btn-receive-action">
+                                        📷 Scan
                                     </button>
                                 </td>
                             </tr>
@@ -429,8 +439,8 @@ new #[Layout('layouts.dts')] #[Title('Incoming Transactions - Document Tracking 
                             </div>
                         </div>
                         <div style="padding-top: 12px; border-top: 1px solid #f1f5f9; display: flex; justify-content: flex-end;">
-                            <button wire:click="receiveIncoming('{{ $t->transaction_id }}')" class="btn-receive-action" style="width: 100%; justify-content: center;">
-                                📥 Receive Document
+                            <button type="button" onclick="if(window.openScannerModal) window.openScannerModal('{{ $t->control_number }}');" class="btn-receive-action" style="width: 100%; justify-content: center;">
+                                📷 Scan
                             </button>
                         </div>
                     </div>

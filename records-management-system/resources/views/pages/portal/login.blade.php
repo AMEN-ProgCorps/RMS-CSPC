@@ -4,20 +4,15 @@ use Livewire\Attributes\Layout;
 use Livewire\Attributes\Title;
 use Livewire\Volt\Component;
 
-new #[Layout('layouts.portal')] #[Title('RMS CSPC Login')] class extends Component
-{
-    public function with(): array
-    {
-        $allowGoogleLogin = \Illuminate\Support\Facades\DB::table('system_settings')->where('key', 'allow_google_login')->value('value') !== 'false';
-
-        return [
-            'allowGoogleLogin' => $allowGoogleLogin,
-        ];
-    }
-};
+new #[Layout('layouts.portal')] #[Title('RMS CSPC Login')] class extends Component {};
 ?>
 
 @push('styles')
+    <script>
+        if (window.self !== window.top) {
+            window.top.location.href = window.location.href;
+        }
+    </script>
     @vite(['resources/css/login.css'])
     <style data-navigate-track>
         body {
@@ -67,7 +62,6 @@ new #[Layout('layouts.portal')] #[Title('RMS CSPC Login')] class extends Compone
                 </div>
             @endif
 
-            @if($allowGoogleLogin)
             <div class="google-login-con">
                 <a href="{{ route('auth.google') }}" class="google-button">
                     <svg class="google-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48">
@@ -79,11 +73,6 @@ new #[Layout('layouts.portal')] #[Title('RMS CSPC Login')] class extends Compone
                     <span>Sign in with Google</span>
                 </a>
             </div>
-            @else
-            <div class="login-alert-error">
-                <span>Google Sign-In is currently disabled. Please contact system administrator.</span>
-            </div>
-            @endif
         </div>
 
         <span class="notice">RECORDS AND FREEDOM OF INFORMATION UNIT</span>

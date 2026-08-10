@@ -283,7 +283,7 @@ new #[Layout('layouts.portal')] #[Title('RMS CSPC Portal')] class extends Compon
         @endforeach
 
         @if($canDtsScanner)
-        <a href="{{ route('dts.receive') }}" class="system-con mobile-only" id="dts-scanner">
+        <a href="javascript:void(0)" onclick="if(window.openScannerModal) window.openScannerModal();" class="system-con mobile-only" id="dts-scanner">
             <div class="display-box">
                 <span>DTS QR Scanner</span>
             </div>

@@ -128,5 +128,6 @@
     @endif
     @endauth
     <x-chatify.floating-widget />
+    <livewire:components.scanner-modal />
 </body>
 </html>

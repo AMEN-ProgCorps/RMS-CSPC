@@ -302,6 +302,20 @@ try {
       </div>
 
 
+      <!-- Floating "Replying to: ..." bubble — shown above the input when a
+           reply is in progress (triggered via mobile swipe or the desktop
+           hover reply button on a message). -->
+      <div id="replyBanner" class="reply-banner">
+        <div class="reply-banner-bubble">
+          <span class="reply-banner-text">Replying to: <span id="replyBannerSnippet"></span></span>
+          <button type="button" id="replyBannerCancel" class="reply-banner-cancel" title="Cancel reply" aria-label="Cancel reply">
+            <svg viewBox="0 0 24 24" width="11" height="11" fill="#fff">
+              <path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/>
+            </svg>
+          </button>
+        </div>
+      </div>
+
       <!-- Display-name field kept in the DOM (send logic still reads its
            value) but no longer shown as a visible row. The attach button
            now lives inline with the message box below. -->

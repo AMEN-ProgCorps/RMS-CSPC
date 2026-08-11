@@ -384,6 +384,226 @@
       });
     }
 
+    // ── Reply-to-message ────────────────────────────────────────────────
+    // Two ways to start a reply: swiping a message right on mobile, or
+    // clicking the floating arrow button that appears when hovering a
+    // message on desktop. Both funnel into openReplyForContainer(), which
+    // shows the "Replying to: ..." bubble above the input. On send, the
+    // quoted snippet is folded into the outgoing message text.
+    const REPLY_ICON_SVG = '<svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor"><path d="M10 9V5l-7 7 7 7v-4.1c5 0 8.5 1.1 11 3.6-1-5-4-10-11-11z"/></svg>';
+
+    const replyBanner        = document.getElementById('replyBanner');
+    const replyBannerSnippet = document.getElementById('replyBannerSnippet');
+    const replyBannerCancel  = document.getElementById('replyBannerCancel');
+
+    let replyState = null; // { msgId, snippet }
+
+    function truncateForReply(text, max) {
+      text = (text || '').replace(/\s+/g, ' ').trim();
+      if (text.length <= max) return text;
+      return text.slice(0, max).trim() + '...';
+    }
+
+    // Pulls the best available text out of a message row for quoting —
+    // falls back to a generic label for image/audio/file-only messages.
+    function getReplySnippet(container) {
+      const contentEl = container.querySelector('.message-bubble .message-content');
+      const text = contentEl ? (contentEl.dataset.fullText || contentEl.textContent || '').trim() : '';
+      if (text) return text;
+      if (container.querySelector('.message-media')) return 'Attachment';
+      return '';
+    }
+
+    function showReplyBanner(snippet) {
+      if (!replyBanner || !replyBannerSnippet) return;
+      replyBannerSnippet.textContent = truncateForReply(snippet, 60) || 'message';
+      replyBanner.classList.add('active');
+    }
+
+    function hideReplyBanner() {
+      replyState = null;
+      if (replyBanner) replyBanner.classList.remove('active');
+    }
+
+    function openReplyForContainer(container) {
+      if (!container) return;
+      const snippet = getReplySnippet(container);
+      replyState = {
+        msgId: container.getAttribute('data-msg-id') || '',
+        snippet: snippet
+      };
+      showReplyBanner(snippet);
+      messageInput.focus();
+    }
+
+    if (replyBannerCancel) {
+      replyBannerCancel.addEventListener('click', hideReplyBanner);
+    }
+
+    // ── Desktop: floating hover reply button ───────────────────────────
+    const hoverReplyBtn = document.createElement('button');
+    hoverReplyBtn.type = 'button';
+    hoverReplyBtn.id = 'hoverReplyBtn';
+    hoverReplyBtn.title = 'Reply';
+    hoverReplyBtn.setAttribute('aria-label', 'Reply');
+    hoverReplyBtn.innerHTML = REPLY_ICON_SVG;
+    document.body.appendChild(hoverReplyBtn);
+
+    let hoveredReplyContainer = null;
+    let hoverReplyHideTimer = null;
+
+    function positionHoverReplyBtn(container) {
+      const bubble = container.querySelector('.message-bubble');
+      if (!bubble) return;
+      const rect = bubble.getBoundingClientRect();
+      const isSent = container.classList.contains('sent');
+      const top = rect.top + rect.height / 2 - 15; // center on bubble, btn is 30px tall
+      // Sent bubbles sit on the right — put the button just to their left.
+      // Received bubbles sit on the left — put the button just to their right.
+      const left = isSent ? (rect.left - 36) : (rect.right + 6);
+      hoverReplyBtn.style.top = Math.max(4, top) + 'px';
+      hoverReplyBtn.style.left = left + 'px';
+      hoverReplyBtn.classList.add('visible');
+      hoveredReplyContainer = container;
+    }
+
+    function scheduleHideHoverReplyBtn() {
+      clearTimeout(hoverReplyHideTimer);
+      hoverReplyHideTimer = setTimeout(function() {
+        hoverReplyBtn.classList.remove('visible');
+        hoveredReplyContainer = null;
+      }, 150);
+    }
+
+    function cancelHideHoverReplyBtn() {
+      clearTimeout(hoverReplyHideTimer);
+    }
+
+    chatBox.addEventListener('mouseover', function(e) {
+      const container = e.target.closest('.message-container[data-msg-id]');
+      if (!container) return;
+      // Never offer reply on the transient "sending..." optimistic bubble
+      if (container.hasAttribute('data-sending-uid') || container.hasAttribute('data-upload-uid')) return;
+      cancelHideHoverReplyBtn();
+      positionHoverReplyBtn(container);
+    });
+
+    chatBox.addEventListener('mouseout', function(e) {
+      const toEl = e.relatedTarget;
+      if (toEl && toEl.closest && (toEl.closest('.message-container') || toEl.id === 'hoverReplyBtn')) return;
+      scheduleHideHoverReplyBtn();
+    });
+
+    chatBox.addEventListener('scroll', function() {
+      hoverReplyBtn.classList.remove('visible');
+      hoveredReplyContainer = null;
+    }, { passive: true });
+
+    hoverReplyBtn.addEventListener('mouseenter', cancelHideHoverReplyBtn);
+    hoverReplyBtn.addEventListener('mouseleave', scheduleHideHoverReplyBtn);
+    hoverReplyBtn.addEventListener('click', function() {
+      if (hoveredReplyContainer) openReplyForContainer(hoveredReplyContainer);
+      hoverReplyBtn.classList.remove('visible');
+      hoveredReplyContainer = null;
+    });
+
+    // ── Mobile: swipe-to-reply ──────────────────────────────────────────
+    const SWIPE_REPLY_TRIGGER_PX = 56;
+    const SWIPE_REPLY_MAX_PX = 72;
+
+    let swipeContainer = null;
+    let swipeAvatarEl = null;
+    let swipeBubbleWrapEl = null;
+    let swipeIconEl = null;
+    let swipeStartX = 0;
+    let swipeStartY = 0;
+    let swipeDx = 0;
+    let swipeLocked = false;   // true once we've committed to a horizontal swipe gesture
+    let swipeRejected = false; // true once we've decided this is a vertical scroll, not a swipe
+
+    function resetSwipeVisual() {
+      if (swipeAvatarEl) {
+        swipeAvatarEl.style.transition = 'transform 0.2s ease';
+        swipeAvatarEl.style.transform = '';
+      }
+      if (swipeBubbleWrapEl) {
+        swipeBubbleWrapEl.style.transition = 'transform 0.2s ease';
+        swipeBubbleWrapEl.style.transform = '';
+      }
+      if (swipeIconEl) {
+        const iconToRemove = swipeIconEl;
+        iconToRemove.style.opacity = '0';
+        setTimeout(function() { iconToRemove.remove(); }, 200);
+      }
+      swipeContainer = null;
+      swipeAvatarEl = null;
+      swipeBubbleWrapEl = null;
+      swipeIconEl = null;
+      swipeDx = 0;
+      swipeLocked = false;
+      swipeRejected = false;
+    }
+
+    chatBox.addEventListener('touchstart', function(e) {
+      if (e.touches.length !== 1) return;
+      const container = e.target.closest('.message-container[data-msg-id]');
+      if (!container || container.hasAttribute('data-sending-uid') || container.hasAttribute('data-upload-uid')) return;
+
+      swipeContainer = container;
+      swipeAvatarEl = container.querySelector('.message-avatar');
+      swipeBubbleWrapEl = container.querySelector('.bubble-wrapper');
+      swipeStartX = e.touches[0].clientX;
+      swipeStartY = e.touches[0].clientY;
+      swipeDx = 0;
+      swipeLocked = false;
+      swipeRejected = false;
+    }, { passive: true });
+
+    chatBox.addEventListener('touchmove', function(e) {
+      if (!swipeContainer || swipeRejected || e.touches.length !== 1) return;
+
+      const dx = e.touches[0].clientX - swipeStartX;
+      const dy = e.touches[0].clientY - swipeStartY;
+
+      if (!swipeLocked) {
+        // Not committed yet — wait until the gesture is clearly horizontal
+        // before hijacking it, so normal vertical scrolling never breaks.
+        if (Math.abs(dx) < 10 && Math.abs(dy) < 10) return;
+        if (Math.abs(dy) >= Math.abs(dx) || dx <= 0) {
+          swipeRejected = true; // vertical scroll or leftward drag — let the browser handle it
+          return;
+        }
+        swipeLocked = true;
+
+        swipeIconEl = document.createElement('div');
+        swipeIconEl.className = 'reply-swipe-icon';
+        swipeIconEl.innerHTML = REPLY_ICON_SVG;
+        swipeContainer.appendChild(swipeIconEl);
+      }
+
+      e.preventDefault(); // we own this gesture now — stop the page from scrolling
+      swipeDx = Math.max(0, Math.min(dx, SWIPE_REPLY_MAX_PX));
+
+      const progress = swipeDx / SWIPE_REPLY_MAX_PX;
+      if (swipeAvatarEl) swipeAvatarEl.style.transform = 'translateX(' + swipeDx + 'px)';
+      if (swipeBubbleWrapEl) swipeBubbleWrapEl.style.transform = 'translateX(' + swipeDx + 'px)';
+      if (swipeIconEl) {
+        swipeIconEl.style.opacity = String(progress);
+        swipeIconEl.style.transform = 'translateY(-50%) scale(' + (0.6 + 0.4 * progress) + ')';
+      }
+    }, { passive: false });
+
+    function endSwipe() {
+      if (!swipeContainer) return;
+      if (swipeLocked && swipeDx >= SWIPE_REPLY_TRIGGER_PX) {
+        openReplyForContainer(swipeContainer);
+      }
+      resetSwipeVisual();
+    }
+
+    chatBox.addEventListener('touchend', endSwipe, { passive: true });
+    chatBox.addEventListener('touchcancel', endSwipe, { passive: true });
+
     // Monitor scroll position
     chatBox.addEventListener('scroll', function() {
       const atBottom = isAtBottom();
@@ -1429,7 +1649,7 @@
       }
 
       const name = nameInput.value.trim();
-      const message = messageInput.value.trim();
+      let message = messageInput.value.trim();
 
       if (!activeDM && !isGlobalChat) {
         alert("Please select a chat first.");
@@ -1440,6 +1660,13 @@
         if (!message) messageInput.focus();
         return;
       }
+
+      // Fold an active reply into the outgoing message text (never while
+      // editing an existing message — edit and reply are mutually exclusive).
+      if (replyState && !editingMsgId) {
+        message = 'Replying to: "' + truncateForReply(replyState.snippet, 120) + '"\n' + message;
+      }
+      hideReplyBanner();
 
       // Disable send button momentarily to prevent double-tap
       isSending = true;

@@ -1164,6 +1164,48 @@
       display: block;
     }
 
+    /* ── Reply quote — a SEPARATE stacked bubble ─────────────────────────
+       Two distinct overlapping bubbles: the quoted original message renders
+       as its own small rounded bubble first, then the real message bubble
+       follows right after and overlaps its bottom edge (negative margin +
+       higher z-index), so the new message visually sits ON TOP of / in
+       front of the bubble it's replying to. No sender name shown — just a
+       truncated snippet of the original content. */
+    .reply-quote {
+      position: relative;
+      z-index: 1;
+      max-width: 92%;
+      padding: 7px 12px 18px 12px;
+      border-radius: 16px;
+      margin-bottom: -12px;
+      box-shadow: 0 1px 2px var(--shadow-color);
+    }
+    .sent .reply-quote {
+      background: var(--bg-bubble-sent);
+      color: var(--text-bubble-sent);
+      opacity: 0.55;
+    }
+    .received .reply-quote {
+      background: var(--bg-bubble-received);
+      color: var(--text-bubble-received);
+      opacity: 0.75;
+    }
+    .reply-quote-text {
+      font-size: 12.5px;
+      line-height: 1.35;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      display: -webkit-box;
+      -webkit-line-clamp: 2;
+      -webkit-box-orient: vertical;
+      word-break: break-word;
+    }
+    /* The real message bubble stacks in front of (on top of) .reply-quote */
+    .reply-quote + .message-bubble {
+      position: relative;
+      z-index: 2;
+    }
+
     /* Floating sending/upload overlay — positioned above the input area */
     #sending-overlay-container {
       position: absolute;

@@ -45,15 +45,19 @@ class GlobalChatManager
             if ($beforeUuid === null) {
                 // ── Initial load: newest $limit messages ──────────────────────
                 $stmt = $pdo->prepare(
-                    'SELECT msg_uuid AS id,
-                            sender_id,
-                            message,
-                            msg_type AS type,
-                            is_edited,
-                            to_char(created_at AT TIME ZONE \'Asia/Manila\', \'YYYY-MM-DD HH24:MI:SS.US\') AS timestamp
-                     FROM chat_messages
-                     WHERE conv_id = :conv_id
-                     ORDER BY created_at DESC, id DESC
+                    'SELECT m.msg_uuid AS id,
+                            m.sender_id,
+                            m.message,
+                            m.msg_type AS type,
+                            m.is_edited,
+                            m.reply_to_msg_uuid,
+                            r.message AS reply_message,
+                            r.msg_type AS reply_msg_type,
+                            to_char(m.created_at AT TIME ZONE \'Asia/Manila\', \'YYYY-MM-DD HH24:MI:SS.US\') AS timestamp
+                     FROM chat_messages m
+                     LEFT JOIN chat_messages r ON r.msg_uuid = m.reply_to_msg_uuid
+                     WHERE m.conv_id = :conv_id
+                     ORDER BY m.created_at DESC, m.id DESC
                      LIMIT :lim'
                 );
                 $stmt->bindValue(':conv_id', self::CONV_ID);
@@ -72,16 +76,20 @@ class GlobalChatManager
                 }
 
                 $stmt = $pdo->prepare(
-                    'SELECT msg_uuid AS id,
-                            sender_id,
-                            message,
-                            msg_type AS type,
-                            is_edited,
-                            to_char(created_at AT TIME ZONE \'Asia/Manila\', \'YYYY-MM-DD HH24:MI:SS.US\') AS timestamp
-                     FROM chat_messages
-                     WHERE conv_id = :conv_id
-                       AND (created_at, id) < (:cur_ts, :cur_id)
-                     ORDER BY created_at DESC, id DESC
+                    'SELECT m.msg_uuid AS id,
+                            m.sender_id,
+                            m.message,
+                            m.msg_type AS type,
+                            m.is_edited,
+                            m.reply_to_msg_uuid,
+                            r.message AS reply_message,
+                            r.msg_type AS reply_msg_type,
+                            to_char(m.created_at AT TIME ZONE \'Asia/Manila\', \'YYYY-MM-DD HH24:MI:SS.US\') AS timestamp
+                     FROM chat_messages m
+                     LEFT JOIN chat_messages r ON r.msg_uuid = m.reply_to_msg_uuid
+                     WHERE m.conv_id = :conv_id
+                       AND (m.created_at, m.id) < (:cur_ts, :cur_id)
+                     ORDER BY m.created_at DESC, m.id DESC
                      LIMIT :lim'
                 );
                 $stmt->bindValue(':conv_id', self::CONV_ID);
@@ -122,17 +130,49 @@ class GlobalChatManager
     /**
      * Append a plain text message to the global chat.
      */
-    public static function addTextMessage(int $senderId, string $plaintext): array|false
+    public static function addTextMessage(int $senderId, string $plaintext, ?string $replyToUuid = null): array|false
     {
-        return self::insertMessage($senderId, $plaintext, 'text');
+        return self::insertMessage($senderId, $plaintext, 'text', $replyToUuid);
     }
 
     /**
      * Append a file-upload message to the global chat.
      */
-    public static function addUploadMessage(int $senderId, string $filename): array|false
+    public static function addUploadMessage(int $senderId, string $filename, ?string $replyToUuid = null): array|false
     {
-        return self::insertMessage($senderId, $filename, 'upload');
+        return self::insertMessage($senderId, $filename, 'upload', $replyToUuid);
+    }
+
+    /**
+     * Look up a reply target's decrypted preview + type for the given
+     * msg_uuid, scoped to the global channel. Used by send.php to build the
+     * WsPush 'message' payload so other tabs can render the quoted bubble
+     * without a round-trip to load.php. Returns null if the target doesn't
+     * exist (already archived/backed up, wrong conv, etc.) — callers should
+     * just omit the reply preview in that case.
+     */
+    public static function getReplyPreview(string $msgUuid): ?array
+    {
+        try {
+            $pdo  = Database::getConnection();
+            $stmt = $pdo->prepare(
+                'SELECT message, msg_type FROM chat_messages
+                 WHERE msg_uuid = :uuid AND conv_id = :conv_id AND status = \'active\'
+                 LIMIT 1'
+            );
+            $stmt->execute([':uuid' => $msgUuid, ':conv_id' => self::CONV_ID]);
+            $row = $stmt->fetch();
+            if (!$row) return null;
+
+            return [
+                'msg_uuid' => $msgUuid,
+                'snippet'  => $row['msg_type'] === 'upload' ? '📎 Attachment' : safeDecrypt($row['message'] ?? ''),
+                'type'     => $row['msg_type'],
+            ];
+        } catch (PDOException $e) {
+            error_log('GlobalChatManager::getReplyPreview() — ' . $e->getMessage());
+            return null;
+        }
     }
 
     // -------------------------------------------------------------------------
@@ -291,9 +331,10 @@ class GlobalChatManager
      * Insert a new message row; prune oldest rows if over MAX_STORED limit.
      */
     private static function insertMessage(
-        int    $senderId,
-        string $content,
-        string $type
+        int     $senderId,
+        string  $content,
+        string  $type,
+        ?string $replyToUuid = null
     ): array|false {
         $encrypted = encryptMessage($content);
         if ($encrypted === false) {
@@ -304,12 +345,20 @@ class GlobalChatManager
         $dt   = new DateTime('now', new DateTimeZone('Asia/Manila'));
         $ts   = $dt->format('Y-m-d H:i:s.uP');
 
+        // A reply target must actually be a live message in THIS channel —
+        // otherwise silently drop it rather than store a bogus reference
+        // (the FK would reject it anyway, but this avoids the failed
+        // insert/exception path for a simple bad/stale client-side id).
+        if ($replyToUuid !== null) {
+            $replyToUuid = self::messageExists($replyToUuid) ? $replyToUuid : null;
+        }
+
         try {
             $pdo = Database::getConnection();
 
             $stmt = $pdo->prepare(
-                'INSERT INTO chat_messages (conv_id, sender_id, receiver_id, message, msg_type, created_at, updated_at, msg_uuid)
-                 VALUES (:conv_id, :sender_id, NULL, :message, :msg_type, :created_at, :created_at, :msg_uuid)'
+                'INSERT INTO chat_messages (conv_id, sender_id, receiver_id, message, msg_type, created_at, updated_at, msg_uuid, reply_to_msg_uuid)
+                 VALUES (:conv_id, :sender_id, NULL, :message, :msg_type, :created_at, :created_at, :msg_uuid, :reply_to)'
             );
             $stmt->execute([
                 ':conv_id'    => self::CONV_ID,
@@ -318,20 +367,41 @@ class GlobalChatManager
                 ':msg_type'   => $type,
                 ':created_at' => $ts,
                 ':msg_uuid'   => $uuid,
+                ':reply_to'   => $replyToUuid,
             ]);
 
             // Prune: if we now exceed MAX_STORED, delete the oldest surplus rows.
             self::pruneOldest($pdo);
 
             return [
-                'id'        => $uuid,
-                'sender_id' => $senderId,
-                'message'   => $encrypted,
-                'timestamp' => $ts,
-                'type'      => $type,
+                'id'                => $uuid,
+                'sender_id'         => $senderId,
+                'message'           => $encrypted,
+                'timestamp'         => $ts,
+                'type'              => $type,
+                'reply_to_msg_uuid' => $replyToUuid,
             ];
         } catch (PDOException $e) {
             error_log('GlobalChatManager::insertMessage() — ' . $e->getMessage());
+            return false;
+        }
+    }
+
+    /**
+     * Does an active message with this UUID exist in the global channel?
+     * Used to validate an incoming reply_to before insert.
+     */
+    private static function messageExists(string $msgUuid): bool
+    {
+        try {
+            $pdo  = Database::getConnection();
+            $stmt = $pdo->prepare(
+                'SELECT 1 FROM chat_messages WHERE msg_uuid = :uuid AND conv_id = :conv_id AND status = \'active\' LIMIT 1'
+            );
+            $stmt->execute([':uuid' => $msgUuid, ':conv_id' => self::CONV_ID]);
+            return (bool) $stmt->fetchColumn();
+        } catch (PDOException $e) {
+            error_log('GlobalChatManager::messageExists() — ' . $e->getMessage());
             return false;
         }
     }

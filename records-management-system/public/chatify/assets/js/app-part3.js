@@ -1661,11 +1661,12 @@
         return;
       }
 
-      // Fold an active reply into the outgoing message text (never while
-      // editing an existing message — edit and reply are mutually exclusive).
-      if (replyState && !editingMsgId) {
-        message = 'Replying to: "' + truncateForReply(replyState.snippet, 120) + '"\n' + message;
-      }
+      // Capture the active reply (if any) as a real reply reference instead
+      // of gluing fake "Replying to: ..." text onto the message body. Never
+      // while editing an existing message — edit and reply are mutually
+      // exclusive. This is what actually gets sent to the server as
+      // reply_to= and persisted in chat_messages.reply_to_msg_uuid.
+      const activeReply = (replyState && !editingMsgId) ? replyState : null;
       hideReplyBanner();
 
       // Disable send button momentarily to prevent double-tap
@@ -1746,9 +1747,10 @@
           xhr.open('POST', 'send_dm.php', true);
         }
         xhr.setRequestHeader('Content-type', 'application/x-www-form-urlencoded');
+        const replyToParam = activeReply ? '&reply_to=' + encodeURIComponent(activeReply.msgId) : '';
         payload = isGlobalChat
-          ? 'message=' + encodeURIComponent(message)
-          : 'target_id=' + encodeURIComponent(activeDMAccountId || 0) + '&target_user=' + encodeURIComponent(activeDM) + '&message=' + encodeURIComponent(message);
+          ? 'message=' + encodeURIComponent(message) + replyToParam
+          : 'target_id=' + encodeURIComponent(activeDMAccountId || 0) + '&target_user=' + encodeURIComponent(activeDM) + '&message=' + encodeURIComponent(message) + replyToParam;
       }
 
       // Fire the XHR immediately — no artificial delay. The "Sending..." bubble
@@ -1843,10 +1845,14 @@
 
                 sendingBubble.className = 'message-container sent';
                 const emojiOnlyClass = isEmojiOnly(msgContent) ? ' emoji-only' : '';
+                const replyQuoteHtml = activeReply
+                  ? `<div class="reply-quote"><div class="reply-quote-text">${escapeHtml(truncateForReply(activeReply.snippet, 120))}</div></div>`
+                  : '';
                 sendingBubble.innerHTML = `
                   <div class="message-avatar">${avatarInnerHtml(wsConfig.avatarUrl, getInitials(name))}</div>
                   <div class="bubble-wrapper">
                     <div class="message-click-timestamp">${fullTimeDisplay}</div>
+                    ${replyQuoteHtml}
                     <div class="message-bubble${emojiOnlyClass}">
                       <div class="message-content">${escapeHtml(msgContent)}</div>
                     </div>
@@ -1891,7 +1897,9 @@
                 recipient_id: activeDMAccountId || null,
                 msg_uuid: confirmedMsg ? confirmedMsg.id : null,
                 message: confirmedMsg && confirmedMsg.plaintext ? confirmedMsg.plaintext : message,
-                created_at: new Date().toISOString()
+                created_at: new Date().toISOString(),
+                reply_to_msg_uuid: activeReply ? activeReply.msgId : null,
+                reply_snippet: activeReply ? activeReply.snippet : null
               }));
             }
           }

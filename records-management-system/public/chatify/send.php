@@ -25,6 +25,12 @@ $senderId = Auth::accountId();
 $message       = trim($_POST['message']        ?? '');
 $uploadedRaw   = trim($_POST['uploaded_files'] ?? trim($_POST['uploaded_file'] ?? ''));
 
+// msg_uuid of the message being replied to, if any. Validated + scoped to
+// the global channel inside GlobalChatManager::insertMessage() — an
+// invalid/stale uuid is silently dropped rather than erroring out.
+$replyToUuid = trim($_POST['reply_to'] ?? '');
+$replyToUuid = $replyToUuid !== '' ? $replyToUuid : null;
+
 $hasSomethingToSend = ($message !== '' || $uploadedRaw !== '');
 
 if (!$hasSomethingToSend) {
@@ -36,7 +42,7 @@ $errors = [];
 
 // ── Text message ─────────────────────────────────────────────────────────────
 if ($message !== '') {
-    $result = GlobalChatManager::addTextMessage($senderId, $message);
+    $result = GlobalChatManager::addTextMessage($senderId, $message, $replyToUuid);
     if ($result === false) {
         $errors[] = 'Failed to save text message.';
     }
@@ -99,13 +105,20 @@ if (empty($errors)) {
         // same fix, for Global Chat) — without it, viewers render an empty
         // placeholder bubble and the follow-up has_upload event that would
         // load the real attachment + mark it read gets deduped away.
+        $replyPreview = null;
+        if (!empty($msgData['reply_to_msg_uuid'])) {
+            $replyPreview = GlobalChatManager::getReplyPreview($msgData['reply_to_msg_uuid']);
+        }
+
         WsPush::broadcast('message', [
-            'chat_type'  => 'global',
-            'sender_id'  => $senderId,
-            'msg_uuid'   => $msgData['id'],
-            'message'    => $message,
-            'created_at' => date('c'),
-            'has_upload' => ($msgData['type'] ?? '') === 'upload',
+            'chat_type'         => 'global',
+            'sender_id'         => $senderId,
+            'msg_uuid'          => $msgData['id'],
+            'message'           => $message,
+            'created_at'        => date('c'),
+            'has_upload'        => ($msgData['type'] ?? '') === 'upload',
+            'reply_to_msg_uuid' => $msgData['reply_to_msg_uuid'] ?? null,
+            'reply_snippet'     => $replyPreview['snippet'] ?? null,
         ]);
     }
     echo json_encode(['success' => true, 'message' => $msgData]);

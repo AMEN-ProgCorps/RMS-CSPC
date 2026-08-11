@@ -44,6 +44,12 @@ if ($targetInfo === null) {
 $message     = trim($_POST['message']        ?? '');
 $uploadedRaw = trim($_POST['uploaded_files'] ?? trim($_POST['uploaded_file'] ?? ''));
 
+// msg_uuid of the message being replied to, if any. Validated + scoped to
+// this conversation inside ConversationManager::insertMessage() — an
+// invalid/foreign uuid is silently dropped rather than erroring out.
+$replyToUuid = trim($_POST['reply_to'] ?? '');
+$replyToUuid = $replyToUuid !== '' ? $replyToUuid : null;
+
 if ($message === '' && $uploadedRaw === '') {
     http_response_code(400);
     die(json_encode(['error' => 'Nothing to send.']));
@@ -53,7 +59,7 @@ $errors = [];
 
 // ── Text message ──────────────────────────────────────────────────────────────
 if ($message !== '') {
-    $result = ConversationManager::addTextMessage($senderId, $targetId, $message);
+    $result = ConversationManager::addTextMessage($senderId, $targetId, $message, $replyToUuid);
     if ($result === false) {
         $errors[] = 'Failed to save text message.';
     }
@@ -128,14 +134,24 @@ if (empty($errors)) {
         // marked "Seen" even while the recipient had the chat open. Setting
         // has_upload here makes this one authoritative event do it right the
         // first time.
+        $replyPreview = null;
+        if (!empty($msgData['reply_to_msg_uuid'])) {
+            $replyPreview = ConversationManager::getReplyPreview(
+                ConversationManager::convId($senderId, $targetId),
+                $msgData['reply_to_msg_uuid']
+            );
+        }
+
         WsPush::push([$targetId, $senderId, 1], 'message', [
-            'chat_type'    => 'private',
-            'sender_id'    => $senderId,
-            'recipient_id' => $targetId,
-            'msg_uuid'     => $msgData['id'],
-            'message'      => $message,
-            'created_at'   => date('c'),
-            'has_upload'   => ($msgData['type'] ?? '') === 'upload',
+            'chat_type'         => 'private',
+            'sender_id'         => $senderId,
+            'recipient_id'      => $targetId,
+            'msg_uuid'          => $msgData['id'],
+            'message'           => $message,
+            'created_at'        => date('c'),
+            'has_upload'        => ($msgData['type'] ?? '') === 'upload',
+            'reply_to_msg_uuid' => $msgData['reply_to_msg_uuid'] ?? null,
+            'reply_snippet'     => $replyPreview['snippet'] ?? null,
         ]);
     }
     echo json_encode(['success' => true, 'message' => $msgData]);

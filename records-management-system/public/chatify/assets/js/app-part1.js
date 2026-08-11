@@ -182,10 +182,15 @@
         timeDisplay = getCurrentTime();
       }
 
+      const replyQuoteHtml = (msgData.reply_to_msg_uuid && msgData.reply_snippet)
+        ? `<div class="reply-quote"><div class="reply-quote-text">${escapeHtml(String(msgData.reply_snippet).slice(0, 120))}</div></div>`
+        : '';
+
       container.innerHTML = `
         <div class="message-avatar">${avatarInnerHtml(senderAvatarUrl, initials)}</div>
         <div class="bubble-wrapper">
           <div class="message-click-timestamp">${escapeHtml(timeDisplay)}</div>
+          ${replyQuoteHtml}
           <div class="message-bubble${emojiOnlyClass}">
             <div class="message-content">${escapeHtml(msgText)}</div>
           </div>

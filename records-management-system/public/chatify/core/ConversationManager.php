@@ -163,8 +163,12 @@ class ConversationManager
                             m.message,
                             m.msg_type AS type,
                             m.is_edited,
+                            m.reply_to_msg_uuid,
+                            r.message AS reply_message,
+                            r.msg_type AS reply_msg_type,
                             to_char(m.created_at AT TIME ZONE \'Asia/Manila\', \'YYYY-MM-DD HH24:MI:SS.US\') AS timestamp
                      FROM chat_messages m
+                     LEFT JOIN chat_messages r ON r.msg_uuid = m.reply_to_msg_uuid
                      WHERE m.conv_id = :conv_id
                        AND m.status = \'active\'
                      ORDER BY m.created_at DESC, m.id DESC
@@ -190,8 +194,12 @@ class ConversationManager
                             m.message,
                             m.msg_type AS type,
                             m.is_edited,
+                            m.reply_to_msg_uuid,
+                            r.message AS reply_message,
+                            r.msg_type AS reply_msg_type,
                             to_char(m.created_at AT TIME ZONE \'Asia/Manila\', \'YYYY-MM-DD HH24:MI:SS.US\') AS timestamp
                      FROM chat_messages m
+                     LEFT JOIN chat_messages r ON r.msg_uuid = m.reply_to_msg_uuid
                      WHERE m.conv_id = :conv_id
                        AND (m.created_at, m.id) < (:cur_ts, :cur_id)
                        AND m.status = \'active\'
@@ -317,22 +325,54 @@ class ConversationManager
      * Append a text message to a private conversation.
      */
     public static function addTextMessage(
-        int    $senderId,
-        int    $receiverId,
-        string $plaintext
+        int     $senderId,
+        int     $receiverId,
+        string  $plaintext,
+        ?string $replyToUuid = null
     ): array|false {
-        return self::insertMessage($senderId, $receiverId, $plaintext, 'text');
+        return self::insertMessage($senderId, $receiverId, $plaintext, 'text', $replyToUuid);
     }
 
     /**
      * Append an upload message to a private conversation.
      */
     public static function addUploadMessage(
-        int    $senderId,
-        int    $receiverId,
-        string $filename
+        int     $senderId,
+        int     $receiverId,
+        string  $filename,
+        ?string $replyToUuid = null
     ): array|false {
-        return self::insertMessage($senderId, $receiverId, $filename, 'upload');
+        return self::insertMessage($senderId, $receiverId, $filename, 'upload', $replyToUuid);
+    }
+
+    /**
+     * Look up a reply target's decrypted preview + type, scoped to the given
+     * conversation so a reply can't be faked against another user's DM.
+     * Used by send_dm.php to build the WsPush payload.
+     */
+    public static function getReplyPreview(string $convId, string $msgUuid): ?array
+    {
+        try {
+            $pdo  = Database::getConnection();
+            self::ensureMessageStatusColumn($pdo);
+            $stmt = $pdo->prepare(
+                'SELECT message, msg_type FROM chat_messages
+                 WHERE msg_uuid = :uuid AND conv_id = :conv_id AND status = \'active\'
+                 LIMIT 1'
+            );
+            $stmt->execute([':uuid' => $msgUuid, ':conv_id' => $convId]);
+            $row = $stmt->fetch();
+            if (!$row) return null;
+
+            return [
+                'msg_uuid' => $msgUuid,
+                'snippet'  => $row['msg_type'] === 'upload' ? '📎 Attachment' : safeDecrypt($row['message'] ?? ''),
+                'type'     => $row['msg_type'],
+            ];
+        } catch (PDOException $e) {
+            error_log('ConversationManager::getReplyPreview() — ' . $e->getMessage());
+            return null;
+        }
     }
 
     /**
@@ -1053,15 +1093,15 @@ class ConversationManager
                 "WITH moved AS (
                     DELETE FROM chat_messages
                     WHERE conv_id = :conv_id AND status = 'inactive'
-                    RETURNING conv_id, sender_id, receiver_id, message, msg_type, created_at, updated_at, msg_uuid
+                    RETURNING conv_id, sender_id, receiver_id, message, msg_type, created_at, updated_at, msg_uuid, reply_to_msg_uuid
                  )
                  INSERT INTO chatify_chat_backup
                     (conv_id, sender_id, receiver_id, message, msg_type,
-                     created_at, updated_at, msg_uuid,
+                     created_at, updated_at, msg_uuid, reply_to_msg_uuid,
                      status, is_active, archived_at, archived_by)
                  SELECT
                     conv_id, sender_id, receiver_id, message, msg_type,
-                    created_at, updated_at, msg_uuid,
+                    created_at, updated_at, msg_uuid, reply_to_msg_uuid,
                     'inactive', false, NOW(), :archived_by
                  FROM moved"
             );
@@ -1091,15 +1131,15 @@ class ConversationManager
                 "WITH moved AS (
                     DELETE FROM chat_messages
                     WHERE conv_id != 'global' AND status = 'inactive'
-                    RETURNING conv_id, sender_id, receiver_id, message, msg_type, created_at, updated_at, msg_uuid
+                    RETURNING conv_id, sender_id, receiver_id, message, msg_type, created_at, updated_at, msg_uuid, reply_to_msg_uuid
                  )
                  INSERT INTO chatify_chat_backup
                     (conv_id, sender_id, receiver_id, message, msg_type,
-                     created_at, updated_at, msg_uuid,
+                     created_at, updated_at, msg_uuid, reply_to_msg_uuid,
                      status, is_active, archived_at, archived_by)
                  SELECT
                     conv_id, sender_id, receiver_id, message, msg_type,
-                    created_at, updated_at, msg_uuid,
+                    created_at, updated_at, msg_uuid, reply_to_msg_uuid,
                     'inactive', false, NOW(), :archived_by
                  FROM moved"
             );
@@ -1121,15 +1161,15 @@ class ConversationManager
                 "WITH moved AS (
                     DELETE FROM chat_messages
                     WHERE conv_id = 'global' AND status = 'inactive'
-                    RETURNING conv_id, sender_id, receiver_id, message, msg_type, created_at, updated_at, msg_uuid
+                    RETURNING conv_id, sender_id, receiver_id, message, msg_type, created_at, updated_at, msg_uuid, reply_to_msg_uuid
                  )
                  INSERT INTO chatify_chat_backup
                     (conv_id, sender_id, receiver_id, message, msg_type,
-                     created_at, updated_at, msg_uuid,
+                     created_at, updated_at, msg_uuid, reply_to_msg_uuid,
                      status, is_active, archived_at, archived_by)
                  SELECT
                     conv_id, sender_id, receiver_id, message, msg_type,
-                    created_at, updated_at, msg_uuid,
+                    created_at, updated_at, msg_uuid, reply_to_msg_uuid,
                     'inactive', false, NOW(), :archived_by
                  FROM moved"
             );
@@ -1302,10 +1342,11 @@ class ConversationManager
     }
 
     private static function insertMessage(
-        int    $senderId,
-        int    $receiverId,
-        string $content,
-        string $type
+        int     $senderId,
+        int     $receiverId,
+        string  $content,
+        string  $type,
+        ?string $replyToUuid = null
     ): array|false {
         $convId = self::convId($senderId, $receiverId);
 
@@ -1322,10 +1363,25 @@ class ConversationManager
             $pdo  = Database::getConnection();
             self::ensureMessageStatusColumn($pdo);
 
+            // A reply target must be a live message in THIS conversation —
+            // otherwise silently drop the reference rather than store a
+            // bogus/cross-conversation one (the FK would reject a wholly
+            // invalid uuid anyway; this also blocks pointing a reply at a
+            // message from a different conversation).
+            if ($replyToUuid !== null) {
+                $chk = $pdo->prepare(
+                    'SELECT 1 FROM chat_messages WHERE msg_uuid = :uuid AND conv_id = :conv_id AND status = \'active\' LIMIT 1'
+                );
+                $chk->execute([':uuid' => $replyToUuid, ':conv_id' => $convId]);
+                if (!$chk->fetchColumn()) {
+                    $replyToUuid = null;
+                }
+            }
+
             // 1. Insert message record into chat_messages (Primary source of truth)
             $stmt = $pdo->prepare(
-                'INSERT INTO chat_messages (conv_id, sender_id, receiver_id, message, msg_type, status, created_at, updated_at, msg_uuid)
-                 VALUES (:conv_id, :sender_id, :receiver_id, :message, :msg_type, \'active\', :created_at, :created_at, :msg_uuid)'
+                'INSERT INTO chat_messages (conv_id, sender_id, receiver_id, message, msg_type, status, created_at, updated_at, msg_uuid, reply_to_msg_uuid)
+                 VALUES (:conv_id, :sender_id, :receiver_id, :message, :msg_type, \'active\', :created_at, :created_at, :msg_uuid, :reply_to)'
             );
             $stmt->execute([
                 ':conv_id'     => $convId,
@@ -1335,6 +1391,7 @@ class ConversationManager
                 ':msg_type'    => $type,
                 ':created_at'  => $ts,
                 ':msg_uuid'    => $uuid,
+                ':reply_to'    => $replyToUuid,
             ]);
 
             // 2. Best-effort metadata upsert into chat_conversations
@@ -1380,12 +1437,13 @@ class ConversationManager
             }
 
             return [
-                'id'          => $uuid,
-                'sender_id'   => $senderId,
-                'receiver_id' => $receiverId,
-                'message'     => $encrypted,
-                'timestamp'   => $ts,
-                'type'        => $type,
+                'id'                => $uuid,
+                'sender_id'         => $senderId,
+                'receiver_id'       => $receiverId,
+                'message'           => $encrypted,
+                'timestamp'         => $ts,
+                'type'              => $type,
+                'reply_to_msg_uuid' => $replyToUuid,
             ];
         } catch (PDOException $e) {
             error_log('ConversationManager::insertMessage() — ' . $e->getMessage());

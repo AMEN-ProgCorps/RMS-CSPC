@@ -18,6 +18,14 @@ if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
 $myAccountId = Auth::accountId();
 $isAdmin     = Auth::isAdmin();
 
+// ── Admin-only endpoint ────────────────────────────────────────────────────────
+// Clearing a conversation is now a Super Admin action only. Regular users no
+// longer have a self-service "clear my chat" path through this endpoint.
+if (!$isAdmin) {
+    http_response_code(403);
+    die('Forbidden — administrator access required');
+}
+
 $targetId  = isset($_POST['target_id']) ? (int) trim($_POST['target_id']) : 0;
 $convId    = trim($_POST['conv_id'] ?? '');
 $secret    = trim($_POST['secret'] ?? '');
@@ -49,35 +57,22 @@ if (empty($convId)) {
 }
 
 // ── Secret key check (required for admin delete) ──────────────────────────────
-if ($isAdmin) {
-    if (empty($secret)) {
-        http_response_code(403);
-        die('Secret key required');
-    }
-    if (!ConversationManager::verifySecretKey($secret)) {
-        http_response_code(403);
-        die('Invalid secret key');
-    }
+if (empty($secret)) {
+    http_response_code(403);
+    die('Secret key required');
 }
-
-// ── Confirm the conv involves the current user (unless admin) ─────────────────
-if (!$isAdmin) {
-    $parts = explode('_', $convId);
-    if (count($parts) !== 2 || (!in_array((string) $myAccountId, $parts))) {
-        http_response_code(403);
-        die('Forbidden');
-    }
-}
-
-// ── Backup conversation before deletion ──────────────────────────────────────
-try {
-    $pdo = Database::getConnection();
-    ConversationManager::backupConversation($pdo, $convId, $myAccountId);
-} catch (Throwable $e) {
-    // Non-fatal — continue with deletion
+if (!ConversationManager::verifySecretKey($secret)) {
+    http_response_code(403);
+    die('Invalid secret key');
 }
 
 // ── Perform deletion via ConversationManager (PostgreSQL) ─────────────────────
+// NOTE: /clear no longer writes to chatify_chat_backup. It ONLY flags the
+// conversation inactive in chat_conversations (see deleteConversation()'s
+// admin branch) — chat_messages stays the single source of truth and is
+// never touched or cloned here. Backups are now a separate, explicit admin
+// action (/backup — see backup_dm.php) so the two operations can't be
+// silently coupled again.
 $deleted = ConversationManager::deleteConversation($convId, $myAccountId, $isAdmin);
 
 if ($deleted) {
@@ -94,15 +89,11 @@ if ($deleted) {
     ]);
 }
 
-if ($isAdmin) {
-    echo $deleted ? 'Entire conversation deleted successfully' : 'Conversation cleared';
-} else {
-    echo 'Conversation cleared';
-}
+echo $deleted ? 'Conversation cleared' : 'Nothing to clear';
 
 // ── Audit log (fire-and-forget) ───────────────────────────────────────────────
 ChatAuditLogger::log($myAccountId, 'clear_chat', $convId, [
-    'is_admin'      => $isAdmin,
-    'fully_deleted' => $isAdmin && $deleted,
-    'conv_id'       => $convId,
+    'is_admin'   => true,
+    'soft_clear' => true,
+    'conv_id'    => $convId,
 ]);

@@ -71,33 +71,16 @@ $_current_account_id = (int) ($_SESSION['account_id'] ?? 0);
 $is_admin = ($_current_account_id === 1);
 $_SESSION['is_admin'] = $is_admin;
 
-// Admin display names: always just account_id 1's full_name
-$admin_names = [];
-if (!empty($_SESSION['full_name'])) {
-    if ($is_admin) {
-        $admin_names[] = strtolower(trim($_SESSION['full_name']));
-        $admin_names[] = 'you'; // 'you' label when admin sees own messages
-    } else {
-        // We'll inject admin name when we know it via JS
-    }
-}
-// Resolve the admin's full name from DB fresh on every load (not from
-// session) so a name change made in the main system shows up immediately on
-// the badge shown on the admin's messages to other users.
+// Load the list of account_ids with is_chatify_verified = TRUE for real-time badge injection.
+// The Super Admin manages this list via the User Verification modal.
+$verified_account_ids = [];
 try {
     $pdo  = Database::getConnection();
-    $stmt = $pdo->prepare('SELECT first_name, last_name FROM account_details WHERE account_id = 1 LIMIT 1');
-    $stmt->execute();
-    $adminRow = $stmt->fetch();
-    if ($adminRow) {
-        $adminFullNameDisplay = trim(preg_replace('/\s+/', ' ', $adminRow['first_name'] . ' ' . $adminRow['last_name']));
-        $adminFullName = strtolower($adminFullNameDisplay);
-        if (!in_array($adminFullName, $admin_names)) {
-            $admin_names[] = $adminFullName;
-        }
-    }
+    $stmt = $pdo->query('SELECT account_id FROM account_details WHERE is_chatify_verified = TRUE');
+    $rows = $stmt->fetchAll(PDO::FETCH_COLUMN);
+    $verified_account_ids = array_map('intval', $rows);
 } catch (Throwable $e) {
-    // Non-fatal
+    // Non-fatal — verified badges simply won't show if DB is unavailable
 }
 
 // Resolve the CURRENT user's own full name from DB fresh on every load, so
@@ -106,7 +89,7 @@ try {
 // value can otherwise go stale until they log out and log back in.
 try {
     $pdo  = Database::getConnection();
-    $stmt = $pdo->prepare('SELECT first_name, last_name FROM account_details WHERE account_id = ? LIMIT 1');
+    $stmt = $pdo->prepare('SELECT first_name, last_name, avatar_url FROM account_details WHERE account_id = ? LIMIT 1');
     $stmt->execute([$_current_account_id]);
     $ownRow = $stmt->fetch();
     if ($ownRow) {
@@ -115,14 +98,13 @@ try {
             $user_name = $ownFullNameDisplay;
             $_SESSION['name'] = $ownFullNameDisplay;
             $_SESSION['full_name'] = $ownFullNameDisplay;
-            if ($is_admin) {
-                $admin_names[0] = strtolower($ownFullNameDisplay); // keep 'you' badge match in sync too
-            }
         }
+        $_SESSION['avatar_url'] = (!empty($ownRow['avatar_url'])) ? $ownRow['avatar_url'] : null;
     }
 } catch (Throwable $e) {
     // Non-fatal
 }
+
 
 // Load user communication settings (default ON for all users)
 $user_comm_settings = [
@@ -177,6 +159,8 @@ try {
   <script>
     window.currentUserCommSettings = <?php echo json_encode($user_comm_settings); ?>;
     window._chatifyHasAgreedToLegal = <?php echo json_encode($hasAgreedToLegal); ?>;
+    window.verifiedAccountIds = <?php echo json_encode($verified_account_ids); ?>;
+    const verifiedAccountIds = new Set((window.verifiedAccountIds || []).map(Number));
   </script>
   <!-- Apply dark mode BEFORE page renders to prevent flash -->
   <script>
@@ -224,12 +208,12 @@ try {
         </div>
       </div>
       <div class="sidebar-search" id="ownSidebarSearch">
-        <input type="text" id="searchInput" placeholder="Search for a user or office..." autocomplete="off">
+        <input type="text" id="searchInput" name="csp_srch_own_2k9" placeholder="Search for a user or office..." autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" data-lpignore="true" data-1p-ignore="true" data-form-type="other" role="combobox" aria-autocomplete="list">
       </div>
       <!-- Pinned Global Chat entry -->
       <div class="user-item" id="globalChatItem" onclick="selectGlobalChat()" style="border-bottom:1px solid var(--border-color);">
-        <div class="user-avatar" style="background:linear-gradient(135deg,#1b74e4,#00c3ff);">
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="white"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 17.93c-3.95-.49-7-3.85-7-7.93 0-.62.08-1.21.21-1.79L9 15v1c0 1.1.9 2 2 2v1.93zm6.9-2.54c-.26-.81-1-1.39-1.9-1.39h-1v-3c0-.55-.45-1-1-1H8v-2h2c.55 0 1-.45 1-1V7h2c1.1 0 2-.9 2-2v-.41c2.93 1.19 5 4.06 5 7.41 0 2.08-.8 3.97-2.1 5.39z"/></svg>
+        <div class="user-avatar" style="background:none !important;background-color:transparent !important;">
+          <img src="cspc.webp" width="40" height="40" alt="CSPC logo" style="width:40px;height:40px;object-fit:contain;background:transparent;" draggable="false" ondragstart="return false;" oncontextmenu="return false;">
         </div>
         <div class="user-info">
           <div class="user-name">Global Chat</div>
@@ -244,7 +228,7 @@ try {
       <div id="adminConvsSection" style="display:none;position:relative;">
         <div id="adminConvsHeaderTitle" style="padding:8px 16px 4px;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.8px;color:var(--text-secondary);margin-top:4px;text-align:center;"></div>
         <div class="admin-search" style="padding: 6px 16px;">
-          <input type="text" id="adminSearchInput" placeholder="Search for a user or office..." autocomplete="off">
+          <input type="text" id="adminSearchInput" name="csp_srch_adm_7v3" placeholder="Search for a user or office..." autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" data-lpignore="true" data-1p-ignore="true" data-form-type="other" role="combobox" aria-autocomplete="list">
         </div>
         <div class="sidebar-users" id="adminConvsList"></div>
       </div>
@@ -262,10 +246,10 @@ try {
           <button id="burgerButton" class="clear-button" style="display:none;margin-right:10px;min-width:auto;" aria-label="Open menu" title="Open menu">
             <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="3" y1="12" x2="21" y2="12"></line><line x1="3" y1="6" x2="21" y2="6"></line><line x1="3" y1="18" x2="21" y2="18"></line></svg>
           </button>
-          <button id="backButton" class="clear-button" style="display:none;margin-right:10px;padding:0 10px;min-width:auto;" aria-label="Go back" title="Go back">
+          <button id="backButton" class="clear-button" style="display:none;margin-right:10px;min-width:auto;" aria-label="Go back" title="Go back">
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="19" y1="12" x2="5" y2="12"></line><polyline points="12 19 5 12 12 5"></polyline></svg>
           </button>
-          <img src="cspc.webp" width="28" height="28" alt="GhostLAN ghost logo" class="header-logo" draggable="false" ondragstart="return false;" oncontextmenu="return false;">
+          <div class="header-avatar" id="chatHeaderAvatar" style="display:none;"></div>
           <h1 id="chatHeaderTitle"></h1>
         </div>
       
@@ -318,41 +302,38 @@ try {
       </div>
 
 
-      <div class="input-section">
-        <div class="name-input-wrapper<?php echo $is_admin ? ' is-admin-user' : ''; ?>">
-          <div class="name-field-inner">
-            <svg class="name-icon" viewBox="0 0 24 24">
-              <path d="M12 2C13.1 2 14 2.9 14 4C14 5.1 13.1 6 12 6C10.9 6 10 5.1 10 4C10 2.9 10.9 2 12 2ZM21 9V7L15 4V6L21 9ZM15 10.26L21 7.26V9.26L15 12.26V10.26ZM12 7C16.42 7 20 8.79 20 11V13C20 15.21 16.42 17 12 17S4 15.21 4 13V11C4 8.79 7.58 7 12 7Z"/>
+      <!-- Floating "Replying to: ..." bubble — shown above the input when a
+           reply is in progress (triggered via mobile swipe or the desktop
+           hover reply button on a message). -->
+      <div id="replyBanner" class="reply-banner">
+        <div class="reply-banner-bubble">
+          <span class="reply-banner-text">Replying to: <span id="replyBannerSnippet"></span></span>
+          <button type="button" id="replyBannerCancel" class="reply-banner-cancel" title="Cancel reply" aria-label="Cancel reply">
+            <svg viewBox="0 0 24 24" width="11" height="11" fill="#fff">
+              <path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/>
             </svg>
-            <input type="text" id="nameInput" placeholder="" required readonly aria-label="Your display name" value="<?php echo htmlspecialchars($user_name); ?>">
-            <?php if ($is_admin): ?>
-            <span class="admin-input-badge" title="You are the Super Admin">
-              <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                <circle cx="12" cy="12" r="12" fill="#1b74e4"/>
-                <path d="M7 12.5l3.5 3.5 6.5-7" stroke="#fff" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
-              </svg>
-              <span></span>
-            </span>
-            <?php endif; ?>
-          </div>
-          <div class="input-actions">
-            <label id="attachBtn" class="attachment-btn" title="Attach image or file" for="fileAttachmentInput">
-              <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" width="20" height="20">
-                <path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-              </svg>
-            </label>
-            <input type="file" id="fileAttachmentInput" multiple accept="image/*,.gif,.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.csv,.zip,.rar,.7z,.mp3,.wav,.ogg,.flac,.aac,.m4a,.mp4,.webm,.mov" style="display:none;">
-            <button type="button" id="cancelEditXBtn" title="Cancel editing" aria-label="Cancel editing">
-              <svg viewBox="0 0 24 24" width="12" height="12" fill="#fff">
-                <path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/>
-              </svg>
-            </button>
-          </div>
+          </button>
         </div>
       </div>
 
+      <!-- Display-name field kept in the DOM (send logic still reads its
+           value) but no longer shown as a visible row. The attach button
+           now lives inline with the message box below. -->
+      <input type="text" id="nameInput" aria-hidden="true" tabindex="-1" required readonly value="<?php echo htmlspecialchars($user_name); ?>" style="display:none;">
+
       <form id="chatForm" class="message-input-container">
+        <label id="attachBtn" class="attachment-btn" title="Attach image or file" for="fileAttachmentInput">
+          <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" width="20" height="20">
+            <path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+        </label>
+        <input type="file" id="fileAttachmentInput" multiple accept="image/*,.gif,.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.csv,.zip,.rar,.7z,.mp3,.wav,.ogg,.flac,.aac,.m4a,.mp4,.webm,.mov" style="display:none;">
         <textarea id="messageInput" placeholder="Type a message..." required autocomplete="off" rows="1" enterkeyhint="enter"></textarea>
+        <button type="button" id="cancelEditXBtn" title="Cancel editing" aria-label="Cancel editing">
+          <svg viewBox="0 0 24 24" width="12" height="12" fill="#fff">
+            <path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/>
+          </svg>
+        </button>
         <button type="submit" id="sendButton">Send</button>
       </form>
 
@@ -384,6 +365,27 @@ try {
       <div class="modal-footer">
         <button class="modal-button cancel-button" id="cancelClear">[n] Cancel</button>
         <button class="modal-button confirm-button" id="confirmClear" disabled>[y] Delete</button>
+      </div>
+    </div>
+  </div>
+  <?php endif; ?>
+
+  <!-- Backup Confirmation Modal - Only show if admin -->
+  <?php if ($is_admin): ?>
+  <div class="modal" id="backupConfirmModal" aria-hidden="true">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h3>Run Full Chat Backup</h3>
+      </div>
+      <div class="modal-body">
+        <p>This snapshots every conversation (all DMs + global chat) into the backup archive as it stands right now. Nothing in the live chat is changed or deleted.</p>
+        <label for="backupSecretInput" style="display:block;margin-top:10px;">Enter secret key to confirm:</label>
+        <input type="password" id="backupSecretInput" autocomplete="off" class="secret-key-input" />
+        <div id="backupSecretError" style="color:#b00;font-size:12px;display:none;margin-top:5px;text-align:center;">Invalid secret key.</div>
+      </div>
+      <div class="modal-footer">
+        <button class="modal-button cancel-button" id="cancelBackup">[n] Cancel</button>
+        <button class="modal-button confirm-button" id="confirmBackup" disabled>[y] Backup</button>
       </div>
     </div>
   </div>
@@ -458,25 +460,6 @@ try {
 
 
   <?php if ($is_admin): ?>
-  <!-- Delete All Messages Modal (Admin only) -->
-  <div class="modal" id="deleteAllModal" aria-hidden="true">
-    <div class="modal-content">
-      <div class="modal-header">
-        <h3 style="color:#c0392b;">Delete all messages</h3>
-      </div>
-      <div class="modal-body">
-        <p>This will <strong>permanently delete</strong> every message in the entire system — all DMs, and Global Chat will be remove.</p>
-        <label for="deleteAllSecretInput" style="display:block;margin-top:10px;">Enter secret key to confirm:</label>
-        <input type="password" id="deleteAllSecretInput" autocomplete="off" class="secret-key-input" />
-        <div id="deleteAllSecretError" style="font-size:12px;display:none;margin-top:5px;text-align:center;"></div>
-      </div>
-      <div class="modal-footer">
-        <button class="modal-button cancel-button" id="cancelDeleteAll">Cancel</button>
-        <button class="modal-button confirm-button" id="confirmDeleteAll">Delete Everything</button>
-      </div>
-    </div>
-  </div>
-
   <!-- Change Secret Key Modal (Admin only) -->
   <div class="modal" id="adminKeyModal" aria-hidden="true">
     <div class="modal-content" style="max-width:400px;">
@@ -515,14 +498,15 @@ try {
   </div>
   <?php endif; ?>
 
-  <!-- Communication Settings Modal -->
+  <!-- Settings Modal (Communication Settings + Admin: User Verification) -->
   <div class="modal" id="commSettingsModal" aria-hidden="true">
     <div class="modal-content" style="max-width:440px;">
       <div class="modal-header" style="padding:16px;border-bottom:1px solid var(--border-color);">
-        <h3 style="margin:0;font-size:16px;font-weight:600;color:var(--text-primary);">Communication Settings</h3>
+        <h3 style="margin:0;font-size:16px;font-weight:600;color:var(--text-primary);">Settings</h3>
       </div>
-      <div class="modal-body" style="padding:16px;display:flex;flex-direction:column;gap:16px;text-align:left;">
-        <label style="display:flex;flex-direction:column;gap:4px;cursor:pointer;">
+      <div class="modal-body" style="padding:16px;display:flex;flex-direction:column;gap:0;text-align:left;">
+        <p style="margin:0 0 10px 0;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.08em;color:var(--text-secondary);">Communication</p>
+        <label style="display:flex;flex-direction:column;gap:4px;cursor:pointer;padding:8px 0;">
           <div style="display:flex;align-items:center;gap:8px;font-weight:600;color:var(--text-primary);font-size:14px;">
             <input type="checkbox" id="chkAllowTypingPreview" style="accent-color:var(--primary-color);width:18px;height:18px;">
             <span>Allow Real-Time Typing Preview</span>
@@ -532,7 +516,7 @@ try {
           </span>
         </label>
 
-        <label style="display:flex;flex-direction:column;gap:4px;cursor:pointer;">
+        <label style="display:flex;flex-direction:column;gap:4px;cursor:pointer;padding:8px 0;">
           <div style="display:flex;align-items:center;gap:8px;font-weight:600;color:var(--text-primary);font-size:14px;">
             <input type="checkbox" id="chkAllowSeeTypingPreview" style="accent-color:var(--primary-color);width:18px;height:18px;">
             <span>Show Live Typing Previews</span>
@@ -542,10 +526,45 @@ try {
           </span>
         </label>
 
+        <?php if ($is_admin): ?>
+        <div style="border-top:1px solid var(--border-color);margin-top:8px;padding-top:14px;">
+          <p style="margin:0 0 10px 0;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.08em;color:var(--text-secondary);">Administration</p>
+          <button type="button" id="openUserVerificationBtn"
+            style="display:flex;align-items:center;gap:10px;width:100%;background:none;border:1px solid var(--border-color);border-radius:8px;padding:10px 14px;cursor:pointer;color:var(--text-primary);font-size:14px;font-weight:600;text-align:left;transition:background 0.15s;"
+            onmouseover="this.style.background='var(--bg-drop-overlay)'"
+            onmouseout="this.style.background='none'"
+            onclick="openUserVerificationModal()">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
+            User Verification
+            <svg style="margin-left:auto;opacity:0.4;" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
+          </button>
+        </div>
+        <?php endif; ?>
       </div>
       <div class="modal-footer">
-        <button type="button" class="modal-button cancel-button" onclick="closeCommSettingsModal()">Cancel</button>
-        <button type="button" class="modal-button confirm-button" onclick="saveCommSettings()">Save Settings</button>
+        <button type="button" class="modal-button cancel-button" onclick="closeCommSettingsModal()">Close</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- User Verification Modal (Super Admin only) -->
+  <div class="modal" id="userVerificationModal" aria-hidden="true">
+    <div class="modal-content" style="max-width:460px;">
+      <div class="modal-header" style="padding:16px;border-bottom:1px solid var(--border-color);display:flex;align-items:center;gap:10px;">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
+        <h3 style="margin:0;font-size:16px;font-weight:600;color:var(--text-primary);">User Verification</h3>
+      </div>
+      <div class="modal-body" style="padding:16px;display:flex;flex-direction:column;gap:14px;text-align:left;">
+        <p style="margin:0;font-size:13px;color:var(--text-secondary);line-height:1.5;">Search for a user by name and toggle their blue verification badge.</p>
+        <div style="position:relative;">
+          <svg style="position:absolute;left:10px;top:50%;transform:translateY(-50%);opacity:0.45;pointer-events:none;" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+          <input type="text" id="verifySearchInput" placeholder="Search by first or last name..." autocomplete="off"
+            style="width:100%;box-sizing:border-box;padding:9px 12px 9px 34px;border:1px solid var(--border-color);border-radius:8px;background:var(--bg-secondary);color:var(--text-primary);font-size:14px;outline:none;">
+        </div>
+        <div id="verifySearchResults" style="display:flex;flex-direction:column;gap:8px;min-height:40px;"></div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="modal-button cancel-button" onclick="closeUserVerificationModal()">Close</button>
       </div>
     </div>
   </div>
@@ -584,6 +603,105 @@ try {
     </div>
   </div>
 
+  <!-- Attach/Staging Modal — opens whenever file(s) are picked via the
+       attach button OR dropped/dragged into the chat, for BOTH images and
+       any other allowed file type. Lets the user review what's about to be
+       sent, remove items, or drag & drop in more, before anything actually
+       uploads/sends — selecting a file never sends it immediately. Thumbnail
+       grid scrolls but keeps its scrollbar hidden (matches the rest of the
+       app's modals). Uses the same responsive .modal/.modal-content rules
+       as every other modal, so it behaves the same on mobile. -->
+  <div class="modal" id="imageStagingModal" aria-hidden="true" style="display:none;align-items:center;justify-content:center;z-index:99999;">
+    <div class="modal-content image-staging-content">
+      <div class="modal-header">
+        <h3>Send Files</h3>
+      </div>
+      <div class="modal-body image-staging-body">
+        <label class="image-staging-dropzone" id="imageStagingDropzone" for="imageStagingFileInput">
+          <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><polyline points="17 8 12 3 7 8" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><line x1="12" y1="3" x2="12" y2="15" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          <span>Drag &amp; drop more files here</span>
+          <input type="file" id="imageStagingFileInput" accept="image/*,.gif,.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.csv,.zip,.rar,.7z,.mp3,.wav,.ogg,.flac,.aac,.m4a,.mp4,.webm,.mov" multiple style="display:none;">
+        </label>
+        <div class="image-staging-grid" id="imageStagingGrid">
+          <div class="image-staging-empty">No files added yet.</div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="modal-button cancel-button" id="imageStagingCancelBtn">Cancel</button>
+        <button type="button" class="modal-button confirm-button" id="imageStagingSendBtn" disabled>Send</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Image Viewer Modal — full-screen preview for images tapped/clicked in
+       chat. Replaces the old behavior of opening the image in a new browser
+       tab: clicking any .chat-viewable-image now opens it here instead, with
+       an X button in the top-right corner to close. -->
+  <div class="image-viewer-modal" id="imageViewerModal" aria-hidden="true" style="display:none;">
+    <button type="button" class="image-viewer-close" id="imageViewerCloseBtn" aria-label="Close image preview" title="Close">&times;</button>
+    <img src="" alt="" id="imageViewerImg" class="image-viewer-img">
+  </div>
+
+  <!-- Clearing Chat Progress Modal — mirrors the file upload progress modal -->
+  <div class="modal" id="clearingChatModal" aria-hidden="true" style="display:none;align-items:center;justify-content:center;z-index:99999;">
+    <div class="modal-content" style="max-width:320px;min-height:0;">
+      <div class="modal-header">
+        <h3>Clearing Chat...</h3>
+      </div>
+      <div class="modal-body" style="text-align:center;padding:14px 16px;">
+        <div style="margin-bottom:10px;display:flex;justify-content:center;align-items:center;">
+          <div class="upload-spinner" style="width:32px;height:32px;border:3px solid rgba(27,116,228,0.2);border-top-color:#1b74e4;border-radius:50%;animation:uploadSpin 0.8s linear infinite;"></div>
+        </div>
+        <p id="clearingChatLabel" style="margin:0 0 10px 0;font-size:13px;color:var(--text-secondary);word-break:break-all;line-height:1.4;max-height:calc(1.4em * 2);overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;">Clearing conversation...</p>
+        <div style="width:100%;height:6px;background:var(--border-color, #e4e6eb);border-radius:4px;overflow:hidden;margin-bottom:4px;">
+          <div id="clearingChatProgressBar" style="width:0%;height:100%;background:linear-gradient(90deg, #1b74e4, #00c3ff);transition:width 0.15s ease;border-radius:4px;"></div>
+        </div>
+        <div id="clearingChatProgressText" style="font-size:12px;font-weight:600;color:#1b74e4;text-align:right;">0%</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Backup Progress Modal — mirrors the clearing-chat progress modal
+       exactly (same size, same "no buttons while running" behavior). The
+       admin waits for it like /clear; if it fails, this closes and the
+       confirm modal reopens with the error shown, same as /clear does. -->
+  <?php if ($is_admin): ?>
+  <div class="modal" id="backupChatModal" aria-hidden="true" style="display:none;align-items:center;justify-content:center;z-index:99999;">
+    <div class="modal-content" style="max-width:320px;min-height:0;">
+      <div class="modal-header">
+        <h3>Backing Up Chats...</h3>
+      </div>
+      <div class="modal-body" style="text-align:center;padding:14px 16px;">
+        <div style="margin-bottom:10px;display:flex;justify-content:center;align-items:center;">
+          <div class="upload-spinner" style="width:32px;height:32px;border:3px solid rgba(27,116,228,0.2);border-top-color:#1b74e4;border-radius:50%;animation:uploadSpin 0.8s linear infinite;"></div>
+        </div>
+        <p id="backupChatLabel" style="margin:0 0 10px 0;font-size:13px;color:var(--text-secondary);word-break:break-all;line-height:1.4;">Backup in progress...</p>
+        <div style="width:100%;height:6px;background:var(--border-color, #e4e6eb);border-radius:4px;overflow:hidden;margin-bottom:4px;">
+          <div id="backupChatProgressBar" style="width:0%;height:100%;background:linear-gradient(90deg, #1b74e4, #00c3ff);transition:width 0.15s ease;border-radius:4px;"></div>
+        </div>
+        <div id="backupChatProgressText" style="font-size:12px;font-weight:600;color:#1b74e4;text-align:right;">0%</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- "Already backed up" info modal — same structure AND same compact
+       sizing as uploadErrorModal (header / body / single Close button)
+       so it matches the rest of the app's simple info modals. -->
+  <div class="modal" id="backupAlreadyDoneModal" aria-hidden="true" style="display:none;align-items:center;justify-content:center;z-index:99999;">
+    <div class="modal-content" style="max-width:320px;min-height:0;">
+      <div class="modal-header">
+        <h3>Backup</h3>
+      </div>
+      <div class="modal-body">
+        Everything is already backed up. There are no cleared (inactive) messages waiting to be archived right now.
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="modal-button confirm-button" id="backupAlreadyDoneCloseBtn" style="border-right:none;" onclick="closeBackupAlreadyDoneModal()">Close</button>
+      </div>
+    </div>
+  </div>
+  <?php endif; ?>
+
   <?php
   // Generate HMAC SHA256 token for WebSocket authentication.
   //
@@ -604,23 +722,26 @@ try {
       accountId: <?php echo $_current_account_id; ?>,
       name: <?php echo json_encode($user_name); ?>,
       expires: <?php echo $ws_expires; ?>,
-      token: <?php echo json_encode($ws_token); ?>
+      token: <?php echo json_encode($ws_token); ?>,
+      avatarUrl: <?php echo json_encode($_SESSION['avatar_url'] ?? null); ?>
     };
   </script>
-  <script src="assets/js/websocket-reauth.js"></script>
+  <script src="assets/js/websocket-reauth.js?v=<?php echo filemtime(__DIR__ . '/assets/js/websocket-reauth.js'); ?>"></script>
 
-  <script src="assets/js/app-part1.js"></script>
+  <script src="assets/js/app-part1.js?v=<?php echo filemtime(__DIR__ . '/assets/js/app-part1.js'); ?>"></script>
   <script>
     // Get the user's name and admin status from PHP
     const userName = "<?php echo addslashes($user_name); ?>";
     const isAdmin = <?php echo $is_admin ? 'true' : 'false'; ?>;
   </script>
-  <script src="assets/js/app-part2.js"></script>
+  <script src="assets/js/app-part2.js?v=<?php echo filemtime(__DIR__ . '/assets/js/app-part2.js'); ?>"></script>
   <script>
-    // Admin display names for verified badge (lowercased)
-    const adminNames = <?php echo json_encode($admin_names); ?>;
+    // Verified account IDs for badge injection (array of integers)
+    // Replaces the old name-based adminNames approach.
+    const adminNames = []; // kept for backward-compat; badge logic now uses verifiedAccountIds
+    // verifiedAccountIds is already defined in the header block as a Set
   </script>
-  <script src="assets/js/app-part3.js"></script>
+  <script src="assets/js/app-part3.js?v=<?php echo filemtime(__DIR__ . '/assets/js/app-part3.js'); ?>"></script>
   <!-- ═══════════════════════════════════════════════════════════════════════
        LEGAL AUTHORIZATION MODAL
        Uses the existing Chatify .modal / .modal.active pattern.
@@ -698,7 +819,6 @@ try {
       </div>
     </div>
   </div>
-
-  <script src="assets/js/legal-modal.js"></script>
+  <script src="assets/js/legal-modal.js?v=<?php echo filemtime(__DIR__ . '/assets/js/legal-modal.js'); ?>"></script>
 </body>
 </html>

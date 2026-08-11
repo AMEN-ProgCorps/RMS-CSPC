@@ -46,6 +46,13 @@ return new class extends Migration
                 $table->unsignedInteger('unread_user_1')->default(0);
                 $table->unsignedInteger('unread_user_2')->default(0);
 
+                // Soft-delete / "clear chat" support: messages are never removed
+                // from chat_messages when a conversation is cleared — instead the
+                // conversation is flagged inactive and stamped with a cutoff time
+                // so the UI can hide everything up to that point.
+                $table->boolean('is_active')->default(true);
+                $table->timestampTz('cleared_at', 6)->nullable()->default(null);
+
                 $table->timestampsTz(6);
             });
 

@@ -62,10 +62,15 @@ $sinceUuid  = isset($_GET['since_uuid'])  && $_GET['since_uuid']  !== '' ? (stri
 // ── Load data ────────────────────────────────────────────────────────────────────
 $convId = ConversationManager::convId($myAccountId, $targetId);
 
-if ($beforeUuid === null && $sinceUuid === null) {
-    // Mark conversation as read on initial view
-    ConversationManager::markRead($convId, $myAccountId);
-}
+// NOTE: Conversations are intentionally NOT auto-marked read here just
+// because this is a fresh (non-paginated) fetch. This endpoint is also
+// called by loadChatForced() to render an incoming image/file's HTML —
+// which can happen while the tab is hidden or the user isn't actually
+// looking at the chat — so marking read unconditionally here caused
+// attachments to show a premature "Seen" indicator even when the
+// recipient hadn't seen them yet. The client is responsible for marking
+// read (via mark_read.php / markRead()), and it only does so when
+// `!document.hidden`, i.e. when the user is genuinely viewing the chat.
 
 if ($sinceUuid !== null) {
     // Incremental update: fetch only messages created AFTER sinceUuid
@@ -95,8 +100,11 @@ $readUpTo = ConversationManager::getReadMarker($convId, $targetId);
 // Cursor for the next "load older" request = UUID of the now-oldest shown message.
 $nextCursor = !empty($rawMessages) ? $rawMessages[0]['id'] : null;
 
-// ── Name cache ────────────────────────────────────────────────────────────────
+// ── Name cache ───────────────────────────────────────────────────
 $nameMap = UserResolver::buildNameMap();
+
+// ── Verification cache (lazily populated per-sender inside the loop) ─────
+$verifiedIds = [];
 
 // ── Render helpers ────────────────────────────────────────────────────────────
 $imageExts = ['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp', 'svg'];
@@ -114,6 +122,37 @@ $mimeMap   = [
 // Filesystem path to the uploads directory (the 'uploads/' URL prefix used
 // below points at this same directory on disk, relative to this file).
 $uploadsDir = __DIR__ . '/uploads/';
+
+/**
+ * DM equivalent of gcBuildReplyQuoteHtml() in load.php — builds the small
+ * quoted bubble shown above a reply's own message-content. No sender name,
+ * just a truncated preview of whatever was replied to.
+ */
+function dmBuildReplyQuoteHtml(?string $encryptedReplyMessage, string $replyType): string
+{
+    if ($encryptedReplyMessage === null) {
+        return '';
+    }
+
+    if ($replyType === 'upload') {
+        $snippet = '📎 Attachment';
+    } else {
+        $snippet = safeDecrypt($encryptedReplyMessage);
+    }
+
+    $snippet = trim($snippet);
+    if ($snippet === '') {
+        return '';
+    }
+    if (function_exists('mb_strlen') && mb_strlen($snippet) > 120) {
+        $snippet = mb_substr($snippet, 0, 120) . '…';
+    } elseif (strlen($snippet) > 120) {
+        $snippet = substr($snippet, 0, 120) . '…';
+    }
+
+    $snippetEsc = htmlspecialchars($snippet, ENT_QUOTES);
+    return "<div class='reply-quote'><div class='reply-quote-text'>{$snippetEsc}</div></div>";
+}
 
 function dmInitials2(string $name): string
 {
@@ -138,7 +177,6 @@ foreach ($rawMessages as $msg) {
     $senderId    = (int) $msg['sender_id'];
     $msgId       = htmlspecialchars($msg['id'] ?? '', ENT_QUOTES);
     $isSent      = ($senderId === $myAccountId);
-    $isAdminMsg  = ($senderId === $adminId);
     $msgClass    = $isSent ? 'sent' : 'received';
     $type        = $msg['type'] ?? 'text';
 
@@ -146,10 +184,15 @@ foreach ($rawMessages as $msg) {
     $initials    = dmInitials2($senderName);
     $senderLabel = htmlspecialchars(strtolower($senderName), ENT_QUOTES);
 
-    // Admin badge
+    // Verified badge — driven by is_chatify_verified from DB
+    if (!isset($verifiedIds[$senderId])) {
+        $senderInfo = UserResolver::getUserInfo($senderId);
+        $verifiedIds[$senderId] = (bool) ($senderInfo['is_chatify_verified'] ?? false);
+    }
+    $avatarInner = UserResolver::avatarInner($senderId, $initials);
     $adminBadge = '';
-    if ($isAdminMsg) {
-        $adminBadge = " <span class='verified-badge' title='Admin'>"
+    if ($verifiedIds[$senderId]) {
+        $adminBadge = " <span class='verified-badge'>"
             . "<svg viewBox='0 0 24 24' fill='none' xmlns='http://www.w3.org/2000/svg'>"
             . "<circle cx='12' cy='12' r='12' fill='#1b74e4'/>"
             . "<path d='M7 12.5l3.5 3.5 6.5-7' stroke='#fff' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'/>"
@@ -173,11 +216,20 @@ foreach ($rawMessages as $msg) {
         $content     = safeDecrypt($msg['message'] ?? '');
         $contentEsc  = htmlspecialchars($content, ENT_QUOTES);
 
+        // See gcBuildReplyQuoteHtml() in load.php for the same helper —
+        // duplicated here (dmBuildReplyQuoteHtml) rather than shared, since
+        // load.php/load_dm.php don't currently share a common include.
+        $replyQuoteHtml = '';
+        if (!empty($msg['reply_to_msg_uuid']) && isset($msg['reply_message'])) {
+            $replyQuoteHtml = dmBuildReplyQuoteHtml($msg['reply_message'], $msg['reply_msg_type'] ?? 'text');
+        }
+
         $msgBodyHtml .= "<div class='bubble-wrapper'>";
         $msgBodyHtml .= "<div class='message-click-timestamp'>{$fullTimeDisplay}</div>";
         if (!empty($msg['is_edited'])) {
             $msgBodyHtml .= "<div class='message-edited-label' style='font-size:10px;color:var(--text-secondary);opacity:0.8;margin-bottom:2px;font-style:italic;'>edited</div>";
         }
+        $msgBodyHtml .= $replyQuoteHtml;
         $msgBodyHtml .= "<div class='message-bubble'>";
         $msgBodyHtml .= "<div class='message-content'>{$contentEsc}</div>";
         $msgBodyHtml .= "<div class='message-info'><span class='message-sender'>{$senderLabel}{$adminBadge}</span></div>";
@@ -219,7 +271,7 @@ foreach ($rawMessages as $msg) {
                             $wAttr = " width='{$info[0]}' height='{$info[1]}'";
                             $aspectRatioStyle = "aspect-ratio:{$info[0]}/{$info[1]};width:100%;height:auto;";
                         }
-                        $uploadBodyHtml .= "<a href='{$fnUrl}' target='_blank' style='display:block;'><img src='{$fnUrl}' alt='{$fnEsc}' style='width:100%;max-width:240px;max-height:260px;height:auto;border-radius:12px;display:block;cursor:pointer;object-fit:cover;box-shadow:0 2px 8px rgba(0,0,0,0.18);' /></a>";
+                        $uploadBodyHtml .= "<img src='{$fnUrl}' alt='{$fnEsc}' class='chat-viewable-image' data-full-src='{$fnUrl}' style='width:100%;max-width:240px;max-height:260px;height:auto;border-radius:12px;display:block;cursor:pointer;object-fit:cover;box-shadow:0 2px 8px rgba(0,0,0,0.18);' />";
                     }
                     $uploadBodyHtml .= "<div class='message-info' style='padding:3px 2px;'><span class='message-sender'>{$senderLabel}{$adminBadge}</span></div>";
                     $uploadBodyHtml .= "</div>"; // .message-media
@@ -239,7 +291,7 @@ foreach ($rawMessages as $msg) {
                         if (!file_exists($uploadsDir . $fn)) {
                             continue; // deleted image — skip
                         }
-                        $itemsHtml .= "<a href='{$fnUrl}' target='_blank'><img src='{$fnUrl}' alt='{$fnEsc}' style='width:100%;max-width:240px;max-height:260px;height:auto;border-radius:12px;display:block;object-fit:cover;' /></a>";
+                        $itemsHtml .= "<img src='{$fnUrl}' alt='{$fnEsc}' class='chat-viewable-image' data-full-src='{$fnUrl}' style='width:100%;max-width:240px;max-height:260px;height:auto;border-radius:12px;display:block;cursor:pointer;object-fit:cover;' />";
                     } else {
                         $itemsHtml .= "<a href='{$fnUrl}' target='_blank' rel='noopener' style='color:{$linkColor};text-decoration:underline;font-size:13px;word-break:break-all;'>{$fnEsc}</a>";
                     }
@@ -264,7 +316,7 @@ foreach ($rawMessages as $msg) {
             if (in_array($ext, $imageExts, true)) {
                 if (file_exists($uploadsDir . $file)) {
                     $uploadBodyHtml .= "<div class='message-media'>";
-                    $uploadBodyHtml .= "<a href='{$url}' target='_blank'><img src='{$url}' alt='{$fileEsc}' style='width:100%;max-width:240px;max-height:260px;height:auto;border-radius:12px;display:block;cursor:pointer;object-fit:cover;box-shadow:0 2px 8px rgba(0,0,0,0.18);' /></a>";
+                    $uploadBodyHtml .= "<img src='{$url}' alt='{$fileEsc}' class='chat-viewable-image' data-full-src='{$url}' style='width:100%;max-width:240px;max-height:260px;height:auto;border-radius:12px;display:block;cursor:pointer;object-fit:cover;box-shadow:0 2px 8px rgba(0,0,0,0.18);' />";
                     $uploadBodyHtml .= "<div class='message-info' style='padding:3px 2px;'><span class='message-sender'>{$senderLabel}{$adminBadge}</span></div>";
                     $uploadBodyHtml .= "</div>";
                 }
@@ -300,8 +352,8 @@ foreach ($rawMessages as $msg) {
         continue;
     }
 
-    $html .= "<div class='message-container {$msgClass}' data-msg-id='{$msgId}'>";
-    $html .= "<div class='message-avatar'>{$initials}</div>";
+    $html .= "<div class='message-container {$msgClass}' data-msg-id='{$msgId}' data-sender-id='{$senderId}'>";
+    $html .= "<div class='message-avatar'>{$avatarInner}</div>";
     $html .= $msgBodyHtml;
     $html .= "</div>"; // .message-container
 }

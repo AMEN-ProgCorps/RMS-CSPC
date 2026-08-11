@@ -223,6 +223,8 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
             'dtd.control_number',
             'dtd.requestor_id',
             'dtd.source_office',
+            'dtd.originated_from',
+            'dtd.transaction_flow as dtd_transaction_flow',
             'req.requestor_name',
             'req.requestor_position as requestor_label',
             'src.s_office_name as source_office_name',
@@ -230,7 +232,8 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
             'dtd.classification',
             'dtd.action_needed',
             'dtd.date_created',
-            DB::raw("COALESCE(NULLIF(flow.referenced_flow, ''), flow.flow_name) as doc_type_name"),
+            'flow.id as flow_control_id',
+            DB::raw("COALESCE(NULLIF(flow.flow_name, ''), flow.referenced_flow) as doc_type_name"),
             'originated_office.office_name as originated_office_name',
             'current_office.office_name as current_office_name',
             'doc.document_name'
@@ -240,6 +243,45 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
 
         // Map elapsed days, next office, previous office, and received date/time
         $list->getCollection()->transform(function ($t) {
+            // Resolve actual Document Type Name (avoiding raw REF-CUSTOM-XX codes and 'Flow for ...' titles)
+            $docType = $t->doc_type_name ?? '';
+            if (empty($docType) || preg_match('/^REF-(?:CUSTOM|PREDEFINED)-(\d+)$/', $docType, $mMatches) || str_starts_with($docType, 'Flow for ')) {
+                $refId = null;
+                if (preg_match('/^REF-(?:CUSTOM|PREDEFINED)-(\d+)$/', $docType, $mMatches)) {
+                    $refId = $mMatches[1];
+                } elseif (!empty($t->dtd_transaction_flow) && preg_match('/^REF-(?:CUSTOM|PREDEFINED)-(\d+)$/', $t->dtd_transaction_flow, $mMatches)) {
+                    $refId = $mMatches[1];
+                }
+                
+                if ($refId) {
+                    $realName = DB::table('dts_transaction_flow')->where('id', $refId)->value('flow_name');
+                    if (!empty($realName) && !str_starts_with($realName, 'Flow for ')) {
+                        $docType = $realName;
+                    }
+                }
+
+                if (empty($docType) || str_starts_with($docType, 'Flow for ') || str_starts_with($docType, 'REF-')) {
+                    if (!empty($t->dtd_transaction_flow)) {
+                        $flowObj = DB::table('dts_transaction_flow')->where('flow_code', $t->dtd_transaction_flow)->first();
+                        if ($flowObj) {
+                            if (!empty($flowObj->flow_name) && !str_starts_with($flowObj->flow_name, 'Flow for ') && !str_starts_with($flowObj->flow_name, 'REF-')) {
+                                $docType = $flowObj->flow_name;
+                            } elseif (!empty($flowObj->referenced_flow) && preg_match('/^REF-(?:CUSTOM|PREDEFINED)-(\d+)$/', $flowObj->referenced_flow, $mMatches)) {
+                                $realName = DB::table('dts_transaction_flow')->where('id', $mMatches[1])->value('flow_name');
+                                if (!empty($realName) && !str_starts_with($realName, 'Flow for ')) {
+                                    $docType = $realName;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            if (!empty($docType) && !str_starts_with($docType, 'Flow for ') && !str_starts_with($docType, 'REF-')) {
+                $t->doc_type_name = $docType;
+            } else {
+                $t->doc_type_name = !empty($t->classification) ? ucfirst($t->classification) : ucfirst($t->trans_type);
+            }
             // Find active/current log step
             $currentLog = DB::table('sub_document_tracking_system_logs')
                 ->where('transaction_id', $t->transaction_id)
@@ -311,6 +353,103 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
                     }
                 }
             }
+
+            $flowControlId = $t->flow_control_id ?? null;
+            $flowCode = $t->dtd_transaction_flow ?? ($t->transaction_flow ?? null);
+
+            if (!$flowControlId && !empty($flowCode)) {
+                $flowControlId = DB::table('dts_transaction_flow')->where('flow_code', $flowCode)->value('id');
+            }
+
+            $originOfficeCode = $t->originated_from;
+            $originOfficeName = $t->originated_office_name ?? 'Originated Office';
+
+            $clusterHeadCode = $originOfficeCode;
+            $clusterHeadName = $originOfficeName;
+            if (!empty($originOfficeCode)) {
+                $offRec = DB::table('office')->where('office_code', $originOfficeCode)->first();
+                if ($offRec && $offRec->cluster) {
+                    $cluster = DB::table('cluster')->where('cluster_code', $offRec->cluster)->first();
+                    if ($cluster && $cluster->cluster_head) {
+                        $clusterHeadCode = $cluster->cluster_head;
+                        $headOffice = DB::table('office')->where('office_code', $cluster->cluster_head)->first();
+                        if ($headOffice) {
+                            $clusterHeadName = $headOffice->office_name;
+                        }
+                    }
+                }
+            }
+
+            $steps = collect();
+            if ($flowControlId) {
+                $steps = DB::table('dts_sequence_list as seq')
+                    ->leftJoin('office', 'office.office_code', '=', 'seq.office_code')
+                    ->where('seq.control_id', $flowControlId)
+                    ->select('seq.*', 'office.office_name')
+                    ->orderBy('seq.sequence_ranking', 'asc')
+                    ->get()
+                    ->map(function ($step) use ($originOfficeCode, $originOfficeName, $clusterHeadCode, $clusterHeadName, $t) {
+                        if ($step->office_code === 'ORIGIN') {
+                            $step->office_code = $originOfficeCode;
+                            $step->office_name = $originOfficeName;
+                        } elseif ($step->office_code === '[H]') {
+                            $step->office_code = $clusterHeadCode;
+                            $step->office_name = $clusterHeadName;
+                        } elseif (empty($step->office_name)) {
+                            $off = DB::table('office')->where('office_code', $step->office_code)->first();
+                            $step->office_name = $off ? $off->office_name : $step->office_code;
+                        }
+
+                        $step->is_active_step = (
+                            $step->office_code === $t->current_office
+                            && $step->sequence_ranking == $t->sequence
+                            && in_array($t->status, ['ongoing', 'revision'])
+                            && !is_null($step->date_in)
+                            && is_null($step->date_out)
+                        );
+
+                        if (!empty($step->date_in) && empty($step->total_time_completed) && ($step->date_out || $t->status === 'completed')) {
+                            $dateIn = \Carbon\Carbon::parse($step->date_in);
+                            $dateOut = $step->date_out ? \Carbon\Carbon::parse($step->date_out) : now();
+                            $diff = $dateIn->diff($dateOut);
+                            $parts = [];
+                            if ($diff->d > 0) $parts[] = $diff->d . ' ' . \Illuminate\Support\Str::plural('day', $diff->d);
+                            if ($diff->h > 0) $parts[] = $diff->h . ' ' . \Illuminate\Support\Str::plural('hour', $diff->h);
+                            if ($diff->i > 0) $parts[] = $diff->i . ' ' . \Illuminate\Support\Str::plural('minute', $diff->i);
+                            if (empty($parts)) $parts[] = 'less than a minute';
+                            $step->total_time_completed = implode(' ', $parts);
+                        }
+
+                        return $step;
+                    });
+            }
+
+            // Fallback to transaction logs if sequence_list has no steps
+            if ($steps->isEmpty()) {
+                $logs = DB::table('sub_document_tracking_system_logs as log')
+                    ->leftJoin('office', 'office.office_code', '=', 'log.office_code')
+                    ->where('log.transaction_id', $t->transaction_id)
+                    ->select('log.*', 'office.office_name')
+                    ->orderBy('log.id', 'asc')
+                    ->get();
+
+                if ($logs->isNotEmpty()) {
+                    $steps = $logs->map(function ($logStep, $idx) use ($t) {
+                        $step = new \stdClass();
+                        $step->sequence_ranking = $logStep->sequence ?: ($idx + 1);
+                        $step->office_code = $logStep->office_code;
+                        $step->office_name = $logStep->office_name ?: $logStep->office_code;
+                        $step->date_in = $logStep->date_in;
+                        $step->date_out = $logStep->date_out;
+                        $step->action_needed = $logStep->action_needed ?? ($logStep->type === 'forwarded' ? 'Forwarded' : 'Received');
+                        $step->total_time_completed = null;
+                        $step->is_active_step = ($logStep->office_code === $t->current_office && is_null($logStep->date_out));
+                        return $step;
+                    });
+                }
+            }
+
+            $t->timeline_path = $steps;
 
             return $t;
         });
@@ -1593,6 +1732,10 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
         </div>
     </div>
 
+    @php
+        $isMyTxPage = ($activeTab === 'my-transactions' || request()->routeIs('dts.my-transactions') || $this->currentRouteName === 'dts.my-transactions');
+    @endphp
+
     @if ($layoutMode === 'table')
         <div class="rms-table-responsive max-w-full mx-auto" style="background: white;">
             <table class="rms-table">
@@ -1602,12 +1745,16 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
                         <th>REQUESTOR</th>
                         <th>CONTROL NO.</th>
                         <th>DOC TYPE</th>
-                        <th>ORIGINATOR</th>
-                        <th>RECEIVED</th>
-                        <th>NEXT OFFICE</th>
-                        <th>ACTION NEEDED</th>
+                        @if ($isMyTxPage)
+                            <th>TIMELINE</th>
+                        @else
+                            <th style="padding: 12px 14px; text-transform: uppercase;">ORIGINATOR</th>
+                            <th style="padding: 12px 14px; text-transform: uppercase;">RECEIVED</th>
+                            <th style="padding: 12px 14px; text-transform: uppercase;">NEXT OFFICE</th>
+                            <th style="padding: 12px 14px; text-transform: uppercase;">ACTION NEEDED</th>
+                            <th style="padding: 12px 14px; text-transform: uppercase;">STATUS</th>
+                        @endif
                         <th>ELAPSED DAY</th>
-                        <th>STATUS</th>
                         <th style="width: 100px; text-align: center;">Action</th>
                     </tr>
                 </thead>
@@ -1619,7 +1766,7 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
                         @endphp
                         @forelse ($groupedTransactions as $officeName => $items)
                             <tr class="office-divider-row">
-                                <td colspan="11" style="padding: 14px 12px; background: #f8fafc; font-weight: 700; color: #475569; letter-spacing: 0.05em; font-size: 12px; font-family: 'Inter', sans-serif;">
+                                <td colspan="{{ $isMyTxPage ? 7 : 11 }}" style="padding: 14px 12px; background: #f8fafc; font-weight: 700; color: #475569; letter-spacing: 0.05em; font-size: 12px; font-family: 'Inter', sans-serif;">
                                     <div style="display: flex; align-items: center; justify-content: center; gap: 14px;">
                                         <div style="flex: 1; height: 1px; background: #cbd5e1;"></div>
                                         <div style="text-transform: uppercase; display: flex; align-items: center; gap: 8px;">
@@ -1648,16 +1795,89 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
                                      </td>
                                     <td style="font-weight: 600; color: #1e40af; text-align: center;">{{ $t->control_number }}</td>
                                     <td>{{ (!empty($t->doc_type_name) && !str_starts_with($t->doc_type_name, 'Flow for ')) ? $t->doc_type_name : ucfirst($t->trans_type) }}</td>
-                                    <td>{{ $t->originated_office_name ?? 'N/A' }}</td>
-                                    <td>{{ $t->date_received ? \Carbon\Carbon::parse($t->date_received)->format('Y-m-d H:i') : 'N/A' }}</td>
-                                    <td>{{ $t->next_office_name }}</td>
-                                    <td style="color: #16a34a; font-weight: 500;">{{ $t->action_needed ?? 'For action' }}</td>
+                                    @if ($isMyTxPage)
+                                        <td style="padding: 10px 12px; min-width: 220px; max-width: 320px;">
+                                            <div style="display: flex; align-items: center; justify-content: flex-start; gap: 0; position: relative;">
+                                                @forelse ($t->timeline_path as $index => $step)
+                                                    @php
+                                                        $isReceived = !is_null($step->date_in) || $t->status === 'completed';
+                                                        $isForwarded = !is_null($step->date_out) || $t->status === 'completed';
+
+                                                        $dotColor = $isReceived ? '#10b981' : '#dc2626';
+                                                        $lineColor = $isForwarded ? '#10b981' : '#cbd5e1';
+
+                                                        $isCurrentOffice = $step->office_code === $t->current_office && $step->sequence_ranking == $t->sequence && $t->status !== 'completed';
+                                                        $isInTransitToThisOffice = $step->sequence_ranking == $t->sequence && is_null($step->date_in) && $t->status !== 'completed';
+                                                    @endphp
+
+                                                    <div class="dts-timeline-node-wrapper" style="position: relative; display: inline-flex; flex-direction: column; align-items: center; margin: 0;">
+                                                        <div class="dts-timeline-node-dot" style="width: 26px; height: 26px; border-radius: 50%; background: {{ $dotColor }}; color: #ffffff; font-size: 11px; font-weight: 700; display: flex; align-items: center; justify-content: center; z-index: 2; cursor: pointer; {{ $isCurrentOffice ? 'box-shadow: 0 0 0 4px rgba(16, 185, 129, 0.35); border: 2px solid #ffffff;' : ($isInTransitToThisOffice ? 'box-shadow: 0 0 0 4px rgba(245, 158, 11, 0.35);' : '') }}" title="Step {{ $index + 1 }}: {{ $step->office_name ?? $step->office_code }} ({{ $isReceived ? ($isForwarded ? 'Forwarded' : 'Received/Holder') : 'Pending' }})">
+                                                            @if ($isReceived)
+                                                                <i class="fa-solid fa-check" style="font-size: 10px;"></i>
+                                                            @else
+                                                                {{ $index + 1 }}
+                                                            @endif
+                                                        </div>
+
+                                                        <span style="margin-top: 4px; font-size: 10px; font-weight: 700; color: {{ $isReceived ? '#10b981' : '#dc2626' }}; font-family: 'Inter', sans-serif; white-space: nowrap;">
+                                                            {{ $step->office_code }}
+                                                        </span>
+
+                                                        <div class="dts-node-tooltip" style="position: absolute; bottom: 34px; left: 50%; transform: translateX(-50%); width: 210px; background: #0f172a; color: #f8fafc; padding: 8px 10px; border-radius: 8px; box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.5); border: 1px solid #334155; opacity: 0; visibility: hidden; pointer-events: none; transition: opacity 0.15s ease; z-index: 9999; text-align: left; font-size: 11px; line-height: 1.4;">
+                                                            <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #334155; padding-bottom: 4px; margin-bottom: 4px;">
+                                                                <span style="font-weight: 700; font-size: 11px; color: #38bdf8;">Step {{ $index + 1 }}: {{ $step->office_code }}</span>
+                                                                @if ($isReceived && $isForwarded)
+                                                                    <span style="background: #166534; color: #4ade80; font-size: 9.5px; font-weight: 700; padding: 1px 5px; border-radius: 10px;">✓ Forwarded</span>
+                                                                @elseif ($isReceived && !$isForwarded)
+                                                                    <span style="background: #1e3a8a; color: #60a5fa; font-size: 9.5px; font-weight: 700; padding: 1px 5px; border-radius: 10px;">📍 Held</span>
+                                                                @else
+                                                                    <span style="background: #450a0a; color: #fca5a5; font-size: 9.5px; font-weight: 700; padding: 1px 5px; border-radius: 10px;">⏳ Pending</span>
+                                                                @endif
+                                                            </div>
+                                                            
+                                                            <div style="font-size: 10.5px; font-weight: 600; color: #f1f5f9; margin-bottom: 4px;">
+                                                                {{ $step->office_name }}
+                                                            </div>
+
+                                                            <div style="font-size: 10px; color: #94a3b8; display: flex; flex-direction: column; gap: 2px;">
+                                                                <div><strong style="color: #cbd5e1;">Date In:</strong> {{ $step->date_in ? \Carbon\Carbon::parse($step->date_in)->format('M d, Y h:i A') : 'N/A' }}</div>
+                                                                <div><strong style="color: #cbd5e1;">Date Out:</strong> {{ $step->date_out ? \Carbon\Carbon::parse($step->date_out)->format('M d, Y h:i A') : ($step->date_in ? 'Pending' : 'N/A') }}</div>
+                                                                @if (!empty($step->total_time_completed) && $step->total_time_completed !== '-')
+                                                                    <div><strong style="color: #cbd5e1;">Total Time:</strong> <span style="color: #38bdf8; font-weight: 700;">{{ $step->total_time_completed }}</span></div>
+                                                                @endif
+                                                                <div><strong style="color: #cbd5e1;">Action:</strong> {{ ($t->status === 'completed' || !is_null($step->date_out)) ? ($step->action_needed ?: 'Finished') : ($step->action_needed ?: ($step->date_in ? 'Ongoing' : 'Pending')) }}</div>
+                                                            </div>
+                                                        </div>
+                                                    </div>
+
+                                                    @if (!$loop->last)
+                                                        <div style="flex: 1; height: 4px; background: {{ $lineColor }}; min-width: 16px; margin: 0 -2px 14px -2px; border-radius: 2px; z-index: 1; transition: all 0.3s ease;"></div>
+                                                    @endif
+                                                @empty
+                                                    <span style="color: #94a3b8; font-size: 11px; font-style: italic;">No path data</span>
+                                                @endforelse
+                                            </div>
+                                        </td>
+                                    @else
+                                        <td style="padding: 12px 14px; color: #ef4444; font-weight: 500;">
+                                            {{ $t->originated_office_name ?? 'N/A' }}
+                                        </td>
+                                        <td style="padding: 12px 14px; color: #475569; font-size: 12px;">
+                                            {{ $t->date_received ? \Carbon\Carbon::parse($t->date_received)->format('Y-m-d H:i') : 'N/A' }}
+                                        </td>
+                                        <td style="padding: 12px 14px; color: #3b82f6; font-weight: 600;">
+                                            {{ $t->next_office_name }}
+                                        </td>
+                                        <td style="padding: 12px 14px; color: #16a34a; font-weight: 600;">
+                                            {{ $t->action_needed ?? 'For action' }}
+                                        </td>
+                                        <td style="padding: 12px 14px;">
+                                            <span class="rms-badge badge-{{ $t->status === 'completed' ? 'success' : ($t->status === 'cancelled' ? 'danger' : 'warning') }}">
+                                                {{ ucfirst($t->status) }}
+                                            </span>
+                                        </td>
+                                    @endif
                                     <td style="color: #dc2626; font-weight: 600; white-space: nowrap; text-align: center;">{{ $t->elapsed_days }} day(s)</td>
-                                    <td style="text-align: center;">
-                                        <span class="status-badge status-{{ $t->status }}">
-                                            {{ $t->status }}
-                                        </span>
-                                    </td>
                                     <td style="text-align: center; white-space: nowrap;">
                                         @if(request()->routeIs('dts.incoming') || $this->currentRouteName === 'dts.incoming' || $activeTab === 'incoming')
                                             <button type="button" onclick="if(window.openScannerModal) window.openScannerModal('{{ $t->control_number }}');" class="rms-select" style="text-decoration: none; display: inline-flex; align-items: center; gap: 4px; border: none; background: transparent; cursor: pointer; color: #0284c7; font-weight: 600;">
@@ -1678,7 +1898,7 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
                             @endforeach
                         @empty
                             <tr>
-                                <td class="rms-no-data" colspan="11">No records found.</td>
+                                <td class="rms-no-data" colspan="{{ $isMyTxPage ? 7 : 11 }}">No records found.</td>
                             </tr>
                         @endforelse
                     @else
@@ -1693,16 +1913,89 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
                                  </td>
                                 <td style="font-weight: 600; color: #1e40af; text-align: center;">{{ $t->control_number }}</td>
                                 <td>{{ (!empty($t->doc_type_name) && !str_starts_with($t->doc_type_name, 'Flow for ')) ? $t->doc_type_name : ucfirst($t->trans_type) }}</td>
-                                <td>{{ $t->originated_office_name ?? 'N/A' }}</td>
-                                <td>{{ $t->date_received ? \Carbon\Carbon::parse($t->date_received)->format('Y-m-d H:i') : 'N/A' }}</td>
-                                <td>{{ $t->next_office_name }}</td>
-                                <td style="color: #16a34a; font-weight: 500;">{{ $t->action_needed ?? 'For action' }}</td>
+                                @if ($isMyTxPage)
+                                    <td style="padding: 10px 12px; min-width: 220px; max-width: 320px;">
+                                        <div style="display: flex; align-items: center; justify-content: flex-start; gap: 0; position: relative;">
+                                            @forelse ($t->timeline_path as $index => $step)
+                                                @php
+                                                    $isReceived = !is_null($step->date_in) || $t->status === 'completed';
+                                                    $isForwarded = !is_null($step->date_out) || $t->status === 'completed';
+
+                                                    $dotColor = $isReceived ? '#10b981' : '#dc2626';
+                                                    $lineColor = $isForwarded ? '#10b981' : '#cbd5e1';
+
+                                                    $isCurrentOffice = $step->office_code === $t->current_office && $step->sequence_ranking == $t->sequence && $t->status !== 'completed';
+                                                    $isInTransitToThisOffice = $step->sequence_ranking == $t->sequence && is_null($step->date_in) && $t->status !== 'completed';
+                                                @endphp
+
+                                                <div class="dts-timeline-node-wrapper" style="position: relative; display: inline-flex; flex-direction: column; align-items: center; margin: 0;">
+                                                    <div class="dts-timeline-node-dot" style="width: 26px; height: 26px; border-radius: 50%; background: {{ $dotColor }}; color: #ffffff; font-size: 11px; font-weight: 700; display: flex; align-items: center; justify-content: center; z-index: 2; cursor: pointer; {{ $isCurrentOffice ? 'box-shadow: 0 0 0 4px rgba(16, 185, 129, 0.35); border: 2px solid #ffffff;' : ($isInTransitToThisOffice ? 'box-shadow: 0 0 0 4px rgba(245, 158, 11, 0.35);' : '') }}" title="Step {{ $index + 1 }}: {{ $step->office_name ?? $step->office_code }} ({{ $isReceived ? ($isForwarded ? 'Forwarded' : 'Received/Holder') : 'Pending' }})">
+                                                        @if ($isReceived)
+                                                            <i class="fa-solid fa-check" style="font-size: 10px;"></i>
+                                                        @else
+                                                            {{ $index + 1 }}
+                                                        @endif
+                                                    </div>
+
+                                                    <span style="margin-top: 4px; font-size: 10px; font-weight: 700; color: {{ $isReceived ? '#10b981' : '#dc2626' }}; font-family: 'Inter', sans-serif; white-space: nowrap;">
+                                                        {{ $step->office_code }}
+                                                    </span>
+
+                                                    <div class="dts-node-tooltip" style="position: absolute; bottom: 34px; left: 50%; transform: translateX(-50%); width: 210px; background: #0f172a; color: #f8fafc; padding: 8px 10px; border-radius: 8px; box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.5); border: 1px solid #334155; opacity: 0; visibility: hidden; pointer-events: none; transition: opacity 0.15s ease; z-index: 9999; text-align: left; font-size: 11px; line-height: 1.4;">
+                                                        <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #334155; padding-bottom: 4px; margin-bottom: 4px;">
+                                                            <span style="font-weight: 700; font-size: 11px; color: #38bdf8;">Step {{ $index + 1 }}: {{ $step->office_code }}</span>
+                                                            @if ($isReceived && $isForwarded)
+                                                                <span style="background: #166534; color: #4ade80; font-size: 9.5px; font-weight: 700; padding: 1px 5px; border-radius: 10px;">✓ Forwarded</span>
+                                                            @elseif ($isReceived && !$isForwarded)
+                                                                <span style="background: #1e3a8a; color: #60a5fa; font-size: 9.5px; font-weight: 700; padding: 1px 5px; border-radius: 10px;">📍 Held</span>
+                                                            @else
+                                                                <span style="background: #450a0a; color: #fca5a5; font-size: 9.5px; font-weight: 700; padding: 1px 5px; border-radius: 10px;">⏳ Pending</span>
+                                                            @endif
+                                                        </div>
+                                                        
+                                                        <div style="font-size: 10.5px; font-weight: 600; color: #f1f5f9; margin-bottom: 4px;">
+                                                            {{ $step->office_name }}
+                                                        </div>
+
+                                                        <div style="font-size: 10px; color: #94a3b8; display: flex; flex-direction: column; gap: 2px;">
+                                                            <div><strong style="color: #cbd5e1;">Date In:</strong> {{ $step->date_in ? \Carbon\Carbon::parse($step->date_in)->format('M d, Y h:i A') : 'N/A' }}</div>
+                                                            <div><strong style="color: #cbd5e1;">Date Out:</strong> {{ $step->date_out ? \Carbon\Carbon::parse($step->date_out)->format('M d, Y h:i A') : ($step->date_in ? 'Pending' : 'N/A') }}</div>
+                                                            @if (!empty($step->total_time_completed) && $step->total_time_completed !== '-')
+                                                                <div><strong style="color: #cbd5e1;">Total Time:</strong> <span style="color: #38bdf8; font-weight: 700;">{{ $step->total_time_completed }}</span></div>
+                                                            @endif
+                                                            <div><strong style="color: #cbd5e1;">Action:</strong> {{ ($t->status === 'completed' || !is_null($step->date_out)) ? ($step->action_needed ?: 'Finished') : ($step->action_needed ?: ($step->date_in ? 'Ongoing' : 'Pending')) }}</div>
+                                                        </div>
+                                                    </div>
+                                                </div>
+
+                                                @if (!$loop->last)
+                                                    <div style="flex: 1; height: 4px; background: {{ $lineColor }}; min-width: 16px; margin: 0 -2px 14px -2px; border-radius: 2px; z-index: 1; transition: all 0.3s ease;"></div>
+                                                @endif
+                                            @empty
+                                                <span style="color: #94a3b8; font-size: 11px; font-style: italic;">No path data</span>
+                                            @endforelse
+                                        </div>
+                                    </td>
+                                @else
+                                    <td style="padding: 12px 14px; color: #ef4444; font-weight: 500;">
+                                        {{ $t->originated_office_name ?? 'N/A' }}
+                                    </td>
+                                    <td style="padding: 12px 14px; color: #475569; font-size: 12px;">
+                                        {{ $t->date_received ? \Carbon\Carbon::parse($t->date_received)->format('Y-m-d H:i') : 'N/A' }}
+                                    </td>
+                                    <td style="padding: 12px 14px; color: #3b82f6; font-weight: 600;">
+                                        {{ $t->next_office_name }}
+                                    </td>
+                                    <td style="padding: 12px 14px; color: #16a34a; font-weight: 600;">
+                                        {{ $t->action_needed ?? 'For action' }}
+                                    </td>
+                                    <td style="padding: 12px 14px;">
+                                        <span class="rms-badge badge-{{ $t->status === 'completed' ? 'success' : ($t->status === 'cancelled' ? 'danger' : 'warning') }}">
+                                            {{ ucfirst($t->status) }}
+                                        </span>
+                                    </td>
+                                @endif
                                 <td style="color: #dc2626; font-weight: 600; white-space: nowrap; text-align: center;">{{ $t->elapsed_days }} day(s)</td>
-                                <td style="text-align: center;">
-                                    <span class="status-badge status-{{ $t->status }}">
-                                        {{ $t->status }}
-                                    </span>
-                                </td>
                                 <td style="text-align: center; white-space: nowrap;">
                                     @if(request()->routeIs('dts.incoming') || $this->currentRouteName === 'dts.incoming' || $activeTab === 'incoming')
                                         <button type="button" onclick="if(window.openScannerModal) window.openScannerModal('{{ $t->control_number }}');" class="rms-select" style="text-decoration: none; display: inline-flex; align-items: center; gap: 4px; border: none; background: transparent; cursor: pointer; color: #0284c7; font-weight: 600;">
@@ -1722,7 +2015,7 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
                             </tr>
                         @empty
                             <tr>
-                                <td class="rms-no-data" colspan="11">No records found.</td>
+                                <td class="rms-no-data" colspan="{{ $isMyTxPage ? 7 : 11 }}">No records found.</td>
                             </tr>
                         @endforelse
                     @endif
@@ -1788,14 +2081,54 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
                                 <div style="margin-bottom: 6px; word-break: break-word; overflow-wrap: break-word; white-space: normal;"><strong>Subject:</strong> {{ $t->subject }}</div>
                                 <div style="margin-bottom: 6px;"><strong>Name of Requestor:</strong> {{ $t->requestor_name }} @if(!empty($t->requestor_label)) <span style="font-size: 12px; color: #6b7280; font-weight: normal;">({{ $t->requestor_label }})</span> @endif</div>
                                 <div style="margin-bottom: 6px;"><strong>Control Number:</strong> <span style="font-weight: 600; color: #1e40af;">{{ $t->control_number }}</span></div>
-                                <div style="margin-bottom: 14px;"><strong>Type of Document:</strong> {{ (!empty($t->doc_type_name) && !str_starts_with($t->doc_type_name, 'Flow for ')) ? $t->doc_type_name : ucfirst($t->trans_type) }}</div>
+                                <div style="margin-bottom: 12px;"><strong>Type of Document:</strong> {{ (!empty($t->doc_type_name) && !str_starts_with($t->doc_type_name, 'Flow for ')) ? $t->doc_type_name : ucfirst($t->trans_type) }}</div>
 
-                                <div style="margin-bottom: 6px;"><strong>Originator:</strong> <span style="color: #ef4444; font-weight: 500;">{{ $t->originated_office_name ?? 'N/A' }}</span></div>
-                                <div style="margin-bottom: 14px;"><strong>Receive Date:</strong> {{ $t->date_received ? \Carbon\Carbon::parse($t->date_received)->format('Y-m-d H:i') : 'N/A' }}</div>
+                                @if ($isMyTxPage)
+                                    <!-- Timeline Indicator -->
+                                    <div style="margin-bottom: 12px; background: #f8fafc; padding: 10px 12px; border-radius: 8px; border: 1px solid #e2e8f0;">
+                                        <strong style="display: block; margin-bottom: 6px; color: #334155; font-size: 12px;">Timeline:</strong>
+                                        <div style="display: flex; align-items: center; justify-content: flex-start; gap: 0; position: relative; overflow-x: auto; padding: 4px 0;">
+                                            @forelse ($t->timeline_path as $index => $step)
+                                                @php
+                                                    $isReceived = !is_null($step->date_in) || $t->status === 'completed';
+                                                    $isForwarded = !is_null($step->date_out) || $t->status === 'completed';
 
-                                <div style="margin-bottom: 14px;"><strong>Current Office:</strong> {{ $t->current_office_name }}</div>
+                                                    $dotColor = $isReceived ? '#10b981' : '#dc2626';
+                                                    $lineColor = $isForwarded ? '#10b981' : '#cbd5e1';
 
-                                <div style="margin-bottom: 6px;"><strong>Action Needed:</strong> <span style="color: #16a34a; font-weight: 600;">{{ $t->action_needed ?? 'For action' }}</span></div>
+                                                    $isCurrentOffice = $step->office_code === $t->current_office && $step->sequence_ranking == $t->sequence && $t->status !== 'completed';
+                                                    $isInTransitToThisOffice = $step->sequence_ranking == $t->sequence && is_null($step->date_in) && $t->status !== 'completed';
+                                                @endphp
+
+                                                <div class="dts-timeline-node-wrapper" style="position: relative; display: inline-flex; flex-direction: column; align-items: center; margin: 0;">
+                                                    <div class="dts-timeline-node-dot" style="width: 24px; height: 24px; border-radius: 50%; background: {{ $dotColor }}; color: #ffffff; font-size: 10px; font-weight: 700; display: flex; align-items: center; justify-content: center; z-index: 2; cursor: pointer; {{ $isCurrentOffice ? 'box-shadow: 0 0 0 3px rgba(16, 185, 129, 0.35); border: 2px solid #ffffff;' : ($isInTransitToThisOffice ? 'box-shadow: 0 0 0 3px rgba(245, 158, 11, 0.35);' : '') }}" title="Step {{ $index + 1 }}: {{ $step->office_name ?? $step->office_code }} ({{ $isReceived ? ($isForwarded ? 'Forwarded' : 'Received/Holder') : 'Pending' }})">
+                                                        @if ($isReceived)
+                                                            <i class="fa-solid fa-check" style="font-size: 9px;"></i>
+                                                        @else
+                                                            {{ $index + 1 }}
+                                                        @endif
+                                                    </div>
+
+                                                    <span style="margin-top: 3px; font-size: 9.5px; font-weight: 700; color: {{ $isReceived ? '#10b981' : '#dc2626' }}; font-family: 'Inter', sans-serif; white-space: nowrap;">
+                                                        {{ $step->office_code }}
+                                                    </span>
+                                                </div>
+
+                                                @if (!$loop->last)
+                                                    <div style="flex: 1; height: 3px; background: {{ $lineColor }}; min-width: 14px; margin: 0 -2px 12px -2px; border-radius: 2px; z-index: 1;"></div>
+                                                @endif
+                                            @empty
+                                                <span style="color: #94a3b8; font-size: 11px; font-style: italic;">No path data</span>
+                                            @endforelse
+                                        </div>
+                                    </div>
+                                @else
+                                    <div style="margin-bottom: 6px;"><strong>Originator:</strong> <span style="color: #ef4444; font-weight: 500;">{{ $t->originated_office_name ?? 'N/A' }}</span></div>
+                                    <div style="margin-bottom: 14px;"><strong>Receive Date:</strong> {{ $t->date_received ? \Carbon\Carbon::parse($t->date_received)->format('Y-m-d H:i') : 'N/A' }}</div>
+                                    <div style="margin-bottom: 14px;"><strong>Current Office:</strong> {{ $t->current_office_name }}</div>
+                                    <div style="margin-bottom: 6px;"><strong>Action Needed:</strong> <span style="color: #16a34a; font-weight: 600;">{{ $t->action_needed ?? 'For action' }}</span></div>
+                                @endif
+
                                 <div style="margin-bottom: 6px;"><strong>Elapsed Day:</strong> <span style="color: #ef4444; font-style: italic;">{{ $t->elapsed_days }} day(s)</span></div>
                             </div>
 
@@ -1858,14 +2191,54 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
                             <div style="margin-bottom: 6px; word-break: break-word; overflow-wrap: break-word; white-space: normal;"><strong>Subject:</strong> {{ $t->subject }}</div>
                             <div style="margin-bottom: 6px;"><strong>Name of Requestor:</strong> {{ $t->requestor_name }} @if(!empty($t->requestor_label)) <span style="font-size: 12px; color: #6b7280; font-weight: normal;">({{ $t->requestor_label }})</span> @endif</div>
                             <div style="margin-bottom: 6px;"><strong>Control Number:</strong> <span style="font-weight: 600; color: #1e40af;">{{ $t->control_number }}</span></div>
-                            <div style="margin-bottom: 14px;"><strong>Type of Document:</strong> {{ (!empty($t->doc_type_name) && !str_starts_with($t->doc_type_name, 'Flow for ')) ? $t->doc_type_name : ucfirst($t->trans_type) }}</div>
+                            <div style="margin-bottom: 12px;"><strong>Type of Document:</strong> {{ (!empty($t->doc_type_name) && !str_starts_with($t->doc_type_name, 'Flow for ')) ? $t->doc_type_name : ucfirst($t->trans_type) }}</div>
 
-                            <div style="margin-bottom: 6px;"><strong>Originator:</strong> <span style="color: #ef4444; font-weight: 500;">{{ $t->originated_office_name ?? 'N/A' }}</span></div>
-                            <div style="margin-bottom: 14px;"><strong>Receive Date:</strong> {{ $t->date_received ? \Carbon\Carbon::parse($t->date_received)->format('Y-m-d H:i') : 'N/A' }}</div>
+                            @if ($isMyTxPage)
+                                <!-- Timeline Indicator -->
+                                <div style="margin-bottom: 12px; background: #f8fafc; padding: 10px 12px; border-radius: 8px; border: 1px solid #e2e8f0;">
+                                    <strong style="display: block; margin-bottom: 6px; color: #334155; font-size: 12px;">Timeline:</strong>
+                                    <div style="display: flex; align-items: center; justify-content: flex-start; gap: 0; position: relative; overflow-x: auto; padding: 4px 0;">
+                                        @forelse ($t->timeline_path as $index => $step)
+                                            @php
+                                                $isReceived = !is_null($step->date_in) || $t->status === 'completed';
+                                                $isForwarded = !is_null($step->date_out) || $t->status === 'completed';
 
-                            <div style="margin-bottom: 14px;"><strong>Current Office:</strong> {{ $t->current_office_name }}</div>
+                                                $dotColor = $isReceived ? '#10b981' : '#dc2626';
+                                                $lineColor = $isForwarded ? '#10b981' : '#cbd5e1';
 
-                            <div style="margin-bottom: 6px;"><strong>Action Needed:</strong> <span style="color: #16a34a; font-weight: 600;">{{ $t->action_needed ?? 'For action' }}</span></div>
+                                                $isCurrentOffice = $step->office_code === $t->current_office && $step->sequence_ranking == $t->sequence && $t->status !== 'completed';
+                                                $isInTransitToThisOffice = $step->sequence_ranking == $t->sequence && is_null($step->date_in) && $t->status !== 'completed';
+                                            @endphp
+
+                                            <div class="dts-timeline-node-wrapper" style="position: relative; display: inline-flex; flex-direction: column; align-items: center; margin: 0;">
+                                                <div class="dts-timeline-node-dot" style="width: 24px; height: 24px; border-radius: 50%; background: {{ $dotColor }}; color: #ffffff; font-size: 10px; font-weight: 700; display: flex; align-items: center; justify-content: center; z-index: 2; cursor: pointer; {{ $isCurrentOffice ? 'box-shadow: 0 0 0 3px rgba(16, 185, 129, 0.35); border: 2px solid #ffffff;' : ($isInTransitToThisOffice ? 'box-shadow: 0 0 0 3px rgba(245, 158, 11, 0.35);' : '') }}" title="Step {{ $index + 1 }}: {{ $step->office_name ?? $step->office_code }} ({{ $isReceived ? ($isForwarded ? 'Forwarded' : 'Received/Holder') : 'Pending' }})">
+                                                    @if ($isReceived)
+                                                        <i class="fa-solid fa-check" style="font-size: 9px;"></i>
+                                                    @else
+                                                        {{ $index + 1 }}
+                                                    @endif
+                                                </div>
+
+                                                <span style="margin-top: 3px; font-size: 9.5px; font-weight: 700; color: {{ $isReceived ? '#10b981' : '#dc2626' }}; font-family: 'Inter', sans-serif; white-space: nowrap;">
+                                                    {{ $step->office_code }}
+                                                </span>
+                                            </div>
+
+                                            @if (!$loop->last)
+                                                <div style="flex: 1; height: 3px; background: {{ $lineColor }}; min-width: 14px; margin: 0 -2px 12px -2px; border-radius: 2px; z-index: 1;"></div>
+                                            @endif
+                                        @empty
+                                            <span style="color: #94a3b8; font-size: 11px; font-style: italic;">No path data</span>
+                                        @endforelse
+                                    </div>
+                                </div>
+                            @else
+                                <div style="margin-bottom: 6px;"><strong>Originator:</strong> <span style="color: #ef4444; font-weight: 500;">{{ $t->originated_office_name ?? 'N/A' }}</span></div>
+                                <div style="margin-bottom: 14px;"><strong>Receive Date:</strong> {{ $t->date_received ? \Carbon\Carbon::parse($t->date_received)->format('Y-m-d H:i') : 'N/A' }}</div>
+                                <div style="margin-bottom: 14px;"><strong>Current Office:</strong> {{ $t->current_office_name }}</div>
+                                <div style="margin-bottom: 6px;"><strong>Action Needed:</strong> <span style="color: #16a34a; font-weight: 600;">{{ $t->action_needed ?? 'For action' }}</span></div>
+                            @endif
+
                             <div style="margin-bottom: 6px;"><strong>Elapsed Day:</strong> <span style="color: #ef4444; font-style: italic;">{{ $t->elapsed_days }} day(s)</span></div>
                         </div>
 

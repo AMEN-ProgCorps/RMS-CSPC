@@ -480,6 +480,8 @@
     }
 
     chatBox.addEventListener('mouseover', function(e) {
+      // Admin spy mode is read-only — never offer the reply button there.
+      if (isAdminAllChatsView || activeAdminConv) return;
       const container = e.target.closest('.message-container[data-msg-id]');
       if (!container) return;
       // Never offer reply on the transient "sending..." optimistic bubble
@@ -502,6 +504,12 @@
     hoverReplyBtn.addEventListener('mouseenter', cancelHideHoverReplyBtn);
     hoverReplyBtn.addEventListener('mouseleave', scheduleHideHoverReplyBtn);
     hoverReplyBtn.addEventListener('click', function() {
+      // Admin spy mode is read-only — never allow replying from here.
+      if ((isAdminAllChatsView || activeAdminConv) ) {
+        hoverReplyBtn.classList.remove('visible');
+        hoveredReplyContainer = null;
+        return;
+      }
       if (hoveredReplyContainer) openReplyForContainer(hoveredReplyContainer);
       hoverReplyBtn.classList.remove('visible');
       hoveredReplyContainer = null;

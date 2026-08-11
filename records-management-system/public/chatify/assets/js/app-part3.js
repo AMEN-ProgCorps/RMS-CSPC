@@ -73,6 +73,65 @@
       }
     }
     
+    // ── Image Viewer Modal ──────────────────────────────────────────────
+    // Clicking any chat image (class="chat-viewable-image", rendered by
+    // load.php / load_dm.php / load_dm_admin.php) opens it here in an
+    // in-page overlay with an X button, instead of the old behavior of
+    // opening the full image in a brand new browser tab. Uses event
+    // delegation on document since message bubbles (and their images) are
+    // constantly re-rendered by chat polling.
+    const imageViewerModal    = document.getElementById('imageViewerModal');
+    const imageViewerImg      = document.getElementById('imageViewerImg');
+    const imageViewerCloseBtn = document.getElementById('imageViewerCloseBtn');
+
+    function openImageViewer(src, alt) {
+      if (!imageViewerModal || !imageViewerImg) return;
+      imageViewerImg.src = src;
+      imageViewerImg.alt = alt || '';
+      imageViewerModal.style.display = 'flex';
+      // Force reflow so the opacity/visibility transition actually plays.
+      void imageViewerModal.offsetWidth;
+      imageViewerModal.classList.add('active');
+      imageViewerModal.setAttribute('aria-hidden', 'false');
+      document.body.style.overflow = 'hidden';
+    }
+
+    function closeImageViewer() {
+      if (!imageViewerModal) return;
+      imageViewerModal.classList.remove('active');
+      imageViewerModal.setAttribute('aria-hidden', 'true');
+      document.body.style.overflow = '';
+      setTimeout(function() {
+        if (!imageViewerModal.classList.contains('active')) {
+          imageViewerModal.style.display = 'none';
+          if (imageViewerImg) imageViewerImg.src = '';
+        }
+      }, 200);
+    }
+
+    // Open: delegated click on any rendered chat image.
+    document.addEventListener('click', function(e) {
+      const img = e.target.closest('.chat-viewable-image');
+      if (!img) return;
+      e.preventDefault();
+      openImageViewer(img.dataset.fullSrc || img.src, img.alt);
+    });
+
+    // Close: X button, clicking the dark backdrop, or Escape key.
+    if (imageViewerCloseBtn) {
+      imageViewerCloseBtn.addEventListener('click', closeImageViewer);
+    }
+    if (imageViewerModal) {
+      imageViewerModal.addEventListener('click', function(e) {
+        if (e.target === imageViewerModal) closeImageViewer();
+      });
+    }
+    document.addEventListener('keydown', function(e) {
+      if (e.key === 'Escape' && imageViewerModal && imageViewerModal.classList.contains('active')) {
+        closeImageViewer();
+      }
+    });
+
     // Logout modal DOM refs
     const logoutModal = document.getElementById("logoutModal");
     const logoutConfirmBtn = document.getElementById("logoutConfirm");
@@ -1314,9 +1373,17 @@
 
     // loadChat wrapper that forces a fresh load even if one is in-flight.
     // Used by send confirmations so we never miss a message after rapid sends.
+    // NOTE: must pass force=true through to loadChat() itself — previously
+    // this only reset isLoadingChat locally but still called loadChat() with
+    // its default force=false, so if another load was still in flight at the
+    // exact moment this ran (e.g. a rapid second image send, or a poll
+    // landing mid-fetch), loadChat()'s own in-flight guard would silently
+    // drop THIS call instead of aborting-and-retrying. That dropped call is
+    // what was supposed to render the attachment and trigger markRead() —
+    // so the message could sit unrendered/unread-marked despite the chat
+    // being open.
     function loadChatForced() {
-      isLoadingChat = false; // reset guard so the next call goes through
-      loadChat();
+      loadChat(false, false, true);
     }
 
     // Event Letters

@@ -231,7 +231,7 @@ foreach ($rawMessages as $msg) {
                             $wAttr = " width='{$info[0]}' height='{$info[1]}'";
                             $aspectRatioStyle = "aspect-ratio:{$info[0]}/{$info[1]};width:100%;height:auto;";
                         }
-                        $uploadBodyHtml .= "<a href='{$fnUrl}' target='_blank' style='display:block;'><img src='{$fnUrl}' alt='{$fnEsc}' style='width:100%;max-width:240px;max-height:260px;height:auto;border-radius:12px;display:block;cursor:pointer;object-fit:cover;box-shadow:0 2px 8px rgba(0,0,0,0.18);' /></a>";
+                        $uploadBodyHtml .= "<img src='{$fnUrl}' alt='{$fnEsc}' class='chat-viewable-image' data-full-src='{$fnUrl}' style='width:100%;max-width:240px;max-height:260px;height:auto;border-radius:12px;display:block;cursor:pointer;object-fit:cover;box-shadow:0 2px 8px rgba(0,0,0,0.18);' />";
                     }
                     $uploadBodyHtml .= "<div class='message-info' style='padding:3px 2px;'><span class='message-sender'>{$senderLabel}{$adminBadge}</span></div>";
                     $uploadBodyHtml .= "</div>"; // .message-media
@@ -251,7 +251,7 @@ foreach ($rawMessages as $msg) {
                         if (!file_exists($uploadsDir . $fn)) {
                             continue; // deleted image — skip
                         }
-                        $itemsHtml .= "<a href='{$fnUrl}' target='_blank'><img src='{$fnUrl}' alt='{$fnEsc}' style='width:100%;max-width:240px;max-height:260px;height:auto;border-radius:12px;display:block;object-fit:cover;' /></a>";
+                        $itemsHtml .= "<img src='{$fnUrl}' alt='{$fnEsc}' class='chat-viewable-image' data-full-src='{$fnUrl}' style='width:100%;max-width:240px;max-height:260px;height:auto;border-radius:12px;display:block;cursor:pointer;object-fit:cover;' />";
                     } else {
                         $itemsHtml .= "<a href='{$fnUrl}' target='_blank' rel='noopener' style='color:{$linkColor};text-decoration:underline;font-size:13px;word-break:break-all;'>{$fnEsc}</a>";
                     }
@@ -276,7 +276,7 @@ foreach ($rawMessages as $msg) {
             if (in_array($ext, $imageExts, true)) {
                 if (file_exists($uploadsDir . $file)) {
                     $uploadBodyHtml .= "<div class='message-media'>";
-                    $uploadBodyHtml .= "<a href='{$url}' target='_blank'><img src='{$url}' alt='{$fileEsc}' style='width:100%;max-width:240px;max-height:260px;height:auto;border-radius:12px;display:block;cursor:pointer;object-fit:cover;box-shadow:0 2px 8px rgba(0,0,0,0.18);' /></a>";
+                    $uploadBodyHtml .= "<img src='{$url}' alt='{$fileEsc}' class='chat-viewable-image' data-full-src='{$url}' style='width:100%;max-width:240px;max-height:260px;height:auto;border-radius:12px;display:block;cursor:pointer;object-fit:cover;box-shadow:0 2px 8px rgba(0,0,0,0.18);' />";
                     $uploadBodyHtml .= "<div class='message-info' style='padding:3px 2px;'><span class='message-sender'>{$senderLabel}{$adminBadge}</span></div>";
                     $uploadBodyHtml .= "</div>";
                 }

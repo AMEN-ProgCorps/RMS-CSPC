@@ -619,6 +619,15 @@ try {
     </div>
   </div>
 
+  <!-- Image Viewer Modal — full-screen preview for images tapped/clicked in
+       chat. Replaces the old behavior of opening the image in a new browser
+       tab: clicking any .chat-viewable-image now opens it here instead, with
+       an X button in the top-right corner to close. -->
+  <div class="image-viewer-modal" id="imageViewerModal" aria-hidden="true" style="display:none;">
+    <button type="button" class="image-viewer-close" id="imageViewerCloseBtn" aria-label="Close image preview" title="Close">&times;</button>
+    <img src="" alt="" id="imageViewerImg" class="image-viewer-img">
+  </div>
+
   <!-- Clearing Chat Progress Modal — mirrors the file upload progress modal -->
   <div class="modal" id="clearingChatModal" aria-hidden="true" style="display:none;align-items:center;justify-content:center;z-index:99999;">
     <div class="modal-content" style="max-width:320px;min-height:0;">

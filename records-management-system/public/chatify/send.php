@@ -95,12 +95,17 @@ if (empty($errors)) {
         $msgData['plaintext'] = $message;
     }
     if ($msgData && !empty($msgData['id'])) {
+        // See send_dm.php for why has_upload must be set here (same bug,
+        // same fix, for Global Chat) — without it, viewers render an empty
+        // placeholder bubble and the follow-up has_upload event that would
+        // load the real attachment + mark it read gets deduped away.
         WsPush::broadcast('message', [
             'chat_type'  => 'global',
             'sender_id'  => $senderId,
             'msg_uuid'   => $msgData['id'],
             'message'    => $message,
             'created_at' => date('c'),
+            'has_upload' => ($msgData['type'] ?? '') === 'upload',
         ]);
     }
     echo json_encode(['success' => true, 'message' => $msgData]);

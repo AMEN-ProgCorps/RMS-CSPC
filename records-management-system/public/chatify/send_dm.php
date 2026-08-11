@@ -112,6 +112,22 @@ if (empty($errors)) {
         $msgData['plaintext'] = $message;
     }
     if ($msgData && !empty($msgData['id'])) {
+        // IMPORTANT: flag upload messages so the recipient's client knows to
+        // fetch/render the real attachment (loadChatForced -> processChatData)
+        // instead of treating this as a plain text bubble. Without this flag,
+        // the recipient renders an empty placeholder bubble from THIS event
+        // (tagged with the real msg_uuid), and the sender's own browser then
+        // separately re-broadcasts an identical 'message' event over its own
+        // WS connection with has_upload=true (see uploadAndSend() in
+        // app-part3.js) to trigger the real render. That second event arrives
+        // AFTER this one and gets silently dropped by the recipient's
+        // dedup-by-msg_uuid check (a container with that id already exists
+        // from the placeholder) — so the attachment is never actually loaded,
+        // and markRead() (which only runs inside processChatData, after a
+        // real load) never fires. That's what made images/files not get
+        // marked "Seen" even while the recipient had the chat open. Setting
+        // has_upload here makes this one authoritative event do it right the
+        // first time.
         WsPush::push([$targetId, $senderId, 1], 'message', [
             'chat_type'    => 'private',
             'sender_id'    => $senderId,
@@ -119,6 +135,7 @@ if (empty($errors)) {
             'msg_uuid'     => $msgData['id'],
             'message'      => $message,
             'created_at'   => date('c'),
+            'has_upload'   => ($msgData['type'] ?? '') === 'upload',
         ]);
     }
     echo json_encode(['success' => true, 'message' => $msgData]);

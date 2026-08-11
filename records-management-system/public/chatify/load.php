@@ -179,9 +179,7 @@ foreach ($rawMessages as $msg) {
                     $fn      = basename((string)$fn);
                     $fnUrl   = 'uploads/' . rawurlencode($fn);
                     $fnEsc   = htmlspecialchars($fn, ENT_QUOTES);
-                    $html   .= "<a href='{$fnUrl}' target='_blank' style='display:block;'>";
-                    $html   .= "<img src='{$fnUrl}' alt='{$fnEsc}' style='width:100%;max-width:240px;max-height:260px;height:auto;border-radius:12px;display:block;cursor:pointer;object-fit:cover;box-shadow:0 2px 8px rgba(0,0,0,0.18);' />";
-                    $html   .= "</a>";
+                    $html   .= "<img src='{$fnUrl}' alt='{$fnEsc}' class='chat-viewable-image' data-full-src='{$fnUrl}' style='width:100%;max-width:240px;max-height:260px;height:auto;border-radius:12px;display:block;cursor:pointer;object-fit:cover;box-shadow:0 2px 8px rgba(0,0,0,0.18);' />";
                 }
                 $html .= "<div class='message-info' style='padding:3px 2px;'><span class='message-sender'>{$senderLabel}{$adminBadge}</span></div>";
                 $html .= "</div>"; // .message-media
@@ -196,7 +194,7 @@ foreach ($rawMessages as $msg) {
                     $fnEsc = htmlspecialchars($fn, ENT_QUOTES);
                     $fnExt = strtolower(pathinfo($fn, PATHINFO_EXTENSION));
                     if (in_array($fnExt, $imageExts, true)) {
-                        $html .= "<a href='{$fnUrl}' target='_blank'><img src='{$fnUrl}' alt='{$fnEsc}' style='width:100%;max-width:240px;max-height:260px;height:auto;border-radius:12px;display:block;object-fit:cover;' /></a>";
+                        $html .= "<img src='{$fnUrl}' alt='{$fnEsc}' class='chat-viewable-image' data-full-src='{$fnUrl}' style='width:100%;max-width:240px;max-height:260px;height:auto;border-radius:12px;display:block;cursor:pointer;object-fit:cover;' />";
                     } else {
                         $html .= "<a href='{$fnUrl}' target='_blank' rel='noopener' style='color:{$linkColor};text-decoration:underline;font-size:13px;word-break:break-all;'>{$fnEsc}</a>";
                     }
@@ -215,7 +213,7 @@ foreach ($rawMessages as $msg) {
 
             if (in_array($ext, $imageExts, true)) {
                 $html .= "<div class='message-media'>";
-                $html .= "<a href='{$url}' target='_blank'><img src='{$url}' alt='{$fileEsc}' style='width:100%;max-width:240px;max-height:260px;height:auto;border-radius:12px;display:block;cursor:pointer;object-fit:cover;box-shadow:0 2px 8px rgba(0,0,0,0.18);' /></a>";
+                $html .= "<img src='{$url}' alt='{$fileEsc}' class='chat-viewable-image' data-full-src='{$url}' style='width:100%;max-width:240px;max-height:260px;height:auto;border-radius:12px;display:block;cursor:pointer;object-fit:cover;box-shadow:0 2px 8px rgba(0,0,0,0.18);' />";
                 $html .= "<div class='message-info' style='padding:3px 2px;'><span class='message-sender'>{$senderLabel}{$adminBadge}</span></div>";
                 $html .= "</div>";
 

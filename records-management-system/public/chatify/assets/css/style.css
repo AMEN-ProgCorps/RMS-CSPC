@@ -1125,7 +1125,10 @@
       display: inline-flex;
       align-items: center;
       gap: 10px;
-      max-width: 100%;
+      /* Capped so a long snippet never stretches the bubble out to the
+         edges of the input area — same fixed cap on mobile and desktop,
+         just clamped by the container width on very narrow screens. */
+      max-width: min(240px, 100%);
       min-width: 0;
       background: var(--bg-bubble-received);
       color: var(--text-bubble-received);
@@ -1138,6 +1141,7 @@
       text-overflow: ellipsis;
       white-space: nowrap;
       min-width: 0;
+      max-width: 100%;
       font-size: 13px;
       line-height: 1.3;
     }

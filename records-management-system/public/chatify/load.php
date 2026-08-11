@@ -78,6 +78,38 @@ $mimeMap   = [
 
 $uploadsDir = __DIR__ . '/uploads/';
 
+/**
+ * Builds the small "quoted" bubble shown above a reply's own message-content.
+ * Deliberately shows no sender name — just a truncated preview of whatever
+ * was replied to (already-decrypted plaintext for text, a generic label for
+ * uploads/other reply targets that no longer resolve cleanly).
+ */
+function gcBuildReplyQuoteHtml(?string $encryptedReplyMessage, string $replyType): string
+{
+    if ($encryptedReplyMessage === null) {
+        return '';
+    }
+
+    if ($replyType === 'upload') {
+        $snippet = '📎 Attachment';
+    } else {
+        $snippet = safeDecrypt($encryptedReplyMessage);
+    }
+
+    $snippet = trim($snippet);
+    if ($snippet === '') {
+        return '';
+    }
+    if (function_exists('mb_strlen') && mb_strlen($snippet) > 120) {
+        $snippet = mb_substr($snippet, 0, 120) . '…';
+    } elseif (strlen($snippet) > 120) {
+        $snippet = substr($snippet, 0, 120) . '…';
+    }
+
+    $snippetEsc = htmlspecialchars($snippet, ENT_QUOTES);
+    return "<div class='reply-quote'><div class='reply-quote-text'>{$snippetEsc}</div></div>";
+}
+
 function gcInitials(string $name): string
 {
     $words    = explode(' ', trim($name));
@@ -145,11 +177,25 @@ foreach ($rawMessages as $msg) {
         $content = safeDecrypt($msg['message'] ?? '');
         $contentEsc = htmlspecialchars($content, ENT_QUOTES);
 
+        // Reply quote — a small bubble showing what this message is replying
+        // to. Intentionally has NO sender name attached, just the quoted
+        // content (per product requirement), and disappears on its own if
+        // the original message was later removed/archived (reply_to_msg_uuid
+        // gets nulled out by the FK's ON DELETE SET NULL in that case).
+        $replyQuoteHtml = '';
+        if (!empty($msg['reply_to_msg_uuid']) && isset($msg['reply_message'])) {
+            $replyQuoteHtml = gcBuildReplyQuoteHtml($msg['reply_message'], $msg['reply_msg_type'] ?? 'text');
+        }
+
         $html .= "<div class='bubble-wrapper'>";
         $html .= "<div class='message-click-timestamp'>{$fullTimeDisplay}</div>";
         if (!empty($msg['is_edited'])) {
             $html .= "<div class='message-edited-label' style='font-size:10px;color:var(--text-secondary);opacity:0.8;margin-bottom:2px;font-style:italic;'>edited</div>";
         }
+        // The reply quote is its own separate bubble, stacked BEHIND/ABOVE
+        // the real message bubble (two distinct overlapping bubbles), not
+        // content glued inside the same one.
+        $html .= $replyQuoteHtml;
         $html .= "<div class='message-bubble'>";
         $html .= "<div class='message-content'>{$contentEsc}</div>";
         $html .= "<div class='message-info'><span class='message-sender'>{$senderLabel}{$adminBadge}</span></div>";
@@ -179,9 +225,7 @@ foreach ($rawMessages as $msg) {
                     $fn      = basename((string)$fn);
                     $fnUrl   = 'uploads/' . rawurlencode($fn);
                     $fnEsc   = htmlspecialchars($fn, ENT_QUOTES);
-                    $html   .= "<a href='{$fnUrl}' target='_blank' style='display:block;'>";
-                    $html   .= "<img src='{$fnUrl}' alt='{$fnEsc}' style='width:100%;max-width:240px;max-height:260px;height:auto;border-radius:12px;display:block;cursor:pointer;object-fit:cover;box-shadow:0 2px 8px rgba(0,0,0,0.18);' />";
-                    $html   .= "</a>";
+                    $html   .= "<img src='{$fnUrl}' alt='{$fnEsc}' class='chat-viewable-image' data-full-src='{$fnUrl}' style='width:100%;max-width:240px;max-height:260px;height:auto;border-radius:12px;display:block;cursor:pointer;object-fit:cover;box-shadow:0 2px 8px rgba(0,0,0,0.18);' />";
                 }
                 $html .= "<div class='message-info' style='padding:3px 2px;'><span class='message-sender'>{$senderLabel}{$adminBadge}</span></div>";
                 $html .= "</div>"; // .message-media
@@ -196,7 +240,7 @@ foreach ($rawMessages as $msg) {
                     $fnEsc = htmlspecialchars($fn, ENT_QUOTES);
                     $fnExt = strtolower(pathinfo($fn, PATHINFO_EXTENSION));
                     if (in_array($fnExt, $imageExts, true)) {
-                        $html .= "<a href='{$fnUrl}' target='_blank'><img src='{$fnUrl}' alt='{$fnEsc}' style='width:100%;max-width:240px;max-height:260px;height:auto;border-radius:12px;display:block;object-fit:cover;' /></a>";
+                        $html .= "<img src='{$fnUrl}' alt='{$fnEsc}' class='chat-viewable-image' data-full-src='{$fnUrl}' style='width:100%;max-width:240px;max-height:260px;height:auto;border-radius:12px;display:block;cursor:pointer;object-fit:cover;' />";
                     } else {
                         $html .= "<a href='{$fnUrl}' target='_blank' rel='noopener' style='color:{$linkColor};text-decoration:underline;font-size:13px;word-break:break-all;'>{$fnEsc}</a>";
                     }
@@ -215,7 +259,7 @@ foreach ($rawMessages as $msg) {
 
             if (in_array($ext, $imageExts, true)) {
                 $html .= "<div class='message-media'>";
-                $html .= "<a href='{$url}' target='_blank'><img src='{$url}' alt='{$fileEsc}' style='width:100%;max-width:240px;max-height:260px;height:auto;border-radius:12px;display:block;cursor:pointer;object-fit:cover;box-shadow:0 2px 8px rgba(0,0,0,0.18);' /></a>";
+                $html .= "<img src='{$url}' alt='{$fileEsc}' class='chat-viewable-image' data-full-src='{$url}' style='width:100%;max-width:240px;max-height:260px;height:auto;border-radius:12px;display:block;cursor:pointer;object-fit:cover;box-shadow:0 2px 8px rgba(0,0,0,0.18);' />";
                 $html .= "<div class='message-info' style='padding:3px 2px;'><span class='message-sender'>{$senderLabel}{$adminBadge}</span></div>";
                 $html .= "</div>";
 

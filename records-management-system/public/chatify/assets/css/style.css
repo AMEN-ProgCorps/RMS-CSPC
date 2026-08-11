@@ -773,7 +773,7 @@
     /* Header Styles */
     .header {
       padding: 12px 16px;
-      background: var(--bg-header);
+      background: var(--bg-chat);
       user-select: none;    
       color: var(--text-primary);
       text-align: left;
@@ -785,10 +785,10 @@
       position: sticky;
       top: 0;
       z-index: 100;
-      border-bottom: 1px solid var(--border-color);
+      border-bottom: none;
       font-size: 15px;
       user-select: none;
-      box-shadow: 0 1px 2px var(--shadow-color);
+      box-shadow: none;
       transition: background-color 0.3s ease, border-color 0.3s ease;
     }
 
@@ -1029,6 +1029,185 @@
       font-family: 'Inter', sans-serif;
       will-change: opacity, transform;
       overflow: hidden;  /* Clip bubble if viewport is narrower than avatar + bubble */
+      position: relative; /* anchors the swipe-to-reply icon revealed underneath the bubble */
+    }
+
+    /* ── Swipe-to-reply (mobile) ──────────────────────────────────────── */
+    /* Icon revealed behind the bubble/avatar as the row is dragged right.
+       Lives directly on .message-container (never transformed itself) so it
+       stays put while .message-avatar / .bubble-wrapper slide over it. */
+    .reply-swipe-icon {
+      position: absolute;
+      top: 50%;
+      left: 6px;
+      width: 30px;
+      height: 30px;
+      border-radius: 50%;
+      background: var(--bg-secondary);
+      color: var(--icon-hover);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      opacity: 0;
+      transform: translateY(-50%) scale(0.6);
+      pointer-events: none;
+      box-shadow: 0 1px 4px var(--shadow-color);
+      z-index: 2;
+    }
+
+    /* ── Hover reply button (desktop) ─────────────────────────────────── */
+    /* Single reusable floating button, repositioned via JS next to whichever
+       message row is currently hovered. Fixed-positioned + appended to
+       <body> so #chat-box's overflow:hidden/scroll never clips it. */
+    #hoverReplyBtn {
+      position: fixed;
+      width: 30px;
+      height: 30px;
+      border-radius: 50%;
+      background: var(--bg-secondary);
+      color: var(--icon-color);
+      border: 1px solid var(--border-color);
+      box-shadow: 0 2px 6px var(--shadow-color);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      opacity: 0;
+      transform: scale(0.85);
+      pointer-events: none;
+      transition: opacity 0.12s ease, transform 0.12s ease, background 0.15s, color 0.15s, border-color 0.15s;
+      z-index: 500;
+      padding: 0;
+    }
+    #hoverReplyBtn.visible {
+      opacity: 1;
+      transform: scale(1);
+      pointer-events: auto;
+    }
+    #hoverReplyBtn:hover {
+      background: var(--icon-hover);
+      color: #fff;
+      border-color: var(--icon-hover);
+    }
+    #hoverReplyBtn svg {
+      display: block;
+    }
+    /* Hover button only makes sense on devices with a real pointer + hover */
+    @media (hover: none), (pointer: coarse) {
+      #hoverReplyBtn {
+        display: none !important;
+      }
+    }
+
+    /* ── "Replying to: ..." floating bubble above the input ─────────────
+       Positioned absolutely above .input-area (which is position:relative)
+       so it floats over the chat without affecting the fixed input height. */
+    .reply-banner {
+      position: absolute;
+      left: 16px;
+      right: 16px;
+      bottom: 100%;
+      margin-bottom: 8px;
+      display: flex;
+      justify-content: flex-start;
+      opacity: 0;
+      transform: translateY(6px);
+      pointer-events: none;
+      transition: opacity 0.18s ease, transform 0.18s ease;
+      z-index: 90;
+    }
+    .reply-banner.active {
+      opacity: 1;
+      transform: translateY(0);
+      pointer-events: auto;
+    }
+    .reply-banner-bubble {
+      display: inline-flex;
+      align-items: center;
+      gap: 10px;
+      /* Capped so a long snippet never stretches the bubble out to the
+         edges of the input area — same fixed cap on mobile and desktop,
+         just clamped by the container width on very narrow screens. */
+      max-width: min(240px, 100%);
+      min-width: 0;
+      background: var(--bg-bubble-received);
+      color: var(--text-bubble-received);
+      border-radius: 18px;
+      padding: 8px 10px 8px 14px;
+      box-shadow: 0 2px 8px var(--shadow-color);
+    }
+    .reply-banner-text {
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      min-width: 0;
+      max-width: 100%;
+      font-size: 13px;
+      line-height: 1.3;
+    }
+    .reply-banner-cancel {
+      flex-shrink: 0;
+      width: 20px;
+      height: 20px;
+      border-radius: 50%;
+      background: var(--text-secondary);
+      border: none;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      opacity: 0.7;
+      transition: opacity 0.15s, background 0.15s;
+      padding: 0;
+    }
+    .reply-banner-cancel:hover {
+      opacity: 1;
+      background: #e53935;
+    }
+    .reply-banner-cancel svg {
+      display: block;
+    }
+
+    /* ── Reply quote — a SEPARATE stacked bubble ─────────────────────────
+       Two distinct overlapping bubbles: the quoted original message renders
+       as its own small rounded bubble first, then the real message bubble
+       follows right after and overlaps its bottom edge (negative margin +
+       higher z-index), so the new message visually sits ON TOP of / in
+       front of the bubble it's replying to. No sender name shown — just a
+       truncated snippet of the original content. */
+    .reply-quote {
+      position: relative;
+      z-index: 1;
+      max-width: 92%;
+      padding: 7px 12px 18px 12px;
+      border-radius: 16px;
+      margin-bottom: -12px;
+      box-shadow: 0 1px 2px var(--shadow-color);
+    }
+    .sent .reply-quote {
+      background: var(--bg-bubble-sent);
+      color: var(--text-bubble-sent);
+      opacity: 0.55;
+    }
+    .received .reply-quote {
+      background: var(--bg-bubble-received);
+      color: var(--text-bubble-received);
+      opacity: 0.75;
+    }
+    .reply-quote-text {
+      font-size: 12.5px;
+      line-height: 1.35;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      display: -webkit-box;
+      -webkit-line-clamp: 2;
+      -webkit-box-orient: vertical;
+      word-break: break-word;
+    }
+    /* The real message bubble stacks in front of (on top of) .reply-quote */
+    .reply-quote + .message-bubble {
+      position: relative;
+      z-index: 2;
     }
 
     /* Floating sending/upload overlay — positioned above the input area */
@@ -1788,6 +1967,83 @@
       cursor: not-allowed;
     }
 
+    /* ── Image Viewer Modal ──────────────────────────────────────────────
+       Full-screen preview shown when a chat image is clicked, instead of
+       opening the image in a new browser tab. The X button always sits in
+       the top-right corner of the screen (not the image), so it's reachable
+       regardless of the image's size or aspect ratio. */
+    .image-viewer-modal {
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      background-color: rgba(0, 0, 0, 0.85);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      z-index: 100000;
+      opacity: 0;
+      visibility: hidden;
+      transition: opacity 0.2s ease, visibility 0.2s ease;
+      padding: 64px 24px 24px;
+      box-sizing: border-box;
+    }
+
+    .image-viewer-modal.active {
+      opacity: 1;
+      visibility: visible;
+    }
+
+    .image-viewer-img {
+      max-width: 100%;
+      max-height: 100%;
+      border-radius: 8px;
+      box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+      object-fit: contain;
+      user-select: none;
+      -webkit-user-drag: none;
+    }
+
+    .image-viewer-close {
+      position: fixed;
+      top: 16px;
+      left: 16px;
+      width: 40px;
+      height: 40px;
+      border-radius: 50%;
+      border: none;
+      background: rgba(255, 255, 255, 0.12);
+      color: #fff;
+      font-size: 26px;
+      line-height: 1;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      z-index: 100001;
+      transition: background-color 0.2s ease, transform 0.15s ease;
+      -webkit-tap-highlight-color: transparent;
+    }
+
+    .image-viewer-close:hover {
+      background: rgba(255, 255, 255, 0.24);
+    }
+
+    .image-viewer-close:active {
+      transform: scale(0.92);
+    }
+
+    @media (max-width: 600px) {
+      .image-viewer-modal {
+        padding: 56px 12px 12px;
+      }
+      .image-viewer-close {
+        top: 10px;
+        left: 10px;
+      }
+    }
+
     /* Secret key input inside modal — fully theme-aware */
     .secret-key-input {
       width: 100%;
@@ -1960,7 +2216,7 @@
         margin: 5vh auto;
         border-radius: 12px;
         overflow: hidden;
-        box-shadow: 0 4px 12px var(--shadow-color);
+        box-shadow: 0 8px 30px rgba(0, 0, 0, 0.22), 0 2px 8px rgba(0, 0, 0, 0.12);
       }
 
       .app-container {

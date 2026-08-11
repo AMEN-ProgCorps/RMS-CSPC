@@ -123,6 +123,37 @@ $mimeMap   = [
 // below points at this same directory on disk, relative to this file).
 $uploadsDir = __DIR__ . '/uploads/';
 
+/**
+ * DM equivalent of gcBuildReplyQuoteHtml() in load.php — builds the small
+ * quoted bubble shown above a reply's own message-content. No sender name,
+ * just a truncated preview of whatever was replied to.
+ */
+function dmBuildReplyQuoteHtml(?string $encryptedReplyMessage, string $replyType): string
+{
+    if ($encryptedReplyMessage === null) {
+        return '';
+    }
+
+    if ($replyType === 'upload') {
+        $snippet = '📎 Attachment';
+    } else {
+        $snippet = safeDecrypt($encryptedReplyMessage);
+    }
+
+    $snippet = trim($snippet);
+    if ($snippet === '') {
+        return '';
+    }
+    if (function_exists('mb_strlen') && mb_strlen($snippet) > 120) {
+        $snippet = mb_substr($snippet, 0, 120) . '…';
+    } elseif (strlen($snippet) > 120) {
+        $snippet = substr($snippet, 0, 120) . '…';
+    }
+
+    $snippetEsc = htmlspecialchars($snippet, ENT_QUOTES);
+    return "<div class='reply-quote'><div class='reply-quote-text'>{$snippetEsc}</div></div>";
+}
+
 function dmInitials2(string $name): string
 {
     $words    = explode(' ', trim($name));
@@ -185,11 +216,20 @@ foreach ($rawMessages as $msg) {
         $content     = safeDecrypt($msg['message'] ?? '');
         $contentEsc  = htmlspecialchars($content, ENT_QUOTES);
 
+        // See gcBuildReplyQuoteHtml() in load.php for the same helper —
+        // duplicated here (dmBuildReplyQuoteHtml) rather than shared, since
+        // load.php/load_dm.php don't currently share a common include.
+        $replyQuoteHtml = '';
+        if (!empty($msg['reply_to_msg_uuid']) && isset($msg['reply_message'])) {
+            $replyQuoteHtml = dmBuildReplyQuoteHtml($msg['reply_message'], $msg['reply_msg_type'] ?? 'text');
+        }
+
         $msgBodyHtml .= "<div class='bubble-wrapper'>";
         $msgBodyHtml .= "<div class='message-click-timestamp'>{$fullTimeDisplay}</div>";
         if (!empty($msg['is_edited'])) {
             $msgBodyHtml .= "<div class='message-edited-label' style='font-size:10px;color:var(--text-secondary);opacity:0.8;margin-bottom:2px;font-style:italic;'>edited</div>";
         }
+        $msgBodyHtml .= $replyQuoteHtml;
         $msgBodyHtml .= "<div class='message-bubble'>";
         $msgBodyHtml .= "<div class='message-content'>{$contentEsc}</div>";
         $msgBodyHtml .= "<div class='message-info'><span class='message-sender'>{$senderLabel}{$adminBadge}</span></div>";
@@ -231,7 +271,7 @@ foreach ($rawMessages as $msg) {
                             $wAttr = " width='{$info[0]}' height='{$info[1]}'";
                             $aspectRatioStyle = "aspect-ratio:{$info[0]}/{$info[1]};width:100%;height:auto;";
                         }
-                        $uploadBodyHtml .= "<a href='{$fnUrl}' target='_blank' style='display:block;'><img src='{$fnUrl}' alt='{$fnEsc}' style='width:100%;max-width:240px;max-height:260px;height:auto;border-radius:12px;display:block;cursor:pointer;object-fit:cover;box-shadow:0 2px 8px rgba(0,0,0,0.18);' /></a>";
+                        $uploadBodyHtml .= "<img src='{$fnUrl}' alt='{$fnEsc}' class='chat-viewable-image' data-full-src='{$fnUrl}' style='width:100%;max-width:240px;max-height:260px;height:auto;border-radius:12px;display:block;cursor:pointer;object-fit:cover;box-shadow:0 2px 8px rgba(0,0,0,0.18);' />";
                     }
                     $uploadBodyHtml .= "<div class='message-info' style='padding:3px 2px;'><span class='message-sender'>{$senderLabel}{$adminBadge}</span></div>";
                     $uploadBodyHtml .= "</div>"; // .message-media
@@ -251,7 +291,7 @@ foreach ($rawMessages as $msg) {
                         if (!file_exists($uploadsDir . $fn)) {
                             continue; // deleted image — skip
                         }
-                        $itemsHtml .= "<a href='{$fnUrl}' target='_blank'><img src='{$fnUrl}' alt='{$fnEsc}' style='width:100%;max-width:240px;max-height:260px;height:auto;border-radius:12px;display:block;object-fit:cover;' /></a>";
+                        $itemsHtml .= "<img src='{$fnUrl}' alt='{$fnEsc}' class='chat-viewable-image' data-full-src='{$fnUrl}' style='width:100%;max-width:240px;max-height:260px;height:auto;border-radius:12px;display:block;cursor:pointer;object-fit:cover;' />";
                     } else {
                         $itemsHtml .= "<a href='{$fnUrl}' target='_blank' rel='noopener' style='color:{$linkColor};text-decoration:underline;font-size:13px;word-break:break-all;'>{$fnEsc}</a>";
                     }
@@ -276,7 +316,7 @@ foreach ($rawMessages as $msg) {
             if (in_array($ext, $imageExts, true)) {
                 if (file_exists($uploadsDir . $file)) {
                     $uploadBodyHtml .= "<div class='message-media'>";
-                    $uploadBodyHtml .= "<a href='{$url}' target='_blank'><img src='{$url}' alt='{$fileEsc}' style='width:100%;max-width:240px;max-height:260px;height:auto;border-radius:12px;display:block;cursor:pointer;object-fit:cover;box-shadow:0 2px 8px rgba(0,0,0,0.18);' /></a>";
+                    $uploadBodyHtml .= "<img src='{$url}' alt='{$fileEsc}' class='chat-viewable-image' data-full-src='{$url}' style='width:100%;max-width:240px;max-height:260px;height:auto;border-radius:12px;display:block;cursor:pointer;object-fit:cover;box-shadow:0 2px 8px rgba(0,0,0,0.18);' />";
                     $uploadBodyHtml .= "<div class='message-info' style='padding:3px 2px;'><span class='message-sender'>{$senderLabel}{$adminBadge}</span></div>";
                     $uploadBodyHtml .= "</div>";
                 }

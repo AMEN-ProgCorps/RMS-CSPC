@@ -73,6 +73,65 @@
       }
     }
     
+    // ── Image Viewer Modal ──────────────────────────────────────────────
+    // Clicking any chat image (class="chat-viewable-image", rendered by
+    // load.php / load_dm.php / load_dm_admin.php) opens it here in an
+    // in-page overlay with an X button, instead of the old behavior of
+    // opening the full image in a brand new browser tab. Uses event
+    // delegation on document since message bubbles (and their images) are
+    // constantly re-rendered by chat polling.
+    const imageViewerModal    = document.getElementById('imageViewerModal');
+    const imageViewerImg      = document.getElementById('imageViewerImg');
+    const imageViewerCloseBtn = document.getElementById('imageViewerCloseBtn');
+
+    function openImageViewer(src, alt) {
+      if (!imageViewerModal || !imageViewerImg) return;
+      imageViewerImg.src = src;
+      imageViewerImg.alt = alt || '';
+      imageViewerModal.style.display = 'flex';
+      // Force reflow so the opacity/visibility transition actually plays.
+      void imageViewerModal.offsetWidth;
+      imageViewerModal.classList.add('active');
+      imageViewerModal.setAttribute('aria-hidden', 'false');
+      document.body.style.overflow = 'hidden';
+    }
+
+    function closeImageViewer() {
+      if (!imageViewerModal) return;
+      imageViewerModal.classList.remove('active');
+      imageViewerModal.setAttribute('aria-hidden', 'true');
+      document.body.style.overflow = '';
+      setTimeout(function() {
+        if (!imageViewerModal.classList.contains('active')) {
+          imageViewerModal.style.display = 'none';
+          if (imageViewerImg) imageViewerImg.src = '';
+        }
+      }, 200);
+    }
+
+    // Open: delegated click on any rendered chat image.
+    document.addEventListener('click', function(e) {
+      const img = e.target.closest('.chat-viewable-image');
+      if (!img) return;
+      e.preventDefault();
+      openImageViewer(img.dataset.fullSrc || img.src, img.alt);
+    });
+
+    // Close: X button, clicking the dark backdrop, or Escape key.
+    if (imageViewerCloseBtn) {
+      imageViewerCloseBtn.addEventListener('click', closeImageViewer);
+    }
+    if (imageViewerModal) {
+      imageViewerModal.addEventListener('click', function(e) {
+        if (e.target === imageViewerModal) closeImageViewer();
+      });
+    }
+    document.addEventListener('keydown', function(e) {
+      if (e.key === 'Escape' && imageViewerModal && imageViewerModal.classList.contains('active')) {
+        closeImageViewer();
+      }
+    });
+
     // Logout modal DOM refs
     const logoutModal = document.getElementById("logoutModal");
     const logoutConfirmBtn = document.getElementById("logoutConfirm");
@@ -324,6 +383,234 @@
         messageInput.style.height = 'auto';
       });
     }
+
+    // ── Reply-to-message ────────────────────────────────────────────────
+    // Two ways to start a reply: swiping a message right on mobile, or
+    // clicking the floating arrow button that appears when hovering a
+    // message on desktop. Both funnel into openReplyForContainer(), which
+    // shows the "Replying to: ..." bubble above the input. On send, the
+    // quoted snippet is folded into the outgoing message text.
+    const REPLY_ICON_SVG = '<svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor"><path d="M10 9V5l-7 7 7 7v-4.1c5 0 8.5 1.1 11 3.6-1-5-4-10-11-11z"/></svg>';
+
+    const replyBanner        = document.getElementById('replyBanner');
+    const replyBannerSnippet = document.getElementById('replyBannerSnippet');
+    const replyBannerCancel  = document.getElementById('replyBannerCancel');
+
+    let replyState = null; // { msgId, snippet }
+
+    function truncateForReply(text, max) {
+      text = (text || '').replace(/\s+/g, ' ').trim();
+      if (text.length <= max) return text;
+      return text.slice(0, max).trim() + '...';
+    }
+
+    // Pulls the best available text out of a message row for quoting —
+    // falls back to a generic label for image/audio/file-only messages.
+    function getReplySnippet(container) {
+      const contentEl = container.querySelector('.message-bubble .message-content');
+      const text = contentEl ? (contentEl.dataset.fullText || contentEl.textContent || '').trim() : '';
+      if (text) return text;
+      if (container.querySelector('.message-media')) return 'Attachment';
+      return '';
+    }
+
+    function showReplyBanner(snippet) {
+      if (!replyBanner || !replyBannerSnippet) return;
+      replyBannerSnippet.textContent = truncateForReply(snippet, 60) || 'message';
+      replyBanner.classList.add('active');
+    }
+
+    function hideReplyBanner() {
+      replyState = null;
+      if (replyBanner) replyBanner.classList.remove('active');
+    }
+
+    function openReplyForContainer(container) {
+      if (!container) return;
+      const snippet = getReplySnippet(container);
+      replyState = {
+        msgId: container.getAttribute('data-msg-id') || '',
+        snippet: snippet
+      };
+      showReplyBanner(snippet);
+      messageInput.focus();
+    }
+
+    if (replyBannerCancel) {
+      replyBannerCancel.addEventListener('click', hideReplyBanner);
+    }
+
+    // ── Desktop: floating hover reply button ───────────────────────────
+    const hoverReplyBtn = document.createElement('button');
+    hoverReplyBtn.type = 'button';
+    hoverReplyBtn.id = 'hoverReplyBtn';
+    hoverReplyBtn.title = 'Reply';
+    hoverReplyBtn.setAttribute('aria-label', 'Reply');
+    hoverReplyBtn.innerHTML = REPLY_ICON_SVG;
+    document.body.appendChild(hoverReplyBtn);
+
+    let hoveredReplyContainer = null;
+    let hoverReplyHideTimer = null;
+
+    function positionHoverReplyBtn(container) {
+      const bubble = container.querySelector('.message-bubble');
+      if (!bubble) return;
+      const rect = bubble.getBoundingClientRect();
+      const isSent = container.classList.contains('sent');
+      const top = rect.top + rect.height / 2 - 15; // center on bubble, btn is 30px tall
+      // Sent bubbles sit on the right — put the button just to their left.
+      // Received bubbles sit on the left — put the button just to their right.
+      const left = isSent ? (rect.left - 36) : (rect.right + 6);
+      hoverReplyBtn.style.top = Math.max(4, top) + 'px';
+      hoverReplyBtn.style.left = left + 'px';
+      hoverReplyBtn.classList.add('visible');
+      hoveredReplyContainer = container;
+    }
+
+    function scheduleHideHoverReplyBtn() {
+      clearTimeout(hoverReplyHideTimer);
+      hoverReplyHideTimer = setTimeout(function() {
+        hoverReplyBtn.classList.remove('visible');
+        hoveredReplyContainer = null;
+      }, 150);
+    }
+
+    function cancelHideHoverReplyBtn() {
+      clearTimeout(hoverReplyHideTimer);
+    }
+
+    chatBox.addEventListener('mouseover', function(e) {
+      // Admin spy mode is read-only — never offer the reply button there.
+      if (isAdminAllChatsView || activeAdminConv) return;
+      const container = e.target.closest('.message-container[data-msg-id]');
+      if (!container) return;
+      // Never offer reply on the transient "sending..." optimistic bubble
+      if (container.hasAttribute('data-sending-uid') || container.hasAttribute('data-upload-uid')) return;
+      cancelHideHoverReplyBtn();
+      positionHoverReplyBtn(container);
+    });
+
+    chatBox.addEventListener('mouseout', function(e) {
+      const toEl = e.relatedTarget;
+      if (toEl && toEl.closest && (toEl.closest('.message-container') || toEl.id === 'hoverReplyBtn')) return;
+      scheduleHideHoverReplyBtn();
+    });
+
+    chatBox.addEventListener('scroll', function() {
+      hoverReplyBtn.classList.remove('visible');
+      hoveredReplyContainer = null;
+    }, { passive: true });
+
+    hoverReplyBtn.addEventListener('mouseenter', cancelHideHoverReplyBtn);
+    hoverReplyBtn.addEventListener('mouseleave', scheduleHideHoverReplyBtn);
+    hoverReplyBtn.addEventListener('click', function() {
+      // Admin spy mode is read-only — never allow replying from here.
+      if ((isAdminAllChatsView || activeAdminConv) ) {
+        hoverReplyBtn.classList.remove('visible');
+        hoveredReplyContainer = null;
+        return;
+      }
+      if (hoveredReplyContainer) openReplyForContainer(hoveredReplyContainer);
+      hoverReplyBtn.classList.remove('visible');
+      hoveredReplyContainer = null;
+    });
+
+    // ── Mobile: swipe-to-reply ──────────────────────────────────────────
+    const SWIPE_REPLY_TRIGGER_PX = 56;
+    const SWIPE_REPLY_MAX_PX = 72;
+
+    let swipeContainer = null;
+    let swipeAvatarEl = null;
+    let swipeBubbleWrapEl = null;
+    let swipeIconEl = null;
+    let swipeStartX = 0;
+    let swipeStartY = 0;
+    let swipeDx = 0;
+    let swipeLocked = false;   // true once we've committed to a horizontal swipe gesture
+    let swipeRejected = false; // true once we've decided this is a vertical scroll, not a swipe
+
+    function resetSwipeVisual() {
+      if (swipeAvatarEl) {
+        swipeAvatarEl.style.transition = 'transform 0.2s ease';
+        swipeAvatarEl.style.transform = '';
+      }
+      if (swipeBubbleWrapEl) {
+        swipeBubbleWrapEl.style.transition = 'transform 0.2s ease';
+        swipeBubbleWrapEl.style.transform = '';
+      }
+      if (swipeIconEl) {
+        const iconToRemove = swipeIconEl;
+        iconToRemove.style.opacity = '0';
+        setTimeout(function() { iconToRemove.remove(); }, 200);
+      }
+      swipeContainer = null;
+      swipeAvatarEl = null;
+      swipeBubbleWrapEl = null;
+      swipeIconEl = null;
+      swipeDx = 0;
+      swipeLocked = false;
+      swipeRejected = false;
+    }
+
+    chatBox.addEventListener('touchstart', function(e) {
+      if (e.touches.length !== 1) return;
+      const container = e.target.closest('.message-container[data-msg-id]');
+      if (!container || container.hasAttribute('data-sending-uid') || container.hasAttribute('data-upload-uid')) return;
+
+      swipeContainer = container;
+      swipeAvatarEl = container.querySelector('.message-avatar');
+      swipeBubbleWrapEl = container.querySelector('.bubble-wrapper');
+      swipeStartX = e.touches[0].clientX;
+      swipeStartY = e.touches[0].clientY;
+      swipeDx = 0;
+      swipeLocked = false;
+      swipeRejected = false;
+    }, { passive: true });
+
+    chatBox.addEventListener('touchmove', function(e) {
+      if (!swipeContainer || swipeRejected || e.touches.length !== 1) return;
+
+      const dx = e.touches[0].clientX - swipeStartX;
+      const dy = e.touches[0].clientY - swipeStartY;
+
+      if (!swipeLocked) {
+        // Not committed yet — wait until the gesture is clearly horizontal
+        // before hijacking it, so normal vertical scrolling never breaks.
+        if (Math.abs(dx) < 10 && Math.abs(dy) < 10) return;
+        if (Math.abs(dy) >= Math.abs(dx) || dx <= 0) {
+          swipeRejected = true; // vertical scroll or leftward drag — let the browser handle it
+          return;
+        }
+        swipeLocked = true;
+
+        swipeIconEl = document.createElement('div');
+        swipeIconEl.className = 'reply-swipe-icon';
+        swipeIconEl.innerHTML = REPLY_ICON_SVG;
+        swipeContainer.appendChild(swipeIconEl);
+      }
+
+      e.preventDefault(); // we own this gesture now — stop the page from scrolling
+      swipeDx = Math.max(0, Math.min(dx, SWIPE_REPLY_MAX_PX));
+
+      const progress = swipeDx / SWIPE_REPLY_MAX_PX;
+      if (swipeAvatarEl) swipeAvatarEl.style.transform = 'translateX(' + swipeDx + 'px)';
+      if (swipeBubbleWrapEl) swipeBubbleWrapEl.style.transform = 'translateX(' + swipeDx + 'px)';
+      if (swipeIconEl) {
+        swipeIconEl.style.opacity = String(progress);
+        swipeIconEl.style.transform = 'translateY(-50%) scale(' + (0.6 + 0.4 * progress) + ')';
+      }
+    }, { passive: false });
+
+    function endSwipe() {
+      if (!swipeContainer) return;
+      if (swipeLocked && swipeDx >= SWIPE_REPLY_TRIGGER_PX) {
+        openReplyForContainer(swipeContainer);
+      }
+      resetSwipeVisual();
+    }
+
+    chatBox.addEventListener('touchend', endSwipe, { passive: true });
+    chatBox.addEventListener('touchcancel', endSwipe, { passive: true });
 
     // Monitor scroll position
     chatBox.addEventListener('scroll', function() {
@@ -1314,9 +1601,17 @@
 
     // loadChat wrapper that forces a fresh load even if one is in-flight.
     // Used by send confirmations so we never miss a message after rapid sends.
+    // NOTE: must pass force=true through to loadChat() itself — previously
+    // this only reset isLoadingChat locally but still called loadChat() with
+    // its default force=false, so if another load was still in flight at the
+    // exact moment this ran (e.g. a rapid second image send, or a poll
+    // landing mid-fetch), loadChat()'s own in-flight guard would silently
+    // drop THIS call instead of aborting-and-retrying. That dropped call is
+    // what was supposed to render the attachment and trigger markRead() —
+    // so the message could sit unrendered/unread-marked despite the chat
+    // being open.
     function loadChatForced() {
-      isLoadingChat = false; // reset guard so the next call goes through
-      loadChat();
+      loadChat(false, false, true);
     }
 
     // Event Letters
@@ -1362,7 +1657,7 @@
       }
 
       const name = nameInput.value.trim();
-      const message = messageInput.value.trim();
+      let message = messageInput.value.trim();
 
       if (!activeDM && !isGlobalChat) {
         alert("Please select a chat first.");
@@ -1373,6 +1668,14 @@
         if (!message) messageInput.focus();
         return;
       }
+
+      // Capture the active reply (if any) as a real reply reference instead
+      // of gluing fake "Replying to: ..." text onto the message body. Never
+      // while editing an existing message — edit and reply are mutually
+      // exclusive. This is what actually gets sent to the server as
+      // reply_to= and persisted in chat_messages.reply_to_msg_uuid.
+      const activeReply = (replyState && !editingMsgId) ? replyState : null;
+      hideReplyBanner();
 
       // Disable send button momentarily to prevent double-tap
       isSending = true;
@@ -1452,9 +1755,10 @@
           xhr.open('POST', 'send_dm.php', true);
         }
         xhr.setRequestHeader('Content-type', 'application/x-www-form-urlencoded');
+        const replyToParam = activeReply ? '&reply_to=' + encodeURIComponent(activeReply.msgId) : '';
         payload = isGlobalChat
-          ? 'message=' + encodeURIComponent(message)
-          : 'target_id=' + encodeURIComponent(activeDMAccountId || 0) + '&target_user=' + encodeURIComponent(activeDM) + '&message=' + encodeURIComponent(message);
+          ? 'message=' + encodeURIComponent(message) + replyToParam
+          : 'target_id=' + encodeURIComponent(activeDMAccountId || 0) + '&target_user=' + encodeURIComponent(activeDM) + '&message=' + encodeURIComponent(message) + replyToParam;
       }
 
       // Fire the XHR immediately — no artificial delay. The "Sending..." bubble
@@ -1549,10 +1853,14 @@
 
                 sendingBubble.className = 'message-container sent';
                 const emojiOnlyClass = isEmojiOnly(msgContent) ? ' emoji-only' : '';
+                const replyQuoteHtml = activeReply
+                  ? `<div class="reply-quote"><div class="reply-quote-text">${escapeHtml(truncateForReply(activeReply.snippet, 120))}</div></div>`
+                  : '';
                 sendingBubble.innerHTML = `
                   <div class="message-avatar">${avatarInnerHtml(wsConfig.avatarUrl, getInitials(name))}</div>
                   <div class="bubble-wrapper">
                     <div class="message-click-timestamp">${fullTimeDisplay}</div>
+                    ${replyQuoteHtml}
                     <div class="message-bubble${emojiOnlyClass}">
                       <div class="message-content">${escapeHtml(msgContent)}</div>
                     </div>
@@ -1597,7 +1905,9 @@
                 recipient_id: activeDMAccountId || null,
                 msg_uuid: confirmedMsg ? confirmedMsg.id : null,
                 message: confirmedMsg && confirmedMsg.plaintext ? confirmedMsg.plaintext : message,
-                created_at: new Date().toISOString()
+                created_at: new Date().toISOString(),
+                reply_to_msg_uuid: activeReply ? activeReply.msgId : null,
+                reply_snippet: activeReply ? activeReply.snippet : null
               }));
             }
           }

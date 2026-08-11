@@ -182,10 +182,33 @@
         timeDisplay = getCurrentTime();
       }
 
+      // The reply snippet normally arrives pre-computed in msgData.reply_snippet
+      // (server-side WsPush push in send.php/send_dm.php, or the sender's own
+      // ws.send() echo). But if that ever comes through empty/missing — a relay
+      // hiccup, an older client, etc. — and the original message being replied
+      // to already happens to be rendered on screen (very likely, since you can
+      // only reply to a message you can see), resolve the quote text locally
+      // from the DOM instead of leaving the receiver's bubble with no quote
+      // until the next full reload.
+      let replySnippetText = msgData.reply_snippet || '';
+      if (msgData.reply_to_msg_uuid && !replySnippetText) {
+        const replyTargetContainer = chatBox.querySelector(
+          `.message-container[data-msg-id="${msgData.reply_to_msg_uuid}"]`
+        );
+        if (replyTargetContainer && typeof getReplySnippet === 'function') {
+          replySnippetText = getReplySnippet(replyTargetContainer);
+        }
+      }
+
+      const replyQuoteHtml = (msgData.reply_to_msg_uuid && replySnippetText)
+        ? `<div class="reply-quote"><div class="reply-quote-text">${escapeHtml(String(replySnippetText).slice(0, 120))}</div></div>`
+        : '';
+
       container.innerHTML = `
         <div class="message-avatar">${avatarInnerHtml(senderAvatarUrl, initials)}</div>
         <div class="bubble-wrapper">
           <div class="message-click-timestamp">${escapeHtml(timeDisplay)}</div>
+          ${replyQuoteHtml}
           <div class="message-bubble${emojiOnlyClass}">
             <div class="message-content">${escapeHtml(msgText)}</div>
           </div>

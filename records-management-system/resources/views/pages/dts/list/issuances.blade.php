@@ -1864,17 +1864,6 @@ new #[Layout('layouts.dts')] #[Title('DTS - Issuances')] class extends Component
                                             <polyline points="20 6 9 17 4 12"/>
                                         </svg>
                                         Complete Transaction
-                                    </button>
-                                @endif
-                            @else
-                                @if ($allowManualComplete)
-                                    <button type="button" class="receive-action-btn" wire:click="completeTransaction" style="background-color: #2563eb;">
-                                        <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-                                            <line x1="5" y1="12" x2="19" y2="12"/>
-                                            <polyline points="12 5 19 12 12 19"/>
-                                        </svg>
-                                        FORWARD TRANSACTION
-                                    </button>
                                 @endif
                             @endif
                         @endif

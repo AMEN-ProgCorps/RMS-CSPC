@@ -2793,32 +2793,13 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
                             $isReceivedState = $this->isTransactionReceived();
                         @endphp
                         @if ($selectedTransaction->current_office === auth()->user()?->details?->office?->office_code && $canProcess && $selectedTransaction->status !== 'completed')
-                            @if (!$isReceivedState)
-                                <button type="button" class="receive-action-btn" wire:click="receiveTransaction" style="background-color: #16a34a;">
+                            @if ($isReceivedState && $this->isLastStep())
+                                <button type="button" class="receive-action-btn" wire:click="triggerCompletionConfirm" style="background-color: #16a34a;">
                                     <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-                                        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
-                                        <polyline points="7 10 12 15 17 10"/>
-                                        <line x1="12" y1="15" x2="12" y2="3"/>
+                                        <polyline points="20 6 9 17 4 12"/>
                                     </svg>
-                                    RECEIVE TRANSACTION
+                                    Complete Transaction
                                 </button>
-                            @else
-                                @if ($this->isLastStep())
-                                    <button type="button" class="receive-action-btn" wire:click="triggerCompletionConfirm" style="background-color: #16a34a;">
-                                        <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-                                            <polyline points="20 6 9 17 4 12"/>
-                                        </svg>
-                                        Complete Transaction
-                                    </button>
-                                @else
-                                    <button type="button" class="receive-action-btn" wire:click="completeTransaction" style="background-color: #2563eb;">
-                                        <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-                                            <line x1="5" y1="12" x2="19" y2="12"/>
-                                            <polyline points="12 5 19 12 12 19"/>
-                                        </svg>
-                                        FORWARD TRANSACTION
-                                    </button>
-                                @endif
                             @endif
                         @endif
 

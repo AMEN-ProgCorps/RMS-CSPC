@@ -254,7 +254,7 @@ new #[Layout('layouts.dts')] #[Title('Received Transactions - Document Tracking 
             'dtd.action_needed',
             'dtd.date_created',
             'dtd.originated_from',
-            DB::raw("COALESCE(NULLIF(flow.referenced_flow, ''), flow.flow_name) as doc_type_name"),
+            DB::raw("COALESCE(NULLIF(flow.flow_name, ''), flow.referenced_flow) as doc_type_name"),
             'originated_office.office_name as originated_office_name'
         )
         ->orderBy('dtd.date_created', 'desc')

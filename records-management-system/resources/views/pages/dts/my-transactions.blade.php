@@ -70,7 +70,7 @@ new #[Layout('layouts.dts')] #[Title('My Transactions - Document Tracking System
             });
         }
 
-        return $query->select(
+        $list = $query->select(
             'dt.transaction_id',
             'dt.status',
             'dt.sequence',
@@ -82,12 +82,156 @@ new #[Layout('layouts.dts')] #[Title('My Transactions - Document Tracking System
             'dtd.subject',
             'dtd.date_created',
             'dtd.originated_from',
-            DB::raw("COALESCE(NULLIF(flow.referenced_flow, ''), flow.flow_name) as doc_type_name"),
+            'dtd.transaction_flow as dtd_transaction_flow',
+            'flow.id as flow_control_id',
+            DB::raw("COALESCE(NULLIF(flow.flow_name, ''), flow.referenced_flow) as doc_type_name"),
             'originated_office.office_name as originated_office_name',
             'current_office.office_name as current_office_name'
         )
         ->orderBy('dtd.date_created', 'desc')
         ->paginate($this->perPage);
+
+        $list->getCollection()->transform(function ($t) {
+            // Resolve actual Document Type Name (avoiding raw REF-CUSTOM-XX codes and 'Flow for ...' titles)
+            $docType = $t->doc_type_name ?? '';
+            if (empty($docType) || preg_match('/^REF-(?:CUSTOM|PREDEFINED)-(\d+)$/', $docType, $mMatches) || str_starts_with($docType, 'Flow for ')) {
+                $refId = null;
+                if (preg_match('/^REF-(?:CUSTOM|PREDEFINED)-(\d+)$/', $docType, $mMatches)) {
+                    $refId = $mMatches[1];
+                } elseif (!empty($t->dtd_transaction_flow) && preg_match('/^REF-(?:CUSTOM|PREDEFINED)-(\d+)$/', $t->dtd_transaction_flow, $mMatches)) {
+                    $refId = $mMatches[1];
+                }
+                
+                if ($refId) {
+                    $realName = DB::table('dts_transaction_flow')->where('id', $refId)->value('flow_name');
+                    if (!empty($realName) && !str_starts_with($realName, 'Flow for ')) {
+                        $docType = $realName;
+                    }
+                }
+
+                if (empty($docType) || str_starts_with($docType, 'Flow for ') || str_starts_with($docType, 'REF-')) {
+                    if (!empty($t->dtd_transaction_flow)) {
+                        $flowObj = DB::table('dts_transaction_flow')->where('flow_code', $t->dtd_transaction_flow)->first();
+                        if ($flowObj) {
+                            if (!empty($flowObj->flow_name) && !str_starts_with($flowObj->flow_name, 'Flow for ') && !str_starts_with($flowObj->flow_name, 'REF-')) {
+                                $docType = $flowObj->flow_name;
+                            } elseif (!empty($flowObj->referenced_flow) && preg_match('/^REF-(?:CUSTOM|PREDEFINED)-(\d+)$/', $flowObj->referenced_flow, $mMatches)) {
+                                $realName = DB::table('dts_transaction_flow')->where('id', $mMatches[1])->value('flow_name');
+                                if (!empty($realName) && !str_starts_with($realName, 'Flow for ')) {
+                                    $docType = $realName;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            if (!empty($docType) && !str_starts_with($docType, 'Flow for ') && !str_starts_with($docType, 'REF-')) {
+                $t->doc_type_name = $docType;
+            } else {
+                $t->doc_type_name = !empty($t->classification) ? ucfirst($t->classification) : ucfirst($t->trans_type);
+            }
+            $flowControlId = $t->flow_control_id ?? null;
+            $flowCode = $t->dtd_transaction_flow ?? ($t->transaction_flow ?? null);
+
+            if (!$flowControlId && !empty($flowCode)) {
+                $flowControlId = DB::table('dts_transaction_flow')->where('flow_code', $flowCode)->value('id');
+            }
+
+            $originOfficeCode = $t->originated_from;
+            $originOfficeName = $t->originated_office_name ?? 'Originated Office';
+
+            $clusterHeadCode = $originOfficeCode;
+            $clusterHeadName = $originOfficeName;
+            if (!empty($originOfficeCode)) {
+                $offRec = DB::table('office')->where('office_code', $originOfficeCode)->first();
+                if ($offRec && $offRec->cluster) {
+                    $cluster = DB::table('cluster')->where('cluster_code', $offRec->cluster)->first();
+                    if ($cluster && $cluster->cluster_head) {
+                        $clusterHeadCode = $cluster->cluster_head;
+                        $headOffice = DB::table('office')->where('office_code', $cluster->cluster_head)->first();
+                        if ($headOffice) {
+                            $clusterHeadName = $headOffice->office_name;
+                        }
+                    }
+                }
+            }
+
+            $steps = collect();
+            if ($flowControlId) {
+                $steps = DB::table('dts_sequence_list as seq')
+                    ->leftJoin('office', 'office.office_code', '=', 'seq.office_code')
+                    ->where('seq.control_id', $flowControlId)
+                    ->select('seq.*', 'office.office_name')
+                    ->orderBy('seq.sequence_ranking', 'asc')
+                    ->get()
+                    ->map(function ($step) use ($originOfficeCode, $originOfficeName, $clusterHeadCode, $clusterHeadName, $t) {
+                        if ($step->office_code === 'ORIGIN') {
+                            $step->office_code = $originOfficeCode;
+                            $step->office_name = $originOfficeName;
+                        } elseif ($step->office_code === '[H]') {
+                            $step->office_code = $clusterHeadCode;
+                            $step->office_name = $clusterHeadName;
+                        } elseif (empty($step->office_name)) {
+                            $off = DB::table('office')->where('office_code', $step->office_code)->first();
+                            $step->office_name = $off ? $off->office_name : $step->office_code;
+                        }
+
+                        $step->is_active_step = (
+                            $step->office_code === $t->current_office
+                            && $step->sequence_ranking == $t->sequence
+                            && in_array($t->status, ['ongoing', 'revision'])
+                            && !is_null($step->date_in)
+                            && is_null($step->date_out)
+                        );
+
+                        if (!empty($step->date_in) && empty($step->total_time_completed) && ($step->date_out || $t->status === 'completed')) {
+                            $dateIn = \Carbon\Carbon::parse($step->date_in);
+                            $dateOut = $step->date_out ? \Carbon\Carbon::parse($step->date_out) : now();
+                            $diff = $dateIn->diff($dateOut);
+                            $parts = [];
+                            if ($diff->d > 0) $parts[] = $diff->d . ' ' . \Illuminate\Support\Str::plural('day', $diff->d);
+                            if ($diff->h > 0) $parts[] = $diff->h . ' ' . \Illuminate\Support\Str::plural('hour', $diff->h);
+                            if ($diff->i > 0) $parts[] = $diff->i . ' ' . \Illuminate\Support\Str::plural('minute', $diff->i);
+                            if (empty($parts)) $parts[] = 'less than a minute';
+                            $step->total_time_completed = implode(' ', $parts);
+                        }
+
+                        return $step;
+                    });
+            }
+
+            // Fallback to transaction logs if sequence_list has no steps
+            if ($steps->isEmpty()) {
+                $logs = DB::table('sub_document_tracking_system_logs as log')
+                    ->leftJoin('office', 'office.office_code', '=', 'log.office_code')
+                    ->where('log.transaction_id', $t->transaction_id)
+                    ->select('log.*', 'office.office_name')
+                    ->orderBy('log.id', 'asc')
+                    ->get();
+
+                if ($logs->isNotEmpty()) {
+                    $steps = $logs->map(function ($logStep, $idx) use ($t) {
+                        $step = new \stdClass();
+                        $step->sequence_ranking = $logStep->sequence ?: ($idx + 1);
+                        $step->office_code = $logStep->office_code;
+                        $step->office_name = $logStep->office_name ?: $logStep->office_code;
+                        $step->date_in = $logStep->date_in;
+                        $step->date_out = $logStep->date_out;
+                        $step->action_needed = $logStep->action_needed ?? ($logStep->type === 'forwarded' ? 'Forwarded' : 'Received');
+                        $step->total_time_completed = null;
+                        $step->is_active_step = ($logStep->office_code === $t->current_office && is_null($logStep->date_out));
+                        return $step;
+                    });
+                }
+            }
+
+            $t->timeline_path = $steps;
+
+            return $t;
+        });
+
+        return $list;
     }
 };
 ?>
@@ -149,8 +293,7 @@ new #[Layout('layouts.dts')] #[Title('My Transactions - Document Tracking System
                             <th style="padding: 14px 16px;">Control No.</th>
                             <th style="padding: 14px 16px;">Document Type</th>
                             <th style="padding: 14px 16px;">Subject</th>
-                            <th style="padding: 14px 16px;">Live Office Location</th>
-                            <th style="padding: 14px 16px;">Status</th>
+                            <th style="padding: 14px 16px;">Timeline</th>
                             <th style="padding: 14px 16px;">Date Created</th>
                         </tr>
                     </thead>
@@ -168,15 +311,41 @@ new #[Layout('layouts.dts')] #[Title('My Transactions - Document Tracking System
                                 <td style="padding: 14px 16px; color: #1e293b; max-width: 280px;">
                                     <div style="font-weight: 600;">{{ Str::limit($t->subject ?: 'No subject', 45) }}</div>
                                 </td>
-                                <td style="padding: 14px 16px;">
-                                    <span class="office-location-pill">
-                                        🏢 {{ $t->current_office_name ?: $t->current_office }}
-                                    </span>
-                                </td>
-                                <td style="padding: 14px 16px;">
-                                    <span style="background: #e2e8f0; color: #334155; padding: 4px 8px; border-radius: 4px; font-size: 0.75rem; font-weight: 600;">
-                                        {{ ucfirst($t->status) }}
-                                    </span>
+                                <td style="padding: 10px 12px; min-width: 220px; max-width: 320px;">
+                                    <div style="display: flex; align-items: center; justify-content: flex-start; gap: 0; position: relative;">
+                                        @forelse ($t->timeline_path as $index => $step)
+                                            @php
+                                                $isReceived = !is_null($step->date_in) || $t->status === 'completed';
+                                                $isForwarded = !is_null($step->date_out) || $t->status === 'completed';
+
+                                                $dotColor = $isReceived ? '#10b981' : '#dc2626';
+                                                $lineColor = $isForwarded ? '#10b981' : '#cbd5e1';
+
+                                                $isCurrentOffice = $step->office_code === $t->current_office && $step->sequence_ranking == $t->sequence && $t->status !== 'completed';
+                                                $isInTransitToThisOffice = $step->sequence_ranking == $t->sequence && is_null($step->date_in) && $t->status !== 'completed';
+                                            @endphp
+
+                                            <div class="dts-timeline-node-wrapper" style="position: relative; display: inline-flex; flex-direction: column; align-items: center; margin: 0;">
+                                                <div class="dts-timeline-node-dot" style="width: 26px; height: 26px; border-radius: 50%; background: {{ $dotColor }}; color: #ffffff; font-size: 11px; font-weight: 700; display: flex; align-items: center; justify-content: center; z-index: 2; cursor: pointer; {{ $isCurrentOffice ? 'box-shadow: 0 0 0 4px rgba(16, 185, 129, 0.35); border: 2px solid #ffffff;' : ($isInTransitToThisOffice ? 'box-shadow: 0 0 0 4px rgba(245, 158, 11, 0.35);' : '') }}" title="Step {{ $index + 1 }}: {{ $step->office_name ?? $step->office_code }} ({{ $isReceived ? ($isForwarded ? 'Forwarded' : 'Received/Holder') : 'Pending' }})">
+                                                    @if ($isReceived)
+                                                        <i class="fa-solid fa-check" style="font-size: 10px;"></i>
+                                                    @else
+                                                        {{ $index + 1 }}
+                                                    @endif
+                                                </div>
+
+                                                <span style="margin-top: 4px; font-size: 10px; font-weight: 700; color: {{ $isReceived ? '#10b981' : '#dc2626' }}; font-family: 'Inter', sans-serif; white-space: nowrap;">
+                                                    {{ $step->office_code }}
+                                                </span>
+                                            </div>
+
+                                            @if (!$loop->last)
+                                                <div style="flex: 1; height: 4px; background: {{ $lineColor }}; min-width: 16px; margin: 0 -2px 14px -2px; border-radius: 2px; z-index: 1; transition: all 0.3s ease;"></div>
+                                            @endif
+                                        @empty
+                                            <span style="color: #94a3b8; font-size: 11px; font-style: italic;">No path data</span>
+                                        @endforelse
+                                    </div>
                                 </td>
                                 <td style="padding: 14px 16px; color: #64748b; font-size: 0.8rem;">
                                     {{ \Carbon\Carbon::parse($t->date_created)->format('M d, Y g:i A') }}

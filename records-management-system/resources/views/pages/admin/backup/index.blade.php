@@ -446,6 +446,68 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Backup & Recovery Manage
         $this->backupConfirmInput = '';
     }
 
+    public function getTablePriorityMap(): array
+    {
+        return [
+            // Priority Tier 1: Lookups & Independent Parent Tables
+            'condition_key' => 1,
+            'condition_details' => 2,
+            'subsystems' => 3,
+            'subsystems_versions' => 4,
+            'system_settings' => 5,
+            'personal_settings' => 6,
+            'office' => 7,
+            'cluster' => 8,
+            'security_status' => 9,
+            'sub_document_tracking_system_logs_types' => 10,
+            'document_data' => 11,
+            'dts_qr_code' => 12,
+            'notif_content' => 13,
+            'rdp_volume_conversion' => 14,
+            'rdp_volume_value' => 15,
+            'rdp_record_series' => 16,
+            'folder_drives_config' => 17,
+            'password_reset_tokens' => 18,
+
+            // Priority Tier 2: Accounts & User Relations (Depends on condition_key, office, cluster)
+            'account' => 20,
+            'account_details' => 21,
+            'permissions' => 22,
+            'account_security_keys' => 23,
+            'cluster_head' => 24,
+
+            // Priority Tier 3: Workflow, Options & Transaction Settings (Depends on account, office)
+            'dts_transaction_flow' => 30,
+            'dts_action_options' => 31,
+            'dts_email_access' => 32,
+            'dts_copy_filled_transaction' => 33,
+
+            // Priority Tier 4: Transactions, Documents, Chat & Messages
+            'dts_transactions' => 40,
+            'dts_transaction_details' => 41,
+            'dts_transaction_logs' => 42,
+            'dts_documents' => 43,
+            'dts_document_logs' => 44,
+            'dts_document_attachments' => 45,
+            'dts_routing_slips' => 46,
+            'dts_transaction_version' => 47,
+            'rdp_documents' => 48,
+            'chat_conversations' => 49,
+            'chatify_messages' => 50,
+            'chatify_favorites' => 51,
+            'chatify_chat_backup' => 52,
+            'chat_notifications' => 53,
+            'chatify_legal_agreements' => 54,
+
+            // Priority Tier 5: Audit & Notification Logs (Depends on account, subsystems, etc.)
+            'notifications' => 60,
+            'notification_div' => 61,
+            'admin_logs' => 62,
+            'additional_portal_logs' => 63,
+            'chatify_audit_logs' => 64,
+        ];
+    }
+
     public function revertToTargetBackup(): void
     {
         $this->successMessage = '';
@@ -486,9 +548,21 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Backup & Recovery Manage
             $tablesData = $payload['tables'];
             $driver = \DB::getDriverName();
 
+            // Sort tables according to foreign key dependency priority
+            $priorityMap = $this->getTablePriorityMap();
+            uksort($tablesData, function ($a, $b) use ($priorityMap) {
+                $pA = $priorityMap[$a] ?? 99;
+                $pB = $priorityMap[$b] ?? 99;
+                return $pA <=> $pB;
+            });
+
             \DB::transaction(function () use ($tablesData, $driver, $filename) {
                 if ($driver === 'pgsql') {
-                    \DB::statement('SET CONSTRAINTS ALL DEFERRED;');
+                    try {
+                        \DB::statement("SET session_replication_role = 'replica';");
+                    } catch (\Throwable $e) {
+                        \DB::statement('SET CONSTRAINTS ALL DEFERRED;');
+                    }
                 } elseif ($driver === 'sqlite') {
                     \DB::statement('PRAGMA foreign_keys = OFF;');
                 } elseif ($driver === 'mysql') {
@@ -504,28 +578,100 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Backup & Recovery Manage
                         continue;
                     }
 
-                    \DB::table($tableName)->truncate();
+                    // Use delete() instead of TRUNCATE CASCADE to prevent recursive wiping of non-included tables
+                    try {
+                        \DB::table($tableName)->delete();
+                    } catch (\Throwable $te) {
+                        // fallback if needed
+                    }
 
                     if (!empty($rows)) {
+                        // Retrieve valid columns existing in current database table schema
+                        $dbColumns = array_flip(\Schema::getColumnListing($tableName));
+
                         $chunks = array_chunk($rows, 200);
                         foreach ($chunks as $chunk) {
-                            \DB::table($tableName)->insert($chunk);
+                            // Filter row data to only include columns that exist in the database table
+                            $filteredChunk = [];
+                            foreach ($chunk as $row) {
+                                $filteredRow = array_intersect_key((array) $row, $dbColumns);
+                                if (!empty($filteredRow)) {
+                                    $filteredChunk[] = $filteredRow;
+                                }
+                            }
+
+                            if (!empty($filteredChunk)) {
+                                \DB::table($tableName)->insert($filteredChunk);
+                            }
                         }
                     }
                 }
 
-                if ($driver === 'sqlite') {
+                // If any account_role in account table is missing from condition_key, insert fallback role entry
+                if (\Schema::hasTable('account') && \Schema::hasTable('condition_key')) {
+                    $missingRoles = \DB::table('account')
+                        ->whereNotNull('account_role')
+                        ->whereNotIn('account_role', \DB::table('condition_key')->pluck('id'))
+                        ->pluck('account_role')
+                        ->unique();
+
+                    if ($missingRoles->isNotEmpty()) {
+                        $firstModifierKey = \DB::table('condition_details')->value('key_id') ?: 1;
+                        foreach ($missingRoles as $roleId) {
+                            try {
+                                \DB::table('condition_key')->insert([
+                                    'id' => $roleId,
+                                    'key_name' => "Role #{$roleId}",
+                                    'modifier_key' => $firstModifierKey,
+                                    'date_created' => now(),
+                                    'date_updated' => now(),
+                                ]);
+                            } catch (\Throwable $e) {
+                                // ignore if exists
+                            }
+                        }
+                    }
+                }
+
+                // Safely log emergency revert action before restoring foreign key constraints
+                try {
+                    $adminId = auth()->id();
+                    if (\Schema::hasTable('account')) {
+                        if (!$adminId || !\DB::table('account')->where('id', $adminId)->exists()) {
+                            $adminId = \DB::table('account')->value('id');
+                        }
+                    }
+
+                    $whatSystem = 3;
+                    if (\Schema::hasTable('subsystems')) {
+                        if (!\DB::table('subsystems')->where('subsystem_id', $whatSystem)->exists()) {
+                            $whatSystem = \DB::table('subsystems')->value('subsystem_id');
+                        }
+                    }
+
+                    if ($adminId && $whatSystem && \Schema::hasTable('admin_logs')) {
+                        \DB::table('admin_logs')->insert([
+                            'changes' => "EMERGENCY REVERT PERFORMED: System database restored to target backup [{$filename}]",
+                            'admin_id' => $adminId,
+                            'what_system' => $whatSystem,
+                            'when_changes' => now(),
+                        ]);
+                    }
+                } catch (\Throwable $logEx) {
+                    // Prevent log error from failing the database revert transaction
+                }
+
+                if ($driver === 'pgsql') {
+                    try {
+                        \DB::statement("SET session_replication_role = 'origin';");
+                    } catch (\Throwable $e) {
+                        // ignore
+                    }
+                } elseif ($driver === 'sqlite') {
                     \DB::statement('PRAGMA foreign_keys = ON;');
                 } elseif ($driver === 'mysql') {
                     \DB::statement('SET FOREIGN_KEY_CHECKS = 1;');
                 }
-
-                \DB::table('admin_logs')->insert([
-                    'changes' => "EMERGENCY REVERT PERFORMED: System database restored to target backup [{$filename}]",
-                    'admin_id' => auth()->id(),
-                    'what_system' => 3,
-                    'when_changes' => now(),
-                ]);
             });
 
             $this->showRevertConfirmModal = false;
@@ -881,21 +1027,31 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Backup & Recovery Manage
                 All current database records will be replaced with data from this target backup file.
             </div>
 
+            <!-- Active Loading State Banner -->
+            <div wire:loading wire:target="revertToTargetBackup" style="background: #eff6ff; border: 1px solid #93c5fd; border-radius: 10px; padding: 14px 16px; font-size: 13px; color: #1e40af; margin-bottom: 16px; display: flex; align-items: center; gap: 12px; font-weight: 600;">
+                <i class="fa-solid fa-circle-notch fa-spin" style="font-size: 22px; color: #2563eb;"></i>
+                <div>
+                    <div>Database restoration in progress...</div>
+                    <div style="font-size: 11px; color: #3b82f6; font-weight: 400; margin-top: 2px;">Restoring tables and foreign key relations. Please do not close or refresh this page.</div>
+                </div>
+            </div>
+
             <div style="margin-bottom: 16px;">
                 <label style="display: block; font-size: 12px; font-weight: 700; color: #334155; margin-bottom: 6px;">
                     Type <span style="color: #ef4444; font-family: monospace;">REVERT</span> below to authorize:
                 </label>
-                <input type="text" wire:model="backupConfirmInput" placeholder="Type REVERT" style="width: 100%; padding: 10px 12px; border: 1px solid #cbd5e1; border-radius: 8px; font-size: 13px; font-family: monospace; font-weight: 700; color: #0f172a;">
+                <input type="text" wire:model="backupConfirmInput" wire:loading.attr="disabled" wire:target="revertToTargetBackup" placeholder="Type REVERT" style="width: 100%; padding: 10px 12px; border: 1px solid #cbd5e1; border-radius: 8px; font-size: 13px; font-family: monospace; font-weight: 700; color: #0f172a;">
             </div>
 
             <div style="display: flex; gap: 10px; justify-content: flex-end;">
-                <button type="button" wire:click="cancelRevertModal" style="background: #e2e8f0; color: #475569; border: none; padding: 10px 18px; border-radius: 8px; font-weight: 700; font-size: 13px; cursor: pointer;">
+                <button type="button" wire:click="cancelRevertModal" wire:loading.attr="disabled" wire:target="revertToTargetBackup" style="background: #e2e8f0; color: #475569; border: none; padding: 10px 18px; border-radius: 8px; font-weight: 700; font-size: 13px; cursor: pointer;">
                     Cancel
                 </button>
-                <button type="button" wire:click="revertToTargetBackup" wire:loading.attr="disabled" style="background: #d97706; color: #ffffff; border: none; padding: 10px 20px; border-radius: 8px; font-weight: 700; font-size: 13px; cursor: pointer; display: inline-flex; align-items: center; gap: 8px; box-shadow: 0 4px 12px rgba(217, 119, 6, 0.3);">
+                <button type="button" wire:click="revertToTargetBackup" wire:loading.attr="disabled" wire:target="revertToTargetBackup" style="background: #d97706; color: #ffffff; border: none; padding: 10px 20px; border-radius: 8px; font-weight: 700; font-size: 13px; cursor: pointer; display: inline-flex; align-items: center; gap: 8px; box-shadow: 0 4px 12px rgba(217, 119, 6, 0.3);">
                     <i class="fa-solid fa-rotate-left" wire:loading.remove wire:target="revertToTargetBackup"></i>
-                    <i class="fa-solid fa-spinner fa-spin" wire:loading wire:target="revertToTargetBackup"></i>
-                    <span>Execute Target Revert</span>
+                    <i class="fa-solid fa-circle-notch fa-spin" wire:loading wire:target="revertToTargetBackup"></i>
+                    <span wire:loading.remove wire:target="revertToTargetBackup">Execute Target Revert</span>
+                    <span wire:loading wire:target="revertToTargetBackup">Reverting Database... Please wait</span>
                 </button>
             </div>
         </div>

@@ -37,11 +37,8 @@ new class extends Component {
     {
         $this->isOpen = true;
         $this->clearMessages();
-        
-        if (!empty($code)) {
-            $this->scannedCode = $code;
-            $this->loadTransaction();
-        }
+        $this->activeTransaction = null;
+        $this->scannedCode = '';
 
         $this->dispatch('init-camera-scanner');
     }

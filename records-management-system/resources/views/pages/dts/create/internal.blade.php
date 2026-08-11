@@ -680,10 +680,14 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create Internal
                 return;
             }
 
-            // Mark the QR code as used
-            DB::table('dts_qr_code')
-                ->where('code_id', $this->generatedQrCode)
-                ->update(['qr_status' => 'used']);
+            // Ensure the QR code exists in dts_qr_code and mark as used
+            DB::table('dts_qr_code')->updateOrInsert(
+                ['code_id' => $this->generatedQrCode],
+                [
+                    'qr_status' => 'used',
+                    'created_at' => now(),
+                ]
+            );
 
             // Resolve or create record in dts_requestor_history
             $reqName = trim($this->requestor_name);

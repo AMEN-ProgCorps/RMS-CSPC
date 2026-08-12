@@ -1365,8 +1365,11 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Offices & Clusters')] cl
                 @if(count($selectedOfficeIds) > 0)
                     <div style="display: flex; align-items: center; justify-content: space-between; padding: 8px 12px; background: #fff1f2; border: 1px solid #fecdd3; border-radius: 8px; margin-bottom: 8px;">
                         <span style="font-size: 12px; font-weight: 600; color: #be123c;">{{ count($selectedOfficeIds) }} selected</span>
-                        <button type="button" wire:click="bulkDeleteOffices" wire:confirm="Are you sure you want to deactivate {{ count($selectedOfficeIds) }} office(s)? They will be soft-deleted (hidden) but retained for transparency." style="background: #e11d48; color: #fff; border: none; padding: 5px 12px; border-radius: 6px; font-size: 11px; font-weight: 600; cursor: pointer; font-family: 'Inter', sans-serif;">
-                            <i class="fa-solid fa-trash-can" style="margin-right: 4px;"></i> Delete Selected
+                        <button type="button" x-data
+                            x-on:click="if(confirm('Are you sure you want to deactivate {{ count($selectedOfficeIds) }} office(s)? They will be soft-deleted (hidden) but retained for transparency.')) { $el.disabled = true; $el.querySelector('.btn-idle').style.display = 'none'; $el.querySelector('.btn-loading').style.display = 'inline-flex'; $wire.bulkDeleteOffices(); }"
+                            style="background: #e11d48; color: #fff; border: none; padding: 5px 12px; border-radius: 6px; font-size: 11px; font-weight: 600; cursor: pointer; font-family: 'Inter', sans-serif;">
+                            <span class="btn-idle" style="display: inline-flex; align-items: center; gap: 4px;"><i class="fa-solid fa-trash-can"></i> Delete Selected</span>
+                            <span class="btn-loading" style="display: none; align-items: center; gap: 5px;"><i class="fa-solid fa-circle-notch fa-spin"></i> Deactivating {{ count($selectedOfficeIds) }} office(s)...</span>
                         </button>
                     </div>
                 @endif
@@ -1675,8 +1678,11 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Offices & Clusters')] cl
                 @if(count($selectedClusterIds) > 0)
                     <div style="display: flex; align-items: center; justify-content: space-between; padding: 8px 12px; background: #fff1f2; border: 1px solid #fecdd3; border-radius: 8px; margin-bottom: 8px;">
                         <span style="font-size: 12px; font-weight: 600; color: #be123c;">{{ count($selectedClusterIds) }} selected</span>
-                        <button type="button" wire:click="bulkDeleteClusters" wire:confirm="Are you sure you want to deactivate {{ count($selectedClusterIds) }} cluster(s)? They will be soft-deleted (hidden) but retained for transparency." style="background: #e11d48; color: #fff; border: none; padding: 5px 12px; border-radius: 6px; font-size: 11px; font-weight: 600; cursor: pointer; font-family: 'Inter', sans-serif;">
-                            <i class="fa-solid fa-trash-can" style="margin-right: 4px;"></i> Delete Selected
+                        <button type="button" x-data
+                            x-on:click="if(confirm('Are you sure you want to deactivate {{ count($selectedClusterIds) }} cluster(s)? They will be soft-deleted (hidden) but retained for transparency.')) { $el.disabled = true; $el.querySelector('.btn-idle').style.display = 'none'; $el.querySelector('.btn-loading').style.display = 'inline-flex'; $wire.bulkDeleteClusters(); }"
+                            style="background: #e11d48; color: #fff; border: none; padding: 5px 12px; border-radius: 6px; font-size: 11px; font-weight: 600; cursor: pointer; font-family: 'Inter', sans-serif;">
+                            <span class="btn-idle" style="display: inline-flex; align-items: center; gap: 4px;"><i class="fa-solid fa-trash-can"></i> Delete Selected</span>
+                            <span class="btn-loading" style="display: none; align-items: center; gap: 5px;"><i class="fa-solid fa-circle-notch fa-spin"></i> Deactivating {{ count($selectedClusterIds) }} cluster(s)...</span>
                         </button>
                     </div>
                 @endif

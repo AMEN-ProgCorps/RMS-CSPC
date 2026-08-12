@@ -1439,7 +1439,17 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
     public function saveMetadataOnly(): void
     {
         $perms = auth()->user()?->permissions;
-        if ($perms && ($perms->is_sadm || $perms->can_dts_modify_transaction)) {
+        $isSadm = $perms?->is_sadm ?? false;
+        $hasWideEditClearance = $isSadm || ($perms?->can_dts_list_modify_transaction ?? false) || ($perms?->can_dts_modify_transaction ?? false);
+        $isCreator = isset($this->selectedTransaction) && ($this->selectedTransaction->created_by === auth()->id());
+        $isAtOrigin = isset($this->selectedTransaction) && ($this->selectedTransaction->current_office === $this->selectedTransaction->originated_from);
+        $isInitialOrRevisionState = isset($this->selectedTransaction) && ($this->selectedTransaction->sequence == 1 || $this->selectedTransaction->status === 'revision');
+
+        $canModify = isset($this->selectedTransaction) 
+            && $this->selectedTransaction->status !== 'completed' 
+            && ($hasWideEditClearance || ($isCreator && $isAtOrigin && $isInitialOrRevisionState));
+
+        if ($canModify) {
             // Find/create email access ID if provided
             $emailAccessId = null;
             if ($this->emailAccess) {
@@ -1483,7 +1493,7 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
                     // insert new
                     $assignOfficesId = (DB::table('dts_copy_filled_transaction')->max('assign_offices_id') ?? 1000) + 1;
                     $copyFilledId = DB::table('dts_copy_filled_transaction')->insertGetId([
-                        'control_num' => $this->controlNumber,
+                        'control_num' => $hasWideEditClearance ? $this->controlNumber : $this->selectedTransaction->control_number,
                         'total_office' => count($this->cfSelectedOffices),
                         'assign_offices_id' => $assignOfficesId,
                         'data_created' => now(),
@@ -1534,10 +1544,12 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
                 }
             }
 
+            $controlNumberToSave = $hasWideEditClearance ? $this->controlNumber : $this->selectedTransaction->control_number;
+
             DB::table('dts_transaction_details')
                 ->where('id', $this->selectedTransactionId)
                 ->update([
-                    'control_number' => $this->controlNumber,
+                    'control_number' => $controlNumberToSave,
                     'copy_filled_id' => $copyFilledId ?: null,
                     'subject' => $this->particulars,
                     'classification' => $this->classification ?: null,
@@ -1667,8 +1679,15 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
     @php
         $perms = auth()->user()?->permissions;
         $isSadm = $perms?->is_sadm ?? false;
-        $canListModify = $isSadm || ($perms?->can_dts_list_modify_transaction ?? false) || ($perms?->can_dts_modify_transaction ?? false);
-        $canModifyTrans = $canListModify || (isset($this->selectedTransaction) && $this->selectedTransaction->status !== 'completed' && ($perms?->can_dts_modify_transaction ?? false));
+        $hasWideEditClearance = $isSadm || ($perms?->can_dts_list_modify_transaction ?? false) || ($perms?->can_dts_modify_transaction ?? false);
+        $isCreator = isset($selectedTransaction) && ($selectedTransaction->created_by === auth()->id());
+        $isAtOrigin = isset($selectedTransaction) && ($selectedTransaction->current_office === $selectedTransaction->originated_from);
+        $isInitialOrRevisionState = isset($selectedTransaction) && ($selectedTransaction->sequence == 1 || $selectedTransaction->status === 'revision');
+
+        $canModifyTrans = isset($selectedTransaction) 
+            && $selectedTransaction->status !== 'completed' 
+            && ($hasWideEditClearance || ($isCreator && $isAtOrigin && $isInitialOrRevisionState));
+
         $canProcess = $isSadm || ($perms?->can_dts_user_received ?? false);
     @endphp
     <div class="dts-topbar">
@@ -2324,10 +2343,10 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
                         <!-- Control Number field -->
                         <div class="receive-field-row">
                             <span class="receive-field-label">Control #:</span>
-                            @if ($editingAll)
+                            @if ($editingAll && $hasWideEditClearance)
                                 <input type="text" class="receive-field-input" wire:model="controlNumber">
                             @else
-                                <input type="text" class="receive-field-input" value="{{ $controlNumber }}" readonly>
+                                <input type="text" class="receive-field-input" value="{{ $controlNumber }}" readonly style="background-color: #f8fafc; color: #64748b;" title="{{ $editingAll ? 'Control Number can only be edited by administrators' : '' }}">
                             @endif
                         </div>
 

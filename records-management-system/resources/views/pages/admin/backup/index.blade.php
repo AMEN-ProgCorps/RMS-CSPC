@@ -69,7 +69,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Backup & Recovery Manage
                 'description' => 'DTS routing paths, custom flow sequences & action options',
                 'icon' => 'fa-solid fa-route',
                 'color' => '#d97706',
-                'tables' => ['dts_transaction_flow', 'dts_action_options'],
+                'tables' => ['dts_transaction_flow', 'dts_sequence_list', 'dts_action_options'],
             ],
             'dts' => [
                 'name' => 'Document Tracking System (DTS)',
@@ -296,9 +296,46 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Backup & Recovery Manage
             ];
 
             $totalRecords = 0;
+            $isDtsIncluded = ($this->backupMode === 'full') || in_array('dts', $this->selectedBackupCategories);
+
             foreach ($tablesToBackup as $table) {
                 try {
-                    $rows = \DB::table($table)->get()->map(function ($item) {
+                    $query = \DB::table($table);
+
+                    // If backing up transaction flows without DTS document transactions, filter out active transaction instance flows (REF- / Flow for ...)
+                    if ($table === 'dts_transaction_flow' && !$isDtsIncluded) {
+                        $query->where(function ($q) {
+                            $q->whereNull('flow_code')
+                              ->orWhere('flow_code', 'not like', 'REF-%');
+                        })->where(function ($q) {
+                            if (\Schema::hasColumn('dts_transaction_flow', 'referenced_flow')) {
+                                $q->whereNull('referenced_flow')
+                                  ->orWhere('referenced_flow', 'not like', 'REF-%');
+                            }
+                        })->where(function ($q) {
+                            $q->whereNull('flow_name')
+                              ->orWhere('flow_name', 'not like', 'Flow for %');
+                        });
+                    } elseif ($table === 'dts_sequence_list' && !$isDtsIncluded) {
+                        $masterFlowIds = \DB::table('dts_transaction_flow')
+                            ->where(function ($q) {
+                                $q->whereNull('flow_code')
+                                  ->orWhere('flow_code', 'not like', 'REF-%');
+                            })->where(function ($q) {
+                                if (\Schema::hasColumn('dts_transaction_flow', 'referenced_flow')) {
+                                    $q->whereNull('referenced_flow')
+                                      ->orWhere('referenced_flow', 'not like', 'REF-%');
+                                }
+                            })->where(function ($q) {
+                                $q->whereNull('flow_name')
+                                  ->orWhere('flow_name', 'not like', 'Flow for %');
+                            })
+                            ->pluck('id');
+
+                        $query->whereIn('control_id', $masterFlowIds);
+                    }
+
+                    $rows = $query->get()->map(function ($item) {
                         return (array) $item;
                     })->toArray();
 
@@ -478,9 +515,10 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Backup & Recovery Manage
 
             // Priority Tier 3: Workflow, Options & Transaction Settings (Depends on account, office)
             'dts_transaction_flow' => 30,
-            'dts_action_options' => 31,
-            'dts_email_access' => 32,
-            'dts_copy_filled_transaction' => 33,
+            'dts_sequence_list' => 31,
+            'dts_action_options' => 32,
+            'dts_email_access' => 33,
+            'dts_copy_filled_transaction' => 34,
 
             // Priority Tier 4: Transactions, Documents, Chat & Messages
             'dts_transactions' => 40,

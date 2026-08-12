@@ -863,11 +863,15 @@ wss.on('connection', (ws) => {
       log(`Broadcasting chat_cleared event: chat_type=${chat_type}, by=${state.accountId}`);
 
       if (chat_type === 'private') {
+        const a = Math.min(state.accountId, Number(recipient_id));
+        const b = Math.max(state.accountId, Number(recipient_id));
         const payloadStr = JSON.stringify({
           type: 'chat_cleared',
           chat_type: 'private',
           sender_id: state.accountId,
-          recipient_id: recipient_id
+          recipient_id: recipient_id,
+          user_a: a,
+          user_b: b
         });
         // Same audience as a private 'message' event: the recipient, any
         // other session of the person who cleared it, and admin (1) for spymode

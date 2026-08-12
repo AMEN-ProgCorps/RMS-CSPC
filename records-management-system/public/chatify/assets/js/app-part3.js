@@ -210,7 +210,7 @@
         requestAnimationFrame(animateScroll);
       }
     }
-
+     
     function handleFirstLoadScroll() {
       const activeKey = isGlobalChat ? '__global__' : (activeDM || (activeAdminConv ? '__admin__' + activeAdminConv.convId : null));
       let restored = false;
@@ -233,6 +233,12 @@
       if (!restored) {
         scrollToBottom(true, true);
       }
+      // Mark chat as fully loaded so scroll buttons are now allowed to show.
+      chatFullyLoaded = true;
+      if (!isAtBottom()) {
+        showScrollIndicator(0);
+        syncLoadOlderBtn();
+      }
     }
 
     const scrollIndicatorText = document.getElementById('scrollIndicatorText');
@@ -250,7 +256,13 @@
           scrollIndicatorText.textContent = 'Go to bottom';
         }
       }
-      scrollIndicator.classList.add('visible');
+      const isAtTop = chatBox.scrollTop <= 5;
+      const hasUnread = scrollIndicator.classList.contains('has-unread');
+      if (chatFullyLoaded && (isAtTop || hasUnread)) {
+        scrollIndicator.classList.add('visible');
+      } else {
+        scrollIndicator.classList.remove('visible');
+      }
     }
 
     function hideScrollIndicator() {
@@ -661,16 +673,20 @@
         userScrolledUp = false;
         hideScrollIndicator();
         // Hide load-older button when user returns to bottom
-        syncLoadOlderBtn();
+        if (chatFullyLoaded) syncLoadOlderBtn();
       } else {
         shouldAutoScroll = false;
         userScrolledUp = true;
-        const hasMessages = chatBox.querySelectorAll('.message-container').length > 0;
-        if (hasMessages && !scrollIndicator.classList.contains('visible')) {
-          showScrollIndicator(0);
+        // Only show scroll buttons after the initial load is done so they
+        // don't flash up while messages are still being fetched/rendered.
+        if (chatFullyLoaded) {
+          const hasMessages = chatBox.querySelectorAll('.message-container').length > 0;
+          if (hasMessages) {
+            showScrollIndicator(0);
+          }
+          // Show load-older button when user scrolls up and older messages exist
+          syncLoadOlderBtn();
         }
-        // Show load-older button when user scrolls up and older messages exist
-        syncLoadOlderBtn();
       }
 
       // Save scroll position for active chat
@@ -695,6 +711,38 @@
       }
     }, true);
 
+    // Hide broken/missing images completely — no broken-image icon shown.
+    // Uses capture so it fires even if the img has no bubbling listener.
+    chatBox.addEventListener('error', function(event) {
+      const el = event.target;
+      if (!el || el.tagName !== 'IMG') return;
+
+      if (el.classList.contains('reply-quote-image')) {
+        // Remove the reply quote image container entirely
+        const container = el.closest('.reply-quote-image-container, .reply-quote');
+        if (container) container.remove();
+        else el.remove();
+      } else if (el.classList.contains('chat-viewable-image')) {
+        // Remove the closest wrapping media element
+        const mediaWrap = el.closest('.message-media') || el.parentElement;
+        if (mediaWrap && mediaWrap !== el) {
+          mediaWrap.remove();
+        } else {
+          el.remove();
+        }
+        // If the whole bubble-wrapper is now empty (no text, no media left),
+        // hide the entire message container so nothing renders at all.
+        const msgContainer = el.closest ? el.closest('.message-container') : null;
+        if (msgContainer) {
+          const bubbleWrapper = msgContainer.querySelector('.bubble-wrapper');
+          if (bubbleWrapper) {
+            const remaining = bubbleWrapper.querySelectorAll('.message-bubble, .message-media');
+            if (remaining.length === 0) msgContainer.style.display = 'none';
+          }
+        }
+      }
+    }, true);
+
     // Click scroll indicator to go to bottom
     scrollIndicator.addEventListener('click', function() {
       shouldAutoScroll = true;
@@ -709,6 +757,7 @@
         removePaginationBtn();
         chatBox.innerHTML = '';
         isFirstLoad = true;
+        chatFullyLoaded = false;
         loadGlobalChat(false, false);
         return;
       }
@@ -718,6 +767,7 @@
         removePaginationBtn();
         chatBox.innerHTML = '';
         isFirstLoad = true;
+        chatFullyLoaded = false;
         loadAdminConv(activeAdminConv, false, false);
         return;
       }
@@ -727,6 +777,7 @@
         removePaginationBtn();
         chatBox.innerHTML = '';
         isFirstLoad = true;
+        chatFullyLoaded = false;
         loadChat(false, false, true);
         return;
       }
@@ -1281,11 +1332,20 @@
           shouldAutoScroll = true;
           userScrolledUp = false;
           hideScrollIndicator();
-          if (activeDM) {
-            loadChat();
-          } else if (activeAdminConv) {
-            loadAdminConv(activeAdminConv, false);
-            fetchUsers();
+          // Capture conv identifiers before resetToHome() nulls them
+          const clearedDM       = activeDM;
+          const clearedDMAccId  = activeDMAccountId;
+          const clearedAdminConv = activeAdminConv;
+
+          if (typeof resetToHome === 'function') {
+            resetToHome();
+          } else {
+            if (clearedDM) {
+              loadChat();
+            } else if (clearedAdminConv) {
+              loadAdminConv(clearedAdminConv, false);
+              fetchUsers();
+            }
           }
 
           // Broadcast the clear so every other connected client (the other
@@ -1293,14 +1353,17 @@
           // conversation) refreshes immediately instead of showing stale
           // messages until their next poll/reload.
           if (ws && ws.readyState === WebSocket.OPEN) {
-            if (activeDM) {
+            if (clearedDM && clearedDMAccId) {
+              const myId = wsConfig.accountId;
               ws.send(JSON.stringify({
                 type: 'chat_cleared',
                 chat_type: 'private',
-                recipient_id: activeDMAccountId
+                recipient_id: clearedDMAccId,
+                user_a: Math.min(myId, clearedDMAccId),
+                user_b: Math.max(myId, clearedDMAccId)
               }));
-            } else if (activeAdminConv) {
-              const clearedParts = activeAdminConv.split('_').map(Number);
+            } else if (clearedAdminConv) {
+              const clearedParts = clearedAdminConv.split('_').map(Number);
               ws.send(JSON.stringify({
                 type: 'chat_cleared',
                 chat_type: 'admin_conv',

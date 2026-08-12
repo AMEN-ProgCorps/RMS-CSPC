@@ -183,7 +183,6 @@ try {
   <link rel="stylesheet" href="assets/css/style.css">
 
 </head>
-<body tabindex="-1">
   <div class="app-wrapper">
     <!-- Sidebar Backdrop for Mobile/Tablet -->
     <div class="sidebar-backdrop" id="sidebarBackdrop"></div>

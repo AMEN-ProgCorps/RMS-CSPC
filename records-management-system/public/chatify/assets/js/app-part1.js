@@ -28,6 +28,7 @@
     // (next to Send), so no separate width-sync against #sendButton is
     // needed anymore — that was only for lining up the old two-row layout.
     let editingMsgId = null;
+    let chatFullyLoaded = false;
 
     function showEditBanner(msgId) {
       editingMsgId = msgId;
@@ -375,7 +376,11 @@
           }
         } else if (data.type === 'typing') {
           if (activeDM && activeDMAccountId === Number(data.sender_id) && (!data.recipient_id || Number(data.recipient_id) === wsConfig.accountId)) {
-            showTypingIndicator(data.sender_name, data.is_typing);
+            const senderUser = allUsersData.find(u => Number(u.account_id) === Number(data.sender_id));
+            const senderName = (senderUser && (senderUser.name || senderUser.full_name))
+              ? (senderUser.name || senderUser.full_name)
+              : (data.sender_name || `User ${data.sender_id}`);
+            showTypingIndicator(senderName, data.is_typing);
           }
         } else if (data.type === 'typing_preview') {
           handleIncomingTypingPreview(data);
@@ -411,16 +416,34 @@
           }
         } else if (data.type === 'chat_cleared') {
           console.log('Received WebSocket real-time update notice:', data);
+
+          // Immediately remove the cleared conversation from the sidebar
+          // in-memory list so the entry disappears before fetchUsers() returns.
+          const _ca = Number(data.user_a);
+          const _cb = Number(data.user_b);
+          if (_ca > 0 && _cb > 0) {
+            const myId = wsConfig.accountId;
+            // partnerId is whoever the other person is in the pair
+            const partnerId = (_ca === myId) ? _cb : (_cb === myId) ? _ca : null;
+            if (partnerId !== null) {
+              const idx = allUsersData.findIndex(u => Number(u.account_id) === partnerId);
+              if (idx !== -1) {
+                allUsersData.splice(idx, 1);
+                renderSidebarUsers();
+              }
+            }
+          }
+
           if (data.chat_type === 'private') {
-            const s = Number(data.sender_id);
-            const r = Number(data.recipient_id);
-            if (activeDM && activeDMAccountId && ((s === wsConfig.accountId && r === activeDMAccountId) || (s === activeDMAccountId && r === wsConfig.accountId))) {
-              loadChat(false, false, true);
+            const a = Number(data.user_a);
+            const b = Number(data.user_b);
+            if (activeDM && activeDMAccountId && ((a === wsConfig.accountId && b === activeDMAccountId) || (b === wsConfig.accountId && a === activeDMAccountId))) {
+              resetToHome();
             }
             if (activeAdminConv) {
               const parts = activeAdminConv.split('_').map(Number);
-              if ((s === parts[0] && r === parts[1]) || (s === parts[1] && r === parts[0])) {
-                loadAdminConv(activeAdminConv, true);
+              if ((parts[0] === a && parts[1] === b) || (parts[0] === b && parts[1] === a)) {
+                resetToHome();
               }
             }
           } else if (data.chat_type === 'admin_conv') {
@@ -429,11 +452,11 @@
             if (activeAdminConv) {
               const parts = activeAdminConv.split('_').map(Number);
               if ((parts[0] === a && parts[1] === b) || (parts[0] === b && parts[1] === a)) {
-                loadAdminConv(activeAdminConv, true);
+                resetToHome();
               }
             }
             if (activeDM && activeDMAccountId && ((a === wsConfig.accountId && b === activeDMAccountId) || (b === wsConfig.accountId && a === activeDMAccountId))) {
-              loadChat(false, false, true);
+              resetToHome();
             }
           }
           // Admin spy mode: keep the "X msgs · last message" counts in the
@@ -465,9 +488,7 @@
             // If viewing global chat, reload it (now empty)
             loadGlobalChat(false);
           } else {
-            activeDM = null; activeAdminConv = null; isGlobalChat = false;
-            updateClearChatButtonVisibility();
-            chatBox.innerHTML = '<div class="empty-chat"><p>All messages deleted.</p></div>';
+            resetToHome();
           }
           allUsersData = [];
           renderSidebarUsers();
@@ -1392,6 +1413,7 @@
       showTypingIndicator('', false);
 
       isFirstLoad = true; // snap straight to bottom once the new conversation's messages arrive
+      chatFullyLoaded = false; // suppress scroll buttons until new chat finishes loading
       localStorage.setItem('activeDM', u.username);
       chatHeaderTitle.textContent = u.name;
       applyHeaderAdminBadge();
@@ -1436,7 +1458,7 @@
       clearSendingOverlay(); // drop any pending-send bubbles from the previous conversation
       hideEditBanner();
       isFirstLoad = true;
-      
+      chatFullyLoaded = false; // suppress scroll buttons until global chat finishes loading
       // Reset local typing indicator state
       if (localTypingTimeout) {
         clearTimeout(localTypingTimeout);
@@ -1479,10 +1501,10 @@
     // Track whether older messages are available for the current chat
     let hasOlderMessages = false;
 
-    // Show/hide the floating load-older button based on scroll position + availability
     function syncLoadOlderBtn() {
       if (!loadOlderFloatingBtn) return;
-      if (hasOlderMessages && userScrolledUp) {
+      const isAtTop = chatBox.scrollTop <= 5;
+      if (hasOlderMessages && chatFullyLoaded && isAtTop) {
         loadOlderFloatingBtn.classList.add('visible');
       } else {
         loadOlderFloatingBtn.classList.remove('visible');
@@ -2152,12 +2174,13 @@
       }
     });
 
-    backButton.addEventListener('click', () => {
+    function resetToHome() {
       activeDM = null;
       activeDMAccountId = null;
       activeAdminConv = null;
-      updateClearChatButtonVisibility();
       isGlobalChat = false;
+      
+      updateClearChatButtonVisibility();
       
       // Reset local typing indicator state
       if (localTypingTimeout) {
@@ -2175,20 +2198,44 @@
       showTypingIndicator('', false);
 
       localStorage.removeItem('activeDM');
-
+      localStorage.removeItem('activeSpyConv');
       removePaginationBtn();
+
+      // Reset header to default home state
+      if (chatHeaderTitle) {
+        chatHeaderTitle.textContent = "Camarines Sur Polytechnic Colleges";
+      }
+      if (typeof applyHeaderAvatar === 'function') {
+        applyHeaderAvatar(null);
+      }
+      if (typeof applyHeaderAdminBadge === 'function') {
+        applyHeaderAdminBadge();
+      }
+
+      // Mobile/Tablet sidebar adjustments
       if (window.innerWidth <= 991) {
-        sidebar.classList.add('open');
+        if (sidebar) sidebar.classList.add('open');
         const backdrop = document.getElementById('sidebarBackdrop');
         if (backdrop) backdrop.classList.add('visible');
-        backButton.style.display = 'none';
-        burgerButton.style.display = 'inline-flex';
+        if (backButton) backButton.style.display = 'none';
+        if (burgerButton) burgerButton.style.display = 'inline-flex';
       }
-      chatBox.innerHTML = '<div class="empty-chat"><p>Camarines Sur Polytechnic Colleges</p></div>';
-      document.getElementById('globalChatItem').classList.remove('active');
+
+      if (chatBox) {
+        chatBox.innerHTML = '<div class="empty-chat"><p>Camarines Sur Polytechnic Colleges</p></div>';
+      }
+      const gcItem = document.getElementById('globalChatItem');
+      if (gcItem) gcItem.classList.remove('active');
+      
       renderSidebarUsers();
       if (serverIsAdmin) renderAdminConvs();
-    });
+      fetchUsers();
+      if ((typeof serverIsAdmin !== 'undefined' ? serverIsAdmin : isAdmin) && typeof adminSpyTargetUser !== 'undefined' && adminSpyTargetUser) {
+        fetchAdminConvs('', 0, false, adminSpyTargetUser.account_id);
+      }
+    }
+
+    backButton.addEventListener('click', resetToHome);
 
     // Helper: get or create the floating sending overlay container
     function getSendingOverlay() {

@@ -140,11 +140,11 @@ function dmBuildReplyQuoteHtml(?string $encryptedReplyMessage, string $replyType
         $file       = is_array($decoded) ? basename((string) ($decoded[0] ?? '')) : basename($rawPayload);
         $ext        = strtolower(pathinfo($file, PATHINFO_EXTENSION));
         $imageExts  = ['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp', 'svg'];
-        if (in_array($ext, $imageExts, true) && $file !== '') {
+        if (in_array($ext, $imageExts, true) && $file !== '' && file_exists(__DIR__ . '/uploads/' . $file)) {
             $fnUrl = htmlspecialchars('uploads/' . rawurlencode($file), ENT_QUOTES);
             return "<div class='reply-quote reply-quote-image-container'><img src='{$fnUrl}' class='reply-quote-image' alt='' referrerpolicy='no-referrer'></div>";
         }
-        $snippet = '📎 Attachment';
+        $snippet = 'Attachment';
     } else {
         $snippet = safeDecrypt($encryptedReplyMessage);
     }

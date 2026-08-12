@@ -1782,7 +1782,7 @@
 
       // Disable send button momentarily to prevent double-tap
       isSending = true;
-      sendButton.textContent = "...";
+      sendButton.classList.add('sending');
       sendButton.disabled = true;
 
       // Clear input immediately and reset textarea to single-line height.
@@ -1869,7 +1869,7 @@
       // was registered, so re-enable send controls right after dispatching.
       try { xhr.send(payload); } catch (e) { /* ignore send errors here */ }
       isSending = false;
-      sendButton.textContent = "Send";
+      sendButton.classList.remove('sending');
       sendButton.disabled = false;
 
       xhr.onload = function () {
@@ -2084,10 +2084,31 @@
     }
 
     // Auto-expand textarea + typing indicator dispatch
+    function autoResizeMessageInput() {
+      messageInput.style.height = 'auto';
+      const newHeight = Math.min(messageInput.scrollHeight, 120);
+      messageInput.style.height = newHeight + 'px';
+    }
+
+    // On a fresh (uncached) page load, the 'Inter' webfont swaps in a beat
+    // after the fallback font first paints (font-display: swap). If that
+    // swap lands while the user is mid-keystroke, the fallback→Inter metric
+    // change makes scrollHeight jump, and the textarea visibly resizes on
+    // its own. Re-run the resize the moment the font is actually ready so
+    // the box snaps to its final size proactively instead of jittering
+    // under the user's typing. Only refreshed pages (font already cached)
+    // skip this entirely since fonts.ready resolves before first paint.
+    autoResizeMessageInput(); // set the correct initial height right away, in
+                               // sync with box-sizing:border-box, instead of
+                               // relying on the CSS min-height to "just match"
+    if (document.fonts && document.fonts.ready) {
+      document.fonts.ready.then(function () {
+        autoResizeMessageInput();
+      });
+    }
+
     messageInput.addEventListener('input', function() {
-      this.style.height = 'auto';
-      const newHeight = Math.min(this.scrollHeight, 120);
-      this.style.height = newHeight + 'px';
+      autoResizeMessageInput();
       // Keep overflow-y:scroll always (scrollbar hidden via CSS, not JS toggle)
       // iOS: recalculate layout whenever textarea height changes.
       // Double-rAF ensures we read offsetHeight AFTER the browser has fully

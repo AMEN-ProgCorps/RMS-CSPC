@@ -135,6 +135,15 @@ function dmBuildReplyQuoteHtml(?string $encryptedReplyMessage, string $replyType
     }
 
     if ($replyType === 'upload') {
+        $rawPayload = safeDecrypt($encryptedReplyMessage);
+        $decoded    = json_decode($rawPayload, true);
+        $file       = is_array($decoded) ? basename((string) ($decoded[0] ?? '')) : basename($rawPayload);
+        $ext        = strtolower(pathinfo($file, PATHINFO_EXTENSION));
+        $imageExts  = ['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp', 'svg'];
+        if (in_array($ext, $imageExts, true) && $file !== '') {
+            $fnUrl = htmlspecialchars('uploads/' . rawurlencode($file), ENT_QUOTES);
+            return "<div class='reply-quote reply-quote-image-container'><img src='{$fnUrl}' class='reply-quote-image' alt='' referrerpolicy='no-referrer'></div>";
+        }
         $snippet = '📎 Attachment';
     } else {
         $snippet = safeDecrypt($encryptedReplyMessage);
@@ -145,9 +154,9 @@ function dmBuildReplyQuoteHtml(?string $encryptedReplyMessage, string $replyType
         return '';
     }
     if (function_exists('mb_strlen') && mb_strlen($snippet) > 120) {
-        $snippet = mb_substr($snippet, 0, 120) . '…';
+        $snippet = mb_substr($snippet, 0, 120) . '...';
     } elseif (strlen($snippet) > 120) {
-        $snippet = substr($snippet, 0, 120) . '…';
+        $snippet = substr($snippet, 0, 120) . '...';
     }
 
     $snippetEsc = htmlspecialchars($snippet, ENT_QUOTES);

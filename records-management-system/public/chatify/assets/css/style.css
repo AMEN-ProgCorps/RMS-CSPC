@@ -1210,6 +1210,44 @@
       z-index: 2;
     }
 
+    /* ── Image reply-quote ─────────────────────────────────────────────────
+       When the quoted message is an image, show the actual thumbnail instead
+       of a plain "📎 Attachment" label. The real reply bubble overlaps the
+       bottom of the image thumbnail (same stacking trick as text quotes). */
+    .reply-quote.reply-quote-image-container {
+      padding: 4px;
+      background: transparent !important;
+      box-shadow: none !important;
+      opacity: 1 !important;
+      border-radius: 14px;
+      margin-bottom: -30px;
+      max-width: 200px;
+    }
+    .reply-quote-image {
+      display: block;
+      width: 100%;
+      max-width: 200px;
+      height: 100px;
+      object-fit: cover;
+      border-radius: 12px;
+      box-shadow: 0 2px 10px rgba(0,0,0,0.25);
+    }
+    /* Ensure the real message bubble sits on top of the image thumbnail */
+    .reply-quote-image-container + .message-bubble {
+      position: relative;
+      z-index: 2;
+    }
+    /* Reply banner thumbnail preview (shown above input when replying to image) */
+    #replyBannerSnippet img.reply-banner-img {
+      height: 36px;
+      width: 36px;
+      object-fit: cover;
+      border-radius: 5px;
+      vertical-align: middle;
+      margin-right: 5px;
+      box-shadow: 0 1px 4px rgba(0,0,0,0.18);
+    }
+
     /* Floating sending/upload overlay — positioned above the input area */
     #sending-overlay-container {
       position: absolute;

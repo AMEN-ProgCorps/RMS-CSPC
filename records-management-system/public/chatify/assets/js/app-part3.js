@@ -404,19 +404,31 @@
       return text.slice(0, max).trim() + '...';
     }
 
-    // Pulls the best available text out of a message row for quoting —
-    // falls back to a generic label for image/audio/file-only messages.
+    // Pulls the best available text out of a message row for quoting.
+    // For image messages, returns 'image:filename' so the rendered reply-quote
+    // in chat can show a thumbnail overlay, while the reply banner stays plain text.
     function getReplySnippet(container) {
       const contentEl = container.querySelector('.message-bubble .message-content');
       const text = contentEl ? (contentEl.dataset.fullText || contentEl.textContent || '').trim() : '';
       if (text) return text;
+      // Check for an image inside .message-media or .message-content
+      const img = container.querySelector('.message-media img.chat-viewable-image, .message-content img.chat-viewable-image');
+      if (img) {
+        const src = img.getAttribute('data-full-src') || img.getAttribute('src') || '';
+        const filename = src.split('/').filter(Boolean).pop();
+        if (filename) return 'image:' + filename;
+        return 'image:';
+      }
       if (container.querySelector('.message-media')) return 'Attachment';
       return '';
     }
 
     function showReplyBanner(snippet) {
       if (!replyBanner || !replyBannerSnippet) return;
-      replyBannerSnippet.textContent = truncateForReply(snippet, 60) || 'message';
+      // Image replies show 'Attachment' in the banner — the actual chat
+      // history will render the thumbnail overlay instead.
+      const displayText = (snippet && snippet.startsWith('image:')) ? 'Attachment' : snippet;
+      replyBannerSnippet.textContent = truncateForReply(displayText, 60) || 'message';
       replyBanner.classList.add('active');
     }
 
@@ -453,7 +465,8 @@
     let hoverReplyHideTimer = null;
 
     function positionHoverReplyBtn(container) {
-      const bubble = container.querySelector('.message-bubble');
+      // Match both text bubbles and image/audio media containers
+      const bubble = container.querySelector('.message-bubble, .message-media');
       if (!bubble) return;
       const rect = bubble.getBoundingClientRect();
       const isSent = container.classList.contains('sent');
@@ -587,6 +600,16 @@
         swipeIconEl.className = 'reply-swipe-icon';
         swipeIconEl.innerHTML = REPLY_ICON_SVG;
         swipeContainer.appendChild(swipeIconEl);
+
+        // For sent messages the bubble-wrapper starts near the left edge of the
+        // container. Position the icon just to the left of it so the arrow
+        // appears right beside the bubble rather than at the far container edge.
+        if (swipeContainer.classList.contains('sent') && swipeBubbleWrapEl) {
+          const cRect = swipeContainer.getBoundingClientRect();
+          const bRect = swipeBubbleWrapEl.getBoundingClientRect();
+          const iconLeft = bRect.left - cRect.left - 36;
+          swipeIconEl.style.left = Math.max(0, iconLeft) + 'px';
+        }
       }
 
       e.preventDefault(); // we own this gesture now — stop the page from scrolling
@@ -1853,9 +1876,15 @@
 
                 sendingBubble.className = 'message-container sent';
                 const emojiOnlyClass = isEmojiOnly(msgContent) ? ' emoji-only' : '';
-                const replyQuoteHtml = activeReply
-                  ? `<div class="reply-quote"><div class="reply-quote-text">${escapeHtml(truncateForReply(activeReply.snippet, 120))}</div></div>`
-                  : '';
+                const replyQuoteHtml = (() => {
+                  if (!activeReply) return '';
+                  if (activeReply.snippet && activeReply.snippet.startsWith('image:')) {
+                    const imgFile = activeReply.snippet.slice(6);
+                    const imgSrc  = 'uploads/' + imgFile;
+                    return `<div class="reply-quote reply-quote-image-container"><img src="${imgSrc.replace(/"/g, '&quot;')}" class="reply-quote-image" alt="" referrerpolicy="no-referrer"></div>`;
+                  }
+                  return `<div class="reply-quote"><div class="reply-quote-text">${escapeHtml(truncateForReply(activeReply.snippet, 120))}</div></div>`;
+                })();
                 sendingBubble.innerHTML = `
                   <div class="message-avatar">${avatarInnerHtml(wsConfig.avatarUrl, getInitials(name))}</div>
                   <div class="bubble-wrapper">
@@ -2085,8 +2114,13 @@
 
         const isChatOpenWithSender = (activeDM && activeDMAccountId === senderId);
         if (isChatOpenWithSender) {
+          // Use sender_name from the WS payload as a reliable fallback so the
+          // typing indicator never shows "User N" when allUsersData hasn't
+          // loaded yet or doesn't contain the sender.
           const senderUser = allUsersData.find(u => Number(u.account_id) === senderId);
-          const senderName = senderUser ? senderUser.full_name : `User ${senderId}`;
+          const senderName = (senderUser && senderUser.full_name)
+            ? senderUser.full_name
+            : (data.sender_name || `User ${senderId}`);
           showTypingIndicator(senderName, true);
         }
         updateSidebarPreviewState(senderId, previewText);

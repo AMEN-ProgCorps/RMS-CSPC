@@ -500,6 +500,7 @@ wss.on('connection', (ws) => {
         clients.set(ws, {
           accountId,
           name: name || `User ${account_id}`,
+          avatarUrl: data.avatar_url || null,
           authenticated: true,
           expires: parseInt(expires, 10) // re-checked continuously, see sweep below
         });
@@ -614,6 +615,7 @@ wss.on('connection', (ws) => {
         chat_type: chat_type || 'global',
         sender_id: state.accountId,
         sender_name: state.name,
+        sender_avatar: state.avatarUrl || null,
         recipient_id: recipient_id || null,
         msg_uuid: msg_uuid || null,
         message: message || '',
@@ -815,6 +817,7 @@ wss.on('connection', (ws) => {
         const payloadStr = JSON.stringify({
           type: 'typing_preview',
           sender_id: state.accountId,
+          sender_name: state.name,
           recipient_id: recipientId,
           preview: text
         });

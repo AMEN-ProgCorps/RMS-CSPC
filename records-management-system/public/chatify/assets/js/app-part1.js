@@ -145,6 +145,7 @@
           name: wsConfig.name,
           expires: wsConfig.expires,
           token: wsConfig.token,
+          avatar_url: wsConfig.avatarUrl || null,
           comm_settings: window.currentUserCommSettings
         }));
       };
@@ -170,7 +171,11 @@
       const senderUser = allUsersData.find(u => Number(u.account_id) === Number(msgData.sender_id));
       const displayName = msgData.sender_name || (senderUser ? (senderUser.full_name || senderUser.username) : (isSentByMe ? wsConfig.name : 'User'));
       const initials = getInitials(displayName);
-      const senderAvatarUrl = isSentByMe ? wsConfig.avatarUrl : (senderUser ? senderUser.avatar_url : null);
+      // Prefer the avatar embedded in the WS payload (sender_avatar), then fall back
+      // to allUsersData lookup so avatars show even before the sidebar has loaded.
+      const senderAvatarUrl = isSentByMe
+        ? wsConfig.avatarUrl
+        : (msgData.sender_avatar || (senderUser ? senderUser.avatar_url : null));
 
       let timeDisplay = '';
       if (msgData.created_at) {
@@ -200,9 +205,17 @@
         }
       }
 
-      const replyQuoteHtml = (msgData.reply_to_msg_uuid && replySnippetText)
-        ? `<div class="reply-quote"><div class="reply-quote-text">${escapeHtml(String(replySnippetText).slice(0, 120))}</div></div>`
-        : '';
+      // Build the reply-quote bubble: image thumbnail for image: snippets, plain text otherwise.
+      let replyQuoteHtml = '';
+      if (msgData.reply_to_msg_uuid && replySnippetText) {
+        if (String(replySnippetText).startsWith('image:')) {
+          const imgFile = String(replySnippetText).slice(6);
+          const imgSrc  = 'uploads/' + imgFile;
+          replyQuoteHtml = `<div class="reply-quote reply-quote-image-container"><img src="${escapeHtml(imgSrc)}" class="reply-quote-image" alt="" referrerpolicy="no-referrer"></div>`;
+        } else {
+          replyQuoteHtml = `<div class="reply-quote"><div class="reply-quote-text">${escapeHtml(String(replySnippetText).slice(0, 120))}</div></div>`;
+        }
+      }
 
       container.innerHTML = `
         <div class="message-avatar">${avatarInnerHtml(senderAvatarUrl, initials)}</div>
@@ -545,7 +558,14 @@
       maxLen = maxLen || 22;
       if (!name) return name;
       name = String(name).trim();
-      return name.length > maxLen ? name.slice(0, maxLen).trim() + '…' : name;
+      return name.length > maxLen ? name.slice(0, maxLen).trim() + '...' : name;
+    }
+
+    // Returns only the first word of a full name (e.g. "Juan Dela Cruz" -> "Juan").
+    // Used so the typing indicator shows "Juan is typing" rather than the full name.
+    function getFirstNameOnly(name) {
+      if (!name) return name;
+      return String(name).trim().split(/\s+/)[0] || String(name).trim();
     }
 
     function showTypingIndicator(senderName, isTyping) {
@@ -558,7 +578,8 @@
       }
 
       if (isTyping && activeDM) {
-        textEl.textContent = `${truncateTypingName(senderName)} is typing`;
+        // Show only the first name ("Juan" not "Juan Dela Cruz") and cap length
+        textEl.textContent = `${truncateTypingName(getFirstNameOnly(senderName))} is typing`;
         indicator.classList.add('active');
 
         // Auto-expire after 4 seconds as a safety cleanup

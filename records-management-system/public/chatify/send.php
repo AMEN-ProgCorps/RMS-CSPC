@@ -113,6 +113,8 @@ if (empty($errors)) {
         WsPush::broadcast('message', [
             'chat_type'         => 'global',
             'sender_id'         => $senderId,
+            'sender_name'       => $_SESSION['full_name'] ?? ($_SESSION['first_name'] ?? ''),
+            'sender_avatar'     => $_SESSION['avatar_url'] ?? null,
             'msg_uuid'          => $msgData['id'],
             'message'           => $message,
             'created_at'        => date('c'),

@@ -42,6 +42,7 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
     public string $actionNeeded = '';
     public string $activeAction = 'forwarded';
     public string $activeNotes = '';
+    public string $resubmitTarget = 'start'; // 'start' (Option A: Restart chain) or 'requestor' (Option B: Fast-Track to Requestor)
     public bool $editingAll = false;
     public bool $showFullConfiguredPath = false;
     public bool $showMoreDetails = false;
@@ -666,6 +667,7 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
         $this->emailAccess = '';
         $this->docPassword = '';
         $this->transactionFlow = '';
+        $this->resubmitTarget = 'start';
         $this->showCompletionConfirmModal = false;
         $this->showUploadModal = false;
         $this->uploadedFile = null;
@@ -1220,13 +1222,19 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
 
         if ($this->activeAction === 'For Revision') {
             // Returned for Revision
+            $updateTransData = [
+                'current_office' => $this->selectedTransaction->originated_from,
+                'sequence' => 1,
+                'status' => 'revision',
+            ];
+            if (\Illuminate\Support\Facades\Schema::hasColumn('dts_transactions', 'revision_requested_by_sequence')) {
+                $updateTransData['revision_requested_by_sequence'] = $this->selectedTransaction->sequence;
+                $updateTransData['revision_requested_by_office'] = $userOfficeCode;
+            }
+
             DB::table('dts_transactions')
                 ->where('transaction_id', $this->selectedTransactionId)
-                ->update([
-                    'current_office' => $this->selectedTransaction->originated_from,
-                    'sequence' => 1,
-                    'status' => 'revision',
-                ]);
+                ->update($updateTransData);
 
             // Reset subsequent steps and set first step as active again
             DB::table('dts_sequence_list')
@@ -1256,15 +1264,25 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
                 'type' => 'returned',
                 'date_in' => now(),
                 'date_out' => null,
-                'notes' => 'Returned for revision: ' . $this->activeNotes,
+                'notes' => 'Returned for revision from ' . $userOfficeCode . ': ' . $this->activeNotes,
                 'performed_by' => auth()->id(),
             ]);
 
         } else {
             // Forwarded/Completed logic
+            $targetSeqNum = $this->selectedTransaction->sequence + 1;
+            if ($this->selectedTransaction->status === 'revision') {
+                $reqSeq = $this->selectedTransaction->revision_requested_by_sequence ?? null;
+                if ($this->resubmitTarget === 'requestor' && $reqSeq && $reqSeq > 1) {
+                    $targetSeqNum = (int)$reqSeq;
+                } else {
+                    $targetSeqNum = 2; // Option A: Restart at next sequential step
+                }
+            }
+
             $nextSequence = DB::table('dts_sequence_list')
                 ->where('control_id', $flow->id)
-                ->where('sequence_ranking', $this->selectedTransaction->sequence + 1)
+                ->where('sequence_ranking', $targetSeqNum)
                 ->first();
 
             // Also update the sub_document_tracking_system_logs completion of current step
@@ -1296,18 +1314,24 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
                 }
 
                 // Route to next office
+                $updateTransData = [
+                    'current_office' => $destOfficeCode,
+                    'sequence' => $targetSeqNum,
+                    'status' => 'ongoing',
+                ];
+                if (\Illuminate\Support\Facades\Schema::hasColumn('dts_transactions', 'revision_requested_by_sequence')) {
+                    $updateTransData['revision_requested_by_sequence'] = null;
+                    $updateTransData['revision_requested_by_office'] = null;
+                }
+
                 DB::table('dts_transactions')
                     ->where('transaction_id', $this->selectedTransactionId)
-                    ->update([
-                        'current_office' => $destOfficeCode,
-                        'sequence' => $this->selectedTransaction->sequence + 1,
-                        'status' => 'ongoing',
-                    ]);
+                    ->update($updateTransData);
 
                 // Update next step in sequence list (date_in remains null until received at next office)
                 DB::table('dts_sequence_list')
                     ->where('control_id', $flow->id)
-                    ->where('sequence_ranking', $this->selectedTransaction->sequence + 1)
+                    ->where('sequence_ranking', $targetSeqNum)
                     ->update([
                         'date_in' => null,
                         'date_out' => null,
@@ -1316,14 +1340,18 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
                         'total_time_completed' => null,
                     ]);
 
-                // Create next pending log (date_in remains null until received at next office)
+                // Create next pending log
+                $logNote = ($this->selectedTransaction->status === 'revision')
+                    ? ($this->resubmitTarget === 'requestor' ? 'Resubmitted directly to ' : 'Resubmitted to ') . $destOfficeCode
+                    : 'Forwarded from ' . auth()->user()?->details?->office?->office_name;
+
                 DB::table('sub_document_tracking_system_logs')->insert([
                     'transaction_id' => $this->selectedTransactionId,
                     'office_code' => $destOfficeCode,
                     'type' => 'forwarded',
                     'date_in' => null,
                     'date_out' => null,
-                    'notes' => 'Forwarded from ' . auth()->user()?->details?->office?->office_name,
+                    'notes' => $logNote,
                     'performed_by' => auth()->id(),
                 ]);
 
@@ -1344,7 +1372,6 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
                 }
             } else {
                 // Flow sequence complete - keep transaction in Current Transactions for file upload
-                // User will explicitly finalize via Complete Transaction double-verification modal.
             }
         }
 
@@ -2603,9 +2630,10 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
                                         @php
                                             $isReceived = !is_null($step->date_in) || $selectedTransaction->status === 'completed';
                                             $isForwarded = !is_null($step->date_out) || $selectedTransaction->status === 'completed';
+                                            $isRevision = ($step->action_needed === 'Returned for Revision' || $step->action_needed === 'For Revision' || ($selectedTransaction->status === 'revision' && $index === 0));
 
-                                            $dotColor = $isReceived ? '#10b981' : '#dc2626';
-                                            $lineColor = $isForwarded ? '#10b981' : '#dc2626';
+                                            $dotColor = $isRevision ? '#2563eb' : ($isReceived ? '#10b981' : '#dc2626');
+                                            $lineColor = $isRevision ? '#3b82f6' : ($isForwarded ? '#10b981' : '#cbd5e1');
 
                                             $isCurrentOffice = $step->is_active_step && !is_null($step->date_in) && is_null($step->date_out) && $selectedTransaction->status !== 'completed';
                                             $isInTransitToThisOffice = $step->is_active_step && is_null($step->date_in) && $selectedTransaction->status !== 'completed';
@@ -2649,7 +2677,9 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
                                             <div class="dts-node-tooltip">
                                                 <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #334155; padding-bottom: 6px; margin-bottom: 6px;">
                                                     <span style="font-weight: 700; font-size: 12px; color: #38bdf8;">Step {{ $index + 1 }}: {{ $step->office_code }}</span>
-                                                    @if ($isReceived && $isForwarded)
+                                                    @if ($isRevision)
+                                                        <span style="background: #1e3a8a; color: #93c5fd; font-size: 10px; font-weight: 700; padding: 2px 6px; border-radius: 12px;">↺ Returned for Revision</span>
+                                                    @elseif ($isReceived && $isForwarded)
                                                         <span style="background: #166534; color: #4ade80; font-size: 10px; font-weight: 700; padding: 2px 6px; border-radius: 12px;">✓ Forwarded</span>
                                                     @elseif ($isReceived && !$isForwarded)
                                                         <span style="background: #1e3a8a; color: #60a5fa; font-size: 10px; font-weight: 700; padding: 2px 6px; border-radius: 12px;">📍 Received / Held</span>
@@ -2761,6 +2791,35 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
                                     </tbody>
                                 </table>
                             </div>
+
+                            @if ($selectedTransaction->status === 'revision' && $selectedTransaction->current_office === auth()->user()?->details?->office?->office_code)
+                                <div style="margin: 14px 0 16px 0; padding: 14px 16px; background: #eff6ff; border: 1.5px solid #3b82f6; border-radius: 10px; font-family: 'Inter', sans-serif;">
+                                    <div style="font-weight: 700; font-size: 13px; color: #1e40af; margin-bottom: 6px; display: flex; align-items: center; gap: 8px;">
+                                        <i class="fa-solid fa-arrow-rotate-left"></i> Resubmission Route for Revised Document
+                                    </div>
+                                    <div style="font-size: 12px; color: #334155; margin-bottom: 10px; line-height: 1.4;">
+                                        This document was returned for revision{{ !empty($selectedTransaction->revision_requested_by_office) ? ' by ' . $selectedTransaction->revision_requested_by_office : '' }}. Select how to proceed upon forwarding:
+                                    </div>
+                                    <div style="display: flex; flex-direction: column; gap: 10px;">
+                                        <label style="display: flex; align-items: flex-start; gap: 10px; font-size: 12.5px; color: #1e293b; cursor: pointer; padding: 8px 10px; border-radius: 8px; background: #ffffff; border: 1px solid #cbd5e1; transition: border-color 0.15s;">
+                                            <input type="radio" wire:model="resubmitTarget" value="start" style="margin-top: 2px; accent-color: #2563eb;">
+                                            <div>
+                                                <strong style="color: #0f172a;">Option A: Restart Approval Chain</strong>
+                                                <div style="font-size: 11px; color: #64748b; margin-top: 2px;">Resubmit sequentially to the next office in the approval chain (e.g. VP).</div>
+                                            </div>
+                                        </label>
+                                        @if (!empty($selectedTransaction->revision_requested_by_sequence) && $selectedTransaction->revision_requested_by_sequence > 1)
+                                            <label style="display: flex; align-items: flex-start; gap: 10px; font-size: 12.5px; color: #1e293b; cursor: pointer; padding: 8px 10px; border-radius: 8px; background: #ffffff; border: 1px solid #cbd5e1; transition: border-color 0.15s;">
+                                                <input type="radio" wire:model="resubmitTarget" value="requestor" style="margin-top: 2px; accent-color: #2563eb;">
+                                                <div>
+                                                    <strong style="color: #2563eb;">Option B: Fast-Track to Revision Requestor</strong>
+                                                    <div style="font-size: 11px; color: #64748b; margin-top: 2px;">Bypass prior steps and send directly back to {{ $selectedTransaction->revision_requested_by_office ?? 'Revision Requestor' }}.</div>
+                                                </div>
+                                            </label>
+                                        @endif
+                                    </div>
+                                </div>
+                            @endif
                         @endif
                     @endif
 

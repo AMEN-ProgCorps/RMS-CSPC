@@ -728,7 +728,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Offices & Clusters')] cl
                     ->update(['is_active' => false]);
 
                 \DB::table('admin_logs')->insert([
-                    'changes' => "Bulk soft-deleted " . $offices->count() . " office(s) (Deactivated for transparency): {$names}",
+                    'changes' => \Str::limit("Bulk soft-deleted " . $offices->count() . " office(s): {$names}", 245),
                     'admin_id' => auth()->id(),
                     'what_system' => 3,
                     'when_changes' => now(),
@@ -1014,7 +1014,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Offices & Clusters')] cl
                     ->update(['is_active' => false]);
 
                 \DB::table('admin_logs')->insert([
-                    'changes' => "Bulk soft-deleted " . $clusters->count() . " cluster(s) (Deactivated for transparency): {$names}",
+                    'changes' => \Str::limit("Bulk soft-deleted " . $clusters->count() . " cluster(s): {$names}", 245),
                     'admin_id' => auth()->id(),
                     'what_system' => 3,
                     'when_changes' => now(),

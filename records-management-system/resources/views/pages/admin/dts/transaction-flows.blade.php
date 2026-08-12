@@ -475,9 +475,24 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - DTS Transaction Flows')]
         if (empty($this->selectedCustomFlowIds)) return;
 
         try {
-            \DB::table('dts_transaction_flow')
-                ->whereIn('id', $this->selectedCustomFlowIds)
-                ->update(['is_active' => false]);
+            \DB::transaction(function () {
+                $flows = \DB::table('dts_transaction_flow')
+                    ->whereIn('id', $this->selectedCustomFlowIds)
+                    ->get();
+
+                $names = $flows->pluck('flow_name')->implode(', ');
+
+                \DB::table('dts_transaction_flow')
+                    ->whereIn('id', $this->selectedCustomFlowIds)
+                    ->update(['is_active' => false]);
+
+                \DB::table('admin_logs')->insert([
+                    'changes' => \Str::limit("Bulk soft-deleted " . $flows->count() . " custom transaction flow(s): {$names}", 245),
+                    'admin_id' => auth()->id(),
+                    'what_system' => 3,
+                    'when_changes' => now(),
+                ]);
+            });
 
             $count = count($this->selectedCustomFlowIds);
             $this->successMessage = "Successfully deactivated {$count} custom flow(s).";
@@ -904,7 +919,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - DTS Transaction Flows')]
                     ->update(['is_active' => false]);
 
                 \DB::table('admin_logs')->insert([
-                    'changes' => "Bulk soft-deleted " . $flows->count() . " predefined transaction flow(s) (Deactivated for transparency): {$names}",
+                    'changes' => \Str::limit("Bulk soft-deleted " . $flows->count() . " predefined transaction flow(s): {$names}", 245),
                     'admin_id' => auth()->id(),
                     'what_system' => 3,
                     'when_changes' => now(),
@@ -1533,7 +1548,28 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - DTS Transaction Flows')]
                     <div style="display: flex; align-items: center; justify-content: space-between; padding: 8px 12px; background: #fff1f2; border: 1px solid #fecdd3; border-radius: 8px; margin-bottom: 8px;">
                         <span style="font-size: 12px; font-weight: 600; color: #be123c;">{{ count($selectedFlowIds) }} selected</span>
                         <button type="button" x-data
-                            x-on:click="if(confirm('Are you sure you want to deactivate {{ count($selectedFlowIds) }} flow(s)? They will be soft-deleted (hidden) but retained for transparency.')) { $el.disabled = true; $el.querySelector('.btn-idle').style.display = 'none'; $el.querySelector('.btn-loading').style.display = 'inline-flex'; $wire.bulkDeleteFlows(); }"
+                            x-on:click="
+                                console.log('[DEBUG] Button clicked');
+                                console.log('[DEBUG] $wire available:', typeof $wire);
+                                console.log('[DEBUG] $wire object:', $wire);
+                                console.log('[DEBUG] $el:', $el);
+                                let confirmed = confirm('Are you sure you want to deactivate {{ count($selectedFlowIds) }} flow(s)? They will be soft-deleted (hidden) but retained for transparency.');
+                                console.log('[DEBUG] Confirm result:', confirmed);
+                                if(confirmed) {
+                                    console.log('[DEBUG] User confirmed, calling bulkDeleteFlows...');
+                                    $el.disabled = true;
+                                    $el.querySelector('.btn-idle').style.display = 'none';
+                                    $el.querySelector('.btn-loading').style.display = 'inline-flex';
+                                    try {
+                                        $wire.bulkDeleteFlows();
+                                        console.log('[DEBUG] $wire.bulkDeleteFlows() called successfully');
+                                    } catch(e) {
+                                        console.error('[DEBUG] Error calling bulkDeleteFlows:', e);
+                                    }
+                                } else {
+                                    console.log('[DEBUG] User cancelled');
+                                }
+                            "
                             style="background: #e11d48; color: #fff; border: none; padding: 5px 12px; border-radius: 6px; font-size: 11px; font-weight: 600; cursor: pointer; font-family: 'Inter', sans-serif;">
                             <span class="btn-idle" style="display: inline-flex; align-items: center; gap: 4px;"><i class="fa-solid fa-trash-can"></i> Delete Selected</span>
                             <span class="btn-loading" style="display: none; align-items: center; gap: 5px;"><i class="fa-solid fa-circle-notch fa-spin"></i> Deactivating {{ count($selectedFlowIds) }} flow(s)...</span>

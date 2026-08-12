@@ -417,50 +417,78 @@
         } else if (data.type === 'chat_cleared') {
           console.log('Received WebSocket real-time update notice:', data);
 
-          // Immediately remove the cleared conversation from the sidebar
-          // in-memory list so the entry disappears before fetchUsers() returns.
           const _ca = Number(data.user_a);
           const _cb = Number(data.user_b);
+          const _senderId    = Number(data.sender_id    || 0);
+          const _recipientId = Number(data.recipient_id || 0);
+          const myId = wsConfig.accountId;
+
+          // Determine the partner account ID from whatever fields are present.
+          // Primary: user_a / user_b pair. Fallback: sender_id / recipient_id.
+          let _partnerId = null;
           if (_ca > 0 && _cb > 0) {
-            const myId = wsConfig.accountId;
-            // partnerId is whoever the other person is in the pair
-            const partnerId = (_ca === myId) ? _cb : (_cb === myId) ? _ca : null;
-            if (partnerId !== null) {
-              const idx = allUsersData.findIndex(u => Number(u.account_id) === partnerId);
-              if (idx !== -1) {
-                allUsersData.splice(idx, 1);
-                renderSidebarUsers();
-              }
+            _partnerId = (_ca === myId) ? _cb : (_cb === myId) ? _ca : null;
+          }
+          if (_partnerId === null && (_senderId > 0 || _recipientId > 0)) {
+            _partnerId = (_senderId === myId) ? _recipientId
+                       : (_recipientId === myId) ? _senderId
+                       : (_senderId > 0 ? _senderId : _recipientId);
+          }
+
+          // ── 1. Immediately strip the cleared entry from the sidebar ──────────
+          if (_partnerId !== null && _partnerId > 0) {
+            const idx = allUsersData.findIndex(u => Number(u.account_id) === _partnerId);
+            if (idx !== -1) {
+              allUsersData.splice(idx, 1);
+              renderSidebarUsers();
             }
           }
 
-          if (data.chat_type === 'private') {
-            const a = Number(data.user_a);
-            const b = Number(data.user_b);
-            if (activeDM && activeDMAccountId && ((a === wsConfig.accountId && b === activeDMAccountId) || (b === wsConfig.accountId && a === activeDMAccountId))) {
-              resetToHome();
-            }
-            if (activeAdminConv) {
+          // ── 2. If the user is currently viewing this conversation, wipe the
+          //       chat pane immediately — don't wait for resetToHome()'s async
+          //       fetchUsers() to repaint. Abort any in-flight load_dm.php XHR
+          //       so stale messages can't come back over the top. ───────────────
+          const _currentDMIsCleared =
+            activeDM && (
+              // Match by account-ID pair (most reliable)
+              (_ca > 0 && _cb > 0 && activeDMAccountId &&
+                ((_ca === myId && _cb === activeDMAccountId) ||
+                 (_cb === myId && _ca === activeDMAccountId))) ||
+              // Fallback 1: sender/recipient ID matches
+              (_partnerId !== null && activeDMAccountId === _partnerId) ||
+              // Fallback 2: username match via allUsersData lookup
+              (_partnerId !== null && (() => {
+                const partnerUser = allUsersData.find(u => Number(u.account_id) === Number(_partnerId));
+                return partnerUser && partnerUser.username === activeDM;
+              })())
+            );
+
+          const _currentAdminConvIsCleared =
+            activeAdminConv && _ca > 0 && _cb > 0 && (() => {
               const parts = activeAdminConv.split('_').map(Number);
-              if ((parts[0] === a && parts[1] === b) || (parts[0] === b && parts[1] === a)) {
-                resetToHome();
-              }
+              return (parts[0] === _ca && parts[1] === _cb) ||
+                     (parts[0] === _cb && parts[1] === _ca);
+            })();
+
+          if (_currentDMIsCleared || _currentAdminConvIsCleared) {
+            // Abort any in-flight chat XHR immediately so it can't overwrite
+            if (typeof chatXhr !== 'undefined' && chatXhr) {
+              chatXhr.abort();
+              chatXhr = null;
             }
-          } else if (data.chat_type === 'admin_conv') {
-            const a = Number(data.user_a);
-            const b = Number(data.user_b);
-            if (activeAdminConv) {
-              const parts = activeAdminConv.split('_').map(Number);
-              if ((parts[0] === a && parts[1] === b) || (parts[0] === b && parts[1] === a)) {
-                resetToHome();
-              }
+            if (typeof adminConvXhr !== 'undefined' && adminConvXhr) {
+              adminConvXhr.abort();
+              adminConvXhr = null;
             }
-            if (activeDM && activeDMAccountId && ((a === wsConfig.accountId && b === activeDMAccountId) || (b === wsConfig.accountId && a === activeDMAccountId))) {
-              resetToHome();
+            // Wipe the pane now — resetToHome() will confirm it, but this
+            // makes the clear visually instant without waiting for XHR round-trips.
+            if (chatBox) {
+              chatBox.innerHTML = '<div class="empty-chat"><p>Camarines Sur Polytechnic Colleges</p></div>';
             }
+            resetToHome();
           }
-          // Admin spy mode: keep the "X msgs · last message" counts in the
-          // conversations list live when a conversation is cleared.
+
+          // ── 3. Admin spy mode counts ────────────────────────────────────────
           if (isAdminAllChatsView && adminSpyType === 'conversations' && adminSpyTargetUser) {
             const spyId = Number(adminSpyTargetUser.account_id);
             let touchesSpyTarget = false;
@@ -599,8 +627,8 @@
       }
 
       if (isTyping && activeDM) {
-        // Show only the first name ("Juan" not "Juan Dela Cruz") and cap length
-        textEl.textContent = `${truncateTypingName(getFirstNameOnly(senderName))} is typing`;
+        // Show full name (First Name and Last Name) and cap length
+        textEl.textContent = `${truncateTypingName(senderName, 40)} is typing`;
         indicator.classList.add('active');
 
         // Auto-expire after 4 seconds as a safety cleanup

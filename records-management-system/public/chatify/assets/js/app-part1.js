@@ -483,7 +483,7 @@
             // Wipe the pane now — resetToHome() will confirm it, but this
             // makes the clear visually instant without waiting for XHR round-trips.
             if (chatBox) {
-              chatBox.innerHTML = '<div class="empty-chat"><p>Camarines Sur Polytechnic Colleges</p></div>';
+              chatBox.innerHTML = '<div class="empty-chat"><p>Hello</p></div>';
             }
             resetToHome();
           }
@@ -747,7 +747,7 @@
           return;
         }
         // User genuinely not in the list — show empty state
-        chatBox.innerHTML = '<div class="empty-chat"><p>Camarines Sur Polytechnic Colleges</p></div>';
+        chatBox.innerHTML = '<div class="empty-chat"><p>Hello</p></div>';
         return;
       }
 
@@ -761,7 +761,7 @@
         if (savedActiveDM) {
           restoreActiveConversation(savedActiveDM);
         } else {
-          chatBox.innerHTML = '<div class="empty-chat"><p>Camarines Sur Polytechnic Colleges</p></div>';
+          chatBox.innerHTML = '<div class="empty-chat"><p>Hello</p></div>';
         }
       }
     }
@@ -807,7 +807,7 @@
         // The saved conversation partner no longer exists / isn't reachable
         // anymore — don't keep pointing at a chat we can't reopen.
         localStorage.removeItem('activeDM');
-        chatBox.innerHTML = '<div class="empty-chat"><p>Camarines Sur Polytechnic Colleges</p></div>';
+        chatBox.innerHTML = '<div class="empty-chat"><p>Hello</p></div>';
       }
     }
 
@@ -2250,7 +2250,7 @@
       }
 
       if (chatBox) {
-        chatBox.innerHTML = '<div class="empty-chat"><p>Camarines Sur Polytechnic Colleges</p></div>';
+        chatBox.innerHTML = '<div class="empty-chat"><p>Hello</p></div>';
       }
       const gcItem = document.getElementById('globalChatItem');
       if (gcItem) gcItem.classList.remove('active');

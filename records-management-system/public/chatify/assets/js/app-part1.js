@@ -1362,6 +1362,12 @@
       activeDM = u.username;
       activeDMAccountId = Number(u.account_id);
       activeAdminConv = null;
+
+      // Ensure the selected user is in allUsersData so avatar lookups work
+      // immediately on new chats where this person hasn't been loaded yet.
+      if (!allUsersData.find(function(x) { return Number(x.account_id) === Number(u.account_id); })) {
+        allUsersData.unshift(u);
+      }
       updateClearChatButtonVisibility();
       dmCursor = '';
       dmHasMore = false;

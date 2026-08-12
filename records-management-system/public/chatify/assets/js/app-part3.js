@@ -585,13 +585,17 @@
 
       const dx = e.touches[0].clientX - swipeStartX;
       const dy = e.touches[0].clientY - swipeStartY;
+      const isSent = swipeContainer.classList.contains('sent');
 
       if (!swipeLocked) {
-        // Not committed yet — wait until the gesture is clearly horizontal
-        // before hijacking it, so normal vertical scrolling never breaks.
+        // Wait until gesture is clearly horizontal before claiming it
         if (Math.abs(dx) < 10 && Math.abs(dy) < 10) return;
-        if (Math.abs(dy) >= Math.abs(dx) || dx <= 0) {
-          swipeRejected = true; // vertical scroll or leftward drag — let the browser handle it
+
+        // For received messages: only allow right swipe (dx > 0)
+        // For sent messages:     only allow left  swipe (dx < 0)
+        const wrongDirection = isSent ? dx >= 0 : dx <= 0;
+        if (Math.abs(dy) >= Math.abs(dx) || wrongDirection) {
+          swipeRejected = true;
           return;
         }
         swipeLocked = true;
@@ -601,23 +605,36 @@
         swipeIconEl.innerHTML = REPLY_ICON_SVG;
         swipeContainer.appendChild(swipeIconEl);
 
-        // For sent messages the bubble-wrapper starts near the left edge of the
-        // container. Position the icon just to the left of it so the arrow
-        // appears right beside the bubble rather than at the far container edge.
-        if (swipeContainer.classList.contains('sent') && swipeBubbleWrapEl) {
-          const cRect = swipeContainer.getBoundingClientRect();
-          const bRect = swipeBubbleWrapEl.getBoundingClientRect();
-          const iconLeft = bRect.left - cRect.left - 36;
-          swipeIconEl.style.left = Math.max(0, iconLeft) + 'px';
+        if (isSent) {
+          // Sent messages: avatar is on the RIGHT side.
+          // Position the icon just to the left of the avatar so it appears
+          // right beside the sender's profile picture as the user drags left.
+          const avatarEl = swipeContainer.querySelector('.message-avatar');
+          if (avatarEl) {
+            const cRect = swipeContainer.getBoundingClientRect();
+            const aRect = avatarEl.getBoundingClientRect();
+            const iconRight = cRect.right - aRect.left + 4;
+            swipeIconEl.style.left  = 'auto';
+            swipeIconEl.style.right = iconRight + 'px';
+          } else {
+            swipeIconEl.style.left  = 'auto';
+            swipeIconEl.style.right = '6px';
+          }
         }
+        // For received messages the default left: 6px (from CSS) is correct
       }
 
-      e.preventDefault(); // we own this gesture now — stop the page from scrolling
-      swipeDx = Math.max(0, Math.min(dx, SWIPE_REPLY_MAX_PX));
+      e.preventDefault(); // we own the gesture — stop the page from scrolling
 
-      const progress = swipeDx / SWIPE_REPLY_MAX_PX;
-      if (swipeAvatarEl) swipeAvatarEl.style.transform = 'translateX(' + swipeDx + 'px)';
-      if (swipeBubbleWrapEl) swipeBubbleWrapEl.style.transform = 'translateX(' + swipeDx + 'px)';
+      // Magnitude of drag, capped at max travel
+      const absDx = Math.min(Math.abs(dx), SWIPE_REPLY_MAX_PX);
+      swipeDx = absDx; // stored as positive magnitude for trigger comparison
+
+      const progress = absDx / SWIPE_REPLY_MAX_PX;
+      // Apply translation in the correct direction
+      const translate = isSent ? -absDx : absDx;
+      if (swipeAvatarEl) swipeAvatarEl.style.transform = 'translateX(' + translate + 'px)';
+      if (swipeBubbleWrapEl) swipeBubbleWrapEl.style.transform = 'translateX(' + translate + 'px)';
       if (swipeIconEl) {
         swipeIconEl.style.opacity = String(progress);
         swipeIconEl.style.transform = 'translateY(-50%) scale(' + (0.6 + 0.4 * progress) + ')';

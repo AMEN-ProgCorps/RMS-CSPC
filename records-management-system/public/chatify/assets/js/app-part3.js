@@ -617,23 +617,31 @@
         swipeIconEl.innerHTML = REPLY_ICON_SVG;
         swipeContainer.appendChild(swipeIconEl);
 
-        if (isSent) {
-          // Sent messages: avatar is on the RIGHT side.
-          // Position the icon just to the left of the avatar so it appears
-          // right beside the sender's profile picture as the user drags left.
-          const avatarEl = swipeContainer.querySelector('.message-avatar');
-          if (avatarEl) {
-            const cRect = swipeContainer.getBoundingClientRect();
-            const aRect = avatarEl.getBoundingClientRect();
-            const iconRight = cRect.right - aRect.left + 4;
+        // Position the icon so it lines up with the outer edge of the
+        // sender/receiver's profile picture — computed dynamically from
+        // the avatar's actual position so both swipe directions
+        // (received: left-to-right, sent/self-reply: right-to-left)
+        // reveal the arrow at the exact same spot relative to the avatar.
+        const avatarEl = swipeContainer.querySelector('.message-avatar');
+        if (avatarEl) {
+          const cRect = swipeContainer.getBoundingClientRect();
+          const aRect = avatarEl.getBoundingClientRect();
+          if (isSent) {
+            // Avatar sits on the right; align icon to the avatar's outer
+            // (right) edge, i.e. the same gap the avatar itself has from
+            // the container's right edge.
+            const iconRight = Math.max(cRect.right - aRect.right, 0);
             swipeIconEl.style.left  = 'auto';
             swipeIconEl.style.right = iconRight + 'px';
           } else {
-            swipeIconEl.style.left  = 'auto';
-            swipeIconEl.style.right = '6px';
+            // Avatar sits on the left; align icon to the avatar's outer
+            // (left) edge, i.e. the same gap the avatar itself has from
+            // the container's left edge.
+            const iconLeft = Math.max(aRect.left - cRect.left, 0);
+            swipeIconEl.style.right = 'auto';
+            swipeIconEl.style.left  = iconLeft + 'px';
           }
         }
-        // For received messages the default left: 6px (from CSS) is correct
       }
 
       e.preventDefault(); // we own the gesture — stop the page from scrolling

@@ -32,10 +32,12 @@ $secret    = trim($_POST['secret'] ?? '');
 $isGlobal  = !empty($_POST['global']);
 
 // ── Global Chat clear ("/clear" while Super Admin is viewing Global Chat) ──
-// Separate, simpler path: no conv_id/target resolution needed. Reuses the
-// existing GlobalChatManager::clearChat() (a hard delete of every global
-// message — and its uploaded files — that was already written but never
-// wired up to an endpoint).
+// Separate, simpler path: no conv_id/target resolution needed. Same
+// soft-clear contract as the DM branch below: this ONLY flips affected
+// chat_messages rows to status='inactive'. Nothing is deleted here — the
+// rows (and their uploaded files) stay put until the separate "/backup"
+// command explicitly moves them into chatify_chat_backup
+// (ConversationManager::backupGlobal(), see backup_dm.php).
 if ($isGlobal) {
     if (empty($secret)) {
         http_response_code(403);
@@ -47,7 +49,7 @@ if ($isGlobal) {
     }
 
     $hadMessages = GlobalChatManager::countRaw() > 0;
-    GlobalChatManager::clearChat(UPLOADS_DIR);
+    GlobalChatManager::softClearChat();
 
     if ($hadMessages) {
         // System-wide broadcast — every connected client (not just two
@@ -62,7 +64,7 @@ if ($isGlobal) {
 
     ChatAuditLogger::log($myAccountId, 'clear_chat', 'global', [
         'is_admin'   => true,
-        'soft_clear' => false,
+        'soft_clear' => true,
         'conv_id'    => 'global',
     ]);
     exit;

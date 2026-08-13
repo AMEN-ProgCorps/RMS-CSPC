@@ -52,10 +52,10 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Backup & Recovery Manage
             ],
             'offices' => [
                 'name' => 'Offices & Organizational Structure',
-                'description' => 'Campus offices, units & cluster head assignments',
+                'description' => 'Campus offices, units, external source offices & cluster head assignments',
                 'icon' => 'fa-solid fa-building-columns',
                 'color' => '#0891b2',
-                'tables' => ['office', 'cluster_head'],
+                'tables' => ['office', 'dts_source_office', 'cluster_head'],
             ],
             'roles' => [
                 'name' => 'Roles, Clearances & System Settings',
@@ -494,6 +494,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Backup & Recovery Manage
             'system_settings' => 5,
             'personal_settings' => 6,
             'office' => 7,
+            'dts_source_office' => 7,
             'cluster' => 8,
             'security_status' => 9,
             'sub_document_tracking_system_logs_types' => 10,

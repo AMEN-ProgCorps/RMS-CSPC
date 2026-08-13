@@ -757,6 +757,14 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create Applicat
                 'referenced_flow' => $flow ? ('REF-' . (str_starts_with($flow->flow_code, 'FLOW-PREDEFINED') || str_starts_with($flow->flow_code, 'PREDEFINED') ? 'PREDEFINED' : 'CUSTOM') . '-' . $flow->id) : null,
             ]);
 
+            $autoFwdSetting = DB::table('system_settings')->where('key', 'dts_auto_forward_created_transaction')->value('value');
+            $shouldAutoForward = ($autoFwdSetting !== 'false') && (count($resolvedOffices) > 1);
+
+            $originOfficeCode = $this->unit_college;
+            $nextOfficeCode = $resolvedOffices[1] ?? $originOfficeCode;
+            $currentOffice = $shouldAutoForward ? $nextOfficeCode : ($resolvedOffices[0] ?? $originOfficeCode);
+            $initialSequence = $shouldAutoForward ? 2 : 1;
+
             foreach ($this->flow_offices as $rank => $officeCode) {
                 $toSave = $officeCode;
                 if ($officeCode === $originOfficeCode) {
@@ -770,14 +778,13 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create Applicat
                     'sequence_ranking' => $rank + 1,
                     'office_code' => $toSave,
                     'date_in' => ($rank === 0) ? now() : null,
-                    'date_out' => null,
+                    'date_out' => ($rank === 0 && $shouldAutoForward) ? now() : null,
                     'action_needed' => ($rank === 0) ? 'Created' : null,
-                    'note' => ($rank === 0) ? 'Created application letter transaction' : null,
+                    'note' => ($rank === 0) ? ($shouldAutoForward ? 'Created & auto-forwarded transaction' : 'Created application letter transaction') : null,
                     'total_time_completed' => null,
                 ]);
             }
 
-            $currentOffice = $resolvedOffices[0] ?? $this->unit_college;
             $qrCodeId = $this->generatedQrCode;
             $docDir = null;
             $transactionId = 'TRANS-' . strtoupper(Str::random(10));
@@ -791,7 +798,7 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create Applicat
                 'qr_code' => $qrCodeId,
                 'current_office' => $currentOffice,
                 'status' => 'ongoing',
-                'sequence' => 1,
+                'sequence' => $initialSequence,
             ]);
 
             $copyFilledId = null;
@@ -863,22 +870,54 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create Applicat
                 'copy_filled_id' => $copyFilledId ?: null,
             ]);
 
-            // Initial tracking log
-            DB::table('sub_document_tracking_system_logs')->insert([
-                'transaction_id' => $transactionId,
-                'office_code' => $this->unit_college,
-                'type' => 'received',
-                'date_in' => now(),
-                'date_out' => null,
-                'notes' => 'Application document transaction created',
-                'performed_by' => auth()->id(),
-            ]);
+            if ($shouldAutoForward) {
+                $originOfficeName = DB::table('office')->where('office_code', $originOfficeCode)->value('office_name') ?: $originOfficeCode;
+
+                // Step 1 log: Completed/Forwarded at origin
+                DB::table('sub_document_tracking_system_logs')->insert([
+                    'transaction_id' => $transactionId,
+                    'office_code' => $originOfficeCode,
+                    'type' => 'received',
+                    'date_in' => now(),
+                    'date_out' => now(),
+                    'notes' => 'Application document transaction created & auto-forwarded',
+                    'performed_by' => auth()->id(),
+                ]);
+
+                // Step 2 log: Pending forwarding log at target destination office
+                DB::table('sub_document_tracking_system_logs')->insert([
+                    'transaction_id' => $transactionId,
+                    'office_code' => $nextOfficeCode,
+                    'type' => 'forwarded',
+                    'date_in' => null,
+                    'date_out' => null,
+                    'notes' => 'Forwarded from ' . $originOfficeName,
+                    'performed_by' => auth()->id(),
+                ]);
+            } else {
+                // Initial tracking log at origin waiting to be forwarded
+                DB::table('sub_document_tracking_system_logs')->insert([
+                    'transaction_id' => $transactionId,
+                    'office_code' => $this->unit_college,
+                    'type' => 'received',
+                    'date_in' => now(),
+                    'date_out' => null,
+                    'notes' => 'Application document transaction created',
+                    'performed_by' => auth()->id(),
+                ]);
+            }
 
             DB::commit();
 
-            // Notify target office that transaction is waiting to be received
-            if (!empty($currentOffice)) {
+            // Notifications
+            if ($shouldAutoForward) {
                 \App\Services\DtsNotificationService::notifyWaitingToBeReceived($currentOffice, $controlNumber, $transactionId);
+                $userFirstName = auth()->user()?->details?->first_name ?: (auth()->user()?->username ?: 'User');
+                \App\Services\DtsNotificationService::notifyForwarded($originOfficeCode, $userFirstName, $controlNumber, $transactionId);
+            } else {
+                if (!empty($currentOffice)) {
+                    \App\Services\DtsNotificationService::notifyWaitingToBeReceived($currentOffice, $controlNumber, $transactionId);
+                }
             }
 
             // Save summary for modal

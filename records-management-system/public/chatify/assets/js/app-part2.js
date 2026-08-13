@@ -58,7 +58,7 @@
           applyHeaderAdminBadge(); // activeDMAccountId is null here — clears any leftover badge from the previous DM
           applyHeaderAvatar(null);
           removePaginationBtn();
-          chatBox.innerHTML = '<div class="empty-chat"><p>Hello</p></div>';
+          chatBox.innerHTML = '<div class="empty-chat"><p>Camarines Sur Polytechnic Colleges</p></div>';
 
           isAdminAllChatsView = true;
           localStorage.setItem('__adminAllChatsView__', '1');
@@ -127,7 +127,7 @@
             applyHeaderAdminBadge(); // activeDMAccountId is null here — clears any leftover badge
             applyHeaderAvatar(null);
             removePaginationBtn();
-            chatBox.innerHTML = '<div class="empty-chat"><p>Hello</p></div>';
+            chatBox.innerHTML = '<div class="empty-chat"><p>Camarines Sur Polytechnic Colleges</p></div>';
           }
 
           // Clean up pre-spy state

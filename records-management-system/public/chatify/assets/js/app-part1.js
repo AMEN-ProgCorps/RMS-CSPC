@@ -431,7 +431,7 @@
             // on screen even though the message pane behind it is empty.
             if (typeof closeImageViewer === 'function') closeImageViewer();
             if (isGlobalChat) {
-              if (chatBox) chatBox.innerHTML = '<div class="empty-chat"><p>Hello</p></div>';
+              if (chatBox) chatBox.innerHTML = '<div class="empty-chat"><p>Camarines Sur Polytechnic Colleges</p></div>';
               isFirstLoad = true;
               chatFullyLoaded = false;
               loadGlobalChat(false, false);
@@ -506,7 +506,7 @@
             // Wipe the pane now — resetToHome() will confirm it, but this
             // makes the clear visually instant without waiting for XHR round-trips.
             if (chatBox) {
-              chatBox.innerHTML = '<div class="empty-chat"><p>Hello</p></div>';
+              chatBox.innerHTML = '<div class="empty-chat"><p>Camarines Sur Polytechnic Colleges</p></div>';
             }
             resetToHome();
           }
@@ -770,7 +770,7 @@
           return;
         }
         // User genuinely not in the list — show empty state
-        chatBox.innerHTML = '<div class="empty-chat"><p>Hello</p></div>';
+        chatBox.innerHTML = '<div class="empty-chat"><p>Camarines Sur Polytechnic Colleges</p></div>';
         return;
       }
 
@@ -784,7 +784,7 @@
         if (savedActiveDM) {
           restoreActiveConversation(savedActiveDM);
         } else {
-          chatBox.innerHTML = '<div class="empty-chat"><p>Hello</p></div>';
+          chatBox.innerHTML = '<div class="empty-chat"><p>Camarines Sur Polytechnic Colleges</p></div>';
         }
       }
     }
@@ -830,7 +830,7 @@
         // The saved conversation partner no longer exists / isn't reachable
         // anymore — don't keep pointing at a chat we can't reopen.
         localStorage.removeItem('activeDM');
-        chatBox.innerHTML = '<div class="empty-chat"><p>Hello</p></div>';
+        chatBox.innerHTML = '<div class="empty-chat"><p>Camarines Sur Polytechnic Colleges</p></div>';
       }
     }
 
@@ -2254,7 +2254,7 @@
 
       // Reset header to default home state
       if (chatHeaderTitle) {
-        chatHeaderTitle.textContent = "Camarines Sur Polytechnic Colleges";
+        chatHeaderTitle.textContent = '';
       }
       if (typeof applyHeaderAvatar === 'function') {
         applyHeaderAvatar(null);
@@ -2273,7 +2273,7 @@
       }
 
       if (chatBox) {
-        chatBox.innerHTML = '<div class="empty-chat"><p>Hello</p></div>';
+        chatBox.innerHTML = '<div class="empty-chat"><p>Camarines Sur Polytechnic Colleges</p></div>';
       }
       const gcItem = document.getElementById('globalChatItem');
       if (gcItem) gcItem.classList.remove('active');

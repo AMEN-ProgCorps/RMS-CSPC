@@ -2248,7 +2248,19 @@
             }
           }
 
-          // Broadcast notification via WebSocket so other clients patch DOM
+          // Broadcast notification via WebSocket so other clients patch DOM.
+          // NOTE: only 'message_edited' is sent manually here — a plain new
+          // 'message' is NOT re-broadcast from the client anymore. send.php /
+          // send_dm.php already push an authoritative WS 'message' event
+          // server-side (via WsPush) right after the DB insert succeeds, and
+          // that push reaches the same audience (recipient, sender's other
+          // tabs, admin spy). Re-sending an identical 'message' event here on
+          // top of that authoritative push made every text/DM send arrive
+          // twice for the recipient, doubling the sidebar's unread counter
+          // (2, 4, 6, 8... instead of 1, 2, 3, 4) since the "already
+          // rendered" dedup check in ws.onmessage only catches it when the
+          // recipient already has that chat open — not while it's sitting
+          // unread in the sidebar.
           if (ws && ws.readyState === WebSocket.OPEN) {
             const wasEditing = !!capturedEditingMsgId;
             if (wasEditing) {
@@ -2258,17 +2270,6 @@
                 message: message,
                 chat_type: isGlobalChat ? 'global' : 'private',
                 recipient_id: activeDMAccountId || null
-              }));
-            } else {
-              ws.send(JSON.stringify({
-                type: 'message',
-                chat_type: isGlobalChat ? 'global' : 'private',
-                recipient_id: activeDMAccountId || null,
-                msg_uuid: confirmedMsg ? confirmedMsg.id : null,
-                message: confirmedMsg && confirmedMsg.plaintext ? confirmedMsg.plaintext : message,
-                created_at: new Date().toISOString(),
-                reply_to_msg_uuid: activeReply ? activeReply.msgId : null,
-                reply_snippet: activeReply ? activeReply.snippet : null
               }));
             }
           }
@@ -3588,23 +3589,19 @@
           setTimeout(closeUploadingModal, 300);
 
           if (this.status === 200) {
-            let msgUuid = null;
-            try {
-              const resData = JSON.parse(this.responseText);
-              if (resData && resData.message && resData.message.id) {
-                msgUuid = resData.message.id;
-              }
-            } catch(e) {}
+            // NOTE: no client-side ws.send('message', ...) re-broadcast here.
+            // send.php / send_dm.php ALREADY push an authoritative WS 'message'
+            // event (with has_upload correctly set) server-side once the DB
+            // insert succeeds — that single push reaches the recipient, the
+            // sender's other tabs, and admin spy sessions. Re-broadcasting it
+            // again from here made every attachment fire the sidebar's
+            // unread-count bump TWICE (2, 4, 6, 8... instead of 1, 2, 3, 4)
+            // for the recipient, since the client-sent duplicate isn't caught
+            // by the "already rendered" dedup check when they're not actively
+            // viewing that chat. The server push alone is sufficient.
 
-            // Trigger WS broadcast so recipient & other tabs refresh immediately with full image
-            if (ws && ws.readyState === WebSocket.OPEN) {
-              if (isGlobalChat) {
-                ws.send(JSON.stringify({ type: 'message', chat_type: 'global', sender_id: wsConfig.accountId, msg_uuid: msgUuid, has_upload: true }));
-              } else {
-                ws.send(JSON.stringify({ type: 'message', chat_type: 'private', sender_id: wsConfig.accountId, recipient_id: activeDMAccountId, msg_uuid: msgUuid, has_upload: true }));
-              }
-            }
             // Force a fresh chat load so the grid/image renders immediately
+            // for the SENDER's own view (independent of any WS broadcast).
             if (isGlobalChat) {
               isLoadingGC = false;
               loadGlobalChat(false);

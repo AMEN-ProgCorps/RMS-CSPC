@@ -7,7 +7,7 @@
 //   target_user (string, fallback — email of the other participant)
 //   before_uuid (string, optional) — msg_uuid of the oldest message shown;
 //                                     omit to load the latest messages.
-//   limit       (int, optional)    — messages per page, default/max 100
+//   limit       (int, optional)    — messages per page, default/max 50
 //
 // Returns JSON:
 //   { html: string, hasMore: bool, nextCursor: string|null }
@@ -55,7 +55,7 @@ if ($targetInfo === null) {
 }
 
 // ── Pagination & Incremental Fetching ──────────────────────────────────────────
-$limit      = 100;
+$limit      = 50;
 $beforeUuid = isset($_GET['before_uuid']) && $_GET['before_uuid'] !== '' ? (string) $_GET['before_uuid'] : null;
 $sinceUuid  = isset($_GET['since_uuid'])  && $_GET['since_uuid']  !== '' ? (string) $_GET['since_uuid']  : null;
 

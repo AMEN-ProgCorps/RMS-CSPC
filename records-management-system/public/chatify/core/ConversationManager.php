@@ -148,7 +148,7 @@ class ConversationManager
      */
     public static function loadRaw(
         string  $convId,
-        int     $limit     = 100,
+        int     $limit     = 50,
         ?string $beforeUuid = null
     ): array {
         try {
@@ -226,7 +226,7 @@ class ConversationManager
     public static function loadIncrementalRaw(
         string $convId,
         string $sinceUuid,
-        int    $limit = 100
+        int    $limit = 50
     ): array {
         try {
             $pdo = Database::getConnection();

@@ -18,7 +18,7 @@ if (empty($convId) || !preg_match('/^\d+_\d+$/', $convId)) {
 }
 
 // ── Pagination & Incremental Fetching ──────────────────────────────────────────
-$limit      = 100;
+$limit      = 50;
 $beforeUuid = isset($_GET['before_uuid']) && $_GET['before_uuid'] !== '' ? (string) $_GET['before_uuid'] : null;
 $sinceUuid  = isset($_GET['since_uuid'])  && $_GET['since_uuid']  !== '' ? (string) $_GET['since_uuid']  : null;
 

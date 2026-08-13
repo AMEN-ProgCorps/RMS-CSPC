@@ -32,12 +32,12 @@ class GlobalChatManager
      * Returns messages in DESCENDING order (newest first); the caller must
      * call array_reverse() to display them oldest-first.
      *
-     * @param  int         $limit      Maximum rows to return (default 100)
+     * @param  int         $limit      Maximum rows to return (default 50)
      * @param  string|null $beforeUuid UUID of the oldest message already shown;
      *                                  null → return the newest $limit messages.
      * @return array<int, array>
      */
-    public static function loadRaw(int $limit = 100, ?string $beforeUuid = null): array
+    public static function loadRaw(int $limit = 50, ?string $beforeUuid = null): array
     {
         try {
             $pdo = Database::getConnection();

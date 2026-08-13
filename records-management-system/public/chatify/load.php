@@ -5,7 +5,7 @@
 // GET params:
 //   before_uuid (string, optional) — msg_uuid of the oldest message already shown;
 //                                     omit to load the latest messages.
-//   limit       (int, optional)    — messages per page, default 100, max 100.
+//   limit       (int, optional)    — messages per page, default 50, max 50.
 //
 // Returns JSON:
 //   { html: string, hasMore: bool, nextCursor: string|null }
@@ -33,7 +33,7 @@ if ($internalSecret !== '' && hash_equals(INTERNAL_PUSH_SECRET, $internalSecret)
 }
 
 // ── Pagination params ─────────────────────────────────────────────────────────
-$limit      = 100;
+$limit      = 50;
 $beforeUuid = isset($_GET['before_uuid']) && $_GET['before_uuid'] !== '' ? (string) $_GET['before_uuid'] : null;
 
 // ── Load data ────────────────────────────────────────────────────────────────

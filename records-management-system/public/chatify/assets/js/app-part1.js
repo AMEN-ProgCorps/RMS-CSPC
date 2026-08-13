@@ -239,7 +239,7 @@
 
       const atBottomNow = isAtBottom();
 
-      // Cap the DOM at PAGE_SIZE (100) visible messages so real-time
+      // Cap the DOM at PAGE_SIZE (50) visible messages so real-time
       // WebSocket pushes never grow the chat window without bound.
       // Only trim while actively viewing the live/latest window —
       // never while the user has paged back into older history.
@@ -1395,7 +1395,7 @@
     // once. Loading an older page swaps the window rather than growing it
     // indefinitely — the newest messages get trimmed off the bottom to make
     // room, and clicking "Go to bottom" snaps back to the latest PAGE_SIZE.
-    const PAGE_SIZE = 100;
+    const PAGE_SIZE = 50;
     let gcCursor = '';
     let gcHasMore = false;
     let gcViewingOlder = false; // true once the user has loaded an older window
@@ -1631,7 +1631,7 @@
     // Scroll position is preserved: removing nodes from the top shrinks
     // scrollHeight, so scrollTop is shifted by the exact delta, keeping
     // whatever the user was looking at visually stable (no jump).
-    function trimChatMessages(maxMessages = 100) {
+    function trimChatMessages(maxMessages = 50) {
       if (!chatBox) return;
       const items = Array.from(chatBox.querySelectorAll('.message-container'));
       const excess = items.length - maxMessages;

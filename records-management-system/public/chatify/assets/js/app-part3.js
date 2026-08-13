@@ -94,6 +94,7 @@
       imageViewerModal.classList.add('active');
       imageViewerModal.setAttribute('aria-hidden', 'false');
       document.body.style.overflow = 'hidden';
+      ivResetTransform();
     }
 
     function closeImageViewer() {
@@ -101,12 +102,222 @@
       imageViewerModal.classList.remove('active');
       imageViewerModal.setAttribute('aria-hidden', 'true');
       document.body.style.overflow = '';
+      ivResetTransform();
       setTimeout(function() {
         if (!imageViewerModal.classList.contains('active')) {
           imageViewerModal.style.display = 'none';
           if (imageViewerImg) imageViewerImg.src = '';
         }
       }, 200);
+    }
+
+    // ── Image Viewer: pinch-to-zoom / pan, scoped to the image only ────────
+    // The app's viewport meta allows page pinch-zoom (needed elsewhere), so
+    // without this, a two-finger pinch on the preview image would zoom the
+    // whole browser page instead of the image — and that zoom would still be
+    // there after the modal closed, leaving the rest of the chat UI zoomed
+    // in too. touch-action: none (see CSS) stops the browser from handling
+    // the gesture natively; everything below reimplements pinch-zoom, pan,
+    // and double-tap-to-zoom for the <img> itself via a CSS transform, which
+    // is fully reset on close and never touches the page's own zoom level.
+    let ivScale = 1, ivTx = 0, ivTy = 0;
+    const IV_MIN_SCALE = 1;
+    const IV_MAX_SCALE = 4;
+    let ivBaseRect = null;       // untransformed layout box of the image
+    let ivMode = null;           // 'pinch' | 'pan' | null
+    let ivPinchStartDist = 0, ivPinchStartScale = 1;
+    let ivAnchorU = 0.5, ivAnchorV = 0.5; // fractional point under the fingers, kept fixed while pinching
+    let ivPanLastX = 0, ivPanLastY = 0;
+    let ivLastTapTime = 0, ivLastTapX = 0, ivLastTapY = 0;
+
+    function ivApplyTransform() {
+      if (!imageViewerImg) return;
+      imageViewerImg.style.transform = 'translate(' + ivTx + 'px,' + ivTy + 'px) scale(' + ivScale + ')';
+      imageViewerImg.classList.toggle('iv-zoomed', ivScale > 1);
+    }
+
+    function ivResetTransform() {
+      ivScale = 1;
+      ivTx = 0;
+      ivTy = 0;
+      ivMode = null;
+      if (imageViewerImg) {
+        imageViewerImg.style.transition = 'none';
+        ivApplyTransform();
+      }
+    }
+
+    function ivClampTranslate() {
+      if (!ivBaseRect) return;
+      const maxTx = Math.max((ivBaseRect.width * ivScale - ivBaseRect.width) / 2, 0);
+      const maxTy = Math.max((ivBaseRect.height * ivScale - ivBaseRect.height) / 2, 0);
+      ivTx = Math.min(Math.max(ivTx, -maxTx), maxTx);
+      ivTy = Math.min(Math.max(ivTy, -maxTy), maxTy);
+    }
+
+    function ivDist(t0, t1) {
+      return Math.hypot(t1.clientX - t0.clientX, t1.clientY - t0.clientY);
+    }
+
+    function ivEnsureBaseRect() {
+      if (ivScale === 1 && ivTx === 0 && ivTy === 0) {
+        ivBaseRect = imageViewerImg.getBoundingClientRect();
+      }
+    }
+
+    function ivZoomAt(clientX, clientY, targetScale, smooth) {
+      if (!ivBaseRect) return;
+      const bcx = ivBaseRect.left + ivBaseRect.width / 2;
+      const bcy = ivBaseRect.top + ivBaseRect.height / 2;
+      const u = 0.5 + (clientX - bcx - ivTx) / (ivBaseRect.width * ivScale);
+      const v = 0.5 + (clientY - bcy - ivTy) / (ivBaseRect.height * ivScale);
+      ivScale = Math.min(Math.max(targetScale, IV_MIN_SCALE), IV_MAX_SCALE);
+      if (ivScale <= IV_MIN_SCALE + 0.001) {
+        // Back at (or below) the natural size — snap fully centered.
+        ivScale = IV_MIN_SCALE;
+        ivTx = 0;
+        ivTy = 0;
+      } else {
+        ivTx = clientX - bcx - (u - 0.5) * ivBaseRect.width * ivScale;
+        ivTy = clientY - bcy - (v - 0.5) * ivBaseRect.height * ivScale;
+        ivClampTranslate();
+      }
+      imageViewerImg.style.transition = smooth ? 'transform 0.2s ease' : 'none';
+      ivApplyTransform();
+    }
+
+    if (imageViewerImg) {
+      imageViewerImg.addEventListener('touchstart', function(e) {
+        imageViewerImg.style.transition = 'none';
+        if (ivScale === 1 && ivTx === 0 && ivTy === 0) {
+          // Capture the natural (untransformed) layout box while at rest.
+          ivBaseRect = imageViewerImg.getBoundingClientRect();
+        }
+        if (e.touches.length === 2) {
+          e.preventDefault();
+          ivMode = 'pinch';
+          ivPinchStartDist = ivDist(e.touches[0], e.touches[1]);
+          ivPinchStartScale = ivScale;
+          const mx = (e.touches[0].clientX + e.touches[1].clientX) / 2;
+          const my = (e.touches[0].clientY + e.touches[1].clientY) / 2;
+          const bcx = ivBaseRect.left + ivBaseRect.width / 2;
+          const bcy = ivBaseRect.top + ivBaseRect.height / 2;
+          ivAnchorU = 0.5 + (mx - bcx - ivTx) / (ivBaseRect.width * ivScale);
+          ivAnchorV = 0.5 + (my - bcy - ivTy) / (ivBaseRect.height * ivScale);
+        } else if (e.touches.length === 1) {
+          const now = Date.now();
+          const t = e.touches[0];
+          if (now - ivLastTapTime < 300 && Math.hypot(t.clientX - ivLastTapX, t.clientY - ivLastTapY) < 30) {
+            // Double-tap: toggle zoom in/out centered on the tap point.
+            e.preventDefault();
+            ivLastTapTime = 0;
+            if (ivScale > 1) {
+              ivResetTransform();
+              imageViewerImg.style.transition = 'transform 0.2s ease';
+              ivApplyTransform();
+            } else {
+              ivZoomAt(t.clientX, t.clientY, 2.5, true);
+            }
+            ivMode = null;
+            return;
+          }
+          ivLastTapTime = now;
+          ivLastTapX = t.clientX;
+          ivLastTapY = t.clientY;
+          if (ivScale > 1) {
+            ivMode = 'pan';
+            ivPanLastX = t.clientX;
+            ivPanLastY = t.clientY;
+          }
+        }
+      }, { passive: false });
+
+      imageViewerImg.addEventListener('touchmove', function(e) {
+        if (ivMode === 'pinch' && e.touches.length === 2) {
+          e.preventDefault();
+          const dist = ivDist(e.touches[0], e.touches[1]);
+          const mx = (e.touches[0].clientX + e.touches[1].clientX) / 2;
+          const my = (e.touches[0].clientY + e.touches[1].clientY) / 2;
+          const newScale = Math.min(Math.max(ivPinchStartScale * (dist / ivPinchStartDist), IV_MIN_SCALE), IV_MAX_SCALE);
+          const bcx = ivBaseRect.left + ivBaseRect.width / 2;
+          const bcy = ivBaseRect.top + ivBaseRect.height / 2;
+          ivScale = newScale;
+          ivTx = mx - bcx - (ivAnchorU - 0.5) * ivBaseRect.width * ivScale;
+          ivTy = my - bcy - (ivAnchorV - 0.5) * ivBaseRect.height * ivScale;
+          ivClampTranslate();
+          ivApplyTransform();
+        } else if (ivMode === 'pan' && e.touches.length === 1) {
+          e.preventDefault();
+          const t = e.touches[0];
+          ivTx += t.clientX - ivPanLastX;
+          ivTy += t.clientY - ivPanLastY;
+          ivPanLastX = t.clientX;
+          ivPanLastY = t.clientY;
+          ivClampTranslate();
+          ivApplyTransform();
+        }
+      }, { passive: false });
+
+      function ivTouchEnd(e) {
+        if (e.touches.length === 0) {
+          ivMode = null;
+          if (ivScale <= 1) {
+            ivResetTransform();
+          }
+        } else if (e.touches.length === 1) {
+          // Dropped from pinch to a single finger — switch to panning if zoomed.
+          ivMode = ivScale > 1 ? 'pan' : null;
+          ivPanLastX = e.touches[0].clientX;
+          ivPanLastY = e.touches[0].clientY;
+        }
+      }
+      imageViewerImg.addEventListener('touchend', ivTouchEnd, { passive: true });
+      imageViewerImg.addEventListener('touchcancel', ivTouchEnd, { passive: true });
+
+      // ── Desktop: wheel-to-zoom, double-click-to-zoom, click-drag-to-pan ──
+      imageViewerImg.addEventListener('wheel', function(e) {
+        e.preventDefault();
+        ivEnsureBaseRect();
+        const factor = e.deltaY < 0 ? 1.15 : 1 / 1.15;
+        ivZoomAt(e.clientX, e.clientY, ivScale * factor, false);
+      }, { passive: false });
+
+      imageViewerImg.addEventListener('dblclick', function(e) {
+        ivEnsureBaseRect();
+        if (ivScale > 1) {
+          ivResetTransform();
+          imageViewerImg.style.transition = 'transform 0.2s ease';
+          ivApplyTransform();
+        } else {
+          ivZoomAt(e.clientX, e.clientY, 2.5, true);
+        }
+      });
+
+      let ivMouseDown = false;
+      imageViewerImg.addEventListener('mousedown', function(e) {
+        if (ivScale <= 1) return;
+        e.preventDefault();
+        ivMouseDown = true;
+        ivPanLastX = e.clientX;
+        ivPanLastY = e.clientY;
+        imageViewerImg.style.transition = 'none';
+        imageViewerImg.classList.add('iv-dragging');
+      });
+      window.addEventListener('mousemove', function(e) {
+        if (!ivMouseDown) return;
+        ivTx += e.clientX - ivPanLastX;
+        ivTy += e.clientY - ivPanLastY;
+        ivPanLastX = e.clientX;
+        ivPanLastY = e.clientY;
+        ivClampTranslate();
+        ivApplyTransform();
+      });
+      window.addEventListener('mouseup', function() {
+        if (ivMouseDown) {
+          ivMouseDown = false;
+          imageViewerImg.classList.remove('iv-dragging');
+        }
+      });
     }
 
     // Open: delegated click on any rendered chat image.

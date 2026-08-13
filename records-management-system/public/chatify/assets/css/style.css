@@ -2047,6 +2047,11 @@
       transition: opacity 0.2s ease, visibility 0.2s ease;
       padding: 64px 24px 24px;
       box-sizing: border-box;
+      /* Own pinch/pan is reimplemented in JS on the <img> only — block the
+         browser's native page pinch-zoom/pan while this modal is open so a
+         two-finger gesture here can never zoom the underlying chat UI. */
+      touch-action: none;
+      overscroll-behavior: contain;
     }
 
     .image-viewer-modal.active {
@@ -2062,6 +2067,18 @@
       object-fit: contain;
       user-select: none;
       -webkit-user-drag: none;
+      touch-action: none;
+      transform-origin: center center;
+      will-change: transform;
+      cursor: zoom-in;
+    }
+
+    .image-viewer-img.iv-zoomed {
+      cursor: grab;
+    }
+
+    .image-viewer-img.iv-dragging {
+      cursor: grabbing;
     }
 
     .image-viewer-close {

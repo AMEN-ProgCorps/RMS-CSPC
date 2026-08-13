@@ -423,7 +423,7 @@
     }
      
     function handleFirstLoadScroll() {
-      const activeKey = isGlobalChat ? '__global__' : (activeDM || (activeAdminConv ? '__admin__' + activeAdminConv.convId : null));
+      const activeKey = isGlobalChat ? '__global__' : (activeDM || (activeAdminConv ? '__admin__' + activeAdminConv : null));
       let restored = false;
       if (activeKey) {
         const savedScrollTop = sessionStorage.getItem('chatScroll_' + activeKey);
@@ -909,7 +909,7 @@
       }
 
       // Save scroll position for active chat
-      const activeKey = isGlobalChat ? '__global__' : (activeDM || (activeAdminConv ? '__admin__' + activeAdminConv.convId : null));
+      const activeKey = isGlobalChat ? '__global__' : (activeDM || (activeAdminConv ? '__admin__' + activeAdminConv : null));
       if (activeKey) {
         sessionStorage.setItem('chatScroll_' + activeKey, chatBox.scrollTop);
         sessionStorage.setItem('chatScrollHeight_' + activeKey, chatBox.scrollHeight);
@@ -920,7 +920,7 @@
     // Ensure scroll position is maintained when images finish loading
     chatBox.addEventListener('load', function(event) {
       if (event.target.tagName === 'IMG') {
-        const activeKey = isGlobalChat ? '__global__' : (activeDM || (activeAdminConv ? '__admin__' + activeAdminConv.convId : null));
+        const activeKey = isGlobalChat ? '__global__' : (activeDM || (activeAdminConv ? '__admin__' + activeAdminConv : null));
         if (activeKey) {
           const savedAtBottom = sessionStorage.getItem('chatScrollAtBottom_' + activeKey);
           if (savedAtBottom === 'true' || shouldAutoScroll || isAtBottom()) {
@@ -962,6 +962,20 @@
       }
     }, true);
 
+    // "Go to bottom" is about to force-reload the latest window — stamp
+    // sessionStorage as "at bottom" for this chat BEFORE the reload happens.
+    // Without this, the scroll listener's last write (saved while the user
+    // was up in the older/backread batch) leaves chatScrollAtBottom_<key>
+    // as 'false', so handleFirstLoadScroll() (called once the fresh latest
+    // window lands) would try to restore that stale, scrolled-up position
+    // instead of actually landing on the newest message.
+    function forceBottomScrollState(activeKey) {
+      if (!activeKey) return;
+      sessionStorage.setItem('chatScrollAtBottom_' + activeKey, 'true');
+      sessionStorage.removeItem('chatScroll_' + activeKey);
+      sessionStorage.removeItem('chatScrollHeight_' + activeKey);
+    }
+
     // Click scroll indicator to go to bottom
     scrollIndicator.addEventListener('click', function() {
       shouldAutoScroll = true;
@@ -974,6 +988,7 @@
         gcViewingOlder = false;
         gcCursor = '';
         removePaginationBtn();
+        forceBottomScrollState('__global__');
         chatBox.innerHTML = '';
         isFirstLoad = true;
         chatFullyLoaded = false;
@@ -984,6 +999,7 @@
         adminConvViewingOlder = false;
         adminConvCursor = '';
         removePaginationBtn();
+        forceBottomScrollState('__admin__' + activeAdminConv);
         chatBox.innerHTML = '';
         isFirstLoad = true;
         chatFullyLoaded = false;
@@ -994,6 +1010,7 @@
         dmViewingOlder = false;
         dmCursor = '';
         removePaginationBtn();
+        forceBottomScrollState(activeDM);
         chatBox.innerHTML = '';
         isFirstLoad = true;
         chatFullyLoaded = false;

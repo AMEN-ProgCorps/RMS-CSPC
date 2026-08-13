@@ -243,7 +243,7 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
         ->paginate($this->perPage);
 
         // Map elapsed days, next office, previous office, and received date/time
-        $list->getCollection()->transform(function ($t) {
+        $list->getCollection()->transform(function ($t) use ($userOfficeCode) {
             // Resolve actual Document Type Name (avoiding raw REF-CUSTOM-XX codes and 'Flow for ...' titles)
             $docType = $t->doc_type_name ?? '';
             if (empty($docType) || preg_match('/^REF-(?:CUSTOM|PREDEFINED)-(\d+)$/', $docType, $mMatches) || str_starts_with($docType, 'Flow for ')) {
@@ -283,43 +283,61 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
             } else {
                 $t->doc_type_name = !empty($t->classification) ? ucfirst($t->classification) : ucfirst($t->trans_type);
             }
-            // Find active/current log step
-            $currentLog = DB::table('sub_document_tracking_system_logs')
-                ->where('transaction_id', $t->transaction_id)
-                ->where('office_code', $t->current_office)
-                ->orderBy('id', 'desc')
-                ->first();
-
-            $isReceived = $currentLog && ($currentLog->type === 'received' || (!empty($currentLog->date_in) && $currentLog->type !== 'forwarded'));
-
-            if ($isReceived && !empty($currentLog->date_in)) {
-                $dateReceived = $currentLog->date_in;
-                $t->diff_in_minutes = (int) abs(now()->diffInMinutes(\Carbon\Carbon::parse($dateReceived)));
-                $t->is_received = true;
-            } else {
-                $dateReceived = $currentLog?->created_at ?? $t->date_created;
-                $t->diff_in_minutes = 0; // Reset timer to 0 until received at current office!
-                $t->is_received = false;
-            }
-            $t->date_received = $dateReceived;
-
-            // Check if transaction has been forwarded from originating office
+            // 1. Created Date & Total Elapsed Days (My Transactions & Incoming)
             $firstLog = DB::table('sub_document_tracking_system_logs')
                 ->where('transaction_id', $t->transaction_id)
                 ->orderBy('id', 'asc')
                 ->first();
+            $createdDateRaw = $firstLog?->date_in ?? $t->date_created;
+            $t->created_at_fmt = $createdDateRaw ? \Carbon\Carbon::parse($createdDateRaw)->format('Y-m-d H:i') : 'N/A';
+            $t->total_elapsed_days = $createdDateRaw ? (int) abs(now()->diffInDays(\Carbon\Carbon::parse($createdDateRaw))) : 0;
 
-            $hasBeenForwarded = ($t->sequence > 1) || ($firstLog && !empty($firstLog->date_out));
+            // 2. Incoming Elapsed Days (Duration of last office Forwarded to current office)
+            $prevForwardedLog = DB::table('sub_document_tracking_system_logs')
+                ->where('transaction_id', $t->transaction_id)
+                ->whereNotNull('date_out')
+                ->orderBy('id', 'desc')
+                ->first();
+            $forwardedToUserAt = $prevForwardedLog?->date_out ?? $createdDateRaw;
+            $t->incoming_elapsed_days = $forwardedToUserAt ? (int) abs(now()->diffInDays(\Carbon\Carbon::parse($forwardedToUserAt))) : 0;
 
-            if ($hasBeenForwarded) {
-                $startDate = \Carbon\Carbon::parse($firstLog->date_out ?? $firstLog->date_in ?? $t->date_created);
-                $t->elapsed_days = (int) abs(now()->diffInDays($startDate)) + 1;
-            } else {
-                $t->elapsed_days = 0;
+            // 3. Current Office Log & Received Date/Elapsed Days
+            $userOfficeLog = DB::table('sub_document_tracking_system_logs')
+                ->where('transaction_id', $t->transaction_id)
+                ->where('office_code', $userOfficeCode)
+                ->orderBy('id', 'desc')
+                ->first();
+
+            if (!$userOfficeLog) {
+                $userOfficeLog = DB::table('sub_document_tracking_system_logs')
+                    ->where('transaction_id', $t->transaction_id)
+                    ->where('office_code', $t->current_office)
+                    ->orderBy('id', 'desc')
+                    ->first();
             }
 
-            // Calculate actual elapsed minutes since arrival/creation at current office
-            $t->diff_in_minutes = (int) abs(now()->diffInMinutes(\Carbon\Carbon::parse($dateReceived)));
+            $isReceivedAtUserOffice = $userOfficeLog && ($userOfficeLog->type === 'received' || (!empty($userOfficeLog->date_in) && $userOfficeLog->type !== 'forwarded'));
+            $t->is_received = $isReceivedAtUserOffice;
+
+            $receivedTimestamp = $userOfficeLog?->date_in;
+            $t->received_at_fmt = $receivedTimestamp ? \Carbon\Carbon::parse($receivedTimestamp)->format('Y-m-d H:i') : 'N/A';
+            $t->received_elapsed_days = $receivedTimestamp ? (int) abs(now()->diffInDays(\Carbon\Carbon::parse($receivedTimestamp))) : 0;
+            $t->date_received = $receivedTimestamp ?: $createdDateRaw;
+
+            // 4. Forwarded/Released Date & Released Elapsed Days (Date & Time forwarded by current office & days elapsed)
+            $releasedLog = DB::table('sub_document_tracking_system_logs')
+                ->where('transaction_id', $t->transaction_id)
+                ->where('office_code', $userOfficeCode)
+                ->whereNotNull('date_out')
+                ->orderBy('id', 'desc')
+                ->first();
+
+            $releasedTimestamp = $releasedLog?->date_out;
+            $t->released_at_fmt = $releasedTimestamp ? \Carbon\Carbon::parse($releasedTimestamp)->format('Y-m-d H:i') : 'N/A';
+            $t->released_elapsed_days = $releasedTimestamp ? (int) abs(now()->diffInDays(\Carbon\Carbon::parse($releasedTimestamp))) : 0;
+
+            $t->elapsed_days = $t->total_elapsed_days;
+            $t->diff_in_minutes = (int) abs(now()->diffInMinutes(\Carbon\Carbon::parse($t->date_received)));
 
             // Previous office (from office)
             $prevLog = DB::table('sub_document_tracking_system_logs as log')
@@ -1780,6 +1798,9 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
 
     @php
         $isMyTxPage = ($activeTab === 'my-transactions' || request()->routeIs('dts.my-transactions') || $this->currentRouteName === 'dts.my-transactions');
+        $isIncomingPage = ($activeTab === 'incoming' || request()->routeIs('dts.incoming') || request()->routeIs('dts') || in_array($this->currentRouteName, ['dts', 'dts.incoming']));
+        $isReceivedPage = ($activeTab === 'received' || request()->routeIs('dts.received') || $this->currentRouteName === 'dts.received');
+        $isForwardedPage = ($activeTab === 'forwarded' || request()->routeIs('dts.forwarded') || $this->currentRouteName === 'dts.forwarded');
     @endphp
 
     @if ($layoutMode === 'table')
@@ -1787,21 +1808,48 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
             <table class="rms-table">
                 <thead>
                     <tr>
-                        <th>SUBJECT</th>
-                        <th>REQUESTOR</th>
-                        <th>CONTROL NO.</th>
-                        <th>DOC TYPE</th>
+                        <th style="padding: 12px 14px; text-transform: uppercase;">CONTROL NO.</th>
+                        <th style="padding: 12px 14px; text-transform: uppercase;">QR CODE</th>
                         @if ($isMyTxPage)
-                            <th>TIMELINE</th>
-                        @else
+                            <th style="padding: 12px 14px; text-transform: uppercase;">CREATED</th>
                             <th style="padding: 12px 14px; text-transform: uppercase;">ORIGINATOR</th>
+                            <th style="padding: 12px 14px; text-transform: uppercase;">SUBJECT</th>
+                            <th style="padding: 12px 14px; text-transform: uppercase;">TIMELINE</th>
+                            <th style="padding: 12px 14px; text-transform: uppercase;">ELAPSED DAY</th>
+                            <th style="padding: 12px 14px; text-transform: uppercase;">STATUS</th>
+                            <th style="width: 100px; text-align: center; text-transform: uppercase;">ACTION</th>
+                        @elseif ($isIncomingPage)
+                            <th style="padding: 12px 14px; text-transform: uppercase;">CREATED</th>
+                            <th style="padding: 12px 14px; text-transform: uppercase;">ORIGINATOR</th>
+                            <th style="padding: 12px 14px; text-transform: uppercase;">SUBJECT</th>
+                            <th style="padding: 12px 14px; text-transform: uppercase;">ACTION NEEDED</th>
+                            <th style="padding: 12px 14px; text-transform: uppercase;">ELAPSED DAY</th>
+                            <th style="width: 100px; text-align: center; text-transform: uppercase;">ACTION</th>
+                        @elseif ($isReceivedPage)
                             <th style="padding: 12px 14px; text-transform: uppercase;">RECEIVED</th>
+                            <th style="padding: 12px 14px; text-transform: uppercase;">ORIGINATOR</th>
+                            <th style="padding: 12px 14px; text-transform: uppercase;">SUBJECT</th>
                             <th style="padding: 12px 14px; text-transform: uppercase;">NEXT OFFICE</th>
                             <th style="padding: 12px 14px; text-transform: uppercase;">ACTION NEEDED</th>
-                            <th style="padding: 12px 14px; text-transform: uppercase;">STATUS</th>
+                            <th style="padding: 12px 14px; text-transform: uppercase;">ELAPSED DAY</th>
+                            <th style="width: 120px; text-align: center; text-transform: uppercase;">ACTION</th>
+                        @elseif ($isForwardedPage)
+                            <th style="padding: 12px 14px; text-transform: uppercase;">RELEASED</th>
+                            <th style="padding: 12px 14px; text-transform: uppercase;">ORIGINATOR</th>
+                            <th style="padding: 12px 14px; text-transform: uppercase;">SUBJECT</th>
+                            <th style="padding: 12px 14px; text-transform: uppercase;">NEXT OFFICE</th>
+                            <th style="padding: 12px 14px; text-transform: uppercase;">ACTION NEEDED</th>
+                            <th style="padding: 12px 14px; text-transform: uppercase;">ELAPSED DAY</th>
+                            <th style="width: 100px; text-align: center; text-transform: uppercase;">ACTION</th>
+                        @else
+                            <th style="padding: 12px 14px; text-transform: uppercase;">CREATED</th>
+                            <th style="padding: 12px 14px; text-transform: uppercase;">ORIGINATOR</th>
+                            <th style="padding: 12px 14px; text-transform: uppercase;">SUBJECT</th>
+                            <th style="padding: 12px 14px; text-transform: uppercase;">NEXT OFFICE</th>
+                            <th style="padding: 12px 14px; text-transform: uppercase;">ACTION NEEDED</th>
+                            <th style="padding: 12px 14px; text-transform: uppercase;">ELAPSED DAY</th>
+                            <th style="width: 100px; text-align: center; text-transform: uppercase;">ACTION</th>
                         @endif
-                        <th>ELAPSED DAY</th>
-                        <th style="width: 100px; text-align: center;">Action</th>
                     </tr>
                 </thead>
 
@@ -1812,7 +1860,7 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
                         @endphp
                         @forelse ($groupedTransactions as $officeName => $items)
                             <tr class="office-divider-row">
-                                <td colspan="{{ $isMyTxPage ? 7 : 11 }}" style="padding: 14px 12px; background: #f8fafc; font-weight: 700; color: #475569; letter-spacing: 0.05em; font-size: 12px; font-family: 'Inter', sans-serif;">
+                                <td colspan="{{ $isIncomingPage ? 8 : 9 }}" style="padding: 14px 12px; background: #f8fafc; font-weight: 700; color: #475569; letter-spacing: 0.05em; font-size: 12px; font-family: 'Inter', sans-serif;">
                                     <div style="display: flex; align-items: center; justify-content: center; gap: 14px;">
                                         <div style="flex: 1; height: 1px; background: #cbd5e1;"></div>
                                         <div style="text-transform: uppercase; display: flex; align-items: center; gap: 8px;">
@@ -1832,16 +1880,26 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
                             @endphp
                             @foreach ($sortedItems as $t)
                                 <tr>
-                                    <td style="max-width: 300px; white-space: normal; word-break: break-word;">{{ $t->subject }}</td>
-                                     <td style="white-space: nowrap;">
-                                         {{ $t->requestor_name }}
-                                         @if(!empty($t->requestor_label))
-                                             <div style="font-size: 11px; color: #6b7280; font-weight: normal;">({{ $t->requestor_label }})</div>
-                                         @endif
-                                     </td>
-                                    <td style="font-weight: 600; color: #1e40af; text-align: center;">{{ $t->control_number }}</td>
-                                    <td>{{ (!empty($t->doc_type_name) && !str_starts_with($t->doc_type_name, 'Flow for ')) ? $t->doc_type_name : ucfirst($t->trans_type) }}</td>
+                                    <td style="font-weight: 700; color: #1e40af; white-space: nowrap;">{{ $t->control_number }}</td>
+                                    <td style="white-space: nowrap;">
+                                        @if(!empty($t->qr_code))
+                                            <span style="font-family: monospace; font-size: 11px; background: #eff6ff; color: #1e40af; padding: 3px 8px; border-radius: 6px; border: 1px solid #bfdbfe; font-weight: 700;">
+                                                <i class="fa-solid fa-qrcode" style="margin-right: 3px;"></i>{{ $t->qr_code }}
+                                            </span>
+                                        @else
+                                            <span style="color: #94a3b8; font-size: 11px; font-style: italic;">N/A</span>
+                                        @endif
+                                    </td>
+
                                     @if ($isMyTxPage)
+                                        <td style="padding: 12px 14px; color: #475569; font-size: 12px; white-space: nowrap;">{{ $t->created_at_fmt }}</td>
+                                        <td style="padding: 12px 14px; color: #ef4444; font-weight: 500;">{{ $t->originated_office_name ?? $t->originated_from }}</td>
+                                        <td style="max-width: 260px; white-space: normal; word-break: break-word;">
+                                            <div style="font-weight: 600; color: #0f172a;">{{ $t->subject }}</div>
+                                            @if(!empty($t->requestor_name))
+                                                <div style="font-size: 11px; color: #64748b;">Req: {{ $t->requestor_name }}</div>
+                                            @endif
+                                        </td>
                                         <td style="padding: 10px 12px; min-width: 220px; max-width: 320px;">
                                             <div style="display: flex; align-items: center; justify-content: flex-start; gap: 0; position: relative;">
                                                 @forelse ($t->timeline_path as $index => $step)
@@ -1904,62 +1962,116 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
                                                 @endforelse
                                             </div>
                                         </td>
-                                    @else
-                                        <td style="padding: 12px 14px; color: #ef4444; font-weight: 500;">
-                                            {{ $t->originated_office_name ?? 'N/A' }}
-                                        </td>
-                                        <td style="padding: 12px 14px; color: #475569; font-size: 12px;">
-                                            {{ $t->date_received ? \Carbon\Carbon::parse($t->date_received)->format('Y-m-d H:i') : 'N/A' }}
-                                        </td>
-                                        <td style="padding: 12px 14px; color: #3b82f6; font-weight: 600;">
-                                            {{ $t->next_office_name }}
-                                        </td>
-                                        <td style="padding: 12px 14px; color: #16a34a; font-weight: 600;">
-                                            {{ $t->action_needed ?? 'For action' }}
-                                        </td>
+                                        <td style="color: #dc2626; font-weight: 600; white-space: nowrap; text-align: center;">{{ $t->total_elapsed_days }} day(s)</td>
                                         <td style="padding: 12px 14px;">
                                             <span class="rms-badge badge-{{ $t->status === 'completed' ? 'success' : ($t->status === 'cancelled' ? 'danger' : 'warning') }}">
                                                 {{ ucfirst($t->status) }}
                                             </span>
                                         </td>
-                                    @endif
-                                    <td style="color: #dc2626; font-weight: 600; white-space: nowrap; text-align: center;">{{ $t->elapsed_days }} day(s)</td>
-                                    <td style="text-align: center; white-space: nowrap;">
-                                        @if(request()->routeIs('dts.incoming') || request()->routeIs('dts') || $this->currentRouteName === 'dts.incoming' || $this->currentRouteName === 'dts' || $activeTab === 'incoming')
+                                        <td style="text-align: center; white-space: nowrap;">
+                                            <button type="button" wire:click="openTransaction('{{ $t->transaction_id }}')" class="rms-select" style="border: none; background: transparent; cursor: pointer; color: #043899; font-weight: 600;">View</button>
+                                        </td>
+
+                                    @elseif ($isIncomingPage)
+                                        <td style="padding: 12px 14px; color: #475569; font-size: 12px; white-space: nowrap;">{{ $t->created_at_fmt }}</td>
+                                        <td style="padding: 12px 14px; color: #ef4444; font-weight: 500;">{{ $t->originated_office_name ?? $t->originated_from }}</td>
+                                        <td style="max-width: 260px; white-space: normal; word-break: break-word;">
+                                            <div style="font-weight: 600; color: #0f172a;">{{ $t->subject }}</div>
+                                            @if(!empty($t->requestor_name))
+                                                <div style="font-size: 11px; color: #64748b;">Req: {{ $t->requestor_name }}</div>
+                                            @endif
+                                        </td>
+                                        <td style="padding: 12px 14px; color: #16a34a; font-weight: 600;">{{ $t->action_needed ?? 'For action' }}</td>
+                                        <td style="color: #dc2626; font-weight: 600; white-space: nowrap; text-align: center;">{{ $t->incoming_elapsed_days }} day(s)</td>
+                                        <td style="text-align: center; white-space: nowrap;">
                                             <button type="button" onclick="if(window.openScannerModal) window.openScannerModal('{{ $t->control_number }}');" class="rms-select" style="text-decoration: none; display: inline-flex; align-items: center; gap: 4px; border: none; background: transparent; cursor: pointer; color: #0284c7; font-weight: 600;">
                                                 <i class="fa-solid fa-qrcode"></i> Scan
                                             </button>
-                                        @elseif(request()->routeIs('dts.received') || $this->currentRouteName === 'dts.received' || $activeTab === 'received')
+                                        </td>
+
+                                    @elseif ($isReceivedPage)
+                                        <td style="padding: 12px 14px; color: #475569; font-size: 12px; white-space: nowrap;">{{ $t->received_at_fmt }}</td>
+                                        <td style="padding: 12px 14px; color: #ef4444; font-weight: 500;">{{ $t->originated_office_name ?? $t->originated_from }}</td>
+                                        <td style="max-width: 260px; white-space: normal; word-break: break-word;">
+                                            <div style="font-weight: 600; color: #0f172a;">{{ $t->subject }}</div>
+                                            @if(!empty($t->requestor_name))
+                                                <div style="font-size: 11px; color: #64748b;">Req: {{ $t->requestor_name }}</div>
+                                            @endif
+                                        </td>
+                                        <td style="padding: 12px 14px; color: #3b82f6; font-weight: 600;">{{ $t->next_office_name }}</td>
+                                        <td style="padding: 12px 14px; color: #16a34a; font-weight: 600;">{{ $t->action_needed ?? 'For action' }}</td>
+                                        <td style="color: #dc2626; font-weight: 600; white-space: nowrap; text-align: center;">{{ $t->received_elapsed_days }} day(s)</td>
+                                        <td style="text-align: center; white-space: nowrap;">
                                             <div style="display: flex; align-items: center; justify-content: center; gap: 8px;">
-                                                <button type="button" wire:click="openTransaction('{{ $t->transaction_id }}')" class="rms-select" style="text-decoration: none; display: inline-block; border: none; background: transparent; cursor: pointer; color: #043899; font-weight: 500;">View</button>
+                                                <button type="button" wire:click="openTransaction('{{ $t->transaction_id }}')" class="rms-select" style="border: none; background: transparent; cursor: pointer; color: #043899; font-weight: 500;">View</button>
                                                 <button type="button" onclick="if(window.openScannerModal) window.openScannerModal('{{ $t->control_number }}');" class="rms-select" style="text-decoration: none; display: inline-flex; align-items: center; gap: 4px; border: none; background: transparent; cursor: pointer; color: #0284c7; font-weight: 600;">
                                                     <i class="fa-solid fa-qrcode"></i> Scan
                                                 </button>
                                             </div>
-                                        @else
-                                            <button type="button" wire:click="openTransaction('{{ $t->transaction_id }}')" class="rms-select" style="text-decoration: none; display: inline-block; border: none; background: transparent; cursor: pointer; color: #043899; font-weight: 500;">View</button>
-                                        @endif
-                                    </td>
+                                        </td>
+
+                                    @elseif ($isForwardedPage)
+                                        <td style="padding: 12px 14px; color: #475569; font-size: 12px; white-space: nowrap;">{{ $t->released_at_fmt }}</td>
+                                        <td style="padding: 12px 14px; color: #ef4444; font-weight: 500;">{{ $t->originated_office_name ?? $t->originated_from }}</td>
+                                        <td style="max-width: 260px; white-space: normal; word-break: break-word;">
+                                            <div style="font-weight: 600; color: #0f172a;">{{ $t->subject }}</div>
+                                            @if(!empty($t->requestor_name))
+                                                <div style="font-size: 11px; color: #64748b;">Req: {{ $t->requestor_name }}</div>
+                                            @endif
+                                        </td>
+                                        <td style="padding: 12px 14px; color: #3b82f6; font-weight: 600;">{{ $t->next_office_name }}</td>
+                                        <td style="padding: 12px 14px; color: #16a34a; font-weight: 600;">{{ $t->action_needed ?? 'For action' }}</td>
+                                        <td style="color: #dc2626; font-weight: 600; white-space: nowrap; text-align: center;">{{ $t->released_elapsed_days }} day(s)</td>
+                                        <td style="text-align: center; white-space: nowrap;">
+                                            <button type="button" wire:click="openTransaction('{{ $t->transaction_id }}')" class="rms-select" style="border: none; background: transparent; cursor: pointer; color: #043899; font-weight: 600;">View</button>
+                                        </td>
+
+                                    @else
+                                        <td style="padding: 12px 14px; color: #475569; font-size: 12px; white-space: nowrap;">{{ $t->created_at_fmt }}</td>
+                                        <td style="padding: 12px 14px; color: #ef4444; font-weight: 500;">{{ $t->originated_office_name ?? $t->originated_from }}</td>
+                                        <td style="max-width: 260px; white-space: normal; word-break: break-word;">
+                                            <div style="font-weight: 600; color: #0f172a;">{{ $t->subject }}</div>
+                                            @if(!empty($t->requestor_name))
+                                                <div style="font-size: 11px; color: #64748b;">Req: {{ $t->requestor_name }}</div>
+                                            @endif
+                                        </td>
+                                        <td style="padding: 12px 14px; color: #3b82f6; font-weight: 600;">{{ $t->next_office_name }}</td>
+                                        <td style="padding: 12px 14px; color: #16a34a; font-weight: 600;">{{ $t->action_needed ?? 'For action' }}</td>
+                                        <td style="color: #dc2626; font-weight: 600; white-space: nowrap; text-align: center;">{{ $t->total_elapsed_days }} day(s)</td>
+                                        <td style="text-align: center; white-space: nowrap;">
+                                            <button type="button" wire:click="openTransaction('{{ $t->transaction_id }}')" class="rms-select" style="border: none; background: transparent; cursor: pointer; color: #043899; font-weight: 600;">View</button>
+                                        </td>
+                                    @endif
                                 </tr>
                             @endforeach
                         @empty
                             <tr>
-                                <td class="rms-no-data" colspan="{{ $isMyTxPage ? 7 : 11 }}">No records found.</td>
+                                <td class="rms-no-data" colspan="{{ $isIncomingPage ? 8 : 9 }}">No records found.</td>
                             </tr>
                         @endforelse
                     @else
                         @forelse ($this->transactions as $t)
                             <tr>
-                                <td style="max-width: 300px; white-space: normal; word-break: break-word;">{{ $t->subject }}</td>
-                                 <td style="white-space: nowrap;">
-                                     {{ $t->requestor_name }}
-                                     @if(!empty($t->requestor_label))
-                                         <div style="font-size: 11px; color: #6b7280; font-weight: normal;">({{ $t->requestor_label }})</div>
-                                     @endif
-                                 </td>
-                                <td style="font-weight: 600; color: #1e40af; text-align: center;">{{ $t->control_number }}</td>
-                                <td>{{ (!empty($t->doc_type_name) && !str_starts_with($t->doc_type_name, 'Flow for ')) ? $t->doc_type_name : ucfirst($t->trans_type) }}</td>
+                                <td style="font-weight: 700; color: #1e40af; white-space: nowrap;">{{ $t->control_number }}</td>
+                                <td style="white-space: nowrap;">
+                                    @if(!empty($t->qr_code))
+                                        <span style="font-family: monospace; font-size: 11px; background: #eff6ff; color: #1e40af; padding: 3px 8px; border-radius: 6px; border: 1px solid #bfdbfe; font-weight: 700;">
+                                            <i class="fa-solid fa-qrcode" style="margin-right: 3px;"></i>{{ $t->qr_code }}
+                                        </span>
+                                    @else
+                                        <span style="color: #94a3b8; font-size: 11px; font-style: italic;">N/A</span>
+                                    @endif
+                                </td>
+
                                 @if ($isMyTxPage)
+                                    <td style="padding: 12px 14px; color: #475569; font-size: 12px; white-space: nowrap;">{{ $t->created_at_fmt }}</td>
+                                    <td style="padding: 12px 14px; color: #ef4444; font-weight: 500;">{{ $t->originated_office_name ?? $t->originated_from }}</td>
+                                    <td style="max-width: 260px; white-space: normal; word-break: break-word;">
+                                        <div style="font-weight: 600; color: #0f172a;">{{ $t->subject }}</div>
+                                        @if(!empty($t->requestor_name))
+                                            <div style="font-size: 11px; color: #64748b;">Req: {{ $t->requestor_name }}</div>
+                                        @endif
+                                    </td>
                                     <td style="padding: 10px 12px; min-width: 220px; max-width: 320px;">
                                         <div style="display: flex; align-items: center; justify-content: flex-start; gap: 0; position: relative;">
                                             @forelse ($t->timeline_path as $index => $step)
@@ -2022,46 +2134,90 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
                                             @endforelse
                                         </div>
                                     </td>
-                                @else
-                                    <td style="padding: 12px 14px; color: #ef4444; font-weight: 500;">
-                                        {{ $t->originated_office_name ?? 'N/A' }}
-                                    </td>
-                                    <td style="padding: 12px 14px; color: #475569; font-size: 12px;">
-                                        {{ $t->date_received ? \Carbon\Carbon::parse($t->date_received)->format('Y-m-d H:i') : 'N/A' }}
-                                    </td>
-                                    <td style="padding: 12px 14px; color: #3b82f6; font-weight: 600;">
-                                        {{ $t->next_office_name }}
-                                    </td>
-                                    <td style="padding: 12px 14px; color: #16a34a; font-weight: 600;">
-                                        {{ $t->action_needed ?? 'For action' }}
-                                    </td>
+                                    <td style="color: #dc2626; font-weight: 600; white-space: nowrap; text-align: center;">{{ $t->total_elapsed_days }} day(s)</td>
                                     <td style="padding: 12px 14px;">
                                         <span class="rms-badge badge-{{ $t->status === 'completed' ? 'success' : ($t->status === 'cancelled' ? 'danger' : 'warning') }}">
                                             {{ ucfirst($t->status) }}
                                         </span>
                                     </td>
-                                @endif
-                                <td style="color: #dc2626; font-weight: 600; white-space: nowrap; text-align: center;">{{ $t->elapsed_days }} day(s)</td>
-                                <td style="text-align: center; white-space: nowrap;">
-                                    @if(request()->routeIs('dts.incoming') || request()->routeIs('dts') || $this->currentRouteName === 'dts.incoming' || $this->currentRouteName === 'dts' || $activeTab === 'incoming')
+                                    <td style="text-align: center; white-space: nowrap;">
+                                        <button type="button" wire:click="openTransaction('{{ $t->transaction_id }}')" class="rms-select" style="border: none; background: transparent; cursor: pointer; color: #043899; font-weight: 600;">View</button>
+                                    </td>
+
+                                @elseif ($isIncomingPage)
+                                    <td style="padding: 12px 14px; color: #475569; font-size: 12px; white-space: nowrap;">{{ $t->created_at_fmt }}</td>
+                                    <td style="padding: 12px 14px; color: #ef4444; font-weight: 500;">{{ $t->originated_office_name ?? $t->originated_from }}</td>
+                                    <td style="max-width: 260px; white-space: normal; word-break: break-word;">
+                                        <div style="font-weight: 600; color: #0f172a;">{{ $t->subject }}</div>
+                                        @if(!empty($t->requestor_name))
+                                            <div style="font-size: 11px; color: #64748b;">Req: {{ $t->requestor_name }}</div>
+                                        @endif
+                                    </td>
+                                    <td style="padding: 12px 14px; color: #16a34a; font-weight: 600;">{{ $t->action_needed ?? 'For action' }}</td>
+                                    <td style="color: #dc2626; font-weight: 600; white-space: nowrap; text-align: center;">{{ $t->incoming_elapsed_days }} day(s)</td>
+                                    <td style="text-align: center; white-space: nowrap;">
                                         <button type="button" onclick="if(window.openScannerModal) window.openScannerModal('{{ $t->control_number }}');" class="rms-select" style="text-decoration: none; display: inline-flex; align-items: center; gap: 4px; border: none; background: transparent; cursor: pointer; color: #0284c7; font-weight: 600;">
                                             <i class="fa-solid fa-qrcode"></i> Scan
                                         </button>
-                                    @elseif(request()->routeIs('dts.received') || $this->currentRouteName === 'dts.received' || $activeTab === 'received')
+                                    </td>
+
+                                @elseif ($isReceivedPage)
+                                    <td style="padding: 12px 14px; color: #475569; font-size: 12px; white-space: nowrap;">{{ $t->received_at_fmt }}</td>
+                                    <td style="padding: 12px 14px; color: #ef4444; font-weight: 500;">{{ $t->originated_office_name ?? $t->originated_from }}</td>
+                                    <td style="max-width: 260px; white-space: normal; word-break: break-word;">
+                                        <div style="font-weight: 600; color: #0f172a;">{{ $t->subject }}</div>
+                                        @if(!empty($t->requestor_name))
+                                            <div style="font-size: 11px; color: #64748b;">Req: {{ $t->requestor_name }}</div>
+                                        @endif
+                                    </td>
+                                    <td style="padding: 12px 14px; color: #3b82f6; font-weight: 600;">{{ $t->next_office_name }}</td>
+                                    <td style="padding: 12px 14px; color: #16a34a; font-weight: 600;">{{ $t->action_needed ?? 'For action' }}</td>
+                                    <td style="color: #dc2626; font-weight: 600; white-space: nowrap; text-align: center;">{{ $t->received_elapsed_days }} day(s)</td>
+                                    <td style="text-align: center; white-space: nowrap;">
                                         <div style="display: flex; align-items: center; justify-content: center; gap: 8px;">
-                                            <button type="button" wire:click="openTransaction('{{ $t->transaction_id }}')" class="rms-select" style="text-decoration: none; display: inline-block; border: none; background: transparent; cursor: pointer; color: #043899; font-weight: 500;">View</button>
+                                            <button type="button" wire:click="openTransaction('{{ $t->transaction_id }}')" class="rms-select" style="border: none; background: transparent; cursor: pointer; color: #043899; font-weight: 500;">View</button>
                                             <button type="button" onclick="if(window.openScannerModal) window.openScannerModal('{{ $t->control_number }}');" class="rms-select" style="text-decoration: none; display: inline-flex; align-items: center; gap: 4px; border: none; background: transparent; cursor: pointer; color: #0284c7; font-weight: 600;">
                                                 <i class="fa-solid fa-qrcode"></i> Scan
                                             </button>
                                         </div>
-                                    @else
-                                        <button type="button" wire:click="openTransaction('{{ $t->transaction_id }}')" class="rms-select" style="text-decoration: none; display: inline-block; border: none; background: transparent; cursor: pointer; color: #043899; font-weight: 500;">View</button>
-                                    @endif
-                                </td>
+                                    </td>
+
+                                @elseif ($isForwardedPage)
+                                    <td style="padding: 12px 14px; color: #475569; font-size: 12px; white-space: nowrap;">{{ $t->released_at_fmt }}</td>
+                                    <td style="padding: 12px 14px; color: #ef4444; font-weight: 500;">{{ $t->originated_office_name ?? $t->originated_from }}</td>
+                                    <td style="max-width: 260px; white-space: normal; word-break: break-word;">
+                                        <div style="font-weight: 600; color: #0f172a;">{{ $t->subject }}</div>
+                                        @if(!empty($t->requestor_name))
+                                            <div style="font-size: 11px; color: #64748b;">Req: {{ $t->requestor_name }}</div>
+                                        @endif
+                                    </td>
+                                    <td style="padding: 12px 14px; color: #3b82f6; font-weight: 600;">{{ $t->next_office_name }}</td>
+                                    <td style="padding: 12px 14px; color: #16a34a; font-weight: 600;">{{ $t->action_needed ?? 'For action' }}</td>
+                                    <td style="color: #dc2626; font-weight: 600; white-space: nowrap; text-align: center;">{{ $t->released_elapsed_days }} day(s)</td>
+                                    <td style="text-align: center; white-space: nowrap;">
+                                        <button type="button" wire:click="openTransaction('{{ $t->transaction_id }}')" class="rms-select" style="border: none; background: transparent; cursor: pointer; color: #043899; font-weight: 600;">View</button>
+                                    </td>
+
+                                @else
+                                    <td style="padding: 12px 14px; color: #475569; font-size: 12px; white-space: nowrap;">{{ $t->created_at_fmt }}</td>
+                                    <td style="padding: 12px 14px; color: #ef4444; font-weight: 500;">{{ $t->originated_office_name ?? $t->originated_from }}</td>
+                                    <td style="max-width: 260px; white-space: normal; word-break: break-word;">
+                                        <div style="font-weight: 600; color: #0f172a;">{{ $t->subject }}</div>
+                                        @if(!empty($t->requestor_name))
+                                            <div style="font-size: 11px; color: #64748b;">Req: {{ $t->requestor_name }}</div>
+                                        @endif
+                                    </td>
+                                    <td style="padding: 12px 14px; color: #3b82f6; font-weight: 600;">{{ $t->next_office_name }}</td>
+                                    <td style="padding: 12px 14px; color: #16a34a; font-weight: 600;">{{ $t->action_needed ?? 'For action' }}</td>
+                                    <td style="color: #dc2626; font-weight: 600; white-space: nowrap; text-align: center;">{{ $t->total_elapsed_days }} day(s)</td>
+                                    <td style="text-align: center; white-space: nowrap;">
+                                        <button type="button" wire:click="openTransaction('{{ $t->transaction_id }}')" class="rms-select" style="border: none; background: transparent; cursor: pointer; color: #043899; font-weight: 600;">View</button>
+                                    </td>
+                                @endif
                             </tr>
                         @empty
                             <tr>
-                                <td class="rms-no-data" colspan="{{ $isMyTxPage ? 7 : 11 }}">No records found.</td>
+                                <td class="rms-no-data" colspan="{{ $isIncomingPage ? 8 : 9 }}">No records found.</td>
                             </tr>
                         @endforelse
                     @endif

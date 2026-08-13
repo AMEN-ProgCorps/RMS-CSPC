@@ -300,14 +300,12 @@ new class extends Component {
                                 'current_office' => $nextOfficeCode,
                                 'sequence' => DB::raw('sequence + 1'),
                                 'status' => 'pending',
-                                'updated_at' => now(),
                             ]);
 
                         DB::table('dts_transaction_details')
                             ->where('id', $transId)
                             ->update([
                                 'action_needed' => $this->actionNeeded,
-                                'updated_at' => now(),
                             ]);
 
                         DB::table('sub_document_tracking_system_logs')->insert([
@@ -326,7 +324,6 @@ new class extends Component {
                             ->where('transaction_id', $transId)
                             ->update([
                                 'status' => 'completed',
-                                'updated_at' => now(),
                             ]);
 
                         $this->successMessage = "Transaction '{$this->activeTransaction['control_number']}' marked as COMPLETED!";

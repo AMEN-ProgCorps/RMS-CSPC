@@ -424,6 +424,28 @@ function handleInternalPush(req, res) {
     broadcastToAccounts(targets, outPayloadStr);
     log(`Internal push relayed: type=${type}, targets=${targets.join(',')}`);
 
+    // Real DM sends go through send_dm.php -> here (not the client-originated
+    // WS 'message' handler below), so that handler's typing-preview-clear
+    // logic never ran for them — leaving the sidebar stuck showing the
+    // last-typed preview text after the message was actually sent. Mirror
+    // that same clearing here for private messages relayed from PHP.
+    if (type === 'message' && eventData && eventData.chat_type === 'private') {
+      const senderId = Number(eventData.sender_id);
+      const recipientId = Number(eventData.recipient_id);
+      if (senderId && recipientId) {
+        const previewKey = `${senderId}:${recipientId}`;
+        if (activeTypingPreviews.has(previewKey)) {
+          clearPreview(previewKey, false);
+          const sentPayloadStr = JSON.stringify({
+            type: 'typing_preview_sent',
+            sender_id: senderId,
+            recipient_id: recipientId
+          });
+          broadcastToAccounts([recipientId, senderId], sentPayloadStr);
+        }
+      }
+    }
+
     if (shouldForceDisconnect) {
       // Small delay so the message above has a chance to reach the client
       // before the socket disappears — the overlay is cosmetic, but the

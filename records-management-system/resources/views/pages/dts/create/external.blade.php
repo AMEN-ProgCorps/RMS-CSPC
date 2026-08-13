@@ -43,6 +43,20 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create External
     public string $newSourceOfficeName = '';
     public string $newSourceOfficeCode = '';
 
+    // Edit Source Office properties
+    public bool $showEditSourceOfficeModal = false;
+    public ?int $editingSourceOfficeId = null;
+    public string $editSourceOfficeName = '';
+    public string $editSourceOfficeCode = '';
+    public string $editSourceOfficeOriginalCode = '';
+
+    // Edit Requestor properties
+    public bool $showEditRequestorModal = false;
+    public ?int $editingRequestorId = null;
+    public string $editRequestorName = '';
+    public string $editRequestorPosition = '';
+    public string $editRequestorOriginalName = '';
+
     public bool $showRequestorDropdown = false;
     public bool $showSuccessModal = false;
     public array $createdTransactionSummary = [];
@@ -85,6 +99,29 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create External
         return 'ORIGIN';
     }
 
+    private function ensureOriginBounds(array $offices, string $originOfficeCode): array
+    {
+        if (empty($offices)) {
+            return ['ORIGIN', 'ORIGIN'];
+        }
+
+        $first = reset($offices);
+        $last = end($offices);
+
+        $needsStart = ($first !== 'ORIGIN' && $first !== $originOfficeCode);
+        $needsEnd = ($last !== 'ORIGIN' && $last !== $originOfficeCode);
+
+        if ($needsStart) {
+            array_unshift($offices, 'ORIGIN');
+        }
+
+        if ($needsEnd) {
+            $offices[] = 'ORIGIN';
+        }
+
+        return array_values($offices);
+    }
+
     public function createNewSourceOffice(): void
     {
         $this->validate([
@@ -113,6 +150,152 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create External
         $this->newSourceOfficeName = '';
         $this->newSourceOfficeCode = '';
         $this->showNewSourceOfficeModal = false;
+    }
+
+    public function startEditSourceOffice(int $id): void
+    {
+        $so = DB::table('dts_source_office')->where('id', $id)->first();
+        if (!$so) {
+            return;
+        }
+
+        $userOfficeCode = $this->getValidUserOfficeCode();
+        $isSuperAdmin = auth()->user()?->permissions?->is_sadm ?? false;
+        if (!$isSuperAdmin && $so->created_by_office !== $userOfficeCode) {
+            return;
+        }
+
+        $this->editingSourceOfficeId = $so->id;
+        $this->editSourceOfficeName = $so->s_office_name;
+        $this->editSourceOfficeCode = $so->s_office_code;
+        $this->editSourceOfficeOriginalCode = $so->s_office_code;
+        $this->showEditSourceOfficeModal = true;
+        $this->showSourceOfficeDropdown = false;
+    }
+
+    public function updateSourceOffice(): void
+    {
+        $this->validate([
+            'editSourceOfficeName' => 'required|string|max:255',
+            'editSourceOfficeCode' => 'required|string|max:100',
+        ]);
+
+        if (!$this->editingSourceOfficeId) {
+            return;
+        }
+
+        $code = strtoupper(trim($this->editSourceOfficeCode));
+        $name = trim($this->editSourceOfficeName);
+
+        $userOfficeCode = $this->getValidUserOfficeCode();
+        $isSuperAdmin = auth()->user()?->permissions?->is_sadm ?? false;
+
+        $so = DB::table('dts_source_office')->where('id', $this->editingSourceOfficeId)->first();
+        if (!$so || (!$isSuperAdmin && $so->created_by_office !== $userOfficeCode)) {
+            $this->addError('editSourceOfficeCode', 'Unauthorized to edit this external office.');
+            return;
+        }
+
+        if ($code !== $this->editSourceOfficeOriginalCode) {
+            $exists = DB::table('dts_source_office')
+                ->where('s_office_code', $code)
+                ->where('id', '!=', $this->editingSourceOfficeId)
+                ->exists();
+
+            if ($exists) {
+                $this->addError('editSourceOfficeCode', "The External Office Code '{$code}' already exists.");
+                return;
+            }
+        }
+
+        DB::table('dts_source_office')
+            ->where('id', $this->editingSourceOfficeId)
+            ->update([
+                's_office_name' => $name,
+                's_office_code' => $code,
+                'updated_at' => now(),
+            ]);
+
+        if ($this->source_office === $this->editSourceOfficeOriginalCode) {
+            $this->source_office = $code;
+        }
+
+        $this->editingSourceOfficeId = null;
+        $this->editSourceOfficeName = '';
+        $this->editSourceOfficeCode = '';
+        $this->editSourceOfficeOriginalCode = '';
+        $this->showEditSourceOfficeModal = false;
+    }
+
+    public function startEditRequestor(int $id): void
+    {
+        $req = DB::table('dts_requestor_history')->where('id', $id)->first();
+        if (!$req) {
+            return;
+        }
+
+        $userOfficeCode = $this->getValidUserOfficeCode();
+        $isSuperAdmin = auth()->user()?->permissions?->is_sadm ?? false;
+
+        $soRec = DB::table('dts_source_office')->where('s_office_code', $req->office)->first();
+        if (!$isSuperAdmin && (!$soRec || $soRec->created_by_office !== $userOfficeCode)) {
+            return;
+        }
+
+        $this->editingRequestorId = $req->id;
+        $this->editRequestorName = $req->requestor_name;
+        $this->editRequestorPosition = $req->requestor_position ?? '';
+        $this->editRequestorOriginalName = $req->requestor_name;
+        $this->showEditRequestorModal = true;
+        $this->showRequestorDropdown = false;
+    }
+
+    public function updateRequestor(): void
+    {
+        $this->validate([
+            'editRequestorName' => 'required|string|max:255',
+            'editRequestorPosition' => 'nullable|string|max:255',
+        ]);
+
+        if (!$this->editingRequestorId) {
+            return;
+        }
+
+        $name = trim($this->editRequestorName);
+        $pos = trim($this->editRequestorPosition ?? '');
+
+        $userOfficeCode = $this->getValidUserOfficeCode();
+        $isSuperAdmin = auth()->user()?->permissions?->is_sadm ?? false;
+
+        $req = DB::table('dts_requestor_history')->where('id', $this->editingRequestorId)->first();
+        if (!$req) {
+            return;
+        }
+
+        $soRec = DB::table('dts_source_office')->where('s_office_code', $req->office)->first();
+        if (!$isSuperAdmin && (!$soRec || $soRec->created_by_office !== $userOfficeCode)) {
+            $this->addError('editRequestorName', 'Unauthorized: Only the office that created this source office can edit its requestors.');
+            return;
+        }
+
+        DB::table('dts_requestor_history')
+            ->where('id', $this->editingRequestorId)
+            ->update([
+                'requestor_name' => $name,
+                'requestor_position' => $pos,
+                'updated_at' => now(),
+            ]);
+
+        if ($this->requestor_name === $this->editRequestorOriginalName) {
+            $this->requestor_name = $name;
+            $this->requestor_label = $pos;
+        }
+
+        $this->editingRequestorId = null;
+        $this->editRequestorName = '';
+        $this->editRequestorPosition = '';
+        $this->editRequestorOriginalName = '';
+        $this->showEditRequestorModal = false;
     }
 
     public function toggleEmailAccessModal(): void
@@ -264,6 +447,8 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create External
                     $clusterHead = $cluster->cluster_head;
                 }
             }
+
+            $rawOffices = $this->ensureOriginBounds($rawOffices, $originOfficeCode);
 
             $resolvedOffices = [];
             foreach ($rawOffices as $officeCode) {
@@ -756,6 +941,8 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create External
                 }
             }
 
+            $this->flow_offices = $this->ensureOriginBounds($this->flow_offices, $originOfficeCode);
+
             $resolvedOffices = [];
             foreach ($this->flow_offices as $officeCode) {
                 $resolved = $officeCode;
@@ -1057,15 +1244,28 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create External
                 <!-- Source Office (External Originator) field -->
                 <div class="form-row">
                     <div class="form-col medium-input" style="position: relative;">
+                        @php
+                            $userOfficeCodeForEdit = $this->getValidUserOfficeCode();
+                            $isSuperAdminForEdit = auth()->user()?->permissions?->is_sadm ?? false;
+                            $selectedSoRec = !empty($source_office) ? \DB::table('dts_source_office')->where('s_office_code', $source_office)->first() : null;
+                            $canEditSelected = $selectedSoRec && ($isSuperAdminForEdit || $selectedSoRec->created_by_office === $userOfficeCodeForEdit);
+                        @endphp
                         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">
                             <label class="input-label" style="margin: 0;">Source Office (External Originator)</label>
-                            <button type="button" wire:click="$set('showNewSourceOfficeModal', true)" style="background: none; border: none; font-size: 11.5px; color: #0284c7; font-weight: 600; cursor: pointer; text-decoration: underline; padding: 0;">
-                                + Add New External Office
-                            </button>
+                            <div style="display: flex; gap: 12px; align-items: center;">
+                                @if($canEditSelected)
+                                    <button type="button" wire:click="startEditSourceOffice({{ $selectedSoRec->id }})" style="background: none; border: none; font-size: 11.5px; color: #0284c7; font-weight: 600; cursor: pointer; text-decoration: underline; padding: 0; display: inline-flex; align-items: center; gap: 3px;">
+                                        <i class="fa-solid fa-pen-to-square"></i> Edit Selected Office
+                                    </button>
+                                @endif
+                                <button type="button" wire:click="$set('showNewSourceOfficeModal', true)" style="background: none; border: none; font-size: 11.5px; color: #0284c7; font-weight: 600; cursor: pointer; text-decoration: underline; padding: 0;">
+                                    + Add New External Office
+                                </button>
+                            </div>
                         </div>
                         <div style="position: relative;" wire:click.outside="$set('showSourceOfficeDropdown', false)">
                             @php
-                                $selectedSoName = \DB::table('dts_source_office')->where('s_office_code', $source_office)->value('s_office_name');
+                                $selectedSoName = $selectedSoRec ? $selectedSoRec->s_office_name : null;
                                 $displaySoText = $selectedSoName ? "{$selectedSoName} ({$source_office})" : $source_office;
                             @endphp
                             <input type="text" wire:model.live="source_office" wire:focus="$set('showSourceOfficeDropdown', true)" class="text-input" placeholder="Type or select Source Office Code / Name" autocomplete="off" style="padding-right: 32px;">
@@ -1083,9 +1283,19 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create External
                                             ->get();
                                     @endphp
                                     @forelse($sourceOffices as $so)
-                                        <div wire:click="selectSourceOffice('{{ addslashes($so->s_office_code) }}')" style="padding: 9px 14px; font-size: 13px; color: #334155; cursor: pointer; border-bottom: 1px solid #f1f5f9;" onmouseover="this.style.backgroundColor='#f1f5f9'" onmouseout="this.style.backgroundColor='transparent'">
-                                            <div style="font-weight: 600;">{{ $so->s_office_name }}</div>
-                                            <div style="font-size: 11px; color: #64748b;">Code: {{ $so->s_office_code }}</div>
+                                        @php
+                                            $canEditThis = $isSuperAdminForEdit || ($so->created_by_office === $userOfficeCodeForEdit);
+                                        @endphp
+                                        <div wire:click="selectSourceOffice('{{ addslashes($so->s_office_code) }}')" style="padding: 9px 14px; font-size: 13px; color: #334155; cursor: pointer; border-bottom: 1px solid #f1f5f9; display: flex; align-items: center; justify-content: space-between;" onmouseover="this.style.backgroundColor='#f1f5f9'" onmouseout="this.style.backgroundColor='transparent'">
+                                            <div>
+                                                <div style="font-weight: 600;">{{ $so->s_office_name }}</div>
+                                                <div style="font-size: 11px; color: #64748b;">Code: {{ $so->s_office_code }}</div>
+                                            </div>
+                                            @if($canEditThis)
+                                                <button type="button" wire:click.stop="startEditSourceOffice({{ $so->id }})" title="Edit this office created by your unit" style="background: #e0f2fe; color: #0284c7; border: 1px solid #bae6fd; padding: 3px 8px; border-radius: 6px; font-size: 11px; font-weight: 600; cursor: pointer; display: flex; align-items: center; gap: 4px; flex-shrink: 0;" onmouseover="this.style.backgroundColor='#0284c7'; this.style.color='#ffffff';" onmouseout="this.style.backgroundColor='#e0f2fe'; this.style.color='#0284c7';">
+                                                    <i class="fa-solid fa-pen-to-square"></i> Edit
+                                                </button>
+                                            @endif
                                         </div>
                                     @empty
                                         <div style="padding: 10px 14px; font-size: 12px; color: #64748b; font-style: italic;">
@@ -1104,7 +1314,21 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create External
                 <!-- Name of Requestor field -->
                 <div class="form-row">
                     <div class="form-col small-input" style="position: relative;">
-                        <label class="input-label">Name of Requestor</label>
+                        @php
+                            $selectedReqRec = (!empty($requestor_name) && !empty($source_office))
+                                ? \DB::table('dts_requestor_history')->where('office', $source_office)->where('requestor_name', $requestor_name)->first()
+                                : null;
+                            $soRecForReq = !empty($source_office) ? \DB::table('dts_source_office')->where('s_office_code', $source_office)->first() : null;
+                            $canEditSelectedReq = $selectedReqRec && ($isSuperAdminForEdit || ($soRecForReq && $soRecForReq->created_by_office === $userOfficeCodeForEdit));
+                        @endphp
+                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">
+                            <label class="input-label" style="margin: 0;">Name of Requestor</label>
+                            @if($canEditSelectedReq)
+                                <button type="button" wire:click="startEditRequestor({{ $selectedReqRec->id }})" style="background: none; border: none; font-size: 11.5px; color: #0284c7; font-weight: 600; cursor: pointer; text-decoration: underline; padding: 0; display: inline-flex; align-items: center; gap: 3px;">
+                                    <i class="fa-solid fa-pen-to-square"></i> Edit Selected Requestor
+                                </button>
+                            @endif
+                        </div>
                         <div style="position: relative;" wire:click.outside="$set('showRequestorDropdown', false)">
                             <input type="text" wire:model.live="requestor_name" wire:focus="$set('showRequestorDropdown', true)" class="text-input" placeholder="Type or select Requestor Name" autocomplete="off" style="padding-right: 32px;">
                             <span style="position: absolute; right: 10px; top: 50%; transform: translateY(-50%); pointer-events: none; color: #94a3b8; font-size: 10px;">▼</span>
@@ -1122,10 +1346,20 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create External
                                             ->get();
                                     @endphp
                                     @forelse($existingRequestors as $req)
-                                        <div wire:click="selectRequestor('{{ addslashes($req->requestor_name) }}', '{{ addslashes($req->requestor_position) }}')" style="padding: 9px 14px; font-size: 13px; color: #334155; cursor: pointer; border-bottom: 1px solid #f1f5f9;" onmouseover="this.style.backgroundColor='#f1f5f9'" onmouseout="this.style.backgroundColor='transparent'">
-                                            <div style="font-weight: 600;">{{ $req->requestor_name }}</div>
-                                            @if(!empty($req->requestor_position))
-                                                <div style="font-size: 11px; color: #64748b;">{{ $req->requestor_position }}</div>
+                                        @php
+                                            $canEditReqThis = $isSuperAdminForEdit || ($soRecForReq && $soRecForReq->created_by_office === $userOfficeCodeForEdit);
+                                        @endphp
+                                        <div wire:click="selectRequestor('{{ addslashes($req->requestor_name) }}', '{{ addslashes($req->requestor_position) }}')" style="padding: 9px 14px; font-size: 13px; color: #334155; cursor: pointer; border-bottom: 1px solid #f1f5f9; display: flex; align-items: center; justify-content: space-between;" onmouseover="this.style.backgroundColor='#f1f5f9'" onmouseout="this.style.backgroundColor='transparent'">
+                                            <div>
+                                                <div style="font-weight: 600;">{{ $req->requestor_name }}</div>
+                                                @if(!empty($req->requestor_position))
+                                                    <div style="font-size: 11px; color: #64748b;">{{ $req->requestor_position }}</div>
+                                                @endif
+                                            </div>
+                                            @if($canEditReqThis)
+                                                <button type="button" wire:click.stop="startEditRequestor({{ $req->id }})" title="Edit requestor details" style="background: #e0f2fe; color: #0284c7; border: 1px solid #bae6fd; padding: 3px 8px; border-radius: 6px; font-size: 11px; font-weight: 600; cursor: pointer; display: flex; align-items: center; gap: 4px; flex-shrink: 0;" onmouseover="this.style.backgroundColor='#0284c7'; this.style.color='#ffffff';" onmouseout="this.style.backgroundColor='#e0f2fe'; this.style.color='#0284c7';">
+                                                    <i class="fa-solid fa-pen-to-square"></i> Edit
+                                                </button>
                                             @endif
                                         </div>
                                     @empty
@@ -1651,6 +1885,76 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create External
                 <div style="padding: 16px 24px; border-top: 1px solid #f1f5f9; display: flex; justify-content: flex-end; gap: 12px; background: #fafafa;">
                     <button type="button" wire:click="$set('showNewSourceOfficeModal', false)" style="background: #ffffff; border: 1.5px solid #cbd5e1; color: #334155; padding: 8px 16px; border-radius: 8px; font-size: 13px; font-weight: 600; cursor: pointer;">Cancel</button>
                     <button type="button" wire:click="createNewSourceOffice" style="background: #0284c7; border: none; color: #ffffff; padding: 8px 20px; border-radius: 8px; font-size: 13px; font-weight: 600; cursor: pointer;">Save External Office</button>
+                </div>
+            </div>
+        </div>
+    @endif
+
+    <!-- Modal: Edit External Source Office -->
+    @if($showEditSourceOfficeModal)
+        <div style="position: fixed; inset: 0; background: rgba(15, 23, 42, 0.45); backdrop-filter: blur(4px); display: flex; align-items: center; justify-content: center; z-index: 10000; font-family: 'Inter', sans-serif;">
+            <div style="background: #ffffff; border-radius: 16px; width: 100%; max-width: 440px; box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1); display: flex; flex-direction: column; overflow: hidden;">
+                <div style="padding: 16px 24px; border-bottom: 1px solid #f1f5f9; display: flex; align-items: center; justify-content: space-between; background: linear-gradient(135deg, #0284c7, #0369a1); color: white;">
+                    <div style="display: flex; align-items: center; gap: 8px;">
+                        <i class="fa-solid fa-pen-to-square" style="font-size: 15px;"></i>
+                        <h3 style="font-size: 15px; font-weight: 700; margin: 0;">Edit External Source Office</h3>
+                    </div>
+                    <button type="button" wire:click="$set('showEditSourceOfficeModal', false)" style="background: none; border: none; font-size: 20px; color: rgba(255,255,255,0.8); cursor: pointer;">&times;</button>
+                </div>
+                <div style="padding: 24px; display: flex; flex-direction: column; gap: 16px;">
+                    <div style="background: #f0f9ff; border: 1px solid #bae6fd; padding: 10px 12px; border-radius: 8px; font-size: 12px; color: #0369a1; display: flex; align-items: center; gap: 8px;">
+                        <i class="fa-solid fa-shield-halved"></i>
+                        <span>Only your office (<strong>{{ $this->getValidUserOfficeCode() }}</strong>) can edit this external record.</span>
+                    </div>
+                    <div>
+                        <label style="font-size: 12px; font-weight: 600; color: #334155;">Office Name <span style="color: #ef4444;">*</span></label>
+                        <input type="text" wire:model="editSourceOfficeName" placeholder="e.g. Commission on Higher Education - Region V" style="width: 100%; padding: 10px 12px; border: 1.5px solid #cbd5e1; border-radius: 8px; font-size: 13px; margin-top: 4px;">
+                        @error('editSourceOfficeName') <span style="font-size: 11.5px; color: #ef4444; margin-top: 2px; display: block;">{{ $message }}</span> @enderror
+                    </div>
+                    <div>
+                        <label style="font-size: 12px; font-weight: 600; color: #334155;">Office Code <span style="color: #ef4444;">*</span></label>
+                        <input type="text" wire:model="editSourceOfficeCode" placeholder="e.g. CHED RO V" style="width: 100%; padding: 10px 12px; border: 1.5px solid #cbd5e1; border-radius: 8px; font-size: 13px; text-transform: uppercase; margin-top: 4px;">
+                        @error('editSourceOfficeCode') <span style="font-size: 11.5px; color: #ef4444; margin-top: 2px; display: block;">{{ $message }}</span> @enderror
+                    </div>
+                </div>
+                <div style="padding: 16px 24px; border-top: 1px solid #f1f5f9; display: flex; justify-content: flex-end; gap: 12px; background: #fafafa;">
+                    <button type="button" wire:click="$set('showEditSourceOfficeModal', false)" style="background: #ffffff; border: 1.5px solid #cbd5e1; color: #334155; padding: 8px 16px; border-radius: 8px; font-size: 13px; font-weight: 600; cursor: pointer;">Cancel</button>
+                    <button type="button" wire:click="updateSourceOffice" style="background: linear-gradient(135deg, #0284c7, #0369a1); border: none; color: #ffffff; padding: 8px 20px; border-radius: 8px; font-size: 13px; font-weight: 600; cursor: pointer;">Update External Office</button>
+                </div>
+            </div>
+        </div>
+    @endif
+
+    <!-- Modal: Edit Requestor -->
+    @if($showEditRequestorModal)
+        <div style="position: fixed; inset: 0; background: rgba(15, 23, 42, 0.45); backdrop-filter: blur(4px); display: flex; align-items: center; justify-content: center; z-index: 10000; font-family: 'Inter', sans-serif;">
+            <div style="background: #ffffff; border-radius: 16px; width: 100%; max-width: 440px; box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1); display: flex; flex-direction: column; overflow: hidden;">
+                <div style="padding: 16px 24px; border-bottom: 1px solid #f1f5f9; display: flex; align-items: center; justify-content: space-between; background: linear-gradient(135deg, #0284c7, #0369a1); color: white;">
+                    <div style="display: flex; align-items: center; gap: 8px;">
+                        <i class="fa-solid fa-user-pen" style="font-size: 15px;"></i>
+                        <h3 style="font-size: 15px; font-weight: 700; margin: 0;">Edit Requestor Details</h3>
+                    </div>
+                    <button type="button" wire:click="$set('showEditRequestorModal', false)" style="background: none; border: none; font-size: 20px; color: rgba(255,255,255,0.8); cursor: pointer;">&times;</button>
+                </div>
+                <div style="padding: 24px; display: flex; flex-direction: column; gap: 16px;">
+                    <div style="background: #f0f9ff; border: 1px solid #bae6fd; padding: 10px 12px; border-radius: 8px; font-size: 12px; color: #0369a1; display: flex; align-items: center; gap: 8px;">
+                        <i class="fa-solid fa-shield-halved"></i>
+                        <span>Only the office that created this source office (<strong>{{ $this->getValidUserOfficeCode() }}</strong>) can edit its requestors.</span>
+                    </div>
+                    <div>
+                        <label style="font-size: 12px; font-weight: 600; color: #334155;">Requestor Name <span style="color: #ef4444;">*</span></label>
+                        <input type="text" wire:model="editRequestorName" placeholder="e.g. Dr. Juan Dela Cruz" style="width: 100%; padding: 10px 12px; border: 1.5px solid #cbd5e1; border-radius: 8px; font-size: 13px; margin-top: 4px;">
+                        @error('editRequestorName') <span style="font-size: 11.5px; color: #ef4444; margin-top: 2px; display: block;">{{ $message }}</span> @enderror
+                    </div>
+                    <div>
+                        <label style="font-size: 12px; font-weight: 600; color: #334155;">Job Position / Designation</label>
+                        <input type="text" wire:model="editRequestorPosition" placeholder="e.g. Regional Director" style="width: 100%; padding: 10px 12px; border: 1.5px solid #cbd5e1; border-radius: 8px; font-size: 13px; margin-top: 4px;">
+                        @error('editRequestorPosition') <span style="font-size: 11.5px; color: #ef4444; margin-top: 2px; display: block;">{{ $message }}</span> @enderror
+                    </div>
+                </div>
+                <div style="padding: 16px 24px; border-top: 1px solid #f1f5f9; display: flex; justify-content: flex-end; gap: 12px; background: #fafafa;">
+                    <button type="button" wire:click="$set('showEditRequestorModal', false)" style="background: #ffffff; border: 1.5px solid #cbd5e1; color: #334155; padding: 8px 16px; border-radius: 8px; font-size: 13px; font-weight: 600; cursor: pointer;">Cancel</button>
+                    <button type="button" wire:click="updateRequestor" style="background: linear-gradient(135deg, #0284c7, #0369a1); border: none; color: #ffffff; padding: 8px 20px; border-radius: 8px; font-size: 13px; font-weight: 600; cursor: pointer;">Update Requestor</button>
                 </div>
             </div>
         </div>

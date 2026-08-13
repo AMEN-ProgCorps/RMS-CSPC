@@ -48,6 +48,29 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create Issuance
     public string $insert_office_code = '';
     public string $insert_office_search = '';
 
+    private function ensureOriginBounds(array $offices, string $originOfficeCode): array
+    {
+        if (empty($offices)) {
+            return ['ORIGIN', 'ORIGIN'];
+        }
+
+        $first = reset($offices);
+        $last = end($offices);
+
+        $needsStart = ($first !== 'ORIGIN' && $first !== $originOfficeCode);
+        $needsEnd = ($last !== 'ORIGIN' && $last !== $originOfficeCode);
+
+        if ($needsStart) {
+            array_unshift($offices, 'ORIGIN');
+        }
+
+        if ($needsEnd) {
+            $offices[] = 'ORIGIN';
+        }
+
+        return array_values($offices);
+    }
+
     public function mount(): void
     {
         $perms = auth()->user()?->permissions;
@@ -185,6 +208,8 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create Issuance
                     $clusterHead = $cluster->cluster_head;
                 }
             }
+
+            $rawOffices = $this->ensureOriginBounds($rawOffices, $originOfficeCode);
 
             $resolvedOffices = [];
             foreach ($rawOffices as $officeCode) {
@@ -654,6 +679,8 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create Issuance
                     $clusterHead = $cluster->cluster_head;
                 }
             }
+
+            $this->flow_offices = $this->ensureOriginBounds($this->flow_offices, $originOfficeCode);
 
             $resolvedOffices = [];
             foreach ($this->flow_offices as $officeCode) {

@@ -386,14 +386,61 @@ new class extends Component {
                         </div>
                     @endif
 
+                    <!-- Scanner Custom Styles for 1:1 Square Scan Box -->
+                    <style>
+                        .dts-scanner-viewport-container {
+                            background: #0f172a;
+                            border-radius: 14px;
+                            overflow: hidden;
+                            position: relative;
+                            min-height: 300px;
+                            width: 100%;
+                            display: flex;
+                            align-items: center;
+                            justify-content: center;
+                            box-shadow: inset 0 0 24px rgba(0, 0, 0, 0.6);
+                        }
+                        #modal-qr-preview {
+                            width: 100% !important;
+                            border: none !important;
+                        }
+                        #modal-qr-preview video {
+                            width: 100% !important;
+                            height: 100% !important;
+                            object-fit: cover !important;
+                            border-radius: 12px;
+                            max-height: 360px;
+                        }
+                        #modal-qr-preview__scan_region {
+                            border: 3.5px dashed #3b82f6 !important;
+                            border-radius: 20px !important;
+                            box-shadow: 0 0 0 9999px rgba(15, 23, 42, 0.6), 0 0 25px rgba(59, 130, 246, 0.5) !important;
+                            transition: all 0.2s ease;
+                        }
+                        #modal-qr-preview__scan_region img {
+                            display: none !important;
+                        }
+                        #modal-qr-preview__dashboard {
+                            display: none !important;
+                        }
+                        @media (max-width: 640px) {
+                            .dts-scanner-viewport-container {
+                                min-height: 340px !important;
+                            }
+                            #modal-qr-preview video {
+                                max-height: 380px !important;
+                            }
+                        }
+                    </style>
+
                     <!-- Camera & Manual Input Grid -->
                     <div style="display: grid; grid-template-columns: 1fr; gap: 16px; margin-bottom: 20px;">
                         
                         <!-- Webcam Viewport -->
-                        <div wire:ignore style="background: #0f172a; border-radius: 12px; overflow: hidden; position: relative; min-height: 240px; display: flex; align-items: center; justify-content: center;">
-                            <div id="modal-qr-preview" style="width: 100%; height: 100%; max-height: 280px;"></div>
-                            <div id="camera-loading-placeholder" style="position: absolute; color: #94a3b8; font-size: 13px; font-weight: 500; display: flex; flex-direction: column; align-items: center; gap: 8px;">
-                                <span style="font-size: 24px;">🎥</span>
+                        <div wire:ignore class="dts-scanner-viewport-container">
+                            <div id="modal-qr-preview"></div>
+                            <div id="camera-loading-placeholder" style="position: absolute; color: #94a3b8; font-size: 13px; font-weight: 500; display: flex; flex-direction: column; align-items: center; gap: 8px; z-index: 5;">
+                                <span style="font-size: 28px;">🎥</span>
                                 <span>Initializing Camera Feed...</span>
                             </div>
                         </div>
@@ -558,9 +605,32 @@ new class extends Component {
 
                     try {
                         html5QrCode = new Html5Qrcode("modal-qr-preview");
+
+                        const calculateQrboxSize = function(viewfinderWidth, viewfinderHeight) {
+                            // Enforce a perfect 1:1 SQUARE scan box
+                            const minDimension = Math.min(viewfinderWidth, viewfinderHeight);
+                            // Fill 78% of minimum dimension to maximize scan area on mobile & desktop
+                            let boxSize = Math.floor(minDimension * 0.78);
+                            
+                            // Enforce a generous minimum size (240px for mobile phones)
+                            if (boxSize < 240 && minDimension >= 240) {
+                                boxSize = 240;
+                            } else if (boxSize < 180) {
+                                boxSize = Math.max(180, minDimension - 20);
+                            }
+
+                            return {
+                                width: boxSize,
+                                height: boxSize
+                            };
+                        };
+
                         await html5QrCode.start(
                             { facingMode: "environment" },
-                            { fps: 15, qrbox: { width: 220, height: 220 } },
+                            { 
+                                fps: 20, 
+                                qrbox: calculateQrboxSize
+                            },
                             (decodedText) => {
                                 if (codeInput) {
                                     codeInput.value = decodedText;

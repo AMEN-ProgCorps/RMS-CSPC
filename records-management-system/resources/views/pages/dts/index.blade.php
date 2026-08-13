@@ -1925,7 +1925,7 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
                                     @endif
                                     <td style="color: #dc2626; font-weight: 600; white-space: nowrap; text-align: center;">{{ $t->elapsed_days }} day(s)</td>
                                     <td style="text-align: center; white-space: nowrap;">
-                                        @if(request()->routeIs('dts.incoming') || $this->currentRouteName === 'dts.incoming' || $activeTab === 'incoming')
+                                        @if(request()->routeIs('dts.incoming') || request()->routeIs('dts') || $this->currentRouteName === 'dts.incoming' || $this->currentRouteName === 'dts' || $activeTab === 'incoming')
                                             <button type="button" onclick="if(window.openScannerModal) window.openScannerModal('{{ $t->control_number }}');" class="rms-select" style="text-decoration: none; display: inline-flex; align-items: center; gap: 4px; border: none; background: transparent; cursor: pointer; color: #0284c7; font-weight: 600;">
                                                 <i class="fa-solid fa-qrcode"></i> Scan
                                             </button>
@@ -2043,7 +2043,7 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
                                 @endif
                                 <td style="color: #dc2626; font-weight: 600; white-space: nowrap; text-align: center;">{{ $t->elapsed_days }} day(s)</td>
                                 <td style="text-align: center; white-space: nowrap;">
-                                    @if(request()->routeIs('dts.incoming') || $this->currentRouteName === 'dts.incoming' || $activeTab === 'incoming')
+                                    @if(request()->routeIs('dts.incoming') || request()->routeIs('dts') || $this->currentRouteName === 'dts.incoming' || $this->currentRouteName === 'dts' || $activeTab === 'incoming')
                                         <button type="button" onclick="if(window.openScannerModal) window.openScannerModal('{{ $t->control_number }}');" class="rms-select" style="text-decoration: none; display: inline-flex; align-items: center; gap: 4px; border: none; background: transparent; cursor: pointer; color: #0284c7; font-weight: 600;">
                                             <i class="fa-solid fa-qrcode"></i> Scan
                                         </button>
@@ -2180,7 +2180,7 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
 
                             <!-- Card Footer action -->
                             <div style="display: flex; justify-content: flex-end; align-items: center; gap: 8px; margin-top: 16px;">
-                                @if(request()->routeIs('dts.incoming') || $this->currentRouteName === 'dts.incoming' || $activeTab === 'incoming')
+                                @if(request()->routeIs('dts.incoming') || request()->routeIs('dts') || $this->currentRouteName === 'dts.incoming' || $this->currentRouteName === 'dts' || $activeTab === 'incoming')
                                     <button type="button" onclick="if(window.openScannerModal) window.openScannerModal('{{ $t->control_number }}');" class="rms-select" style="text-decoration: none; display: inline-flex; align-items: center; gap: 4px; border: none; background: transparent; cursor: pointer; color: #0284c7; font-weight: 600;">
                                         <i class="fa-solid fa-qrcode"></i> Scan
                                     </button>
@@ -2290,7 +2290,7 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
 
                         <!-- Card Footer action -->
                         <div style="display: flex; justify-content: flex-end; align-items: center; gap: 8px; margin-top: 16px;">
-                            @if(request()->routeIs('dts.incoming') || $this->currentRouteName === 'dts.incoming' || $activeTab === 'incoming')
+                            @if(request()->routeIs('dts.incoming') || request()->routeIs('dts') || $this->currentRouteName === 'dts.incoming' || $this->currentRouteName === 'dts' || $activeTab === 'incoming')
                                 <button type="button" onclick="if(window.openScannerModal) window.openScannerModal('{{ $t->control_number }}');" class="rms-select" style="text-decoration: none; display: inline-flex; align-items: center; gap: 4px; border: none; background: transparent; cursor: pointer; color: #0284c7; font-weight: 600;">
                                     <i class="fa-solid fa-qrcode"></i> Scan
                                 </button>

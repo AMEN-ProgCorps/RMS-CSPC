@@ -1572,8 +1572,20 @@
           const clearedDM       = activeDM;
           const clearedDMAccId  = activeDMAccountId;
           const clearedAdminConv = activeAdminConv;
+          const clearedGlobal   = isGlobalChat;
 
-          if (typeof resetToHome === 'function') {
+          if (clearedGlobal) {
+            // Stay in Global Chat (now empty) instead of bouncing to the
+            // home screen — mirrors how the 'all_cleared' WS event behaves
+            // when the admin is already viewing Global Chat.
+            gcCursor = '';
+            gcViewingOlder = false;
+            removePaginationBtn();
+            chatBox.innerHTML = '';
+            isFirstLoad = true;
+            chatFullyLoaded = false;
+            loadGlobalChat(false, false);
+          } else if (typeof resetToHome === 'function') {
             resetToHome();
           } else {
             if (clearedDM) {
@@ -1587,7 +1599,9 @@
           // Broadcast the clear so every other connected client (the other
           // party in the DM, or any other admin viewing the same admin
           // conversation) refreshes immediately instead of showing stale
-          // messages until their next poll/reload.
+          // messages until their next poll/reload. Global clears are
+          // broadcast system-wide server-side (WsPush::broadcast in
+          // delete_dm.php), so there's no client-driven ws.send needed here.
           if (ws && ws.readyState === WebSocket.OPEN) {
             if (clearedDM && clearedDMAccId) {
               const myId = wsConfig.accountId;
@@ -1624,7 +1638,9 @@
       };
 
       let params = "secret=" + encodeURIComponent(secret);
-      if (activeDMAccountId) {
+      if (isGlobalChat) {
+        params += "&global=1";
+      } else if (activeDMAccountId) {
         params += "&target_id=" + encodeURIComponent(activeDMAccountId) + "&target_user=" + encodeURIComponent(activeDM);
       } else if (activeDM) {
         params += "&target_user=" + encodeURIComponent(activeDM);
@@ -1683,7 +1699,7 @@
         return;
       }
       
-      if (!activeDM && !activeAdminConv) {
+      if (!activeDM && !activeAdminConv && !isGlobalChat) {
         alert("Please select a conversation to clear first.");
         return;
       }

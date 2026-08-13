@@ -29,6 +29,44 @@ if (!$isAdmin) {
 $targetId  = isset($_POST['target_id']) ? (int) trim($_POST['target_id']) : 0;
 $convId    = trim($_POST['conv_id'] ?? '');
 $secret    = trim($_POST['secret'] ?? '');
+$isGlobal  = !empty($_POST['global']);
+
+// ── Global Chat clear ("/clear" while Super Admin is viewing Global Chat) ──
+// Separate, simpler path: no conv_id/target resolution needed. Reuses the
+// existing GlobalChatManager::clearChat() (a hard delete of every global
+// message — and its uploaded files — that was already written but never
+// wired up to an endpoint).
+if ($isGlobal) {
+    if (empty($secret)) {
+        http_response_code(403);
+        die('Secret key required');
+    }
+    if (!ConversationManager::verifySecretKey($secret)) {
+        http_response_code(403);
+        die('Invalid secret key');
+    }
+
+    $hadMessages = GlobalChatManager::countRaw() > 0;
+    GlobalChatManager::clearChat(UPLOADS_DIR);
+
+    if ($hadMessages) {
+        // System-wide broadcast — every connected client (not just two
+        // participants) needs to know Global Chat was wiped.
+        WsPush::broadcast('chat_cleared', [
+            'chat_type' => 'global',
+            'sender_id' => $myAccountId,
+        ]);
+    }
+
+    echo $hadMessages ? 'Conversation cleared' : 'Nothing to clear';
+
+    ChatAuditLogger::log($myAccountId, 'clear_chat', 'global', [
+        'is_admin'   => true,
+        'soft_clear' => false,
+        'conv_id'    => 'global',
+    ]);
+    exit;
+}
 
 // ── Resolve conv_id ───────────────────────────────────────────────────────────
 if (empty($convId)) {

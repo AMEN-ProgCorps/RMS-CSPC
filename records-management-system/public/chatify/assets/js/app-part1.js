@@ -417,6 +417,29 @@
         } else if (data.type === 'chat_cleared') {
           console.log('Received WebSocket real-time update notice:', data);
 
+          // ── Global Chat clear (super admin "/clear" while in Global Chat) ──
+          // Distinct from the private/admin_conv cases below — there's no
+          // partner account to resolve, and the sidebar list itself isn't
+          // affected (no conversation entry disappears).
+          if (data.chat_type === 'global') {
+            gcCursor = '';
+            gcViewingOlder = false;
+            removePaginationBtn();
+            // If this user happens to have an attachment open in the
+            // lightbox at the exact moment Global Chat gets cleared, close
+            // it too — otherwise a since-deleted image would keep sitting
+            // on screen even though the message pane behind it is empty.
+            if (typeof closeImageViewer === 'function') closeImageViewer();
+            if (isGlobalChat) {
+              if (chatBox) chatBox.innerHTML = '<div class="empty-chat"><p>Hello</p></div>';
+              isFirstLoad = true;
+              chatFullyLoaded = false;
+              loadGlobalChat(false, false);
+            }
+            fetchUsers();
+            return;
+          }
+
           const _ca = Number(data.user_a);
           const _cb = Number(data.user_b);
           const _senderId    = Number(data.sender_id    || 0);

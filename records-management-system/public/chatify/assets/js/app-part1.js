@@ -1654,6 +1654,16 @@
     // Scroll position is preserved: removing nodes from the top shrinks
     // scrollHeight, so scrollTop is shifted by the exact delta, keeping
     // whatever the user was looking at visually stable (no jump).
+    //
+    // Whenever this actually trims something off the top, that's direct
+    // proof the conversation's total message count now exceeds what's
+    // rendered (the trimmed messages still exist server-side — they were
+    // just dropped from the DOM to keep it capped at PAGE_SIZE). That's
+    // exactly the same condition the AJAX/poll paths use to decide the
+    // "Load Older Messages" button should show, so mark it here too via
+    // insertLoadOlderBtn() — this is what makes the button appear the
+    // instant a WebSocket push or a rapid burst of sent messages crosses
+    // the 50-message limit, without waiting for the next poll/refresh.
     function trimChatMessages(maxMessages = 50) {
       if (!chatBox) return;
       const items = Array.from(chatBox.querySelectorAll('.message-container'));
@@ -1672,6 +1682,11 @@
       if (scrollDelta !== 0) {
         chatBox.scrollTop = Math.max(0, prevScrollTop - scrollDelta);
       }
+
+      // Older messages now exist beyond what's rendered — surface the
+      // floating button in real time (idempotent: safe to call on every
+      // trim, including rapid/back-to-back ones during spam sending).
+      insertLoadOlderBtn();
     }
 
     // ── Admin: render all conversations spy panel (Search-First Architecture) ──

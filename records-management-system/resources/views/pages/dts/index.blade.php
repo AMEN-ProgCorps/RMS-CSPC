@@ -947,8 +947,20 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
             ->leftJoin('dts_source_office as src', 'src.s_office_code', '=', 'dtd.source_office')
             ->leftJoin('office as originated_office', 'originated_office.office_code', '=', 'dtd.originated_from')
             ->leftJoin('dts_email_access as dea', 'dea.id', '=', 'dtd.email_access')
+            ->leftJoin('account_details as creator_ad', 'creator_ad.account_id', '=', 'dtd.created_by')
+            ->leftJoin('account as creator_acc', 'creator_acc.id', '=', 'dtd.created_by')
             ->where('dt.transaction_id', $this->selectedTransactionId)
-            ->select('dt.*', 'dtd.*', 'req.requestor_name', 'req.requestor_position as requestor_label', 'src.s_office_name as source_office_name', 'dea.email as access_email', 'originated_office.office_name as originated_office_name')
+            ->select(
+                'dt.*',
+                'dtd.*',
+                'req.requestor_name',
+                'req.requestor_position as requestor_label',
+                'src.s_office_name as source_office_name',
+                'dea.email as access_email',
+                'originated_office.office_name as originated_office_name',
+                DB::raw("TRIM(CONCAT(COALESCE(creator_ad.first_name, ''), ' ', COALESCE(creator_ad.last_name, ''))) as creator_name"),
+                'creator_acc.username as creator_username'
+            )
             ->first();
 
         if ($this->selectedTransaction) {
@@ -3066,7 +3078,20 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
                 <button type="button" class="modal-close-btn" wire:click="closeTransaction">&times;</button>
                 
                 <form class="receive-card" method="post" action="#" onsubmit="return false;" style="box-shadow: none;">
-                    <h1 class="receive-title">Transaction Details</h1>
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; padding-right: 36px; flex-wrap: wrap; gap: 10px;">
+                        <h1 class="receive-title" style="margin: 0;">Transaction Details</h1>
+                        <div style="display: flex; align-items: center; gap: 12px; font-size: 12px; color: #64748b; background: #f8fafc; padding: 6px 12px; border-radius: 6px; border: 1px solid #e2e8f0;">
+                            <div style="display: flex; align-items: center; gap: 5px;">
+                                <i class="fa-regular fa-clock" style="color: #64748b; font-size: 11.5px;"></i>
+                                <span><strong style="color: #475569; font-weight: 600;">Created:</strong> {{ !empty($selectedTransaction->date_created) ? \Carbon\Carbon::parse($selectedTransaction->date_created)->format('M d, Y h:i A') : 'N/A' }}</span>
+                            </div>
+                            <span style="color: #cbd5e1;">|</span>
+                            <div style="display: flex; align-items: center; gap: 5px;">
+                                <i class="fa-regular fa-user" style="color: #64748b; font-size: 11.5px;"></i>
+                                <span><strong style="color: #475569; font-weight: 600;">By:</strong> <span style="color: #0f172a; font-weight: 600;">{{ !empty(trim($selectedTransaction->creator_name ?? '')) ? $selectedTransaction->creator_name : ($selectedTransaction->creator_username ?? 'N/A') }}</span></span>
+                            </div>
+                        </div>
+                    </div>
                     
                     <div class="receive-fields">
                         <!-- Control Number field -->

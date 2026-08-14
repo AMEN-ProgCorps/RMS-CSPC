@@ -327,3 +327,8 @@ window.printQrCodeFromModal = function() {
         setTimeout(function() { printWin.print(); printWin.close(); }, 500);
     }
 };
+
+function openQrViewModal(qrCode) { return window.openQrViewModal(qrCode); }
+function closeQrViewModal() { return window.closeQrViewModal(); }
+function printQrCodeFromModal() { return window.printQrCodeFromModal(); }
+

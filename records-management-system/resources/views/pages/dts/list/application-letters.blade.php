@@ -41,6 +41,9 @@ new #[Layout('layouts.dts')] #[Title('DTS - Application Letters')] class extends
 
     public string $selectedPriority = 'all';
     public string $selectedStatus = 'all';
+    public string $dateFrom = '';
+    public string $dateTo = '';
+    public string $sortOrder = 'desc';
     public int $perPage = 10;
     public string $searchQuery = '';
     public string $layoutMode = 'table'; // table or box
@@ -117,6 +120,40 @@ new #[Layout('layouts.dts')] #[Title('DTS - Application Letters')] class extends
         $this->selectAll = false;
     }
 
+    public function updatingDateFrom()
+    {
+        $this->resetPage();
+        $this->selectedIds = [];
+        $this->selectAll = false;
+    }
+
+    public function updatingDateTo()
+    {
+        $this->resetPage();
+        $this->selectedIds = [];
+        $this->selectAll = false;
+    }
+
+    public function updatingSortOrder()
+    {
+        $this->resetPage();
+        $this->selectedIds = [];
+        $this->selectAll = false;
+    }
+
+    public function resetFilters(): void
+    {
+        $this->searchQuery = '';
+        $this->selectedPriority = 'all';
+        $this->selectedStatus = 'all';
+        $this->dateFrom = '';
+        $this->dateTo = '';
+        $this->sortOrder = 'desc';
+        $this->resetPage();
+        $this->selectedIds = [];
+        $this->selectAll = false;
+    }
+
     public function getTransactionsProperty()
     {
         $userOfficeCode = auth()->user()?->details?->office?->office_code 
@@ -158,6 +195,27 @@ new #[Layout('layouts.dts')] #[Title('DTS - Application Letters')] class extends
             });
         }
 
+        if (!empty($this->dateFrom) || !empty($this->dateTo)) {
+            $from = !empty($this->dateFrom) ? \Carbon\Carbon::parse($this->dateFrom)->startOfDay() : null;
+            $to = !empty($this->dateTo) ? \Carbon\Carbon::parse($this->dateTo)->endOfDay() : null;
+
+            if ($from && $to && $from->gt($to)) {
+                $temp = $from;
+                $from = $to->copy()->startOfDay();
+                $to = $temp->copy()->endOfDay();
+            }
+
+            if ($from && $to) {
+                $query->whereBetween('dtd.date_created', [$from->toDateTimeString(), $to->toDateTimeString()]);
+            } elseif ($from) {
+                $query->where('dtd.date_created', '>=', $from->toDateTimeString());
+            } elseif ($to) {
+                $query->where('dtd.date_created', '<=', $to->toDateTimeString());
+            }
+        }
+
+        $sortDirection = in_array(strtolower($this->sortOrder), ['asc', 'desc']) ? strtolower($this->sortOrder) : 'desc';
+
         $list = $query->select(
             'dt.transaction_id',
             'dt.status',
@@ -175,7 +233,7 @@ new #[Layout('layouts.dts')] #[Title('DTS - Application Letters')] class extends
             'current_office.office_name as current_office_name',
             'doc.document_name'
         )
-        ->orderBy('dtd.date_created', 'desc')
+        ->orderBy('dtd.date_created', $sortDirection)
         ->paginate($this->perPage);
 
         // Map remarks, received by, received date/time and destination from sequence flow
@@ -1233,8 +1291,8 @@ new #[Layout('layouts.dts')] #[Title('DTS - Application Letters')] class extends
                 </button>
             </div>
         </div>
-        <div class="rms-toolbar-bottom">
-            <div class="rms-entries">
+        <div class="rms-toolbar-bottom" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px;">
+            <div class="rms-entries" style="display: flex; align-items: center; gap: 8px;">
                 Show 
                 <select class="rms-select" wire:model.live="perPage">
                     <option value="10">10</option>
@@ -1243,13 +1301,45 @@ new #[Layout('layouts.dts')] #[Title('DTS - Application Letters')] class extends
                 </select> 
                 Entries
             </div>
+            <div class="rms-filters" style="display: flex; align-items: center; flex-wrap: wrap; gap: 10px;">
+                <div style="display: flex; align-items: center; gap: 6px;">
+                    <span style="font-size: 0.8rem; font-weight: 600; color: #64748b;">From:</span>
+                    <input type="date" class="rms-select" wire:model.live="dateFrom" style="padding-right: 8px; background-image: none; font-size: 0.82rem; height: 34px;" title="Filter Created From Date">
+                </div>
+                <div style="display: flex; align-items: center; gap: 6px;">
+                    <span style="font-size: 0.8rem; font-weight: 600; color: #64748b;">To:</span>
+                    <input type="date" class="rms-select" wire:model.live="dateTo" style="padding-right: 8px; background-image: none; font-size: 0.82rem; height: 34px;" title="Filter Created To Date">
+                </div>
+                <div style="display: flex; align-items: center; gap: 6px;">
+                    <select class="rms-select" wire:model.live="sortOrder" style="font-size: 0.82rem; height: 34px;">
+                        <option value="desc">Date (Newest First)</option>
+                        <option value="asc">Date (Oldest First)</option>
+                    </select>
+                </div>
+                @if(!empty($dateFrom) || !empty($dateTo) || !empty($searchQuery) || $selectedPriority !== 'all' || $selectedStatus !== 'all' || $sortOrder !== 'desc')
+                    <button type="button" wire:click="resetFilters" class="rms-select" style="background: #f8fafc; border-color: #cbd5e1; color: #475569; padding-right: 12px; display: inline-flex; align-items: center; gap: 4px; height: 34px; font-size: 0.82rem; font-weight: 600;" title="Reset all filters">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+                        Reset
+                    </button>
+                @endif
+            </div>
             <div class="rms-actions">
                 <div class="rms-search-wrapper">
-                    <input type="text" class="rms-search-input" placeholder="Search..." wire:model.live="searchQuery">
+                    <input type="text" class="rms-search-input" placeholder="Search..." wire:model.live="searchQuery" style="width: 220px; height: 34px;">
                 </div>
             </div>
         </div>
     </div>
+
+    @if(!empty($dateFrom) || !empty($dateTo))
+        <div style="margin-bottom: 16px; font-size: 0.82rem; color: #0369a1; background: #f0f9ff; border: 1px solid #bae6fd; padding: 6px 12px; border-radius: 6px; display: inline-flex; align-items: center; gap: 8px;">
+            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect><line x1="16" y1="2" x2="16" y2="6"></line><line x1="8" y1="2" x2="8" y2="6"></line><line x1="3" y1="10" x2="21" y2="10"></line></svg>
+            <span>
+                Showing transactions created between <strong>{{ !empty($dateFrom) ? \Carbon\Carbon::parse($dateFrom)->format('M d, Y') : 'Earliest' }}</strong> and <strong>{{ !empty($dateTo) ? \Carbon\Carbon::parse($dateTo)->format('M d, Y') : 'Latest' }}</strong>
+            </span>
+            <button type="button" wire:click="$set('dateFrom', ''); $set('dateTo', '');" style="background: none; border: none; color: #0369a1; cursor: pointer; font-weight: 700; font-size: 14px; padding: 0 4px; line-height: 1;" title="Clear date filter">×</button>
+        </div>
+    @endif
 
     @if ($layoutMode === 'table')
         <div class="rms-table-responsive">
@@ -2277,66 +2367,4 @@ new #[Layout('layouts.dts')] #[Title('DTS - Application Letters')] class extends
 
     <!-- Dynamic QR Code Print Modal -->
     @include('components.dts.qr-print-modal')
-
-    <script>
-        window.currentQrCodeValue = '';
-
-        window.openQrViewModal = function(qrCode) {
-            window.currentQrCodeValue = qrCode || '';
-            const modal = document.getElementById('dts-qr-view-modal');
-            const img = document.getElementById('dts-qr-image');
-            const loading = document.getElementById('dts-qr-loading');
-            const text = document.getElementById('dts-qr-code-text');
-
-            if (!modal || !img || !loading || !text) return;
-
-            text.innerText = qrCode;
-            img.style.display = 'none';
-            loading.style.display = 'block';
-            modal.style.display = 'flex';
-
-            const qrData = btoa(qrCode);
-            const qrUrl = 'https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=' + encodeURIComponent(qrData);
-
-            img.src = qrUrl;
-            img.onload = function() {
-                loading.style.display = 'none';
-                img.style.display = 'block';
-            };
-        };
-
-        window.closeQrViewModal = function() {
-            const modal = document.getElementById('dts-qr-view-modal');
-            if (modal) {
-                modal.style.display = 'none';
-            }
-        };
-
-        window.printQrCodeFromModal = function() {
-            const code = window.currentQrCodeValue || (document.getElementById('dts-qr-code-text') ? document.getElementById('dts-qr-code-text').innerText : '');
-            if (!code) return;
-            if (window.openDynamicPrintModal) {
-                window.closeQrViewModal();
-                window.openDynamicPrintModal(code);
-            } else {
-                const printWin = window.open('', '_blank', 'width=600,height=600');
-                const qrData = btoa(code);
-                const qrUrl = 'https://api.qrserver.com/v1/create-qr-code/?size=250x250&data=' + encodeURIComponent(qrData);
-                printWin.document.write('<html><head><title>Print QR Code - ' + code + '</title>'
-                    + '<style>body{font-family:Roboto,sans-serif;display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:90vh;margin:0;}'
-                    + '.print-box{border:2px solid #000;padding:24px;border-radius:12px;display:inline-flex;flex-direction:column;align-items:center;gap:12px;}'
-                    + '.print-box img{width:200px;height:200px;}.print-box span{font-family:monospace;font-weight:bold;font-size:15px;}'
-                    + '@media print{body{min-height:auto;}}</style></head><body>'
-                    + '<div class="print-box"><img src="' + qrUrl + '" alt="QR Code"><span>' + code + '</span></div>'
-                    + '</body></html>');
-                printWin.document.close();
-                printWin.focus();
-                setTimeout(function() { printWin.print(); printWin.close(); }, 500);
-            }
-        };
-
-        function openQrViewModal(qrCode) { return window.openQrViewModal(qrCode); }
-        function closeQrViewModal() { return window.closeQrViewModal(); }
-        function printQrCodeFromModal() { return window.printQrCodeFromModal(); }
-    </script>
 </div>

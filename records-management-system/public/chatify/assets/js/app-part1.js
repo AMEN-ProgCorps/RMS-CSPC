@@ -245,7 +245,10 @@
       // never while the user has paged back into older history.
       const viewingOlderNow = isGlobalChat ? gcViewingOlder : dmViewingOlder;
       if (!viewingOlderNow) {
-        trimChatMessages(PAGE_SIZE);
+        const trimmed = trimChatMessages(PAGE_SIZE);
+        // If we just removed messages from the top, update the pagination
+        // cursor so "Load Older" can re-fetch the trimmed messages.
+        if (trimmed) refreshCursorAfterTopTrim();
       }
 
       applyAdminBadges();
@@ -1611,6 +1614,36 @@
       syncLoadOlderBtn();
     }
 
+    // After trimming oldest messages from the top of the DOM, update the
+    // pagination cursor to the UUID of the new oldest visible message so
+    // that "Load Older" correctly fetches the trimmed messages on the next
+    // request. Also marks hasMore so the button stays/becomes visible.
+    function refreshCursorAfterTopTrim() {
+      const oldest = chatBox.querySelector('.message-container[data-msg-id]');
+      if (!oldest) return;
+      const uuid = oldest.getAttribute('data-msg-id');
+      if (!uuid) return;
+      if (isGlobalChat) {
+        gcCursor  = uuid;
+        gcHasMore = true;
+        if (!document.getElementById('loadOlderBtn') && !document.getElementById('noMoreOlderNotice')) {
+          insertLoadOlderBtn();
+        }
+      } else if (activeAdminConv) {
+        adminConvCursor  = uuid;
+        adminConvHasMore = true;
+        if (!document.getElementById('loadOlderBtn') && !document.getElementById('noMoreOlderNotice')) {
+          insertLoadOlderBtn();
+        }
+      } else if (activeDM) {
+        dmCursor  = uuid;
+        dmHasMore = true;
+        if (!document.getElementById('loadOlderBtn') && !document.getElementById('noMoreOlderNotice')) {
+          insertLoadOlderBtn();
+        }
+      }
+    }
+
     // Keeps the chat window capped at maxCount messages by trimming the
     // trailing (newest/bottom) ones — used right after prepending an older
     // page so loading history swaps the window instead of growing it forever.
@@ -1627,14 +1660,17 @@
     // Keeps the chat window capped at maxCount messages by trimming the
     // leading (oldest/top) ones — used during normal poll / initial load
     // so the message list doesn't grow forever.
+    // Returns true if any messages were actually removed (so callers can
+    // decide whether to refresh the pagination cursor).
     function trimWindowFromTop(maxCount) {
       const items = Array.from(chatBox.querySelectorAll('.message-container, .empty-chat'));
-      if (items.length <= maxCount) return;
+      if (items.length <= maxCount) return false;
       const excess = items.length - maxCount;
       for (let i = 0; i < excess; i++) {
         const el = items[i];
         if (el && el.parentNode) el.parentNode.removeChild(el);
       }
+      return true;
     }
 
     // Reusable real-time trim helper: caps the number of visible
@@ -1654,11 +1690,12 @@
     // Scroll position is preserved: removing nodes from the top shrinks
     // scrollHeight, so scrollTop is shifted by the exact delta, keeping
     // whatever the user was looking at visually stable (no jump).
+    // Returns true if any messages were actually removed.
     function trimChatMessages(maxMessages = 50) {
-      if (!chatBox) return;
+      if (!chatBox) return false;
       const items = Array.from(chatBox.querySelectorAll('.message-container'));
       const excess = items.length - maxMessages;
-      if (excess <= 0) return;
+      if (excess <= 0) return false;
 
       const prevScrollTop = chatBox.scrollTop;
       const prevScrollHeight = chatBox.scrollHeight;
@@ -1672,6 +1709,7 @@
       if (scrollDelta !== 0) {
         chatBox.scrollTop = Math.max(0, prevScrollTop - scrollDelta);
       }
+      return true;
     }
 
     // ── Admin: render all conversations spy panel (Search-First Architecture) ──
@@ -2105,7 +2143,7 @@
           const newScrollHeight = chatBox.scrollHeight;
           chatBox.scrollTop = Math.max(0, prevScrollTop + newScrollHeight - prevScrollHeight);
           if (!adminConvViewingOlder) {
-            trimWindowFromTop(PAGE_SIZE);
+            if (trimWindowFromTop(PAGE_SIZE)) refreshCursorAfterTopTrim();
           }
           if (isFirstLoad) { isFirstLoad = false; handleFirstLoadScroll(); }
           else if (wasAtBottom || shouldAutoScroll) requestAnimationFrame(() => requestAnimationFrame(() => scrollToBottom(true, false)));

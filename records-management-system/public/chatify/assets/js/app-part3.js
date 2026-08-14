@@ -1229,7 +1229,9 @@
 
         if (toInsert.length === 0) {
           document.querySelectorAll('[data-sending-uid]').forEach(el => el.remove());
-          if (!gcViewingOlder) trimWindowFromTop(PAGE_SIZE);
+          if (!gcViewingOlder) {
+            if (trimWindowFromTop(PAGE_SIZE)) refreshCursorAfterTopTrim();
+          }
           applyAdminBadges(); applyEmojiOnly();
           if (gcHasMore && !document.getElementById('loadOlderBtn') && !document.getElementById('noMoreOlderNotice')) insertLoadOlderBtn();
           return;
@@ -1246,7 +1248,9 @@
           chatBox.appendChild(el);
         });
         document.querySelectorAll('[data-sending-uid]').forEach(el => el.remove());
-        if (!gcViewingOlder) trimWindowFromTop(PAGE_SIZE);
+        if (!gcViewingOlder) {
+          if (trimWindowFromTop(PAGE_SIZE)) refreshCursorAfterTopTrim();
+        }
 
         let revealedCount = 0;
         toInsert.forEach((el, i) => {
@@ -1401,7 +1405,7 @@
         const newScrollHeight = chatBox.scrollHeight;
         chatBox.scrollTop = Math.max(0, prevScrollTop + newScrollHeight - prevScrollHeight);
         if (!dmViewingOlder) {
-          trimWindowFromTop(PAGE_SIZE);
+          if (trimWindowFromTop(PAGE_SIZE)) refreshCursorAfterTopTrim();
         }
         if (isFirstLoad) { isFirstLoad = false; handleFirstLoadScroll(); }
         else if (wasAtBottom || shouldAutoScroll) requestAnimationFrame(() => requestAnimationFrame(() => scrollToBottom(true, false)));
@@ -2237,7 +2241,8 @@
                   // .message-container inside chatBox — cap the window at
                   // PAGE_SIZE just like any other real-time append.
                   if (!gcViewingOlder && !dmViewingOlder) {
-                    trimChatMessages(PAGE_SIZE);
+                    const trimmed = trimChatMessages(PAGE_SIZE);
+                    if (trimmed) refreshCursorAfterTopTrim();
                   }
                   // Always scroll for the user's own confirmed message — see note
                   // above the optimistic-bubble scroll for why isAtBottom() is

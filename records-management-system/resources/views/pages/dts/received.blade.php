@@ -178,6 +178,19 @@ new #[Layout('layouts.dts')] #[Title('Received Transactions - Document Tracking 
                         'performed_by' => auth()->id(),
                     ]);
 
+                // Update dts_sequence_list
+                if ($flow) {
+                    DB::table('dts_sequence_list')
+                        ->where('control_id', $flow->id)
+                        ->where('sequence_ranking', $tData['sequence'])
+                        ->update([
+                            'date_out' => now(),
+                            'account_forwarded' => auth()->id(),
+                            'action_needed' => $this->actionNeeded ?: 'Forwarded',
+                            'note' => $this->notes,
+                        ]);
+                }
+
                 if ($tData['is_last_step']) {
                     // Mark Completed
                     DB::table('dts_transactions')

@@ -281,6 +281,20 @@ new class extends Component {
                         ]);
                     }
 
+                    if (!empty($this->activeTransaction['transaction_flow'])) {
+                        $flow = DB::table('dts_transaction_flow')->where('flow_code', $this->activeTransaction['transaction_flow'])->first();
+                        if ($flow) {
+                            DB::table('dts_sequence_list')
+                                ->where('control_id', $flow->id)
+                                ->where('sequence_ranking', $this->activeTransaction['sequence'])
+                                ->update([
+                                    'date_in' => now(),
+                                    'account_received' => auth()->id(),
+                                    'scanned_id' => true,
+                                ]);
+                        }
+                    }
+
                     $this->successMessage = "Transaction '{$this->activeTransaction['control_number']}' received successfully at {$this->activeTransaction['current_office']}!";
                 } 
                 // Case 2: Forward received transaction
@@ -335,6 +349,7 @@ new class extends Component {
                                     ->where('sequence_ranking', $this->activeTransaction['sequence'])
                                     ->update([
                                         'date_out' => now(),
+                                        'account_forwarded' => auth()->id(),
                                         'action_needed' => 'For Revision',
                                         'note' => $this->notes ?: 'Returned for Revision',
                                     ]);
@@ -346,6 +361,8 @@ new class extends Component {
                                     ->update([
                                         'date_in' => now(),
                                         'date_out' => null,
+                                        'account_received' => auth()->id(),
+                                        'account_forwarded' => null,
                                         'action_needed' => 'Returned for Revision',
                                         'note' => $this->notes,
                                         'total_time_completed' => null,
@@ -454,6 +471,21 @@ new class extends Component {
                                 'type' => 'forwarded',
                                 'performed_by' => auth()->id(),
                             ]);
+
+                        if (!empty($this->activeTransaction['transaction_flow'])) {
+                            $flow = DB::table('dts_transaction_flow')->where('flow_code', $this->activeTransaction['transaction_flow'])->first();
+                            if ($flow) {
+                                DB::table('dts_sequence_list')
+                                    ->where('control_id', $flow->id)
+                                    ->where('sequence_ranking', $this->activeTransaction['sequence'])
+                                    ->update([
+                                        'date_out' => now(),
+                                        'account_forwarded' => auth()->id(),
+                                        'action_needed' => $this->actionNeeded,
+                                        'note' => $this->notes ?: null,
+                                    ]);
+                            }
+                        }
 
                         // If there is a next office in flow
                         if ($nextOfficeCode) {

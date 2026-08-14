@@ -479,6 +479,20 @@ new #[Layout('layouts.dts')] #[Title('Advanced Scanner Console - DTS')] class ex
                         'performed_by' => auth()->id(),
                     ]);
                 }
+
+                if (!empty($this->activeTransaction['transaction_flow'])) {
+                    $flow = DB::table('dts_transaction_flow')->where('flow_code', $this->activeTransaction['transaction_flow'])->first();
+                    if ($flow) {
+                        DB::table('dts_sequence_list')
+                            ->where('control_id', $flow->id)
+                            ->where('sequence_ranking', $this->activeTransaction['sequence'])
+                            ->update([
+                                'date_in' => now(),
+                                'account_received' => auth()->id(),
+                                'scanned_id' => true,
+                            ]);
+                    }
+                }
             });
 
             $this->successMessage = "Document '{$this->activeTransaction['control_number']}' successfully RECEIVED at {$this->activeTransaction['current_office']}!";
@@ -608,6 +622,21 @@ new #[Layout('layouts.dts')] #[Title('Advanced Scanner Console - DTS')] class ex
                         'performed_by' => auth()->id(),
                     ]);
 
+                if (!empty($this->activeTransaction['transaction_flow'])) {
+                    $flow = DB::table('dts_transaction_flow')->where('flow_code', $this->activeTransaction['transaction_flow'])->first();
+                    if ($flow) {
+                        DB::table('dts_sequence_list')
+                            ->where('control_id', $flow->id)
+                            ->where('sequence_ranking', $this->activeTransaction['sequence'])
+                            ->update([
+                                'date_out' => now(),
+                                'account_forwarded' => auth()->id(),
+                                'action_needed' => $this->actionNeeded,
+                                'note' => $this->notes ?: null,
+                            ]);
+                    }
+                }
+
                 if ($nextOfficeCode) {
                     $updateTransData = [
                         'current_office' => $nextOfficeCode,
@@ -727,6 +756,7 @@ new #[Layout('layouts.dts')] #[Title('Advanced Scanner Console - DTS')] class ex
                             ->where('sequence_ranking', $this->activeTransaction['sequence'])
                             ->update([
                                 'date_out' => now(),
+                                'account_forwarded' => auth()->id(),
                                 'action_needed' => 'For Revision',
                                 'note' => $this->notes,
                             ]);
@@ -737,6 +767,8 @@ new #[Layout('layouts.dts')] #[Title('Advanced Scanner Console - DTS')] class ex
                             ->update([
                                 'date_in' => now(),
                                 'date_out' => null,
+                                'account_received' => auth()->id(),
+                                'account_forwarded' => null,
                                 'action_needed' => 'Returned for Revision',
                                 'note' => $this->notes,
                                 'total_time_completed' => null,

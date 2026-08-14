@@ -709,11 +709,41 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
             }
         }
 
+        // Resolve sequence list accounts (received & forwarded)
+        $flowCode = $this->selectedTransaction->transaction_flow;
+        $flow = DB::table('dts_transaction_flow')->where('flow_code', $flowCode)->first();
+
+        $seqDataByRank = collect();
+        if ($flow) {
+            $seqDataByRank = DB::table('dts_sequence_list as seq')
+                ->leftJoin('account_details as r_ad', 'r_ad.account_id', '=', 'seq.account_received')
+                ->leftJoin('account as r_acc', 'r_acc.id', '=', 'seq.account_received')
+                ->leftJoin('account_details as f_ad', 'f_ad.account_id', '=', 'seq.account_forwarded')
+                ->leftJoin('account as f_acc', 'f_acc.id', '=', 'seq.account_forwarded')
+                ->where('seq.control_id', $flow->id)
+                ->select(
+                    'seq.*',
+                    DB::raw("TRIM(CONCAT(COALESCE(r_ad.first_name, ''), ' ', COALESCE(r_ad.last_name, ''))) as receiver_name"),
+                    'r_acc.username as receiver_username',
+                    DB::raw("TRIM(CONCAT(COALESCE(f_ad.first_name, ''), ' ', COALESCE(f_ad.last_name, ''))) as forwarder_name"),
+                    'f_acc.username as forwarder_username'
+                )
+                ->get()
+                ->keyBy('sequence_ranking');
+        }
+
         // PART 1: Historical steps from logs (the actual journey so far)
         $logs = DB::table('sub_document_tracking_system_logs as log')
             ->leftJoin('office', 'office.office_code', '=', 'log.office_code')
+            ->leftJoin('account_details as perf_ad', 'perf_ad.account_id', '=', 'log.performed_by')
+            ->leftJoin('account as perf_acc', 'perf_acc.id', '=', 'log.performed_by')
             ->where('log.transaction_id', $this->selectedTransactionId)
-            ->select('log.*', 'office.office_name')
+            ->select(
+                'log.*',
+                'office.office_name',
+                DB::raw("TRIM(CONCAT(COALESCE(perf_ad.first_name, ''), ' ', COALESCE(perf_ad.last_name, ''))) as performed_by_name"),
+                'perf_acc.username as performed_by_username'
+            )
             ->orderBy('log.id', 'asc')
             ->get();
 
@@ -735,6 +765,11 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
             $step->note = $log->notes;
             $step->log_type = $log->type;
             $step->is_historical = true;
+
+            $seqData = $seqDataByRank->get($step->sequence_ranking);
+            $perfName = !empty(trim($log->performed_by_name ?? '')) ? $log->performed_by_name : ($log->performed_by_username ?: '—');
+            $step->receiver_name = !empty(trim($seqData?->receiver_name ?? '')) ? $seqData->receiver_name : ($seqData?->receiver_username ?: ($log->date_in ? $perfName : '—'));
+            $step->forwarder_name = !empty(trim($seqData?->forwarder_name ?? '')) ? $seqData->forwarder_name : ($seqData?->forwarder_username ?: ($log->date_out ? $perfName : '—'));
 
             // Calculate elapsed time
             $step->total_time_completed = null;
@@ -779,9 +814,6 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
         }
 
         // PART 2: Remaining future steps from sequence_list (not yet reached)
-        $flowCode = $this->selectedTransaction->transaction_flow;
-        $flow = DB::table('dts_transaction_flow')->where('flow_code', $flowCode)->first();
-
         $futureSteps = collect();
         if ($flow && !in_array($this->selectedTransaction->status, ['completed', 'cancelled'])) {
             $currentSeq = $this->selectedTransaction->sequence;
@@ -813,6 +845,8 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
                 $step->office_name = $officeName ?: $officeCode;
                 $step->date_in = null;
                 $step->date_out = null;
+                $step->receiver_name = '—';
+                $step->forwarder_name = '—';
                 $step->action_needed = null;
                 $step->note = null;
                 $step->total_time_completed = null;
@@ -1341,6 +1375,7 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
                     ->where('sequence_ranking', $trans->sequence)
                     ->update([
                         'date_in' => now(),
+                        'account_received' => auth()->id(),
                         'scanned_id' => true,
                     ]);
             }
@@ -1422,6 +1457,7 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
             ->where('sequence_ranking', $this->selectedTransaction->sequence)
             ->update([
                 'date_out' => now(),
+                'account_forwarded' => auth()->id(),
                 'action_needed' => $this->activeAction,
                 'note' => $this->activeNotes,
                 'total_time_completed' => $duration,
@@ -1450,6 +1486,8 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
                 ->update([
                     'date_in' => null,
                     'date_out' => null,
+                    'account_received' => null,
+                    'account_forwarded' => null,
                     'action_needed' => null,
                     'note' => null,
                     'total_time_completed' => null,
@@ -1460,6 +1498,8 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
                 ->update([
                     'date_in' => now(),
                     'date_out' => null,
+                    'account_received' => auth()->id(),
+                    'account_forwarded' => null,
                     'action_needed' => 'Returned for Revision',
                     'note' => $this->activeNotes,
                     'total_time_completed' => null,
@@ -3154,14 +3194,14 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
                             @endif
                         </div>
 
-                        <!-- Particulars / Subject field -->
+                        <!-- Subject field -->
                         <div class="receive-field-row receive-field-row--particulars">
-                            <span class="receive-field-label">Particulars:</span>
+                            <span class="receive-field-label">Subject:</span>
                             @if ($editingAll)
                                 <textarea class="receive-field-input" wire:model="particulars" style="min-height: 72px; resize: vertical;"></textarea>
                             @else
                                 <div class="receive-particulars-display" style="width: 100%;">
-                                    {{ $particulars ?: 'No particulars provided.' }}
+                                    {{ $particulars ?: 'No subject provided.' }}
                                 </div>
                             @endif
                         </div>
@@ -3189,14 +3229,6 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
                                         <input type="text" class="receive-field-input" wire:model="requestorPosition">
                                     @else
                                         <input type="text" class="receive-field-input" value="{{ $requestorPosition ?: 'N/A' }}" readonly style="background-color: #f8fafc; color: #64748b;">
-                                    @endif
-                                </div>
-                                <div class="receive-field-row" style="grid-template-columns: 180px 1fr; margin-bottom: 12px; align-items: center;">
-                                    <span class="receive-field-label" style="font-weight: 600; color: #475569; white-space: nowrap;">File Code:</span>
-                                    @if ($editingAll)
-                                        <input type="text" class="receive-field-input" wire:model="fileCode">
-                                    @else
-                                        <input type="text" class="receive-field-input" value="{{ $fileCode ?: 'N/A' }}" readonly style="background-color: #f8fafc; color: #64748b;">
                                     @endif
                                 </div>
                                 @if ($editingAll || (!empty(trim($emailAccess ?? '')) && $emailAccess !== 'N/A'))
@@ -3494,7 +3526,13 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
 
                                                 <div style="font-size: 10.5px; color: #94a3b8; display: flex; flex-direction: column; gap: 3px;">
                                                     <div><strong style="color: #cbd5e1;">Date In:</strong> {{ $step->date_in ? \Carbon\Carbon::parse($step->date_in)->format('M d, Y h:i A') : 'N/A' }}</div>
+                                                    @if (!empty($step->receiver_name) && $step->receiver_name !== '—')
+                                                        <div><strong style="color: #cbd5e1;">Received By:</strong> <span style="color: #38bdf8; font-weight: 600;">{{ $step->receiver_name }}</span></div>
+                                                    @endif
                                                     <div><strong style="color: #cbd5e1;">Date Out:</strong> {{ $step->date_out ? \Carbon\Carbon::parse($step->date_out)->format('M d, Y h:i A') : ($step->date_in ? 'Pending' : 'N/A') }}</div>
+                                                    @if (!empty($step->forwarder_name) && $step->forwarder_name !== '—')
+                                                        <div><strong style="color: #cbd5e1;">Forwarded By:</strong> <span style="color: #38bdf8; font-weight: 600;">{{ $step->forwarder_name }}</span></div>
+                                                    @endif
                                                     @if (!empty($step->total_time_completed) && $step->total_time_completed !== '-')
                                                         <div><strong style="color: #cbd5e1;">Total Time:</strong> <span style="color: #38bdf8; font-weight: 700;">{{ $step->total_time_completed }}</span></div>
                                                     @endif
@@ -3525,8 +3563,8 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
                                         <tr>
                                             <th>#</th>
                                             <th>Office</th>
-                                            <th>Date In</th>
-                                            <th>Date Out</th>
+                                            <th>Received</th>
+                                            <th>Forwarded</th>
                                             <th>Total Time</th>
                                             <th>Action Need</th>
                                             <th>Notes</th>
@@ -3561,8 +3599,28 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
                                                  <td class="office-cell">
                                                      <strong style="color: {{ $isStepRevision ? '#2563eb' : ($isStepReceived ? '#10b981' : '#0f172a') }};">{{ $step->office_code }}</strong> - {{ $step->office_name }}
                                                  </td>
-                                                 <td>{{ $step->date_in ? \Carbon\Carbon::parse($step->date_in)->format('Y-m-d h:i A') : 'N/A' }}</td>
-                                                 <td>{{ $step->date_out ? \Carbon\Carbon::parse($step->date_out)->format('Y-m-d h:i A') : ($step->date_in ? 'Pending' : 'N/A') }}</td>
+                                                 <td style="white-space: nowrap;">
+                                                     <div style="font-weight: 500; color: #1e293b;">
+                                                         {{ $step->date_in ? \Carbon\Carbon::parse($step->date_in)->format('Y-m-d h:i A') : 'N/A' }}
+                                                     </div>
+                                                     @if (!empty($step->receiver_name) && $step->receiver_name !== '—')
+                                                         <div style="color: #475569; font-size: 11.5px; margin-top: 3px; display: inline-flex; align-items: center; gap: 4px;">
+                                                             <i class="fa-solid fa-user-check" style="font-size: 10.5px; color: #10b981;"></i>
+                                                             <span>{{ $step->receiver_name }}</span>
+                                                         </div>
+                                                     @endif
+                                                 </td>
+                                                 <td style="white-space: nowrap;">
+                                                     <div style="font-weight: 500; color: #1e293b;">
+                                                         {{ $step->date_out ? \Carbon\Carbon::parse($step->date_out)->format('Y-m-d h:i A') : ($step->date_in ? 'Pending' : 'N/A') }}
+                                                     </div>
+                                                     @if (!empty($step->forwarder_name) && $step->forwarder_name !== '—')
+                                                         <div style="color: #475569; font-size: 11.5px; margin-top: 3px; display: inline-flex; align-items: center; gap: 4px;">
+                                                             <i class="fa-solid fa-paper-plane" style="font-size: 10.5px; color: #3b82f6;"></i>
+                                                             <span>{{ $step->forwarder_name }}</span>
+                                                         </div>
+                                                     @endif
+                                                 </td>
                                                  <td>{{ ($step->total_time_completed ?? null) ?: '-' }}</td>
                                                  <td>
                                                      @if ($step->is_active_step && $canProcess && is_null($step->date_out) && $selectedTransaction->status !== 'completed')
@@ -3613,10 +3671,10 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
                                                         @endif
                                                     </td>
                                                 @endif
-                                            </tr>
+                                             </tr>
                                         @empty
                                             <tr>
-                                                <td colspan="7" style="padding: 24px; color: #888; font-style: italic;">No transaction paths listed.</td>
+                                                <td colspan="{{ $editingAll ? 8 : 7 }}" style="padding: 24px; color: #888; font-style: italic; text-align: center;">No transaction paths listed.</td>
                                             </tr>
                                         @endforelse
                                     </tbody>
@@ -4023,7 +4081,7 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
 
     <!-- View QR Code Modal -->
     <div id="dts-qr-view-modal" class="modal-backdrop" style="display: none; z-index: 10000; align-items: center; justify-content: center;" onclick="closeQrViewModal()">
-        <div class="modal-content" style="max-width: 320px; padding: 24px; text-align: center; position: relative; border-radius: 12px; display: flex; flex-direction: column; align-items: center; gap: 16px;" onclick="event.stopPropagation()">
+        <div class="modal-content" style="max-width: 320px; padding: 24px; text-align: center; position: relative; border-radius: 12px; display: flex; flex-direction: column; align-items: center; gap: 14px;" onclick="event.stopPropagation()">
             <button type="button" class="modal-close-btn" style="position: absolute; top: 12px; right: 16px; font-size: 20px; border: none; background: transparent; cursor: pointer; color: #94a3b8;" onclick="closeQrViewModal()">&times;</button>
             <h3 style="margin: 0; font-family: Roboto, sans-serif; font-size: 16px; font-weight: 700; color: #043899; text-transform: uppercase;">QR Code Scan</h3>
             
@@ -4033,11 +4091,21 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
             </div>
 
             <div style="font-family: monospace; font-weight: 700; font-size: 14px; color: #1e293b; word-break: break-all; background: #f1f5f9; padding: 6px 12px; border-radius: 6px; border: 1px solid #e2e8f0; width: 100%; box-sizing: border-box;" id="dts-qr-code-text"></div>
+
+            <button type="button" onclick="printQrCodeFromModal()" style="display: inline-flex; align-items: center; justify-content: center; gap: 8px; width: 100%; background: #0284c7; color: #ffffff; border: none; border-radius: 8px; padding: 10px 16px; font-family: Roboto, sans-serif; font-size: 13px; font-weight: 600; cursor: pointer; box-shadow: 0 2px 6px rgba(2, 132, 199, 0.25); transition: background-color 0.15s ease;">
+                <i class="fa-solid fa-print"></i> Print QR Code
+            </button>
         </div>
     </div>
 
+    <!-- Dynamic QR Code Print Modal -->
+    @include('components.dts.qr-print-modal')
+
     <script>
-        function openQrViewModal(qrCode) {
+        window.currentQrCodeValue = '';
+
+        window.openQrViewModal = function(qrCode) {
+            window.currentQrCodeValue = qrCode || '';
             const modal = document.getElementById('dts-qr-view-modal');
             const img = document.getElementById('dts-qr-image');
             const loading = document.getElementById('dts-qr-loading');
@@ -4059,13 +4127,41 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
                 loading.style.display = 'none';
                 img.style.display = 'block';
             };
-        }
+        };
 
-        function closeQrViewModal() {
+        window.closeQrViewModal = function() {
             const modal = document.getElementById('dts-qr-view-modal');
             if (modal) {
                 modal.style.display = 'none';
             }
-        }
+        };
+
+        window.printQrCodeFromModal = function() {
+            const code = window.currentQrCodeValue || (document.getElementById('dts-qr-code-text') ? document.getElementById('dts-qr-code-text').innerText : '');
+            if (!code) return;
+            if (window.openDynamicPrintModal) {
+                window.closeQrViewModal();
+                window.openDynamicPrintModal(code);
+            } else {
+                const printWin = window.open('', '_blank', 'width=600,height=600');
+                const qrData = btoa(code);
+                const qrUrl = 'https://api.qrserver.com/v1/create-qr-code/?size=250x250&data=' + encodeURIComponent(qrData);
+                printWin.document.write('<html><head><title>Print QR Code - ' + code + '</title>'
+                    + '<style>body{font-family:Roboto,sans-serif;display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:90vh;margin:0;}'
+                    + '.print-box{border:2px solid #000;padding:24px;border-radius:12px;display:inline-flex;flex-direction:column;align-items:center;gap:12px;}'
+                    + '.print-box img{width:200px;height:200px;}.print-box span{font-family:monospace;font-weight:bold;font-size:15px;}'
+                    + '@media print{body{min-height:auto;}}</style></head><body>'
+                    + '<div class="print-box"><img src="' + qrUrl + '" alt="QR Code"><span>' + code + '</span></div>'
+                    + '</body></html>');
+                printWin.document.close();
+                printWin.focus();
+                setTimeout(function() { printWin.print(); printWin.close(); }, 500);
+            }
+        };
+
+        // Fallback references
+        function openQrViewModal(qrCode) { return window.openQrViewModal(qrCode); }
+        function closeQrViewModal() { return window.closeQrViewModal(); }
+        function printQrCodeFromModal() { return window.printQrCodeFromModal(); }
     </script>
 </div>

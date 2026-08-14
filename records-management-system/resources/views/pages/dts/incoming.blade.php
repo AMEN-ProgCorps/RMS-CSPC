@@ -130,6 +130,7 @@ new #[Layout('layouts.dts')] #[Title('Incoming Transactions - Document Tracking 
                         ->where('sequence_ranking', $trans->sequence)
                         ->update([
                             'date_in' => now(),
+                            'account_received' => auth()->id(),
                             'scanned_id' => true,
                         ]);
                 }

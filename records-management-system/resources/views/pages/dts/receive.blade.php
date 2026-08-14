@@ -270,6 +270,7 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Receive Transac
                         ->where('sequence_ranking', $this->activeTransaction['sequence'])
                         ->update([
                             'date_in' => now(),
+                            'account_received' => auth()->id(),
                             'scanned_id' => true,
                         ]);
                 }
@@ -357,7 +358,9 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Receive Transac
                     ->where('sequence_ranking', $this->activeTransaction['sequence'])
                     ->update([
                         'date_in' => $currentStep->date_in ?? now(),
+                        'account_received' => $currentStep->account_received ?? auth()->id(),
                         'date_out' => now(),
+                        'account_forwarded' => auth()->id(),
                         'action_needed' => $this->actionNeeded,
                         'note' => $this->notes,
                         'total_time_completed' => $duration,

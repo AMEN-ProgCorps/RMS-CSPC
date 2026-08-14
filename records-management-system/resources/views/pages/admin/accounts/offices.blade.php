@@ -173,7 +173,10 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Offices & Clusters')] cl
                 return;
             }
 
-            $userOfficeCode = auth()->user()?->details?->office?->office_code ?? 'ORIGIN';
+            $userOfficeCode = auth()->user()?->details?->office?->office_code;
+            if (!$userOfficeCode || !\DB::table('office')->where('office_code', $userOfficeCode)->exists()) {
+                $userOfficeCode = \DB::table('office')->where('is_active', true)->whereNotIn('office_code', ['ORIGIN', '[H]'])->value('office_code') ?: 'ORIGIN';
+            }
 
             \DB::table('dts_source_office')->insert([
                 's_office_name' => $name,
@@ -728,7 +731,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Offices & Clusters')] cl
                     ->update(['is_active' => false]);
 
                 \DB::table('admin_logs')->insert([
-                    'changes' => "Bulk soft-deleted " . $offices->count() . " office(s) (Deactivated for transparency): {$names}",
+                    'changes' => \Str::limit("Bulk soft-deleted " . $offices->count() . " office(s): {$names}", 245),
                     'admin_id' => auth()->id(),
                     'what_system' => 3,
                     'when_changes' => now(),
@@ -1014,7 +1017,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Offices & Clusters')] cl
                     ->update(['is_active' => false]);
 
                 \DB::table('admin_logs')->insert([
-                    'changes' => "Bulk soft-deleted " . $clusters->count() . " cluster(s) (Deactivated for transparency): {$names}",
+                    'changes' => \Str::limit("Bulk soft-deleted " . $clusters->count() . " cluster(s): {$names}", 245),
                     'admin_id' => auth()->id(),
                     'what_system' => 3,
                     'when_changes' => now(),
@@ -1365,8 +1368,11 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Offices & Clusters')] cl
                 @if(count($selectedOfficeIds) > 0)
                     <div style="display: flex; align-items: center; justify-content: space-between; padding: 8px 12px; background: #fff1f2; border: 1px solid #fecdd3; border-radius: 8px; margin-bottom: 8px;">
                         <span style="font-size: 12px; font-weight: 600; color: #be123c;">{{ count($selectedOfficeIds) }} selected</span>
-                        <button type="button" wire:click="bulkDeleteOffices" wire:confirm="Are you sure you want to deactivate {{ count($selectedOfficeIds) }} office(s)? They will be soft-deleted (hidden) but retained for transparency." style="background: #e11d48; color: #fff; border: none; padding: 5px 12px; border-radius: 6px; font-size: 11px; font-weight: 600; cursor: pointer; font-family: 'Inter', sans-serif;">
-                            <i class="fa-solid fa-trash-can" style="margin-right: 4px;"></i> Delete Selected
+                        <button type="button" x-data
+                            x-on:click="if(confirm('Are you sure you want to deactivate {{ count($selectedOfficeIds) }} office(s)? They will be soft-deleted (hidden) but retained for transparency.')) { $el.disabled = true; $el.querySelector('.btn-idle').style.display = 'none'; $el.querySelector('.btn-loading').style.display = 'inline-flex'; $wire.bulkDeleteOffices(); }"
+                            style="background: #e11d48; color: #fff; border: none; padding: 5px 12px; border-radius: 6px; font-size: 11px; font-weight: 600; cursor: pointer; font-family: 'Inter', sans-serif;">
+                            <span class="btn-idle" style="display: inline-flex; align-items: center; gap: 4px;"><i class="fa-solid fa-trash-can"></i> Delete Selected</span>
+                            <span class="btn-loading" style="display: none; align-items: center; gap: 5px;"><i class="fa-solid fa-circle-notch fa-spin"></i> Deactivating {{ count($selectedOfficeIds) }} office(s)...</span>
                         </button>
                     </div>
                 @endif
@@ -1675,8 +1681,11 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Offices & Clusters')] cl
                 @if(count($selectedClusterIds) > 0)
                     <div style="display: flex; align-items: center; justify-content: space-between; padding: 8px 12px; background: #fff1f2; border: 1px solid #fecdd3; border-radius: 8px; margin-bottom: 8px;">
                         <span style="font-size: 12px; font-weight: 600; color: #be123c;">{{ count($selectedClusterIds) }} selected</span>
-                        <button type="button" wire:click="bulkDeleteClusters" wire:confirm="Are you sure you want to deactivate {{ count($selectedClusterIds) }} cluster(s)? They will be soft-deleted (hidden) but retained for transparency." style="background: #e11d48; color: #fff; border: none; padding: 5px 12px; border-radius: 6px; font-size: 11px; font-weight: 600; cursor: pointer; font-family: 'Inter', sans-serif;">
-                            <i class="fa-solid fa-trash-can" style="margin-right: 4px;"></i> Delete Selected
+                        <button type="button" x-data
+                            x-on:click="if(confirm('Are you sure you want to deactivate {{ count($selectedClusterIds) }} cluster(s)? They will be soft-deleted (hidden) but retained for transparency.')) { $el.disabled = true; $el.querySelector('.btn-idle').style.display = 'none'; $el.querySelector('.btn-loading').style.display = 'inline-flex'; $wire.bulkDeleteClusters(); }"
+                            style="background: #e11d48; color: #fff; border: none; padding: 5px 12px; border-radius: 6px; font-size: 11px; font-weight: 600; cursor: pointer; font-family: 'Inter', sans-serif;">
+                            <span class="btn-idle" style="display: inline-flex; align-items: center; gap: 4px;"><i class="fa-solid fa-trash-can"></i> Delete Selected</span>
+                            <span class="btn-loading" style="display: none; align-items: center; gap: 5px;"><i class="fa-solid fa-circle-notch fa-spin"></i> Deactivating {{ count($selectedClusterIds) }} cluster(s)...</span>
                         </button>
                     </div>
                 @endif
@@ -1959,39 +1968,112 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Offices & Clusters')] cl
             <!-- Left Pane: Other Offices Directory -->
             <div class="directory-panel">
                 <div class="directory-header-row">
-                    <span class="form-label" style="margin: 0; font-size: 13px; color: #334155;">Other Offices Directory (External Sources)</span>
+                    <div style="display: flex; align-items: center; gap: 8px;">
+                        <span class="form-label" style="margin: 0; font-size: 14px; font-weight: 700; color: #0f172a; font-family: 'Outfit', sans-serif;">External Source Offices</span>
+                        <span style="background: #e0f2fe; color: #0369a1; padding: 2px 8px; border-radius: 99px; font-size: 11px; font-weight: 700;">{{ $otherOffices->total() }}</span>
+                    </div>
                     <div style="display: flex; gap: 6px;">
-                        <button type="button" class="btn-create-new" wire:click="startCreateOtherOffice">
+                        <button type="button" class="btn-create-new" style="background: linear-gradient(135deg, #0284c7 0%, #0369a1 100%); border: none; box-shadow: 0 4px 12px rgba(2, 132, 199, 0.25);" wire:click="startCreateOtherOffice">
                             <i class="fa-solid fa-plus"></i> New External Office
                         </button>
                     </div>
                 </div>
 
-                <div class="search-box-wrapper">
+                <div class="search-box-wrapper" style="margin-top: 10px;">
                     <i class="fa-solid fa-magnifying-glass search-icon"></i>
-                    <input type="text" class="search-box" placeholder="Search external offices..." wire:model.live="otherOfficeSearch">
+                    <input type="text" class="search-box" placeholder="Search external office name or code..." wire:model.live="otherOfficeSearch">
                 </div>
 
-                <div class="directory-list" style="margin-top: 12px;">
-                    @forelse($otherOffices as $so)
-                        <div class="directory-item {{ $selectedOtherOfficeId === $so->id ? 'selected' : '' }}" wire:click="selectOtherOffice({{ $so->id }})" wire:key="so-item-{{ $so->id }}">
-                            <div class="item-avatar" style="background-color: #0284c7; color: white;">
-                                <i class="fa-solid fa-building-flag"></i>
-                            </div>
-                            <div class="item-info">
-                                <span class="item-name">{{ $so->s_office_name }}</span>
-                                <span class="item-meta">{{ $so->s_office_code }} • Created by {{ $so->creator_office_name ?: ($so->created_by_office ?: 'System') }}</span>
-                            </div>
-                        </div>
-                    @empty
-                        <div class="no-results-placeholder">
-                            <i class="fa-solid fa-building-circle-exclamation" style="font-size: 24px; color: #94a3b8; margin-bottom: 8px;"></i>
-                            <span>No external offices found.</span>
-                        </div>
-                    @endforelse
+                <div style="display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 6px 4px; margin-top: 4px; border-bottom: 1px solid #e2e8f0;">
+                    <span style="font-size: 12px; color: #64748b; font-weight: 500;">Registered External Entities</span>
+
+                    <!-- Layout View Mode Toggle -->
+                    <div class="view-mode-toggle" style="display: flex; gap: 2px; background: #f1f5f9; padding: 2px; border-radius: 6px; border: 1px solid #cbd5e1;">
+                        <button type="button" wire:click="$set('otherOfficeViewMode', 'grid')" title="Cards Grid Layout" style="padding: 4px 10px; border-radius: 4px; border: none; font-size: 11px; font-weight: 600; cursor: pointer; background: {{ $otherOfficeViewMode === 'grid' ? '#ffffff' : 'transparent' }}; color: {{ $otherOfficeViewMode === 'grid' ? '#0f172a' : '#64748b' }}; box-shadow: {{ $otherOfficeViewMode === 'grid' ? '0 1px 2px rgba(0,0,0,0.08)' : 'none' }}; display: flex; align-items: center; gap: 4px; font-family: 'Inter', sans-serif;">
+                            <i class="fa-solid fa-border-all"></i> Cards
+                        </button>
+                        <button type="button" wire:click="$set('otherOfficeViewMode', 'table')" title="Table Layout" style="padding: 4px 10px; border-radius: 4px; border: none; font-size: 11px; font-weight: 600; cursor: pointer; background: {{ $otherOfficeViewMode === 'table' ? '#ffffff' : 'transparent' }}; color: {{ $otherOfficeViewMode === 'table' ? '#0f172a' : '#64748b' }}; box-shadow: {{ $otherOfficeViewMode === 'table' ? '0 1px 2px rgba(0,0,0,0.08)' : 'none' }}; display: flex; align-items: center; gap: 4px; font-family: 'Inter', sans-serif;">
+                            <i class="fa-solid fa-table-list"></i> Table
+                        </button>
+                    </div>
                 </div>
 
-                <div style="margin-top: 16px;">
+                @if($otherOfficeViewMode === 'table')
+                    <!-- Table Layout View -->
+                    <div class="other-offices-table-wrapper" style="margin-top: 10px;">
+                        <table class="other-offices-table">
+                            <thead>
+                                <tr>
+                                    <th>Code</th>
+                                    <th>External Office Name</th>
+                                    <th>Created By</th>
+                                    <th>Status</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @forelse($otherOffices as $so)
+                                    <tr class="{{ $selectedOtherOfficeId === $so->id ? 'selected' : '' }}" style="cursor: pointer;" wire:click="selectOtherOffice({{ $so->id }})" wire:key="so-row-{{ $so->id }}">
+                                        <td>
+                                            <span class="item-code-badge">{{ $so->s_office_code }}</span>
+                                        </td>
+                                        <td style="font-weight: 600; color: #0f172a;">
+                                            {{ $so->s_office_name }}
+                                        </td>
+                                        <td style="color: #64748b; font-size: 12px;">
+                                            <i class="fa-solid fa-circle-user" style="color: #94a3b8; margin-right: 4px;"></i>
+                                            {{ $so->creator_office_name ?: ($so->created_by_office ?: 'System') }}
+                                        </td>
+                                        <td>
+                                            @if($so->is_active ?? true)
+                                                <span class="status-badge-active">Active</span>
+                                            @else
+                                                <span class="status-badge-inactive">Inactive</span>
+                                            @endif
+                                        </td>
+                                    </tr>
+                                @empty
+                                    <tr>
+                                        <td colspan="4" style="text-align: center; padding: 32px 16px; color: #94a3b8;">
+                                            <i class="fa-solid fa-building-circle-exclamation" style="font-size: 28px; margin-bottom: 8px; color: #cbd5e1; display: block;"></i>
+                                            <span style="font-weight: 600;">No external offices found.</span>
+                                        </td>
+                                    </tr>
+                                @endforelse
+                            </tbody>
+                        </table>
+                    </div>
+                @else
+                    <!-- Cards Grid Layout View -->
+                    <div class="directory-list grid-view" style="margin-top: 10px;">
+                        @forelse($otherOffices as $so)
+                            <div class="directory-item {{ $selectedOtherOfficeId === $so->id ? 'selected' : '' }}" wire:click="selectOtherOffice({{ $so->id }})" wire:key="so-item-{{ $so->id }}">
+                                <div class="item-avatar">
+                                    <i class="fa-solid fa-building-flag"></i>
+                                </div>
+                                <div class="item-info">
+                                    <div class="item-name-row">
+                                        <span class="item-name">{{ $so->s_office_name }}</span>
+                                        <span class="item-code-badge">{{ $so->s_office_code }}</span>
+                                    </div>
+                                    <span class="item-meta">
+                                        <i class="fa-solid fa-circle-user" style="color: #94a3b8;"></i>
+                                        <span class="item-meta-creator">Created by {{ $so->creator_office_name ?: ($so->created_by_office ?: 'System') }}</span>
+                                    </span>
+                                </div>
+                                <div>
+                                    <i class="fa-solid fa-chevron-right" style="color: #cbd5e1; font-size: 12px;"></i>
+                                </div>
+                            </div>
+                        @empty
+                            <div class="no-results-placeholder" style="padding: 32px 16px; text-align: center;">
+                                <i class="fa-solid fa-building-circle-exclamation" style="font-size: 28px; color: #cbd5e1; margin-bottom: 8px; display: block;"></i>
+                                <span style="font-weight: 600; color: #64748b;">No external offices found.</span>
+                            </div>
+                        @endforelse
+                    </div>
+                @endif
+
+                <div class="other-offices-pagination-bar">
                     {{ $otherOffices->links() }}
                 </div>
             </div>
@@ -1999,8 +2081,16 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Offices & Clusters')] cl
             <!-- Right Pane: Details & Form Panel -->
             @if($selectedOtherOfficeId !== null)
                 <div class="details-panel" wire:key="so-details-panel">
-                    <div class="details-header">
-                        <h2>{{ $selectedOtherOfficeId === -1 ? 'Create New External Office' : 'External Office Details' }}</h2>
+                    <div class="details-header" style="background: linear-gradient(135deg, #0284c7 0%, #0369a1 100%);">
+                        <div style="display: flex; align-items: center; gap: 10px;">
+                            <div style="width: 36px; height: 36px; border-radius: 10px; background: rgba(255,255,255,0.2); display: flex; align-items: center; justify-content: center; color: white;">
+                                <i class="fa-solid fa-building-flag"></i>
+                            </div>
+                            <div>
+                                <h2 style="color: white; margin: 0; font-size: 16px; font-weight: 700;">{{ $selectedOtherOfficeId === -1 ? 'Create New External Office' : 'External Office Details' }}</h2>
+                                <span style="color: rgba(255,255,255,0.8); font-size: 12px;">Configure external agency info for document tracking.</span>
+                            </div>
+                        </div>
                     </div>
 
                     <div class="details-body">
@@ -2012,7 +2102,8 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Offices & Clusters')] cl
 
                             <div class="form-group">
                                 <label class="form-label">External Office Code <span style="color: #ef4444;">*</span></label>
-                                <input type="text" class="form-input" wire:model="otherOfficeCode" placeholder="e.g. SO-CHED-RO5" style="text-transform: uppercase;">
+                                <input type="text" class="form-input" wire:model="otherOfficeCode" placeholder="e.g. CHED RO V" style="text-transform: uppercase;">
+                                <span style="font-size: 11.5px; color: #64748b; margin-top: 4px; display: block;">This code is stored as metadata on external transactions.</span>
                             </div>
 
                             @if($selectedOtherOfficeId > 0)
@@ -2039,7 +2130,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Offices & Clusters')] cl
                             </button>
                         @endif
                         <button type="button" class="btn-cancel" wire:click="cancelSelection">Cancel</button>
-                        <button type="button" class="btn-save" wire:click="saveOtherOfficeChanges">
+                        <button type="button" class="btn-save" style="background: linear-gradient(135deg, #0284c7 0%, #0369a1 100%); border: none;" wire:click="saveOtherOfficeChanges">
                             <i class="fa-solid fa-floppy-disk"></i> Save Office
                         </button>
                     </div>

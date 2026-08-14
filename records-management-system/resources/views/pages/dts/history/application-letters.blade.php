@@ -21,6 +21,9 @@ new #[Layout('layouts.dts')] #[Title('DTS - Application Letters History')] class
 
     public int $perPage = 10;
     public string $searchQuery = '';
+    public string $dateFrom = '';
+    public string $dateTo = '';
+    public string $sortOrder = 'desc'; // 'desc' or 'asc'
     public string $layoutMode = 'table'; // table or box
 
     public function mount(): void
@@ -43,6 +46,30 @@ new #[Layout('layouts.dts')] #[Title('DTS - Application Letters History')] class
 
     public function updatingPerPage()
     {
+        $this->resetPage();
+    }
+
+    public function updatingDateFrom()
+    {
+        $this->resetPage();
+    }
+
+    public function updatingDateTo()
+    {
+        $this->resetPage();
+    }
+
+    public function updatingSortOrder()
+    {
+        $this->resetPage();
+    }
+
+    public function resetFilters(): void
+    {
+        $this->searchQuery = '';
+        $this->dateFrom = '';
+        $this->dateTo = '';
+        $this->sortOrder = 'desc';
         $this->resetPage();
     }
 
@@ -71,6 +98,43 @@ new #[Layout('layouts.dts')] #[Title('DTS - Application Letters History')] class
                           ->orWhereNotNull('log.date_in')
                           ->orWhereNotNull('log.date_out');
                   });
+
+                if (!empty($this->dateFrom) || !empty($this->dateTo)) {
+                    $from = !empty($this->dateFrom) ? \Carbon\Carbon::parse($this->dateFrom)->startOfDay() : null;
+                    $to = !empty($this->dateTo) ? \Carbon\Carbon::parse($this->dateTo)->endOfDay() : null;
+
+                    if ($from && $to && $from->gt($to)) {
+                        $temp = $from;
+                        $from = $to->copy()->startOfDay();
+                        $to = $temp->copy()->endOfDay();
+                    }
+
+                    $fromStr = $from ? $from->toDateTimeString() : null;
+                    $toStr = $to ? $to->toDateTimeString() : null;
+
+                    $q->where(function($dq) use ($fromStr, $toStr) {
+                        $dq->where(function($sub) use ($fromStr, $toStr) {
+                            if ($fromStr && $toStr) {
+                                $sub->whereBetween('log.date_in', [$fromStr, $toStr])
+                                    ->orWhereBetween('log.date_out', [$fromStr, $toStr]);
+                            } elseif ($fromStr) {
+                                $sub->where('log.date_in', '>=', $fromStr)
+                                    ->orWhere('log.date_out', '>=', $fromStr);
+                            } elseif ($toStr) {
+                                $sub->where('log.date_in', '<=', $toStr)
+                                    ->orWhere('log.date_out', '<=', $toStr);
+                            }
+                        })->orWhere(function($sub) use ($fromStr, $toStr) {
+                            if ($fromStr && $toStr) {
+                                $sub->whereBetween('dtd.date_created', [$fromStr, $toStr]);
+                            } elseif ($fromStr) {
+                                $sub->where('dtd.date_created', '>=', $fromStr);
+                            } elseif ($toStr) {
+                                $sub->where('dtd.date_created', '<=', $toStr);
+                            }
+                        });
+                    });
+                }
             });
 
         if (!empty($this->searchQuery)) {
@@ -85,6 +149,8 @@ new #[Layout('layouts.dts')] #[Title('DTS - Application Letters History')] class
                   ->orWhere('dt.qr_code', 'like', '%' . $searchVal . '%');
             });
         }
+
+        $sortDirection = in_array(strtolower($this->sortOrder), ['asc', 'desc']) ? strtolower($this->sortOrder) : 'desc';
 
         return $query->select(
             'dt.transaction_id',
@@ -104,9 +170,10 @@ new #[Layout('layouts.dts')] #[Title('DTS - Application Letters History')] class
             DB::raw("COALESCE(NULLIF(flow.referenced_flow, ''), flow.flow_name) as doc_type_name"),
             'originated_office.office_name as originated_office_name',
             'current_office.office_name as current_office_name',
-            'doc.document_name'
+            'doc.document_name',
+            DB::raw("(SELECT MAX(COALESCE(log.date_in, log.date_out)) FROM sub_document_tracking_system_logs as log WHERE log.transaction_id = dt.transaction_id AND log.office_code = " . DB::getPdo()->quote($userOfficeCode) . ") as office_activity_date")
         )
-        ->orderBy('dtd.date_created', 'desc')
+        ->orderBy('dtd.date_created', $sortDirection)
         ->paginate($this->perPage);
     }
 };
@@ -122,8 +189,8 @@ new #[Layout('layouts.dts')] #[Title('DTS - Application Letters History')] class
     </div>
 
     <div class="rms-toolbar" style="margin-bottom: 20px;">
-        <div class="rms-toolbar-bottom">
-            <div class="rms-entries">
+        <div class="rms-toolbar-bottom" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px;">
+            <div class="rms-entries" style="display: flex; align-items: center; gap: 8px;">
                 Show 
                 <select class="rms-select" wire:model.live="perPage">
                     <option value="10">10</option>
@@ -132,8 +199,32 @@ new #[Layout('layouts.dts')] #[Title('DTS - Application Letters History')] class
                 </select> 
                 Entries
             </div>
+
+            <div class="rms-filters" style="display: flex; align-items: center; flex-wrap: wrap; gap: 10px;">
+                <div style="display: flex; align-items: center; gap: 6px;">
+                    <span style="font-size: 0.8rem; font-weight: 600; color: #64748b;">From:</span>
+                    <input type="date" class="rms-select" wire:model.live="dateFrom" style="padding-right: 8px; background-image: none; font-size: 0.82rem; height: 34px;" title="Filter From Date">
+                </div>
+                <div style="display: flex; align-items: center; gap: 6px;">
+                    <span style="font-size: 0.8rem; font-weight: 600; color: #64748b;">To:</span>
+                    <input type="date" class="rms-select" wire:model.live="dateTo" style="padding-right: 8px; background-image: none; font-size: 0.82rem; height: 34px;" title="Filter To Date">
+                </div>
+                <div style="display: flex; align-items: center; gap: 6px;">
+                    <select class="rms-select" wire:model.live="sortOrder" style="font-size: 0.82rem; height: 34px;">
+                        <option value="desc">Date (Newest First)</option>
+                        <option value="asc">Date (Oldest First)</option>
+                    </select>
+                </div>
+                @if(!empty($dateFrom) || !empty($dateTo) || !empty($searchQuery) || $sortOrder !== 'desc')
+                    <button type="button" wire:click="resetFilters" class="rms-select" style="background: #f8fafc; border-color: #cbd5e1; color: #475569; padding-right: 12px; display: inline-flex; align-items: center; gap: 4px; height: 34px; font-size: 0.82rem; font-weight: 600;" title="Reset all filters">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+                        Reset
+                    </button>
+                @endif
+            </div>
+
             <div class="rms-actions" style="display: flex; align-items: center; gap: 12px;">
-                <button type="button" wire:click="toggleLayout" class="rms-select" style="background: white; padding-right: 12px; display: inline-flex; align-items: center; gap: 6px;">
+                <button type="button" wire:click="toggleLayout" class="rms-select" style="background: white; padding-right: 12px; display: inline-flex; align-items: center; gap: 6px; height: 34px;">
                     @if ($layoutMode === 'table')
                         <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7"></rect><rect x="14" y="3" width="7" height="7"></rect><rect x="14" y="14" width="7" height="7"></rect><rect x="3" y="14" width="7" height="7"></rect></svg>
                         Grid
@@ -143,11 +234,21 @@ new #[Layout('layouts.dts')] #[Title('DTS - Application Letters History')] class
                     @endif
                 </button>
                 <div class="rms-search-wrapper">
-                    <input type="text" class="rms-search-input" placeholder="Search control no., subject..." wire:model.live="searchQuery" style="width: 240px;">
+                    <input type="text" class="rms-search-input" placeholder="Search control no., subject..." wire:model.live="searchQuery" style="width: 220px; height: 34px;">
                 </div>
             </div>
         </div>
     </div>
+
+    @if(!empty($dateFrom) || !empty($dateTo))
+        <div style="margin-bottom: 16px; font-size: 0.82rem; color: #0369a1; background: #f0f9ff; border: 1px solid #bae6fd; padding: 6px 12px; border-radius: 6px; display: inline-flex; align-items: center; gap: 8px;">
+            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect><line x1="16" y1="2" x2="16" y2="6"></line><line x1="8" y1="2" x2="8" y2="6"></line><line x1="3" y1="10" x2="21" y2="10"></line></svg>
+            <span>
+                Showing transactions between <strong>{{ !empty($dateFrom) ? \Carbon\Carbon::parse($dateFrom)->format('M d, Y') : 'Earliest' }}</strong> and <strong>{{ !empty($dateTo) ? \Carbon\Carbon::parse($dateTo)->format('M d, Y') : 'Latest' }}</strong>
+            </span>
+            <button type="button" wire:click="$set('dateFrom', ''); $set('dateTo', '');" style="background: none; border: none; color: #0369a1; cursor: pointer; font-weight: 700; font-size: 14px; padding: 0 4px; line-height: 1;" title="Clear date filter">×</button>
+        </div>
+    @endif
 
     @if ($layoutMode === 'table')
         <div class="rms-table-responsive">
@@ -159,7 +260,7 @@ new #[Layout('layouts.dts')] #[Title('DTS - Application Letters History')] class
                         <th>SUBJECT</th>
                         <th>ORIGINATED FROM</th>
                         <th>CURRENT LOCATION</th>
-                        <th>DATE CREATED</th>
+                        <th>DATE</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -170,7 +271,16 @@ new #[Layout('layouts.dts')] #[Title('DTS - Application Letters History')] class
                             <td style="max-width: 280px;">{{ Str::limit($t->subject, 50) }}</td>
                             <td>{{ $t->originated_office_name ?: $t->originated_from }}</td>
                             <td style="color: #0369a1; font-weight: 600;">🏢 {{ $t->current_office_name ?: $t->current_office }}</td>
-                            <td>{{ \Carbon\Carbon::parse($t->date_created)->format('M d, Y') }}</td>
+                            <td style="white-space: nowrap;">
+                                <div style="font-weight: 600; color: #1e293b;">
+                                    {{ \Carbon\Carbon::parse($t->date_created)->format('M d, Y') }}
+                                </div>
+                                @if(!empty($t->office_activity_date))
+                                    <div style="font-size: 0.75rem; color: #0284c7; margin-top: 2px;" title="Date processed in your office">
+                                        <span style="font-weight: 600;">Office:</span> {{ \Carbon\Carbon::parse($t->office_activity_date)->format('M d, Y') }}
+                                    </div>
+                                @endif
+                            </td>
                         </tr>
                     @empty
                         <tr>
@@ -191,7 +301,10 @@ new #[Layout('layouts.dts')] #[Title('DTS - Application Letters History')] class
                     <div style="font-size: 0.8rem; color: #64748b; line-height: 1.5;">
                         <div><strong>Originated:</strong> {{ $t->originated_office_name ?: $t->originated_from }}</div>
                         <div><strong>Current Location:</strong> {{ $t->current_office_name ?: $t->current_office }}</div>
-                        <div><strong>Date:</strong> {{ \Carbon\Carbon::parse($t->date_created)->format('M d, Y') }}</div>
+                        <div><strong>Date Created:</strong> {{ \Carbon\Carbon::parse($t->date_created)->format('M d, Y') }}</div>
+                        @if(!empty($t->office_activity_date))
+                            <div><strong>Office Activity:</strong> {{ \Carbon\Carbon::parse($t->office_activity_date)->format('M d, Y') }}</div>
+                        @endif
                     </div>
                 </div>
             @empty

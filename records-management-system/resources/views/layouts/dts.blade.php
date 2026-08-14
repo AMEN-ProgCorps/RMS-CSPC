@@ -50,7 +50,7 @@
     <title>CSPC - Document Tracking System</title>
     @stack('styles')
     <!-- Dynamic QR Code Print Modal Script -->
-    <script src="{{ asset('js/qr-print-modal.js') }}"></script>
+    <script src="{{ asset('js/qr-print-modal.js') }}?v={{ file_exists(public_path('js/qr-print-modal.js')) ? filemtime(public_path('js/qr-print-modal.js')) : time() }}"></script>
 </head>
 <body>
     <header>

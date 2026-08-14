@@ -228,4 +228,36 @@ class RecycleBinTest extends TestCase
             'what_system' => 3,
         ]);
     }
+
+    /**
+     * Test restoring deactivated role reactivates it and logs to admin_logs.
+     */
+    public function test_restore_role()
+    {
+        $role = \App\Models\role_list::create([
+            'key_name' => 'Test Deactivated Role Rec',
+            'key_description' => 'Role description',
+            'modifier_key' => 1,
+            'is_active' => false,
+            'date_created' => now(),
+            'date_updated' => now(),
+        ]);
+
+        Volt::test('pages.admin.recycle-bin')
+            ->set('activeTab', 'roles')
+            ->call('restoreRole', $role->id)
+            ->assertSet('successMessage', 'Role restored successfully!');
+
+        $this->assertDatabaseHas('condition_key', [
+            'id' => $role->id,
+            'is_active' => true,
+        ]);
+
+        $this->assertDatabaseHas('admin_logs', [
+            'changes' => "Restored role from Recycle Bin: Test Deactivated Role Rec",
+            'what_system' => 3,
+        ]);
+
+        $role->delete();
+    }
 }

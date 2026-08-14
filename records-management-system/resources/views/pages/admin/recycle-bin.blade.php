@@ -11,7 +11,7 @@ use Livewire\Attributes\Title;
 use Livewire\Volt\Component;
 
 new #[Layout('layouts.admin')] #[Title('Admin Console - Recycle Bin')] class extends Component {
-    /** @var string Active tab: 'offices', 'clusters', 'flows', or 'users' */
+    /** @var string Active tab: 'offices', 'clusters', 'roles', 'flows', or 'users' */
     public string $activeTab = 'offices';
 
     /** @var string Real-time search query */
@@ -114,6 +114,36 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Recycle Bin')] class ext
             $this->successMessage = 'Cluster restored successfully!';
         } catch (\Exception $e) {
             $this->errorMessage = 'Failed to restore cluster: ' . $e->getMessage();
+        }
+    }
+
+    /**
+     * Restore a single soft-deleted role.
+     */
+    public function restoreRole(int $id): void
+    {
+        $this->clearMessages();
+
+        try {
+            \DB::transaction(function () use ($id) {
+                $role = \App\Models\role_list::findOrFail($id);
+
+                $role->update([
+                    'is_active' => true,
+                    'date_updated' => now(),
+                ]);
+
+                \DB::table('admin_logs')->insert([
+                    'changes' => "Restored role from Recycle Bin: {$role->key_name}",
+                    'admin_id' => auth()->id(),
+                    'what_system' => 3,
+                    'when_changes' => now(),
+                ]);
+            });
+
+            $this->successMessage = 'Role restored successfully!';
+        } catch (\Exception $e) {
+            $this->errorMessage = 'Failed to restore role: ' . $e->getMessage();
         }
     }
 
@@ -226,10 +256,18 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Recycle Bin')] class ext
                 });
             }
             $visibleIds = $query->pluck('id')->toArray();
+        } elseif ($this->activeTab === 'roles') {
+            $query = \App\Models\role_list::where('is_active', false);
+            if ($this->search !== '') {
+                $query->where(function ($q) use ($searchVal) {
+                    $q->where('key_name', 'like', $searchVal)
+                      ->orWhere('key_description', 'like', $searchVal);
+                });
+            }
+            $visibleIds = $query->pluck('id')->toArray();
         } elseif ($this->activeTab === 'flows') {
             $query = \DB::table('dts_transaction_flow')
-                ->where('is_active', false)
-                ->where('flow_code', 'not like', 'FLOW-CUSTOM-%');
+                ->where('is_active', false);
             if ($this->flowPurposeFilter !== 'all') {
                 $query->where('flow_use', $this->flowPurposeFilter);
             }
@@ -282,7 +320,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Recycle Bin')] class ext
                         \App\Models\office::whereIn('id', $records->pluck('id')->toArray())->update(['is_active' => true]);
                         
                         \DB::table('admin_logs')->insert([
-                            'changes' => "Bulk restored " . $records->count() . " office(s) from Recycle Bin: {$names}",
+                            'changes' => \Str::limit("Bulk restored " . $records->count() . " office(s) from Recycle Bin: {$names}", 245),
                             'admin_id' => auth()->id(),
                             'what_system' => 3,
                             'when_changes' => now(),
@@ -295,7 +333,23 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Recycle Bin')] class ext
                         \App\Models\Cluster::whereIn('id', $records->pluck('id')->toArray())->update(['is_active' => true]);
 
                         \DB::table('admin_logs')->insert([
-                            'changes' => "Bulk restored " . $records->count() . " cluster(s) from Recycle Bin: {$names}",
+                            'changes' => \Str::limit("Bulk restored " . $records->count() . " cluster(s) from Recycle Bin: {$names}", 245),
+                            'admin_id' => auth()->id(),
+                            'what_system' => 3,
+                            'when_changes' => now(),
+                        ]);
+                    }
+                } elseif ($this->activeTab === 'roles') {
+                    $records = \App\Models\role_list::whereIn('id', $this->selectedIds)->get();
+                    if ($records->isNotEmpty()) {
+                        $names = $records->pluck('key_name')->implode(', ');
+                        \App\Models\role_list::whereIn('id', $records->pluck('id')->toArray())->update([
+                            'is_active' => true,
+                            'date_updated' => now(),
+                        ]);
+
+                        \DB::table('admin_logs')->insert([
+                            'changes' => \Str::limit("Bulk restored " . $records->count() . " role(s) from Recycle Bin: {$names}", 245),
                             'admin_id' => auth()->id(),
                             'what_system' => 3,
                             'when_changes' => now(),
@@ -308,7 +362,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Recycle Bin')] class ext
                         \DB::table('dts_transaction_flow')->whereIn('id', $this->selectedIds)->update(['is_active' => true]);
 
                         \DB::table('admin_logs')->insert([
-                            'changes' => "Bulk restored " . $records->count() . " transaction flow(s) from Recycle Bin: {$names}",
+                            'changes' => \Str::limit("Bulk restored " . $records->count() . " transaction flow(s) from Recycle Bin: {$names}", 245),
                             'admin_id' => auth()->id(),
                             'what_system' => 3,
                             'when_changes' => now(),
@@ -321,7 +375,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Recycle Bin')] class ext
                         \App\Models\User::whereIn('id', $records->pluck('id')->toArray())->update(['account_active' => true]);
 
                         \DB::table('admin_logs')->insert([
-                            'changes' => "Bulk restored " . $records->count() . " user(s) from Recycle Bin: {$names}",
+                            'changes' => \Str::limit("Bulk restored " . $records->count() . " user(s) from Recycle Bin: {$names}", 245),
                             'admin_id' => auth()->id(),
                             'what_system' => 3,
                             'when_changes' => now(),
@@ -370,10 +424,22 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Recycle Bin')] class ext
         }
         $deactivatedClusters = $clustersQuery->orderBy('cluster_name', 'asc')->get();
 
-        // Deactivated predefined flows (exclude custom flows)
+        // Deactivated roles
+        $rolesQuery = \App\Models\role_list::query()
+            ->with('permissions')
+            ->where('is_active', false);
+
+        if ($this->search !== '' && $this->activeTab === 'roles') {
+            $rolesQuery->where(function ($q) use ($searchVal) {
+                $q->where('key_name', 'like', $searchVal)
+                  ->orWhere('key_description', 'like', $searchVal);
+            });
+        }
+        $deactivatedRoles = $rolesQuery->orderBy('key_name', 'asc')->get();
+
+        // Deactivated flows (predefined and custom)
         $flowsQuery = \DB::table('dts_transaction_flow')
-            ->where('is_active', false)
-            ->where('flow_code', 'not like', 'FLOW-CUSTOM-%');
+            ->where('is_active', false);
 
         if ($this->flowPurposeFilter !== 'all') {
             $flowsQuery->where('flow_use', $this->flowPurposeFilter);
@@ -406,6 +472,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Recycle Bin')] class ext
         return [
             'deactivatedOffices' => $deactivatedOffices,
             'deactivatedClusters' => $deactivatedClusters,
+            'deactivatedRoles' => $deactivatedRoles,
             'deactivatedFlows' => $deactivatedFlows,
             'deactivatedUsers' => $deactivatedUsers,
         ];
@@ -496,6 +563,9 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Recycle Bin')] class ext
         <button type="button" class="tab-btn {{ $activeTab === 'clusters' ? 'active' : '' }}" wire:click="switchTab('clusters')">
             <i class="fa-solid fa-sitemap" style="margin-right: 6px;"></i> Clusters
         </button>
+        <button type="button" class="tab-btn {{ $activeTab === 'roles' ? 'active' : '' }}" wire:click="switchTab('roles')">
+            <i class="fa-solid fa-sliders" style="margin-right: 6px;"></i> Roles & Clearances
+        </button>
         <button type="button" class="tab-btn {{ $activeTab === 'flows' ? 'active' : '' }}" wire:click="switchTab('flows')">
             <i class="fa-solid fa-route" style="margin-right: 6px;"></i> Transaction Flows
         </button>
@@ -543,8 +613,11 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Recycle Bin')] class ext
                 @if(count($selectedIds) > 0)
                     <div style="display: flex; align-items: center; justify-content: space-between; padding: 8px 12px; background: #ecfdf5; border: 1px solid #a7f3d0; border-radius: 8px; margin-bottom: 12px;">
                         <span style="font-size: 12px; font-weight: 600; color: #065f46;">{{ count($selectedIds) }} selected</span>
-                        <button type="button" wire:click="bulkRestore" wire:confirm="Are you sure you want to restore {{ count($selectedIds) }} selected office(s)?" style="background: #059669; color: #fff; border: none; padding: 5px 12px; border-radius: 6px; font-size: 11px; font-weight: 600; cursor: pointer; font-family: 'Inter', sans-serif;">
-                            <i class="fa-solid fa-rotate-left" style="margin-right: 4px;"></i> Restore Selected
+                        <button type="button" x-data
+                            x-on:click="if(confirm('Are you sure you want to restore {{ count($selectedIds) }} selected office(s)?')) { $el.disabled = true; $el.querySelector('.btn-idle').style.display = 'none'; $el.querySelector('.btn-loading').style.display = 'inline-flex'; $wire.bulkRestore(); }"
+                            style="background: #059669; color: #fff; border: none; padding: 5px 12px; border-radius: 6px; font-size: 11px; font-weight: 600; cursor: pointer; font-family: 'Inter', sans-serif;">
+                            <span class="btn-idle" style="display: inline-flex; align-items: center; gap: 4px;"><i class="fa-solid fa-rotate-left"></i> Restore Selected</span>
+                            <span class="btn-loading" style="display: none; align-items: center; gap: 5px;"><i class="fa-solid fa-circle-notch fa-spin"></i> Restoring {{ count($selectedIds) }} item(s)...</span>
                         </button>
                     </div>
                 @endif
@@ -634,8 +707,11 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Recycle Bin')] class ext
                 @if(count($selectedIds) > 0)
                     <div style="display: flex; align-items: center; justify-content: space-between; padding: 8px 12px; background: #ecfdf5; border: 1px solid #a7f3d0; border-radius: 8px; margin-bottom: 12px;">
                         <span style="font-size: 12px; font-weight: 600; color: #065f46;">{{ count($selectedIds) }} selected</span>
-                        <button type="button" wire:click="bulkRestore" wire:confirm="Are you sure you want to restore {{ count($selectedIds) }} selected cluster(s)?" style="background: #059669; color: #fff; border: none; padding: 5px 12px; border-radius: 6px; font-size: 11px; font-weight: 600; cursor: pointer; font-family: 'Inter', sans-serif;">
-                            <i class="fa-solid fa-rotate-left" style="margin-right: 4px;"></i> Restore Selected
+                        <button type="button" x-data
+                            x-on:click="if(confirm('Are you sure you want to restore {{ count($selectedIds) }} selected cluster(s)?')) { $el.disabled = true; $el.querySelector('.btn-idle').style.display = 'none'; $el.querySelector('.btn-loading').style.display = 'inline-flex'; $wire.bulkRestore(); }"
+                            style="background: #059669; color: #fff; border: none; padding: 5px 12px; border-radius: 6px; font-size: 11px; font-weight: 600; cursor: pointer; font-family: 'Inter', sans-serif;">
+                            <span class="btn-idle" style="display: inline-flex; align-items: center; gap: 4px;"><i class="fa-solid fa-rotate-left"></i> Restore Selected</span>
+                            <span class="btn-loading" style="display: none; align-items: center; gap: 5px;"><i class="fa-solid fa-circle-notch fa-spin"></i> Restoring {{ count($selectedIds) }} item(s)...</span>
                         </button>
                     </div>
                 @endif
@@ -686,6 +762,100 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Recycle Bin')] class ext
         </div>
     @endif
 
+    {{-- ==================== ROLES TAB ==================== --}}
+    @if($activeTab === 'roles')
+        <div class="admin-offices-container" wire:key="tab-recycle-roles">
+            <div class="directory-panel" style="width: 100%; max-width: 100%; max-height: none;">
+                {{-- Header Row --}}
+                <div class="directory-header-row">
+                    <span class="form-label" style="margin: 0; font-size: 13px; color: #334155;">
+                        <i class="fa-solid fa-sliders" style="margin-right: 4px; color: #dc2626;"></i>
+                        Deactivated Roles & Clearances
+                        <span style="font-weight: 400; color: #94a3b8; margin-left: 4px;">({{ $deactivatedRoles->count() }})</span>
+                    </span>
+                </div>
+
+                {{-- Search --}}
+                <div class="search-box-wrapper">
+                    <i class="fa-solid fa-magnifying-glass search-icon"></i>
+                    <input type="text" class="search-box" placeholder="Search deactivated roles..." wire:model.live="search">
+                </div>
+
+                {{-- Toast Messages --}}
+                @if($successMessage)
+                    <div style="display: flex; align-items: center; gap: 8px; padding: 10px 14px; background: #ecfdf5; border: 1px solid #a7f3d0; border-radius: 8px; margin-bottom: 10px; font-size: 12.5px; color: #065f46; font-family: 'Inter', sans-serif;">
+                        <i class="fa-solid fa-circle-check" style="color: #059669;"></i>
+                        {{ $successMessage }}
+                        <button type="button" wire:click="clearMessages" style="margin-left: auto; background: none; border: none; color: #065f46; cursor: pointer; font-size: 14px;">&times;</button>
+                    </div>
+                @endif
+                @if($errorMessage)
+                    <div style="display: flex; align-items: center; gap: 8px; padding: 10px 14px; background: #fef2f2; border: 1px solid #fecaca; border-radius: 8px; margin-bottom: 10px; font-size: 12.5px; color: #991b1b; font-family: 'Inter', sans-serif;">
+                        <i class="fa-solid fa-circle-xmark" style="color: #dc2626;"></i>
+                        {{ $errorMessage }}
+                        <button type="button" wire:click="clearMessages" style="margin-left: auto; background: none; border: none; color: #991b1b; cursor: pointer; font-size: 14px;">&times;</button>
+                    </div>
+                @endif
+
+                {{-- Bulk Action Bar --}}
+                @if(count($selectedIds) > 0)
+                    <div style="display: flex; align-items: center; justify-content: space-between; padding: 8px 12px; background: #ecfdf5; border: 1px solid #a7f3d0; border-radius: 8px; margin-bottom: 12px;">
+                        <span style="font-size: 12px; font-weight: 600; color: #065f46;">{{ count($selectedIds) }} selected</span>
+                        <button type="button" x-data
+                            x-on:click="if(confirm('Are you sure you want to restore {{ count($selectedIds) }} selected role(s)?')) { $el.disabled = true; $el.querySelector('.btn-idle').style.display = 'none'; $el.querySelector('.btn-loading').style.display = 'inline-flex'; $wire.bulkRestore(); }"
+                            style="background: #059669; color: #fff; border: none; padding: 5px 12px; border-radius: 6px; font-size: 11px; font-weight: 600; cursor: pointer; font-family: 'Inter', sans-serif;">
+                            <span class="btn-idle" style="display: inline-flex; align-items: center; gap: 4px;"><i class="fa-solid fa-rotate-left"></i> Restore Selected</span>
+                            <span class="btn-loading" style="display: none; align-items: center; gap: 5px;"><i class="fa-solid fa-circle-notch fa-spin"></i> Restoring {{ count($selectedIds) }} item(s)...</span>
+                        </button>
+                    </div>
+                @endif
+
+                {{-- Select All Row --}}
+                @if($deactivatedRoles->count() > 0)
+                    <div style="display: flex; align-items: center; gap: 8px; padding: 6px 12px; border-bottom: 1px solid #e2e8f0; margin-bottom: 12px;">
+                        <input type="checkbox" wire:click="toggleAll" style="width: 16px; height: 16px; cursor: pointer; accent-color: #3b82f6;" {{ count($selectedIds) > 0 && count($selectedIds) === $deactivatedRoles->count() ? 'checked' : '' }}>
+                        <span style="font-size: 12px; color: #64748b; font-weight: 500;">Select All</span>
+                    </div>
+                @endif
+
+                {{-- Items List --}}
+                <div class="offices-list">
+                    @forelse($deactivatedRoles as $role)
+                        @php
+                            $roleInitials = strtoupper(substr($role->key_name ?: 'R', 0, 3));
+                        @endphp
+                        <div wire:key="recycle-role-{{ $role->id }}" style="display: flex; align-items: center; gap: 12px; padding: 12px 16px; border: 1px solid #fecdd3; border-radius: 10px; background: #fff5f5; transition: all 0.2s ease;">
+                            {{-- Checkbox --}}
+                            <input type="checkbox" wire:click="toggleSelection({{ $role->id }})" {{ in_array($role->id, $selectedIds) ? 'checked' : '' }} style="width: 16px; height: 16px; cursor: pointer; accent-color: #3b82f6; flex-shrink: 0; margin-right: 4px;">
+                            {{-- Avatar --}}
+                            <div style="width: 40px; height: 40px; border-radius: 10px; background: #fee2e2; color: #dc2626; display: flex; align-items: center; justify-content: center; font-size: 12px; font-weight: 700; flex-shrink: 0; font-family: 'Inter', sans-serif;">
+                                {{ $roleInitials }}
+                            </div>
+                            {{-- Info --}}
+                            <div style="flex: 1; min-width: 0;">
+                                <span style="font-size: 13.5px; font-weight: 600; color: #334155; display: block; font-family: 'Inter', sans-serif;">{{ $role->key_name }}</span>
+                                <span style="font-size: 12px; color: #94a3b8; font-family: 'Inter', sans-serif;">{{ $role->key_description ?: 'No description provided' }}</span>
+                            </div>
+                            {{-- Restore Button --}}
+                            <button type="button"
+                                    wire:click="restoreRole({{ $role->id }})"
+                                    wire:confirm="Are you sure you want to restore this role? It will be reactivated and visible again."
+                                    style="background: #059669; color: #fff; border: none; padding: 6px 14px; border-radius: 6px; font-size: 11px; font-weight: 600; cursor: pointer; font-family: 'Inter', sans-serif; display: flex; align-items: center; gap: 5px; white-space: nowrap;">
+                                <i class="fa-solid fa-rotate-left"></i> Restore
+                            </button>
+                        </div>
+                    @empty
+                        <div style="text-align: center; padding: 60px 20px; color: #94a3b8;">
+                            <i class="fa-solid fa-recycle" style="font-size: 48px; margin-bottom: 16px; display: block; color: #cbd5e1;"></i>
+                            <h3 style="font-size: 16px; font-weight: 600; color: #64748b; margin: 0 0 8px;">Recycle Bin is Empty</h3>
+                            <p style="font-size: 13px; margin: 0; font-family: 'Inter', sans-serif;">No deactivated roles found.</p>
+                        </div>
+                    @endforelse
+                </div>
+            </div>
+        </div>
+    @endif
+
     {{-- ==================== TRANSACTION FLOWS TAB ==================== --}}
     @if($activeTab === 'flows')
         <div class="admin-offices-container" wire:key="tab-recycle-flows">
@@ -725,8 +895,11 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Recycle Bin')] class ext
                 @if(count($selectedIds) > 0)
                     <div style="display: flex; align-items: center; justify-content: space-between; padding: 8px 12px; background: #ecfdf5; border: 1px solid #a7f3d0; border-radius: 8px; margin-bottom: 12px;">
                         <span style="font-size: 12px; font-weight: 600; color: #065f46;">{{ count($selectedIds) }} selected</span>
-                        <button type="button" wire:click="bulkRestore" wire:confirm="Are you sure you want to restore {{ count($selectedIds) }} selected flow(s)?" style="background: #059669; color: #fff; border: none; padding: 5px 12px; border-radius: 6px; font-size: 11px; font-weight: 600; cursor: pointer; font-family: 'Inter', sans-serif;">
-                            <i class="fa-solid fa-rotate-left" style="margin-right: 4px;"></i> Restore Selected
+                        <button type="button" x-data
+                            x-on:click="if(confirm('Are you sure you want to restore {{ count($selectedIds) }} selected flow(s)?')) { $el.disabled = true; $el.querySelector('.btn-idle').style.display = 'none'; $el.querySelector('.btn-loading').style.display = 'inline-flex'; $wire.bulkRestore(); }"
+                            style="background: #059669; color: #fff; border: none; padding: 5px 12px; border-radius: 6px; font-size: 11px; font-weight: 600; cursor: pointer; font-family: 'Inter', sans-serif;">
+                            <span class="btn-idle" style="display: inline-flex; align-items: center; gap: 4px;"><i class="fa-solid fa-rotate-left"></i> Restore Selected</span>
+                            <span class="btn-loading" style="display: none; align-items: center; gap: 5px;"><i class="fa-solid fa-circle-notch fa-spin"></i> Restoring {{ count($selectedIds) }} item(s)...</span>
                         </button>
                     </div>
                 @endif
@@ -831,8 +1004,11 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Recycle Bin')] class ext
                 @if(count($selectedIds) > 0)
                     <div style="display: flex; align-items: center; justify-content: space-between; padding: 8px 12px; background: #ecfdf5; border: 1px solid #a7f3d0; border-radius: 8px; margin-bottom: 12px;">
                         <span style="font-size: 12px; font-weight: 600; color: #065f46;">{{ count($selectedIds) }} selected</span>
-                        <button type="button" wire:click="bulkRestore" wire:confirm="Are you sure you want to restore {{ count($selectedIds) }} selected user(s)?" style="background: #059669; color: #fff; border: none; padding: 5px 12px; border-radius: 6px; font-size: 11px; font-weight: 600; cursor: pointer; font-family: 'Inter', sans-serif;">
-                            <i class="fa-solid fa-rotate-left" style="margin-right: 4px;"></i> Restore Selected
+                        <button type="button" x-data
+                            x-on:click="if(confirm('Are you sure you want to restore {{ count($selectedIds) }} selected user(s)?')) { $el.disabled = true; $el.querySelector('.btn-idle').style.display = 'none'; $el.querySelector('.btn-loading').style.display = 'inline-flex'; $wire.bulkRestore(); }"
+                            style="background: #059669; color: #fff; border: none; padding: 5px 12px; border-radius: 6px; font-size: 11px; font-weight: 600; cursor: pointer; font-family: 'Inter', sans-serif;">
+                            <span class="btn-idle" style="display: inline-flex; align-items: center; gap: 4px;"><i class="fa-solid fa-rotate-left"></i> Restore Selected</span>
+                            <span class="btn-loading" style="display: none; align-items: center; gap: 5px;"><i class="fa-solid fa-circle-notch fa-spin"></i> Restoring {{ count($selectedIds) }} item(s)...</span>
                         </button>
                     </div>
                 @endif

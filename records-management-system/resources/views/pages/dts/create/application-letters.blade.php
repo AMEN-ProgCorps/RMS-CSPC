@@ -37,7 +37,13 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create Applicat
     public string $email_access_input = '';
     public string $document_password_input = '';
 
-    // Requestor Dropdown & Success Modal properties
+    // Edit Requestor properties
+    public bool $showEditRequestorModal = false;
+    public ?int $editingRequestorId = null;
+    public string $editRequestorName = '';
+    public string $editRequestorPosition = '';
+    public string $editRequestorOriginalName = '';
+
     public bool $showRequestorDropdown = false;
     public bool $showSuccessModal = false;
     public array $createdTransactionSummary = [];
@@ -49,6 +55,71 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create Applicat
         $this->showRequestorDropdown = false;
     }
 
+    public function startEditRequestor(int $id): void
+    {
+        $req = DB::table('dts_requestor_history')->where('id', $id)->first();
+        if (!$req) {
+            return;
+        }
+
+        $userOfficeCode = $this->unit_college ?: (auth()->user()?->details?->office?->office_code);
+        $isSuperAdmin = auth()->user()?->permissions?->is_sadm ?? false;
+
+        if (!$isSuperAdmin && $req->office !== $userOfficeCode) {
+            return;
+        }
+
+        $this->editingRequestorId = $req->id;
+        $this->editRequestorName = $req->requestor_name;
+        $this->editRequestorPosition = $req->requestor_position ?? '';
+        $this->editRequestorOriginalName = $req->requestor_name;
+        $this->showEditRequestorModal = true;
+        $this->showRequestorDropdown = false;
+    }
+
+    public function updateRequestor(): void
+    {
+        $this->validate([
+            'editRequestorName' => 'required|string|max:255',
+            'editRequestorPosition' => 'nullable|string|max:255',
+        ]);
+
+        if (!$this->editingRequestorId) {
+            return;
+        }
+
+        $name = trim($this->editRequestorName);
+        $pos = trim($this->editRequestorPosition ?? '');
+
+        $userOfficeCode = $this->unit_college ?: (auth()->user()?->details?->office?->office_code);
+        $isSuperAdmin = auth()->user()?->permissions?->is_sadm ?? false;
+
+        $req = DB::table('dts_requestor_history')->where('id', $this->editingRequestorId)->first();
+        if (!$req || (!$isSuperAdmin && $req->office !== $userOfficeCode)) {
+            $this->addError('editRequestorName', 'Unauthorized: Only your office can edit this applicant record.');
+            return;
+        }
+
+        DB::table('dts_requestor_history')
+            ->where('id', $this->editingRequestorId)
+            ->update([
+                'requestor_name' => $name,
+                'requestor_position' => $pos,
+                'updated_at' => now(),
+            ]);
+
+        if (isset($this->applicant_name) && $this->applicant_name === $this->editRequestorOriginalName) {
+            $this->applicant_name = $name;
+            $this->position = $pos;
+        }
+
+        $this->editingRequestorId = null;
+        $this->editRequestorName = '';
+        $this->editRequestorPosition = '';
+        $this->editRequestorOriginalName = '';
+        $this->showEditRequestorModal = false;
+    }
+
     public function closeSuccessModal(): void
     {
         $this->showSuccessModal = false;
@@ -58,6 +129,29 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create Applicat
     public function toggleEmailAccessModal(): void
     {
         $this->showEmailAccessModal = !$this->showEmailAccessModal;
+    }
+
+    private function ensureOriginBounds(array $offices, string $originOfficeCode): array
+    {
+        if (empty($offices)) {
+            return ['ORIGIN', 'ORIGIN'];
+        }
+
+        $first = reset($offices);
+        $last = end($offices);
+
+        $needsStart = ($first !== 'ORIGIN' && $first !== $originOfficeCode);
+        $needsEnd = ($last !== 'ORIGIN' && $last !== $originOfficeCode);
+
+        if ($needsStart) {
+            array_unshift($offices, 'ORIGIN');
+        }
+
+        if ($needsEnd) {
+            $offices[] = 'ORIGIN';
+        }
+
+        return array_values($offices);
     }
 
     // Flow Diagram modal states
@@ -234,6 +328,8 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create Applicat
                     $clusterHead = $cluster->cluster_head;
                 }
             }
+
+            $rawOffices = $this->ensureOriginBounds($rawOffices, $originOfficeCode);
 
             $resolvedOffices = [];
             foreach ($rawOffices as $officeCode) {
@@ -726,6 +822,8 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create Applicat
                 }
             }
 
+            $this->flow_offices = $this->ensureOriginBounds($this->flow_offices, $originOfficeCode);
+
             $resolvedOffices = [];
             foreach ($this->flow_offices as $officeCode) {
                 $resolved = $officeCode;
@@ -757,6 +855,14 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create Applicat
                 'referenced_flow' => $flow ? ('REF-' . (str_starts_with($flow->flow_code, 'FLOW-PREDEFINED') || str_starts_with($flow->flow_code, 'PREDEFINED') ? 'PREDEFINED' : 'CUSTOM') . '-' . $flow->id) : null,
             ]);
 
+            $autoFwdSetting = DB::table('system_settings')->where('key', 'dts_auto_forward_created_transaction')->value('value');
+            $shouldAutoForward = ($autoFwdSetting !== 'false') && (count($resolvedOffices) > 1);
+
+            $originOfficeCode = $this->unit_college;
+            $nextOfficeCode = $resolvedOffices[1] ?? $originOfficeCode;
+            $currentOffice = $shouldAutoForward ? $nextOfficeCode : ($resolvedOffices[0] ?? $originOfficeCode);
+            $initialSequence = $shouldAutoForward ? 2 : 1;
+
             foreach ($this->flow_offices as $rank => $officeCode) {
                 $toSave = $officeCode;
                 if ($officeCode === $originOfficeCode) {
@@ -770,14 +876,15 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create Applicat
                     'sequence_ranking' => $rank + 1,
                     'office_code' => $toSave,
                     'date_in' => ($rank === 0) ? now() : null,
-                    'date_out' => null,
+                    'account_received' => ($rank === 0) ? auth()->id() : null,
+                    'date_out' => ($rank === 0 && $shouldAutoForward) ? now() : null,
+                    'account_forwarded' => ($rank === 0 && $shouldAutoForward) ? auth()->id() : null,
                     'action_needed' => ($rank === 0) ? 'Created' : null,
-                    'note' => ($rank === 0) ? 'Created application letter transaction' : null,
+                    'note' => ($rank === 0) ? ($shouldAutoForward ? 'Created & auto-forwarded transaction' : 'Created application letter transaction') : null,
                     'total_time_completed' => null,
                 ]);
             }
 
-            $currentOffice = $resolvedOffices[0] ?? $this->unit_college;
             $qrCodeId = $this->generatedQrCode;
             $docDir = null;
             $transactionId = 'TRANS-' . strtoupper(Str::random(10));
@@ -791,7 +898,7 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create Applicat
                 'qr_code' => $qrCodeId,
                 'current_office' => $currentOffice,
                 'status' => 'ongoing',
-                'sequence' => 1,
+                'sequence' => $initialSequence,
             ]);
 
             $copyFilledId = null;
@@ -863,22 +970,54 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create Applicat
                 'copy_filled_id' => $copyFilledId ?: null,
             ]);
 
-            // Initial tracking log
-            DB::table('sub_document_tracking_system_logs')->insert([
-                'transaction_id' => $transactionId,
-                'office_code' => $this->unit_college,
-                'type' => 'received',
-                'date_in' => now(),
-                'date_out' => null,
-                'notes' => 'Application document transaction created',
-                'performed_by' => auth()->id(),
-            ]);
+            if ($shouldAutoForward) {
+                $originOfficeName = DB::table('office')->where('office_code', $originOfficeCode)->value('office_name') ?: $originOfficeCode;
+
+                // Step 1 log: Completed/Forwarded at origin
+                DB::table('sub_document_tracking_system_logs')->insert([
+                    'transaction_id' => $transactionId,
+                    'office_code' => $originOfficeCode,
+                    'type' => 'received',
+                    'date_in' => now(),
+                    'date_out' => now(),
+                    'notes' => 'Application document transaction created & auto-forwarded',
+                    'performed_by' => auth()->id(),
+                ]);
+
+                // Step 2 log: Pending forwarding log at target destination office
+                DB::table('sub_document_tracking_system_logs')->insert([
+                    'transaction_id' => $transactionId,
+                    'office_code' => $nextOfficeCode,
+                    'type' => 'forwarded',
+                    'date_in' => null,
+                    'date_out' => null,
+                    'notes' => 'Forwarded from ' . $originOfficeName,
+                    'performed_by' => auth()->id(),
+                ]);
+            } else {
+                // Initial tracking log at origin waiting to be forwarded
+                DB::table('sub_document_tracking_system_logs')->insert([
+                    'transaction_id' => $transactionId,
+                    'office_code' => $this->unit_college,
+                    'type' => 'received',
+                    'date_in' => now(),
+                    'date_out' => null,
+                    'notes' => 'Application document transaction created',
+                    'performed_by' => auth()->id(),
+                ]);
+            }
 
             DB::commit();
 
-            // Notify target office that transaction is waiting to be received
-            if (!empty($currentOffice)) {
+            // Notifications
+            if ($shouldAutoForward) {
                 \App\Services\DtsNotificationService::notifyWaitingToBeReceived($currentOffice, $controlNumber, $transactionId);
+                $userFirstName = auth()->user()?->details?->first_name ?: (auth()->user()?->username ?: 'User');
+                \App\Services\DtsNotificationService::notifyForwarded($originOfficeCode, $userFirstName, $controlNumber, $transactionId);
+            } else {
+                if (!empty($currentOffice)) {
+                    \App\Services\DtsNotificationService::notifyWaitingToBeReceived($currentOffice, $controlNumber, $transactionId);
+                }
             }
 
             // Save summary for modal
@@ -964,7 +1103,22 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create Applicat
                 <!-- Name of Applicant -->
                 <div class="form-row">
                     <div class="form-col small-input" style="position: relative;">
-                        <label class="input-label">Name of Applicant</label>
+                        @php
+                            $userOfficeCodeForReq = $this->unit_college ?: (auth()->user()?->details?->office?->office_code);
+                            $isSuperAdminForReq = auth()->user()?->permissions?->is_sadm ?? false;
+                            $selectedReqRec = (!empty($applicant_name) && !empty($unit_college))
+                                ? \DB::table('dts_requestor_history')->where('office', $unit_college)->where('requestor_name', $applicant_name)->first()
+                                : null;
+                            $canEditSelectedReq = $selectedReqRec && ($isSuperAdminForReq || $selectedReqRec->office === $userOfficeCodeForReq);
+                        @endphp
+                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">
+                            <label class="input-label" style="margin: 0;">Name of Applicant</label>
+                            @if($canEditSelectedReq)
+                                <button type="button" wire:click="startEditRequestor({{ $selectedReqRec->id }})" style="background: none; border: none; font-size: 11.5px; color: #0284c7; font-weight: 600; cursor: pointer; text-decoration: underline; padding: 0; display: inline-flex; align-items: center; gap: 3px;">
+                                    <i class="fa-solid fa-pen-to-square"></i> Edit Selected Applicant
+                                </button>
+                            @endif
+                        </div>
                         <div style="position: relative;" wire:click.outside="$set('showRequestorDropdown', false)">
                             <input type="text" wire:model.live="applicant_name" wire:focus="$set('showRequestorDropdown', true)" class="text-input" placeholder="Type or select Applicant Name" autocomplete="off" style="padding-right: 32px;">
                             <span style="position: absolute; right: 10px; top: 50%; transform: translateY(-50%); pointer-events: none; color: #94a3b8; font-size: 10px;">▼</span>
@@ -982,10 +1136,20 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create Applicat
                                             ->get();
                                     @endphp
                                     @forelse($existingRequestors as $req)
-                                        <div wire:click="selectRequestor('{{ addslashes($req->requestor_name) }}', '{{ addslashes($req->requestor_position) }}')" style="padding: 9px 14px; font-size: 13px; color: #334155; cursor: pointer; border-bottom: 1px solid #f1f5f9;" onmouseover="this.style.backgroundColor='#f1f5f9'" onmouseout="this.style.backgroundColor='transparent'">
-                                            <div style="font-weight: 600;">{{ $req->requestor_name }}</div>
-                                            @if(!empty($req->requestor_position))
-                                                <div style="font-size: 11px; color: #64748b;">{{ $req->requestor_position }}</div>
+                                        @php
+                                            $canEditReqThis = $isSuperAdminForReq || ($req->office === $userOfficeCodeForReq);
+                                        @endphp
+                                        <div wire:click="selectRequestor('{{ addslashes($req->requestor_name) }}', '{{ addslashes($req->requestor_position) }}')" style="padding: 9px 14px; font-size: 13px; color: #334155; cursor: pointer; border-bottom: 1px solid #f1f5f9; display: flex; align-items: center; justify-content: space-between;" onmouseover="this.style.backgroundColor='#f1f5f9'" onmouseout="this.style.backgroundColor='transparent'">
+                                            <div>
+                                                <div style="font-weight: 600;">{{ $req->requestor_name }}</div>
+                                                @if(!empty($req->requestor_position))
+                                                    <div style="font-size: 11px; color: #64748b;">{{ $req->requestor_position }}</div>
+                                                @endif
+                                            </div>
+                                            @if($canEditReqThis)
+                                                <button type="button" wire:click.stop="startEditRequestor({{ $req->id }})" title="Edit applicant details" style="background: #e0f2fe; color: #0284c7; border: 1px solid #bae6fd; padding: 3px 8px; border-radius: 6px; font-size: 11px; font-weight: 600; cursor: pointer; display: flex; align-items: center; gap: 4px; flex-shrink: 0;" onmouseover="this.style.backgroundColor='#0284c7'; this.style.color='#ffffff';" onmouseout="this.style.backgroundColor='#e0f2fe'; this.style.color='#0284c7';">
+                                                    <i class="fa-solid fa-pen-to-square"></i> Edit
+                                                </button>
                                             @endif
                                         </div>
                                     @empty
@@ -1533,6 +1697,41 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create Applicat
                 to { transform: translateX(0); opacity: 1; }
             }
         </style>
+    @endif
+
+    <!-- Modal: Edit Requestor / Applicant -->
+    @if($showEditRequestorModal)
+        <div style="position: fixed; inset: 0; background: rgba(15, 23, 42, 0.45); backdrop-filter: blur(4px); display: flex; align-items: center; justify-content: center; z-index: 10000; font-family: 'Inter', sans-serif;">
+            <div style="background: #ffffff; border-radius: 16px; width: 100%; max-width: 440px; box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1); display: flex; flex-direction: column; overflow: hidden;">
+                <div style="padding: 16px 24px; border-bottom: 1px solid #f1f5f9; display: flex; align-items: center; justify-content: space-between; background: linear-gradient(135deg, #0284c7, #0369a1); color: white;">
+                    <div style="display: flex; align-items: center; gap: 8px;">
+                        <i class="fa-solid fa-user-pen" style="font-size: 15px;"></i>
+                        <h3 style="font-size: 15px; font-weight: 700; margin: 0;">Edit Applicant Details</h3>
+                    </div>
+                    <button type="button" wire:click="$set('showEditRequestorModal', false)" style="background: none; border: none; font-size: 20px; color: rgba(255,255,255,0.8); cursor: pointer;">&times;</button>
+                </div>
+                <div style="padding: 24px; display: flex; flex-direction: column; gap: 16px;">
+                    <div style="background: #f0f9ff; border: 1px solid #bae6fd; padding: 10px 12px; border-radius: 8px; font-size: 12px; color: #0369a1; display: flex; align-items: center; gap: 8px;">
+                        <i class="fa-solid fa-shield-halved"></i>
+                        <span>Only your office (<strong>{{ $this->unit_college ?: (auth()->user()?->details?->office?->office_code) }}</strong>) can edit its applicants.</span>
+                    </div>
+                    <div>
+                        <label style="font-size: 12px; font-weight: 600; color: #334155;">Applicant Name <span style="color: #ef4444;">*</span></label>
+                        <input type="text" wire:model="editRequestorName" placeholder="e.g. Maria Santos" style="width: 100%; padding: 10px 12px; border: 1.5px solid #cbd5e1; border-radius: 8px; font-size: 13px; margin-top: 4px;">
+                        @error('editRequestorName') <span style="font-size: 11.5px; color: #ef4444; margin-top: 2px; display: block;">{{ $message }}</span> @enderror
+                    </div>
+                    <div>
+                        <label style="font-size: 12px; font-weight: 600; color: #334155;">Job Position / Designation</label>
+                        <input type="text" wire:model="editRequestorPosition" placeholder="e.g. Instructor I" style="width: 100%; padding: 10px 12px; border: 1.5px solid #cbd5e1; border-radius: 8px; font-size: 13px; margin-top: 4px;">
+                        @error('editRequestorPosition') <span style="font-size: 11.5px; color: #ef4444; margin-top: 2px; display: block;">{{ $message }}</span> @enderror
+                    </div>
+                </div>
+                <div style="padding: 16px 24px; border-top: 1px solid #f1f5f9; display: flex; justify-content: flex-end; gap: 12px; background: #fafafa;">
+                    <button type="button" wire:click="$set('showEditRequestorModal', false)" style="background: #ffffff; border: 1.5px solid #cbd5e1; color: #334155; padding: 8px 16px; border-radius: 8px; font-size: 13px; font-weight: 600; cursor: pointer;">Cancel</button>
+                    <button type="button" wire:click="updateRequestor" style="background: linear-gradient(135deg, #0284c7, #0369a1); border: none; color: #ffffff; padding: 8px 20px; border-radius: 8px; font-size: 13px; font-weight: 600; cursor: pointer;">Update Applicant</button>
+                </div>
+            </div>
+        </div>
     @endif
 
     <!-- Success Modal with Print QR Code -->

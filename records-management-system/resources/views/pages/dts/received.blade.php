@@ -83,7 +83,12 @@ new #[Layout('layouts.dts')] #[Title('Received Transactions - Document Tracking 
             )
             ->first();
 
-        if (!$t || $t->current_office !== $userOfficeCode) {
+        $hasOfficeLog = DB::table('sub_document_tracking_system_logs')
+            ->where('transaction_id', $t->transaction_id)
+            ->where('office_code', $userOfficeCode)
+            ->exists();
+
+        if (!$t || ($t->current_office !== $userOfficeCode && $t->current_office !== '[HUB]' && !$hasOfficeLog)) {
             $this->errorMessage = 'Unauthorized: This transaction is not currently at your office.';
             return;
         }
@@ -92,18 +97,29 @@ new #[Layout('layouts.dts')] #[Title('Received Transactions - Document Tracking 
         $nextOfficeName = 'N/A';
         $nextOfficeCode = null;
         $flow = DB::table('dts_transaction_flow')->where('flow_code', $t->transaction_flow)->first();
+        $nextSequence = null;
+
         if ($flow) {
             $nextSequence = DB::table('dts_sequence_list')
                 ->where('control_id', $flow->id)
                 ->where('sequence_ranking', $t->sequence + 1)
                 ->first();
+
             if ($nextSequence) {
                 $nextCode = $nextSequence->office_code;
                 if ($nextCode === 'ORIGIN') {
                     $nextCode = $t->originated_from;
+                } elseif ($nextCode === '[HUB]') {
+                    $cfRecord = DB::table('dts_copy_filled_transaction')->where('control_num', $t->control_number)->first();
+                    $hubOffices = $cfRecord ? DB::table('dts_copy_filled_to_office')->where('control_id', $cfRecord->assign_offices_id)->pluck('office_code')->toArray() : [];
+                    $nextOfficeCode = '[HUB]';
+                    $nextOfficeName = 'Office Hub [Multi-Receiving] (' . implode(', ', $hubOffices) . ')';
                 }
-                $nextOfficeCode = $nextCode;
-                $nextOfficeName = DB::table('office')->where('office_code', $nextCode)->value('office_name') ?: $nextCode;
+
+                if ($nextCode !== '[HUB]') {
+                    $nextOfficeCode = $nextCode;
+                    $nextOfficeName = DB::table('office')->where('office_code', $nextCode)->value('office_name') ?: $nextCode;
+                }
             } else {
                 $nextOfficeName = 'End of Flow (Complete)';
             }
@@ -162,6 +178,19 @@ new #[Layout('layouts.dts')] #[Title('Received Transactions - Document Tracking 
                         'performed_by' => auth()->id(),
                     ]);
 
+                // Update dts_sequence_list
+                if ($flow) {
+                    DB::table('dts_sequence_list')
+                        ->where('control_id', $flow->id)
+                        ->where('sequence_ranking', $tData['sequence'])
+                        ->update([
+                            'date_out' => now(),
+                            'account_forwarded' => auth()->id(),
+                            'action_needed' => $this->actionNeeded ?: 'Forwarded',
+                            'note' => $this->notes,
+                        ]);
+                }
+
                 if ($tData['is_last_step']) {
                     // Mark Completed
                     DB::table('dts_transactions')
@@ -177,33 +206,167 @@ new #[Layout('layouts.dts')] #[Title('Received Transactions - Document Tracking 
                     $nextCode = $tData['next_office_code'];
                     $nextSeq = $tData['sequence'] + 1;
 
-                    // Advance transaction to next office
-                    DB::table('dts_transactions')
-                        ->where('transaction_id', $transId)
-                        ->update([
-                            'current_office' => $nextCode,
-                            'sequence' => $nextSeq,
+                    if ($nextCode === '[HUB]') {
+                        $cfRecord = DB::table('dts_copy_filled_transaction')->where('control_num', $tData['control_number'])->first();
+                        $hubOffices = $cfRecord ? DB::table('dts_copy_filled_to_office')->where('control_id', $cfRecord->assign_offices_id)->pluck('office_code')->toArray() : [];
+
+                        if (count($hubOffices) > 0) {
+                            // Office 1 uses the original transaction
+                            $primaryHubOffice = $hubOffices[0];
+                            DB::table('dts_transactions')
+                                ->where('transaction_id', $transId)
+                                ->update([
+                                    'current_office' => $primaryHubOffice,
+                                    'sequence' => $nextSeq,
+                                ]);
+
+                            DB::table('dts_transaction_details')
+                                ->where('id', $transId)
+                                ->update([
+                                    'current_office_hold' => $primaryHubOffice,
+                                    'action_needed' => $this->actionNeeded,
+                                ]);
+
+                            DB::table('sub_document_tracking_system_logs')->insert([
+                                'transaction_id' => $transId,
+                                'office_code' => $primaryHubOffice,
+                                'type' => 'forwarded',
+                                'date_in' => null,
+                                'date_out' => null,
+                                'notes' => 'Dispatched via Office Hub [HUB] (Primary)',
+                                'performed_by' => auth()->id(),
+                            ]);
+                            \App\Services\DtsNotificationService::notifyWaitingToBeReceived($primaryHubOffice, $tData['control_number'], $transId);
+
+                            // Parse control number parts for child suffixes
+                            $cParts = explode('-', $tData['control_number']);
+                            $typePrefix = $cParts[0] ?? 'DOC';
+                            $seqBase = end($cParts);
+
+                            // Copy prior logs to replicate complete routing history for children
+                            $priorLogs = DB::table('sub_document_tracking_system_logs')
+                                ->where('transaction_id', $transId)
+                                ->whereNotNull('date_in')
+                                ->orderBy('id', 'asc')
+                                ->get();
+
+                            // Offices 2..N spawn child transactions with hyphenated suffixes (-1, -2, ...)
+                            for ($i = 1; $i < count($hubOffices); $i++) {
+                                $childOffice = $hubOffices[$i];
+                                $childSeq = $seqBase . '-' . $i;
+                                $childControlNumber = $tData['control_number'] . '-' . $i;
+                                $childQrCode = \App\Services\DtsQrCodeService::generate($typePrefix, $childSeq);
+                                $childTransId = 'TRANS-' . strtoupper(Str::random(10));
+
+                                // Insert child into dts_transactions
+                                DB::table('dts_transactions')->insert([
+                                    'transaction_id' => $childTransId,
+                                    'enable_notif' => 1,
+                                    'trans_type' => $tData['trans_type'] ?? 'memorandom',
+                                    'doc_dir' => $tData['doc_dir'] ?? null,
+                                    'qr_code' => $childQrCode,
+                                    'current_office' => $childOffice,
+                                    'status' => 'ongoing',
+                                    'sequence' => $nextSeq,
+                                ]);
+
+                                // Insert child into dts_transaction_details
+                                DB::table('dts_transaction_details')->insert([
+                                    'id' => $childTransId,
+                                    'type' => $tData['type'] ?? 'memorandom',
+                                    'created_by' => $tData['created_by'] ?? auth()->id(),
+                                    'originated_from' => $tData['originated_from'] ?? $userOfficeCode,
+                                    'requestor_id' => $tData['requestor_id'] ?? null,
+                                    'source_office' => $tData['source_office'] ?? null,
+                                    'subject' => $tData['subject'] ?? '',
+                                    'classification' => $tData['classification'] ?? null,
+                                    'action_needed' => $this->actionNeeded,
+                                    'current_office_hold' => $childOffice,
+                                    'status' => 'ongoing',
+                                    'document_password' => $tData['document_password'] ?? null,
+                                    'email_access' => $tData['email_access'] ?? null,
+                                    'transaction_flow' => $tData['transaction_flow'],
+                                    'is_active' => 1,
+                                    'date_created' => $tData['date_created'] ?? now(),
+                                    'control_number' => $childControlNumber,
+                                    'copy_filled_id' => $tData['copy_filled_id'] ?? null,
+                                ]);
+
+                                // Replicate prior logs for this child transaction
+                                foreach ($priorLogs as $pLog) {
+                                    DB::table('sub_document_tracking_system_logs')->insert([
+                                        'transaction_id' => $childTransId,
+                                        'office_code' => $pLog->office_code,
+                                        'type' => $pLog->type,
+                                        'date_in' => $pLog->date_in,
+                                        'date_out' => $pLog->date_out,
+                                        'notes' => $pLog->notes,
+                                        'performed_by' => $pLog->performed_by,
+                                    ]);
+                                }
+
+                                // Pending log for child recipient office
+                                DB::table('sub_document_tracking_system_logs')->insert([
+                                    'transaction_id' => $childTransId,
+                                    'office_code' => $childOffice,
+                                    'type' => 'forwarded',
+                                    'date_in' => null,
+                                    'date_out' => null,
+                                    'notes' => 'Dispatched via Office Hub [HUB] (Child Branch #' . $i . ')',
+                                    'performed_by' => auth()->id(),
+                                ]);
+
+                                \App\Services\DtsNotificationService::notifyWaitingToBeReceived($childOffice, $childControlNumber, $childTransId);
+                            }
+                        }
+
+                        $this->successMessage = "Transaction '{$tData['control_number']}' broadcast to Office Hub recipients successfully!";
+                    } else {
+                        // Advance transaction to next single office
+                        DB::table('dts_transactions')
+                            ->where('transaction_id', $transId)
+                            ->update([
+                                'current_office' => $nextCode,
+                                'sequence' => $nextSeq,
+                            ]);
+
+                        DB::table('dts_transaction_details')
+                            ->where('id', $transId)
+                            ->update([
+                                'current_office_hold' => $nextCode,
+                                'action_needed' => $this->actionNeeded,
+                            ]);
+
+                        // Insert log for next office
+                        $fwdNote = ($tData['current_office'] === '[HUB]') 
+                            ? 'Returned from Office Hub (' . $userOfficeCode . ')'
+                            : 'Forwarded from ' . $userOfficeCode;
+
+                        DB::table('sub_document_tracking_system_logs')->insert([
+                            'transaction_id' => $transId,
+                            'office_code' => $nextCode,
+                            'type' => 'forwarded',
+                            'date_in' => null,
+                            'date_out' => null,
+                            'notes' => $fwdNote,
+                            'performed_by' => auth()->id(),
                         ]);
 
-                    DB::table('dts_transaction_details')
-                        ->where('id', $transId)
-                        ->update([
-                            'current_office_hold' => $nextCode,
-                            'action_needed' => $this->actionNeeded,
-                        ]);
+                        \App\Services\DtsNotificationService::notifyWaitingToBeReceived($nextCode, $tData['control_number'], $transId);
 
-                    // Insert log for next office (date_in is NULL until destination office receives it)
-                    DB::table('sub_document_tracking_system_logs')->insert([
-                        'transaction_id' => $transId,
-                        'office_code' => $nextCode,
-                        'type' => 'forwarded',
-                        'date_in' => null,
-                        'date_out' => null,
-                        'notes' => 'Forwarded from ' . $userOfficeCode,
-                        'performed_by' => auth()->id(),
-                    ]);
+                        $userFirstName = auth()->user()?->details?->first_name ?: (auth()->user()?->username ?: 'User');
+                        if (!empty($tData['originated_from']) && $tData['originated_from'] !== $userOfficeCode) {
+                            \App\Services\DtsNotificationService::notifyHubOfficeForwarded(
+                                $tData['originated_from'],
+                                $userOfficeCode,
+                                $tData['control_number'],
+                                $transId,
+                                $userFirstName
+                            );
+                        }
 
-                    $this->successMessage = "Transaction '{$tData['control_number']}' successfully forwarded to {$tData['next_office_name']}! Moved to Forwarded Transactions.";
+                        $this->successMessage = "Transaction '{$tData['control_number']}' successfully forwarded to {$tData['next_office_name']}! Moved to Forwarded Transactions.";
+                    }
                 }
             });
 
@@ -229,8 +392,18 @@ new #[Layout('layouts.dts')] #[Title('Received Transactions - Document Tracking 
             ->leftJoin('office as current_office', 'current_office.office_code', '=', 'dt.current_office')
             ->leftJoin('dts_transaction_flow as flow', 'flow.flow_code', '=', 'dtd.transaction_flow')
             ->where('dtd.is_active', 1)
-            ->where('dt.current_office', $userOfficeCode)
-            ->whereNotIn('dt.status', ['completed', 'cancelled']);
+            ->whereNotIn('dt.status', ['cancelled'])
+            ->where(function($q) use ($userOfficeCode) {
+                $q->where('dt.current_office', $userOfficeCode)
+                  ->orWhereExists(function($sub) use ($userOfficeCode) {
+                      $sub->select(DB::raw(1))
+                          ->from('sub_document_tracking_system_logs')
+                          ->whereColumn('sub_document_tracking_system_logs.transaction_id', 'dt.transaction_id')
+                          ->where('sub_document_tracking_system_logs.office_code', $userOfficeCode)
+                          ->whereNotNull('sub_document_tracking_system_logs.date_in')
+                          ->where('sub_document_tracking_system_logs.type', 'received');
+                  });
+            });
 
         if (!empty($this->searchQuery)) {
             $searchVal = trim($this->searchQuery);

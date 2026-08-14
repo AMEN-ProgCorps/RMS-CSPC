@@ -9,6 +9,9 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create Issuance
     public string $availabilityMessage = '';
     public ?bool $isAvailable = null;
 
+    public array $free_flow_receiving_offices = [];
+    public string $receiving_search = '';
+
     public string $issuance_type = 'NM';
     public string $seq_number = '';
     public string $subject = '';
@@ -22,6 +25,71 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create Issuance
     public array $offices = [];
     public array $flows = [];
     public string $userOfficeCode = '';
+
+    public function getHasHubProperty(): bool
+    {
+        return in_array('[HUB]', $this->flow_offices) 
+            || in_array('[HUB]', $this->customFlowSequence);
+    }
+
+    public function selectFreeFlowOffice(string $officeCode): void
+    {
+        if ($officeCode === 'ALL') {
+            $this->free_flow_receiving_offices = ['ALL'];
+            $this->cf_selected_offices = ['ALL'];
+            $this->copy_furnished = 'Yes';
+        } else {
+            $this->free_flow_receiving_offices = array_values(array_filter($this->free_flow_receiving_offices, fn($code) => $code !== 'ALL'));
+            if (!in_array($officeCode, $this->free_flow_receiving_offices)) {
+                $this->free_flow_receiving_offices[] = $officeCode;
+            }
+
+            // Auto-add to Copy Furnished
+            $this->cf_selected_offices = array_values(array_filter($this->cf_selected_offices, fn($code) => $code !== 'ALL'));
+            if (!in_array($officeCode, $this->cf_selected_offices)) {
+                $this->cf_selected_offices[] = $officeCode;
+            }
+            $this->copy_furnished = 'Yes';
+        }
+        $this->receiving_search = '';
+    }
+
+    public function removeFreeFlowOffice(int $index): void
+    {
+        // Independent removal: only removes from receiving offices
+        unset($this->free_flow_receiving_offices[$index]);
+        $this->free_flow_receiving_offices = array_values($this->free_flow_receiving_offices);
+    }
+
+    public function selectAllReceivingOffices(): void
+    {
+        $this->free_flow_receiving_offices = ['ALL'];
+        $this->cf_selected_offices = ['ALL'];
+        $this->copy_furnished = 'Yes';
+        $this->receiving_search = '';
+    }
+
+    public function clearReceivingOffices(): void
+    {
+        $this->free_flow_receiving_offices = [];
+        $this->receiving_search = '';
+    }
+
+    public function selectAllCfOffices(): void
+    {
+        $this->cf_selected_offices = ['ALL'];
+        if ($this->hasHub) {
+            $this->free_flow_receiving_offices = ['ALL'];
+        }
+        $this->copy_furnished = 'Yes';
+        $this->cf_search = '';
+    }
+
+    public function clearCfOffices(): void
+    {
+        $this->cf_selected_offices = [];
+        $this->cf_search = '';
+    }
 
     // Custom flow creator fields
     public bool $showCustomFlowModal = false;
@@ -47,6 +115,29 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create Issuance
     public ?int $selected_gap_index = null;
     public string $insert_office_code = '';
     public string $insert_office_search = '';
+
+    private function ensureOriginBounds(array $offices, string $originOfficeCode): array
+    {
+        if (empty($offices)) {
+            return ['ORIGIN', 'ORIGIN'];
+        }
+
+        $first = reset($offices);
+        $last = end($offices);
+
+        $needsStart = ($first !== 'ORIGIN' && $first !== $originOfficeCode);
+        $needsEnd = ($last !== 'ORIGIN' && $last !== $originOfficeCode);
+
+        if ($needsStart) {
+            array_unshift($offices, 'ORIGIN');
+        }
+
+        if ($needsEnd) {
+            $offices[] = 'ORIGIN';
+        }
+
+        return array_values($offices);
+    }
 
     public function mount(): void
     {
@@ -186,6 +277,8 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create Issuance
                 }
             }
 
+            $rawOffices = $this->ensureOriginBounds($rawOffices, $originOfficeCode);
+
             $resolvedOffices = [];
             foreach ($rawOffices as $officeCode) {
                 $resolved = $officeCode;
@@ -271,12 +364,24 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create Issuance
     {
         if ($officeCode === 'ALL') {
             $this->cf_selected_offices = ['ALL'];
+            if ($this->hasHub) {
+                $this->free_flow_receiving_offices = ['ALL'];
+            }
         } else {
             $this->cf_selected_offices = array_values(array_filter($this->cf_selected_offices, fn($code) => $code !== 'ALL'));
             if (!in_array($officeCode, $this->cf_selected_offices)) {
                 $this->cf_selected_offices[] = $officeCode;
             }
+
+            // In [HUB] mode, auto-add to Receiving Offices as well
+            if ($this->hasHub) {
+                $this->free_flow_receiving_offices = array_values(array_filter($this->free_flow_receiving_offices, fn($code) => $code !== 'ALL'));
+                if (!in_array($officeCode, $this->free_flow_receiving_offices)) {
+                    $this->free_flow_receiving_offices[] = $officeCode;
+                }
+            }
         }
+        $this->copy_furnished = 'Yes';
         $this->cf_search = '';
     }
 
@@ -562,14 +667,22 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create Issuance
             $this->generateRandomSeq();
         }
 
-        $this->validate([
+        $rules = [
             'issuance_type' => 'required|string|in:NM,AM,EM,TO,OM,TR,EN,DES,TA,AO',
             'seq_number' => 'required|string|max:50',
             'subject' => 'required|string',
             'transaction_flow' => 'required|string|exists:dts_transaction_flow,flow_code',
-            'receiving_office' => 'nullable|string',
             'copy_furnished' => 'required|string|in:Yes,No',
             'cf_selected_offices' => 'nullable|array',
+        ];
+
+        if ($this->hasHub) {
+            $rules['free_flow_receiving_offices'] = 'required|array|min:1';
+        }
+
+        $this->validate($rules, [
+            'free_flow_receiving_offices.required' => 'Please select at least one receiving office for the Office Hub [HUB].',
+            'free_flow_receiving_offices.min' => 'Please select at least one receiving office for the Office Hub [HUB].',
         ]);
 
         if (count($this->flow_offices) === 0) {
@@ -641,11 +754,18 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create Issuance
                 ]);
             }
 
-            // Check if flow sequence was modified
-            $flowCode = $this->transaction_flow;
+            $allSystemOffices = DB::table('office')
+                ->where('is_active', true)
+                ->whereNotIn('office_code', ['ORIGIN', '[H]', '[HUB]'])
+                ->pluck('office_code')
+                ->toArray();
+
+            $qrCodeId = $this->generatedQrCode;
+            $transactionId = 'TRANS-' . strtoupper(Str::random(10));
+            $originOfficeCode = $this->userOfficeCode;
+
             $flow = DB::table('dts_transaction_flow')->where('flow_code', $this->transaction_flow)->first();
             
-            $originOfficeCode = $this->userOfficeCode;
             $originOffice = DB::table('office')->where('office_code', $originOfficeCode)->first();
             $clusterHead = null;
             if ($originOffice && $originOffice->cluster) {
@@ -655,6 +775,8 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create Issuance
                 }
             }
 
+            $this->flow_offices = $this->ensureOriginBounds($this->flow_offices, $originOfficeCode);
+
             $resolvedOffices = [];
             foreach ($this->flow_offices as $officeCode) {
                 $resolved = $officeCode;
@@ -662,6 +784,8 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create Issuance
                     $resolved = $originOfficeCode;
                 } elseif ($officeCode === '[H]') {
                     $resolved = $clusterHead ?: $originOfficeCode;
+                } elseif ($officeCode === '[HUB]') {
+                    $resolved = '[HUB]';
                 }
                 
                 if (empty($resolvedOffices) || end($resolvedOffices) !== $resolved) {
@@ -669,7 +793,7 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create Issuance
                 }
             }
 
-            // Always copy custom flow
+            // Always create custom copied flow
             $flowCode = 'FLOW-CUSTOM-' . strtoupper(Str::random(10));
             $maxId = DB::table('dts_transaction_flow')->max('id') ?? 0;
             $newFlowId = $maxId + 1;
@@ -686,12 +810,21 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create Issuance
                 'referenced_flow' => $flow ? ('REF-' . (str_starts_with($flow->flow_code, 'FLOW-PREDEFINED') || str_starts_with($flow->flow_code, 'PREDEFINED') ? 'PREDEFINED' : 'CUSTOM') . '-' . $flow->id) : null,
             ]);
 
+            $autoFwdSetting = DB::table('system_settings')->where('key', 'dts_auto_forward_created_transaction')->value('value');
+            $shouldAutoForward = ($autoFwdSetting !== 'false') && (count($resolvedOffices) > 1);
+
+            $nextOfficeCode = $resolvedOffices[1] ?? $originOfficeCode;
+            $currentOffice = $shouldAutoForward ? $nextOfficeCode : ($resolvedOffices[0] ?? $originOfficeCode);
+            $initialSequence = $shouldAutoForward ? 2 : 1;
+
             foreach ($this->flow_offices as $rank => $officeCode) {
                 $toSave = $officeCode;
                 if ($officeCode === $originOfficeCode) {
                     $toSave = 'ORIGIN';
                 } elseif ($officeCode === $clusterHead) {
                     $toSave = '[H]';
+                } elseif ($officeCode === '[HUB]') {
+                    $toSave = '[HUB]';
                 }
 
                 DB::table('dts_sequence_list')->insert([
@@ -699,16 +832,69 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create Issuance
                     'sequence_ranking' => $rank + 1,
                     'office_code' => $toSave,
                     'date_in' => ($rank === 0) ? now() : null,
-                    'date_out' => null,
+                    'account_received' => ($rank === 0) ? auth()->id() : null,
+                    'date_out' => ($rank === 0 && $shouldAutoForward) ? now() : null,
+                    'account_forwarded' => ($rank === 0 && $shouldAutoForward) ? auth()->id() : null,
                     'action_needed' => ($rank === 0) ? 'Created' : null,
-                    'note' => ($rank === 0) ? 'Created issuance transaction' : null,
+                    'note' => ($rank === 0) ? ($shouldAutoForward ? 'Created & auto-forwarded transaction' : 'Created issuance transaction') : null,
                     'total_time_completed' => null,
                 ]);
             }
 
-            $currentOffice = $resolvedOffices[0] ?? $this->userOfficeCode;
-            $qrCodeId = $this->generatedQrCode;
-            $transactionId = 'TRANS-' . strtoupper(Str::random(10));
+            // Resolve Hub recipient offices
+            $finalHubOffices = [];
+            if ($this->hasHub && count($this->free_flow_receiving_offices) > 0) {
+                foreach ($this->free_flow_receiving_offices as $hOffice) {
+                    if ($hOffice === 'ALL') {
+                        foreach ($allSystemOffices as $oCode) {
+                            if ($oCode !== $originOfficeCode) {
+                                $finalHubOffices[] = $oCode;
+                            }
+                        }
+                    } else {
+                        $finalHubOffices[] = $hOffice;
+                    }
+                }
+                $finalHubOffices = array_values(array_unique(array_filter($finalHubOffices)));
+            }
+
+            // Resolve Copy Furnished offices
+            $finalCfOffices = [];
+            if ($this->copy_furnished === 'Yes' && count($this->cf_selected_offices) > 0) {
+                foreach ($this->cf_selected_offices as $cfOffice) {
+                    if ($cfOffice === 'ALL') {
+                        foreach ($allSystemOffices as $oCode) {
+                            if ($oCode !== $originOfficeCode) {
+                                $finalCfOffices[] = $oCode;
+                            }
+                        }
+                    } else {
+                        $finalCfOffices[] = $cfOffice;
+                    }
+                }
+                $finalCfOffices = array_values(array_unique(array_filter($finalCfOffices)));
+            }
+
+            $allIndexedOffices = array_values(array_unique(array_filter(array_merge($finalHubOffices, $finalCfOffices))));
+
+            $copyFilledId = null;
+            if (count($allIndexedOffices) > 0) {
+                $assignOfficesId = (DB::table('dts_copy_filled_transaction')->max('assign_offices_id') ?? 1000) + 1;
+                $copyFilledId = DB::table('dts_copy_filled_transaction')->insertGetId([
+                    'control_num' => $controlNumber,
+                    'total_office' => count($allIndexedOffices),
+                    'assign_offices_id' => $assignOfficesId,
+                    'data_created' => now(),
+                    'date_modified' => now(),
+                ]);
+
+                foreach ($allIndexedOffices as $offCode) {
+                    DB::table('dts_copy_filled_to_office')->insert([
+                        'control_id' => $assignOfficesId,
+                        'office_code' => $offCode,
+                    ]);
+                }
+            }
 
             // Insert into dts_transactions
             DB::table('dts_transactions')->insert([
@@ -719,53 +905,20 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create Issuance
                 'qr_code' => $qrCodeId,
                 'current_office' => $currentOffice,
                 'status' => 'ongoing',
-                'sequence' => 1,
+                'sequence' => $initialSequence,
             ]);
-
-            $copyFilledId = null;
-            if ($this->copy_furnished === 'Yes' && count($this->cf_selected_offices) > 0) {
-                $assignOfficesId = (DB::table('dts_copy_filled_transaction')->max('assign_offices_id') ?? 1000) + 1;
-
-                $finalCfOffices = [];
-                foreach ($this->cf_selected_offices as $cfOffice) {
-                    if ($cfOffice === 'ALL') {
-                        $allOffices = DB::table('office')->pluck('office_code')->toArray();
-                        foreach ($allOffices as $oCode) {
-                            $finalCfOffices[] = $oCode;
-                        }
-                    } else {
-                        $finalCfOffices[] = $cfOffice;
-                    }
-                }
-                $finalCfOffices = array_values(array_unique(array_filter($finalCfOffices)));
-
-                $copyFilledId = DB::table('dts_copy_filled_transaction')->insertGetId([
-                    'control_num' => $controlNumber,
-                    'total_office' => count($finalCfOffices),
-                    'assign_offices_id' => $assignOfficesId,
-                    'data_created' => now(),
-                    'date_modified' => now(),
-                ]);
-
-                foreach ($finalCfOffices as $cfOffice) {
-                    DB::table('dts_copy_filled_to_office')->insert([
-                        'control_id' => $assignOfficesId,
-                        'office_code' => $cfOffice,
-                    ]);
-                }
-            }
 
             // Insert into dts_transaction_details
             DB::table('dts_transaction_details')->insert([
                 'id' => $transactionId,
                 'type' => 'memorandom',
                 'created_by' => auth()->id(),
-                'originated_from' => $this->userOfficeCode,
+                'originated_from' => $originOfficeCode,
                 'requestor_id' => $requestorId,
                 'source_office' => null,
                 'subject' => $this->subject,
                 'classification' => null,
-                'action_needed' => 'For action',
+                'action_needed' => 'For action / dissemination',
                 'current_office_hold' => $currentOffice,
                 'status' => 'ongoing',
                 'document_password' => null,
@@ -777,23 +930,121 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create Issuance
                 'copy_filled_id' => $copyFilledId ?: null,
             ]);
 
-            // Initial tracking log
+            $originOfficeName = DB::table('office')->where('office_code', $originOfficeCode)->value('office_name') ?: $originOfficeCode;
+
+            // Step 1 log: Origin Office
             DB::table('sub_document_tracking_system_logs')->insert([
                 'transaction_id' => $transactionId,
-                'office_code' => $this->userOfficeCode,
+                'office_code' => $originOfficeCode,
                 'type' => 'received',
                 'date_in' => now(),
-                'date_out' => null,
-                'notes' => 'Created issuance transaction',
+                'date_out' => $shouldAutoForward ? now() : null,
+                'notes' => $shouldAutoForward ? 'Created & auto-forwarded transaction' : 'Created issuance transaction',
                 'performed_by' => auth()->id(),
             ]);
 
-            DB::commit();
+            if ($shouldAutoForward) {
+                if ($nextOfficeCode === '[HUB]' && count($finalHubOffices) > 0) {
+                    // Office 1 uses the original transaction
+                    $primaryHubOffice = $finalHubOffices[0];
+                    DB::table('dts_transactions')->where('transaction_id', $transactionId)->update(['current_office' => $primaryHubOffice]);
+                    DB::table('dts_transaction_details')->where('id', $transactionId)->update(['current_office_hold' => $primaryHubOffice]);
 
-            // Notify target office that transaction is waiting to be received
-            if (!empty($currentOffice)) {
-                \App\Services\DtsNotificationService::notifyWaitingToBeReceived($currentOffice, $controlNumber, $transactionId);
+                    DB::table('sub_document_tracking_system_logs')->insert([
+                        'transaction_id' => $transactionId,
+                        'office_code' => $primaryHubOffice,
+                        'type' => 'forwarded',
+                        'date_in' => null,
+                        'date_out' => null,
+                        'notes' => 'Dispatched via Office Hub [HUB] (Primary)',
+                        'performed_by' => auth()->id(),
+                    ]);
+                    \App\Services\DtsNotificationService::notifyWaitingToBeReceived($primaryHubOffice, $controlNumber, $transactionId);
+
+                    // Offices 2..N are divided into child transactions with hyphenated suffixes (-1, -2, ...)
+                    for ($i = 1; $i < count($finalHubOffices); $i++) {
+                        $childOffice = $finalHubOffices[$i];
+                        $childSeq = $this->seq_number . '-' . $i;
+                        $childControlNumber = $this->issuance_type . '-' . now()->format('Y-m') . '-' . $childSeq;
+                        $childQrCode = \App\Services\DtsQrCodeService::generate($this->issuance_type, $childSeq);
+                        $childTransId = 'TRANS-' . strtoupper(Str::random(10));
+
+                        // Insert child into dts_transactions
+                        DB::table('dts_transactions')->insert([
+                            'transaction_id' => $childTransId,
+                            'enable_notif' => 1,
+                            'trans_type' => 'memorandom',
+                            'doc_dir' => null,
+                            'qr_code' => $childQrCode,
+                            'current_office' => $childOffice,
+                            'status' => 'ongoing',
+                            'sequence' => $initialSequence,
+                        ]);
+
+                        // Insert child into dts_transaction_details
+                        DB::table('dts_transaction_details')->insert([
+                            'id' => $childTransId,
+                            'type' => 'memorandom',
+                            'created_by' => auth()->id(),
+                            'originated_from' => $originOfficeCode,
+                            'requestor_id' => $requestorId,
+                            'source_office' => null,
+                            'subject' => $this->subject,
+                            'classification' => null,
+                            'action_needed' => 'For action / dissemination',
+                            'current_office_hold' => $childOffice,
+                            'status' => 'ongoing',
+                            'document_password' => null,
+                            'email_access' => null,
+                            'transaction_flow' => $flowCode,
+                            'is_active' => 1,
+                            'date_created' => now(),
+                            'control_number' => $childControlNumber,
+                            'copy_filled_id' => $copyFilledId ?: null,
+                        ]);
+
+                        // Step 1 log: Origin office
+                        DB::table('sub_document_tracking_system_logs')->insert([
+                            'transaction_id' => $childTransId,
+                            'office_code' => $originOfficeCode,
+                            'type' => 'received',
+                            'date_in' => now(),
+                            'date_out' => now(),
+                            'notes' => 'Created & auto-forwarded child transaction',
+                            'performed_by' => auth()->id(),
+                        ]);
+
+                        // Step 2 log: Child recipient office
+                        DB::table('sub_document_tracking_system_logs')->insert([
+                            'transaction_id' => $childTransId,
+                            'office_code' => $childOffice,
+                            'type' => 'forwarded',
+                            'date_in' => null,
+                            'date_out' => null,
+                            'notes' => 'Dispatched via Office Hub [HUB] (Child Branch #' . $i . ')',
+                            'performed_by' => auth()->id(),
+                        ]);
+
+                        \App\Services\DtsNotificationService::notifyWaitingToBeReceived($childOffice, $childControlNumber, $childTransId);
+                    }
+                } else {
+                    DB::table('sub_document_tracking_system_logs')->insert([
+                        'transaction_id' => $transactionId,
+                        'office_code' => $nextOfficeCode,
+                        'type' => 'forwarded',
+                        'date_in' => null,
+                        'date_out' => null,
+                        'notes' => 'Forwarded from ' . $originOfficeName,
+                        'performed_by' => auth()->id(),
+                    ]);
+                    \App\Services\DtsNotificationService::notifyWaitingToBeReceived($nextOfficeCode, $controlNumber, $transactionId);
+                }
+
+                $userFirstName = auth()->user()?->details?->first_name ?: (auth()->user()?->username ?: 'User');
+                \App\Services\DtsNotificationService::notifyForwarded($originOfficeCode, $userFirstName, $controlNumber, $transactionId);
             }
+
+            DB::commit();
 
             // Save summary for modal
             $this->createdTransactionSummary = [
@@ -803,7 +1054,7 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create Issuance
                 'requestor_position' => $reqPos,
                 'qr_code' => $this->generatedQrCode,
                 'office' => $this->userOfficeCode,
-                'type' => 'Issuance (' . $this->issuance_type . ')',
+                'type' => 'Issuance (' . $this->issuance_type . ')' . ($this->hasHub ? ' - Hub Multi-Mode' : ' - Linear'),
             ];
 
             // Reset form
@@ -813,6 +1064,9 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create Issuance
             $this->receiving_office = '';
             $this->copy_furnished = 'Yes';
             $this->cf_selected_offices = [];
+            $this->free_flow_receiving_offices = [];
+            $this->receiving_search = '';
+            $this->cf_search = '';
             $this->generatedQrCode = null;
             $this->availabilityMessage = '';
             $this->isAvailable = null;
@@ -846,7 +1100,7 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create Issuance
             
             <!-- Form Fields -->
             <div>
-                                    <!-- Control Number Selection Dropdown and Input -->
+                    <!-- Control Number Selection Dropdown and Input -->
                     <div class="control-wrapper" style="margin-bottom: 20px;">
                         <label class="control-label">Control Number Type:</label>
                         <div style="display: flex; gap: 8px; flex-wrap: wrap; align-items: center;">
@@ -906,23 +1160,6 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create Issuance
                     </div>
                 </div>
 
-                <!-- Receiving Office(s) dropdown -->
-                <div class="form-row">
-                    <div class="form-col small-input">
-                        <label class="input-label">Receiving Office(s)</label>
-                        <select wire:model="receiving_office" class="select-input">
-                            <option value="">Receiving Office(s)</option>
-                            <option value="All Units">All Units</option>
-                            @foreach($offices as $office)
-                                <option value="{{ $office['office_code'] }}">{{ $office['office_name'] }} ({{ $office['office_code'] }})</option>
-                            @endforeach
-                        </select>
-                        @error('receiving_office')
-                            <span class="error-msg" style="color: #dc2626; font-size: 12px; margin-top: 4px; display: block;">{{ $message }}</span>
-                        @enderror
-                    </div>
-                </div>
-
                 <!-- Transaction Path field -->
                 <div class="form-row">
                     <div class="form-col viewpath-wrapper">
@@ -945,10 +1182,133 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create Issuance
                     </div>
                 </div>
 
+                <!-- DYNAMIC OFFICE HUB [HUB] RECEIVING BOX (Visible only when [HUB] is in flow) -->
+                @if($this->hasHub)
+                    <div class="form-row">
+                        <div class="form-col" style="max-width: 550px; padding: 16px; border: 1.5px solid #93c5fd; border-radius: 8px; background-color: #eff6ff; margin-bottom: 16px;">
+                            <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 10px;">
+                                <span style="background: #2563eb; color: #fff; padding: 2px 8px; border-radius: 4px; font-size: 11px; font-weight: 700;">
+                                    <i class="fa-solid fa-bolt"></i> [HUB] Office Hub
+                                </span>
+                                <span style="font-size: 12px; color: #1e40af; font-weight: 600;">Multi-Mode Broadcast Recipients</span>
+                            </div>
+
+                            <p style="font-size: 11.5px; color: #3b82f6; margin-top: 0; margin-bottom: 10px; line-height: 1.4;">
+                                When this transaction reaches the <strong>[HUB]</strong> stage in the routing sequence, it will broadcast simultaneously to all designated receiving offices below.
+                            </p>
+
+                            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+                                <label class="input-label" style="margin: 0; font-weight: 700; color: #0f172a;">
+                                    Receiving Offices for [HUB] <span style="color: #dc2626;">*</span>
+                                </label>
+                                <div style="display: flex; gap: 8px;">
+                                    <button type="button" wire:click="selectAllReceivingOffices" style="background: none; border: none; font-size: 11.5px; color: #2563eb; font-weight: 600; cursor: pointer; text-decoration: underline;">Select All Units</button>
+                                    @if(count($free_flow_receiving_offices) > 0)
+                                        <button type="button" wire:click="clearReceivingOffices" style="background: none; border: none; font-size: 11.5px; color: #dc2626; font-weight: 600; cursor: pointer; text-decoration: underline;">Clear</button>
+                                    @endif
+                                </div>
+                            </div>
+                            
+                            @if(count($free_flow_receiving_offices) > 0)
+                                <div style="display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 12px;">
+                                    @foreach($free_flow_receiving_offices as $index => $code)
+                                        @php
+                                            $rList = array_merge([
+                                                ['office_code' => 'ALL', 'office_name' => 'All Offices / Units']
+                                            ], $offices);
+                                            $officeName = collect($rList)->firstWhere('office_code', $code)['office_name'] ?? $code;
+                                        @endphp
+                                        <span class="badge" style="display: inline-flex; align-items: center; gap: 6px; background-color: #ffffff; color: #1e40af; border: 1px solid #bfdbfe; padding: 4px 10px; border-radius: 6px; font-size: 11.5px; font-weight: 600; box-shadow: 0 1px 2px rgba(0,0,0,0.05);">
+                                            <i class="fa-solid fa-building" style="font-size: 10px; color: #3b82f6;"></i>
+                                            {{ $officeName }}
+                                            <button type="button" wire:click="removeFreeFlowOffice({{ $index }})" style="border: none; background: none; color: #64748b; cursor: pointer; font-weight: bold; font-size: 13px; padding: 0 2px; line-height: 1;">&times;</button>
+                                        </span>
+                                    @endforeach
+                                </div>
+                            @endif
+
+                            <div style="position: relative;">
+                                <input type="text" 
+                                    wire:model.live="receiving_search" 
+                                    class="text-input" 
+                                    placeholder="Search office code or name to add to [HUB]..." 
+                                    style="width: 100%; font-size: 12.5px; padding: 7px 10px; border-radius: 4px; border: 1px solid #cbd5e1; background: #fff;"
+                                >
+                                
+                                @if(!empty($receiving_search))
+                                    @php
+                                        $userOfficeCode = $this->userOfficeCode;
+                                        $rList = array_merge([
+                                            ['office_code' => 'ALL', 'office_name' => 'All Offices / Units']
+                                        ], $offices);
+
+                                        $filteredReceiving = array_filter($rList, function($office) use ($free_flow_receiving_offices, $userOfficeCode) {
+                                            return !in_array($office['office_code'], $free_flow_receiving_offices) && $office['office_code'] !== $userOfficeCode && !in_array($office['office_code'], ['ORIGIN', '[H]', '[HUB]']);
+                                        });
+                                        
+                                        $searchLower = strtolower($receiving_search);
+                                        $filteredReceiving = array_filter($filteredReceiving, function($office) use ($searchLower) {
+                                            return str_contains(strtolower($office['office_code']), $searchLower) ||
+                                                   str_contains(strtolower($office['office_name']), $searchLower);
+                                        });
+                                    @endphp
+
+                                    <div style="position: absolute; top: 38px; left: 0; right: 0; background: #fff; border: 1px solid #cbd5e1; border-radius: 4px; max-height: 200px; overflow-y: auto; z-index: 50; box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1);">
+                                        @if(count($filteredReceiving) > 0)
+                                            @foreach($filteredReceiving as $office)
+                                                <button type="button" 
+                                                    wire:click="selectFreeFlowOffice('{{ $office['office_code'] }}')" 
+                                                    style="width: 100%; text-align: left; padding: 8px 12px; border: none; background: none; font-size: 12px; cursor: pointer; color: #333; border-bottom: 1px solid #f1f5f9; display: block;"
+                                                    onmouseover="this.style.backgroundColor='#f1f5f9'" 
+                                                    onmouseout="this.style.backgroundColor='transparent'"
+                                                >
+                                                    <strong>{{ $office['office_code'] }}</strong> - {{ $office['office_name'] }}
+                                                </button>
+                                            @endforeach
+                                        @else
+                                            <div style="padding: 8px 12px; font-size: 12px; color: #64748b;">
+                                                No matching offices found.
+                                            </div>
+                                        @endif
+                                    </div>
+                                @endif
+                            </div>
+                            @error('free_flow_receiving_offices')
+                                <span class="error-msg" style="color: #dc2626; font-size: 12px; margin-top: 4px; display: block;">{{ $message }}</span>
+                            @enderror
+                        </div>
+                    </div>
+                @else
+                    <!-- Optional Single Receiving Office when no [HUB] in flow -->
+                    <div class="form-row">
+                        <div class="form-col small-input">
+                            <label class="input-label">Receiving Office(s)</label>
+                            <select wire:model="receiving_office" class="select-input">
+                                <option value="">Receiving Office(s)</option>
+                                <option value="All Units">All Units</option>
+                                @foreach($offices as $office)
+                                    <option value="{{ $office['office_code'] }}">{{ $office['office_name'] }} ({{ $office['office_code'] }})</option>
+                                @endforeach
+                            </select>
+                            @error('receiving_office')
+                                <span class="error-msg" style="color: #dc2626; font-size: 12px; margin-top: 4px; display: block;">{{ $message }}</span>
+                            @enderror
+                        </div>
+                    </div>
+                @endif
+
                 <!-- Copy Furnished Selector Box -->
                 <div class="form-row">
-                    <div class="form-col" style="max-width: 500px; padding: 16px; border: 1px solid #cbd5e1; border-radius: 6px; background-color: #f8fafc; margin-bottom: 12px;">
-                        <label class="input-label" style="margin-bottom: 8px;">Copy Furnished Offices</label>
+                    <div class="form-col" style="max-width: 550px; padding: 16px; border: 1px solid #cbd5e1; border-radius: 6px; background-color: #f8fafc; margin-bottom: 16px;">
+                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+                            <label class="input-label" style="margin: 0; font-weight: 700; color: #0f172a;">Copy Furnished Offices</label>
+                            <div style="display: flex; gap: 8px;">
+                                <button type="button" wire:click="selectAllCfOffices" style="background: none; border: none; font-size: 11.5px; color: #2563eb; font-weight: 600; cursor: pointer; text-decoration: underline;">Select All Units</button>
+                                @if(count($cf_selected_offices) > 0)
+                                    <button type="button" wire:click="clearCfOffices" style="background: none; border: none; font-size: 11.5px; color: #dc2626; font-weight: 600; cursor: pointer; text-decoration: underline;">Clear</button>
+                                @endif
+                            </div>
+                        </div>
                         
                         @if(count($cf_selected_offices) > 0)
                             <div style="display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 12px;">
@@ -1071,7 +1431,13 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create Issuance
                                             
                                             <div x-show="open" style="position: absolute; bottom: 100%; left: 0; right: 0; background: #ffffff; border: 1.5px solid #cbd5e1; border-radius: 6px; max-height: 150px; overflow-y: auto; z-index: 2000; margin-bottom: 4px; box-shadow: 0 -4px 12px rgba(0,0,0,0.08);">
                                                 @php
-                                                    $filtered = collect($offices)->filter(function($off) {
+                                                    $specialOffices = [
+                                                        ['office_code' => '[HUB]', 'office_name' => 'Office Hub [Multi-Receiving]'],
+                                                        ['office_code' => 'ORIGIN', 'office_name' => 'Originated Office'],
+                                                        ['office_code' => '[H]', 'office_name' => 'Cluster Head'],
+                                                    ];
+                                                    $allAvailable = array_merge($specialOffices, $offices);
+                                                    $filtered = collect($allAvailable)->filter(function($off) {
                                                         if (empty($this->insert_office_search)) return true;
                                                         return stripos($off['office_name'], $this->insert_office_search) !== false 
                                                             || stripos($off['office_code'], $this->insert_office_search) !== false;
@@ -1084,7 +1450,9 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create Issuance
                                                          style="padding: 6px 10px; cursor: pointer; display: flex; justify-content: space-between; font-size: 11.5px; font-family: 'Inter', sans-serif; transition: background 0.15s ease; border-bottom: 1px solid #f1f5f9;"
                                                          onmouseover="this.style.backgroundColor='#f1f5f9'"
                                                          onmouseout="this.style.backgroundColor='transparent'">
-                                                        <span style="font-weight: 500; color: #1e293b; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 180px;">{{ $off['office_name'] }}</span>
+                                                        <span style="font-weight: 500; color: #1e293b; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 180px;">
+                                                            @if($off['office_code'] === '[HUB]') ⚡ @endif {{ $off['office_name'] }}
+                                                        </span>
                                                         <span style="color: #64748b; font-weight: 600; flex-shrink: 0;">{{ $off['office_code'] }}</span>
                                                     </div>
                                                 @empty
@@ -1104,14 +1472,16 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create Issuance
                             <!-- Office Node Card -->
                             @php
                                 $code = $flow_offices[$i];
-                                $officeName = collect($offices)->firstWhere('office_code', $code)['office_name'] ?? $code;
+                                $isHub = ($code === '[HUB]');
+                                $officeName = $isHub ? 'Office Hub [Multi-Receiving]' : (collect($offices)->firstWhere('office_code', $code)['office_name'] ?? $code);
                             @endphp
-                            <div style="padding: 10px 14px; background: #f8fafc; border: 1px solid #cbd5e1; border-radius: 6px; display: flex; justify-content: space-between; align-items: center; box-shadow: 0 1px 3px rgba(0,0,0,0.05);">
+                            <div style="padding: 10px 14px; background: {{ $isHub ? '#eff6ff' : '#f8fafc' }}; border: 1px solid {{ $isHub ? '#93c5fd' : '#cbd5e1' }}; border-radius: 6px; display: flex; justify-content: space-between; align-items: center; box-shadow: 0 1px 3px rgba(0,0,0,0.05);">
                                 <div style="display: flex; align-items: center; gap: 8px;">
-                                    <span style="display: flex; align-items: center; justify-content: center; width: 22px; height: 22px; border-radius: 50%; background: #3b82f6; color: #ffffff; font-size: 11px; font-weight: bold;">
+                                    <span style="display: flex; align-items: center; justify-content: center; width: 22px; height: 22px; border-radius: 50%; background: {{ $isHub ? '#2563eb' : '#3b82f6' }}; color: #ffffff; font-size: 11px; font-weight: bold;">
                                         {{ $i + 1 }}
                                     </span>
-                                    <span style="font-size: 13px; font-weight: 600; color: #1e293b;">
+                                    <span style="font-size: 13px; font-weight: 600; color: {{ $isHub ? '#1e40af' : '#1e293b' }};">
+                                        @if($isHub) <i class="fa-solid fa-bolt" style="color: #2563eb; margin-right: 4px;"></i> @endif
                                         {{ $officeName }} ({{ $code }})
                                     </span>
                                 </div>
@@ -1136,30 +1506,38 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create Issuance
                                         
                                         <div x-show="open" style="position: absolute; bottom: 100%; left: 0; right: 0; background: #ffffff; border: 1.5px solid #cbd5e1; border-radius: 6px; max-height: 150px; overflow-y: auto; z-index: 2000; margin-bottom: 4px; box-shadow: 0 -4px 12px rgba(0,0,0,0.08);">
                                             @php
-                                                $filtered = collect($offices)->filter(function($off) {
+                                                $specialOffices = [
+                                                    ['office_code' => '[HUB]', 'office_name' => 'Office Hub [Multi-Receiving]'],
+                                                    ['office_code' => 'ORIGIN', 'office_name' => 'Originated Office'],
+                                                    ['office_code' => '[H]', 'office_name' => 'Cluster Head'],
+                                                ];
+                                                $allAvailable = array_merge($specialOffices, $offices);
+                                                $filtered = collect($allAvailable)->filter(function($off) {
                                                     if (empty($this->insert_office_search)) return true;
                                                     return stripos($off['office_name'], $this->insert_office_search) !== false 
                                                         || stripos($off['office_code'], $this->insert_office_search) !== false;
-                                                    });
-                                                @endphp
+                                                });
+                                            @endphp
                                                 
-                                                @forelse($filtered as $off)
-                                                    <div @click="open = false"
-                                                         wire:click="selectOfficeForInsert('{{ $off['office_code'] }}', '{{ $off['office_name'] }}')"
-                                                         style="padding: 6px 10px; cursor: pointer; display: flex; justify-content: space-between; font-size: 11.5px; font-family: 'Inter', sans-serif; transition: background 0.15s ease; border-bottom: 1px solid #f1f5f9;"
-                                                         onmouseover="this.style.backgroundColor='#f1f5f9'"
-                                                         onmouseout="this.style.backgroundColor='transparent'">
-                                                        <span style="font-weight: 500; color: #1e293b; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 180px;">{{ $off['office_name'] }}</span>
-                                                        <span style="color: #64748b; font-weight: 600; flex-shrink: 0;">{{ $off['office_code'] }}</span>
-                                                    </div>
-                                                @empty
-                                                    <div style="padding: 6px 10px; color: #94a3b8; font-size: 11.5px; font-style: italic; text-align: center;">No offices found</div>
-                                                @endforelse
-                                            </div>
+                                            @forelse($filtered as $off)
+                                                <div @click="open = false"
+                                                     wire:click="selectOfficeForInsert('{{ $off['office_code'] }}', '{{ $off['office_name'] }}')"
+                                                     style="padding: 6px 10px; cursor: pointer; display: flex; justify-content: space-between; font-size: 11.5px; font-family: 'Inter', sans-serif; transition: background 0.15s ease; border-bottom: 1px solid #f1f5f9;"
+                                                     onmouseover="this.style.backgroundColor='#f1f5f9'"
+                                                     onmouseout="this.style.backgroundColor='transparent'">
+                                                    <span style="font-weight: 500; color: #1e293b; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 180px;">
+                                                        @if($off['office_code'] === '[HUB]') ⚡ @endif {{ $off['office_name'] }}
+                                                    </span>
+                                                    <span style="color: #64748b; font-weight: 600; flex-shrink: 0;">{{ $off['office_code'] }}</span>
+                                                </div>
+                                            @empty
+                                                <div style="padding: 6px 10px; color: #94a3b8; font-size: 11.5px; font-style: italic; text-align: center;">No offices found</div>
+                                            @endforelse
                                         </div>
                                     </div>
-                                    <button type="button" wire:click="insertOffice" class="btn-primary" style="padding: 4px 8px; font-size: 11px; background-color: #10b981; height: 28px; line-height: 20px; border-radius: 4px; border: none; color: white; cursor: pointer; font-weight: bold; flex-shrink: 0;">Insert</button>
-                                    <button type="button" wire:click="cancelInsert" style="background: #ef4444; color: white; border: none; border-radius: 4px; padding: 4px 8px; font-size: 11px; cursor: pointer; height: 28px; font-weight: bold; flex-shrink: 0;">Cancel</button>
+                                </div>
+                                <button type="button" wire:click="insertOffice" class="btn-primary" style="padding: 4px 8px; font-size: 11px; background-color: #10b981; height: 28px; line-height: 20px; border-radius: 4px; border: none; color: white; cursor: pointer; font-weight: bold; flex-shrink: 0;">Insert</button>
+                                <button type="button" wire:click="cancelInsert" style="background: #ef4444; color: white; border: none; border-radius: 4px; padding: 4px 8px; font-size: 11px; cursor: pointer; height: 28px; font-weight: bold; flex-shrink: 0;">Cancel</button>
                             @else
                                 <button type="button" wire:click="$set('selected_gap_index', {{ count($flow_offices) }})" style="width: 20px; height: 20px; border-radius: 50%; border: 1px dashed #3b82f6; background: #eff6ff; color: #3b82f6; font-weight: bold; cursor: pointer; display: flex; align-items: center; justify-content: center; font-size: 12px; outline: none;" title="Insert office here">+</button>
                                 <span style="font-size: 11px; color: #9ca3af; font-style: italic;">Insert Gap</span>
@@ -1228,10 +1606,13 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create Issuance
                         <div style="display: flex; gap: 8px; width: 100%;">
                             <select wire:model="customFlowSelectedOffice" style="flex: 1; min-width: 0; height: 38px; padding: 0 12px; border: 1.5px solid #cbd5e1; border-radius: 8px; font-size: 13px; outline: none; background: #ffffff; overflow: hidden; text-overflow: ellipsis;">
                                 <option value="">Select an Office...</option>
+                                <option value="[HUB]">⚡ [HUB] (Office Hub [Multi-Receiving])</option>
                                 <option value="ORIGIN">ORIGIN (Your Current Office)</option>
                                 <option value="[H]">[H] (Your Cluster Head Office)</option>
                                 @foreach($offices as $off)
-                                    <option value="{{ $off['office_code'] }}">{{ $off['office_name'] }} ({{ $off['office_code'] }})</option>
+                                    @if(!in_array($off['office_code'], ['ORIGIN', '[H]', '[HUB]']))
+                                        <option value="{{ $off['office_code'] }}">{{ $off['office_name'] }} ({{ $off['office_code'] }})</option>
+                                    @endif
                                 @endforeach
                             </select>
                             <button type="button" wire:click="addToCustomFlowSequence" style="background: #3b82f6; color: #ffffff; border: none; padding: 0 16px; border-radius: 8px; font-size: 13px; font-weight: 600; cursor: pointer; transition: background 0.15s;" onmouseover="this.style.backgroundColor='#2563eb'" onmouseout="this.style.backgroundColor='#3b82f6'">Add</button>
@@ -1250,13 +1631,17 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create Issuance
                             <div style="display: flex; flex-direction: column; gap: 8px;">
                                 @foreach($customFlowSequence as $idx => $code)
                                     @php
-                                        $name = $code === 'ORIGIN' ? 'ORIGIN (Your Current Office)' : ($code === '[H]' ? '[H] (Your Cluster Head Office)' : (collect($offices)->firstWhere('office_code', $code)['office_name'] ?? $code));
+                                        $isHub = ($code === '[HUB]');
+                                        $name = $isHub ? 'Office Hub [Multi-Receiving]' : ($code === 'ORIGIN' ? 'ORIGIN (Your Current Office)' : ($code === '[H]' ? '[H] (Your Cluster Head Office)' : (collect($offices)->firstWhere('office_code', $code)['office_name'] ?? $code)));
                                     @endphp
-                                    <div style="display: flex; align-items: center; justify-content: space-between; padding: 10px 14px; background: #ffffff; border: 1.5px solid #e2e8f0; border-radius: 10px; transition: border-color 0.15s;">
+                                    <div style="display: flex; align-items: center; justify-content: space-between; padding: 10px 14px; background: {{ $isHub ? '#eff6ff' : '#ffffff' }}; border: 1.5px solid {{ $isHub ? '#93c5fd' : '#e2e8f0' }}; border-radius: 10px; transition: border-color 0.15s;">
                                         <div style="display: flex; align-items: center; gap: 10px;">
-                                            <span style="width: 22px; height: 22px; border-radius: 50%; background: #3b82f6; color: #ffffff; font-size: 11px; font-weight: 700; display: flex; align-items: center; justify-content: center;">{{ $idx + 1 }}</span>
+                                            <span style="width: 22px; height: 22px; border-radius: 50%; background: {{ $isHub ? '#2563eb' : '#3b82f6' }}; color: #ffffff; font-size: 11px; font-weight: 700; display: flex; align-items: center; justify-content: center;">{{ $idx + 1 }}</span>
                                             <div>
-                                                <span style="font-size: 13px; font-weight: 600; color: #1e293b; display: block;">{{ $name }}</span>
+                                                <span style="font-size: 13px; font-weight: 600; color: {{ $isHub ? '#1e40af' : '#1e293b' }}; display: block;">
+                                                    @if($isHub) <i class="fa-solid fa-bolt" style="color: #2563eb; margin-right: 4px;"></i> @endif
+                                                    {{ $name }}
+                                                </span>
                                                 <span style="font-size: 11px; color: #64748b; font-weight: 500;">Code: {{ $code }}</span>
                                             </div>
                                         </div>

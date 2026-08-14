@@ -153,7 +153,13 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Receive Transac
         }
 
         $userOfficeCode = auth()->user()?->details?->office?->office_code;
-        if ($transaction->current_office !== $userOfficeCode) {
+        $isFreeFlow = ($transaction->transaction_flow === 'FLOW-FREE-FLOW' || str_starts_with($transaction->transaction_flow, 'FLOW-FREE-FLOW'));
+        $hasOfficeLog = DB::table('sub_document_tracking_system_logs')
+            ->where('transaction_id', $transaction->transaction_id)
+            ->where('office_code', $userOfficeCode)
+            ->exists();
+
+        if (!$isFreeFlow && !$hasOfficeLog && $transaction->current_office !== $userOfficeCode) {
             $currentOfficeName = DB::table('office')->where('office_code', $transaction->current_office)->value('office_name') ?: $transaction->current_office;
             $this->errorMessage = "Warning: This transaction is currently at '{$currentOfficeName}'. Your office cannot receive or forward it at this stage.";
         }
@@ -169,32 +175,37 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Receive Transac
 
         // Pre-resolve name of the next destination office in sequence
         $nextOfficeName = 'N/A';
-        $flow = DB::table('dts_transaction_flow')->where('flow_code', $transaction->transaction_flow)->first();
-        if ($flow) {
-            $nextSequence = DB::table('dts_sequence_list')
-                ->where('control_id', $flow->id)
-                ->where('sequence_ranking', $transaction->sequence + 1)
-                ->first();
-            if ($nextSequence) {
-                $nextCode = $nextSequence->office_code;
-                if ($nextCode === 'ORIGIN') {
-                    $nextCode = $transaction->originated_from;
-                } elseif ($nextCode === '[H]') {
-                    $originOffice = DB::table('office')->where('office_code', $transaction->originated_from)->first();
-                    if ($originOffice && $originOffice->cluster) {
-                        $cluster = DB::table('cluster')->where('cluster_code', $originOffice->cluster)->first();
-                        if ($cluster && $cluster->cluster_head) {
-                            $nextCode = $cluster->cluster_head;
+        $nextSequence = null;
+        if ($isFreeFlow) {
+            $nextOfficeName = 'Free Flow (Broadcast)';
+        } else {
+            $flow = DB::table('dts_transaction_flow')->where('flow_code', $transaction->transaction_flow)->first();
+            if ($flow) {
+                $nextSequence = DB::table('dts_sequence_list')
+                    ->where('control_id', $flow->id)
+                    ->where('sequence_ranking', $transaction->sequence + 1)
+                    ->first();
+                if ($nextSequence) {
+                    $nextCode = $nextSequence->office_code;
+                    if ($nextCode === 'ORIGIN') {
+                        $nextCode = $transaction->originated_from;
+                    } elseif ($nextCode === '[H]') {
+                        $originOffice = DB::table('office')->where('office_code', $transaction->originated_from)->first();
+                        if ($originOffice && $originOffice->cluster) {
+                            $cluster = DB::table('cluster')->where('cluster_code', $originOffice->cluster)->first();
+                            if ($cluster && $cluster->cluster_head) {
+                                $nextCode = $cluster->cluster_head;
+                            }
                         }
                     }
+                    $nextOfficeName = DB::table('office')->where('office_code', $nextCode)->value('office_name') ?: $nextCode;
+                } else {
+                    $nextOfficeName = 'End of Flow (Complete)';
                 }
-                $nextOfficeName = DB::table('office')->where('office_code', $nextCode)->value('office_name') ?: $nextCode;
-            } else {
-                $nextOfficeName = 'End of Flow (Complete)';
             }
         }
 
-        $transaction->is_last_step = empty($nextSequence);
+        $transaction->is_last_step = $isFreeFlow || empty($nextSequence);
         $transaction->next_office_name = $nextOfficeName;
         $this->activeTransaction = (array) $transaction;
     }
@@ -210,7 +221,13 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Receive Transac
         }
 
         $userOfficeCode = auth()->user()?->details?->office?->office_code;
-        if ($this->activeTransaction['current_office'] !== $userOfficeCode) {
+        $isFreeFlow = ($this->activeTransaction['transaction_flow'] === 'FLOW-FREE-FLOW' || str_starts_with($this->activeTransaction['transaction_flow'], 'FLOW-FREE-FLOW'));
+        $hasOfficeLog = DB::table('sub_document_tracking_system_logs')
+            ->where('transaction_id', $this->activeTransaction['transaction_id'])
+            ->where('office_code', $userOfficeCode)
+            ->exists();
+
+        if (!$isFreeFlow && !$hasOfficeLog && $this->activeTransaction['current_office'] !== $userOfficeCode) {
             $this->errorMessage = 'Unauthorized: This transaction is not currently at your office.';
             return;
         }
@@ -253,6 +270,7 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Receive Transac
                         ->where('sequence_ranking', $this->activeTransaction['sequence'])
                         ->update([
                             'date_in' => now(),
+                            'account_received' => auth()->id(),
                             'scanned_id' => true,
                         ]);
                 }
@@ -271,7 +289,7 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Receive Transac
 
                 $originatedFrom = $this->activeTransaction['originated_from'] ?? null;
                 if ($originatedFrom && $originatedFrom !== $userOfficeCode) {
-                    \App\Services\DtsNotificationService::notifyReceived($originatedFrom, $userFirstName, $controlNumber, $transId);
+                    \App\Services\DtsNotificationService::notifyHubOfficeReceived($originatedFrom, $userOfficeCode, $controlNumber, $transId);
                 }
 
                 $this->successMessage = "Transaction {$this->activeTransaction['control_number']} has been successfully RECEIVED at your office. Timer reset to 0.";
@@ -340,7 +358,9 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Receive Transac
                     ->where('sequence_ranking', $this->activeTransaction['sequence'])
                     ->update([
                         'date_in' => $currentStep->date_in ?? now(),
+                        'account_received' => $currentStep->account_received ?? auth()->id(),
                         'date_out' => now(),
+                        'account_forwarded' => auth()->id(),
                         'action_needed' => $this->actionNeeded,
                         'note' => $this->notes,
                         'total_time_completed' => $duration,

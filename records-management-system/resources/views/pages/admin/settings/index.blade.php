@@ -13,6 +13,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - System Settings')] class
     public bool $emailAccessRequiredApplication = true;
     public bool $emailAccessRequiredInternal = false;
     public bool $allowManualCompletionButton = false;
+    public bool $autoForwardCreatedTransaction = true;
     public bool $rdpRequiredUploadFile = false;
     public bool $dtsRequiredUploadFile = false;
     public int $tabCloseIdleTimeoutMinutes = 15;
@@ -282,6 +283,9 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - System Settings')] class
         $manual = \DB::table('system_settings')->where('key', 'dts_allow_manual_completion_button')->value('value');
         $this->allowManualCompletionButton = ($manual === 'true');
 
+        $autoFwd = \DB::table('system_settings')->where('key', 'dts_auto_forward_created_transaction')->value('value');
+        $this->autoForwardCreatedTransaction = ($autoFwd !== 'false');
+
         $rdpReq = \DB::table('system_settings')->where('key', 'rdp_required_upload_file')->value('value');
         $this->rdpRequiredUploadFile = ($rdpReq === 'true');
 
@@ -542,6 +546,14 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - System Settings')] class
                     ['key' => 'dts_allow_manual_completion_button'],
                     [
                         'value' => $this->allowManualCompletionButton ? 'true' : 'false',
+                        'updated_at' => now(),
+                    ]
+                );
+
+                \DB::table('system_settings')->updateOrInsert(
+                    ['key' => 'dts_auto_forward_created_transaction'],
+                    [
+                        'value' => $this->autoForwardCreatedTransaction ? 'true' : 'false',
                         'updated_at' => now(),
                     ]
                 );
@@ -1160,6 +1172,18 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - System Settings')] class
                         </div>
                         <label class="switch">
                             <input type="checkbox" wire:model="allowManualCompletionButton">
+                            <span class="slider"></span>
+                        </label>
+                    </div>
+
+                    <!-- Setting: Auto Forward Created Transaction -->
+                    <div class="setting-item">
+                        <div class="setting-details">
+                            <span class="setting-title">Auto Forward Created Transaction</span>
+                            <span class="setting-desc">Automatically forwards newly created transactions to the next destination office in the flow sequence, so they no longer remain in Received Transactions waiting to be manually forwarded.</span>
+                        </div>
+                        <label class="switch">
+                            <input type="checkbox" wire:model="autoForwardCreatedTransaction">
                             <span class="slider"></span>
                         </label>
                     </div>

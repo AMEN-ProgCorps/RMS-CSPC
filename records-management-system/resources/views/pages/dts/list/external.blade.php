@@ -41,6 +41,9 @@ new #[Layout('layouts.dts')] #[Title('DTS - External Transactions')] class exten
 
     public string $selectedPriority = 'all';
     public string $selectedStatus = 'all';
+    public string $dateFrom = '';
+    public string $dateTo = '';
+    public string $sortOrder = 'desc';
     public int $perPage = 10;
     public string $searchQuery = '';
     public string $layoutMode = 'table'; // table or box
@@ -117,6 +120,40 @@ new #[Layout('layouts.dts')] #[Title('DTS - External Transactions')] class exten
         $this->selectAll = false;
     }
 
+    public function updatingDateFrom()
+    {
+        $this->resetPage();
+        $this->selectedIds = [];
+        $this->selectAll = false;
+    }
+
+    public function updatingDateTo()
+    {
+        $this->resetPage();
+        $this->selectedIds = [];
+        $this->selectAll = false;
+    }
+
+    public function updatingSortOrder()
+    {
+        $this->resetPage();
+        $this->selectedIds = [];
+        $this->selectAll = false;
+    }
+
+    public function resetFilters(): void
+    {
+        $this->searchQuery = '';
+        $this->selectedPriority = 'all';
+        $this->selectedStatus = 'all';
+        $this->dateFrom = '';
+        $this->dateTo = '';
+        $this->sortOrder = 'desc';
+        $this->resetPage();
+        $this->selectedIds = [];
+        $this->selectAll = false;
+    }
+
     public function getTransactionsProperty()
     {
         $userOfficeCode = auth()->user()?->details?->office?->office_code 
@@ -157,6 +194,27 @@ new #[Layout('layouts.dts')] #[Title('DTS - External Transactions')] class exten
             });
         }
 
+        if (!empty($this->dateFrom) || !empty($this->dateTo)) {
+            $from = !empty($this->dateFrom) ? \Carbon\Carbon::parse($this->dateFrom)->startOfDay() : null;
+            $to = !empty($this->dateTo) ? \Carbon\Carbon::parse($this->dateTo)->endOfDay() : null;
+
+            if ($from && $to && $from->gt($to)) {
+                $temp = $from;
+                $from = $to->copy()->startOfDay();
+                $to = $temp->copy()->endOfDay();
+            }
+
+            if ($from && $to) {
+                $query->whereBetween('dtd.date_created', [$from->toDateTimeString(), $to->toDateTimeString()]);
+            } elseif ($from) {
+                $query->where('dtd.date_created', '>=', $from->toDateTimeString());
+            } elseif ($to) {
+                $query->where('dtd.date_created', '<=', $to->toDateTimeString());
+            }
+        }
+
+        $sortDirection = in_array(strtolower($this->sortOrder), ['asc', 'desc']) ? strtolower($this->sortOrder) : 'desc';
+
         $list = $query->select(
             'dt.transaction_id',
             'dt.status',
@@ -174,7 +232,7 @@ new #[Layout('layouts.dts')] #[Title('DTS - External Transactions')] class exten
             'current_office.office_name as current_office_name',
             'doc.document_name'
         )
-        ->orderBy('dtd.date_created', 'desc')
+        ->orderBy('dtd.date_created', $sortDirection)
         ->paginate($this->perPage);
 
         // Map remarks, received by, previous office and next office from latest logs
@@ -282,8 +340,25 @@ new #[Layout('layouts.dts')] #[Title('DTS - External Transactions')] class exten
 
         return DB::table('dts_sequence_list as seq')
             ->join('office', 'office.office_code', '=', 'seq.office_code')
+            ->leftJoin('account_details as r_ad', 'r_ad.account_id', '=', 'seq.account_received')
+            ->leftJoin('account as r_acc', 'r_acc.id', '=', 'seq.account_received')
+            ->leftJoin('account_details as f_ad', 'f_ad.account_id', '=', 'seq.account_forwarded')
+            ->leftJoin('account as f_acc', 'f_acc.id', '=', 'seq.account_forwarded')
             ->where('seq.control_id', $flow->id)
-            ->select('seq.sequence_ranking', 'office.office_name', 'seq.office_code', 'seq.date_in', 'seq.date_out', 'seq.action_needed', 'seq.note', 'seq.total_time_completed')
+            ->select(
+                'seq.sequence_ranking', 
+                'office.office_name', 
+                'seq.office_code', 
+                'seq.date_in', 
+                'seq.date_out', 
+                'seq.action_needed', 
+                'seq.note', 
+                'seq.total_time_completed',
+                DB::raw("TRIM(CONCAT(COALESCE(r_ad.first_name, ''), ' ', COALESCE(r_ad.last_name, ''))) as receiver_name"),
+                'r_acc.username as receiver_username',
+                DB::raw("TRIM(CONCAT(COALESCE(f_ad.first_name, ''), ' ', COALESCE(f_ad.last_name, ''))) as forwarder_name"),
+                'f_acc.username as forwarder_username'
+            )
             ->orderBy('seq.sequence_ranking', 'asc')
             ->get()
             ->map(function ($step) use ($originOfficeCode, $originOfficeName, $clusterHeadCode, $clusterHeadName) {
@@ -294,6 +369,9 @@ new #[Layout('layouts.dts')] #[Title('DTS - External Transactions')] class exten
                     $step->office_code = $clusterHeadCode;
                     $step->office_name = $clusterHeadName;
                 }
+
+                $step->receiver_name = !empty(trim($step->receiver_name ?? '')) ? $step->receiver_name : ($step->receiver_username ?: '—');
+                $step->forwarder_name = !empty(trim($step->forwarder_name ?? '')) ? $step->forwarder_name : ($step->forwarder_username ?: '—');
 
                 $step->is_active_step = (
                     $step->office_code === auth()->user()?->details?->office?->office_code
@@ -618,10 +696,22 @@ new #[Layout('layouts.dts')] #[Title('DTS - External Transactions')] class exten
     {
         $this->selectedTransaction = DB::table('dts_transactions as dt')
             ->join('dts_transaction_details as dtd', 'dtd.id', '=', 'dt.transaction_id')
+            ->leftJoin('dts_requestor_history as req', 'req.id', '=', 'dtd.requestor_id')
             ->leftJoin('office as originated_office', 'originated_office.office_code', '=', 'dtd.originated_from')
             ->leftJoin('dts_email_access as dea', 'dea.id', '=', 'dtd.email_access')
+            ->leftJoin('account_details as creator_ad', 'creator_ad.account_id', '=', 'dtd.created_by')
+            ->leftJoin('account as creator_acc', 'creator_acc.id', '=', 'dtd.created_by')
             ->where('dt.transaction_id', $this->selectedTransactionId)
-            ->select('dt.*', 'dtd.*', 'dea.email as access_email', 'originated_office.office_name as originated_office_name')
+            ->select(
+                'dt.*',
+                'dtd.*',
+                'req.requestor_name',
+                'req.requestor_position as requestor_label',
+                'dea.email as access_email',
+                'originated_office.office_name as originated_office_name',
+                DB::raw("TRIM(CONCAT(COALESCE(creator_ad.first_name, ''), ' ', COALESCE(creator_ad.last_name, ''))) as creator_name"),
+                'creator_acc.username as creator_username'
+            )
             ->first();
 
         $this->attachedDocName = '';
@@ -638,8 +728,8 @@ new #[Layout('layouts.dts')] #[Title('DTS - External Transactions')] class exten
             $this->actionNeeded = $this->selectedTransaction->action_needed ?: '';
             $this->activeAction = DB::table('dts_action_options')->orderBy('option_name', 'asc')->value('option_name') ?: 'For Approval';
 
-            $this->requestorName = $this->selectedTransaction->requestor_name ?: '';
-            $this->requestorPosition = $this->selectedTransaction->requestor_label ?: '';
+            $this->requestorName = $this->selectedTransaction->requestor_name ?? '';
+            $this->requestorPosition = $this->selectedTransaction->requestor_label ?? '';
             $this->emailAccess = $this->selectedTransaction->access_email ?: '';
             $this->docPassword = $this->selectedTransaction->document_password ?: '';
             $this->transactionFlow = $this->selectedTransaction->transaction_flow ?: '';
@@ -1193,8 +1283,8 @@ new #[Layout('layouts.dts')] #[Title('DTS - External Transactions')] class exten
                 </button>
             </div>
         </div>
-        <div class="rms-toolbar-bottom">
-            <div class="rms-entries">
+        <div class="rms-toolbar-bottom" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px;">
+            <div class="rms-entries" style="display: flex; align-items: center; gap: 8px;">
                 Show 
                 <select class="rms-select" wire:model.live="perPage">
                     <option value="10">10</option>
@@ -1203,13 +1293,45 @@ new #[Layout('layouts.dts')] #[Title('DTS - External Transactions')] class exten
                 </select> 
                 Entries
             </div>
+            <div class="rms-filters" style="display: flex; align-items: center; flex-wrap: wrap; gap: 10px;">
+                <div style="display: flex; align-items: center; gap: 6px;">
+                    <span style="font-size: 0.8rem; font-weight: 600; color: #64748b;">From:</span>
+                    <input type="date" class="rms-select" wire:model.live="dateFrom" style="padding-right: 8px; background-image: none; font-size: 0.82rem; height: 34px;" title="Filter Created From Date">
+                </div>
+                <div style="display: flex; align-items: center; gap: 6px;">
+                    <span style="font-size: 0.8rem; font-weight: 600; color: #64748b;">To:</span>
+                    <input type="date" class="rms-select" wire:model.live="dateTo" style="padding-right: 8px; background-image: none; font-size: 0.82rem; height: 34px;" title="Filter Created To Date">
+                </div>
+                <div style="display: flex; align-items: center; gap: 6px;">
+                    <select class="rms-select" wire:model.live="sortOrder" style="font-size: 0.82rem; height: 34px;">
+                        <option value="desc">Date (Newest First)</option>
+                        <option value="asc">Date (Oldest First)</option>
+                    </select>
+                </div>
+                @if(!empty($dateFrom) || !empty($dateTo) || !empty($searchQuery) || $selectedPriority !== 'all' || $selectedStatus !== 'all' || $sortOrder !== 'desc')
+                    <button type="button" wire:click="resetFilters" class="rms-select" style="background: #f8fafc; border-color: #cbd5e1; color: #475569; padding-right: 12px; display: inline-flex; align-items: center; gap: 4px; height: 34px; font-size: 0.82rem; font-weight: 600;" title="Reset all filters">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+                        Reset
+                    </button>
+                @endif
+            </div>
             <div class="rms-actions">
                 <div class="rms-search-wrapper">
-                    <input type="text" class="rms-search-input" placeholder="Search..." wire:model.live="searchQuery">
+                    <input type="text" class="rms-search-input" placeholder="Search..." wire:model.live="searchQuery" style="width: 220px; height: 34px;">
                 </div>
             </div>
         </div>
     </div>
+
+    @if(!empty($dateFrom) || !empty($dateTo))
+        <div style="margin-bottom: 16px; font-size: 0.82rem; color: #0369a1; background: #f0f9ff; border: 1px solid #bae6fd; padding: 6px 12px; border-radius: 6px; display: inline-flex; align-items: center; gap: 8px;">
+            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect><line x1="16" y1="2" x2="16" y2="6"></line><line x1="8" y1="2" x2="8" y2="6"></line><line x1="3" y1="10" x2="21" y2="10"></line></svg>
+            <span>
+                Showing transactions created between <strong>{{ !empty($dateFrom) ? \Carbon\Carbon::parse($dateFrom)->format('M d, Y') : 'Earliest' }}</strong> and <strong>{{ !empty($dateTo) ? \Carbon\Carbon::parse($dateTo)->format('M d, Y') : 'Latest' }}</strong>
+            </span>
+            <button type="button" wire:click="$set('dateFrom', ''); $set('dateTo', '');" style="background: none; border: none; color: #0369a1; cursor: pointer; font-weight: 700; font-size: 14px; padding: 0 4px; line-height: 1;" title="Clear date filter">×</button>
+        </div>
+    @endif
 
     @if ($layoutMode === 'table')
         <div class="rms-table-responsive">
@@ -1338,7 +1460,20 @@ new #[Layout('layouts.dts')] #[Title('DTS - External Transactions')] class exten
                 <button type="button" class="modal-close-btn" wire:click="closeTransaction">&times;</button>
                 
                 <form class="receive-card" method="post" action="#" onsubmit="return false;" style="box-shadow: none;">
-                    <h1 class="receive-title">Transaction Details</h1>
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; padding-right: 36px; flex-wrap: wrap; gap: 10px;">
+                        <h1 class="receive-title" style="margin: 0;">Transaction Details</h1>
+                        <div style="display: flex; align-items: center; gap: 12px; font-size: 12px; color: #64748b; background: #f8fafc; padding: 6px 12px; border-radius: 6px; border: 1px solid #e2e8f0;">
+                            <div style="display: flex; align-items: center; gap: 5px;">
+                                <i class="fa-regular fa-clock" style="color: #64748b; font-size: 11.5px;"></i>
+                                <span><strong style="color: #475569; font-weight: 600;">Created:</strong> {{ !empty($selectedTransaction->date_created) ? \Carbon\Carbon::parse($selectedTransaction->date_created)->format('M d, Y h:i A') : 'N/A' }}</span>
+                            </div>
+                            <span style="color: #cbd5e1;">|</span>
+                            <div style="display: flex; align-items: center; gap: 5px;">
+                                <i class="fa-regular fa-user" style="color: #64748b; font-size: 11.5px;"></i>
+                                <span><strong style="color: #475569; font-weight: 600;">By:</strong> <span style="color: #0f172a; font-weight: 600;">{{ !empty(trim($selectedTransaction->creator_name ?? '')) ? $selectedTransaction->creator_name : ($selectedTransaction->creator_username ?? 'N/A') }}</span></span>
+                            </div>
+                        </div>
+                    </div>
                     
                     <div class="receive-fields">
                         <!-- Control Number field -->
@@ -1401,14 +1536,14 @@ new #[Layout('layouts.dts')] #[Title('DTS - External Transactions')] class exten
                             @endif
                         </div>
 
-                        <!-- Particulars / Subject field -->
+                        <!-- Subject field -->
                         <div class="receive-field-row receive-field-row--particulars">
-                            <span class="receive-field-label">Particulars:</span>
+                            <span class="receive-field-label">Subject:</span>
                             @if ($editingAll)
                                 <textarea class="receive-field-input" wire:model="particulars" style="min-height: 72px; resize: vertical;"></textarea>
                             @else
                                 <div class="receive-particulars-display" style="width: 100%;">
-                                    {{ $particulars ?: 'No particulars provided.' }}
+                                    {{ $particulars ?: 'No subject provided.' }}
                                 </div>
                             @endif
                         </div>
@@ -1436,14 +1571,6 @@ new #[Layout('layouts.dts')] #[Title('DTS - External Transactions')] class exten
                                         <input type="text" class="receive-field-input" wire:model="requestorPosition">
                                     @else
                                         <input type="text" class="receive-field-input" value="{{ $requestorPosition ?: 'N/A' }}" readonly style="background-color: #f8fafc; color: #64748b;">
-                                    @endif
-                                </div>
-                                <div class="receive-field-row" style="grid-template-columns: 180px 1fr; margin-bottom: 12px; align-items: center;">
-                                    <span class="receive-field-label" style="font-weight: 600; color: #475569; white-space: nowrap;">File Code:</span>
-                                    @if ($editingAll)
-                                        <input type="text" class="receive-field-input" wire:model="fileCode">
-                                    @else
-                                        <input type="text" class="receive-field-input" value="{{ $fileCode ?: 'N/A' }}" readonly style="background-color: #f8fafc; color: #64748b;">
                                     @endif
                                 </div>
                                 @if ($editingAll || (!empty(trim($emailAccess ?? '')) && $emailAccess !== 'N/A'))
@@ -1711,7 +1838,13 @@ new #[Layout('layouts.dts')] #[Title('DTS - External Transactions')] class exten
 
                                                 <div style="font-size: 10.5px; color: #94a3b8; display: flex; flex-direction: column; gap: 3px;">
                                                     <div><strong style="color: #cbd5e1;">Date In:</strong> {{ $step->date_in ? \Carbon\Carbon::parse($step->date_in)->format('M d, Y h:i A') : 'N/A' }}</div>
+                                                    @if (!empty($step->receiver_name) && $step->receiver_name !== '—')
+                                                        <div><strong style="color: #cbd5e1;">Received By:</strong> <span style="color: #38bdf8; font-weight: 600;">{{ $step->receiver_name }}</span></div>
+                                                    @endif
                                                     <div><strong style="color: #cbd5e1;">Date Out:</strong> {{ $step->date_out ? \Carbon\Carbon::parse($step->date_out)->format('M d, Y h:i A') : ($step->date_in ? 'Pending' : 'N/A') }}</div>
+                                                    @if (!empty($step->forwarder_name) && $step->forwarder_name !== '—')
+                                                        <div><strong style="color: #cbd5e1;">Forwarded By:</strong> <span style="color: #38bdf8; font-weight: 600;">{{ $step->forwarder_name }}</span></div>
+                                                    @endif
                                                     @if (!empty($step->total_time_completed) && $step->total_time_completed !== '-')
                                                         <div><strong style="color: #cbd5e1;">Total Time:</strong> <span style="color: #38bdf8; font-weight: 700;">{{ $step->total_time_completed }}</span></div>
                                                     @endif
@@ -1744,8 +1877,8 @@ new #[Layout('layouts.dts')] #[Title('DTS - External Transactions')] class exten
                                         <tr>
                                             <th>#</th>
                                             <th>Office</th>
-                                            <th>Date In</th>
-                                            <th>Date Out</th>
+                                            <th>Received</th>
+                                            <th>Forwarded</th>
                                             <th>Total Time</th>
                                             <th>Action Need</th>
                                             <th>Notes</th>
@@ -1759,8 +1892,28 @@ new #[Layout('layouts.dts')] #[Title('DTS - External Transactions')] class exten
                                             <tr>
                                                 <td>{{ $step->sequence_ranking ?? ($index + 1) }}</td>
                                                 <td class="office-cell">{{ $step->office_name }}</td>
-                                                <td>{{ $step->date_in ? \Carbon\Carbon::parse($step->date_in)->format('Y-m-d h:i A') : 'N/A' }}</td>
-                                                <td>{{ $step->date_out ? \Carbon\Carbon::parse($step->date_out)->format('Y-m-d h:i A') : ($step->date_in ? 'Pending' : 'N/A') }}</td>
+                                                <td style="white-space: nowrap;">
+                                                    <div style="font-weight: 500; color: #1e293b;">
+                                                        {{ $step->date_in ? \Carbon\Carbon::parse($step->date_in)->format('Y-m-d h:i A') : 'N/A' }}
+                                                    </div>
+                                                    @if (!empty($step->receiver_name) && $step->receiver_name !== '—')
+                                                        <div style="color: #475569; font-size: 11.5px; margin-top: 3px; display: inline-flex; align-items: center; gap: 4px;">
+                                                            <i class="fa-solid fa-user-check" style="font-size: 10.5px; color: #10b981;"></i>
+                                                            <span>{{ $step->receiver_name }}</span>
+                                                        </div>
+                                                    @endif
+                                                </td>
+                                                <td style="white-space: nowrap;">
+                                                    <div style="font-weight: 500; color: #1e293b;">
+                                                        {{ $step->date_out ? \Carbon\Carbon::parse($step->date_out)->format('Y-m-d h:i A') : ($step->date_in ? 'Pending' : 'N/A') }}
+                                                    </div>
+                                                    @if (!empty($step->forwarder_name) && $step->forwarder_name !== '—')
+                                                        <div style="color: #475569; font-size: 11.5px; margin-top: 3px; display: inline-flex; align-items: center; gap: 4px;">
+                                                            <i class="fa-solid fa-paper-plane" style="font-size: 10.5px; color: #3b82f6;"></i>
+                                                            <span>{{ $step->forwarder_name }}</span>
+                                                        </div>
+                                                    @endif
+                                                </td>
                                                 <td>{{ $step->total_time_completed ?: '-' }}</td>
                                                 <td>
                                                     @if ($step->is_active_step && is_null($step->date_out) && $selectedTransaction->status !== 'completed')
@@ -1802,7 +1955,7 @@ new #[Layout('layouts.dts')] #[Title('DTS - External Transactions')] class exten
                                             </tr>
                                         @empty
                                             <tr>
-                                                <td colspan="7" style="padding: 24px; color: #888; font-style: italic;">No transaction paths listed.</td>
+                                                <td colspan="{{ $editingAll ? 8 : 7 }}" style="padding: 24px; color: #888; font-style: italic; text-align: center;">No transaction paths listed.</td>
                                             </tr>
                                         @endforelse
                                     </tbody>
@@ -2184,7 +2337,7 @@ new #[Layout('layouts.dts')] #[Title('DTS - External Transactions')] class exten
 
     <!-- View QR Code Modal -->
     <div id="dts-qr-view-modal" class="modal-backdrop" style="display: none; z-index: 1000000; align-items: center; justify-content: center;" onclick="closeQrViewModal()">
-        <div class="modal-content" style="max-width: 320px; padding: 24px; text-align: center; position: relative; border-radius: 12px; display: flex; flex-direction: column; align-items: center; gap: 16px;" onclick="event.stopPropagation()">
+        <div class="modal-content" style="max-width: 320px; padding: 24px; text-align: center; position: relative; border-radius: 12px; display: flex; flex-direction: column; align-items: center; gap: 14px;" onclick="event.stopPropagation()">
             <button type="button" class="modal-close-btn" style="position: absolute; top: 12px; right: 16px; font-size: 20px; border: none; background: transparent; cursor: pointer; color: #94a3b8;" onclick="closeQrViewModal()">&times;</button>
             <h3 style="margin: 0; font-family: Roboto, sans-serif; font-size: 16px; font-weight: 700; color: #043899; text-transform: uppercase;">QR Code Scan</h3>
             
@@ -2194,38 +2347,13 @@ new #[Layout('layouts.dts')] #[Title('DTS - External Transactions')] class exten
             </div>
 
             <div style="font-family: monospace; font-weight: 700; font-size: 14px; color: #1e293b; word-break: break-all; background: #f1f5f9; padding: 6px 12px; border-radius: 6px; border: 1px solid #e2e8f0; width: 100%; box-sizing: border-box;" id="dts-qr-code-text"></div>
+
+            <button type="button" onclick="printQrCodeFromModal()" style="display: inline-flex; align-items: center; justify-content: center; gap: 8px; width: 100%; background: #0284c7; color: #ffffff; border: none; border-radius: 8px; padding: 10px 16px; font-family: Roboto, sans-serif; font-size: 13px; font-weight: 600; cursor: pointer; box-shadow: 0 2px 6px rgba(2, 132, 199, 0.25); transition: background-color 0.15s ease;">
+                <i class="fa-solid fa-print"></i> Print QR Code
+            </button>
         </div>
     </div>
 
-    <script>
-        function openQrViewModal(qrCode) {
-            const modal = document.getElementById('dts-qr-view-modal');
-            const img = document.getElementById('dts-qr-image');
-            const loading = document.getElementById('dts-qr-loading');
-            const text = document.getElementById('dts-qr-code-text');
-
-            if (!modal || !img || !loading || !text) return;
-
-            text.innerText = qrCode;
-            img.style.display = 'none';
-            loading.style.display = 'block';
-            modal.style.display = 'flex';
-
-            const qrData = btoa(qrCode);
-            const qrUrl = 'https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=' + encodeURIComponent(qrData);
-
-            img.src = qrUrl;
-            img.onload = function() {
-                loading.style.display = 'none';
-                img.style.display = 'block';
-            };
-        }
-
-        function closeQrViewModal() {
-            const modal = document.getElementById('dts-qr-view-modal');
-            if (modal) {
-                modal.style.display = 'none';
-            }
-        }
-    </script>
+    <!-- Dynamic QR Code Print Modal -->
+    @include('components.dts.qr-print-modal')
 </div>

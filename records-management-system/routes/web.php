@@ -271,8 +271,8 @@ Route::middleware(['auth'])
         Volt::route('/dts/forwarded', 'pages.dts.index')->name('dts.forwarded');
 
         // Scanner Page
+        Volt::route('/dts/scanner', 'pages.dts.scanner')->name('dts.scanner');
         Volt::route('/dts/receive', 'pages.dts.receive')->name('dts.receive');
-        Route::get('/dts/scanner', fn () => redirect()->route('dts.receive'))->name('dts.scanner');
 
         // Legacy sub-filter redirects
         Route::get('/dts/internal', fn () => redirect()->route('dts.incoming'))->name('dts.internal');

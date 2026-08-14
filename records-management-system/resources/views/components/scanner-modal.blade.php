@@ -16,6 +16,7 @@ new class extends Component {
     public string $errorMessage = '';
     public array $recentScans = [];
     public array $actionOptions = [];
+    public string $resubmitTarget = 'start';
 
     public function mount(): void
     {
@@ -132,6 +133,8 @@ new class extends Component {
                 'dt.sequence',
                 'dt.qr_code',
                 'dt.current_office',
+                'dt.revision_requested_by_office',
+                'dt.revision_requested_by_sequence',
                 'current_office_tb.office_name as current_office_name',
                 'dtd.transaction_flow',
                 'dtd.control_number',
@@ -191,6 +194,7 @@ new class extends Component {
             'subject' => $transaction->subject ?: 'No subject specified',
             'requestor_name' => $transaction->requestor_name ?: 'N/A',
             'originated_office' => $transaction->originated_office_name ?: $transaction->originated_from,
+            'originated_office_code' => $transaction->originated_from,
             'current_office' => $transaction->current_office_name ?: $transaction->current_office,
             'current_office_code' => $transaction->current_office,
             'next_office' => $nextOfficeName,
@@ -200,6 +204,9 @@ new class extends Component {
             'sequence' => $transaction->sequence,
             'document_name' => $transaction->document_name,
             'is_received_here' => $isReceivedAtUserOffice,
+            'revision_requested_by_office' => $transaction->revision_requested_by_office ?? null,
+            'revision_requested_by_sequence' => $transaction->revision_requested_by_sequence ?? null,
+            'transaction_flow' => $transaction->transaction_flow,
         ];
 
         // Push scan to session recent history
@@ -278,55 +285,219 @@ new class extends Component {
                 } 
                 // Case 2: Forward received transaction
                 else {
-                    $nextOfficeCode = $this->activeTransaction['next_office_code'];
+                    $isRevisionAction = in_array($this->actionNeeded, ['For Revision', 'Returned for Revision']);
 
-                    // Update date_out for user office
-                    DB::table('sub_document_tracking_system_logs')
-                        ->where('transaction_id', $transId)
-                        ->where('office_code', $userOfficeCode)
-                        ->whereNull('date_out')
-                        ->update([
-                            'date_out' => now(),
-                            'notes' => $this->notes ?: 'Forwarded via Global Scanner',
-                            'type' => 'forwarded',
-                            'performed_by' => auth()->id(),
-                        ]);
+                    if ($isRevisionAction) {
+                        $transDb = DB::table('dts_transaction_details')->where('id', $transId)->first();
+                        $originatedFrom = $transDb?->originated_from ?? 'ORIGIN';
 
-                    // If there is a next office in flow
-                    if ($nextOfficeCode) {
+                        // Update date_out for user office
+                        DB::table('sub_document_tracking_system_logs')
+                            ->where('transaction_id', $transId)
+                            ->where('office_code', $userOfficeCode)
+                            ->whereNull('date_out')
+                            ->update([
+                                'date_out' => now(),
+                                'notes' => $this->notes ?: 'Returned for Revision via Scanner',
+                                'type' => 'returned',
+                                'performed_by' => auth()->id(),
+                            ]);
+
+                        $updateTransData = [
+                            'current_office' => $originatedFrom,
+                            'sequence' => 1,
+                            'status' => 'revision',
+                        ];
+                        if (\Illuminate\Support\Facades\Schema::hasColumn('dts_transactions', 'revision_requested_by_sequence')) {
+                            $updateTransData['revision_requested_by_sequence'] = $this->activeTransaction['sequence'];
+                            $updateTransData['revision_requested_by_office'] = $userOfficeCode;
+                        }
+                        if (\Illuminate\Support\Facades\Schema::hasColumn('dts_transactions', 'revision_count')) {
+                            $updateTransData['revision_count'] = DB::raw('COALESCE(revision_count, 0) + 1');
+                        }
+
                         DB::table('dts_transactions')
                             ->where('transaction_id', $transId)
-                            ->update([
-                                'current_office' => $nextOfficeCode,
-                                'sequence' => DB::raw('sequence + 1'),
-                                'status' => 'pending',
-                            ]);
+                            ->update($updateTransData);
 
                         DB::table('dts_transaction_details')
                             ->where('id', $transId)
                             ->update([
-                                'action_needed' => $this->actionNeeded,
+                                'action_needed' => 'For Revision',
                             ]);
+
+                        if (!empty($transDb->transaction_flow)) {
+                            $flow = DB::table('dts_transaction_flow')->where('flow_code', $transDb->transaction_flow)->first();
+                            if ($flow) {
+                                // Close out the forwarding office's step
+                                DB::table('dts_sequence_list')
+                                    ->where('control_id', $flow->id)
+                                    ->where('sequence_ranking', $this->activeTransaction['sequence'])
+                                    ->update([
+                                        'date_out' => now(),
+                                        'action_needed' => 'For Revision',
+                                        'note' => $this->notes ?: 'Returned for Revision',
+                                    ]);
+
+                                // Update ORIGIN step to receive the revision
+                                DB::table('dts_sequence_list')
+                                    ->where('control_id', $flow->id)
+                                    ->where('sequence_ranking', 1)
+                                    ->update([
+                                        'date_in' => now(),
+                                        'date_out' => null,
+                                        'action_needed' => 'Returned for Revision',
+                                        'note' => $this->notes,
+                                        'total_time_completed' => null,
+                                    ]);
+                            }
+                        }
 
                         DB::table('sub_document_tracking_system_logs')->insert([
                             'transaction_id' => $transId,
-                            'office_code' => $nextOfficeCode,
-                            'type' => 'pending',
-                            'date_in' => null,
-                            'notes' => 'Routed from ' . $this->activeTransaction['current_office'],
+                            'office_code' => $originatedFrom,
+                            'type' => 'returned',
+                            'date_in' => now(),
+                            'date_out' => null,
+                            'notes' => 'Returned for revision from ' . $userOfficeCode . ': ' . ($this->notes ?: 'Please revise document'),
                             'performed_by' => auth()->id(),
                         ]);
 
-                        $this->successMessage = "Transaction '{$this->activeTransaction['control_number']}' forwarded successfully to {$this->activeTransaction['next_office']}!";
+                        $originatedOfficeName = DB::table('office')->where('office_code', $originatedFrom)->value('office_name') ?: $originatedFrom;
+                        $this->successMessage = "Transaction '{$this->activeTransaction['control_number']}' returned for revision to {$originatedOfficeName}!";
                     } else {
-                        // End of flow -> Complete
-                        DB::table('dts_transactions')
+                        // Check if transaction is in revision status (fresh from revision at Originator)
+                        $isRevisionResubmit = strtolower($this->activeTransaction['status']) === 'revision';
+                        $targetSeqNum = $this->activeTransaction['sequence'] + 1;
+                        $nextOfficeCode = $this->activeTransaction['next_office_code'];
+
+                        if ($isRevisionResubmit) {
+                            $reqSeq = $this->activeTransaction['revision_requested_by_sequence'] ?? null;
+                            if ($this->resubmitTarget === 'requestor' && $reqSeq && $reqSeq > 1) {
+                                $targetSeqNum = (int)$reqSeq;
+                            } else {
+                                $targetSeqNum = 2; // Option A: Restart at sequence 2 (e.g. VP)
+                            }
+
+                            if (!empty($this->activeTransaction['transaction_flow'])) {
+                                $flow = DB::table('dts_transaction_flow')->where('flow_code', $this->activeTransaction['transaction_flow'])->first();
+                                if ($flow) {
+                                    $nextSeq = DB::table('dts_sequence_list')
+                                        ->where('control_id', $flow->id)
+                                        ->where('sequence_ranking', $targetSeqNum)
+                                        ->first();
+                                    if ($nextSeq) {
+                                        $nextOfficeCode = $nextSeq->office_code;
+                                        if ($nextOfficeCode === 'ORIGIN') {
+                                            $nextOfficeCode = $this->activeTransaction['originated_office_code'];
+                                        }
+                                    }
+                                }
+                            }
+                            if (!$nextOfficeCode) {
+                                $nextOfficeCode = $this->activeTransaction['revision_requested_by_office'] ?? $this->activeTransaction['next_office_code'];
+                            }
+                        }
+
+                        // Conditional sequence list wipe at resubmit time
+                        if ($isRevisionResubmit && !empty($this->activeTransaction['transaction_flow'])) {
+                            $revFlow = DB::table('dts_transaction_flow')->where('flow_code', $this->activeTransaction['transaction_flow'])->first();
+                            if ($revFlow) {
+                                $reqSeq = $this->activeTransaction['revision_requested_by_sequence'] ?? null;
+                                if ($reqSeq) {
+                                    if ($this->resubmitTarget === 'start') {
+                                        // Option A: Wipe steps from 2 up to requestor sequence
+                                        DB::table('dts_sequence_list')
+                                            ->where('control_id', $revFlow->id)
+                                            ->where('sequence_ranking', '>', 1)
+                                            ->where('sequence_ranking', '<=', $reqSeq)
+                                            ->update([
+                                                'date_in' => null, 'date_out' => null,
+                                                'action_needed' => null, 'note' => null,
+                                                'total_time_completed' => null,
+                                            ]);
+                                    } else {
+                                        // Option B: Only reset the requestor's step
+                                        DB::table('dts_sequence_list')
+                                            ->where('control_id', $revFlow->id)
+                                            ->where('sequence_ranking', $reqSeq)
+                                            ->update([
+                                                'date_in' => null, 'date_out' => null,
+                                                'action_needed' => null, 'note' => null,
+                                                'total_time_completed' => null,
+                                            ]);
+                                    }
+                                }
+                                // Close ORIGIN's date_out on resubmit
+                                DB::table('dts_sequence_list')
+                                    ->where('control_id', $revFlow->id)
+                                    ->where('sequence_ranking', 1)
+                                    ->update([
+                                        'date_out' => now(),
+                                        'action_needed' => 'Resubmitted (' . ($this->resubmitTarget === 'start' ? 'Restart' : 'Fast-Track') . ')',
+                                    ]);
+                            }
+                        }
+
+                        // Update date_out for user office
+                        $logNote = $isRevisionResubmit 
+                            ? ($this->resubmitTarget === 'requestor' ? 'Resubmitted directly to ' : 'Resubmitted to ') . $nextOfficeCode
+                            : ($this->notes ?: 'Forwarded via Global Scanner');
+
+                        DB::table('sub_document_tracking_system_logs')
                             ->where('transaction_id', $transId)
+                            ->where('office_code', $userOfficeCode)
+                            ->whereNull('date_out')
                             ->update([
-                                'status' => 'completed',
+                                'date_out' => now(),
+                                'notes' => $logNote,
+                                'type' => 'forwarded',
+                                'performed_by' => auth()->id(),
                             ]);
 
-                        $this->successMessage = "Transaction '{$this->activeTransaction['control_number']}' marked as COMPLETED!";
+                        // If there is a next office in flow
+                        if ($nextOfficeCode) {
+                            $updateTransData = [
+                                'current_office' => $nextOfficeCode,
+                                'sequence' => $targetSeqNum,
+                                'status' => 'ongoing',
+                            ];
+                            if (\Illuminate\Support\Facades\Schema::hasColumn('dts_transactions', 'revision_resubmit_type')) {
+                                $updateTransData['revision_resubmit_type'] = $this->resubmitTarget;
+                            }
+                            // KEEP revision_requested_by_* — needed for timeline coloring
+
+                            DB::table('dts_transactions')
+                                ->where('transaction_id', $transId)
+                                ->update($updateTransData);
+
+                            DB::table('dts_transaction_details')
+                                ->where('id', $transId)
+                                ->update([
+                                    'action_needed' => $this->actionNeeded,
+                                ]);
+
+                            DB::table('sub_document_tracking_system_logs')->insert([
+                                'transaction_id' => $transId,
+                                'office_code' => $nextOfficeCode,
+                                'type' => 'forwarded',
+                                'date_in' => null,
+                                'notes' => $logNote,
+                                'performed_by' => auth()->id(),
+                            ]);
+
+                            $destOfficeName = DB::table('office')->where('office_code', $nextOfficeCode)->value('office_name') ?: $nextOfficeCode;
+                            $this->successMessage = "Transaction '{$this->activeTransaction['control_number']}' forwarded successfully to {$destOfficeName}!";
+                        } else {
+                            // End of flow -> Complete
+                            DB::table('dts_transactions')
+                                ->where('transaction_id', $transId)
+                                ->update([
+                                    'status' => 'completed',
+                                ]);
+
+                            $this->successMessage = "Transaction '{$this->activeTransaction['control_number']}' marked as COMPLETED!";
+                        }
                     }
                 }
             });
@@ -514,6 +685,35 @@ new class extends Component {
                             @if(!$activeTransaction['is_completed'])
                                 <div style="border-top: 1px solid #e2e8f0; padding-top: 14px; display: flex; flex-direction: column; gap: 10px;">
                                     @if($activeTransaction['is_received_here'])
+                                        @if(strtolower($activeTransaction['status']) === 'revision')
+                                            <div style="margin: 4px 0 6px 0; padding: 12px 14px; background: #eff6ff; border: 1.5px solid #3b82f6; border-radius: 10px; font-size: 12px;">
+                                                <div style="font-weight: 700; color: #1e40af; margin-bottom: 4px;">
+                                                    ↺ Resubmission Route for Revised Document
+                                                </div>
+                                                <div style="color: #334155; margin-bottom: 8px;">
+                                                    This document was returned for revision{{ !empty($activeTransaction['revision_requested_by_office']) ? ' by ' . $activeTransaction['revision_requested_by_office'] : '' }}. Select target:
+                                                </div>
+                                                <div style="display: flex; flex-direction: column; gap: 8px;">
+                                                    <label style="display: flex; align-items: flex-start; gap: 8px; font-size: 12px; cursor: pointer; padding: 6px 8px; border-radius: 6px; background: #ffffff; border: 1px solid #cbd5e1;">
+                                                        <input type="radio" wire:model="resubmitTarget" value="start" style="margin-top: 2px; accent-color: #2563eb;">
+                                                        <div>
+                                                            <strong style="color: #0f172a;">Option A: Restart Approval Chain</strong>
+                                                            <div style="font-size: 11px; color: #64748b;">Resubmit sequentially to the next office in the approval chain.</div>
+                                                        </div>
+                                                    </label>
+                                                    @if(!empty($activeTransaction['revision_requested_by_sequence']) && $activeTransaction['revision_requested_by_sequence'] > 1)
+                                                        <label style="display: flex; align-items: flex-start; gap: 8px; font-size: 12px; cursor: pointer; padding: 6px 8px; border-radius: 6px; background: #ffffff; border: 1px solid #cbd5e1;">
+                                                            <input type="radio" wire:model="resubmitTarget" value="requestor" style="margin-top: 2px; accent-color: #2563eb;">
+                                                            <div>
+                                                                <strong style="color: #2563eb;">Option B: Fast-Track to Revision Requestor</strong>
+                                                                <div style="font-size: 11px; color: #64748b;">Bypass prior steps and send directly back to {{ $activeTransaction['revision_requested_by_office'] ?? 'Revision Requestor' }}.</div>
+                                                            </div>
+                                                        </label>
+                                                    @endif
+                                                </div>
+                                            </div>
+                                        @endif
+
                                         <div style="display: flex; gap: 10px; flex-wrap: wrap;">
                                             <div style="flex: 1; min-width: 180px;">
                                                 <label style="font-size: 11.5px; font-weight: 700; color: #475569; display: block; margin-bottom: 4px;">ACTION NEEDED FOR FORWARDING</label>

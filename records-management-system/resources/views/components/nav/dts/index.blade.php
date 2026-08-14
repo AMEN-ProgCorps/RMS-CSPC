@@ -43,6 +43,28 @@
 
 
 
+{{-- 2. Scanner Section --}}
+<div id="dts-scanner-id" class="button-section-container">
+    <div class="button-container {{ request()->routeIs('dts.scanner') ? 'force-active' : '' }}" onclick="proccedto('{{ route('dts.scanner') }}')">
+        <div class="button-icon">
+            <svg xmlns="http://www.w3.org/2000/svg" width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#4F4F4F" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M3 7V5a2 2 0 0 1 2-2h2"/>
+                <path d="M17 3h2a2 2 0 0 1 2 2v2"/>
+                <path d="M21 17v2a2 2 0 0 1-2 2h-2"/>
+                <path d="M7 21H5a2 2 0 0 1-2-2v-2"/>
+                <line x1="7" y1="12" x2="17" y2="12"/>
+                <rect x="7" y="7" width="3" height="3" fill="#4F4F4F"/>
+                <rect x="14" y="7" width="3" height="3" fill="#4F4F4F"/>
+                <rect x="7" y="14" width="3" height="3" fill="#4F4F4F"/>
+                <rect x="14" y="14" width="3" height="3" fill="#4F4F4F"/>
+            </svg>
+        </div>
+        <div class="button-label">
+            <span>Scanner</span>
+        </div>
+    </div>
+</div>
+
 {{-- 3. Create Transaction Section --}}
 @if($canAnyCreate)
 <div id="dts-create-id" class="button-section-container {{ request()->routeIs('dts.create.*') ? 'show' : '' }}">

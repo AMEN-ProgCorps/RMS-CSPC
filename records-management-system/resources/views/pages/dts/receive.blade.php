@@ -288,7 +288,7 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Receive Transac
 
                 $originatedFrom = $this->activeTransaction['originated_from'] ?? null;
                 if ($originatedFrom && $originatedFrom !== $userOfficeCode) {
-                    \App\Services\DtsNotificationService::notifyReceived($originatedFrom, $userFirstName, $controlNumber, $transId);
+                    \App\Services\DtsNotificationService::notifyHubOfficeReceived($originatedFrom, $userOfficeCode, $controlNumber, $transId);
                 }
 
                 $this->successMessage = "Transaction {$this->activeTransaction['control_number']} has been successfully RECEIVED at your office. Timer reset to 0.";

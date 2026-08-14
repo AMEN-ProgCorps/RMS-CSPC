@@ -99,4 +99,33 @@ class DtsNotificationService
         $url = '/dts?open=' . urlencode($transactionId);
         static::createNotification($officeCode, $message, $url);
     }
+
+    /**
+     * Trigger notification for origin office when a hub office receives: "[Recipient Office] has received Transaction [Control No]."
+     */
+    public static function notifyHubOfficeReceived(string $originOfficeCode, string $recipientOfficeCode, string $controlNumber, string $transactionId): void
+    {
+        if (empty($originOfficeCode) || $originOfficeCode === $recipientOfficeCode) {
+            return;
+        }
+        $recipientName = DB::table('office')->where('office_code', $recipientOfficeCode)->value('office_name') ?: $recipientOfficeCode;
+        $message = "{$recipientName} ({$recipientOfficeCode}) has received Transaction {$controlNumber}.";
+        $url = '/dts?open=' . urlencode($transactionId);
+        static::createNotification($originOfficeCode, $message, $url);
+    }
+
+    /**
+     * Trigger notification for origin office when a hub office forwards/completes: "[Recipient Office] has completed and forwarded Transaction [Control No] to origin."
+     */
+    public static function notifyHubOfficeForwarded(string $originOfficeCode, string $recipientOfficeCode, string $controlNumber, string $transactionId, ?string $userFirstName = null): void
+    {
+        if (empty($originOfficeCode) || $originOfficeCode === $recipientOfficeCode) {
+            return;
+        }
+        $recipientName = DB::table('office')->where('office_code', $recipientOfficeCode)->value('office_name') ?: $recipientOfficeCode;
+        $name = !empty(trim($userFirstName ?? '')) ? (' by ' . trim($userFirstName)) : '';
+        $message = "{$recipientName} ({$recipientOfficeCode}) has completed and forwarded Transaction {$controlNumber} to {$originOfficeCode}{$name}.";
+        $url = '/dts?open=' . urlencode($transactionId);
+        static::createNotification($originOfficeCode, $message, $url);
+    }
 }

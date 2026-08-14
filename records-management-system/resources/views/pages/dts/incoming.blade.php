@@ -134,6 +134,16 @@ new #[Layout('layouts.dts')] #[Title('Incoming Transactions - Document Tracking 
                         ]);
                 }
 
+                // Notify origin office that this recipient office received the transaction
+                if (!empty($trans->originated_from) && $trans->originated_from !== $userOfficeCode) {
+                    \App\Services\DtsNotificationService::notifyHubOfficeReceived(
+                        $trans->originated_from,
+                        $userOfficeCode,
+                        $trans->control_number,
+                        $trans->transaction_id
+                    );
+                }
+
                 $this->successMessage = "Transaction '{$trans->control_number}' received successfully! Moved to Received Transactions.";
             });
         } catch (\Throwable $e) {

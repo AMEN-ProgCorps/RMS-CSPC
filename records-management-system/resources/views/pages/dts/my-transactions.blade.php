@@ -20,6 +20,16 @@ new #[Layout('layouts.dts')] #[Title('My Transactions - Document Tracking System
     public string $searchQuery = '';
     public int $perPage = 10;
     public string $layoutMode = 'table';
+    public array $expandedHubTransactions = [];
+
+    public function toggleExpandHub(string $controlNumber): void
+    {
+        if (in_array($controlNumber, $this->expandedHubTransactions)) {
+            $this->expandedHubTransactions = array_values(array_diff($this->expandedHubTransactions, [$controlNumber]));
+        } else {
+            $this->expandedHubTransactions[] = $controlNumber;
+        }
+    }
 
     public function mount(): void
     {
@@ -60,6 +70,21 @@ new #[Layout('layouts.dts')] #[Title('My Transactions - Document Tracking System
                   ->orWhere('dtd.created_by', auth()->id());
             })
             ->whereNotIn('dt.status', ['completed', 'cancelled']);
+
+        // Hide child transactions from top-level list so they are collapsed under their parent
+        if (empty($this->searchQuery)) {
+            $query->where(function($q) {
+                $q->whereRaw("dtd.control_number NOT LIKE '%-1'")
+                  ->whereRaw("dtd.control_number NOT LIKE '%-2'")
+                  ->whereRaw("dtd.control_number NOT LIKE '%-3'")
+                  ->whereRaw("dtd.control_number NOT LIKE '%-4'")
+                  ->whereRaw("dtd.control_number NOT LIKE '%-5'")
+                  ->whereRaw("dtd.control_number NOT LIKE '%-6'")
+                  ->whereRaw("dtd.control_number NOT LIKE '%-7'")
+                  ->whereRaw("dtd.control_number NOT LIKE '%-8'")
+                  ->whereRaw("dtd.control_number NOT LIKE '%-9'");
+            });
+        }
 
         if (!empty($this->searchQuery)) {
             $searchVal = trim($this->searchQuery);
@@ -166,22 +191,53 @@ new #[Layout('layouts.dts')] #[Title('My Transactions - Document Tracking System
                     ->orderBy('seq.sequence_ranking', 'asc')
                     ->get()
                     ->map(function ($step) use ($originOfficeCode, $originOfficeName, $clusterHeadCode, $clusterHeadName, $t) {
+                        $isHub = ($step->office_code === '[HUB]');
+                        $step->is_hub = $isHub;
+
                         if ($step->office_code === 'ORIGIN') {
                             $step->office_code = $originOfficeCode;
                             $step->office_name = $originOfficeName;
                         } elseif ($step->office_code === '[H]') {
                             $step->office_code = $clusterHeadCode;
                             $step->office_name = $clusterHeadName;
+                        } elseif ($isHub) {
+                            $cfRecord = DB::table('dts_copy_filled_transaction')->where('control_num', $t->control_number)->first();
+                            $hubOffices = $cfRecord ? DB::table('dts_copy_filled_to_office')->where('control_id', $cfRecord->assign_offices_id)->pluck('office_code')->toArray() : [];
+                            
+                            $receivedCount = DB::table('sub_document_tracking_system_logs')
+                                ->where('transaction_id', $t->transaction_id)
+                                ->whereIn('office_code', $hubOffices)
+                                ->whereNotNull('date_in')
+                                ->count();
+
+                            $forwardedCount = DB::table('sub_document_tracking_system_logs')
+                                ->where('transaction_id', $t->transaction_id)
+                                ->whereIn('office_code', $hubOffices)
+                                ->whereNotNull('date_out')
+                                ->count();
+
+                            $step->hub_offices = $hubOffices;
+                            $step->hub_received_count = $receivedCount;
+                            $step->hub_forwarded_count = $forwardedCount;
+                            $step->hub_total = count($hubOffices);
+                            $step->office_name = 'Office Hub [Multi-Receiving] (' . (count($hubOffices) > 0 ? implode(', ', $hubOffices) : 'All Units') . ')';
+
+                            if ($receivedCount > 0) {
+                                $step->date_in = now();
+                            }
+                            if ($forwardedCount > 0 && $forwardedCount >= count($hubOffices)) {
+                                $step->date_out = now();
+                            }
                         } elseif (empty($step->office_name)) {
                             $off = DB::table('office')->where('office_code', $step->office_code)->first();
                             $step->office_name = $off ? $off->office_name : $step->office_code;
                         }
 
                         $step->is_active_step = (
-                            $step->office_code === $t->current_office
+                            ($step->office_code === $t->current_office || ($isHub && $t->current_office === '[HUB]'))
                             && $step->sequence_ranking == $t->sequence
                             && in_array($t->status, ['ongoing', 'revision'])
-                            && !is_null($step->date_in)
+                            && (!is_null($step->date_in) || $isHub)
                             && is_null($step->date_out)
                         );
 
@@ -227,6 +283,54 @@ new #[Layout('layouts.dts')] #[Title('My Transactions - Document Tracking System
             }
 
             $t->timeline_path = $steps;
+
+            // Load child transactions if any exist for this root control number
+            $childBranches = DB::table('dts_transactions as dt')
+                ->join('dts_transaction_details as dtd', 'dtd.id', '=', 'dt.transaction_id')
+                ->leftJoin('office as current_office', 'current_office.office_code', '=', 'dt.current_office')
+                ->where('dtd.control_number', 'like', $t->control_number . '-%')
+                ->where('dtd.is_active', 1)
+                ->whereNotIn('dt.status', ['cancelled'])
+                ->select(
+                    'dt.transaction_id',
+                    'dt.status',
+                    'dt.sequence',
+                    'dt.qr_code',
+                    'dt.current_office',
+                    'dt.trans_type',
+                    'dtd.control_number',
+                    'dtd.subject',
+                    'dtd.date_created',
+                    'current_office.office_name as current_office_name'
+                )
+                ->orderBy('dtd.control_number', 'asc')
+                ->get();
+
+            $childBranches->transform(function ($child) {
+                $childLogs = DB::table('sub_document_tracking_system_logs as log')
+                    ->leftJoin('office', 'office.office_code', '=', 'log.office_code')
+                    ->where('log.transaction_id', $child->transaction_id)
+                    ->select('log.*', 'office.office_name')
+                    ->orderBy('log.id', 'asc')
+                    ->get();
+
+                $childSteps = $childLogs->map(function ($cLog, $cIdx) use ($child) {
+                    $cStep = new \stdClass();
+                    $cStep->sequence_ranking = $cIdx + 1;
+                    $cStep->office_code = $cLog->office_code;
+                    $cStep->office_name = $cLog->office_name ?: $cLog->office_code;
+                    $cStep->date_in = $cLog->date_in;
+                    $cStep->date_out = $cLog->date_out;
+                    $cStep->is_hub = false;
+                    $cStep->is_active_step = ($cLog->office_code === $child->current_office && is_null($cLog->date_out));
+                    return $cStep;
+                });
+
+                $child->timeline_path = $childSteps;
+                return $child;
+            });
+
+            $t->child_branches = $childBranches;
 
             return $t;
         });
@@ -299,9 +403,19 @@ new #[Layout('layouts.dts')] #[Title('My Transactions - Document Tracking System
                     </thead>
                     <tbody>
                         @foreach($myList as $t)
-                            <tr style="border-bottom: 1px solid #f1f5f9;">
+                            @php
+                                $hasBranches = !empty($t->child_branches) && $t->child_branches->isNotEmpty();
+                                $isExpanded = in_array($t->control_number, $expandedHubTransactions);
+                            @endphp
+                            <tr style="border-bottom: 1px solid #f1f5f9; {{ $hasBranches && $isExpanded ? 'background: #f8fafc;' : '' }}">
                                 <td style="padding: 14px 16px; font-weight: 700; color: #0f172a;">
-                                    {{ $t->control_number }}
+                                    <div>{{ $t->control_number }}</div>
+                                    @if($hasBranches)
+                                        <button type="button" wire:click="toggleExpandHub('{{ $t->control_number }}')" style="margin-top: 6px; display: inline-flex; align-items: center; gap: 5px; background: #eff6ff; color: #1d4ed8; border: 1px solid #bfdbfe; padding: 2px 8px; border-radius: 9999px; font-size: 11px; font-weight: 700; cursor: pointer; transition: all 0.2s ease;">
+                                            <i class="fa-solid fa-bolt" style="color: #2563eb;"></i> {{ count($t->child_branches) + 1 }} Hub Units
+                                            <i class="fa-solid {{ $isExpanded ? 'fa-chevron-up' : 'fa-chevron-down' }}" style="font-size: 9px; margin-left: 2px;"></i>
+                                        </button>
+                                    @endif
                                 </td>
                                 <td style="padding: 14px 16px; color: #334155;">
                                     <span style="background: #f1f5f9; padding: 4px 8px; border-radius: 4px; font-size: 0.75rem; font-weight: 600;">
@@ -313,29 +427,65 @@ new #[Layout('layouts.dts')] #[Title('My Transactions - Document Tracking System
                                 </td>
                                 <td style="padding: 10px 12px; min-width: 220px; max-width: 320px;">
                                     <div style="display: flex; align-items: center; justify-content: flex-start; gap: 0; position: relative;">
-                                        @forelse ($t->timeline_path as $index => $step)
+                                         @forelse ($t->timeline_path as $index => $step)
                                             @php
+                                                $isHub = !empty($step->is_hub);
                                                 $isReceived = !is_null($step->date_in) || $t->status === 'completed';
                                                 $isForwarded = !is_null($step->date_out) || $t->status === 'completed';
 
-                                                $dotColor = $isReceived ? '#10b981' : '#dc2626';
-                                                $lineColor = $isForwarded ? '#10b981' : '#cbd5e1';
+                                                $isCurrentOffice = ($step->office_code === $t->current_office || ($isHub && $t->current_office === '[HUB]')) 
+                                                    && $step->sequence_ranking == $t->sequence 
+                                                    && $t->status !== 'completed';
 
-                                                $isCurrentOffice = $step->office_code === $t->current_office && $step->sequence_ranking == $t->sequence && $t->status !== 'completed';
-                                                $isInTransitToThisOffice = $step->sequence_ranking == $t->sequence && is_null($step->date_in) && $t->status !== 'completed';
+                                                $isInTransitToThisOffice = $step->sequence_ranking == $t->sequence 
+                                                    && is_null($step->date_in) 
+                                                    && !$isHub
+                                                    && $t->status !== 'completed';
+
+                                                if ($isHub) {
+                                                    if ($step->hub_forwarded_count > 0 && $step->hub_forwarded_count >= ($step->hub_total ?: 1)) {
+                                                        $dotColor = '#10b981';
+                                                        $labelColor = '#10b981';
+                                                    } elseif ($step->hub_received_count > 0) {
+                                                        $dotColor = '#2563eb';
+                                                        $labelColor = '#2563eb';
+                                                    } else {
+                                                        $dotColor = '#3b82f6';
+                                                        $labelColor = '#3b82f6';
+                                                    }
+                                                } else {
+                                                    $dotColor = $isReceived ? '#10b981' : '#dc2626';
+                                                    $labelColor = $isReceived ? '#10b981' : '#dc2626';
+                                                }
+
+                                                $lineColor = $isForwarded ? '#10b981' : ($isHub && $step->hub_received_count > 0 ? '#93c5fd' : '#cbd5e1');
+
+                                                $tooltipTitle = $isHub 
+                                                    ? ("Step " . ($index + 1) . ": " . ($step->office_name ?? '[HUB]') . " — " . ($step->hub_received_count ?? 0) . " of " . ($step->hub_total ?? 0) . " Received (" . ($isForwarded ? 'Forwarded' : ($isReceived ? 'Holding/Active' : 'Pending')) . ")")
+                                                    : ("Step " . ($index + 1) . ": " . ($step->office_name ?? $step->office_code) . " (" . ($isReceived ? ($isForwarded ? 'Forwarded' : 'Received/Holder') : 'Pending') . ")");
                                             @endphp
 
                                             <div class="dts-timeline-node-wrapper" style="position: relative; display: inline-flex; flex-direction: column; align-items: center; margin: 0;">
-                                                <div class="dts-timeline-node-dot" style="width: 26px; height: 26px; border-radius: 50%; background: {{ $dotColor }}; color: #ffffff; font-size: 11px; font-weight: 700; display: flex; align-items: center; justify-content: center; z-index: 2; cursor: pointer; {{ $isCurrentOffice ? 'box-shadow: 0 0 0 4px rgba(16, 185, 129, 0.35); border: 2px solid #ffffff;' : ($isInTransitToThisOffice ? 'box-shadow: 0 0 0 4px rgba(245, 158, 11, 0.35);' : '') }}" title="Step {{ $index + 1 }}: {{ $step->office_name ?? $step->office_code }} ({{ $isReceived ? ($isForwarded ? 'Forwarded' : 'Received/Holder') : 'Pending' }})">
-                                                    @if ($isReceived)
+                                                <div class="dts-timeline-node-dot" style="width: 26px; height: 26px; border-radius: 50%; background: {{ $dotColor }}; color: #ffffff; font-size: 11px; font-weight: 700; display: flex; align-items: center; justify-content: center; z-index: 2; cursor: pointer; {{ $isCurrentOffice ? 'box-shadow: 0 0 0 4px rgba(37, 99, 235, 0.3); border: 2px solid #ffffff;' : ($isInTransitToThisOffice ? 'box-shadow: 0 0 0 4px rgba(245, 158, 11, 0.35);' : '') }}" title="{{ $tooltipTitle }}">
+                                                    @if ($isHub)
+                                                        @if ($isForwarded && $step->hub_forwarded_count >= ($step->hub_total ?: 1))
+                                                            <i class="fa-solid fa-check" style="font-size: 10px;"></i>
+                                                        @else
+                                                            <i class="fa-solid fa-bolt" style="font-size: 10px;"></i>
+                                                        @endif
+                                                    @elseif ($isReceived)
                                                         <i class="fa-solid fa-check" style="font-size: 10px;"></i>
                                                     @else
                                                         {{ $index + 1 }}
                                                     @endif
                                                 </div>
 
-                                                <span style="margin-top: 4px; font-size: 10px; font-weight: 700; color: {{ $isReceived ? '#10b981' : '#dc2626' }}; font-family: 'Inter', sans-serif; white-space: nowrap;">
-                                                    {{ $step->office_code }}
+                                                <span style="margin-top: 4px; font-size: 10px; font-weight: 700; color: {{ $labelColor }}; font-family: 'Inter', sans-serif; white-space: nowrap;">
+                                                    @if($isHub)
+                                                        ⚡ [HUB]@if(!empty($step->hub_total))<span style="font-size: 8.5px; opacity: 0.85; margin-left: 1px;">({{ $step->hub_received_count }}/{{ $step->hub_total }})</span>@endif
+                                                    @else
+                                                        {{ $step->office_code }}
+                                                    @endif
                                                 </span>
                                             </div>
 
@@ -351,6 +501,69 @@ new #[Layout('layouts.dts')] #[Title('My Transactions - Document Tracking System
                                     {{ \Carbon\Carbon::parse($t->date_created)->format('M d, Y g:i A') }}
                                 </td>
                             </tr>
+
+                            {{-- Expanded Hub Sub-Rows --}}
+                            @if($hasBranches && $isExpanded)
+                                {{-- Primary Branch Sub-Row --}}
+                                <tr style="background: #f8fafc; border-bottom: 1px dashed #e2e8f0;">
+                                    <td style="padding: 10px 16px 10px 32px; font-size: 0.8rem; font-weight: 600; color: #334155;">
+                                        <span style="color: #64748b; margin-right: 4px;">↳ Branch #1 (Primary):</span>
+                                        <span style="color: #0f172a; font-weight: 700;">{{ $t->control_number }}</span>
+                                    </td>
+                                    <td style="padding: 10px 16px; font-size: 0.8rem; color: #475569;">
+                                        <span class="office-location-pill" style="font-size: 11px; padding: 2px 8px;">🏢 {{ $t->current_office_name ?: $t->current_office }}</span>
+                                    </td>
+                                    <td style="padding: 10px 16px; font-size: 0.8rem; color: #64748b;" colspan="3">
+                                        <span style="color: #059669; font-weight: 600;">Status:</span> {{ ucfirst($t->status) }}
+                                    </td>
+                                </tr>
+
+                                {{-- Child Branches Sub-Rows --}}
+                                @foreach($t->child_branches as $cIdx => $child)
+                                    <tr style="background: #f8fafc; border-bottom: 1px dashed #e2e8f0;">
+                                        <td style="padding: 10px 16px 10px 32px; font-size: 0.8rem; font-weight: 600; color: #334155;">
+                                            <span style="color: #64748b; margin-right: 4px;">↳ Branch #{{ $cIdx + 2 }}:</span>
+                                            <span style="color: #2563eb; font-weight: 700;">{{ $child->control_number }}</span>
+                                        </td>
+                                        <td style="padding: 10px 16px; font-size: 0.8rem; color: #475569;">
+                                            <span class="office-location-pill" style="font-size: 11px; padding: 2px 8px;">🏢 {{ $child->current_office_name ?: $child->current_office }}</span>
+                                        </td>
+                                        <td style="padding: 8px 12px; min-width: 220px;" colspan="2">
+                                            <div style="display: flex; align-items: center; justify-content: flex-start; gap: 0; position: relative;">
+                                                @forelse ($child->timeline_path as $cStepIdx => $cStep)
+                                                    @php
+                                                        $cIsReceived = !is_null($cStep->date_in) || $child->status === 'completed';
+                                                        $cIsForwarded = !is_null($cStep->date_out) || $child->status === 'completed';
+                                                        $cIsCurrent = $cStep->office_code === $child->current_office && is_null($cStep->date_out) && $child->status !== 'completed';
+                                                        $cDotColor = $cIsReceived ? '#10b981' : '#dc2626';
+                                                        $cLineColor = $cIsForwarded ? '#10b981' : '#cbd5e1';
+                                                    @endphp
+                                                    <div class="dts-timeline-node-wrapper" style="position: relative; display: inline-flex; flex-direction: column; align-items: center; margin: 0;">
+                                                        <div class="dts-timeline-node-dot" style="width: 22px; height: 22px; border-radius: 50%; background: {{ $cDotColor }}; color: #ffffff; font-size: 10px; font-weight: 700; display: flex; align-items: center; justify-content: center; z-index: 2; {{ $cIsCurrent ? 'box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.3); border: 2px solid #ffffff;' : '' }}" title="{{ $cStep->office_name ?: $cStep->office_code }}">
+                                                            @if ($cIsReceived)
+                                                                <i class="fa-solid fa-check" style="font-size: 9px;"></i>
+                                                            @else
+                                                                {{ $cStepIdx + 1 }}
+                                                            @endif
+                                                        </div>
+                                                        <span style="margin-top: 2px; font-size: 9px; font-weight: 700; color: {{ $cDotColor }}; font-family: 'Inter', sans-serif;">
+                                                            {{ $cStep->office_code }}
+                                                        </span>
+                                                    </div>
+                                                    @if (!$loop->last)
+                                                        <div style="flex: 1; height: 3px; background: {{ $cLineColor }}; min-width: 14px; margin: 0 -2px 10px -2px; border-radius: 2px; z-index: 1;"></div>
+                                                    @endif
+                                                @empty
+                                                    <span style="color: #94a3b8; font-size: 11px; font-style: italic;">No path data</span>
+                                                @endforelse
+                                            </div>
+                                        </td>
+                                        <td style="padding: 10px 16px; color: #64748b; font-size: 0.75rem;">
+                                            {{ \Carbon\Carbon::parse($child->date_created)->format('M d, Y g:i A') }}
+                                        </td>
+                                    </tr>
+                                @endforeach
+                            @endif
                         @endforeach
                     </tbody>
                 </table>
@@ -358,9 +571,23 @@ new #[Layout('layouts.dts')] #[Title('My Transactions - Document Tracking System
         @else
             <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 16px;">
                 @foreach($myList as $t)
+                    @php
+                        $hasBranches = !empty($t->child_branches) && $t->child_branches->isNotEmpty();
+                        $isExpanded = in_array($t->control_number, $expandedHubTransactions);
+                    @endphp
                     <div style="background: #ffffff; border-radius: 12px; padding: 18px; box-shadow: 0 2px 8px rgba(0,0,0,0.04); border: 1px solid #e2e8f0;">
                         <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 10px;">
-                            <span style="font-weight: 700; font-size: 1rem; color: #0f172a;">{{ $t->control_number }}</span>
+                            <div>
+                                <span style="font-weight: 700; font-size: 1rem; color: #0f172a;">{{ $t->control_number }}</span>
+                                @if($hasBranches)
+                                    <div>
+                                        <button type="button" wire:click="toggleExpandHub('{{ $t->control_number }}')" style="margin-top: 4px; display: inline-flex; align-items: center; gap: 4px; background: #eff6ff; color: #1d4ed8; border: 1px solid #bfdbfe; padding: 2px 8px; border-radius: 9999px; font-size: 11px; font-weight: 700; cursor: pointer;">
+                                            <i class="fa-solid fa-bolt" style="color: #2563eb;"></i> {{ count($t->child_branches) + 1 }} Hub Units
+                                            <i class="fa-solid {{ $isExpanded ? 'fa-chevron-up' : 'fa-chevron-down' }}" style="font-size: 9px;"></i>
+                                        </button>
+                                    </div>
+                                @endif
+                            </div>
                             <span class="office-location-pill">🏢 {{ $t->current_office_name ?: $t->current_office }}</span>
                         </div>
                         <h4 style="font-size: 0.95rem; font-weight: 600; color: #1e293b; margin: 0 0 6px 0;">
@@ -370,6 +597,24 @@ new #[Layout('layouts.dts')] #[Title('My Transactions - Document Tracking System
                             <div><strong>Type:</strong> {{ $t->doc_type_name ?: ucfirst($t->trans_type) }}</div>
                             <div><strong>Created:</strong> {{ \Carbon\Carbon::parse($t->date_created)->format('M d, Y') }}</div>
                         </div>
+
+                        @if($hasBranches && $isExpanded)
+                            <div style="margin-top: 12px; padding-top: 12px; border-top: 1px solid #e2e8f0; font-size: 0.8rem;">
+                                <div style="font-weight: 700; color: #334155; margin-bottom: 6px;">Hub Units:</div>
+                                <div style="display: flex; flex-direction: column; gap: 4px;">
+                                    <div style="display: flex; justify-content: space-between;">
+                                        <span style="font-weight: 600; color: #0f172a;">{{ $t->control_number }}</span>
+                                        <span style="color: #0369a1;">{{ $t->current_office }}</span>
+                                    </div>
+                                    @foreach($t->child_branches as $child)
+                                        <div style="display: flex; justify-content: space-between;">
+                                            <span style="font-weight: 600; color: #2563eb;">{{ $child->control_number }}</span>
+                                            <span style="color: #0369a1;">{{ $child->current_office }}</span>
+                                        </div>
+                                    @endforeach
+                                </div>
+                            </div>
+                        @endif
                     </div>
                 @endforeach
             </div>

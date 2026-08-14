@@ -34,22 +34,46 @@ class IssuancesFreeFlowTest extends TestCase
             ['office_code' => 'CAS'],
             ['office_name' => 'College of Arts and Sciences', 'is_active' => true]
         );
+        DB::table('office')->updateOrInsert(
+            ['office_code' => '[HUB]'],
+            ['office_name' => 'Office Hub [Multi-Receiving]', 'is_active' => true]
+        );
+
+        // Ensure a test flow with [HUB] exists
+        $testFlow = DB::table('dts_transaction_flow')->where('flow_code', 'FLOW-TEST-HUB')->first();
+        if (!$testFlow) {
+            $maxFlowId = (DB::table('dts_transaction_flow')->max('id') ?? 0) + 1;
+            DB::table('dts_transaction_flow')->insert([
+                'id' => $maxFlowId,
+                'flow_name' => 'Origin -> [HUB] -> Origin',
+                'flow_code' => 'FLOW-TEST-HUB',
+                'is_active' => true,
+                'flow_use' => 'issuances',
+                'flow_for' => 'system',
+                'added_by' => 1,
+                'date_added' => now(),
+            ]);
+
+            DB::table('dts_sequence_list')->insert([
+                ['control_id' => $maxFlowId, 'sequence_ranking' => 1, 'office_code' => 'ORIGIN'],
+                ['control_id' => $maxFlowId, 'sequence_ranking' => 2, 'office_code' => '[HUB]'],
+                ['control_id' => $maxFlowId, 'sequence_ranking' => 3, 'office_code' => 'ORIGIN'],
+            ]);
+        }
     }
 
-    public function test_can_toggle_between_free_flow_and_linear_modes()
+    public function test_flow_with_hub_enables_hub_mode()
     {
-        Volt::test('pages.dts.create.issuances')
-            ->assertSet('flow_mode', 'free_flow')
-            ->call('setFlowMode', 'linear')
-            ->assertSet('flow_mode', 'linear')
-            ->call('setFlowMode', 'free_flow')
-            ->assertSet('flow_mode', 'free_flow');
+        $comp = Volt::test('pages.dts.create.issuances')
+            ->set('transaction_flow', 'FLOW-TEST-HUB');
+
+        $this->assertTrue($comp->get('hasHub'));
     }
 
     public function test_adding_receiving_office_auto_adds_to_copy_furnished_and_removal_is_independent()
     {
         Volt::test('pages.dts.create.issuances')
-            ->set('flow_mode', 'free_flow')
+            ->set('transaction_flow', 'FLOW-TEST-HUB')
             ->call('selectFreeFlowOffice', 'ICTU')
             ->assertSet('free_flow_receiving_offices', ['ICTU'])
             ->assertSet('cf_selected_offices', ['ICTU'])
@@ -66,12 +90,12 @@ class IssuancesFreeFlowTest extends TestCase
             ->assertSet('cf_selected_offices', ['VP']);
     }
 
-    public function test_free_flow_issuance_creates_multi_office_broadcast_and_logs()
+    public function test_hub_issuance_creates_multi_office_broadcast_and_logs()
     {
-        $testSubject = 'Free Flow Test Memo - ' . uniqid();
+        $testSubject = 'Hub Routing Test Memo - ' . uniqid();
 
-        $component = Volt::test('pages.dts.create.issuances')
-            ->set('flow_mode', 'free_flow')
+        Volt::test('pages.dts.create.issuances')
+            ->set('transaction_flow', 'FLOW-TEST-HUB')
             ->set('issuance_type', 'NM')
             ->set('subject', $testSubject)
             ->call('selectFreeFlowOffice', 'ICTU')
@@ -81,31 +105,82 @@ class IssuancesFreeFlowTest extends TestCase
             ->call('save')
             ->assertHasNoErrors();
 
-        // Verify transaction exists in dts_transaction_details
+        // Verify primary transaction exists in dts_transaction_details for ICTU
         $transDetail = DB::table('dts_transaction_details')
             ->where('subject', $testSubject)
+            ->whereRaw("control_number NOT LIKE '%-1'")
             ->first();
 
         $this->assertNotNull($transDetail);
-        $this->assertEquals('FLOW-FREE-FLOW', $transDetail->transaction_flow);
 
-        // Verify tracking logs exist for ICTU, VP, and CAS
-        $logs = DB::table('sub_document_tracking_system_logs')
+        // Verify child transaction exists for VP with suffix -1
+        $childTrans = DB::table('dts_transaction_details')
+            ->where('subject', $testSubject)
+            ->where('control_number', $transDetail->control_number . '-1')
+            ->first();
+
+        $this->assertNotNull($childTrans);
+
+        // Verify child transaction has valid Hacore QR code registered in dts_qr_code
+        $childTransRecord = DB::table('dts_transactions')->where('transaction_id', $childTrans->id)->first();
+        $this->assertNotNull($childTransRecord);
+        $this->assertNotNull($childTransRecord->qr_code);
+
+        $qrRecord = DB::table('dts_qr_code')->where('code_id', $childTransRecord->qr_code)->first();
+        $this->assertNotNull($qrRecord);
+
+        // Verify tracking logs exist for ICTU on parent and VP on child
+        $parentLogs = DB::table('sub_document_tracking_system_logs')
             ->where('transaction_id', $transDetail->id)
             ->pluck('office_code')
             ->toArray();
+        $this->assertContains('ICTU', $parentLogs);
 
-        $this->assertContains('ICTU', $logs);
-        $this->assertContains('VP', $logs);
-        $this->assertContains('CAS', $logs);
+        $childLogs = DB::table('sub_document_tracking_system_logs')
+            ->where('transaction_id', $childTrans->id)
+            ->pluck('office_code')
+            ->toArray();
+        $this->assertContains('VP', $childLogs);
     }
 
-    public function test_receiving_office_can_receive_free_flow_issuance_in_incoming()
+    public function test_my_transactions_groups_child_branches_with_collapsible_dropdown()
     {
-        $testSubject = 'Free Flow Receive Test - ' . uniqid();
+        $testSubject = 'Hub Grouping Test Memo - ' . uniqid();
 
         Volt::test('pages.dts.create.issuances')
-            ->set('flow_mode', 'free_flow')
+            ->set('transaction_flow', 'FLOW-TEST-HUB')
+            ->set('issuance_type', 'NM')
+            ->set('subject', $testSubject)
+            ->call('selectFreeFlowOffice', 'ICTU')
+            ->call('selectFreeFlowOffice', 'VP')
+            ->call('save')
+            ->assertHasNoErrors();
+
+        $transDetail = DB::table('dts_transaction_details')
+            ->where('subject', $testSubject)
+            ->whereRaw("control_number NOT LIKE '%-1'")
+            ->first();
+
+        $this->assertNotNull($transDetail);
+
+        // Test My Transactions grouping and dropdown toggle
+        $comp = Volt::test('pages.dts.my-transactions')
+            ->set('searchQuery', $transDetail->control_number)
+            ->call('toggleExpandHub', $transDetail->control_number);
+
+        $this->assertContains($transDetail->control_number, $comp->get('expandedHubTransactions'));
+
+        // Toggle again to collapse
+        $comp->call('toggleExpandHub', $transDetail->control_number);
+        $this->assertNotContains($transDetail->control_number, $comp->get('expandedHubTransactions'));
+    }
+
+    public function test_receiving_office_can_receive_hub_issuance_in_incoming()
+    {
+        $testSubject = 'Hub Receive Test - ' . uniqid();
+
+        Volt::test('pages.dts.create.issuances')
+            ->set('transaction_flow', 'FLOW-TEST-HUB')
             ->set('issuance_type', 'OM')
             ->set('subject', $testSubject)
             ->call('selectFreeFlowOffice', 'ICTU')
@@ -140,4 +215,61 @@ class IssuancesFreeFlowTest extends TestCase
         $this->assertEquals('received', $receivedLog->type);
         $this->assertNotNull($receivedLog->date_in);
     }
+
+    public function test_hub_office_receiving_and_forwarding_notifies_origin()
+    {
+        $testSubject = 'Hub Notification Test - ' . uniqid();
+
+        // 1. Create Issuance with [HUB]
+        Volt::test('pages.dts.create.issuances')
+            ->set('transaction_flow', 'FLOW-TEST-HUB')
+            ->set('issuance_type', 'NM')
+            ->set('subject', $testSubject)
+            ->call('selectFreeFlowOffice', 'ICTU')
+            ->call('save')
+            ->assertHasNoErrors();
+
+        $transDetail = DB::table('dts_transaction_details')
+            ->where('subject', $testSubject)
+            ->first();
+
+        $this->assertNotNull($transDetail);
+        $originOffice = $transDetail->originated_from ?: 'ORIGIN';
+
+        // 2. Trigger notification for ICTU receiving the transaction
+        \App\Services\DtsNotificationService::notifyHubOfficeReceived(
+            $originOffice,
+            'ICTU',
+            $transDetail->control_number,
+            $transDetail->id
+        );
+
+        // Check if notification exists for origin office
+        $notif = DB::table('notifications')
+            ->join('notif_content', 'notif_content.id', '=', 'notifications.contents')
+            ->where('notifications.office', $originOffice)
+            ->where('notif_content.content', 'like', '%has received Transaction ' . $transDetail->control_number . '%')
+            ->first();
+
+        $this->assertNotNull($notif);
+
+        // 3. Trigger notification for ICTU completing and forwarding the transaction
+        \App\Services\DtsNotificationService::notifyHubOfficeForwarded(
+            $originOffice,
+            'ICTU',
+            $transDetail->control_number,
+            $transDetail->id,
+            'ICTU Officer'
+        );
+
+        // Check if forward notification exists for origin office
+        $fwdNotif = DB::table('notifications')
+            ->join('notif_content', 'notif_content.id', '=', 'notifications.contents')
+            ->where('notifications.office', $originOffice)
+            ->where('notif_content.content', 'like', '%has completed and forwarded Transaction ' . $transDetail->control_number . '%')
+            ->first();
+
+        $this->assertNotNull($fwdNotif);
+    }
 }
+

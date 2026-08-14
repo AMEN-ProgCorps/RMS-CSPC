@@ -273,6 +273,15 @@ window.executeDynamicPrint = function() {
 // Global helper for opening the DTS QR View Modal
 window.currentQrCodeValue = '';
 
+function escapeHtml(value) {
+    return String(value)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+}
+
 window.openQrViewModal = function(qrCode) {
     window.currentQrCodeValue = qrCode || '';
     var modal = document.getElementById('dts-qr-view-modal');
@@ -315,12 +324,13 @@ window.printQrCodeFromModal = function() {
         var printWin = window.open('', '_blank', 'width=600,height=600');
         var qrData = btoa(code);
         var qrUrl = 'https://api.qrserver.com/v1/create-qr-code/?size=250x250&data=' + encodeURIComponent(qrData);
-        printWin.document.write('<html><head><title>Print QR Code - ' + code + '</title>'
+        var safeCode = escapeHtml(code);
+        printWin.document.write('<html><head><title>Print QR Code - ' + safeCode + '</title>'
             + '<style>body{font-family:Roboto,sans-serif;display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:90vh;margin:0;}'
             + '.print-box{border:2px solid #000;padding:24px;border-radius:12px;display:inline-flex;flex-direction:column;align-items:center;gap:12px;}'
             + '.print-box img{width:200px;height:200px;}.print-box span{font-family:monospace;font-weight:bold;font-size:15px;}'
             + '@media print{body{min-height:auto;}}</style></head><body>'
-            + '<div class="print-box"><img src="' + qrUrl + '" alt="QR Code"><span>' + code + '</span></div>'
+            + '<div class="print-box"><img src="' + qrUrl + '" alt="QR Code"><span>' + safeCode + '</span></div>'
             + '</body></html>');
         printWin.document.close();
         printWin.focus();

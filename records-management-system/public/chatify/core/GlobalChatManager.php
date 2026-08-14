@@ -23,6 +23,28 @@ class GlobalChatManager
     private const MAX_STORED = 200; // keep at most this many global messages
 
     // -------------------------------------------------------------------------
+    // Message status ('active' | 'inactive') — self-heal on-the-fly
+    // -------------------------------------------------------------------------
+
+    /**
+     * Ensure chat_messages.status exists (safety net if the migration hasn't
+     * run yet — mirrors ConversationManager::ensureMessageStatusColumn()).
+     */
+    private static function ensureMessageStatusColumn(PDO $pdo): void
+    {
+        static $checked = false;
+        if ($checked) return;
+        $checked = true;
+
+        try {
+            $pdo->exec("ALTER TABLE chat_messages ADD COLUMN IF NOT EXISTS status VARCHAR(10) NOT NULL DEFAULT 'active'");
+            $pdo->exec("CREATE INDEX IF NOT EXISTS idx_chat_messages_status ON chat_messages (conv_id, status)");
+        } catch (Throwable $t) {
+            error_log('GlobalChatManager::ensureMessageStatusColumn() — ' . $t->getMessage());
+        }
+    }
+
+    // -------------------------------------------------------------------------
     // Message Read / Write
     // -------------------------------------------------------------------------
 
@@ -32,15 +54,16 @@ class GlobalChatManager
      * Returns messages in DESCENDING order (newest first); the caller must
      * call array_reverse() to display them oldest-first.
      *
-     * @param  int         $limit      Maximum rows to return (default 100)
+     * @param  int         $limit      Maximum rows to return (default 50)
      * @param  string|null $beforeUuid UUID of the oldest message already shown;
      *                                  null → return the newest $limit messages.
      * @return array<int, array>
      */
-    public static function loadRaw(int $limit = 100, ?string $beforeUuid = null): array
+    public static function loadRaw(int $limit = 50, ?string $beforeUuid = null): array
     {
         try {
             $pdo = Database::getConnection();
+            self::ensureMessageStatusColumn($pdo);
 
             if ($beforeUuid === null) {
                 // ── Initial load: newest $limit messages ──────────────────────
@@ -57,6 +80,7 @@ class GlobalChatManager
                      FROM chat_messages m
                      LEFT JOIN chat_messages r ON r.msg_uuid = m.reply_to_msg_uuid
                      WHERE m.conv_id = :conv_id
+                       AND m.status = \'active\'
                      ORDER BY m.created_at DESC, m.id DESC
                      LIMIT :lim'
                 );
@@ -89,6 +113,7 @@ class GlobalChatManager
                      LEFT JOIN chat_messages r ON r.msg_uuid = m.reply_to_msg_uuid
                      WHERE m.conv_id = :conv_id
                        AND (m.created_at, m.id) < (:cur_ts, :cur_id)
+                       AND m.status = \'active\'
                      ORDER BY m.created_at DESC, m.id DESC
                      LIMIT :lim'
                 );
@@ -116,8 +141,9 @@ class GlobalChatManager
     {
         try {
             $pdo  = Database::getConnection();
+            self::ensureMessageStatusColumn($pdo);
             $stmt = $pdo->prepare(
-                'SELECT COUNT(*) FROM chat_messages WHERE conv_id = :conv_id'
+                "SELECT COUNT(*) FROM chat_messages WHERE conv_id = :conv_id AND status = 'active'"
             );
             $stmt->execute([':conv_id' => self::CONV_ID]);
             return (int) $stmt->fetchColumn();
@@ -164,9 +190,22 @@ class GlobalChatManager
             $row = $stmt->fetch();
             if (!$row) return null;
 
+            if ($row['msg_type'] === 'upload') {
+                $rawPayload = safeDecrypt($row['message'] ?? '');
+                $decoded    = json_decode($rawPayload, true);
+                $file       = is_array($decoded) ? basename((string) ($decoded[0] ?? '')) : basename($rawPayload);
+                $ext        = strtolower(pathinfo($file, PATHINFO_EXTENSION));
+                $imageExts  = ['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp', 'svg'];
+                $snippet    = (in_array($ext, $imageExts, true) && $file !== '')
+                    ? 'image:' . $file
+                    : '📎 Attachment';
+            } else {
+                $snippet = safeDecrypt($row['message'] ?? '');
+            }
+
             return [
                 'msg_uuid' => $msgUuid,
-                'snippet'  => $row['msg_type'] === 'upload' ? '📎 Attachment' : safeDecrypt($row['message'] ?? ''),
+                'snippet'  => $snippet,
                 'type'     => $row['msg_type'],
             ];
         } catch (PDOException $e) {
@@ -278,33 +317,34 @@ class GlobalChatManager
     }
 
     /**
-     * Clear all global messages (and optionally delete upload files from disk).
+     * Soft-clear Global Chat ("/clear" while Super Admin is viewing Global
+     * Chat). Mirrors ConversationManager::deleteConversation()'s admin
+     * branch: this ONLY flips every currently-active global message to
+     * status='inactive'. Nothing is deleted, no upload files are touched —
+     * rows stay in chat_messages (just hidden from loadRaw(), which filters
+     * on status='active') until the separate, explicit "/backup" command
+     * (backup_dm.php → ConversationManager::backupGlobal()) moves them into
+     * chatify_chat_backup. This keeps /clear and /backup decoupled, same as
+     * the DM flow, so a clear can never silently destroy data.
+     *
+     * @return int Number of messages flipped to inactive.
      */
-    public static function clearChat(string $uploadsDir = ''): void
+    public static function softClearChat(): int
     {
         try {
             $pdo = Database::getConnection();
+            self::ensureMessageStatusColumn($pdo);
 
-            // Delete physical upload files first if requested (FAST: query msg_type = 'upload')
-            if ($uploadsDir && is_dir($uploadsDir)) {
-                $stmt = $pdo->prepare("SELECT message FROM chat_messages WHERE conv_id = :conv_id AND msg_type = 'upload'");
-                $stmt->execute([':conv_id' => self::CONV_ID]);
-                while ($msg = $stmt->fetch(PDO::FETCH_ASSOC)) {
-                    $filename = safeDecrypt($msg['message'] ?? '');
-                    if ($filename) {
-                        $path = rtrim($uploadsDir, '/') . '/' . $filename;
-                        if (file_exists($path)) {
-                            @unlink($path);
-                        }
-                    }
-                }
-            }
-
-            // Cascade deletes reactions too (FK ON DELETE CASCADE)
-            $stmt = $pdo->prepare('DELETE FROM chat_messages WHERE conv_id = :conv_id');
+            $stmt = $pdo->prepare(
+                "UPDATE chat_messages
+                 SET status = 'inactive', updated_at = NOW()
+                 WHERE conv_id = :conv_id AND status = 'active'"
+            );
             $stmt->execute([':conv_id' => self::CONV_ID]);
+            return $stmt->rowCount();
         } catch (PDOException $e) {
-            error_log('GlobalChatManager::clearChat() — ' . $e->getMessage());
+            error_log('GlobalChatManager::softClearChat() — ' . $e->getMessage());
+            return 0;
         }
     }
 

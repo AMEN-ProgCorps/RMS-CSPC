@@ -145,6 +145,8 @@ if (empty($errors)) {
         WsPush::push([$targetId, $senderId, 1], 'message', [
             'chat_type'         => 'private',
             'sender_id'         => $senderId,
+            'sender_name'       => $_SESSION['full_name'] ?? ($_SESSION['first_name'] ?? ''),
+            'sender_avatar'     => $_SESSION['avatar_url'] ?? null,
             'recipient_id'      => $targetId,
             'msg_uuid'          => $msgData['id'],
             'message'           => $message,

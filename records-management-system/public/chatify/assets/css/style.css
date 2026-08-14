@@ -1210,6 +1210,44 @@
       z-index: 2;
     }
 
+    /* ── Image reply-quote ─────────────────────────────────────────────────
+       When the quoted message is an image, show the actual thumbnail instead
+       of a plain "📎 Attachment" label. The real reply bubble overlaps the
+       bottom of the image thumbnail (same stacking trick as text quotes). */
+    .reply-quote.reply-quote-image-container {
+      padding: 4px;
+      background: transparent !important;
+      box-shadow: none !important;
+      opacity: 1 !important;
+      border-radius: 14px;
+      margin-bottom: -30px;
+      max-width: 200px;
+    }
+    .reply-quote-image {
+      display: block;
+      width: 100%;
+      max-width: 200px;
+      height: 100px;
+      object-fit: cover;
+      border-radius: 12px;
+      box-shadow: 0 2px 10px rgba(0,0,0,0.25);
+    }
+    /* Ensure the real message bubble sits on top of the image thumbnail */
+    .reply-quote-image-container + .message-bubble {
+      position: relative;
+      z-index: 2;
+    }
+    /* Reply banner thumbnail preview (shown above input when replying to image) */
+    #replyBannerSnippet img.reply-banner-img {
+      height: 36px;
+      width: 36px;
+      object-fit: cover;
+      border-radius: 5px;
+      vertical-align: middle;
+      margin-right: 5px;
+      box-shadow: 0 1px 4px rgba(0,0,0,0.18);
+    }
+
     /* Floating sending/upload overlay — positioned above the input area */
     #sending-overlay-container {
       position: absolute;
@@ -1648,7 +1686,14 @@
       min-height: 70px;
       display: flex;
       flex-direction: column;
-      justify-content: center;
+      /* was 'center': while the row's total content height was still less
+         than min-height (70px), every growth of the textarea shrank the
+         auto-added top/bottom centering space, so the whole message row
+         visibly shifted position as you typed — even before .input-area
+         itself needed to grow. Anchoring to the bottom removes that
+         re-centering shift; the row now stays put and only the textarea
+         itself grows upward. */
+      justify-content: flex-end;
     }
 
     .input-section {
@@ -1727,7 +1772,7 @@
 
     .message-input-container {
       display: flex;
-      align-items: center;
+      align-items: flex-end; /* keep attach/send pinned to the bottom as the textarea grows taller */
       gap: 8px;
       position: relative;
     }
@@ -1736,12 +1781,16 @@
        to the left of the textarea. */
     .message-input-container .attachment-btn {
       flex-shrink: 0;
+      margin-bottom: 2px; /* optical alignment with the textarea's bottom edge */
     }
 
     #messageInput {
       flex: 1;
       padding: 10px 16px;
       border-radius: 18px;
+      box-sizing: border-box; /* keep scrollHeight-driven auto-resize in sync with the
+                                  actual rendered box (padding+border), otherwise the
+                                  textarea creeps/jumps in size on every keystroke */
       /* Its own distinct fill so it still reads as an input field —
          it's the .input-area bar behind it that now blends with the
          chat view instead of being a separate container. */
@@ -1796,11 +1845,14 @@
       color: var(--text-secondary);
     }
 
+    /* Messenger-style circular send button. */
     #sendButton {
-      width: auto;
-      min-width: 70px;
-      height: 40px;
-      border-radius: 24px;
+      position: relative;
+      width: 42px;
+      height: 42px;
+      min-width: 42px;
+      flex-shrink: 0;
+      border-radius: 50%;
       background: #1b74e4;
       color: white;
       display: flex;
@@ -1808,15 +1860,22 @@
       justify-content: center;
       border: none;
       cursor: pointer;
-      transition: all 0.2s ease;
-      font-family: 'Inter', sans-serif;
-      font-size: 14px;
-      font-weight: 600;
-      box-shadow: none;
+      transition: background 0.2s ease, transform 0.2s ease, opacity 0.2s ease;
+      box-shadow: 0 1px 3px rgba(0, 0, 0, 0.25);
       margin-left: 0;
-      padding: 0 16px;
-      text-align: center;
+      margin-bottom: 0;
+      padding: 0;
       user-select: none;
+    }
+
+    #sendButton .send-icon {
+      display: block;
+      transform: translateX(1px); /* optically center the paper-plane glyph */
+    }
+
+    #sendButton.sending {
+      opacity: 0.6;
+      cursor: not-allowed;
     }
 
     #sendButton:disabled {
@@ -1830,7 +1889,7 @@
     }
 
     #sendButton:active:not(:disabled) {
-      transform: scale(0.97);
+      transform: scale(0.94);
     }
 
     /* Modal Styles */
@@ -1988,6 +2047,11 @@
       transition: opacity 0.2s ease, visibility 0.2s ease;
       padding: 64px 24px 24px;
       box-sizing: border-box;
+      /* Own pinch/pan is reimplemented in JS on the <img> only — block the
+         browser's native page pinch-zoom/pan while this modal is open so a
+         two-finger gesture here can never zoom the underlying chat UI. */
+      touch-action: none;
+      overscroll-behavior: contain;
     }
 
     .image-viewer-modal.active {
@@ -2003,6 +2067,18 @@
       object-fit: contain;
       user-select: none;
       -webkit-user-drag: none;
+      touch-action: none;
+      transform-origin: center center;
+      will-change: transform;
+      cursor: zoom-in;
+    }
+
+    .image-viewer-img.iv-zoomed {
+      cursor: grab;
+    }
+
+    .image-viewer-img.iv-dragging {
+      cursor: grabbing;
     }
 
     .image-viewer-close {
@@ -2288,7 +2364,6 @@
         max-width: 100%;
         transform: translate3d(-100%, 0, 0);
         z-index: 200;
-        box-shadow: 4px 0 24px rgba(0,0,0,0.15);
         will-change: transform;
       }
 

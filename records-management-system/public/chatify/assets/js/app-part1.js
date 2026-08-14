@@ -28,6 +28,7 @@
     // (next to Send), so no separate width-sync against #sendButton is
     // needed anymore — that was only for lining up the old two-row layout.
     let editingMsgId = null;
+    let chatFullyLoaded = false;
 
     function showEditBanner(msgId) {
       editingMsgId = msgId;
@@ -145,6 +146,7 @@
           name: wsConfig.name,
           expires: wsConfig.expires,
           token: wsConfig.token,
+          avatar_url: wsConfig.avatarUrl || null,
           comm_settings: window.currentUserCommSettings
         }));
       };
@@ -170,7 +172,11 @@
       const senderUser = allUsersData.find(u => Number(u.account_id) === Number(msgData.sender_id));
       const displayName = msgData.sender_name || (senderUser ? (senderUser.full_name || senderUser.username) : (isSentByMe ? wsConfig.name : 'User'));
       const initials = getInitials(displayName);
-      const senderAvatarUrl = isSentByMe ? wsConfig.avatarUrl : (senderUser ? senderUser.avatar_url : null);
+      // Prefer the avatar embedded in the WS payload (sender_avatar), then fall back
+      // to allUsersData lookup so avatars show even before the sidebar has loaded.
+      const senderAvatarUrl = isSentByMe
+        ? wsConfig.avatarUrl
+        : (msgData.sender_avatar || (senderUser ? senderUser.avatar_url : null));
 
       let timeDisplay = '';
       if (msgData.created_at) {
@@ -200,9 +206,17 @@
         }
       }
 
-      const replyQuoteHtml = (msgData.reply_to_msg_uuid && replySnippetText)
-        ? `<div class="reply-quote"><div class="reply-quote-text">${escapeHtml(String(replySnippetText).slice(0, 120))}</div></div>`
-        : '';
+      // Build the reply-quote bubble: image thumbnail for image: snippets, plain text otherwise.
+      let replyQuoteHtml = '';
+      if (msgData.reply_to_msg_uuid && replySnippetText) {
+        if (String(replySnippetText).startsWith('image:')) {
+          const imgFile = String(replySnippetText).slice(6);
+          const imgSrc  = 'uploads/' + imgFile;
+          replyQuoteHtml = `<div class="reply-quote reply-quote-image-container"><img src="${escapeHtml(imgSrc)}" class="reply-quote-image" alt="" referrerpolicy="no-referrer"></div>`;
+        } else {
+          replyQuoteHtml = `<div class="reply-quote"><div class="reply-quote-text">${escapeHtml(String(replySnippetText).slice(0, 120))}</div></div>`;
+        }
+      }
 
       container.innerHTML = `
         <div class="message-avatar">${avatarInnerHtml(senderAvatarUrl, initials)}</div>
@@ -225,7 +239,7 @@
 
       const atBottomNow = isAtBottom();
 
-      // Cap the DOM at PAGE_SIZE (100) visible messages so real-time
+      // Cap the DOM at PAGE_SIZE (50) visible messages so real-time
       // WebSocket pushes never grow the chat window without bound.
       // Only trim while actively viewing the live/latest window —
       // never while the user has paged back into older history.
@@ -362,7 +376,11 @@
           }
         } else if (data.type === 'typing') {
           if (activeDM && activeDMAccountId === Number(data.sender_id) && (!data.recipient_id || Number(data.recipient_id) === wsConfig.accountId)) {
-            showTypingIndicator(data.sender_name, data.is_typing);
+            const senderUser = allUsersData.find(u => Number(u.account_id) === Number(data.sender_id));
+            const senderName = (senderUser && (senderUser.name || senderUser.full_name))
+              ? (senderUser.name || senderUser.full_name)
+              : (data.sender_name || `User ${data.sender_id}`);
+            showTypingIndicator(senderName, data.is_typing);
           }
         } else if (data.type === 'typing_preview') {
           handleIncomingTypingPreview(data);
@@ -398,33 +416,102 @@
           }
         } else if (data.type === 'chat_cleared') {
           console.log('Received WebSocket real-time update notice:', data);
-          if (data.chat_type === 'private') {
-            const s = Number(data.sender_id);
-            const r = Number(data.recipient_id);
-            if (activeDM && activeDMAccountId && ((s === wsConfig.accountId && r === activeDMAccountId) || (s === activeDMAccountId && r === wsConfig.accountId))) {
-              loadChat(false, false, true);
+
+          // ── Global Chat clear (super admin "/clear" while in Global Chat) ──
+          // Distinct from the private/admin_conv cases below — there's no
+          // partner account to resolve, and the sidebar list itself isn't
+          // affected (no conversation entry disappears).
+          if (data.chat_type === 'global') {
+            gcCursor = '';
+            gcViewingOlder = false;
+            removePaginationBtn();
+            // If this user happens to have an attachment open in the
+            // lightbox at the exact moment Global Chat gets cleared, close
+            // it too — otherwise a since-deleted image would keep sitting
+            // on screen even though the message pane behind it is empty.
+            if (typeof closeImageViewer === 'function') closeImageViewer();
+            if (isGlobalChat) {
+              if (chatBox) chatBox.innerHTML = '<div class="empty-chat"><p>Camarines Sur Polytechnic Colleges</p></div>';
+              isFirstLoad = true;
+              chatFullyLoaded = false;
+              loadGlobalChat(false, false);
             }
-            if (activeAdminConv) {
-              const parts = activeAdminConv.split('_').map(Number);
-              if ((s === parts[0] && r === parts[1]) || (s === parts[1] && r === parts[0])) {
-                loadAdminConv(activeAdminConv, true);
-              }
-            }
-          } else if (data.chat_type === 'admin_conv') {
-            const a = Number(data.user_a);
-            const b = Number(data.user_b);
-            if (activeAdminConv) {
-              const parts = activeAdminConv.split('_').map(Number);
-              if ((parts[0] === a && parts[1] === b) || (parts[0] === b && parts[1] === a)) {
-                loadAdminConv(activeAdminConv, true);
-              }
-            }
-            if (activeDM && activeDMAccountId && ((a === wsConfig.accountId && b === activeDMAccountId) || (b === wsConfig.accountId && a === activeDMAccountId))) {
-              loadChat(false, false, true);
+            fetchUsers();
+            return;
+          }
+
+          const _ca = Number(data.user_a);
+          const _cb = Number(data.user_b);
+          const _senderId    = Number(data.sender_id    || 0);
+          const _recipientId = Number(data.recipient_id || 0);
+          const myId = wsConfig.accountId;
+
+          // Determine the partner account ID from whatever fields are present.
+          // Primary: user_a / user_b pair. Fallback: sender_id / recipient_id.
+          let _partnerId = null;
+          if (_ca > 0 && _cb > 0) {
+            _partnerId = (_ca === myId) ? _cb : (_cb === myId) ? _ca : null;
+          }
+          if (_partnerId === null && (_senderId > 0 || _recipientId > 0)) {
+            _partnerId = (_senderId === myId) ? _recipientId
+                       : (_recipientId === myId) ? _senderId
+                       : (_senderId > 0 ? _senderId : _recipientId);
+          }
+
+          // ── 1. Immediately strip the cleared entry from the sidebar ──────────
+          if (_partnerId !== null && _partnerId > 0) {
+            const idx = allUsersData.findIndex(u => Number(u.account_id) === _partnerId);
+            if (idx !== -1) {
+              allUsersData.splice(idx, 1);
+              renderSidebarUsers();
             }
           }
-          // Admin spy mode: keep the "X msgs · last message" counts in the
-          // conversations list live when a conversation is cleared.
+
+          // ── 2. If the user is currently viewing this conversation, wipe the
+          //       chat pane immediately — don't wait for resetToHome()'s async
+          //       fetchUsers() to repaint. Abort any in-flight load_dm.php XHR
+          //       so stale messages can't come back over the top. ───────────────
+          const _currentDMIsCleared =
+            activeDM && (
+              // Match by account-ID pair (most reliable)
+              (_ca > 0 && _cb > 0 && activeDMAccountId &&
+                ((_ca === myId && _cb === activeDMAccountId) ||
+                 (_cb === myId && _ca === activeDMAccountId))) ||
+              // Fallback 1: sender/recipient ID matches
+              (_partnerId !== null && activeDMAccountId === _partnerId) ||
+              // Fallback 2: username match via allUsersData lookup
+              (_partnerId !== null && (() => {
+                const partnerUser = allUsersData.find(u => Number(u.account_id) === Number(_partnerId));
+                return partnerUser && partnerUser.username === activeDM;
+              })())
+            );
+
+          const _currentAdminConvIsCleared =
+            activeAdminConv && _ca > 0 && _cb > 0 && (() => {
+              const parts = activeAdminConv.split('_').map(Number);
+              return (parts[0] === _ca && parts[1] === _cb) ||
+                     (parts[0] === _cb && parts[1] === _ca);
+            })();
+
+          if (_currentDMIsCleared || _currentAdminConvIsCleared) {
+            // Abort any in-flight chat XHR immediately so it can't overwrite
+            if (typeof chatXhr !== 'undefined' && chatXhr) {
+              chatXhr.abort();
+              chatXhr = null;
+            }
+            if (typeof adminConvXhr !== 'undefined' && adminConvXhr) {
+              adminConvXhr.abort();
+              adminConvXhr = null;
+            }
+            // Wipe the pane now — resetToHome() will confirm it, but this
+            // makes the clear visually instant without waiting for XHR round-trips.
+            if (chatBox) {
+              chatBox.innerHTML = '<div class="empty-chat"><p>Camarines Sur Polytechnic Colleges</p></div>';
+            }
+            resetToHome();
+          }
+
+          // ── 3. Admin spy mode counts ────────────────────────────────────────
           if (isAdminAllChatsView && adminSpyType === 'conversations' && adminSpyTargetUser) {
             const spyId = Number(adminSpyTargetUser.account_id);
             let touchesSpyTarget = false;
@@ -452,9 +539,7 @@
             // If viewing global chat, reload it (now empty)
             loadGlobalChat(false);
           } else {
-            activeDM = null; activeAdminConv = null; isGlobalChat = false;
-            updateClearChatButtonVisibility();
-            chatBox.innerHTML = '<div class="empty-chat"><p>All messages deleted.</p></div>';
+            resetToHome();
           }
           allUsersData = [];
           renderSidebarUsers();
@@ -545,7 +630,14 @@
       maxLen = maxLen || 22;
       if (!name) return name;
       name = String(name).trim();
-      return name.length > maxLen ? name.slice(0, maxLen).trim() + '…' : name;
+      return name.length > maxLen ? name.slice(0, maxLen).trim() + '...' : name;
+    }
+
+    // Returns only the first word of a full name (e.g. "Juan Dela Cruz" -> "Juan").
+    // Used so the typing indicator shows "Juan is typing" rather than the full name.
+    function getFirstNameOnly(name) {
+      if (!name) return name;
+      return String(name).trim().split(/\s+/)[0] || String(name).trim();
     }
 
     function showTypingIndicator(senderName, isTyping) {
@@ -558,7 +650,8 @@
       }
 
       if (isTyping && activeDM) {
-        textEl.textContent = `${truncateTypingName(senderName)} is typing`;
+        // Show full name (First Name and Last Name) and cap length
+        textEl.textContent = `${truncateTypingName(senderName, 40)} is typing`;
         indicator.classList.add('active');
 
         // Auto-expire after 4 seconds as a safety cleanup
@@ -1325,7 +1418,7 @@
     // once. Loading an older page swaps the window rather than growing it
     // indefinitely — the newest messages get trimmed off the bottom to make
     // room, and clicking "Go to bottom" snaps back to the latest PAGE_SIZE.
-    const PAGE_SIZE = 100;
+    const PAGE_SIZE = 50;
     let gcCursor = '';
     let gcHasMore = false;
     let gcViewingOlder = false; // true once the user has loaded an older window
@@ -1341,6 +1434,12 @@
       activeDM = u.username;
       activeDMAccountId = Number(u.account_id);
       activeAdminConv = null;
+
+      // Ensure the selected user is in allUsersData so avatar lookups work
+      // immediately on new chats where this person hasn't been loaded yet.
+      if (!allUsersData.find(function(x) { return Number(x.account_id) === Number(u.account_id); })) {
+        allUsersData.unshift(u);
+      }
       updateClearChatButtonVisibility();
       dmCursor = '';
       dmHasMore = false;
@@ -1365,6 +1464,7 @@
       showTypingIndicator('', false);
 
       isFirstLoad = true; // snap straight to bottom once the new conversation's messages arrive
+      chatFullyLoaded = false; // suppress scroll buttons until new chat finishes loading
       localStorage.setItem('activeDM', u.username);
       chatHeaderTitle.textContent = u.name;
       applyHeaderAdminBadge();
@@ -1409,7 +1509,7 @@
       clearSendingOverlay(); // drop any pending-send bubbles from the previous conversation
       hideEditBanner();
       isFirstLoad = true;
-      
+      chatFullyLoaded = false; // suppress scroll buttons until global chat finishes loading
       // Reset local typing indicator state
       if (localTypingTimeout) {
         clearTimeout(localTypingTimeout);
@@ -1452,10 +1552,10 @@
     // Track whether older messages are available for the current chat
     let hasOlderMessages = false;
 
-    // Show/hide the floating load-older button based on scroll position + availability
     function syncLoadOlderBtn() {
       if (!loadOlderFloatingBtn) return;
-      if (hasOlderMessages && userScrolledUp) {
+      const isAtTop = chatBox.scrollTop <= 5;
+      if (hasOlderMessages && chatFullyLoaded && isAtTop) {
         loadOlderFloatingBtn.classList.add('visible');
       } else {
         loadOlderFloatingBtn.classList.remove('visible');
@@ -1554,7 +1654,7 @@
     // Scroll position is preserved: removing nodes from the top shrinks
     // scrollHeight, so scrollTop is shifted by the exact delta, keeping
     // whatever the user was looking at visually stable (no jump).
-    function trimChatMessages(maxMessages = 100) {
+    function trimChatMessages(maxMessages = 50) {
       if (!chatBox) return;
       const items = Array.from(chatBox.querySelectorAll('.message-container'));
       const excess = items.length - maxMessages;
@@ -2125,12 +2225,13 @@
       }
     });
 
-    backButton.addEventListener('click', () => {
+    function resetToHome() {
       activeDM = null;
       activeDMAccountId = null;
       activeAdminConv = null;
-      updateClearChatButtonVisibility();
       isGlobalChat = false;
+      
+      updateClearChatButtonVisibility();
       
       // Reset local typing indicator state
       if (localTypingTimeout) {
@@ -2148,20 +2249,44 @@
       showTypingIndicator('', false);
 
       localStorage.removeItem('activeDM');
-
+      localStorage.removeItem('activeSpyConv');
       removePaginationBtn();
+
+      // Reset header to default home state
+      if (chatHeaderTitle) {
+        chatHeaderTitle.textContent = '';
+      }
+      if (typeof applyHeaderAvatar === 'function') {
+        applyHeaderAvatar(null);
+      }
+      if (typeof applyHeaderAdminBadge === 'function') {
+        applyHeaderAdminBadge();
+      }
+
+      // Mobile/Tablet sidebar adjustments
       if (window.innerWidth <= 991) {
-        sidebar.classList.add('open');
+        if (sidebar) sidebar.classList.add('open');
         const backdrop = document.getElementById('sidebarBackdrop');
         if (backdrop) backdrop.classList.add('visible');
-        backButton.style.display = 'none';
-        burgerButton.style.display = 'inline-flex';
+        if (backButton) backButton.style.display = 'none';
+        if (burgerButton) burgerButton.style.display = 'inline-flex';
       }
-      chatBox.innerHTML = '<div class="empty-chat"><p>Camarines Sur Polytechnic Colleges</p></div>';
-      document.getElementById('globalChatItem').classList.remove('active');
+
+      if (chatBox) {
+        chatBox.innerHTML = '<div class="empty-chat"><p>Camarines Sur Polytechnic Colleges</p></div>';
+      }
+      const gcItem = document.getElementById('globalChatItem');
+      if (gcItem) gcItem.classList.remove('active');
+      
       renderSidebarUsers();
       if (serverIsAdmin) renderAdminConvs();
-    });
+      fetchUsers();
+      if ((typeof serverIsAdmin !== 'undefined' ? serverIsAdmin : isAdmin) && typeof adminSpyTargetUser !== 'undefined' && adminSpyTargetUser) {
+        fetchAdminConvs('', 0, false, adminSpyTargetUser.account_id);
+      }
+    }
+
+    backButton.addEventListener('click', resetToHome);
 
     // Helper: get or create the floating sending overlay container
     function getSendingOverlay() {

@@ -180,10 +180,9 @@ try {
       }
     })();
   </script>
-  <link rel="stylesheet" href="assets/css/style.css">
+  <link rel="stylesheet" href="assets/css/style.css?v=<?php echo filemtime(__DIR__ . '/assets/css/style.css'); ?>">
 
 </head>
-<body tabindex="-1">
   <div class="app-wrapper">
     <!-- Sidebar Backdrop for Mobile/Tablet -->
     <div class="sidebar-backdrop" id="sidebarBackdrop"></div>
@@ -208,7 +207,7 @@ try {
         </div>
       </div>
       <div class="sidebar-search" id="ownSidebarSearch">
-        <input type="text" id="searchInput" name="csp_srch_own_2k9" placeholder="Search for a user or office..." autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" data-lpignore="true" data-1p-ignore="true" data-form-type="other" role="combobox" aria-autocomplete="list">
+        <input type="text" id="searchInput" name="csp_srch_own_2k9" placeholder="Search" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" data-lpignore="true" data-1p-ignore="true" data-form-type="other" role="combobox" aria-autocomplete="list">
       </div>
       <!-- Pinned Global Chat entry -->
       <div class="user-item" id="globalChatItem" onclick="selectGlobalChat()" style="border-bottom:1px solid var(--border-color);">
@@ -228,7 +227,7 @@ try {
       <div id="adminConvsSection" style="display:none;position:relative;">
         <div id="adminConvsHeaderTitle" style="padding:8px 16px 4px;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.8px;color:var(--text-secondary);margin-top:4px;text-align:center;"></div>
         <div class="admin-search" style="padding: 6px 16px;">
-          <input type="text" id="adminSearchInput" name="csp_srch_adm_7v3" placeholder="Search for a user or office..." autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" data-lpignore="true" data-1p-ignore="true" data-form-type="other" role="combobox" aria-autocomplete="list">
+          <input type="text" id="adminSearchInput" name="csp_srch_adm_7v3" placeholder="Search" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" data-lpignore="true" data-1p-ignore="true" data-form-type="other" role="combobox" aria-autocomplete="list">
         </div>
         <div class="sidebar-users" id="adminConvsList"></div>
       </div>
@@ -334,7 +333,11 @@ try {
             <path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/>
           </svg>
         </button>
-        <button type="submit" id="sendButton">Send</button>
+        <button type="submit" id="sendButton" aria-label="Send message" title="Send">
+          <svg class="send-icon" viewBox="0 0 24 24" width="19" height="19" fill="#fff" xmlns="http://www.w3.org/2000/svg">
+            <path d="M2 21l21-9L2 3v7l15 2-15 2z"/>
+          </svg>
+        </button>
       </form>
 
       <!-- Admin Spy Mode Notice -->

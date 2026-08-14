@@ -18,7 +18,7 @@ if (empty($convId) || !preg_match('/^\d+_\d+$/', $convId)) {
 }
 
 // ── Pagination & Incremental Fetching ──────────────────────────────────────────
-$limit      = 100;
+$limit      = 50;
 $beforeUuid = isset($_GET['before_uuid']) && $_GET['before_uuid'] !== '' ? (string) $_GET['before_uuid'] : null;
 $sinceUuid  = isset($_GET['since_uuid'])  && $_GET['since_uuid']  !== '' ? (string) $_GET['since_uuid']  : null;
 
@@ -77,12 +77,22 @@ function adminGetInitials(string $name): string
  */
 function adminBuildReplyQuoteHtml(?string $encryptedReplyMessage, string $replyType): string
 {
+    global $uploadsDir, $imageExts;
+
     if ($encryptedReplyMessage === null) {
         return '';
     }
 
     if ($replyType === 'upload') {
-        $snippet = '📎 Attachment';
+        $rawPayload = safeDecrypt($encryptedReplyMessage);
+        $decoded    = json_decode($rawPayload, true);
+        $file       = is_array($decoded) ? basename((string) ($decoded[0] ?? '')) : basename($rawPayload);
+        $ext        = strtolower(pathinfo($file, PATHINFO_EXTENSION));
+        if (in_array($ext, $imageExts, true) && $file !== '' && file_exists($uploadsDir . $file)) {
+            $fnUrl = htmlspecialchars('uploads/' . rawurlencode($file), ENT_QUOTES);
+            return "<div class='reply-quote reply-quote-image-container'><img src='{$fnUrl}' class='reply-quote-image' alt='' referrerpolicy='no-referrer'></div>";
+        }
+        $snippet = 'Attachment';
     } else {
         $snippet = safeDecrypt($encryptedReplyMessage);
     }

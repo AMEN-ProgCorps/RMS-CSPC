@@ -5,7 +5,7 @@
 // GET params:
 //   before_uuid (string, optional) — msg_uuid of the oldest message already shown;
 //                                     omit to load the latest messages.
-//   limit       (int, optional)    — messages per page, default 100, max 100.
+//   limit       (int, optional)    — messages per page, default 50, max 50.
 //
 // Returns JSON:
 //   { html: string, hasMore: bool, nextCursor: string|null }
@@ -33,7 +33,7 @@ if ($internalSecret !== '' && hash_equals(INTERNAL_PUSH_SECRET, $internalSecret)
 }
 
 // ── Pagination params ─────────────────────────────────────────────────────────
-$limit      = 100;
+$limit      = 50;
 $beforeUuid = isset($_GET['before_uuid']) && $_GET['before_uuid'] !== '' ? (string) $_GET['before_uuid'] : null;
 
 // ── Load data ────────────────────────────────────────────────────────────────
@@ -91,7 +91,16 @@ function gcBuildReplyQuoteHtml(?string $encryptedReplyMessage, string $replyType
     }
 
     if ($replyType === 'upload') {
-        $snippet = '📎 Attachment';
+        $rawPayload = safeDecrypt($encryptedReplyMessage);
+        $decoded    = json_decode($rawPayload, true);
+        $file       = is_array($decoded) ? basename((string) ($decoded[0] ?? '')) : basename($rawPayload);
+        $ext        = strtolower(pathinfo($file, PATHINFO_EXTENSION));
+        $imageExts  = ['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp', 'svg'];
+        if (in_array($ext, $imageExts, true) && $file !== '' && file_exists(__DIR__ . '/uploads/' . $file)) {
+            $fnUrl = htmlspecialchars('uploads/' . rawurlencode($file), ENT_QUOTES);
+            return "<div class='reply-quote reply-quote-image-container'><img src='{$fnUrl}' class='reply-quote-image' alt='' referrerpolicy='no-referrer'></div>";
+        }
+        $snippet = 'Attachment';
     } else {
         $snippet = safeDecrypt($encryptedReplyMessage);
     }
@@ -101,9 +110,9 @@ function gcBuildReplyQuoteHtml(?string $encryptedReplyMessage, string $replyType
         return '';
     }
     if (function_exists('mb_strlen') && mb_strlen($snippet) > 120) {
-        $snippet = mb_substr($snippet, 0, 120) . '…';
+        $snippet = mb_substr($snippet, 0, 120) . '...';
     } elseif (strlen($snippet) > 120) {
-        $snippet = substr($snippet, 0, 120) . '…';
+        $snippet = substr($snippet, 0, 120) . '...';
     }
 
     $snippetEsc = htmlspecialchars($snippet, ENT_QUOTES);
@@ -220,34 +229,47 @@ foreach ($rawMessages as $msg) {
             }
 
             if ($allImages) {
-                $html .= "<div class='message-media' style='display:flex; flex-direction:column; gap:8px;'>";
-                foreach ($decoded as $fn) {
-                    $fn      = basename((string)$fn);
-                    $fnUrl   = 'uploads/' . rawurlencode($fn);
-                    $fnEsc   = htmlspecialchars($fn, ENT_QUOTES);
-                    $html   .= "<img src='{$fnUrl}' alt='{$fnEsc}' class='chat-viewable-image' data-full-src='{$fnUrl}' style='width:100%;max-width:240px;max-height:260px;height:auto;border-radius:12px;display:block;cursor:pointer;object-fit:cover;box-shadow:0 2px 8px rgba(0,0,0,0.18);' />";
+                // Only keep images whose files still exist on disk
+                $existingFiles = array_values(array_filter($decoded, function ($fn) use ($uploadsDir) {
+                    return file_exists($uploadsDir . basename((string)$fn));
+                }));
+
+                if (!empty($existingFiles)) {
+                    $html .= "<div class='message-media' style='display:flex; flex-direction:column; gap:8px;'>";
+                    foreach ($existingFiles as $fn) {
+                        $fn      = basename((string)$fn);
+                        $fnUrl   = 'uploads/' . rawurlencode($fn);
+                        $fnEsc   = htmlspecialchars($fn, ENT_QUOTES);
+                        $html   .= "<img src='{$fnUrl}' alt='{$fnEsc}' class='chat-viewable-image' data-full-src='{$fnUrl}' style='width:100%;max-width:240px;max-height:260px;height:auto;border-radius:12px;display:block;cursor:pointer;object-fit:cover;box-shadow:0 2px 8px rgba(0,0,0,0.18);' />";
+                    }
+                    $html .= "<div class='message-info' style='padding:3px 2px;'><span class='message-sender'>{$senderLabel}{$adminBadge}</span></div>";
+                    $html .= "</div>"; // .message-media
                 }
-                $html .= "<div class='message-info' style='padding:3px 2px;'><span class='message-sender'>{$senderLabel}{$adminBadge}</span></div>";
-                $html .= "</div>"; // .message-media
             } else {
                 // Mixed files — render each as its own attachment link
                 $linkColor = $isSent ? 'white' : '#1b74e4';
-                $html .= "<div class='message-bubble'>";
-                $html .= "<div class='message-content' style='display:flex;flex-direction:column;gap:6px;'>";
+                $itemsHtml = '';
                 foreach ($decoded as $fn) {
                     $fn    = basename((string)$fn);
                     $fnUrl = 'uploads/' . rawurlencode($fn);
                     $fnEsc = htmlspecialchars($fn, ENT_QUOTES);
                     $fnExt = strtolower(pathinfo($fn, PATHINFO_EXTENSION));
                     if (in_array($fnExt, $imageExts, true)) {
-                        $html .= "<img src='{$fnUrl}' alt='{$fnEsc}' class='chat-viewable-image' data-full-src='{$fnUrl}' style='width:100%;max-width:240px;max-height:260px;height:auto;border-radius:12px;display:block;cursor:pointer;object-fit:cover;' />";
+                        if (file_exists($uploadsDir . $fn)) {
+                            $itemsHtml .= "<img src='{$fnUrl}' alt='{$fnEsc}' class='chat-viewable-image' data-full-src='{$fnUrl}' style='width:100%;max-width:240px;max-height:260px;height:auto;border-radius:12px;display:block;cursor:pointer;object-fit:cover;' />";
+                        }
                     } else {
-                        $html .= "<a href='{$fnUrl}' target='_blank' rel='noopener' style='color:{$linkColor};text-decoration:underline;font-size:13px;word-break:break-all;'>{$fnEsc}</a>";
+                        $itemsHtml .= "<a href='{$fnUrl}' target='_blank' rel='noopener' style='color:{$linkColor};text-decoration:underline;font-size:13px;word-break:break-all;'>{$fnEsc}</a>";
                     }
                 }
-                $html .= "</div>";
-                $html .= "<div class='message-info'><span class='message-sender'>{$senderLabel}{$adminBadge}</span></div>";
-                $html .= "</div>"; // .message-bubble
+                if ($itemsHtml !== '') {
+                    $html .= "<div class='message-bubble'>";
+                    $html .= "<div class='message-content' style='display:flex;flex-direction:column;gap:6px;'>";
+                    $html .= $itemsHtml;
+                    $html .= "</div>";
+                    $html .= "<div class='message-info'><span class='message-sender'>{$senderLabel}{$adminBadge}</span></div>";
+                    $html .= "</div>"; // .message-bubble
+                }
             }
 
         } else {
@@ -258,10 +280,12 @@ foreach ($rawMessages as $msg) {
             $fileEsc = htmlspecialchars($file, ENT_QUOTES);
 
             if (in_array($ext, $imageExts, true)) {
-                $html .= "<div class='message-media'>";
-                $html .= "<img src='{$url}' alt='{$fileEsc}' class='chat-viewable-image' data-full-src='{$url}' style='width:100%;max-width:240px;max-height:260px;height:auto;border-radius:12px;display:block;cursor:pointer;object-fit:cover;box-shadow:0 2px 8px rgba(0,0,0,0.18);' />";
-                $html .= "<div class='message-info' style='padding:3px 2px;'><span class='message-sender'>{$senderLabel}{$adminBadge}</span></div>";
-                $html .= "</div>";
+                if (file_exists($uploadsDir . $file)) {
+                    $html .= "<div class='message-media'>";
+                    $html .= "<img src='{$url}' alt='{$fileEsc}' class='chat-viewable-image' data-full-src='{$url}' style='width:100%;max-width:240px;max-height:260px;height:auto;border-radius:12px;display:block;cursor:pointer;object-fit:cover;box-shadow:0 2px 8px rgba(0,0,0,0.18);' />";
+                    $html .= "<div class='message-info' style='padding:3px 2px;'><span class='message-sender'>{$senderLabel}{$adminBadge}</span></div>";
+                    $html .= "</div>";
+                }
 
             } elseif (in_array($ext, $audioExts, true)) {
                 $mime  = $mimeMap[$ext] ?? 'audio/' . $ext;

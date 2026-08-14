@@ -94,6 +94,7 @@
       imageViewerModal.classList.add('active');
       imageViewerModal.setAttribute('aria-hidden', 'false');
       document.body.style.overflow = 'hidden';
+      ivResetTransform();
     }
 
     function closeImageViewer() {
@@ -101,12 +102,222 @@
       imageViewerModal.classList.remove('active');
       imageViewerModal.setAttribute('aria-hidden', 'true');
       document.body.style.overflow = '';
+      ivResetTransform();
       setTimeout(function() {
         if (!imageViewerModal.classList.contains('active')) {
           imageViewerModal.style.display = 'none';
           if (imageViewerImg) imageViewerImg.src = '';
         }
       }, 200);
+    }
+
+    // ── Image Viewer: pinch-to-zoom / pan, scoped to the image only ────────
+    // The app's viewport meta allows page pinch-zoom (needed elsewhere), so
+    // without this, a two-finger pinch on the preview image would zoom the
+    // whole browser page instead of the image — and that zoom would still be
+    // there after the modal closed, leaving the rest of the chat UI zoomed
+    // in too. touch-action: none (see CSS) stops the browser from handling
+    // the gesture natively; everything below reimplements pinch-zoom, pan,
+    // and double-tap-to-zoom for the <img> itself via a CSS transform, which
+    // is fully reset on close and never touches the page's own zoom level.
+    let ivScale = 1, ivTx = 0, ivTy = 0;
+    const IV_MIN_SCALE = 1;
+    const IV_MAX_SCALE = 4;
+    let ivBaseRect = null;       // untransformed layout box of the image
+    let ivMode = null;           // 'pinch' | 'pan' | null
+    let ivPinchStartDist = 0, ivPinchStartScale = 1;
+    let ivAnchorU = 0.5, ivAnchorV = 0.5; // fractional point under the fingers, kept fixed while pinching
+    let ivPanLastX = 0, ivPanLastY = 0;
+    let ivLastTapTime = 0, ivLastTapX = 0, ivLastTapY = 0;
+
+    function ivApplyTransform() {
+      if (!imageViewerImg) return;
+      imageViewerImg.style.transform = 'translate(' + ivTx + 'px,' + ivTy + 'px) scale(' + ivScale + ')';
+      imageViewerImg.classList.toggle('iv-zoomed', ivScale > 1);
+    }
+
+    function ivResetTransform() {
+      ivScale = 1;
+      ivTx = 0;
+      ivTy = 0;
+      ivMode = null;
+      if (imageViewerImg) {
+        imageViewerImg.style.transition = 'none';
+        ivApplyTransform();
+      }
+    }
+
+    function ivClampTranslate() {
+      if (!ivBaseRect) return;
+      const maxTx = Math.max((ivBaseRect.width * ivScale - ivBaseRect.width) / 2, 0);
+      const maxTy = Math.max((ivBaseRect.height * ivScale - ivBaseRect.height) / 2, 0);
+      ivTx = Math.min(Math.max(ivTx, -maxTx), maxTx);
+      ivTy = Math.min(Math.max(ivTy, -maxTy), maxTy);
+    }
+
+    function ivDist(t0, t1) {
+      return Math.hypot(t1.clientX - t0.clientX, t1.clientY - t0.clientY);
+    }
+
+    function ivEnsureBaseRect() {
+      if (ivScale === 1 && ivTx === 0 && ivTy === 0) {
+        ivBaseRect = imageViewerImg.getBoundingClientRect();
+      }
+    }
+
+    function ivZoomAt(clientX, clientY, targetScale, smooth) {
+      if (!ivBaseRect) return;
+      const bcx = ivBaseRect.left + ivBaseRect.width / 2;
+      const bcy = ivBaseRect.top + ivBaseRect.height / 2;
+      const u = 0.5 + (clientX - bcx - ivTx) / (ivBaseRect.width * ivScale);
+      const v = 0.5 + (clientY - bcy - ivTy) / (ivBaseRect.height * ivScale);
+      ivScale = Math.min(Math.max(targetScale, IV_MIN_SCALE), IV_MAX_SCALE);
+      if (ivScale <= IV_MIN_SCALE + 0.001) {
+        // Back at (or below) the natural size — snap fully centered.
+        ivScale = IV_MIN_SCALE;
+        ivTx = 0;
+        ivTy = 0;
+      } else {
+        ivTx = clientX - bcx - (u - 0.5) * ivBaseRect.width * ivScale;
+        ivTy = clientY - bcy - (v - 0.5) * ivBaseRect.height * ivScale;
+        ivClampTranslate();
+      }
+      imageViewerImg.style.transition = smooth ? 'transform 0.2s ease' : 'none';
+      ivApplyTransform();
+    }
+
+    if (imageViewerImg) {
+      imageViewerImg.addEventListener('touchstart', function(e) {
+        imageViewerImg.style.transition = 'none';
+        if (ivScale === 1 && ivTx === 0 && ivTy === 0) {
+          // Capture the natural (untransformed) layout box while at rest.
+          ivBaseRect = imageViewerImg.getBoundingClientRect();
+        }
+        if (e.touches.length === 2) {
+          e.preventDefault();
+          ivMode = 'pinch';
+          ivPinchStartDist = ivDist(e.touches[0], e.touches[1]);
+          ivPinchStartScale = ivScale;
+          const mx = (e.touches[0].clientX + e.touches[1].clientX) / 2;
+          const my = (e.touches[0].clientY + e.touches[1].clientY) / 2;
+          const bcx = ivBaseRect.left + ivBaseRect.width / 2;
+          const bcy = ivBaseRect.top + ivBaseRect.height / 2;
+          ivAnchorU = 0.5 + (mx - bcx - ivTx) / (ivBaseRect.width * ivScale);
+          ivAnchorV = 0.5 + (my - bcy - ivTy) / (ivBaseRect.height * ivScale);
+        } else if (e.touches.length === 1) {
+          const now = Date.now();
+          const t = e.touches[0];
+          if (now - ivLastTapTime < 300 && Math.hypot(t.clientX - ivLastTapX, t.clientY - ivLastTapY) < 30) {
+            // Double-tap: toggle zoom in/out centered on the tap point.
+            e.preventDefault();
+            ivLastTapTime = 0;
+            if (ivScale > 1) {
+              ivResetTransform();
+              imageViewerImg.style.transition = 'transform 0.2s ease';
+              ivApplyTransform();
+            } else {
+              ivZoomAt(t.clientX, t.clientY, 2.5, true);
+            }
+            ivMode = null;
+            return;
+          }
+          ivLastTapTime = now;
+          ivLastTapX = t.clientX;
+          ivLastTapY = t.clientY;
+          if (ivScale > 1) {
+            ivMode = 'pan';
+            ivPanLastX = t.clientX;
+            ivPanLastY = t.clientY;
+          }
+        }
+      }, { passive: false });
+
+      imageViewerImg.addEventListener('touchmove', function(e) {
+        if (ivMode === 'pinch' && e.touches.length === 2) {
+          e.preventDefault();
+          const dist = ivDist(e.touches[0], e.touches[1]);
+          const mx = (e.touches[0].clientX + e.touches[1].clientX) / 2;
+          const my = (e.touches[0].clientY + e.touches[1].clientY) / 2;
+          const newScale = Math.min(Math.max(ivPinchStartScale * (dist / ivPinchStartDist), IV_MIN_SCALE), IV_MAX_SCALE);
+          const bcx = ivBaseRect.left + ivBaseRect.width / 2;
+          const bcy = ivBaseRect.top + ivBaseRect.height / 2;
+          ivScale = newScale;
+          ivTx = mx - bcx - (ivAnchorU - 0.5) * ivBaseRect.width * ivScale;
+          ivTy = my - bcy - (ivAnchorV - 0.5) * ivBaseRect.height * ivScale;
+          ivClampTranslate();
+          ivApplyTransform();
+        } else if (ivMode === 'pan' && e.touches.length === 1) {
+          e.preventDefault();
+          const t = e.touches[0];
+          ivTx += t.clientX - ivPanLastX;
+          ivTy += t.clientY - ivPanLastY;
+          ivPanLastX = t.clientX;
+          ivPanLastY = t.clientY;
+          ivClampTranslate();
+          ivApplyTransform();
+        }
+      }, { passive: false });
+
+      function ivTouchEnd(e) {
+        if (e.touches.length === 0) {
+          ivMode = null;
+          if (ivScale <= 1) {
+            ivResetTransform();
+          }
+        } else if (e.touches.length === 1) {
+          // Dropped from pinch to a single finger — switch to panning if zoomed.
+          ivMode = ivScale > 1 ? 'pan' : null;
+          ivPanLastX = e.touches[0].clientX;
+          ivPanLastY = e.touches[0].clientY;
+        }
+      }
+      imageViewerImg.addEventListener('touchend', ivTouchEnd, { passive: true });
+      imageViewerImg.addEventListener('touchcancel', ivTouchEnd, { passive: true });
+
+      // ── Desktop: wheel-to-zoom, double-click-to-zoom, click-drag-to-pan ──
+      imageViewerImg.addEventListener('wheel', function(e) {
+        e.preventDefault();
+        ivEnsureBaseRect();
+        const factor = e.deltaY < 0 ? 1.15 : 1 / 1.15;
+        ivZoomAt(e.clientX, e.clientY, ivScale * factor, false);
+      }, { passive: false });
+
+      imageViewerImg.addEventListener('dblclick', function(e) {
+        ivEnsureBaseRect();
+        if (ivScale > 1) {
+          ivResetTransform();
+          imageViewerImg.style.transition = 'transform 0.2s ease';
+          ivApplyTransform();
+        } else {
+          ivZoomAt(e.clientX, e.clientY, 2.5, true);
+        }
+      });
+
+      let ivMouseDown = false;
+      imageViewerImg.addEventListener('mousedown', function(e) {
+        if (ivScale <= 1) return;
+        e.preventDefault();
+        ivMouseDown = true;
+        ivPanLastX = e.clientX;
+        ivPanLastY = e.clientY;
+        imageViewerImg.style.transition = 'none';
+        imageViewerImg.classList.add('iv-dragging');
+      });
+      window.addEventListener('mousemove', function(e) {
+        if (!ivMouseDown) return;
+        ivTx += e.clientX - ivPanLastX;
+        ivTy += e.clientY - ivPanLastY;
+        ivPanLastX = e.clientX;
+        ivPanLastY = e.clientY;
+        ivClampTranslate();
+        ivApplyTransform();
+      });
+      window.addEventListener('mouseup', function() {
+        if (ivMouseDown) {
+          ivMouseDown = false;
+          imageViewerImg.classList.remove('iv-dragging');
+        }
+      });
     }
 
     // Open: delegated click on any rendered chat image.
@@ -210,9 +421,9 @@
         requestAnimationFrame(animateScroll);
       }
     }
-
+     
     function handleFirstLoadScroll() {
-      const activeKey = isGlobalChat ? '__global__' : (activeDM || (activeAdminConv ? '__admin__' + activeAdminConv.convId : null));
+      const activeKey = isGlobalChat ? '__global__' : (activeDM || (activeAdminConv ? '__admin__' + activeAdminConv : null));
       let restored = false;
       if (activeKey) {
         const savedScrollTop = sessionStorage.getItem('chatScroll_' + activeKey);
@@ -233,6 +444,12 @@
       if (!restored) {
         scrollToBottom(true, true);
       }
+      // Mark chat as fully loaded so scroll buttons are now allowed to show.
+      chatFullyLoaded = true;
+      if (!isAtBottom()) {
+        showScrollIndicator(0);
+        syncLoadOlderBtn();
+      }
     }
 
     const scrollIndicatorText = document.getElementById('scrollIndicatorText');
@@ -250,7 +467,13 @@
           scrollIndicatorText.textContent = 'Go to bottom';
         }
       }
-      scrollIndicator.classList.add('visible');
+      const isAtTop = chatBox.scrollTop <= 5;
+      const hasUnread = scrollIndicator.classList.contains('has-unread');
+      if (chatFullyLoaded && (isAtTop || hasUnread)) {
+        scrollIndicator.classList.add('visible');
+      } else {
+        scrollIndicator.classList.remove('visible');
+      }
     }
 
     function hideScrollIndicator() {
@@ -404,19 +627,31 @@
       return text.slice(0, max).trim() + '...';
     }
 
-    // Pulls the best available text out of a message row for quoting —
-    // falls back to a generic label for image/audio/file-only messages.
+    // Pulls the best available text out of a message row for quoting.
+    // For image messages, returns 'image:filename' so the rendered reply-quote
+    // in chat can show a thumbnail overlay, while the reply banner stays plain text.
     function getReplySnippet(container) {
       const contentEl = container.querySelector('.message-bubble .message-content');
       const text = contentEl ? (contentEl.dataset.fullText || contentEl.textContent || '').trim() : '';
       if (text) return text;
+      // Check for an image inside .message-media or .message-content
+      const img = container.querySelector('.message-media img.chat-viewable-image, .message-content img.chat-viewable-image');
+      if (img) {
+        const src = img.getAttribute('data-full-src') || img.getAttribute('src') || '';
+        const filename = src.split('/').filter(Boolean).pop();
+        if (filename) return 'image:' + filename;
+        return 'image:';
+      }
       if (container.querySelector('.message-media')) return 'Attachment';
       return '';
     }
 
     function showReplyBanner(snippet) {
       if (!replyBanner || !replyBannerSnippet) return;
-      replyBannerSnippet.textContent = truncateForReply(snippet, 60) || 'message';
+      // Image replies show 'Attachment' in the banner — the actual chat
+      // history will render the thumbnail overlay instead.
+      const displayText = (snippet && snippet.startsWith('image:')) ? 'Attachment' : snippet;
+      replyBannerSnippet.textContent = truncateForReply(displayText, 60) || 'message';
       replyBanner.classList.add('active');
     }
 
@@ -453,7 +688,8 @@
     let hoverReplyHideTimer = null;
 
     function positionHoverReplyBtn(container) {
-      const bubble = container.querySelector('.message-bubble');
+      // Match both text bubbles and image/audio media containers
+      const bubble = container.querySelector('.message-bubble, .message-media');
       if (!bubble) return;
       const rect = bubble.getBoundingClientRect();
       const isSent = container.classList.contains('sent');
@@ -572,13 +808,17 @@
 
       const dx = e.touches[0].clientX - swipeStartX;
       const dy = e.touches[0].clientY - swipeStartY;
+      const isSent = swipeContainer.classList.contains('sent');
 
       if (!swipeLocked) {
-        // Not committed yet — wait until the gesture is clearly horizontal
-        // before hijacking it, so normal vertical scrolling never breaks.
+        // Wait until gesture is clearly horizontal before claiming it
         if (Math.abs(dx) < 10 && Math.abs(dy) < 10) return;
-        if (Math.abs(dy) >= Math.abs(dx) || dx <= 0) {
-          swipeRejected = true; // vertical scroll or leftward drag — let the browser handle it
+
+        // For received messages: only allow right swipe (dx > 0)
+        // For sent messages:     only allow left  swipe (dx < 0)
+        const wrongDirection = isSent ? dx >= 0 : dx <= 0;
+        if (Math.abs(dy) >= Math.abs(dx) || wrongDirection) {
+          swipeRejected = true;
           return;
         }
         swipeLocked = true;
@@ -587,14 +827,45 @@
         swipeIconEl.className = 'reply-swipe-icon';
         swipeIconEl.innerHTML = REPLY_ICON_SVG;
         swipeContainer.appendChild(swipeIconEl);
+
+        // Position the icon so it lines up with the outer edge of the
+        // sender/receiver's profile picture — computed dynamically from
+        // the avatar's actual position so both swipe directions
+        // (received: left-to-right, sent/self-reply: right-to-left)
+        // reveal the arrow at the exact same spot relative to the avatar.
+        const avatarEl = swipeContainer.querySelector('.message-avatar');
+        if (avatarEl) {
+          const cRect = swipeContainer.getBoundingClientRect();
+          const aRect = avatarEl.getBoundingClientRect();
+          if (isSent) {
+            // Avatar sits on the right; align icon to the avatar's outer
+            // (right) edge, i.e. the same gap the avatar itself has from
+            // the container's right edge.
+            const iconRight = Math.max(cRect.right - aRect.right, 0);
+            swipeIconEl.style.left  = 'auto';
+            swipeIconEl.style.right = iconRight + 'px';
+          } else {
+            // Avatar sits on the left; align icon to the avatar's outer
+            // (left) edge, i.e. the same gap the avatar itself has from
+            // the container's left edge.
+            const iconLeft = Math.max(aRect.left - cRect.left, 0);
+            swipeIconEl.style.right = 'auto';
+            swipeIconEl.style.left  = iconLeft + 'px';
+          }
+        }
       }
 
-      e.preventDefault(); // we own this gesture now — stop the page from scrolling
-      swipeDx = Math.max(0, Math.min(dx, SWIPE_REPLY_MAX_PX));
+      e.preventDefault(); // we own the gesture — stop the page from scrolling
 
-      const progress = swipeDx / SWIPE_REPLY_MAX_PX;
-      if (swipeAvatarEl) swipeAvatarEl.style.transform = 'translateX(' + swipeDx + 'px)';
-      if (swipeBubbleWrapEl) swipeBubbleWrapEl.style.transform = 'translateX(' + swipeDx + 'px)';
+      // Magnitude of drag, capped at max travel
+      const absDx = Math.min(Math.abs(dx), SWIPE_REPLY_MAX_PX);
+      swipeDx = absDx; // stored as positive magnitude for trigger comparison
+
+      const progress = absDx / SWIPE_REPLY_MAX_PX;
+      // Apply translation in the correct direction
+      const translate = isSent ? -absDx : absDx;
+      if (swipeAvatarEl) swipeAvatarEl.style.transform = 'translateX(' + translate + 'px)';
+      if (swipeBubbleWrapEl) swipeBubbleWrapEl.style.transform = 'translateX(' + translate + 'px)';
       if (swipeIconEl) {
         swipeIconEl.style.opacity = String(progress);
         swipeIconEl.style.transform = 'translateY(-50%) scale(' + (0.6 + 0.4 * progress) + ')';
@@ -621,20 +892,24 @@
         userScrolledUp = false;
         hideScrollIndicator();
         // Hide load-older button when user returns to bottom
-        syncLoadOlderBtn();
+        if (chatFullyLoaded) syncLoadOlderBtn();
       } else {
         shouldAutoScroll = false;
         userScrolledUp = true;
-        const hasMessages = chatBox.querySelectorAll('.message-container').length > 0;
-        if (hasMessages && !scrollIndicator.classList.contains('visible')) {
-          showScrollIndicator(0);
+        // Only show scroll buttons after the initial load is done so they
+        // don't flash up while messages are still being fetched/rendered.
+        if (chatFullyLoaded) {
+          const hasMessages = chatBox.querySelectorAll('.message-container').length > 0;
+          if (hasMessages) {
+            showScrollIndicator(0);
+          }
+          // Show load-older button when user scrolls up and older messages exist
+          syncLoadOlderBtn();
         }
-        // Show load-older button when user scrolls up and older messages exist
-        syncLoadOlderBtn();
       }
 
       // Save scroll position for active chat
-      const activeKey = isGlobalChat ? '__global__' : (activeDM || (activeAdminConv ? '__admin__' + activeAdminConv.convId : null));
+      const activeKey = isGlobalChat ? '__global__' : (activeDM || (activeAdminConv ? '__admin__' + activeAdminConv : null));
       if (activeKey) {
         sessionStorage.setItem('chatScroll_' + activeKey, chatBox.scrollTop);
         sessionStorage.setItem('chatScrollHeight_' + activeKey, chatBox.scrollHeight);
@@ -645,7 +920,7 @@
     // Ensure scroll position is maintained when images finish loading
     chatBox.addEventListener('load', function(event) {
       if (event.target.tagName === 'IMG') {
-        const activeKey = isGlobalChat ? '__global__' : (activeDM || (activeAdminConv ? '__admin__' + activeAdminConv.convId : null));
+        const activeKey = isGlobalChat ? '__global__' : (activeDM || (activeAdminConv ? '__admin__' + activeAdminConv : null));
         if (activeKey) {
           const savedAtBottom = sessionStorage.getItem('chatScrollAtBottom_' + activeKey);
           if (savedAtBottom === 'true' || shouldAutoScroll || isAtBottom()) {
@@ -654,6 +929,52 @@
         }
       }
     }, true);
+
+    // Hide broken/missing images completely — no broken-image icon shown.
+    // Uses capture so it fires even if the img has no bubbling listener.
+    chatBox.addEventListener('error', function(event) {
+      const el = event.target;
+      if (!el || el.tagName !== 'IMG') return;
+
+      if (el.classList.contains('reply-quote-image')) {
+        // Remove the reply quote image container entirely
+        const container = el.closest('.reply-quote-image-container, .reply-quote');
+        if (container) container.remove();
+        else el.remove();
+      } else if (el.classList.contains('chat-viewable-image')) {
+        // Remove the closest wrapping media element
+        const mediaWrap = el.closest('.message-media') || el.parentElement;
+        if (mediaWrap && mediaWrap !== el) {
+          mediaWrap.remove();
+        } else {
+          el.remove();
+        }
+        // If the whole bubble-wrapper is now empty (no text, no media left),
+        // hide the entire message container so nothing renders at all.
+        const msgContainer = el.closest ? el.closest('.message-container') : null;
+        if (msgContainer) {
+          const bubbleWrapper = msgContainer.querySelector('.bubble-wrapper');
+          if (bubbleWrapper) {
+            const remaining = bubbleWrapper.querySelectorAll('.message-bubble, .message-media');
+            if (remaining.length === 0) msgContainer.style.display = 'none';
+          }
+        }
+      }
+    }, true);
+
+    // "Go to bottom" is about to force-reload the latest window — stamp
+    // sessionStorage as "at bottom" for this chat BEFORE the reload happens.
+    // Without this, the scroll listener's last write (saved while the user
+    // was up in the older/backread batch) leaves chatScrollAtBottom_<key>
+    // as 'false', so handleFirstLoadScroll() (called once the fresh latest
+    // window lands) would try to restore that stale, scrolled-up position
+    // instead of actually landing on the newest message.
+    function forceBottomScrollState(activeKey) {
+      if (!activeKey) return;
+      sessionStorage.setItem('chatScrollAtBottom_' + activeKey, 'true');
+      sessionStorage.removeItem('chatScroll_' + activeKey);
+      sessionStorage.removeItem('chatScrollHeight_' + activeKey);
+    }
 
     // Click scroll indicator to go to bottom
     scrollIndicator.addEventListener('click', function() {
@@ -667,8 +988,10 @@
         gcViewingOlder = false;
         gcCursor = '';
         removePaginationBtn();
+        forceBottomScrollState('__global__');
         chatBox.innerHTML = '';
         isFirstLoad = true;
+        chatFullyLoaded = false;
         loadGlobalChat(false, false);
         return;
       }
@@ -676,8 +999,10 @@
         adminConvViewingOlder = false;
         adminConvCursor = '';
         removePaginationBtn();
+        forceBottomScrollState('__admin__' + activeAdminConv);
         chatBox.innerHTML = '';
         isFirstLoad = true;
+        chatFullyLoaded = false;
         loadAdminConv(activeAdminConv, false, false);
         return;
       }
@@ -685,8 +1010,10 @@
         dmViewingOlder = false;
         dmCursor = '';
         removePaginationBtn();
+        forceBottomScrollState(activeDM);
         chatBox.innerHTML = '';
         isFirstLoad = true;
+        chatFullyLoaded = false;
         loadChat(false, false, true);
         return;
       }
@@ -1241,26 +1568,52 @@
           shouldAutoScroll = true;
           userScrolledUp = false;
           hideScrollIndicator();
-          if (activeDM) {
-            loadChat();
-          } else if (activeAdminConv) {
-            loadAdminConv(activeAdminConv, false);
-            fetchUsers();
+          // Capture conv identifiers before resetToHome() nulls them
+          const clearedDM       = activeDM;
+          const clearedDMAccId  = activeDMAccountId;
+          const clearedAdminConv = activeAdminConv;
+          const clearedGlobal   = isGlobalChat;
+
+          if (clearedGlobal) {
+            // Stay in Global Chat (now empty) instead of bouncing to the
+            // home screen — mirrors how the 'all_cleared' WS event behaves
+            // when the admin is already viewing Global Chat.
+            gcCursor = '';
+            gcViewingOlder = false;
+            removePaginationBtn();
+            chatBox.innerHTML = '';
+            isFirstLoad = true;
+            chatFullyLoaded = false;
+            loadGlobalChat(false, false);
+          } else if (typeof resetToHome === 'function') {
+            resetToHome();
+          } else {
+            if (clearedDM) {
+              loadChat();
+            } else if (clearedAdminConv) {
+              loadAdminConv(clearedAdminConv, false);
+              fetchUsers();
+            }
           }
 
           // Broadcast the clear so every other connected client (the other
           // party in the DM, or any other admin viewing the same admin
           // conversation) refreshes immediately instead of showing stale
-          // messages until their next poll/reload.
+          // messages until their next poll/reload. Global clears are
+          // broadcast system-wide server-side (WsPush::broadcast in
+          // delete_dm.php), so there's no client-driven ws.send needed here.
           if (ws && ws.readyState === WebSocket.OPEN) {
-            if (activeDM) {
+            if (clearedDM && clearedDMAccId) {
+              const myId = wsConfig.accountId;
               ws.send(JSON.stringify({
                 type: 'chat_cleared',
                 chat_type: 'private',
-                recipient_id: activeDMAccountId
+                recipient_id: clearedDMAccId,
+                user_a: Math.min(myId, clearedDMAccId),
+                user_b: Math.max(myId, clearedDMAccId)
               }));
-            } else if (activeAdminConv) {
-              const clearedParts = activeAdminConv.split('_').map(Number);
+            } else if (clearedAdminConv) {
+              const clearedParts = clearedAdminConv.split('_').map(Number);
               ws.send(JSON.stringify({
                 type: 'chat_cleared',
                 chat_type: 'admin_conv',
@@ -1285,7 +1638,9 @@
       };
 
       let params = "secret=" + encodeURIComponent(secret);
-      if (activeDMAccountId) {
+      if (isGlobalChat) {
+        params += "&global=1";
+      } else if (activeDMAccountId) {
         params += "&target_id=" + encodeURIComponent(activeDMAccountId) + "&target_user=" + encodeURIComponent(activeDM);
       } else if (activeDM) {
         params += "&target_user=" + encodeURIComponent(activeDM);
@@ -1344,7 +1699,7 @@
         return;
       }
       
-      if (!activeDM && !activeAdminConv) {
+      if (!activeDM && !activeAdminConv && !isGlobalChat) {
         alert("Please select a conversation to clear first.");
         return;
       }
@@ -1679,7 +2034,7 @@
 
       // Disable send button momentarily to prevent double-tap
       isSending = true;
-      sendButton.textContent = "...";
+      sendButton.classList.add('sending');
       sendButton.disabled = true;
 
       // Clear input immediately and reset textarea to single-line height.
@@ -1766,7 +2121,7 @@
       // was registered, so re-enable send controls right after dispatching.
       try { xhr.send(payload); } catch (e) { /* ignore send errors here */ }
       isSending = false;
-      sendButton.textContent = "Send";
+      sendButton.classList.remove('sending');
       sendButton.disabled = false;
 
       xhr.onload = function () {
@@ -1853,9 +2208,15 @@
 
                 sendingBubble.className = 'message-container sent';
                 const emojiOnlyClass = isEmojiOnly(msgContent) ? ' emoji-only' : '';
-                const replyQuoteHtml = activeReply
-                  ? `<div class="reply-quote"><div class="reply-quote-text">${escapeHtml(truncateForReply(activeReply.snippet, 120))}</div></div>`
-                  : '';
+                const replyQuoteHtml = (() => {
+                  if (!activeReply) return '';
+                  if (activeReply.snippet && activeReply.snippet.startsWith('image:')) {
+                    const imgFile = activeReply.snippet.slice(6);
+                    const imgSrc  = 'uploads/' + imgFile;
+                    return `<div class="reply-quote reply-quote-image-container"><img src="${imgSrc.replace(/"/g, '&quot;')}" class="reply-quote-image" alt="" referrerpolicy="no-referrer"></div>`;
+                  }
+                  return `<div class="reply-quote"><div class="reply-quote-text">${escapeHtml(truncateForReply(activeReply.snippet, 120))}</div></div>`;
+                })();
                 sendingBubble.innerHTML = `
                   <div class="message-avatar">${avatarInnerHtml(wsConfig.avatarUrl, getInitials(name))}</div>
                   <div class="bubble-wrapper">
@@ -1887,7 +2248,19 @@
             }
           }
 
-          // Broadcast notification via WebSocket so other clients patch DOM
+          // Broadcast notification via WebSocket so other clients patch DOM.
+          // NOTE: only 'message_edited' is sent manually here — a plain new
+          // 'message' is NOT re-broadcast from the client anymore. send.php /
+          // send_dm.php already push an authoritative WS 'message' event
+          // server-side (via WsPush) right after the DB insert succeeds, and
+          // that push reaches the same audience (recipient, sender's other
+          // tabs, admin spy). Re-sending an identical 'message' event here on
+          // top of that authoritative push made every text/DM send arrive
+          // twice for the recipient, doubling the sidebar's unread counter
+          // (2, 4, 6, 8... instead of 1, 2, 3, 4) since the "already
+          // rendered" dedup check in ws.onmessage only catches it when the
+          // recipient already has that chat open — not while it's sitting
+          // unread in the sidebar.
           if (ws && ws.readyState === WebSocket.OPEN) {
             const wasEditing = !!capturedEditingMsgId;
             if (wasEditing) {
@@ -1897,17 +2270,6 @@
                 message: message,
                 chat_type: isGlobalChat ? 'global' : 'private',
                 recipient_id: activeDMAccountId || null
-              }));
-            } else {
-              ws.send(JSON.stringify({
-                type: 'message',
-                chat_type: isGlobalChat ? 'global' : 'private',
-                recipient_id: activeDMAccountId || null,
-                msg_uuid: confirmedMsg ? confirmedMsg.id : null,
-                message: confirmedMsg && confirmedMsg.plaintext ? confirmedMsg.plaintext : message,
-                created_at: new Date().toISOString(),
-                reply_to_msg_uuid: activeReply ? activeReply.msgId : null,
-                reply_snippet: activeReply ? activeReply.snippet : null
               }));
             }
           }
@@ -1975,10 +2337,31 @@
     }
 
     // Auto-expand textarea + typing indicator dispatch
+    function autoResizeMessageInput() {
+      messageInput.style.height = 'auto';
+      const newHeight = Math.min(messageInput.scrollHeight, 120);
+      messageInput.style.height = newHeight + 'px';
+    }
+
+    // On a fresh (uncached) page load, the 'Inter' webfont swaps in a beat
+    // after the fallback font first paints (font-display: swap). If that
+    // swap lands while the user is mid-keystroke, the fallback→Inter metric
+    // change makes scrollHeight jump, and the textarea visibly resizes on
+    // its own. Re-run the resize the moment the font is actually ready so
+    // the box snaps to its final size proactively instead of jittering
+    // under the user's typing. Only refreshed pages (font already cached)
+    // skip this entirely since fonts.ready resolves before first paint.
+    autoResizeMessageInput(); // set the correct initial height right away, in
+                               // sync with box-sizing:border-box, instead of
+                               // relying on the CSS min-height to "just match"
+    if (document.fonts && document.fonts.ready) {
+      document.fonts.ready.then(function () {
+        autoResizeMessageInput();
+      });
+    }
+
     messageInput.addEventListener('input', function() {
-      this.style.height = 'auto';
-      const newHeight = Math.min(this.scrollHeight, 120);
-      this.style.height = newHeight + 'px';
+      autoResizeMessageInput();
       // Keep overflow-y:scroll always (scrollbar hidden via CSS, not JS toggle)
       // iOS: recalculate layout whenever textarea height changes.
       // Double-rAF ensures we read offsetHeight AFTER the browser has fully
@@ -2085,8 +2468,13 @@
 
         const isChatOpenWithSender = (activeDM && activeDMAccountId === senderId);
         if (isChatOpenWithSender) {
+          // Use sender_name from the WS payload as a reliable fallback so the
+          // typing indicator never shows "User N" when allUsersData hasn't
+          // loaded yet or doesn't contain the sender.
           const senderUser = allUsersData.find(u => Number(u.account_id) === senderId);
-          const senderName = senderUser ? senderUser.full_name : `User ${senderId}`;
+          const senderName = (senderUser && senderUser.full_name)
+            ? senderUser.full_name
+            : (data.sender_name || `User ${senderId}`);
           showTypingIndicator(senderName, true);
         }
         updateSidebarPreviewState(senderId, previewText);
@@ -3201,23 +3589,19 @@
           setTimeout(closeUploadingModal, 300);
 
           if (this.status === 200) {
-            let msgUuid = null;
-            try {
-              const resData = JSON.parse(this.responseText);
-              if (resData && resData.message && resData.message.id) {
-                msgUuid = resData.message.id;
-              }
-            } catch(e) {}
+            // NOTE: no client-side ws.send('message', ...) re-broadcast here.
+            // send.php / send_dm.php ALREADY push an authoritative WS 'message'
+            // event (with has_upload correctly set) server-side once the DB
+            // insert succeeds — that single push reaches the recipient, the
+            // sender's other tabs, and admin spy sessions. Re-broadcasting it
+            // again from here made every attachment fire the sidebar's
+            // unread-count bump TWICE (2, 4, 6, 8... instead of 1, 2, 3, 4)
+            // for the recipient, since the client-sent duplicate isn't caught
+            // by the "already rendered" dedup check when they're not actively
+            // viewing that chat. The server push alone is sufficient.
 
-            // Trigger WS broadcast so recipient & other tabs refresh immediately with full image
-            if (ws && ws.readyState === WebSocket.OPEN) {
-              if (isGlobalChat) {
-                ws.send(JSON.stringify({ type: 'message', chat_type: 'global', sender_id: wsConfig.accountId, msg_uuid: msgUuid, has_upload: true }));
-              } else {
-                ws.send(JSON.stringify({ type: 'message', chat_type: 'private', sender_id: wsConfig.accountId, recipient_id: activeDMAccountId, msg_uuid: msgUuid, has_upload: true }));
-              }
-            }
             // Force a fresh chat load so the grid/image renders immediately
+            // for the SENDER's own view (independent of any WS broadcast).
             if (isGlobalChat) {
               isLoadingGC = false;
               loadGlobalChat(false);

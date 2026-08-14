@@ -148,7 +148,7 @@ class ConversationManager
      */
     public static function loadRaw(
         string  $convId,
-        int     $limit     = 100,
+        int     $limit     = 50,
         ?string $beforeUuid = null
     ): array {
         try {
@@ -226,7 +226,7 @@ class ConversationManager
     public static function loadIncrementalRaw(
         string $convId,
         string $sinceUuid,
-        int    $limit = 100
+        int    $limit = 50
     ): array {
         try {
             $pdo = Database::getConnection();
@@ -364,9 +364,22 @@ class ConversationManager
             $row = $stmt->fetch();
             if (!$row) return null;
 
+            if ($row['msg_type'] === 'upload') {
+                $rawPayload = safeDecrypt($row['message'] ?? '');
+                $decoded    = json_decode($rawPayload, true);
+                $file       = is_array($decoded) ? basename((string) ($decoded[0] ?? '')) : basename($rawPayload);
+                $ext        = strtolower(pathinfo($file, PATHINFO_EXTENSION));
+                $imageExts  = ['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp', 'svg'];
+                $snippet    = (in_array($ext, $imageExts, true) && $file !== '')
+                    ? 'image:' . $file
+                    : '📎 Attachment';
+            } else {
+                $snippet = safeDecrypt($row['message'] ?? '');
+            }
+
             return [
                 'msg_uuid' => $msgUuid,
-                'snippet'  => $row['msg_type'] === 'upload' ? '📎 Attachment' : safeDecrypt($row['message'] ?? ''),
+                'snippet'  => $snippet,
                 'type'     => $row['msg_type'],
             ];
         } catch (PDOException $e) {

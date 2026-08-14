@@ -7,7 +7,7 @@
 //   target_user (string, fallback — email of the other participant)
 //   before_uuid (string, optional) — msg_uuid of the oldest message shown;
 //                                     omit to load the latest messages.
-//   limit       (int, optional)    — messages per page, default/max 100
+//   limit       (int, optional)    — messages per page, default/max 50
 //
 // Returns JSON:
 //   { html: string, hasMore: bool, nextCursor: string|null }
@@ -55,7 +55,7 @@ if ($targetInfo === null) {
 }
 
 // ── Pagination & Incremental Fetching ──────────────────────────────────────────
-$limit      = 100;
+$limit      = 50;
 $beforeUuid = isset($_GET['before_uuid']) && $_GET['before_uuid'] !== '' ? (string) $_GET['before_uuid'] : null;
 $sinceUuid  = isset($_GET['since_uuid'])  && $_GET['since_uuid']  !== '' ? (string) $_GET['since_uuid']  : null;
 
@@ -135,7 +135,16 @@ function dmBuildReplyQuoteHtml(?string $encryptedReplyMessage, string $replyType
     }
 
     if ($replyType === 'upload') {
-        $snippet = '📎 Attachment';
+        $rawPayload = safeDecrypt($encryptedReplyMessage);
+        $decoded    = json_decode($rawPayload, true);
+        $file       = is_array($decoded) ? basename((string) ($decoded[0] ?? '')) : basename($rawPayload);
+        $ext        = strtolower(pathinfo($file, PATHINFO_EXTENSION));
+        $imageExts  = ['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp', 'svg'];
+        if (in_array($ext, $imageExts, true) && $file !== '' && file_exists(__DIR__ . '/uploads/' . $file)) {
+            $fnUrl = htmlspecialchars('uploads/' . rawurlencode($file), ENT_QUOTES);
+            return "<div class='reply-quote reply-quote-image-container'><img src='{$fnUrl}' class='reply-quote-image' alt='' referrerpolicy='no-referrer'></div>";
+        }
+        $snippet = 'Attachment';
     } else {
         $snippet = safeDecrypt($encryptedReplyMessage);
     }
@@ -145,9 +154,9 @@ function dmBuildReplyQuoteHtml(?string $encryptedReplyMessage, string $replyType
         return '';
     }
     if (function_exists('mb_strlen') && mb_strlen($snippet) > 120) {
-        $snippet = mb_substr($snippet, 0, 120) . '…';
+        $snippet = mb_substr($snippet, 0, 120) . '...';
     } elseif (strlen($snippet) > 120) {
-        $snippet = substr($snippet, 0, 120) . '…';
+        $snippet = substr($snippet, 0, 120) . '...';
     }
 
     $snippetEsc = htmlspecialchars($snippet, ENT_QUOTES);

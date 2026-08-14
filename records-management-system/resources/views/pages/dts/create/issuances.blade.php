@@ -9,6 +9,11 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create Issuance
     public string $availabilityMessage = '';
     public ?bool $isAvailable = null;
 
+    public string $flow_mode = 'free_flow'; // 'free_flow' or 'linear'
+    public array $free_flow_receiving_offices = [];
+    public string $receiving_search = '';
+    public string $free_flow_dispatch_hub = 'DIRECT'; // 'DIRECT' or office code
+
     public string $issuance_type = 'NM';
     public string $seq_number = '';
     public string $subject = '';
@@ -22,6 +27,70 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create Issuance
     public array $offices = [];
     public array $flows = [];
     public string $userOfficeCode = '';
+
+    public function setFlowMode(string $mode): void
+    {
+        $this->flow_mode = in_array($mode, ['free_flow', 'linear']) ? $mode : 'free_flow';
+    }
+
+    public function selectFreeFlowOffice(string $officeCode): void
+    {
+        if ($officeCode === 'ALL') {
+            $this->free_flow_receiving_offices = ['ALL'];
+            $this->cf_selected_offices = ['ALL'];
+            $this->copy_furnished = 'Yes';
+        } else {
+            $this->free_flow_receiving_offices = array_values(array_filter($this->free_flow_receiving_offices, fn($code) => $code !== 'ALL'));
+            if (!in_array($officeCode, $this->free_flow_receiving_offices)) {
+                $this->free_flow_receiving_offices[] = $officeCode;
+            }
+
+            // Auto-add to Copy Furnished
+            $this->cf_selected_offices = array_values(array_filter($this->cf_selected_offices, fn($code) => $code !== 'ALL'));
+            if (!in_array($officeCode, $this->cf_selected_offices)) {
+                $this->cf_selected_offices[] = $officeCode;
+            }
+            $this->copy_furnished = 'Yes';
+        }
+        $this->receiving_search = '';
+    }
+
+    public function removeFreeFlowOffice(int $index): void
+    {
+        // Independent removal: only removes from receiving offices
+        unset($this->free_flow_receiving_offices[$index]);
+        $this->free_flow_receiving_offices = array_values($this->free_flow_receiving_offices);
+    }
+
+    public function selectAllReceivingOffices(): void
+    {
+        $this->free_flow_receiving_offices = ['ALL'];
+        $this->cf_selected_offices = ['ALL'];
+        $this->copy_furnished = 'Yes';
+        $this->receiving_search = '';
+    }
+
+    public function clearReceivingOffices(): void
+    {
+        $this->free_flow_receiving_offices = [];
+        $this->receiving_search = '';
+    }
+
+    public function selectAllCfOffices(): void
+    {
+        $this->cf_selected_offices = ['ALL'];
+        if ($this->flow_mode === 'free_flow') {
+            $this->free_flow_receiving_offices = ['ALL'];
+        }
+        $this->copy_furnished = 'Yes';
+        $this->cf_search = '';
+    }
+
+    public function clearCfOffices(): void
+    {
+        $this->cf_selected_offices = [];
+        $this->cf_search = '';
+    }
 
     // Custom flow creator fields
     public bool $showCustomFlowModal = false;
@@ -296,12 +365,24 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create Issuance
     {
         if ($officeCode === 'ALL') {
             $this->cf_selected_offices = ['ALL'];
+            if ($this->flow_mode === 'free_flow') {
+                $this->free_flow_receiving_offices = ['ALL'];
+            }
         } else {
             $this->cf_selected_offices = array_values(array_filter($this->cf_selected_offices, fn($code) => $code !== 'ALL'));
             if (!in_array($officeCode, $this->cf_selected_offices)) {
                 $this->cf_selected_offices[] = $officeCode;
             }
+
+            // In Free Flow mode, auto-add to Receiving Offices as well
+            if ($this->flow_mode === 'free_flow') {
+                $this->free_flow_receiving_offices = array_values(array_filter($this->free_flow_receiving_offices, fn($code) => $code !== 'ALL'));
+                if (!in_array($officeCode, $this->free_flow_receiving_offices)) {
+                    $this->free_flow_receiving_offices[] = $officeCode;
+                }
+            }
         }
+        $this->copy_furnished = 'Yes';
         $this->cf_search = '';
     }
 
@@ -587,19 +668,33 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create Issuance
             $this->generateRandomSeq();
         }
 
-        $this->validate([
-            'issuance_type' => 'required|string|in:NM,AM,EM,TO,OM,TR,EN,DES,TA,AO',
-            'seq_number' => 'required|string|max:50',
-            'subject' => 'required|string',
-            'transaction_flow' => 'required|string|exists:dts_transaction_flow,flow_code',
-            'receiving_office' => 'nullable|string',
-            'copy_furnished' => 'required|string|in:Yes,No',
-            'cf_selected_offices' => 'nullable|array',
-        ]);
+        if ($this->flow_mode === 'free_flow') {
+            $this->validate([
+                'issuance_type' => 'required|string|in:NM,AM,EM,TO,OM,TR,EN,DES,TA,AO',
+                'seq_number' => 'required|string|max:50',
+                'subject' => 'required|string',
+                'free_flow_receiving_offices' => 'required|array|min:1',
+                'copy_furnished' => 'required|string|in:Yes,No',
+                'cf_selected_offices' => 'nullable|array',
+            ], [
+                'free_flow_receiving_offices.required' => 'Please select at least one receiving office.',
+                'free_flow_receiving_offices.min' => 'Please select at least one receiving office.',
+            ]);
+        } else {
+            $this->validate([
+                'issuance_type' => 'required|string|in:NM,AM,EM,TO,OM,TR,EN,DES,TA,AO',
+                'seq_number' => 'required|string|max:50',
+                'subject' => 'required|string',
+                'transaction_flow' => 'required|string|exists:dts_transaction_flow,flow_code',
+                'receiving_office' => 'nullable|string',
+                'copy_furnished' => 'required|string|in:Yes,No',
+                'cf_selected_offices' => 'nullable|array',
+            ]);
 
-        if (count($this->flow_offices) === 0) {
-            $this->addError('transaction_flow', 'The transaction flow must contain at least one office.');
-            return;
+            if (count($this->flow_offices) === 0) {
+                $this->addError('transaction_flow', 'The transaction flow must contain at least one office.');
+                return;
+            }
         }
 
         DB::beginTransaction();
@@ -666,200 +761,365 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create Issuance
                 ]);
             }
 
-            // Check if flow sequence was modified
-            $flowCode = $this->transaction_flow;
-            $flow = DB::table('dts_transaction_flow')->where('flow_code', $this->transaction_flow)->first();
-            
-            $originOfficeCode = $this->userOfficeCode;
-            $originOffice = DB::table('office')->where('office_code', $originOfficeCode)->first();
-            $clusterHead = null;
-            if ($originOffice && $originOffice->cluster) {
-                $cluster = DB::table('cluster')->where('cluster_code', $originOffice->cluster)->first();
-                if ($cluster) {
-                    $clusterHead = $cluster->cluster_head;
-                }
-            }
-
-            $this->flow_offices = $this->ensureOriginBounds($this->flow_offices, $originOfficeCode);
-
-            $resolvedOffices = [];
-            foreach ($this->flow_offices as $officeCode) {
-                $resolved = $officeCode;
-                if ($officeCode === 'ORIGIN') {
-                    $resolved = $originOfficeCode;
-                } elseif ($officeCode === '[H]') {
-                    $resolved = $clusterHead ?: $originOfficeCode;
-                }
-                
-                if (empty($resolvedOffices) || end($resolvedOffices) !== $resolved) {
-                    $resolvedOffices[] = $resolved;
-                }
-            }
-
-            // Always copy custom flow
-            $flowCode = 'FLOW-CUSTOM-' . strtoupper(Str::random(10));
-            $maxId = DB::table('dts_transaction_flow')->max('id') ?? 0;
-            $newFlowId = $maxId + 1;
-
-            DB::table('dts_transaction_flow')->insert([
-                'flow_code' => $flowCode,
-                'flow_name' => 'Flow for ' . $controlNumber . ' (' . $flowCode . ')',
-                'id' => $newFlowId,
-                'is_active' => 1,
-                'added_by' => auth()->id() ?? 1,
-                'date_added' => now(),
-                'flow_use' => 'issuances',
-                'flow_for' => 'system',
-                'referenced_flow' => $flow ? ('REF-' . (str_starts_with($flow->flow_code, 'FLOW-PREDEFINED') || str_starts_with($flow->flow_code, 'PREDEFINED') ? 'PREDEFINED' : 'CUSTOM') . '-' . $flow->id) : null,
-            ]);
-
-            $autoFwdSetting = DB::table('system_settings')->where('key', 'dts_auto_forward_created_transaction')->value('value');
-            $shouldAutoForward = ($autoFwdSetting !== 'false') && (count($resolvedOffices) > 1);
-
-            $originOfficeCode = $this->userOfficeCode;
-            $nextOfficeCode = $resolvedOffices[1] ?? $originOfficeCode;
-            $currentOffice = $shouldAutoForward ? $nextOfficeCode : ($resolvedOffices[0] ?? $originOfficeCode);
-            $initialSequence = $shouldAutoForward ? 2 : 1;
-
-            foreach ($this->flow_offices as $rank => $officeCode) {
-                $toSave = $officeCode;
-                if ($officeCode === $originOfficeCode) {
-                    $toSave = 'ORIGIN';
-                } elseif ($officeCode === $clusterHead) {
-                    $toSave = '[H]';
-                }
-
-                DB::table('dts_sequence_list')->insert([
-                    'control_id' => $newFlowId,
-                    'sequence_ranking' => $rank + 1,
-                    'office_code' => $toSave,
-                    'date_in' => ($rank === 0) ? now() : null,
-                    'date_out' => ($rank === 0 && $shouldAutoForward) ? now() : null,
-                    'action_needed' => ($rank === 0) ? 'Created' : null,
-                    'note' => ($rank === 0) ? ($shouldAutoForward ? 'Created & auto-forwarded transaction' : 'Created issuance transaction') : null,
-                    'total_time_completed' => null,
-                ]);
-            }
+            $allSystemOffices = DB::table('office')
+                ->where('is_active', true)
+                ->whereNotIn('office_code', ['ORIGIN', '[H]'])
+                ->pluck('office_code')
+                ->toArray();
 
             $qrCodeId = $this->generatedQrCode;
             $transactionId = 'TRANS-' . strtoupper(Str::random(10));
+            $originOfficeCode = $this->userOfficeCode;
 
-            // Insert into dts_transactions
-            DB::table('dts_transactions')->insert([
-                'transaction_id' => $transactionId,
-                'enable_notif' => 1,
-                'trans_type' => 'memorandom',
-                'doc_dir' => null,
-                'qr_code' => $qrCodeId,
-                'current_office' => $currentOffice,
-                'status' => 'ongoing',
-                'sequence' => $initialSequence,
-            ]);
-
-            $copyFilledId = null;
-            if ($this->copy_furnished === 'Yes' && count($this->cf_selected_offices) > 0) {
-                $assignOfficesId = (DB::table('dts_copy_filled_transaction')->max('assign_offices_id') ?? 1000) + 1;
-
-                $finalCfOffices = [];
-                foreach ($this->cf_selected_offices as $cfOffice) {
-                    if ($cfOffice === 'ALL') {
-                        $allOffices = DB::table('office')->pluck('office_code')->toArray();
-                        foreach ($allOffices as $oCode) {
-                            $finalCfOffices[] = $oCode;
-                        }
-                    } else {
-                        $finalCfOffices[] = $cfOffice;
-                    }
-                }
-                $finalCfOffices = array_values(array_unique(array_filter($finalCfOffices)));
-
-                $copyFilledId = DB::table('dts_copy_filled_transaction')->insertGetId([
-                    'control_num' => $controlNumber,
-                    'total_office' => count($finalCfOffices),
-                    'assign_offices_id' => $assignOfficesId,
-                    'data_created' => now(),
-                    'date_modified' => now(),
-                ]);
-
-                foreach ($finalCfOffices as $cfOffice) {
-                    DB::table('dts_copy_filled_to_office')->insert([
-                        'control_id' => $assignOfficesId,
-                        'office_code' => $cfOffice,
+            if ($this->flow_mode === 'free_flow') {
+                // Ensure FLOW-FREE-FLOW exists in transaction flow table
+                $freeFlow = DB::table('dts_transaction_flow')->where('flow_code', 'FLOW-FREE-FLOW')->first();
+                if (!$freeFlow) {
+                    $maxFlowId = (DB::table('dts_transaction_flow')->max('id') ?? 0) + 1;
+                    DB::table('dts_transaction_flow')->insert([
+                        'id' => $maxFlowId,
+                        'flow_name' => 'Free Flow (Broadcast / Multi-Office)',
+                        'flow_code' => 'FLOW-FREE-FLOW',
+                        'is_active' => true,
+                        'flow_use' => 'issuances',
+                        'flow_for' => 'system',
+                        'added_by' => auth()->id() ?? 1,
+                        'date_added' => now(),
                     ]);
                 }
-            }
+                $flowCode = 'FLOW-FREE-FLOW';
 
-            // Insert into dts_transaction_details
-            DB::table('dts_transaction_details')->insert([
-                'id' => $transactionId,
-                'type' => 'memorandom',
-                'created_by' => auth()->id(),
-                'originated_from' => $this->userOfficeCode,
-                'requestor_id' => $requestorId,
-                'source_office' => null,
-                'subject' => $this->subject,
-                'classification' => null,
-                'action_needed' => 'For action',
-                'current_office_hold' => $currentOffice,
-                'status' => 'ongoing',
-                'document_password' => null,
-                'email_access' => null,
-                'transaction_flow' => $flowCode,
-                'is_active' => 1,
-                'date_created' => now(),
-                'control_number' => $controlNumber,
-                'copy_filled_id' => $copyFilledId ?: null,
-            ]);
+                // Resolve all final receiving offices
+                $finalReceivingOffices = [];
+                foreach ($this->free_flow_receiving_offices as $rOffice) {
+                    if ($rOffice === 'ALL') {
+                        foreach ($allSystemOffices as $oCode) {
+                            if ($oCode !== $originOfficeCode) {
+                                $finalReceivingOffices[] = $oCode;
+                            }
+                        }
+                    } else {
+                        $finalReceivingOffices[] = $rOffice;
+                    }
+                }
+                $finalReceivingOffices = array_values(array_unique(array_filter($finalReceivingOffices)));
 
-            if ($shouldAutoForward) {
-                $originOfficeName = DB::table('office')->where('office_code', $originOfficeCode)->value('office_name') ?: $originOfficeCode;
+                // Resolve Copy Furnished offices
+                $finalCfOffices = [];
+                if ($this->copy_furnished === 'Yes' && count($this->cf_selected_offices) > 0) {
+                    foreach ($this->cf_selected_offices as $cfOffice) {
+                        if ($cfOffice === 'ALL') {
+                            foreach ($allSystemOffices as $oCode) {
+                                $finalCfOffices[] = $oCode;
+                            }
+                        } else {
+                            $finalCfOffices[] = $cfOffice;
+                        }
+                    }
+                    $finalCfOffices = array_values(array_unique(array_filter($finalCfOffices)));
+                }
 
-                // Step 1 log: Completed/Forwarded at origin
+                $allBroadcastOffices = array_values(array_unique(array_merge($finalReceivingOffices, $finalCfOffices)));
+
+                // Insert into dts_copy_filled_transaction & dts_copy_filled_to_office
+                $copyFilledId = null;
+                if (count($allBroadcastOffices) > 0) {
+                    $assignOfficesId = (DB::table('dts_copy_filled_transaction')->max('assign_offices_id') ?? 1000) + 1;
+                    $copyFilledId = DB::table('dts_copy_filled_transaction')->insertGetId([
+                        'control_num' => $controlNumber,
+                        'total_office' => count($allBroadcastOffices),
+                        'assign_offices_id' => $assignOfficesId,
+                        'data_created' => now(),
+                        'date_modified' => now(),
+                    ]);
+
+                    foreach ($allBroadcastOffices as $offCode) {
+                        DB::table('dts_copy_filled_to_office')->insert([
+                            'control_id' => $assignOfficesId,
+                            'office_code' => $offCode,
+                        ]);
+                    }
+                }
+
+                $currentOffice = ($this->free_flow_dispatch_hub !== 'DIRECT') ? $this->free_flow_dispatch_hub : $originOfficeCode;
+
+                // Insert into dts_transactions
+                DB::table('dts_transactions')->insert([
+                    'transaction_id' => $transactionId,
+                    'enable_notif' => 1,
+                    'trans_type' => 'memorandom',
+                    'doc_dir' => null,
+                    'qr_code' => $qrCodeId,
+                    'current_office' => $currentOffice,
+                    'status' => 'ongoing',
+                    'sequence' => 1,
+                ]);
+
+                // Insert into dts_transaction_details
+                DB::table('dts_transaction_details')->insert([
+                    'id' => $transactionId,
+                    'type' => 'memorandom',
+                    'created_by' => auth()->id(),
+                    'originated_from' => $originOfficeCode,
+                    'requestor_id' => $requestorId,
+                    'source_office' => null,
+                    'subject' => $this->subject,
+                    'classification' => null,
+                    'action_needed' => 'For dissemination / action',
+                    'current_office_hold' => $currentOffice,
+                    'status' => 'ongoing',
+                    'document_password' => null,
+                    'email_access' => null,
+                    'transaction_flow' => $flowCode,
+                    'is_active' => 1,
+                    'date_created' => now(),
+                    'control_number' => $controlNumber,
+                    'copy_filled_id' => $copyFilledId ?: null,
+                ]);
+
+                // Step 1 log: Origin Office
                 DB::table('sub_document_tracking_system_logs')->insert([
                     'transaction_id' => $transactionId,
                     'office_code' => $originOfficeCode,
                     'type' => 'received',
                     'date_in' => now(),
                     'date_out' => now(),
-                    'notes' => 'Issuance transaction created & auto-forwarded',
+                    'notes' => 'Issuance created & broadcast via Free Flow',
                     'performed_by' => auth()->id(),
                 ]);
 
-                // Step 2 log: Pending forwarding log at target destination office
-                DB::table('sub_document_tracking_system_logs')->insert([
-                    'transaction_id' => $transactionId,
-                    'office_code' => $nextOfficeCode,
-                    'type' => 'forwarded',
-                    'date_in' => null,
-                    'date_out' => null,
-                    'notes' => 'Forwarded from ' . $originOfficeName,
-                    'performed_by' => auth()->id(),
-                ]);
+                // Step 2 logs: Dispatch Hub or direct broadcast to each receiving/CF office
+                if ($this->free_flow_dispatch_hub !== 'DIRECT') {
+                    DB::table('sub_document_tracking_system_logs')->insert([
+                        'transaction_id' => $transactionId,
+                        'office_code' => $this->free_flow_dispatch_hub,
+                        'type' => 'forwarded',
+                        'date_in' => null,
+                        'date_out' => null,
+                        'notes' => 'Dispatched to Central Hub (' . $this->free_flow_dispatch_hub . ') for multi-office dissemination',
+                        'performed_by' => auth()->id(),
+                    ]);
+                    \App\Services\DtsNotificationService::notifyWaitingToBeReceived($this->free_flow_dispatch_hub, $controlNumber, $transactionId);
+                } else {
+                    foreach ($finalReceivingOffices as $recOff) {
+                        DB::table('sub_document_tracking_system_logs')->insert([
+                            'transaction_id' => $transactionId,
+                            'office_code' => $recOff,
+                            'type' => 'forwarded',
+                            'date_in' => null,
+                            'date_out' => null,
+                            'notes' => 'Free Flow broadcast - Receiving Office',
+                            'performed_by' => auth()->id(),
+                        ]);
+                        \App\Services\DtsNotificationService::notifyWaitingToBeReceived($recOff, $controlNumber, $transactionId);
+                    }
+
+                    foreach ($finalCfOffices as $cfOff) {
+                        if (!in_array($cfOff, $finalReceivingOffices)) {
+                            DB::table('sub_document_tracking_system_logs')->insert([
+                                'transaction_id' => $transactionId,
+                                'office_code' => $cfOff,
+                                'type' => 'forwarded',
+                                'date_in' => null,
+                                'date_out' => null,
+                                'notes' => 'Free Flow broadcast - Copy Furnished',
+                                'performed_by' => auth()->id(),
+                            ]);
+                            \App\Services\DtsNotificationService::notifyWaitingToBeReceived($cfOff, $controlNumber, $transactionId);
+                        }
+                    }
+                }
             } else {
-                // Initial tracking log at origin waiting to be forwarded
-                DB::table('sub_document_tracking_system_logs')->insert([
-                    'transaction_id' => $transactionId,
-                    'office_code' => $this->userOfficeCode,
-                    'type' => 'received',
-                    'date_in' => now(),
-                    'date_out' => null,
-                    'notes' => 'Created issuance transaction',
-                    'performed_by' => auth()->id(),
+                // LINEAR FLOW MODE
+                $flowCode = $this->transaction_flow;
+                $flow = DB::table('dts_transaction_flow')->where('flow_code', $this->transaction_flow)->first();
+                
+                $originOffice = DB::table('office')->where('office_code', $originOfficeCode)->first();
+                $clusterHead = null;
+                if ($originOffice && $originOffice->cluster) {
+                    $cluster = DB::table('cluster')->where('cluster_code', $originOffice->cluster)->first();
+                    if ($cluster) {
+                        $clusterHead = $cluster->cluster_head;
+                    }
+                }
+
+                $this->flow_offices = $this->ensureOriginBounds($this->flow_offices, $originOfficeCode);
+
+                $resolvedOffices = [];
+                foreach ($this->flow_offices as $officeCode) {
+                    $resolved = $officeCode;
+                    if ($officeCode === 'ORIGIN') {
+                        $resolved = $originOfficeCode;
+                    } elseif ($officeCode === '[H]') {
+                        $resolved = $clusterHead ?: $originOfficeCode;
+                    }
+                    
+                    if (empty($resolvedOffices) || end($resolvedOffices) !== $resolved) {
+                        $resolvedOffices[] = $resolved;
+                    }
+                }
+
+                // Always copy custom flow
+                $flowCode = 'FLOW-CUSTOM-' . strtoupper(Str::random(10));
+                $maxId = DB::table('dts_transaction_flow')->max('id') ?? 0;
+                $newFlowId = $maxId + 1;
+
+                DB::table('dts_transaction_flow')->insert([
+                    'flow_code' => $flowCode,
+                    'flow_name' => 'Flow for ' . $controlNumber . ' (' . $flowCode . ')',
+                    'id' => $newFlowId,
+                    'is_active' => 1,
+                    'added_by' => auth()->id() ?? 1,
+                    'date_added' => now(),
+                    'flow_use' => 'issuances',
+                    'flow_for' => 'system',
+                    'referenced_flow' => $flow ? ('REF-' . (str_starts_with($flow->flow_code, 'FLOW-PREDEFINED') || str_starts_with($flow->flow_code, 'PREDEFINED') ? 'PREDEFINED' : 'CUSTOM') . '-' . $flow->id) : null,
                 ]);
+
+                $autoFwdSetting = DB::table('system_settings')->where('key', 'dts_auto_forward_created_transaction')->value('value');
+                $shouldAutoForward = ($autoFwdSetting !== 'false') && (count($resolvedOffices) > 1);
+
+                $nextOfficeCode = $resolvedOffices[1] ?? $originOfficeCode;
+                $currentOffice = $shouldAutoForward ? $nextOfficeCode : ($resolvedOffices[0] ?? $originOfficeCode);
+                $initialSequence = $shouldAutoForward ? 2 : 1;
+
+                foreach ($this->flow_offices as $rank => $officeCode) {
+                    $toSave = $officeCode;
+                    if ($officeCode === $originOfficeCode) {
+                        $toSave = 'ORIGIN';
+                    } elseif ($officeCode === $clusterHead) {
+                        $toSave = '[H]';
+                    }
+
+                    DB::table('dts_sequence_list')->insert([
+                        'control_id' => $newFlowId,
+                        'sequence_ranking' => $rank + 1,
+                        'office_code' => $toSave,
+                        'date_in' => ($rank === 0) ? now() : null,
+                        'date_out' => ($rank === 0 && $shouldAutoForward) ? now() : null,
+                        'action_needed' => ($rank === 0) ? 'Created' : null,
+                        'note' => ($rank === 0) ? ($shouldAutoForward ? 'Created & auto-forwarded transaction' : 'Created issuance transaction') : null,
+                        'total_time_completed' => null,
+                    ]);
+                }
+
+                // Insert into dts_transactions
+                DB::table('dts_transactions')->insert([
+                    'transaction_id' => $transactionId,
+                    'enable_notif' => 1,
+                    'trans_type' => 'memorandom',
+                    'doc_dir' => null,
+                    'qr_code' => $qrCodeId,
+                    'current_office' => $currentOffice,
+                    'status' => 'ongoing',
+                    'sequence' => $initialSequence,
+                ]);
+
+                $copyFilledId = null;
+                if ($this->copy_furnished === 'Yes' && count($this->cf_selected_offices) > 0) {
+                    $assignOfficesId = (DB::table('dts_copy_filled_transaction')->max('assign_offices_id') ?? 1000) + 1;
+
+                    $finalCfOffices = [];
+                    foreach ($this->cf_selected_offices as $cfOffice) {
+                        if ($cfOffice === 'ALL') {
+                            $allOffices = DB::table('office')->pluck('office_code')->toArray();
+                            foreach ($allOffices as $oCode) {
+                                $finalCfOffices[] = $oCode;
+                            }
+                        } else {
+                            $finalCfOffices[] = $cfOffice;
+                        }
+                    }
+                    $finalCfOffices = array_values(array_unique(array_filter($finalCfOffices)));
+
+                    $copyFilledId = DB::table('dts_copy_filled_transaction')->insertGetId([
+                        'control_num' => $controlNumber,
+                        'total_office' => count($finalCfOffices),
+                        'assign_offices_id' => $assignOfficesId,
+                        'data_created' => now(),
+                        'date_modified' => now(),
+                    ]);
+
+                    foreach ($finalCfOffices as $cfOffice) {
+                        DB::table('dts_copy_filled_to_office')->insert([
+                            'control_id' => $assignOfficesId,
+                            'office_code' => $cfOffice,
+                        ]);
+                    }
+                }
+
+                // Insert into dts_transaction_details
+                DB::table('dts_transaction_details')->insert([
+                    'id' => $transactionId,
+                    'type' => 'memorandom',
+                    'created_by' => auth()->id(),
+                    'originated_from' => $originOfficeCode,
+                    'requestor_id' => $requestorId,
+                    'source_office' => null,
+                    'subject' => $this->subject,
+                    'classification' => null,
+                    'action_needed' => 'For action',
+                    'current_office_hold' => $currentOffice,
+                    'status' => 'ongoing',
+                    'document_password' => null,
+                    'email_access' => null,
+                    'transaction_flow' => $flowCode,
+                    'is_active' => 1,
+                    'date_created' => now(),
+                    'control_number' => $controlNumber,
+                    'copy_filled_id' => $copyFilledId ?: null,
+                ]);
+
+                if ($shouldAutoForward) {
+                    $originOfficeName = DB::table('office')->where('office_code', $originOfficeCode)->value('office_name') ?: $originOfficeCode;
+
+                    // Step 1 log: Completed/Forwarded at origin
+                    DB::table('sub_document_tracking_system_logs')->insert([
+                        'transaction_id' => $transactionId,
+                        'office_code' => $originOfficeCode,
+                        'type' => 'received',
+                        'date_in' => now(),
+                        'date_out' => now(),
+                        'notes' => 'Issuance transaction created & auto-forwarded',
+                        'performed_by' => auth()->id(),
+                    ]);
+
+                    // Step 2 log: Pending forwarding log at target destination office
+                    DB::table('sub_document_tracking_system_logs')->insert([
+                        'transaction_id' => $transactionId,
+                        'office_code' => $nextOfficeCode,
+                        'type' => 'forwarded',
+                        'date_in' => null,
+                        'date_out' => null,
+                        'notes' => 'Forwarded from ' . $originOfficeName,
+                        'performed_by' => auth()->id(),
+                    ]);
+                } else {
+                    // Initial tracking log at origin waiting to be forwarded
+                    DB::table('sub_document_tracking_system_logs')->insert([
+                        'transaction_id' => $transactionId,
+                        'office_code' => $originOfficeCode,
+                        'type' => 'received',
+                        'date_in' => now(),
+                        'date_out' => null,
+                        'notes' => 'Created issuance transaction',
+                        'performed_by' => auth()->id(),
+                    ]);
+                }
+
+                // Notifications
+                if ($shouldAutoForward) {
+                    \App\Services\DtsNotificationService::notifyWaitingToBeReceived($currentOffice, $controlNumber, $transactionId);
+                    $userFirstName = auth()->user()?->details?->first_name ?: (auth()->user()?->username ?: 'User');
+                    \App\Services\DtsNotificationService::notifyForwarded($originOfficeCode, $userFirstName, $controlNumber, $transactionId);
+                } else {
+                    if (!empty($currentOffice)) {
+                        \App\Services\DtsNotificationService::notifyWaitingToBeReceived($currentOffice, $controlNumber, $transactionId);
+                    }
+                }
             }
 
             DB::commit();
-
-            // Notifications
-            if ($shouldAutoForward) {
-                \App\Services\DtsNotificationService::notifyWaitingToBeReceived($currentOffice, $controlNumber, $transactionId);
-                $userFirstName = auth()->user()?->details?->first_name ?: (auth()->user()?->username ?: 'User');
-                \App\Services\DtsNotificationService::notifyForwarded($originOfficeCode, $userFirstName, $controlNumber, $transactionId);
-            } else {
-                if (!empty($currentOffice)) {
-                    \App\Services\DtsNotificationService::notifyWaitingToBeReceived($currentOffice, $controlNumber, $transactionId);
-                }
-            }
 
             // Save summary for modal
             $this->createdTransactionSummary = [
@@ -869,7 +1129,7 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create Issuance
                 'requestor_position' => $reqPos,
                 'qr_code' => $this->generatedQrCode,
                 'office' => $this->userOfficeCode,
-                'type' => 'Issuance (' . $this->issuance_type . ')',
+                'type' => 'Issuance (' . $this->issuance_type . ')' . ($this->flow_mode === 'free_flow' ? ' - Free Flow' : ' - Linear'),
             ];
 
             // Reset form
@@ -879,6 +1139,9 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create Issuance
             $this->receiving_office = '';
             $this->copy_furnished = 'Yes';
             $this->cf_selected_offices = [];
+            $this->free_flow_receiving_offices = [];
+            $this->receiving_search = '';
+            $this->cf_search = '';
             $this->generatedQrCode = null;
             $this->availabilityMessage = '';
             $this->isAvailable = null;
@@ -902,9 +1165,23 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create Issuance
 
 <div class="rms-container">
 
-    <!-- Header Section -->
-    <div class="rms-header">
+    <!-- Header Section with Flow Mode Toggle -->
+    <div class="rms-header" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px;">
         <h2>Issuances</h2>
+        
+        <!-- Toggle Control -->
+        <div style="display: inline-flex; background: #f1f5f9; padding: 4px; border-radius: 8px; border: 1px solid #cbd5e1; gap: 4px;">
+            <button type="button" 
+                wire:click="setFlowMode('free_flow')"
+                style="padding: 6px 14px; font-size: 12px; font-weight: 700; border-radius: 6px; border: none; cursor: pointer; display: flex; align-items: center; gap: 6px; transition: all 0.2s; {{ $flow_mode === 'free_flow' ? 'background: #2563eb; color: #ffffff; box-shadow: 0 2px 4px rgba(37,99,235,0.25);' : 'background: transparent; color: #64748b;' }}">
+                <i class="fa-solid fa-bolt"></i> Free Flow (Broadcast)
+            </button>
+            <button type="button" 
+                wire:click="setFlowMode('linear')"
+                style="padding: 6px 14px; font-size: 12px; font-weight: 700; border-radius: 6px; border: none; cursor: pointer; display: flex; align-items: center; gap: 6px; transition: all 0.2s; {{ $flow_mode === 'linear' ? 'background: #2563eb; color: #ffffff; box-shadow: 0 2px 4px rgba(37,99,235,0.25);' : 'background: transparent; color: #64748b;' }}">
+                <i class="fa-solid fa-arrows-split-up-and-left" style="transform: rotate(90deg);"></i> Linear Flow (Sequential)
+            </button>
+        </div>
     </div>
 
     <!-- Issuances Form -->
@@ -912,7 +1189,16 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create Issuance
             
             <!-- Form Fields -->
             <div>
-                                    <!-- Control Number Selection Dropdown and Input -->
+                    @if($flow_mode === 'free_flow')
+                        <div style="margin-bottom: 20px; padding: 12px 16px; background: #eff6ff; border-left: 4px solid #3b82f6; border-radius: 6px; display: flex; align-items: center; gap: 10px;">
+                            <i class="fa-solid fa-circle-info" style="color: #2563eb; font-size: 16px;"></i>
+                            <div style="font-size: 12.5px; color: #1e40af; line-height: 1.4;">
+                                <strong>Free Flow Broadcast Mode Active:</strong> This issuance memo will be disseminated directly and simultaneously to multiple receiving offices. Each office can independently receive the memo in their incoming queue without blocking other offices.
+                            </div>
+                        </div>
+                    @endif
+
+                    <!-- Control Number Selection Dropdown and Input -->
                     <div class="control-wrapper" style="margin-bottom: 20px;">
                         <label class="control-label">Control Number Type:</label>
                         <div style="display: flex; gap: 8px; flex-wrap: wrap; align-items: center;">
@@ -972,49 +1258,169 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create Issuance
                     </div>
                 </div>
 
-                <!-- Receiving Office(s) dropdown -->
-                <div class="form-row">
-                    <div class="form-col small-input">
-                        <label class="input-label">Receiving Office(s)</label>
-                        <select wire:model="receiving_office" class="select-input">
-                            <option value="">Receiving Office(s)</option>
-                            <option value="All Units">All Units</option>
-                            @foreach($offices as $office)
-                                <option value="{{ $office['office_code'] }}">{{ $office['office_name'] }} ({{ $office['office_code'] }})</option>
-                            @endforeach
-                        </select>
-                        @error('receiving_office')
-                            <span class="error-msg" style="color: #dc2626; font-size: 12px; margin-top: 4px; display: block;">{{ $message }}</span>
-                        @enderror
-                    </div>
-                </div>
-
-                <!-- Transaction Path field -->
-                <div class="form-row">
-                    <div class="form-col viewpath-wrapper">
-                        <label class="input-label">Transaction Flow / Path</label>
-                        <div style="display: flex; gap: 8px; align-items: center;">
-                            <select wire:model.live="transaction_flow" class="select-input" style="flex: 1;">
-                                <option value="">Select Path</option>
-                                @foreach($flows as $flow)
-                                    <option value="{{ $flow['flow_code'] }}">{{ $flow['flow_name'] }} ({{ $flow['flow_code'] }})</option>
+                @if($flow_mode === 'free_flow')
+                    <!-- Dispatch Routing Hub -->
+                    <div class="form-row" style="margin-bottom: 18px;">
+                        <div class="form-col" style="max-width: 550px;">
+                            <label class="input-label">Dispatch Routing Hub</label>
+                            <select wire:model.live="free_flow_dispatch_hub" class="select-input" style="width: 100%;">
+                                <option value="DIRECT">Direct Broadcast from Origin ({{ $userOfficeCode }})</option>
+                                @php
+                                    $recordsOffice = collect($offices)->first(fn($o) => in_array($o['office_code'], ['RECORDS', 'RECORD', 'RMS', 'ADMIN']));
+                                @endphp
+                                @if($recordsOffice && $recordsOffice['office_code'] !== $userOfficeCode)
+                                    <option value="{{ $recordsOffice['office_code'] }}">Route through {{ $recordsOffice['office_name'] }} ({{ $recordsOffice['office_code'] }}) First</option>
+                                @endif
+                                @foreach($offices as $office)
+                                    @if($office['office_code'] !== $userOfficeCode && (!$recordsOffice || $office['office_code'] !== $recordsOffice['office_code']))
+                                        <option value="{{ $office['office_code'] }}">Route through {{ $office['office_name'] }} ({{ $office['office_code'] }})</option>
+                                    @endif
                                 @endforeach
                             </select>
-                            <button type="button" wire:click="openFlowDiagram" class="btn-primary" style="padding: 0 16px; height: 38px; font-size: 12px; font-weight: 600; background-color: #4b5563; border-radius: 4px;" {{ empty($transaction_flow) ? 'disabled' : '' }}>
-                                View Flow Diagram
-                            </button>
+                            <span style="font-size: 11.5px; color: #64748b; margin-top: 4px; display: block;">
+                                Choose "Direct Broadcast" to send immediately to all recipient queues, or route via Records/Central Hub for dispatching.
+                            </span>
                         </div>
-                        @error('transaction_flow')
-                            <span class="error-msg" style="color: #dc2626; font-size: 12px; margin-top: 4px; display: block;">{{ $message }}</span>
-                        @enderror
-                        <a href="#" wire:click.prevent="openCustomFlowCreator" style="font-size: 11.5px; color: #2563eb; text-decoration: none; font-weight: 600; margin-top: 4px; display: inline-block;">Flow Can't be found?</a>
                     </div>
-                </div>
+
+                    <!-- Multiple Receiving Offices Selector Box -->
+                    <div class="form-row">
+                        <div class="form-col" style="max-width: 550px; padding: 16px; border: 1px solid #cbd5e1; border-radius: 6px; background-color: #f8fafc; margin-bottom: 16px;">
+                            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+                                <label class="input-label" style="margin: 0; font-weight: 700; color: #0f172a;">
+                                    Receiving Offices (Action Required) <span style="color: #dc2626;">*</span>
+                                </label>
+                                <div style="display: flex; gap: 8px;">
+                                    <button type="button" wire:click="selectAllReceivingOffices" style="background: none; border: none; font-size: 11.5px; color: #2563eb; font-weight: 600; cursor: pointer; text-decoration: underline;">Select All Units</button>
+                                    @if(count($free_flow_receiving_offices) > 0)
+                                        <button type="button" wire:click="clearReceivingOffices" style="background: none; border: none; font-size: 11.5px; color: #dc2626; font-weight: 600; cursor: pointer; text-decoration: underline;">Clear</button>
+                                    @endif
+                                </div>
+                            </div>
+                            
+                            @if(count($free_flow_receiving_offices) > 0)
+                                <div style="display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 12px;">
+                                    @foreach($free_flow_receiving_offices as $index => $code)
+                                        @php
+                                            $rList = array_merge([
+                                                ['office_code' => 'ALL', 'office_name' => 'All Offices / Units']
+                                            ], $offices);
+                                            $officeName = collect($rList)->firstWhere('office_code', $code)['office_name'] ?? $code;
+                                        @endphp
+                                        <span class="badge" style="display: inline-flex; align-items: center; gap: 6px; background-color: #dbeafe; color: #1e40af; border: 1px solid #bfdbfe; padding: 4px 10px; border-radius: 6px; font-size: 11.5px; font-weight: 600;">
+                                            <i class="fa-solid fa-building" style="font-size: 10px;"></i>
+                                            {{ $officeName }}
+                                            <button type="button" wire:click="removeFreeFlowOffice({{ $index }})" style="border: none; background: none; color: #3b82f6; cursor: pointer; font-weight: bold; font-size: 13px; padding: 0 2px; line-height: 1;">&times;</button>
+                                        </span>
+                                    @endforeach
+                                </div>
+                            @endif
+
+                            <div style="position: relative;">
+                                <input type="text" 
+                                    wire:model.live="receiving_search" 
+                                    class="text-input" 
+                                    placeholder="Search office code or name to add..." 
+                                    style="width: 100%; font-size: 12.5px; padding: 7px 10px; border-radius: 4px; border: 1px solid #cbd5e1; background: #fff;"
+                                >
+                                
+                                @if(!empty($receiving_search))
+                                    @php
+                                        $userOfficeCode = $this->userOfficeCode;
+                                        $rList = array_merge([
+                                            ['office_code' => 'ALL', 'office_name' => 'All Offices / Units']
+                                        ], $offices);
+
+                                        $filteredReceiving = array_filter($rList, function($office) use ($free_flow_receiving_offices, $userOfficeCode) {
+                                            return !in_array($office['office_code'], $free_flow_receiving_offices) && $office['office_code'] !== $userOfficeCode;
+                                        });
+                                        
+                                        $searchLower = strtolower($receiving_search);
+                                        $filteredReceiving = array_filter($filteredReceiving, function($office) use ($searchLower) {
+                                            return str_contains(strtolower($office['office_code']), $searchLower) ||
+                                                   str_contains(strtolower($office['office_name']), $searchLower);
+                                        });
+                                    @endphp
+
+                                    <div style="position: absolute; top: 38px; left: 0; right: 0; background: #fff; border: 1px solid #cbd5e1; border-radius: 4px; max-height: 200px; overflow-y: auto; z-index: 50; box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1);">
+                                        @if(count($filteredReceiving) > 0)
+                                            @foreach($filteredReceiving as $office)
+                                                <button type="button" 
+                                                    wire:click="selectFreeFlowOffice('{{ $office['office_code'] }}')" 
+                                                    style="width: 100%; text-align: left; padding: 8px 12px; border: none; background: none; font-size: 12px; cursor: pointer; color: #333; border-bottom: 1px solid #f1f5f9; display: block;"
+                                                    onmouseover="this.style.backgroundColor='#f1f5f9'" 
+                                                    onmouseout="this.style.backgroundColor='transparent'"
+                                                >
+                                                    <strong>{{ $office['office_code'] }}</strong> - {{ $office['office_name'] }}
+                                                </button>
+                                            @endforeach
+                                        @else
+                                            <div style="padding: 8px 12px; font-size: 12px; color: #64748b;">
+                                                No matching offices found.
+                                            </div>
+                                        @endif
+                                    </div>
+                                @endif
+                            </div>
+                            @error('free_flow_receiving_offices')
+                                <span class="error-msg" style="color: #dc2626; font-size: 12px; margin-top: 4px; display: block;">{{ $message }}</span>
+                            @enderror
+                        </div>
+                    </div>
+                @else
+                    <!-- LINEAR FLOW CONTROLS -->
+                    <!-- Receiving Office(s) dropdown -->
+                    <div class="form-row">
+                        <div class="form-col small-input">
+                            <label class="input-label">Receiving Office(s)</label>
+                            <select wire:model="receiving_office" class="select-input">
+                                <option value="">Receiving Office(s)</option>
+                                <option value="All Units">All Units</option>
+                                @foreach($offices as $office)
+                                    <option value="{{ $office['office_code'] }}">{{ $office['office_name'] }} ({{ $office['office_code'] }})</option>
+                                @endforeach
+                            </select>
+                            @error('receiving_office')
+                                <span class="error-msg" style="color: #dc2626; font-size: 12px; margin-top: 4px; display: block;">{{ $message }}</span>
+                            @enderror
+                        </div>
+                    </div>
+
+                    <!-- Transaction Path field -->
+                    <div class="form-row">
+                        <div class="form-col viewpath-wrapper">
+                            <label class="input-label">Transaction Flow / Path</label>
+                            <div style="display: flex; gap: 8px; align-items: center;">
+                                <select wire:model.live="transaction_flow" class="select-input" style="flex: 1;">
+                                    <option value="">Select Path</option>
+                                    @foreach($flows as $flow)
+                                        <option value="{{ $flow['flow_code'] }}">{{ $flow['flow_name'] }} ({{ $flow['flow_code'] }})</option>
+                                    @endforeach
+                                </select>
+                                <button type="button" wire:click="openFlowDiagram" class="btn-primary" style="padding: 0 16px; height: 38px; font-size: 12px; font-weight: 600; background-color: #4b5563; border-radius: 4px;" {{ empty($transaction_flow) ? 'disabled' : '' }}>
+                                    View Flow Diagram
+                                </button>
+                            </div>
+                            @error('transaction_flow')
+                                <span class="error-msg" style="color: #dc2626; font-size: 12px; margin-top: 4px; display: block;">{{ $message }}</span>
+                            @enderror
+                            <a href="#" wire:click.prevent="openCustomFlowCreator" style="font-size: 11.5px; color: #2563eb; text-decoration: none; font-weight: 600; margin-top: 4px; display: inline-block;">Flow Can't be found?</a>
+                        </div>
+                    </div>
+                @endif
 
                 <!-- Copy Furnished Selector Box -->
                 <div class="form-row">
-                    <div class="form-col" style="max-width: 500px; padding: 16px; border: 1px solid #cbd5e1; border-radius: 6px; background-color: #f8fafc; margin-bottom: 12px;">
-                        <label class="input-label" style="margin-bottom: 8px;">Copy Furnished Offices</label>
+                    <div class="form-col" style="max-width: 550px; padding: 16px; border: 1px solid #cbd5e1; border-radius: 6px; background-color: #f8fafc; margin-bottom: 16px;">
+                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+                            <label class="input-label" style="margin: 0; font-weight: 700; color: #0f172a;">Copy Furnished Offices</label>
+                            <div style="display: flex; gap: 8px;">
+                                <button type="button" wire:click="selectAllCfOffices" style="background: none; border: none; font-size: 11.5px; color: #2563eb; font-weight: 600; cursor: pointer; text-decoration: underline;">Select All Units</button>
+                                @if(count($cf_selected_offices) > 0)
+                                    <button type="button" wire:click="clearCfOffices" style="background: none; border: none; font-size: 11.5px; color: #dc2626; font-weight: 600; cursor: pointer; text-decoration: underline;">Clear</button>
+                                @endif
+                            </div>
+                        </div>
                         
                         @if(count($cf_selected_offices) > 0)
                             <div style="display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 12px;">

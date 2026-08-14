@@ -81,7 +81,13 @@ new #[Layout('layouts.dts')] #[Title('Incoming Transactions - Document Tracking 
             return;
         }
 
-        if ($trans->current_office !== $userOfficeCode) {
+        $isFreeFlow = ($trans->transaction_flow === 'FLOW-FREE-FLOW' || str_starts_with($trans->transaction_flow, 'FLOW-FREE-FLOW'));
+        $hasOfficeLog = DB::table('sub_document_tracking_system_logs')
+            ->where('transaction_id', $trans->transaction_id)
+            ->where('office_code', $userOfficeCode)
+            ->exists();
+
+        if (!$isFreeFlow && !$hasOfficeLog && $trans->current_office !== $userOfficeCode) {
             $this->errorMessage = 'Unauthorized: Document is currently assigned to another office.';
             return;
         }
@@ -195,8 +201,17 @@ new #[Layout('layouts.dts')] #[Title('Incoming Transactions - Document Tracking 
             ->leftJoin('dts_transaction_flow as flow', 'flow.flow_code', '=', 'dtd.transaction_flow')
             ->leftJoin('document_data as doc', 'doc.document_path', '=', 'dt.doc_dir')
             ->where('dtd.is_active', 1)
-            ->where('dt.current_office', $userOfficeCode)
-            ->whereNotIn('dt.status', ['completed', 'cancelled']);
+            ->whereNotIn('dt.status', ['completed', 'cancelled'])
+            ->where(function($q) use ($userOfficeCode) {
+                $q->where('dt.current_office', $userOfficeCode)
+                  ->orWhereExists(function($sub) use ($userOfficeCode) {
+                      $sub->select(DB::raw(1))
+                          ->from('sub_document_tracking_system_logs')
+                          ->whereColumn('sub_document_tracking_system_logs.transaction_id', 'dt.transaction_id')
+                          ->where('sub_document_tracking_system_logs.office_code', $userOfficeCode)
+                          ->whereNull('sub_document_tracking_system_logs.date_in');
+                  });
+            });
 
         // Search Filter
         if (!empty($this->searchQuery)) {

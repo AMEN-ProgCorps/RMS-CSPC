@@ -229,8 +229,18 @@ new #[Layout('layouts.dts')] #[Title('Received Transactions - Document Tracking 
             ->leftJoin('office as current_office', 'current_office.office_code', '=', 'dt.current_office')
             ->leftJoin('dts_transaction_flow as flow', 'flow.flow_code', '=', 'dtd.transaction_flow')
             ->where('dtd.is_active', 1)
-            ->where('dt.current_office', $userOfficeCode)
-            ->whereNotIn('dt.status', ['completed', 'cancelled']);
+            ->whereNotIn('dt.status', ['cancelled'])
+            ->where(function($q) use ($userOfficeCode) {
+                $q->where('dt.current_office', $userOfficeCode)
+                  ->orWhereExists(function($sub) use ($userOfficeCode) {
+                      $sub->select(DB::raw(1))
+                          ->from('sub_document_tracking_system_logs')
+                          ->whereColumn('sub_document_tracking_system_logs.transaction_id', 'dt.transaction_id')
+                          ->where('sub_document_tracking_system_logs.office_code', $userOfficeCode)
+                          ->whereNotNull('sub_document_tracking_system_logs.date_in')
+                          ->where('sub_document_tracking_system_logs.type', 'received');
+                  });
+            });
 
         if (!empty($this->searchQuery)) {
             $searchVal = trim($this->searchQuery);

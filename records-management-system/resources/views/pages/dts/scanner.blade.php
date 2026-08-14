@@ -47,6 +47,15 @@ new #[Layout('layouts.dts')] #[Title('Advanced Scanner Console - DTS')] class ex
     public string $errorMessage = '';
     public string $infoMessage = '';
 
+    /** @var bool Available codes modal open state */
+    public bool $showAvailableModal = false;
+
+    /** @var string Available codes search query */
+    public string $availableSearch = '';
+
+    /** @var string Available codes filter: 'all', 'incoming', 'received' */
+    public string $availableFilter = 'all';
+
     public function mount(): void
     {
         $perms = auth()->user()?->permissions;
@@ -95,10 +104,143 @@ new #[Layout('layouts.dts')] #[Title('Advanced Scanner Console - DTS')] class ex
         $this->dispatch('focus-scanner-input');
     }
 
-    public function selectScannedCode(string $code): void
+    public function openAvailableCodesModal(): void
     {
+        $this->availableSearch = '';
+        $this->availableFilter = 'all';
+        $this->showAvailableModal = true;
+    }
+
+    public function closeAvailableCodesModal(): void
+    {
+        $this->showAvailableModal = false;
+    }
+
+    public function selectAndScan(string $code): void
+    {
+        $this->showAvailableModal = false;
         $this->scannedCode = $code;
         $this->loadTransaction();
+    }
+
+    /**
+     * Get list of pending transactions available for action at user's office.
+     */
+    public function getAvailableTransactionsProperty()
+    {
+        $userOfficeCode = auth()->user()?->details?->office?->office_code 
+            ?? \App\Services\DocumentStorageService::resolveOfficeCode(auth()->user());
+
+        if (!$userOfficeCode && !auth()->user()?->permissions?->is_sadm) {
+            return collect();
+        }
+
+        $query = DB::table('dts_transactions as dt')
+            ->join('dts_transaction_details as dtd', 'dtd.id', '=', 'dt.transaction_id')
+            ->leftJoin('dts_requestor_history as req', 'req.id', '=', 'dtd.requestor_id')
+            ->leftJoin('office as originated_office', 'originated_office.office_code', '=', 'dtd.originated_from')
+            ->leftJoin('office as current_office_tb', 'current_office_tb.office_code', '=', 'dt.current_office')
+            ->whereNotIn('dt.status', ['completed', 'cancelled']);
+
+        if (!auth()->user()?->permissions?->is_sadm) {
+            $query->where('dt.current_office', $userOfficeCode);
+        }
+
+        if (!empty(trim($this->availableSearch))) {
+            $s = '%' . trim($this->availableSearch) . '%';
+            $query->where(function($q) use ($s) {
+                $q->where('dtd.control_number', 'like', $s)
+                  ->orWhere('dt.qr_code', 'like', $s)
+                  ->orWhere('dtd.subject', 'like', $s)
+                  ->orWhere('req.requestor_name', 'like', $s)
+                  ->orWhere('originated_office.office_name', 'like', $s);
+            });
+        }
+
+        $transactions = $query->select(
+            'dt.transaction_id',
+            'dt.trans_type as type',
+            'dt.status',
+            'dt.sequence',
+            'dt.qr_code',
+            'dt.current_office',
+            'current_office_tb.office_name as current_office_name',
+            'dtd.control_number',
+            'dtd.subject',
+            'dtd.classification',
+            'dtd.action_needed',
+            'dtd.originated_from',
+            'originated_office.office_name as originated_office_name',
+            'req.requestor_name',
+            'dtd.date_created as tx_created_at'
+        )->orderBy('dtd.date_created', 'desc')->limit(60)->get();
+
+        return $transactions->map(function($t) use ($userOfficeCode) {
+            $checkOffice = $userOfficeCode ?: $t->current_office;
+            $lastLog = DB::table('sub_document_tracking_system_logs')
+                ->where('transaction_id', $t->transaction_id)
+                ->where('office_code', $checkOffice)
+                ->orderBy('id', 'desc')
+                ->first();
+
+            $isReceived = $lastLog && ($lastLog->type === 'received' || (!empty($lastLog->date_in) && $lastLog->type !== 'forwarded'));
+            $t->is_received = $isReceived;
+            $t->action_state = $isReceived ? 'received' : 'incoming';
+            return $t;
+        })->filter(function($t) {
+            if ($this->availableFilter === 'incoming') {
+                return !$t->is_received;
+            } elseif ($this->availableFilter === 'received') {
+                return $t->is_received;
+            }
+            return true;
+        });
+    }
+
+    /**
+     * Get summary count of available transactions for action.
+     */
+    public function getAvailableCountsProperty(): array
+    {
+        $userOfficeCode = auth()->user()?->details?->office?->office_code 
+            ?? \App\Services\DocumentStorageService::resolveOfficeCode(auth()->user());
+
+        if (!$userOfficeCode && !auth()->user()?->permissions?->is_sadm) {
+            return ['all' => 0, 'incoming' => 0, 'received' => 0];
+        }
+
+        $query = DB::table('dts_transactions as dt')
+            ->whereNotIn('dt.status', ['completed', 'cancelled']);
+
+        if (!auth()->user()?->permissions?->is_sadm) {
+            $query->where('dt.current_office', $userOfficeCode);
+        }
+
+        $allRows = $query->select('dt.transaction_id', 'dt.current_office')->get();
+        $incomingCount = 0;
+        $receivedCount = 0;
+
+        foreach ($allRows as $row) {
+            $checkOffice = $userOfficeCode ?: $row->current_office;
+            $lastLog = DB::table('sub_document_tracking_system_logs')
+                ->where('transaction_id', $row->transaction_id)
+                ->where('office_code', $checkOffice)
+                ->orderBy('id', 'desc')
+                ->first();
+
+            $isReceived = $lastLog && ($lastLog->type === 'received' || (!empty($lastLog->date_in) && $lastLog->type !== 'forwarded'));
+            if ($isReceived) {
+                $receivedCount++;
+            } else {
+                $incomingCount++;
+            }
+        }
+
+        return [
+            'all' => count($allRows),
+            'incoming' => $incomingCount,
+            'received' => $receivedCount,
+        ];
     }
 
     /**
@@ -182,7 +324,7 @@ new #[Layout('layouts.dts')] #[Title('Advanced Scanner Console - DTS')] class ex
                 'dt.current_office',
                 'dt.revision_requested_by_office',
                 'dt.revision_requested_by_sequence',
-                'dt.created_at as tx_created_at',
+                'dtd.date_created as tx_created_at',
                 'current_office_tb.office_name as current_office_name',
                 'dtd.transaction_flow',
                 'dtd.control_number',
@@ -736,9 +878,21 @@ new #[Layout('layouts.dts')] #[Title('Advanced Scanner Console - DTS')] class ex
             
             {{-- Direct Text / Barcode Gun Input --}}
             <div style="margin-bottom: 20px;">
-                <label for="scanner-main-input" style="display: block; font-size: 13px; font-weight: 700; color: #1e293b; margin-bottom: 8px;">
-                    <i class="fa-solid fa-barcode" style="color: #0284c7; margin-right: 4px;"></i> Barcode Gun / Manual Input
-                </label>
+                <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px;">
+                    <label for="scanner-main-input" style="font-size: 13px; font-weight: 700; color: #1e293b; display: flex; align-items: center; gap: 4px; margin: 0;">
+                        <i class="fa-solid fa-barcode" style="color: #0284c7;"></i> Barcode Gun / Manual Input
+                    </label>
+                    <button type="button" wire:click="openAvailableCodesModal" 
+                            style="display: inline-flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 700; color: #0284c7; background: #e0f2fe; border: 1px solid #bae6fd; padding: 4px 10px; border-radius: 8px; cursor: pointer; transition: all 0.2s;">
+                        <i class="fa-solid fa-list-check"></i>
+                        <span>Available Codes</span>
+                        @if($this->availableCounts['all'] > 0)
+                            <span style="background: #0284c7; color: #ffffff; font-size: 10px; font-weight: 800; padding: 1px 6px; border-radius: 9999px;">
+                                {{ $this->availableCounts['all'] }}
+                            </span>
+                        @endif
+                    </button>
+                </div>
                 <div style="position: relative;">
                     <input type="text" 
                            id="scanner-main-input" 
@@ -1096,11 +1250,143 @@ new #[Layout('layouts.dts')] #[Title('Advanced Scanner Console - DTS')] class ex
             50% { top: 88%; opacity: 1; }
             100% { top: 12%; opacity: 0.8; }
         }
-        @keyframes pulse {
-            0%, 100% { opacity: 1; transform: scale(1); }
-            50% { opacity: 0.4; transform: scale(0.9); }
+        @keyframes modalFadeIn {
+            from { opacity: 0; }
+            to { opacity: 1; }
+        }
+        @keyframes modalZoom {
+            from { opacity: 0; transform: scale(0.96); }
+            to { opacity: 1; transform: scale(1); }
         }
     </style>
+
+    {{-- Available Codes / Actionable Transactions Modal --}}
+    @if($showAvailableModal)
+        <div style="position: fixed; inset: 0; background: rgba(15, 23, 42, 0.75); backdrop-filter: blur(6px); z-index: 99999; display: flex; align-items: center; justify-content: center; padding: 16px; animation: modalFadeIn 0.15s ease-out;">
+            <div style="background: #ffffff; border-radius: 16px; max-width: 860px; width: 100%; max-height: 88vh; display: flex; flex-direction: column; box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25); border: 1px solid #e2e8f0; overflow: hidden; animation: modalZoom 0.2s cubic-bezier(0.16, 1, 0.3, 1);">
+                
+                {{-- Modal Header --}}
+                <div style="padding: 18px 24px; border-bottom: 1px solid #e2e8f0; display: flex; align-items: center; justify-content: space-between; background: #f8fafc;">
+                    <div style="display: flex; align-items: center; gap: 12px;">
+                        <div style="width: 40px; height: 40px; border-radius: 10px; background: #e0f2fe; color: #0284c7; display: flex; align-items: center; justify-content: center; font-size: 18px;">
+                            <i class="fa-solid fa-list-check"></i>
+                        </div>
+                        <div>
+                            <h3 style="font-size: 16px; font-weight: 700; color: #0f172a; margin: 0;">
+                                Available Documents for Action
+                            </h3>
+                            <p style="font-size: 12px; color: #64748b; margin: 2px 0 0 0;">
+                                Documents currently assigned to your station pending receipt or dispatch.
+                            </p>
+                        </div>
+                    </div>
+                    <button type="button" wire:click="closeAvailableCodesModal" 
+                            style="width: 32px; height: 32px; border-radius: 8px; border: 1px solid #e2e8f0; background: #ffffff; color: #64748b; cursor: pointer; display: flex; align-items: center; justify-content: center; font-size: 16px;">
+                        &times;
+                    </button>
+                </div>
+
+                {{-- Modal Filters & Search Bar --}}
+                <div style="padding: 16px 24px; border-bottom: 1px solid #f1f5f9; background: #ffffff; display: flex; flex-wrap: wrap; gap: 12px; align-items: center; justify-content: space-between;">
+                    
+                    {{-- Tab Switcher --}}
+                    <div style="display: flex; gap: 6px; background: #f1f5f9; padding: 4px; border-radius: 10px;">
+                        <button type="button" wire:click="$set('availableFilter', 'all')"
+                                style="padding: 6px 12px; border-radius: 7px; border: none; font-size: 12px; font-weight: 700; cursor: pointer; transition: all 0.15s; {{ $availableFilter === 'all' ? 'background: #ffffff; color: #0f172a; box-shadow: 0 1px 3px rgba(0,0,0,0.1);' : 'background: transparent; color: #64748b;' }}">
+                            All ({{ $this->availableCounts['all'] }})
+                        </button>
+                        <button type="button" wire:click="$set('availableFilter', 'incoming')"
+                                style="padding: 6px 12px; border-radius: 7px; border: none; font-size: 12px; font-weight: 700; cursor: pointer; transition: all 0.15s; {{ $availableFilter === 'incoming' ? 'background: #ffffff; color: #0284c7; box-shadow: 0 1px 3px rgba(0,0,0,0.1);' : 'background: transparent; color: #64748b;' }}">
+                            📥 Incoming / To Receive ({{ $this->availableCounts['incoming'] }})
+                        </button>
+                        <button type="button" wire:click="$set('availableFilter', 'received')"
+                                style="padding: 6px 12px; border-radius: 7px; border: none; font-size: 12px; font-weight: 700; cursor: pointer; transition: all 0.15s; {{ $availableFilter === 'received' ? 'background: #ffffff; color: #16a34a; box-shadow: 0 1px 3px rgba(0,0,0,0.1);' : 'background: transparent; color: #64748b;' }}">
+                            📤 In Custody / To Forward ({{ $this->availableCounts['received'] }})
+                        </button>
+                    </div>
+
+                    {{-- Search Input --}}
+                    <div style="position: relative; flex: 1; min-width: 220px; max-width: 320px;">
+                        <input type="text" wire:model.live.debounce.250ms="availableSearch" placeholder="Search control no, subject, origin..." 
+                               style="width: 100%; height: 36px; border: 1px solid #cbd5e1; border-radius: 8px; padding: 0 12px 0 32px; font-size: 12px; outline: none;" />
+                        <i class="fa-solid fa-magnifying-glass" style="position: absolute; left: 10px; top: 50%; transform: translateY(-50%); font-size: 12px; color: #94a3b8;"></i>
+                    </div>
+                </div>
+
+                {{-- Modal Body: Scrollable Document List --}}
+                <div style="padding: 16px 24px; overflow-y: auto; flex: 1; max-height: calc(88vh - 180px);">
+                    @if($this->availableTransactions->isNotEmpty())
+                        <div style="display: flex; flex-direction: column; gap: 10px;">
+                            @foreach($this->availableTransactions as $item)
+                                <div style="border: 1px solid #e2e8f0; border-radius: 12px; padding: 14px 16px; display: flex; align-items: center; justify-content: space-between; gap: 16px; transition: all 0.15s; background: #ffffff;" 
+                                     onmouseover="this.style.borderColor='#0284c7'; this.style.background='#f8fafc';" 
+                                     onmouseout="this.style.borderColor='#e2e8f0'; this.style.background='#ffffff';">
+                                    
+                                    <div style="flex: 1; min-width: 0;">
+                                        <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 4px; flex-wrap: wrap;">
+                                            <span style="font-family: monospace; font-size: 14px; font-weight: 800; color: #0f172a;">
+                                                {{ $item->control_number }}
+                                            </span>
+                                            @if(!$item->is_received)
+                                                <span style="font-size: 10px; font-weight: 700; background: #e0f2fe; color: #0369a1; padding: 2px 7px; border-radius: 5px; text-transform: uppercase;">
+                                                    📥 Pending Receipt
+                                                </span>
+                                            @else
+                                                <span style="font-size: 10px; font-weight: 700; background: #dcfce7; color: #15803d; padding: 2px 7px; border-radius: 5px; text-transform: uppercase;">
+                                                    📤 In Custody / Ready to Forward
+                                                </span>
+                                            @endif
+                                            <span style="font-size: 10px; font-weight: 600; background: #f1f5f9; color: #475569; padding: 2px 7px; border-radius: 5px;">
+                                                {{ ucfirst($item->type) }}
+                                            </span>
+                                        </div>
+
+                                        <div style="font-size: 13px; font-weight: 600; color: #334155; margin-bottom: 4px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                                            {{ $item->subject ?: 'No subject specified' }}
+                                        </div>
+
+                                        <div style="font-size: 11px; color: #64748b; display: flex; align-items: center; gap: 12px; flex-wrap: wrap;">
+                                            <span><strong>Origin:</strong> {{ $item->originated_office_name ?: $item->originated_from }}</span>
+                                            @if($item->action_needed)
+                                                <span><strong>Action Needed:</strong> <span style="color: #0284c7; font-weight: 600;">{{ $item->action_needed }}</span></span>
+                                            @endif
+                                            @if($item->qr_code)
+                                                <span style="font-family: monospace; color: #94a3b8;">QR: {{ $item->qr_code }}</span>
+                                            @endif
+                                        </div>
+                                    </div>
+
+                                    <div>
+                                        <button type="button" wire:click="selectAndScan('{{ $item->control_number }}')" 
+                                                style="padding: 8px 16px; border-radius: 8px; background: #0284c7; color: #ffffff; border: none; font-size: 12px; font-weight: 700; cursor: pointer; display: inline-flex; align-items: center; gap: 6px; box-shadow: 0 2px 4px rgba(2, 132, 199, 0.2); white-space: nowrap;">
+                                            <i class="fa-solid fa-barcode"></i> Select & Scan
+                                        </button>
+                                    </div>
+                                </div>
+                            @endforeach
+                        </div>
+                    @else
+                        <div style="padding: 40px 20px; text-align: center; color: #94a3b8;">
+                            <div style="font-size: 32px; margin-bottom: 8px; color: #cbd5e1;">
+                                <i class="fa-solid fa-folder-open"></i>
+                            </div>
+                            <div style="font-size: 14px; font-weight: 600; color: #475569;">No matching documents found</div>
+                            <div style="font-size: 12px; color: #94a3b8; margin-top: 2px;">There are no active transactions pending action for this filter.</div>
+                        </div>
+                    @endif
+                </div>
+
+                {{-- Modal Footer --}}
+                <div style="padding: 12px 24px; border-top: 1px solid #e2e8f0; background: #f8fafc; display: flex; align-items: center; justify-content: space-between;">
+                    <span style="font-size: 12px; color: #64748b;">Click <strong>Select & Scan</strong> to load the document directly into the scanner workstation.</span>
+                    <button type="button" wire:click="closeAvailableCodesModal" 
+                            style="padding: 6px 14px; border-radius: 8px; border: 1px solid #cbd5e1; background: #ffffff; color: #475569; font-size: 12px; font-weight: 600; cursor: pointer;">
+                        Close
+                    </button>
+                </div>
+            </div>
+        </div>
+    @endif
 </div>
 
 @push('scripts')

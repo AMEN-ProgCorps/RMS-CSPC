@@ -265,6 +265,46 @@ new #[Layout('layouts.dts')] #[Title('DTS - Issuances')] class extends Component
             return collect();
         }
         $flowCode = $this->selectedTransaction->transaction_flow;
+
+        if ($flowCode === 'FLOW-FREE-FLOW' || str_starts_with($flowCode, 'FLOW-FREE-FLOW')) {
+            $logs = DB::table('sub_document_tracking_system_logs as log')
+                ->leftJoin('office', 'office.office_code', '=', 'log.office_code')
+                ->where('log.transaction_id', $this->selectedTransactionId)
+                ->select('log.*', 'office.office_name')
+                ->orderBy('log.id', 'asc')
+                ->get();
+
+            return $logs->map(function ($step, $idx) {
+                $step->sequence_ranking = $idx + 1;
+                $step->office_name = $step->office_name ?: $step->office_code;
+                $step->action_needed = ($step->type === 'received') ? 'Received' : 'Dispatched / Broadcast';
+                $step->note = $step->notes;
+                $step->description = $step->notes ?: 'Free Flow recipient';
+
+                $step->is_active_step = (
+                    $step->office_code === auth()->user()?->details?->office?->office_code
+                    && !is_null($step->date_in)
+                    && is_null($step->date_out)
+                );
+
+                if (!empty($step->date_in) && empty($step->total_time_completed) && $step->date_out) {
+                    $dateIn = \Carbon\Carbon::parse($step->date_in);
+                    $dateOut = \Carbon\Carbon::parse($step->date_out);
+                    $diff = $dateIn->diff($dateOut);
+                    $parts = [];
+                    if ($diff->d > 0) $parts[] = $diff->d . ' ' . \Illuminate\Support\Str::plural('day', $diff->d);
+                    if ($diff->h > 0) $parts[] = $diff->h . ' ' . \Illuminate\Support\Str::plural('hour', $diff->h);
+                    if ($diff->i > 0) $parts[] = $diff->i . ' ' . \Illuminate\Support\Str::plural('minute', $diff->i);
+                    if (empty($parts)) $parts[] = 'less than a minute';
+                    $step->total_time_completed = implode(' ', $parts);
+                } else {
+                    $step->total_time_completed = null;
+                }
+
+                return $step;
+            });
+        }
+
         $flow = DB::table('dts_transaction_flow')->where('flow_code', $flowCode)->first();
         if (!$flow) {
             return collect();
@@ -625,10 +665,18 @@ new #[Layout('layouts.dts')] #[Title('DTS - Issuances')] class extends Component
     {
         $this->selectedTransaction = DB::table('dts_transactions as dt')
             ->join('dts_transaction_details as dtd', 'dtd.id', '=', 'dt.transaction_id')
+            ->leftJoin('dts_requestor_history as req', 'req.id', '=', 'dtd.requestor_id')
             ->leftJoin('office as originated_office', 'originated_office.office_code', '=', 'dtd.originated_from')
             ->leftJoin('dts_email_access as dea', 'dea.id', '=', 'dtd.email_access')
             ->where('dt.transaction_id', $this->selectedTransactionId)
-            ->select('dt.*', 'dtd.*', 'dea.email as access_email', 'originated_office.office_name as originated_office_name')
+            ->select(
+                'dt.*',
+                'dtd.*',
+                'req.requestor_name',
+                'req.requestor_position as requestor_label',
+                'dea.email as access_email',
+                'originated_office.office_name as originated_office_name'
+            )
             ->first();
 
         $this->attachedDocName = '';
@@ -645,8 +693,8 @@ new #[Layout('layouts.dts')] #[Title('DTS - Issuances')] class extends Component
             $this->actionNeeded = $this->selectedTransaction->action_needed ?: '';
             $this->activeAction = DB::table('dts_action_options')->orderBy('option_name', 'asc')->value('option_name') ?: 'For Approval';
 
-            $this->requestorName = $this->selectedTransaction->requestor_name ?: '';
-            $this->requestorPosition = $this->selectedTransaction->requestor_label ?: '';
+            $this->requestorName = $this->selectedTransaction->requestor_name ?? '';
+            $this->requestorPosition = $this->selectedTransaction->requestor_label ?? '';
             $this->emailAccess = $this->selectedTransaction->access_email ?: '';
             $this->docPassword = $this->selectedTransaction->document_password ?: '';
             $this->transactionFlow = $this->selectedTransaction->transaction_flow ?: '';

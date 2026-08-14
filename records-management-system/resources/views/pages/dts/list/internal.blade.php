@@ -615,10 +615,18 @@ new #[Layout('layouts.dts')] #[Title('DTS - Internal Transactions')] class exten
     {
         $this->selectedTransaction = DB::table('dts_transactions as dt')
             ->join('dts_transaction_details as dtd', 'dtd.id', '=', 'dt.transaction_id')
+            ->leftJoin('dts_requestor_history as req', 'req.id', '=', 'dtd.requestor_id')
             ->leftJoin('office as originated_office', 'originated_office.office_code', '=', 'dtd.originated_from')
             ->leftJoin('dts_email_access as dea', 'dea.id', '=', 'dtd.email_access')
             ->where('dt.transaction_id', $this->selectedTransactionId)
-            ->select('dt.*', 'dtd.*', 'dea.email as access_email', 'originated_office.office_name as originated_office_name')
+            ->select(
+                'dt.*',
+                'dtd.*',
+                'req.requestor_name',
+                'req.requestor_position as requestor_label',
+                'dea.email as access_email',
+                'originated_office.office_name as originated_office_name'
+            )
             ->first();
 
         $this->attachedDocName = '';
@@ -635,8 +643,8 @@ new #[Layout('layouts.dts')] #[Title('DTS - Internal Transactions')] class exten
             $this->actionNeeded = $this->selectedTransaction->action_needed ?: '';
             $this->activeAction = DB::table('dts_action_options')->orderBy('option_name', 'asc')->value('option_name') ?: 'For Approval';
 
-            $this->requestorName = $this->selectedTransaction->requestor_name ?: '';
-            $this->requestorPosition = $this->selectedTransaction->requestor_label ?: '';
+            $this->requestorName = $this->selectedTransaction->requestor_name ?? '';
+            $this->requestorPosition = $this->selectedTransaction->requestor_label ?? '';
             $this->emailAccess = $this->selectedTransaction->access_email ?: '';
             $this->docPassword = $this->selectedTransaction->document_password ?: '';
             $this->transactionFlow = $this->selectedTransaction->transaction_flow ?: '';

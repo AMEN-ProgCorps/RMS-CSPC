@@ -602,7 +602,7 @@
     if (cancelEditXBtn) {
       cancelEditXBtn.addEventListener('click', () => {
         hideEditBanner();
-        messageInput.value = '';
+        resetMessageInputVisualState();
         messageInput.style.height = 'auto';
       });
     }
@@ -1988,9 +1988,8 @@
       if (isAdmin) {
         const cmd = messageInput.value.trim().toLowerCase();
         if (cmd === '/clear') {
-          messageInput.value = '';
+          resetMessageInputVisualState();
           messageInput.style.height = 'auto';
-          messageInput.style.color = '';
           showModal();
           return;
         }
@@ -2003,9 +2002,8 @@
         // "no conversation selected" screen as long as the admin can type
         // into the message box and hit send.
         if (cmd === '/backup') {
-          messageInput.value = '';
+          resetMessageInputVisualState();
           messageInput.style.height = 'auto';
-          messageInput.style.color = '';
           showBackupConfirmModal();
           return;
         }
@@ -2028,6 +2026,20 @@
         return;
       }
 
+      // Capture who's actually still mentioned in the final text (Global
+      // Chat only, and never while editing) — sent to send.php below as
+      // mentioned_ids so it can persist + notify them server-side.
+      const mentionsToNotify = (isGlobalChat && !editingMsgId)
+        ? activeMentions.filter(function(m) { return message.indexOf('@' + m.name) !== -1; })
+        : [];
+      activeMentions = [];
+      if (typeof messageInputHighlight !== 'undefined' && messageInputHighlight) {
+        messageInputHighlight.textContent = '';
+      }
+      if (typeof closeMentionModal === 'function' && mentionModal && mentionModal.classList.contains('active')) {
+        closeMentionModal();
+      }
+
       // Capture the active reply (if any) as a real reply reference instead
       // of gluing fake "Replying to: ..." text onto the message body. Never
       // while editing an existing message — edit and reply are mutually
@@ -2047,7 +2059,7 @@
       // scrollbar-width/::-webkit-scrollbar). Setting it inline to 'hidden'
       // used to permanently override that CSS rule after the first send,
       // silently breaking scroll on every long message typed afterward.
-      messageInput.value = "";
+      resetMessageInputVisualState();
       messageInput.style.height = 'auto';
 
       // iOS: snap footer back to its default (single-line) position right away.
@@ -2115,8 +2127,15 @@
         }
         xhr.setRequestHeader('Content-type', 'application/x-www-form-urlencoded');
         const replyToParam = activeReply ? '&reply_to=' + encodeURIComponent(activeReply.msgId) : '';
+        // Sent inline with the message itself (instead of a separate
+        // notify.php call after send.php responds) so the mention is
+        // persisted + notified atomically with the message — see
+        // GlobalChatManager::addTextMessage()/recordMentions().
+        const mentionedIdsParam = mentionsToNotify.length
+          ? '&mentioned_ids=' + encodeURIComponent(JSON.stringify(mentionsToNotify.map(function(m) { return m.account_id; })))
+          : '';
         payload = isGlobalChat
-          ? 'message=' + encodeURIComponent(message) + replyToParam
+          ? 'message=' + encodeURIComponent(message) + replyToParam + mentionedIdsParam
           : 'target_id=' + encodeURIComponent(activeDMAccountId || 0) + '&target_user=' + encodeURIComponent(activeDM) + '&message=' + encodeURIComponent(message) + replyToParam;
       }
 
@@ -2130,6 +2149,11 @@
 
       xhr.onload = function () {
         if (this.status === 200) {
+          // NOTE: mentioned users are notified server-side now — see
+          // mentioned_ids in the payload above and
+          // GlobalChatManager::addTextMessage()/recordMentions(). No
+          // separate notify.php call needed here anymore.
+
           // Stop typing indicator immediately on successful send
           if (localTypingTimeout) {
             clearTimeout(localTypingTimeout);

@@ -327,7 +327,20 @@ try {
           </svg>
         </label>
         <input type="file" id="fileAttachmentInput" multiple accept="image/*,.gif,.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.csv,.zip,.rar,.7z,.mp3,.wav,.ogg,.flac,.aac,.m4a,.mp4,.webm,.mov" style="display:none;">
-        <textarea id="messageInput" placeholder="Type a message..." required autocomplete="off" rows="1" enterkeyhint="enter"></textarea>
+        <!-- Wraps the real textarea + its @mention highlight layer so the
+             layer can sit pixel-perfectly behind it. The textarea's own
+             text is made transparent (see .message-input-wrap #messageInput
+             in style.css) so only the highlight layer's colored spans are
+             actually visible — the textarea itself still owns typing,
+             selection, and the caret exactly as before. -->
+        <div class="message-input-wrap">
+          <div id="messageInputHighlight" class="message-input-highlight" aria-hidden="true"></div>
+          <textarea id="messageInput" placeholder="Type a message..." required autocomplete="off" rows="1" enterkeyhint="enter"></textarea>
+        </div>
+        <!-- @mention modal opens on its own the moment "@" is typed — see
+             the "input" listener on messageInput in app-part1.js. Same
+             structure/behavior as the User Verification modal above:
+             search inside the modal itself, one result row, click to pick. -->
         <button type="button" id="cancelEditXBtn" title="Cancel editing" aria-label="Cancel editing">
           <svg viewBox="0 0 24 24" width="12" height="12" fill="#fff">
             <path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/>
@@ -431,17 +444,16 @@ try {
   <!-- Container where incoming "someone notified you" toasts appear -->
   <div class="notify-toast-container" id="notifyToastContainer"></div>
 
-  <!-- Modal shown when a notification toast is clicked, shows full (up to 250 char) content -->
+  <!-- Modal shown when a notification toast is clicked, same layout as readMoreModal -->
   <div class="modal" id="notifyContentModal" aria-hidden="true">
-    <div class="modal-content">
+    <div class="modal-content" style="min-height:0;">
       <div class="modal-header">
-        <h3 id="notifyContentTitle">Notification</h3>
+        <h3 id="notifyContentTitle">Mention</h3>
+        <div id="notifyContentSender" style="font-size:12px;color:var(--text-secondary);margin-top:2px;"></div>
       </div>
-      <div class="modal-body">
-        <p id="notifyContentBody"></p>
-      </div>
+      <div class="modal-body" id="notifyContentBody"></div>
       <div class="modal-footer">
-        <button class="modal-button confirm-button" id="notifyContentClose" style="border-right:none;">Close</button>
+        <button class="modal-button cancel-button" id="notifyContentClose">Close</button>
       </div>
     </div>
   </div>
@@ -456,7 +468,7 @@ try {
       </div>
       <div class="modal-body" id="readMoreModalBody"></div>
       <div class="modal-footer">
-        <button class="modal-button confirm-button" id="readMoreModalClose" style="border-right:none;">Close</button>
+        <button class="modal-button cancel-button" id="readMoreModalClose">Close</button>
       </div>
     </div>
   </div>
@@ -568,6 +580,33 @@ try {
       </div>
       <div class="modal-footer">
         <button type="button" class="modal-button cancel-button" onclick="closeUserVerificationModal()">Close</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- @Mention User Modal (Global Chat) — opens the instant "@" is typed
+       in the message box. Same look/behavior as the User Verification
+       modal above: search happens inside the modal's own input, and only
+       ONE best-matching user is ever rendered as a result — never a full
+       list. Picking the row closes the modal and drops "@Full Name " into
+       the message box, highlighted blue there via #messageInputHighlight. -->
+  <div class="modal" id="mentionModal" aria-hidden="true">
+    <div class="modal-content" style="max-width:420px;">
+      <div class="modal-header" style="padding:16px;border-bottom:1px solid var(--border-color);display:flex;align-items:center;gap:10px;">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="4"/><path d="M6 21v-2a4 4 0 0 1 4-4h1"/><path d="M20 21a4 4 0 0 0-3-3.87M14 11a4 4 0 1 0 4 4"/><circle cx="18" cy="15" r="3"/></svg>
+        <h3 style="margin:0;font-size:16px;font-weight:600;color:var(--text-primary);">Mention a User</h3>
+      </div>
+      <div class="modal-body" style="padding:16px;display:flex;flex-direction:column;gap:14px;text-align:left;">
+        <p style="margin:0;font-size:13px;color:var(--text-secondary);line-height:1.5;">Search for a user to mention in Global Chat.</p>
+        <div style="position:relative;">
+          <svg style="position:absolute;left:10px;top:50%;transform:translateY(-50%);opacity:0.45;pointer-events:none;" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+          <input type="text" id="mentionSearchInput" placeholder="Search by first or last name..." autocomplete="off"
+            style="width:100%;box-sizing:border-box;padding:9px 12px 9px 34px;border:1px solid var(--border-color);border-radius:8px;background:var(--bg-secondary);color:var(--text-primary);font-size:14px;outline:none;">
+        </div>
+        <div id="mentionSearchResults" style="display:flex;flex-direction:column;gap:8px;min-height:40px;"></div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="modal-button cancel-button" onclick="closeMentionModal()">Cancel</button>
       </div>
     </div>
   </div>

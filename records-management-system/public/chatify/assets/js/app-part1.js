@@ -267,7 +267,17 @@
           return;
         }
 
-        if (data.type === 'users_dm_response') {
+        if (data.type === 'auth_success') {
+          // The socket is now actually authenticated as us, so any 'notify'
+          // WS push from this point on will reach us live. But a mention
+          // that landed WHILE we were offline/reconnecting only exists as
+          // an unseen row in chat_notifications — nothing re-sends it over
+          // WS once we're back, so pull it once here. This is the missing
+          // half of "notify toasts show up" — without it, a mention sent
+          // while your tab was closed/backgrounded/reconnecting never
+          // shows a toast at all.
+          catchUpMissedNotifications();
+        } else if (data.type === 'users_dm_response') {
           processUsersDmPayload(data.data || {});
         } else if (data.type === 'messages_response') {
           if (data.chat_type === 'global' && isGlobalChat) {
@@ -1144,37 +1154,121 @@
       xhr.send('recipient_id=' + encodeURIComponent(notifyTargetUser.account_id) + '&message=' + encodeURIComponent(message));
     });
 
+    // Pulls any notify/mention toasts that were sent while we had no live
+    // WS connection (page just loaded, tab was backgrounded, brief
+    // reconnect gap, etc). fetch_notifications.php only ever returns
+    // is_seen = 0 rows and immediately flips them to seen, so this is safe
+    // to call on every reconnect — already-shown notifications never come
+    // back. Called from ws.onmessage's 'auth_success' case, i.e. once per
+    // successful (re)connect, not on a timer.
+    function catchUpMissedNotifications() {
+      const xhr = new XMLHttpRequest();
+      xhr.open('GET', 'fetch_notifications.php', true);
+      xhr.onload = function() {
+        if (this.status !== 200) return;
+        try {
+          const res = JSON.parse(this.responseText);
+          (res.notifications || []).forEach(function(n) { showNotifyToast(n); });
+        } catch (e) { /* ignore malformed response */ }
+      };
+      xhr.send();
+    }
+
     // Max characters to show in the toast preview before truncating with "..."
     const TOAST_PREVIEW_LIMIT = 80;
 
-    function showNotifyToast(n) {
-      const toast = document.createElement('div');
-      toast.className = 'notify-toast';
-      if (n.message) {
-        const isLong = n.message.length > TOAST_PREVIEW_LIMIT;
-        const preview = isLong ? n.message.slice(0, TOAST_PREVIEW_LIMIT).trim() + '...' : n.message;
-        toast.innerHTML = '<strong>' + escapeHtml(n.sender) + '</strong> mentioned you: ' + escapeHtml(preview);
-      } else {
-        toast.innerHTML = '<strong>' + escapeHtml(n.sender) + '</strong> notified you';
+    // Only ONE mention toast is ever on screen at a time. If more mentions
+    // arrive while it's still showing (several people mentioning at once,
+    // someone spamming @you, a burst of catch-up notifications on
+    // reconnect, etc.) we don't stack a new toast per mention — we just
+    // bump a counter on the existing one:
+    //   1 mention total  -> "Name mentioned you"
+    //   2+ mentions total -> "N others mentioned you" (name dropped once
+    //                         it's more than one person)
+    // N is capped at "99+" so the UI never grows no matter how many land.
+    const MENTION_TOAST_COUNT_CAP = 99;
+    let activeMentionToast = null;
+    let mentionToastCount = 0; // total mentions folded into the current toast
+    let mentionToastFirstSender = null;
+    let mentionToastLatestData = null;
+    let mentionToastDismissTimer = null;
+
+    function mentionToastLabel() {
+      if (mentionToastCount <= 1) {
+        return '<strong>' + escapeHtml(mentionToastFirstSender) + '</strong> mentioned you';
       }
-      const dismiss = () => {
-        toast.classList.add('hide');
-        setTimeout(() => toast.remove(), 200);
-      };
-      toast.onclick = () => {
-        showNotifyContentModal(n);
-        dismiss();
-      };
-      notifyToastContainer.appendChild(toast);
-      setTimeout(dismiss, 6000);
+      const countLabel = mentionToastCount > MENTION_TOAST_COUNT_CAP
+        ? (MENTION_TOAST_COUNT_CAP + '+')
+        : String(mentionToastCount);
+      return '<strong>' + countLabel + '</strong> others mentioned you';
     }
 
+    function dismissMentionToast() {
+      if (!activeMentionToast) return;
+      const toast = activeMentionToast;
+      activeMentionToast = null;
+      mentionToastCount = 0;
+      mentionToastFirstSender = null;
+      mentionToastLatestData = null;
+      if (mentionToastDismissTimer) { clearTimeout(mentionToastDismissTimer); mentionToastDismissTimer = null; }
+      toast.classList.add('hide');
+      setTimeout(() => toast.remove(), 200);
+    }
+
+    function showNotifyToast(n) {
+      // Always keep the most recent mention's content — that's what opens
+      // when the toast (or its content modal) is clicked.
+      mentionToastLatestData = n;
+
+      if (activeMentionToast) {
+        // A toast is already up — fold this one into it instead of adding
+        // another toast to the stack.
+        mentionToastCount++;
+        activeMentionToast.innerHTML = mentionToastLabel();
+        // A fresh mention just came in, so give the person a full new
+        // window to notice it rather than letting the original timer cut
+        // it off mid-burst.
+        if (mentionToastDismissTimer) clearTimeout(mentionToastDismissTimer);
+        mentionToastDismissTimer = setTimeout(dismissMentionToast, 6000);
+        return;
+      }
+
+      mentionToastFirstSender = n.sender;
+      mentionToastCount = 1;
+
+      const toast = document.createElement('div');
+      toast.className = 'notify-toast';
+      toast.innerHTML = mentionToastLabel();
+      toast.onclick = () => {
+        showNotifyContentModal(mentionToastLatestData);
+        dismissMentionToast();
+      };
+      notifyToastContainer.appendChild(toast);
+      activeMentionToast = toast;
+      mentionToastDismissTimer = setTimeout(dismissMentionToast, 6000);
+    }
+
+    const notifyContentSender = document.getElementById('notifyContentSender');
+
     // ── Modal shown when a notification toast is clicked ──
+    // Same pattern as openReadMoreModal — textContent + linkify.
     function showNotifyContentModal(n) {
       if (!notifyContentModal) return;
-      notifyContentTitle.textContent = n.sender ? (n.sender + ' notified you') : 'Notification';
-      const content = (n.message || '').slice(0, 250);
-      notifyContentBody.textContent = content || 'No message content.';
+
+      // Header: static "Mention" title + sender subtitle
+      notifyContentTitle.textContent = 'Mention';
+      if (notifyContentSender) {
+        notifyContentSender.textContent = n.sender ? (n.sender + ' mentioned you') : '';
+      }
+
+      // Body: message text or "No messages." fallback — same as readMoreModal body
+      const rawContent = (n.message || '').trim();
+      notifyContentBody.textContent = rawContent || 'No messages.';
+      if (rawContent) {
+        delete notifyContentBody.dataset.linkified;
+        linkifyContent(notifyContentBody);
+      }
+
       notifyContentModal.classList.add('active');
       notifyContentModal.setAttribute('aria-hidden', 'false');
       document.body.style.overflow = 'hidden';
@@ -1730,7 +1824,258 @@
       return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
     }
 
+    // =========================================================================
+    // @Mention (Global Chat compose box)
+    // =========================================================================
+    // Typing "@" (start of message, or right after whitespace) opens the
+    // Mention modal — same look/behavior as the User Verification modal:
+    // search happens inside the modal's own input, and mention_search.php
+    // intentionally returns AT MOST ONE user, so exactly one result row is
+    // ever rendered — never a full list.
+    //
+    // Picking that row swaps the "@" the user typed for "@Full Name " in
+    // the compose box and remembers it in activeMentions, so the highlight
+    // layer (#messageInputHighlight, sitting right behind the now fully
+    // transparent #messageInput — see .message-input-wrap in style.css)
+    // can render it live as a blue .mention-tag pill.
+    //
+    // On send (app-part3.js), every mention still present in the final
+    // text is sent to send.php as mentioned_ids, which persists each one
+    // to chat_message_mentions and notifies the mentioned user — see
+    // GlobalChatManager::addTextMessage()/recordMentions() and
+    // core/ChatNotifier.php.
+    const messageInputHighlight = document.getElementById('messageInputHighlight');
+    const mentionModal          = document.getElementById('mentionModal');
+    const mentionSearchInput    = document.getElementById('mentionSearchInput');
+    const mentionSearchResults  = document.getElementById('mentionSearchResults');
 
+    // { account_id, name } for every mention currently in the box. Re-synced
+    // on every keystroke (recomputeActiveMentions) — deleting/editing away a
+    // mention's "@Name" text drops it from here too, so it won't be notified.
+    let activeMentions = [];
+    // Char offset of the lone "@" that opened the modal, so picking a user
+    // knows exactly what to replace. Null while the modal is closed.
+    let mentionTriggerPos = null;
+    let mentionSearchTimer = null;
+    let mentionSearchSeq = 0; // guards a slow response from overwriting a newer one
+
+    // Rebuilds the highlight layer from the textarea's current text, wrapping
+    // every still-present "@Name" (longest name first, so e.g. "Juan" can't
+    // shadow-match inside "Juan Dela Cruz") in the same .mention-tag blue
+    // pill used to render mentions in already-sent messages.
+    function renderMentionHighlight() {
+      const text = messageInput.value;
+      messageInput.style.color = 'transparent';
+
+      const names = (activeMentions || [])
+        .map(function(m) { return m.name; })
+        .filter(function(n, i, arr) { return arr.indexOf(n) === i; })
+        .sort(function(a, b) { return b.length - a.length; });
+
+      if (names.length === 0 || text.indexOf('@') === -1) {
+        messageInputHighlight.textContent = text.endsWith('\n') ? text + ' ' : text;
+        messageInputHighlight.scrollTop = messageInput.scrollTop;
+        messageInputHighlight.scrollLeft = messageInput.scrollLeft;
+        return;
+      }
+
+      let html = '';
+      let plainRun = '';
+      let i = 0;
+      while (i < text.length) {
+        let matchedToken = null;
+        if (text[i] === '@') {
+          for (const name of names) {
+            const token = '@' + name;
+            if (text.startsWith(token, i)) { matchedToken = token; break; }
+          }
+        }
+        if (matchedToken) {
+          if (plainRun) { html += escapeHtml(plainRun); plainRun = ''; }
+          html += '<span class="mention-tag">' + escapeHtml(matchedToken) + '</span>';
+          i += matchedToken.length;
+        } else {
+          plainRun += text[i];
+          i++;
+        }
+      }
+      if (plainRun) html += escapeHtml(plainRun);
+      if (text.endsWith('\n')) html += '&nbsp;';
+      messageInputHighlight.innerHTML = html;
+      messageInputHighlight.scrollTop = messageInput.scrollTop;
+      messageInputHighlight.scrollLeft = messageInput.scrollLeft;
+    }
+
+    // Fully resets the compose box back to its empty/placeholder state.
+    // Clearing messageInput.value alone isn't enough: renderMentionHighlight()
+    // makes the real textarea text transparent and paints the visible text
+    // (including blue @mention pills) onto #messageInputHighlight sitting
+    // behind it. If a message contained a mention and got cleared (sent,
+    // edit cancelled, /clear, /backup, etc.) without also clearing that
+    // overlay, its stale "@Name" pill stays rendered on screen, floating on
+    // top of the now-empty textarea's placeholder ("Type a message...") —
+    // the two visibly overlap. Every place that resets the compose box to
+    // empty should call this instead of setting messageInput.value directly.
+    function resetMessageInputVisualState() {
+      messageInput.value = '';
+      messageInput.style.color = '';
+      activeMentions = [];
+      if (messageInputHighlight) messageInputHighlight.innerHTML = '';
+    }
+    window.resetMessageInputVisualState = resetMessageInputVisualState;
+
+    function recomputeActiveMentions() {
+      const text = messageInput.value;
+      activeMentions = activeMentions.filter(function(m) {
+        return text.indexOf('@' + m.name) !== -1;
+      });
+    }
+
+    function syncMentionHighlightScroll() {
+      messageInputHighlight.scrollTop = messageInput.scrollTop;
+    }
+    messageInput.addEventListener('scroll', syncMentionHighlightScroll);
+
+    window.closeMentionModal = function() {
+      if (!mentionModal) return;
+      mentionModal.classList.remove('active');
+      mentionModal.setAttribute('aria-hidden', 'true');
+      mentionTriggerPos = null;
+      if (mentionSearchTimer) { clearTimeout(mentionSearchTimer); mentionSearchTimer = null; }
+      messageInput.focus();
+    };
+
+    function renderMentionResultState(state, usersData) {
+      // state: 'searching' | 'empty' | 'result'
+      // Single-suggestion UI: only ever render the single best match, even
+      // if the caller hands us more than one candidate. The person keeps
+      // typing to narrow down to the right person instead of picking from
+      // a list.
+      const users = Array.isArray(usersData) ? usersData.slice(0, 1) : (usersData ? [usersData] : []);
+      if (state === 'result' && users.length > 0) {
+        const user = users[0];
+        const initials = getInitialsFromFullName(user.name);
+        const html =
+          '<div class="mention-user-row" id="mentionUserRow" data-user-idx="0">' +
+            '<div class="mention-user-avatar">' + avatarInnerHtml(user.avatar_url, initials) + '</div>' +
+            '<div class="mention-user-info">' +
+              '<div class="mention-user-name">' + escapeHtml(user.name) + '</div>' +
+              '<div class="mention-user-sub">' + escapeHtml(user.office || user.username || '') + '</div>' +
+            '</div>' +
+          '</div>';
+        mentionSearchResults.innerHTML = html;
+        const row = document.getElementById('mentionUserRow');
+        if (row) {
+          row.addEventListener('click', function() {
+            selectMentionUser(user);
+          });
+        }
+      } else if (state === 'searching') {
+        mentionSearchResults.innerHTML = '<div style="font-size:13px;color:var(--text-secondary);padding:8px 0;">Searching…</div>';
+      } else {
+        mentionSearchResults.innerHTML = '<div style="font-size:13px;color:var(--text-secondary);padding:8px 0;">No users found.</div>';
+      }
+    }
+
+    function runMentionSearch(query) {
+      if (query === '') {
+        mentionSearchResults.innerHTML = '';
+        return;
+      }
+      renderMentionResultState('searching');
+      const seq = ++mentionSearchSeq;
+      const xhr = new XMLHttpRequest();
+      xhr.open('GET', 'mention_search.php?q=' + encodeURIComponent(query), true);
+      xhr.onload = function() {
+        if (seq !== mentionSearchSeq) return; // stale — a newer query has since been typed
+        if (this.status !== 200) { renderMentionResultState('empty'); return; }
+        try {
+          const res = JSON.parse(this.responseText);
+          // Only ever surface the single best match — see renderMentionResultState.
+          const best = (res && res.user) ? res.user : ((res && res.users && res.users[0]) ? res.users[0] : null);
+          renderMentionResultState(best ? 'result' : 'empty', best ? [best] : []);
+        } catch (e) {
+          renderMentionResultState('empty');
+        }
+      };
+      xhr.onerror = function() {
+        if (seq === mentionSearchSeq) renderMentionResultState('empty');
+      };
+      xhr.send();
+    }
+
+    if (mentionSearchInput) {
+      mentionSearchInput.addEventListener('input', function() {
+        clearTimeout(mentionSearchTimer);
+        const q = this.value.trim();
+        if (q === '') { mentionSearchResults.innerHTML = ''; return; }
+        mentionSearchTimer = setTimeout(function() { runMentionSearch(q); }, 300);
+      });
+      // Enter picks the single result row currently shown, same as clicking it.
+      mentionSearchInput.addEventListener('keydown', function(e) {
+        if (e.key === 'Enter') {
+          e.preventDefault();
+          const row = document.getElementById('mentionUserRow');
+          if (row) row.click();
+        }
+      });
+    }
+
+    // Backdrop click closes the modal (leaves the typed "@" as-is, same as
+    // dismissing the User Verification modal doesn't undo anything).
+    if (mentionModal) {
+      mentionModal.addEventListener('click', function(e) {
+        if (e.target === this) closeMentionModal();
+      });
+    }
+
+    // Swaps the lone "@" that opened the modal for "@Full Name " and
+    // remembers it as an active mention.
+    function selectMentionUser(user) {
+      if (!mentionTriggerPos) { closeMentionModal(); return; }
+      const text = messageInput.value;
+      const before = text.slice(0, mentionTriggerPos.start);
+      const after  = text.slice(mentionTriggerPos.end);
+      const insertion = '@' + user.name + ' ';
+      messageInput.value = before + insertion + after;
+
+      const caretPos = before.length + insertion.length;
+
+      if (!activeMentions.some(function(m) { return m.account_id === user.account_id && m.name === user.name; })) {
+        activeMentions.push({ account_id: user.account_id, name: user.name });
+      }
+
+      closeMentionModal(); // also refocuses messageInput
+      messageInput.setSelectionRange(caretPos, caretPos);
+      renderMentionHighlight();
+      if (typeof autoResizeMessageInput === 'function') autoResizeMessageInput();
+    }
+
+    // Fires the moment "@" is typed as the very last character, and only
+    // when it's at the start of the box or right after whitespace (so
+    // emails / mid-word "@" never trigger it) — opens the Mention modal
+    // exactly once per "@", same trigger UX as any other slash/at command.
+    messageInput.addEventListener('input', function() {
+      recomputeActiveMentions();
+      renderMentionHighlight();
+
+      if (!isGlobalChat) return; // mentions are a Global Chat feature only
+      const caret = this.selectionStart;
+      const justTypedAt = this.value[caret - 1] === '@';
+      const charBeforeAt = caret >= 2 ? this.value[caret - 2] : undefined;
+      if (justTypedAt && (charBeforeAt === undefined || /\s/.test(charBeforeAt))) {
+        mentionTriggerPos = { start: caret - 1, end: caret };
+        mentionModal.classList.add('active');
+        mentionModal.setAttribute('aria-hidden', 'false');
+        mentionSearchResults.innerHTML = '';
+        if (mentionSearchInput) {
+          mentionSearchInput.value = '';
+          setTimeout(function() { mentionSearchInput.focus(); }, 80);
+        }
+      }
+    });
+
+    messageInput.addEventListener('scroll', syncMentionHighlightScroll);
 
     function fetchAdminConvs(query = '', offset = 0, isAppend = false, targetId = 0) {
       // Use isAdmin (available synchronously from PHP on page load) as a fallback,

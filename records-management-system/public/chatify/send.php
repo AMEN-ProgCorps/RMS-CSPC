@@ -31,6 +31,22 @@ $uploadedRaw   = trim($_POST['uploaded_files'] ?? trim($_POST['uploaded_file'] ?
 $replyToUuid = trim($_POST['reply_to'] ?? '');
 $replyToUuid = $replyToUuid !== '' ? $replyToUuid : null;
 
+// account_ids @mentioned in this message (JSON array), from the compose
+// box's activeMentions — see selectMentionUser()/mentionsToNotify in
+// app-part1.js / app-part3.js. Never trust these blindly: they're just
+// account_ids at this point, GlobalChatManager::addTextMessage() re-checks
+// each one is a real account before persisting/notifying.
+$mentionedIds = [];
+$mentionedRaw = trim($_POST['mentioned_ids'] ?? '');
+if ($mentionedRaw !== '') {
+    $decodedMentions = json_decode($mentionedRaw, true);
+    if (is_array($decodedMentions)) {
+        // Hard cap — a message can only realistically mention a handful of
+        // people; this just guards against a malformed/huge payload.
+        $mentionedIds = array_slice(array_map('intval', $decodedMentions), 0, 20);
+    }
+}
+
 $hasSomethingToSend = ($message !== '' || $uploadedRaw !== '');
 
 if (!$hasSomethingToSend) {
@@ -42,7 +58,7 @@ $errors = [];
 
 // ── Text message ─────────────────────────────────────────────────────────────
 if ($message !== '') {
-    $result = GlobalChatManager::addTextMessage($senderId, $message, $replyToUuid);
+    $result = GlobalChatManager::addTextMessage($senderId, $message, $replyToUuid, $mentionedIds);
     if ($result === false) {
         $errors[] = 'Failed to save text message.';
     }

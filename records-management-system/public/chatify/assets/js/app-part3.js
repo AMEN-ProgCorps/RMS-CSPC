@@ -448,8 +448,11 @@
       chatFullyLoaded = true;
       if (!isAtBottom()) {
         showScrollIndicator(0);
-        syncLoadOlderBtn();
       }
+      // If the restored scroll position (or a very short chat) already
+      // lands the user near the top, kick off the auto-load check right
+      // away instead of waiting for a scroll event that may never fire.
+      maybeAutoLoadOlderMessages();
     }
 
     const scrollIndicatorText = document.getElementById('scrollIndicatorText');
@@ -581,6 +584,14 @@
       const text = (contentEl.dataset.fullText || contentEl.textContent).trim();
       messageInput.value = text;
       editingMsgId = msgId;
+
+      // messageInput.value is set programmatically here, so no 'input'
+      // event fires — renderMentionHighlight() (app-part1.js) never runs
+      // and #messageInputHighlight (the layer that actually paints the
+      // visible text, since #messageInput itself is color:transparent)
+      // stays stale/empty. Without this call the edited text is invisible,
+      // blending into the input background until the user types a key.
+      if (typeof renderMentionHighlight === 'function') renderMentionHighlight();
 
       // Show X cancel button
       showEditBanner(msgId);
@@ -891,8 +902,6 @@
         shouldAutoScroll = true;
         userScrolledUp = false;
         hideScrollIndicator();
-        // Hide load-older button when user returns to bottom
-        if (chatFullyLoaded) syncLoadOlderBtn();
       } else {
         shouldAutoScroll = false;
         userScrolledUp = true;
@@ -903,8 +912,6 @@
           if (hasMessages) {
             showScrollIndicator(0);
           }
-          // Show load-older button when user scrolls up and older messages exist
-          syncLoadOlderBtn();
         }
       }
 
@@ -1021,10 +1028,58 @@
       scrollToBottom(true);
     });
 
-    // Click floating load older button to load older messages
-    if (loadOlderFloatingBtn) {
-      loadOlderFloatingBtn.addEventListener('click', loadOlderMessages);
+    // ── Auto-load older messages on backread (replaces the old floating
+    // "Load Older Messages" button) ─────────────────────────────────────
+    // Once the user scrolls up near the top of the currently loaded window,
+    // the next PAGE_SIZE (or whatever's left) is fetched and prepended
+    // automatically — no button, no tap required.
+    //
+    // Perf notes:
+    //   - `scroll` can fire dozens of times per animation frame (trackpads,
+    //     high-refresh displays), so the actual check is batched to at most
+    //     once per frame via requestAnimationFrame + a ticking flag, instead
+    //     of running on every single event.
+    //   - The listener is `passive: true` since it never calls
+    //     preventDefault(), so it can't block the browser's scroll thread.
+    //   - The real work short-circuits immediately (cheap flag reads) if
+    //     the chat isn't fully loaded yet, the user isn't near the top, a
+    //     fetch for this chat is already in flight, or there's nothing left
+    //     to load — so the common case (scrolling anywhere but the very top)
+    //     costs almost nothing.
+    const AUTO_LOAD_OLDER_THRESHOLD_PX = 120;
+    let autoLoadOlderTicking = false;
+
+    function currentChatHasOlderMessages() {
+      if (activeAdminConv) return adminConvHasMore;
+      if (isGlobalChat) return gcHasMore;
+      if (activeDM) return dmHasMore;
+      return false;
     }
+
+    function currentChatIsLoadingOlder() {
+      if (activeAdminConv) return isLoadingAdminConv;
+      if (isGlobalChat) return isLoadingGC;
+      if (activeDM) return isLoadingChat;
+      return true;
+    }
+
+    function maybeAutoLoadOlderMessages() {
+      if (!chatFullyLoaded) return;
+      if (isAdminAllChatsView) return; // no single conversation open
+      if (chatBox.scrollTop > AUTO_LOAD_OLDER_THRESHOLD_PX) return;
+      if (currentChatIsLoadingOlder()) return; // a fetch is already in flight
+      if (!currentChatHasOlderMessages()) return; // nothing left to fetch
+      loadOlderMessages();
+    }
+
+    chatBox.addEventListener('scroll', function() {
+      if (autoLoadOlderTicking) return;
+      autoLoadOlderTicking = true;
+      requestAnimationFrame(function() {
+        maybeAutoLoadOlderMessages();
+        autoLoadOlderTicking = false;
+      });
+    }, { passive: true });
 
     // Generate initials from name
     function getInitials(name) {

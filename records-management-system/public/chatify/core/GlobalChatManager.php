@@ -29,6 +29,21 @@ class GlobalChatManager
     /**
      * Ensure chat_messages.status exists (safety net if the migration hasn't
      * run yet — mirrors ConversationManager::ensureMessageStatusColumn()).
+     *
+     * Also self-heals the indexes that loadRaw()'s keyset queries actually
+     * need. (conv_id, status) alone lets Postgres find the right rows but
+     * still forces a sort on every page — fine at a few hundred rows, but at
+     * real scale (millions of chat_messages rows) that sort is the whole
+     * bottleneck. A partial composite index matching the exact WHERE +
+     * ORDER BY shape used by loadRaw() lets Postgres walk the index in order
+     * and stop as soon as it has LIMIT rows — no sort step, no scanning rows
+     * that don't matter. It's a *partial* index (WHERE status = 'active')
+     * so it stays small and cheap to maintain even as inactive/deleted rows
+     * pile up. We also index chat_messages.msg_uuid and chat_reactions.msg_uuid,
+     * since every "load older" page does an msg_uuid point-lookup for the
+     * cursor plus a reactions IN(...) lookup, and index chat_messages
+     * on it so the reply-preview LEFT JOIN doesn't need a seq scan either.
+     * CONCURRENTLY avoids locking chat_messages for writers while this runs.
      */
     private static function ensureMessageStatusColumn(PDO $pdo): void
     {
@@ -41,6 +56,39 @@ class GlobalChatManager
             $pdo->exec("CREATE INDEX IF NOT EXISTS idx_chat_messages_status ON chat_messages (conv_id, status)");
         } catch (Throwable $t) {
             error_log('GlobalChatManager::ensureMessageStatusColumn() — ' . $t->getMessage());
+        }
+
+        // Each statement is its own try/catch: CONCURRENTLY can't run inside
+        // a transaction, and if one of these already exists under a
+        // different name (e.g. provisioned manually) we don't want that to
+        // block the others from being created.
+        self::ensureIndexConcurrently($pdo, 'idx_chat_messages_conv_active_created',
+            "CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_chat_messages_conv_active_created
+             ON chat_messages (conv_id, created_at DESC, id DESC)
+             WHERE status = 'active'");
+
+        self::ensureIndexConcurrently($pdo, 'idx_chat_messages_msg_uuid',
+            "CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_chat_messages_msg_uuid
+             ON chat_messages (msg_uuid)");
+
+        self::ensureIndexConcurrently($pdo, 'idx_chat_reactions_msg_uuid',
+            "CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_chat_reactions_msg_uuid
+             ON chat_reactions (msg_uuid)");
+    }
+
+    /**
+     * Run a single CREATE INDEX CONCURRENTLY statement, tolerating the fact
+     * that concurrent index builds can't run inside a transaction and that
+     * two web requests may race to create the same index (Postgres handles
+     * that safely at the catalog level; IF NOT EXISTS plus this try/catch
+     * just keeps a losing race from surfacing as an error to the user).
+     */
+    private static function ensureIndexConcurrently(PDO $pdo, string $indexName, string $sql): void
+    {
+        try {
+            $pdo->exec($sql);
+        } catch (Throwable $t) {
+            error_log("GlobalChatManager::ensureIndexConcurrently({$indexName}) — " . $t->getMessage());
         }
     }
 

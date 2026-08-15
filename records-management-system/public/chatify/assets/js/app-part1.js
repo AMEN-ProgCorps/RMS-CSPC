@@ -9,7 +9,6 @@
     const cancelClear     = document.getElementById("cancelClear");
     const confirmClear    = document.getElementById("confirmClear");
     const scrollIndicator = document.getElementById("scrollIndicator");
-    const loadOlderFloatingBtn = document.getElementById("loadOlderFloatingBtn");
     const secretInput     = document.getElementById("secretInput");
     const secretError     = document.getElementById("secretError");
     const darkModeToggle  = document.getElementById("darkModeToggle");
@@ -1646,22 +1645,7 @@
       }
     }
 
-    // Track whether older messages are available for the current chat
-    let hasOlderMessages = false;
-
-    function syncLoadOlderBtn() {
-      if (!loadOlderFloatingBtn) return;
-      const isAtTop = chatBox.scrollTop <= 5;
-      if (hasOlderMessages && chatFullyLoaded && isAtTop) {
-        loadOlderFloatingBtn.classList.add('visible');
-      } else {
-        loadOlderFloatingBtn.classList.remove('visible');
-      }
-    }
-
     function removePaginationBtn() {
-      hasOlderMessages = false;
-      syncLoadOlderBtn();
       const existing = document.getElementById('loadOlderBtn');
       if (existing) existing.remove();
       const notice = document.getElementById('noMoreOlderNotice');
@@ -1702,11 +1686,14 @@
       return { type: 'replace' };
     }
 
-    // Mark that older messages exist — visibility is driven by syncLoadOlderBtn()
-    function insertLoadOlderBtn() {
-      hasOlderMessages = true;
-      syncLoadOlderBtn();
-    }
+    // Historical no-op kept so the many call sites that mark "older messages
+    // are available for this chat" (gcHasMore/dmHasMore/adminConvHasMore are
+    // what actually drive the auto-load-on-scroll-to-top behavior now — see
+    // maybeAutoLoadOlderMessages() in app-part3.js) don't need to be touched
+    // one by one. There's no more floating/inline "Load Older" button to
+    // show; the next older page is fetched automatically as the user
+    // backreads to the top instead.
+    function insertLoadOlderBtn() {}
 
     // After trimming oldest messages from the top of the DOM, update the
     // pagination cursor to the UUID of the new oldest visible message so

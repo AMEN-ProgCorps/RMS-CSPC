@@ -235,11 +235,6 @@ try {
 
     <!-- Main Chat Area -->
     <div class="app-container">
-      <!-- Floating button for loading older messages -->
-      <button class="load-older-floating-btn" id="loadOlderFloatingBtn">
-        <span>Load Older Messages</span>
-      </button>
-
       <div class="header">
         <div class="header-left">
           <button id="burgerButton" class="clear-button" style="display:none;margin-right:10px;min-width:auto;" aria-label="Open menu" title="Open menu">

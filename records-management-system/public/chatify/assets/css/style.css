@@ -1750,6 +1750,14 @@
       opacity: 0.7;
       transition: opacity 0.15s, background 0.15s;
       padding: 0;
+      /* .message-input-container uses align-items: flex-end, so every
+         child's BOTTOM edge lines up on the same line by default. #sendButton
+         is 42px tall but this button is only 28px, so lining up bottoms left
+         its center sitting 7px above #sendButton's center (the "floating"
+         look in the screenshot). Half the height difference as margin-bottom
+         nudges its box up so the two circles' centers land on the same
+         horizontal line as #sendButton. */
+      margin-bottom: 7px;
     }
     #cancelEditXBtn:hover {
       opacity: 1;
@@ -2291,48 +2299,6 @@
 
     .scroll-indicator:active {
       transform: scale(0.96);
-    }
-
-    /* Floating Load Older Messages button at top of chat container */
-    .load-older-floating-btn {
-      position: absolute;
-      top: 80px; /* Floating below header with breathing room */
-      left: 50%;
-      transform: translateX(-50%);
-      background: #1b74e4;
-      color: white;
-      padding: 8px 14px;
-      border-radius: 24px;
-      font-size: 13px;
-      font-weight: 500;
-      border: none;
-      cursor: pointer;
-      opacity: 0;
-      visibility: hidden;
-      transition: opacity 0.3s ease, visibility 0.3s ease, transform 0.2s ease, background 0.2s ease;
-      z-index: 200;
-      box-shadow: 0 2px 10px rgba(0,0,0,0.25);
-      display: flex;
-      align-items: center;
-      gap: 6px;
-      user-select: none;
-      white-space: nowrap;
-      will-change: opacity, transform;
-    }
-
-    .load-older-floating-btn.visible {
-      opacity: 1;
-      visibility: visible;
-    }
-
-    .load-older-floating-btn:hover {
-      background: #1669c1;
-      transform: translateX(-50%) translateY(-2px);
-      box-shadow: 0 4px 14px rgba(0,0,0,0.3);
-    }
-
-    .load-older-floating-btn:active {
-      transform: translateX(-50%) scale(0.96);
     }
 
     /* Floating Load More button for Super Admin Spy Mode user cards */

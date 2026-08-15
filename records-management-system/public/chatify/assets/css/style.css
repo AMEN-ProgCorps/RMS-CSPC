@@ -1432,6 +1432,22 @@
       -webkit-touch-callout: none;
     }
 
+    /* Chat images (thumbnails rendered by load.php/load_dm.php/
+       load_dm_admin.php as <img class="chat-viewable-image" draggable="false">)
+       must not be draggable out of our own chat UI — e.g. dragged into the
+       message composer's file drop zone, onto the desktop, or into another
+       tab. `draggable="false"` on the element handles Chrome/Edge; these
+       vendor-prefixed `user-drag` rules are needed for Safari/older Firefox,
+       which ignore the attribute on <img>. */
+    .chat-viewable-image,
+    .reply-quote-image {
+      -webkit-user-drag: none;
+      -khtml-user-drag: none;
+      -moz-user-drag: none;
+      -o-user-drag: none;
+      user-drag: none;
+    }
+
     .message-media audio {
       border-radius: 8px;
     }

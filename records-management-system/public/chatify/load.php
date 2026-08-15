@@ -137,7 +137,7 @@ function gcChatImageTag(string $uploadsDir, string $fn, string $style): string
     $fnEsc  = htmlspecialchars($fn, ENT_QUOTES);
     $thumb  = ImageProcessor::thumbFilenameFor($uploadsDir, $fn);
     $srcUrl = $thumb !== null ? 'uploads/' . rawurlencode($thumb) : $fnUrl;
-    return "<img src='{$srcUrl}' alt='{$fnEsc}' class='chat-viewable-image' data-full-src='{$fnUrl}' loading='lazy' decoding='async' style='{$style}' />";
+    return "<img src='{$srcUrl}' alt='{$fnEsc}' class='chat-viewable-image' data-full-src='{$fnUrl}' loading='lazy' decoding='async' draggable='false' style='{$style}' />";
 }
 
 function gcInitials(string $name): string

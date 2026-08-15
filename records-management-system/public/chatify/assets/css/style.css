@@ -1011,12 +1011,19 @@
       scroll-behavior: auto;
       transition: background-color 0.3s ease;
       will-change: scroll-position;
+      /* Hide scrollbar but keep scroll functionality */
+      scrollbar-width: none; /* Firefox */
+      -ms-overflow-style: none; /* IE/Edge */
     }
 
-    /* Desktop: always show scrollbar so users know there's more content */
+    #chat-box::-webkit-scrollbar {
+      display: none; /* Chrome/Safari/Opera */
+    }
+
+    /* Desktop: keep scrolling enabled (scrollbar itself stays hidden above) */
     @media (min-width: 992px) {
       #chat-box {
-        overflow-y: scroll;
+        overflow-y: auto;
       }
     }
 
@@ -2510,37 +2517,6 @@
         flex-shrink: 0;
         padding-bottom: max(12px, env(safe-area-inset-bottom, 0px));
       }
-    }
-
-    /* Scrollbar Styling */
-    /* ── Scrollbar — always visible, styled ── */
-    #chat-box::-webkit-scrollbar {
-      width: 6px;
-    }
-
-    #chat-box::-webkit-scrollbar-track {
-      background: transparent;
-      margin: 6px 0;
-    }
-
-    #chat-box::-webkit-scrollbar-thumb {
-      background: var(--scrollbar-thumb);
-      border-radius: 99px;
-      min-height: 40px;
-    }
-
-    #chat-box::-webkit-scrollbar-thumb:hover {
-      background: var(--scrollbar-thumb-hover);
-    }
-
-    #chat-box::-webkit-scrollbar-thumb:active {
-      background: #1b74e4;
-    }
-
-    /* For Firefox */
-    #chat-box {
-      scrollbar-width: thin;
-      scrollbar-color: var(--scrollbar-thumb) transparent;
     }
 
     /* Drop overlay */

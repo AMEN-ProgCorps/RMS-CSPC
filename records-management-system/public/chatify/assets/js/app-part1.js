@@ -258,6 +258,111 @@
       }
     }
 
+    // Admin spy-mode equivalent of renderAndAppendWsMessage() above. Text
+    // messages arrive over WS with plaintext already included (see
+    // send_dm.php's WsPush::push(..., 'message', ['message' => plaintext...]),
+    // pushed to the admin account too), so we can append them directly here
+    // instead of routing through scheduleAdminConvReload() -> loadAdminConv()
+    // with isAutoPoll=true. That reload path is deliberately blocked by
+    // `adminConvViewingOlder` once the admin has scrolled back into older
+    // history (same guard DM/Global Chat have on their own poll) — but unlike
+    // DM/Global Chat, admin spy conv had no other path to show a live update,
+    // so new messages silently stopped appearing entirely once the admin
+    // scrolled past the initial 50. Appending directly here — bypassing the
+    // guard the same way DM's live WS append already does — fixes that.
+    function renderAndAppendAdminWsMessage(msgData) {
+      if (!chatBox || !activeAdminConv) return;
+      const msgId = msgData.msg_uuid || msgData.id;
+      if (msgId && chatBox.querySelector(`.message-container[data-msg-id="${msgId}"]`)) {
+        return; // Already rendered
+      }
+
+      const emptyNotice = chatBox.querySelector('.empty-chat');
+      if (emptyNotice) emptyNotice.remove();
+
+      // Admin spy view always renders every message "received"-style,
+      // regardless of who sent it — matches load_dm_admin.php's renderer.
+      const container = document.createElement('div');
+      container.className = 'message-container received msg-animate-received';
+      if (msgId) container.setAttribute('data-msg-id', msgId);
+      if (msgData.sender_id) container.setAttribute('data-sender-id', String(msgData.sender_id));
+      container.addEventListener('animationend', () => container.classList.remove('msg-animate-received'), { once: true });
+
+      const msgText = msgData.message || msgData.plaintext || '';
+      const senderUser = allUsersData.find(u => Number(u.account_id) === Number(msgData.sender_id));
+      const displayName = msgData.sender_name || (senderUser ? (senderUser.full_name || senderUser.username) : 'User');
+      const initials = getInitials(displayName);
+      const senderAvatarUrl = msgData.sender_avatar || (senderUser ? senderUser.avatar_url : null);
+      const senderLabel = escapeHtml(displayName.toLowerCase());
+
+      let timeDisplay = '';
+      if (msgData.created_at) {
+        const d = new Date(msgData.created_at);
+        const dateStr = d.toLocaleDateString('en-US', { timeZone: 'Asia/Manila', month: 'long', day: 'numeric', year: 'numeric' });
+        const timeStr = d.toLocaleTimeString('en-US', { timeZone: 'Asia/Manila', hour: 'numeric', minute: '2-digit', hour12: true });
+        timeDisplay = `${dateStr} at ${timeStr}`;
+      } else {
+        timeDisplay = getCurrentTime();
+      }
+
+      let replySnippetText = msgData.reply_snippet || '';
+      if (msgData.reply_to_msg_uuid && !replySnippetText) {
+        const replyTargetContainer = chatBox.querySelector(
+          `.message-container[data-msg-id="${msgData.reply_to_msg_uuid}"]`
+        );
+        if (replyTargetContainer && typeof getReplySnippet === 'function') {
+          replySnippetText = getReplySnippet(replyTargetContainer);
+        }
+      }
+
+      let replyQuoteHtml = '';
+      if (msgData.reply_to_msg_uuid && replySnippetText) {
+        if (String(replySnippetText).startsWith('image:')) {
+          const imgFile = String(replySnippetText).slice(6);
+          const imgSrc  = 'uploads/' + imgFile;
+          replyQuoteHtml = `<div class="reply-quote reply-quote-image-container"><img src="${escapeHtml(imgSrc)}" class="reply-quote-image" alt="" referrerpolicy="no-referrer" draggable="false"></div>`;
+        } else {
+          replyQuoteHtml = `<div class="reply-quote"><div class="reply-quote-text">${escapeHtml(String(replySnippetText).slice(0, 120))}</div></div>`;
+        }
+      }
+
+      container.innerHTML = `
+        <div class="message-avatar">${avatarInnerHtml(senderAvatarUrl, initials)}</div>
+        <div class="bubble-wrapper">
+          <div class="message-click-timestamp">${escapeHtml(timeDisplay)}</div>
+          ${replyQuoteHtml}
+          <div class="message-bubble">
+            <div class="message-content">${escapeHtml(msgText)}</div>
+            <div class="message-info"><span class="message-sender">${senderLabel}</span></div>
+          </div>
+        </div>
+      `;
+
+      chatBox.appendChild(container);
+
+      const contentEl = container.querySelector('.message-content');
+      if (contentEl) {
+        linkifyContent(contentEl);
+        applyReadMoreToElement(contentEl);
+      }
+
+      const atBottomNow = isAtBottom();
+
+      // Same PAGE_SIZE cap as DM/Global Chat — only trim while looking at the
+      // live/latest window, never while paged back into older history.
+      if (!adminConvViewingOlder) {
+        const trimmed = trimChatMessages(PAGE_SIZE);
+        if (trimmed) refreshCursorAfterTopTrim();
+      }
+
+      applyAdminBadges();
+      if (atBottomNow) {
+        scrollToBottom(true, true);
+      } else {
+        showScrollIndicator(1);
+      }
+    }
+
     ws.onmessage = function(event) {
         let data;
         try {
@@ -332,7 +437,16 @@
               const s = Number(data.sender_id);
               const r = Number(data.recipient_id);
               if ((s === parts[0] && r === parts[1]) || (s === parts[1] && r === parts[0])) {
-                scheduleAdminConvReload(activeAdminConv);
+                if (data.has_upload) {
+                  // Need the real attachment markup from the server — force a
+                  // fresh, non-auto-poll load (bypasses the adminConvViewingOlder
+                  // guard entirely, same as DM's loadChatForced()) instead of the
+                  // debounced scheduleAdminConvReload(), which that guard blocks
+                  // once the admin has scrolled back into older history.
+                  loadAdminConv(activeAdminConv, false);
+                } else {
+                  renderAndAppendAdminWsMessage(data);
+                }
               }
             } else if (activeDM) {
               const sender = Number(data.sender_id);

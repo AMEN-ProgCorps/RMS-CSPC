@@ -1182,7 +1182,7 @@
 
     function maybeAutoLoadOlderMessages() {
       if (!chatFullyLoaded) return;
-      if (isAdminAllChatsView) return; // no single conversation open
+      if (isAdminAllChatsView && !activeAdminConv) return; // spy mode's conversation LIST is showing, no transcript open
       if (chatBox.scrollTop > AUTO_LOAD_OLDER_THRESHOLD_PX) return;
       if (currentChatIsLoadingOlder()) return; // a fetch is already in flight
       if (!currentChatHasOlderMessages()) return; // nothing left to fetch

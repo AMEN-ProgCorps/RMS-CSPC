@@ -119,6 +119,27 @@ function gcBuildReplyQuoteHtml(?string $encryptedReplyMessage, string $replyType
     return "<div class='reply-quote'><div class='reply-quote-text'>{$snippetEsc}</div></div>";
 }
 
+/**
+ * Builds a chat-bubble <img> for an uploaded image: `src` points at the
+ * lightweight "<name>_thumb.webp" generated at upload time (see
+ * core/ImageProcessor.php) so the chat list only ever downloads a small
+ * preview, with native `loading="lazy"` so off-screen thumbnails aren't
+ * fetched at all until scrolled into view. `data-full-src` still points at
+ * the full-size file — the click handler in app-part3.js
+ * (openImageViewer) reads that attribute to fetch/render the full image
+ * only when the user actually taps the thumbnail. If no thumbnail exists
+ * on disk (upload predates this feature, or was a format ImageProcessor
+ * skips) `src` just falls back to the full image directly.
+ */
+function gcChatImageTag(string $uploadsDir, string $fn, string $style): string
+{
+    $fnUrl  = 'uploads/' . rawurlencode($fn);
+    $fnEsc  = htmlspecialchars($fn, ENT_QUOTES);
+    $thumb  = ImageProcessor::thumbFilenameFor($uploadsDir, $fn);
+    $srcUrl = $thumb !== null ? 'uploads/' . rawurlencode($thumb) : $fnUrl;
+    return "<img src='{$srcUrl}' alt='{$fnEsc}' class='chat-viewable-image' data-full-src='{$fnUrl}' loading='lazy' decoding='async' style='{$style}' />";
+}
+
 function gcInitials(string $name): string
 {
     $words    = explode(' ', trim($name));
@@ -237,10 +258,8 @@ foreach ($rawMessages as $msg) {
                 if (!empty($existingFiles)) {
                     $html .= "<div class='message-media' style='display:flex; flex-direction:column; gap:8px;'>";
                     foreach ($existingFiles as $fn) {
-                        $fn      = basename((string)$fn);
-                        $fnUrl   = 'uploads/' . rawurlencode($fn);
-                        $fnEsc   = htmlspecialchars($fn, ENT_QUOTES);
-                        $html   .= "<img src='{$fnUrl}' alt='{$fnEsc}' class='chat-viewable-image' data-full-src='{$fnUrl}' style='width:100%;max-width:240px;max-height:260px;height:auto;border-radius:12px;display:block;cursor:pointer;object-fit:cover;box-shadow:0 2px 8px rgba(0,0,0,0.18);' />";
+                        $fn    = basename((string)$fn);
+                        $html .= gcChatImageTag($uploadsDir, $fn, 'width:100%;max-width:240px;max-height:260px;height:auto;border-radius:12px;display:block;cursor:pointer;object-fit:cover;box-shadow:0 2px 8px rgba(0,0,0,0.18);');
                     }
                     $html .= "<div class='message-info' style='padding:3px 2px;'><span class='message-sender'>{$senderLabel}{$adminBadge}</span></div>";
                     $html .= "</div>"; // .message-media
@@ -256,7 +275,7 @@ foreach ($rawMessages as $msg) {
                     $fnExt = strtolower(pathinfo($fn, PATHINFO_EXTENSION));
                     if (in_array($fnExt, $imageExts, true)) {
                         if (file_exists($uploadsDir . $fn)) {
-                            $itemsHtml .= "<img src='{$fnUrl}' alt='{$fnEsc}' class='chat-viewable-image' data-full-src='{$fnUrl}' style='width:100%;max-width:240px;max-height:260px;height:auto;border-radius:12px;display:block;cursor:pointer;object-fit:cover;' />";
+                            $itemsHtml .= gcChatImageTag($uploadsDir, $fn, 'width:100%;max-width:240px;max-height:260px;height:auto;border-radius:12px;display:block;cursor:pointer;object-fit:cover;');
                         }
                     } else {
                         $itemsHtml .= "<a href='{$fnUrl}' target='_blank' rel='noopener' style='color:{$linkColor};text-decoration:underline;font-size:13px;word-break:break-all;'>{$fnEsc}</a>";
@@ -282,7 +301,7 @@ foreach ($rawMessages as $msg) {
             if (in_array($ext, $imageExts, true)) {
                 if (file_exists($uploadsDir . $file)) {
                     $html .= "<div class='message-media'>";
-                    $html .= "<img src='{$url}' alt='{$fileEsc}' class='chat-viewable-image' data-full-src='{$url}' style='width:100%;max-width:240px;max-height:260px;height:auto;border-radius:12px;display:block;cursor:pointer;object-fit:cover;box-shadow:0 2px 8px rgba(0,0,0,0.18);' />";
+                    $html .= gcChatImageTag($uploadsDir, $file, 'width:100%;max-width:240px;max-height:260px;height:auto;border-radius:12px;display:block;cursor:pointer;object-fit:cover;box-shadow:0 2px 8px rgba(0,0,0,0.18);');
                     $html .= "<div class='message-info' style='padding:3px 2px;'><span class='message-sender'>{$senderLabel}{$adminBadge}</span></div>";
                     $html .= "</div>";
                 }

@@ -163,6 +163,23 @@ function dmBuildReplyQuoteHtml(?string $encryptedReplyMessage, string $replyType
     return "<div class='reply-quote'><div class='reply-quote-text'>{$snippetEsc}</div></div>";
 }
 
+/**
+ * DM equivalent of gcChatImageTag() in load.php — builds a chat-bubble
+ * <img> whose `src` is the lightweight "_thumb.webp" generated at upload
+ * time (core/ImageProcessor.php), lazy-loaded, with `data-full-src` still
+ * pointing at the full-size file for the click-to-view handler in
+ * app-part3.js. Falls back to the full image as `src` when no thumbnail
+ * exists on disk.
+ */
+function dmChatImageTag(string $uploadsDir, string $fn, string $style): string
+{
+    $fnUrl  = 'uploads/' . rawurlencode($fn);
+    $fnEsc  = htmlspecialchars($fn, ENT_QUOTES);
+    $thumb  = ImageProcessor::thumbFilenameFor($uploadsDir, $fn);
+    $srcUrl = $thumb !== null ? 'uploads/' . rawurlencode($thumb) : $fnUrl;
+    return "<img src='{$srcUrl}' alt='{$fnEsc}' class='chat-viewable-image' data-full-src='{$fnUrl}' loading='lazy' decoding='async' style='{$style}' />";
+}
+
 function dmInitials2(string $name): string
 {
     $words    = explode(' ', trim($name));
@@ -270,17 +287,8 @@ foreach ($rawMessages as $msg) {
                 if (!empty($existingFiles)) {
                     $uploadBodyHtml .= "<div class='message-media' style='display:flex; flex-direction:column; gap:8px;'>";
                     foreach ($existingFiles as $fn) {
-                        $fn      = basename((string)$fn);
-                        $fnUrl   = 'uploads/' . rawurlencode($fn);
-                        $fnEsc   = htmlspecialchars($fn, ENT_QUOTES);
-                        $wAttr = '';
-                        $aspectRatioStyle = '';
-                        $info = @getimagesize($uploadsDir . $fn);
-                        if ($info) {
-                            $wAttr = " width='{$info[0]}' height='{$info[1]}'";
-                            $aspectRatioStyle = "aspect-ratio:{$info[0]}/{$info[1]};width:100%;height:auto;";
-                        }
-                        $uploadBodyHtml .= "<img src='{$fnUrl}' alt='{$fnEsc}' class='chat-viewable-image' data-full-src='{$fnUrl}' style='width:100%;max-width:240px;max-height:260px;height:auto;border-radius:12px;display:block;cursor:pointer;object-fit:cover;box-shadow:0 2px 8px rgba(0,0,0,0.18);' />";
+                        $fn = basename((string)$fn);
+                        $uploadBodyHtml .= dmChatImageTag($uploadsDir, $fn, 'width:100%;max-width:240px;max-height:260px;height:auto;border-radius:12px;display:block;cursor:pointer;object-fit:cover;box-shadow:0 2px 8px rgba(0,0,0,0.18);');
                     }
                     $uploadBodyHtml .= "<div class='message-info' style='padding:3px 2px;'><span class='message-sender'>{$senderLabel}{$adminBadge}</span></div>";
                     $uploadBodyHtml .= "</div>"; // .message-media
@@ -300,7 +308,7 @@ foreach ($rawMessages as $msg) {
                         if (!file_exists($uploadsDir . $fn)) {
                             continue; // deleted image — skip
                         }
-                        $itemsHtml .= "<img src='{$fnUrl}' alt='{$fnEsc}' class='chat-viewable-image' data-full-src='{$fnUrl}' style='width:100%;max-width:240px;max-height:260px;height:auto;border-radius:12px;display:block;cursor:pointer;object-fit:cover;' />";
+                        $itemsHtml .= dmChatImageTag($uploadsDir, $fn, 'width:100%;max-width:240px;max-height:260px;height:auto;border-radius:12px;display:block;cursor:pointer;object-fit:cover;');
                     } else {
                         $itemsHtml .= "<a href='{$fnUrl}' target='_blank' rel='noopener' style='color:{$linkColor};text-decoration:underline;font-size:13px;word-break:break-all;'>{$fnEsc}</a>";
                     }
@@ -325,7 +333,7 @@ foreach ($rawMessages as $msg) {
             if (in_array($ext, $imageExts, true)) {
                 if (file_exists($uploadsDir . $file)) {
                     $uploadBodyHtml .= "<div class='message-media'>";
-                    $uploadBodyHtml .= "<img src='{$url}' alt='{$fileEsc}' class='chat-viewable-image' data-full-src='{$url}' style='width:100%;max-width:240px;max-height:260px;height:auto;border-radius:12px;display:block;cursor:pointer;object-fit:cover;box-shadow:0 2px 8px rgba(0,0,0,0.18);' />";
+                    $uploadBodyHtml .= dmChatImageTag($uploadsDir, $file, 'width:100%;max-width:240px;max-height:260px;height:auto;border-radius:12px;display:block;cursor:pointer;object-fit:cover;box-shadow:0 2px 8px rgba(0,0,0,0.18);');
                     $uploadBodyHtml .= "<div class='message-info' style='padding:3px 2px;'><span class='message-sender'>{$senderLabel}{$adminBadge}</span></div>";
                     $uploadBodyHtml .= "</div>";
                 }

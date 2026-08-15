@@ -130,7 +130,14 @@ for ($i = 0; $i < $total; $i++) {
         continue;
     }
 
-    $response['uploaded'][] = $uniqueName;
+    // Images get converted to WebP (full-size + a small "_thumb.webp") so
+    // the chat list can lazy-load a lightweight thumbnail and only fetch
+    // the full-size render on click — see core/ImageProcessor.php. Non-image
+    // uploads, and anything ImageProcessor can't safely touch (svg/ico, no
+    // GD, corrupt file, etc.), pass through with their original filename.
+    $finalName = ImageProcessor::processUpload($uploadDir, $uniqueName, $ext);
+
+    $response['uploaded'][] = $finalName;
 }
 
 $response['success'] = count($response['uploaded']) > 0;

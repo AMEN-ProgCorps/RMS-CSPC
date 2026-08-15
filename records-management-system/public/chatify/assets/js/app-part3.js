@@ -941,33 +941,150 @@
     // Uses capture so it fires even if the img has no bubbling listener.
     chatBox.addEventListener('error', function(event) {
       const el = event.target;
-      if (!el || el.tagName !== 'IMG') return;
+      if (!el || !el.tagName) return;
 
-      if (el.classList.contains('reply-quote-image')) {
-        // Remove the reply quote image container entirely
-        const container = el.closest('.reply-quote-image-container, .reply-quote');
-        if (container) container.remove();
-        else el.remove();
-      } else if (el.classList.contains('chat-viewable-image')) {
-        // Remove the closest wrapping media element
-        const mediaWrap = el.closest('.message-media') || el.parentElement;
-        if (mediaWrap && mediaWrap !== el) {
-          mediaWrap.remove();
-        } else {
-          el.remove();
-        }
-        // If the whole bubble-wrapper is now empty (no text, no media left),
-        // hide the entire message container so nothing renders at all.
-        const msgContainer = el.closest ? el.closest('.message-container') : null;
-        if (msgContainer) {
-          const bubbleWrapper = msgContainer.querySelector('.bubble-wrapper');
-          if (bubbleWrapper) {
-            const remaining = bubbleWrapper.querySelectorAll('.message-bubble, .message-media');
-            if (remaining.length === 0) msgContainer.style.display = 'none';
+      if (el.tagName === 'IMG') {
+        if (el.classList.contains('reply-quote-image')) {
+          // Remove the reply quote image container entirely
+          const container = el.closest('.reply-quote-image-container, .reply-quote');
+          if (container) container.remove();
+          else el.remove();
+        } else if (el.classList.contains('chat-viewable-image')) {
+          // Capture the message-container BEFORE detaching anything — once
+          // an element is removed its parentNode goes null, so .closest()
+          // can no longer walk up past it to find an ancestor.
+          const msgContainer = el.closest('.message-container');
+          // Remove the closest wrapping media element
+          const mediaWrap = el.closest('.message-media') || el.parentElement;
+          if (mediaWrap && mediaWrap !== el) {
+            mediaWrap.remove();
+          } else {
+            el.remove();
           }
+          hideMessageContainerIfEmpty(msgContainer);
+        }
+      } else if (el.tagName === 'AUDIO' || el.tagName === 'SOURCE') {
+        // A deleted/missing audio file fires a native 'error' event on the
+        // <audio> (or its <source>) the same way a missing <img> does — so
+        // this removes it instantly too, no page refresh needed. Whole
+        // message-bubble goes (filename label + player live in the same
+        // bubble), not just the <audio> tag.
+        const audioEl = el.tagName === 'AUDIO' ? el : el.closest('audio');
+        const bubble = audioEl ? (audioEl.closest('.message-bubble') || audioEl.parentElement) : null;
+        if (bubble) {
+          const msgContainer = bubble.closest('.message-container');
+          bubble.remove();
+          hideMessageContainerIfEmpty(msgContainer);
         }
       }
     }, true);
+
+    // Non-image, non-audio attachments (PDFs and any other file type) are
+    // rendered as a plain <a href="uploads/..."> filename link — unlike
+    // <img>/<audio>, a link never auto-fetches its target, so there's no
+    // native browser 'error' event to hook into the way the two handlers
+    // above do. To still make a deleted file's name disappear from the chat
+    // UI on its own (no manual page refresh required), every such link is
+    // verified with a lightweight HEAD request as soon as it's added to the
+    // DOM, and removed if the file no longer exists on the server.
+    //
+    // Dedup: `attachmentUrlCache` is keyed by URL (not by DOM element), so
+    // the SAME file only ever gets ONE HEAD request for the lifetime of the
+    // open chat — no matter how many messages reference it or how many
+    // times "load older" re-renders that stretch of history. A result of
+    // `false` (missing) is remembered and reused instantly for any element
+    // that references that URL afterwards, with zero extra network calls.
+    // `attachmentPending` holds elements waiting on a still-in-flight check
+    // for a URL that's already being verified elsewhere, so a burst of
+    // identical links (e.g. the same PDF quoted in several replies) never
+    // fires more than one HEAD request between them either.
+    const attachmentUrlCache = new Map(); // href -> true (exists) | false (missing)
+    const attachmentPending  = new Map(); // href -> [elements waiting on the in-flight check]
+
+    function verifyAttachmentLink(a) {
+      if (!a || a.dataset.attachmentChecked === '1') return;
+      a.dataset.attachmentChecked = '1';
+      const href = a.getAttribute('href') || '';
+      if (!/^uploads\//.test(href)) return;
+
+      if (attachmentUrlCache.has(href)) {
+        if (attachmentUrlCache.get(href) === false) removeAttachmentLink(a);
+        return; // known-good, or already resolved — no new request either way
+      }
+
+      if (attachmentPending.has(href)) {
+        attachmentPending.get(href).push(a); // ride along with the in-flight check
+        return;
+      }
+
+      attachmentPending.set(href, [a]);
+
+      fetch(href, { method: 'HEAD', credentials: 'same-origin', cache: 'no-store' })
+        .then(function (res) { resolveAttachmentCheck(href, res.ok); })
+        .catch(function () { resolveAttachmentCheck(href, false); });
+    }
+
+    function resolveAttachmentCheck(href, exists) {
+      attachmentUrlCache.set(href, exists);
+      const waiting = attachmentPending.get(href) || [];
+      attachmentPending.delete(href);
+      if (!exists) waiting.forEach(removeAttachmentLink);
+    }
+
+    function removeAttachmentLink(a) {
+      if (!a || !a.isConnected) return;
+      const bubble = a.closest('.message-bubble');
+      const msgContainer = bubble ? bubble.closest('.message-container') : null;
+      a.remove();
+      if (bubble) {
+        const content = bubble.querySelector('.message-content');
+        // Content div now empty (no text, no remaining links/images) — drop the bubble.
+        if (content && content.textContent.trim() === '' && !content.querySelector('a, img')) {
+          bubble.remove();
+        }
+      }
+      hideMessageContainerIfEmpty(msgContainer);
+    }
+
+    // Shared helper: once a piece of message content is gone, check whether
+    // its message-container has anything left at all; if not, hide the
+    // whole thing so no empty bubble/avatar row lingers in the chat. Caller
+    // must pass the .message-container reference captured BEFORE removing
+    // anything (see note above on .closest() + .remove() ordering).
+    function hideMessageContainerIfEmpty(msgContainer) {
+      if (!msgContainer) return;
+      const bubbleWrapper = msgContainer.querySelector('.bubble-wrapper');
+      const remaining = bubbleWrapper
+        ? bubbleWrapper.querySelectorAll('.message-bubble, .message-media')
+        : [];
+      if (remaining.length === 0) msgContainer.style.display = 'none';
+    }
+
+    // Scans a freshly-added chunk of chat HTML for attachment links and
+    // kicks off their existence check. Called from a MutationObserver below
+    // so this covers every code path that injects messages into chatBox
+    // (initial load, "load older", WebSocket-pushed new messages, etc.)
+    // without needing to hook each call site individually.
+    function scanForAttachmentLinks(root) {
+      if (!root || !root.querySelectorAll) return;
+      const links = root.matches && root.matches('.message-content a[href^="uploads/"]')
+        ? [root]
+        : Array.prototype.slice.call(root.querySelectorAll('.message-content a[href^="uploads/"]'));
+      links.forEach(verifyAttachmentLink);
+    }
+
+    // Run once for whatever's already rendered on first load...
+    scanForAttachmentLinks(chatBox);
+
+    // ...and keep watching for anything appended/inserted afterwards.
+    const attachmentLinkObserver = new MutationObserver(function (mutations) {
+      mutations.forEach(function (mutation) {
+        mutation.addedNodes.forEach(function (node) {
+          if (node.nodeType === 1) scanForAttachmentLinks(node);
+        });
+      });
+    });
+    attachmentLinkObserver.observe(chatBox, { childList: true, subtree: true });
 
     // "Go to bottom" is about to force-reload the latest window — stamp
     // sessionStorage as "at bottom" for this chat BEFORE the reload happens.

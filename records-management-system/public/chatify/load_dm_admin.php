@@ -218,7 +218,9 @@ foreach ($rawMessages as $msg) {
                         }
                         $itemsHtml .= adminChatImageTag($uploadsDir, $fn, 'width:100%;max-width:240px;max-height:260px;height:auto;border-radius:12px;display:block;cursor:pointer;object-fit:cover;');
                     } else {
-                        $itemsHtml .= "<a href='{$fnUrl}' target='_blank' rel='noopener' style='color:#1b74e4;text-decoration:underline;font-size:13px;word-break:break-all;'>{$fnEsc}</a>";
+                        if (file_exists($uploadsDir . $fn)) {
+                            $itemsHtml .= "<a href='{$fnUrl}' target='_blank' rel='noopener' style='color:#1b74e4;text-decoration:underline;font-size:13px;word-break:break-all;'>{$fnEsc}</a>";
+                        }
                     }
                 }
                 if ($itemsHtml !== '') {
@@ -247,19 +249,23 @@ foreach ($rawMessages as $msg) {
                 }
                 // else: deleted image — nothing rendered for this message
             } elseif (in_array($ext, $audioExts, true)) {
-                $mime = $mimeMap[$ext] ?? 'audio/' . $ext;
-                $bodyHtml .= "<div class='message-bubble'>";
-                $bodyHtml .= "<div class='message-content'>";
-                $bodyHtml .= "<div style='font-size:12px;margin-bottom:6px;font-weight:500;opacity:0.85;max-width:240px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;'>{$fileEsc}</div>";
-                $bodyHtml .= "<audio controls preload='metadata' style='width:240px;max-width:100%;display:block;border-radius:6px;'><source src='{$url}' type='{$mime}'></audio>";
-                $bodyHtml .= "</div>";
-                $bodyHtml .= "<div class='message-info'><span class='message-sender'>{$senderLabel}</span></div>";
-                $bodyHtml .= "</div>";
+                if (file_exists($uploadsDir . $file)) {
+                    $mime = $mimeMap[$ext] ?? 'audio/' . $ext;
+                    $bodyHtml .= "<div class='message-bubble'>";
+                    $bodyHtml .= "<div class='message-content'>";
+                    $bodyHtml .= "<div style='font-size:12px;margin-bottom:6px;font-weight:500;opacity:0.85;max-width:240px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;'>{$fileEsc}</div>";
+                    $bodyHtml .= "<audio controls preload='metadata' style='width:240px;max-width:100%;display:block;border-radius:6px;'><source src='{$url}' type='{$mime}'></audio>";
+                    $bodyHtml .= "</div>";
+                    $bodyHtml .= "<div class='message-info'><span class='message-sender'>{$senderLabel}</span></div>";
+                    $bodyHtml .= "</div>";
+                }
             } else {
-                $bodyHtml .= "<div class='message-bubble'>";
-                $bodyHtml .= "<div class='message-content'><a href='{$url}' target='_blank' rel='noopener' style='color:#1b74e4;text-decoration:underline;font-weight:500;font-size:13px;word-break:break-all;'>{$fileEsc}</a></div>";
-                $bodyHtml .= "<div class='message-info'><span class='message-sender'>{$senderLabel}</span></div>";
-                $bodyHtml .= "</div>";
+                if (file_exists($uploadsDir . $file)) {
+                    $bodyHtml .= "<div class='message-bubble'>";
+                    $bodyHtml .= "<div class='message-content'><a href='{$url}' target='_blank' rel='noopener' style='color:#1b74e4;text-decoration:underline;font-weight:500;font-size:13px;word-break:break-all;'>{$fileEsc}</a></div>";
+                    $bodyHtml .= "<div class='message-info'><span class='message-sender'>{$senderLabel}</span></div>";
+                    $bodyHtml .= "</div>";
+                }
             }
         }
     }

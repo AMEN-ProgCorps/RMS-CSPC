@@ -3370,9 +3370,10 @@
       imageStagingSendBtn.addEventListener('click', function() {
         if (stagedImages.length === 0) return;
 
-        // Images are sent together as a single grid message; every other
-        // file type is sent individually — same grouping handleFileUploads
-        // used to do before files went through staging.
+        // Every file is uploaded in whatever batches make sense for the
+        // upload request itself, but the server now always saves ONE
+        // message per file (never a shared grid bundle) — so each image
+        // ends up individually reply-able, same as any other message.
         const imageBatch = stagedImages.filter(function(item) { return item.isImage; })
                                         .map(function(item) { return item.file; });
         const otherFiles = stagedImages.filter(function(item) { return !item.isImage; })
@@ -3608,6 +3609,14 @@
       shouldAutoScroll = true;
       userScrolledUp   = false;
 
+      // Capture + clear any active reply before the async upload starts, so
+      // a second reply started while this one is still uploading can't leak
+      // into this batch. The server only attaches it to the first message
+      // it saves out of this batch (text, or otherwise the first file) —
+      // see send.php / send_dm.php.
+      const replyForThisSend = (replyState && !editingMsgId) ? replyState.msgId : null;
+      if (replyForThisSend) hideReplyBanner();
+
       // Build FormData
       const fd = new FormData();
       fd.append('chat_type', isGlobalChat ? 'global' : 'dm');
@@ -3666,6 +3675,9 @@
         let params = 'uploaded_files=' + encodeURIComponent(filesPayload);
         if (!isGlobalChat && activeDM) {
           params += '&target_id=' + encodeURIComponent(activeDMAccountId || 0) + '&target_user=' + encodeURIComponent(activeDM);
+        }
+        if (replyForThisSend) {
+          params += '&reply_to=' + encodeURIComponent(replyForThisSend);
         }
 
         sendXhr.onload = function() {

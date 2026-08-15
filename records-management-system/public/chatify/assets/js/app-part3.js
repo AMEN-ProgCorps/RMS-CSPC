@@ -470,9 +470,15 @@
           scrollIndicatorText.textContent = 'Go to bottom';
         }
       }
-      const isAtTop = chatBox.scrollTop <= 5;
-      const hasUnread = scrollIndicator.classList.contains('has-unread');
-      if (chatFullyLoaded && (isAtTop || hasUnread)) {
+      // showScrollIndicator() is only ever called by callers that already
+      // know the user isn't at the bottom (new message arrived while
+      // scrolled up, or the main scroll listener detected !atBottom —
+      // which covers scrolling up past the loaded PAGE_SIZE window into
+      // older history too). So as long as the chat has finished its
+      // initial load, the button should show — it used to be gated on
+      // "scrollTop <= 5" (literally the very top) which meant scrolling
+      // up anywhere in the middle/older history never revealed it.
+      if (chatFullyLoaded) {
         scrollIndicator.classList.add('visible');
       } else {
         scrollIndicator.classList.remove('visible');

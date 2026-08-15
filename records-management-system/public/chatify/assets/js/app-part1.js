@@ -1254,6 +1254,18 @@
     function showNotifyContentModal(n) {
       if (!notifyContentModal) return;
 
+      // Live WS-pushed mentions (the normal case — see ChatNotifier::
+      // notifyMention()) never pass through fetch_notifications.php, so
+      // is_seen is still 0 in the DB at this point. Mark it seen now that
+      // the user has actually opened it. Fire-and-forget: a failed/slow
+      // request here shouldn't block showing the modal.
+      if (n && n.id) {
+        const seenXhr = new XMLHttpRequest();
+        seenXhr.open('POST', 'mark_mention_seen.php', true);
+        seenXhr.setRequestHeader('Content-Type', 'application/x-www-form-urlencoded');
+        seenXhr.send('id=' + encodeURIComponent(n.id));
+      }
+
       // Header: static "Mention" title + sender subtitle
       notifyContentTitle.textContent = 'Mention';
       if (notifyContentSender) {

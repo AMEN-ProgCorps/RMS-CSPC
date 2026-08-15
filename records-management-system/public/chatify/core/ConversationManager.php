@@ -1234,6 +1234,7 @@ class ConversationManager
                     created_at  TIMESTAMPTZ(6),
                     updated_at  TIMESTAMPTZ(6),
                     msg_uuid    VARCHAR(32)  NOT NULL,
+                    reply_to_msg_uuid VARCHAR(32),
                     status      VARCHAR(10)  NOT NULL DEFAULT 'inactive',
                     is_active   BOOLEAN      NOT NULL DEFAULT false,
                     archived_at TIMESTAMPTZ  NOT NULL DEFAULT NOW(),

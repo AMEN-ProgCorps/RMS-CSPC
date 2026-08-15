@@ -1,6 +1,7 @@
 *.log
 .DS_Store
 .env
+.env.docker
 docker-compose.override.yml
 .env.backup
 .env.production

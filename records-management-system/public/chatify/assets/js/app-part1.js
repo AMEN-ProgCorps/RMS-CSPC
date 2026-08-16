@@ -2052,13 +2052,23 @@
     // Keeps the chat window capped at maxCount messages by trimming the
     // trailing (newest/bottom) ones — used right after prepending an older
     // page so loading history swaps the window instead of growing it forever.
+    // Stops watching every <img> inside `el` for scroll-anchor resize
+    // compensation (see attachImageLoadListeners() in app-part3.js) before
+    // it's removed from the DOM — otherwise the ResizeObserver keeps a
+    // strong reference to detached image nodes forever, a slow memory leak
+    // over a long session of repeated backreads.
+    function unobserveImagesIn(el) {
+      if (typeof scrollAnchorObserver === 'undefined' || !scrollAnchorObserver || !el || !el.querySelectorAll) return;
+      el.querySelectorAll('img').forEach(img => scrollAnchorObserver.unobserve(img));
+    }
+
     function trimWindowFromBottom(maxCount) {
       const items = Array.from(chatBox.querySelectorAll('.message-container, .empty-chat'));
       if (items.length <= maxCount) return;
       const excess = items.length - maxCount;
       for (let i = 0; i < excess; i++) {
         const el = items[items.length - 1 - i];
-        if (el && el.parentNode) el.parentNode.removeChild(el);
+        if (el && el.parentNode) { unobserveImagesIn(el); el.parentNode.removeChild(el); }
       }
     }
 
@@ -2073,7 +2083,7 @@
       const excess = items.length - maxCount;
       for (let i = 0; i < excess; i++) {
         const el = items[i];
-        if (el && el.parentNode) el.parentNode.removeChild(el);
+        if (el && el.parentNode) { unobserveImagesIn(el); el.parentNode.removeChild(el); }
       }
       return true;
     }
@@ -2107,7 +2117,7 @@
 
       for (let i = 0; i < excess; i++) {
         const el = items[i];
-        if (el && el.parentNode) el.parentNode.removeChild(el);
+        if (el && el.parentNode) { unobserveImagesIn(el); el.parentNode.removeChild(el); }
       }
 
       const scrollDelta = prevScrollHeight - chatBox.scrollHeight;
@@ -2756,6 +2766,7 @@
           if (!adminConvHasMore) showNoMoreOlderNotice(); else if (!document.getElementById('loadOlderBtn')) insertLoadOlderBtn();
           applyAdminBadges();
           applyEmojiOnly();
+          attachImageLoadListeners();
           return;
         }
 
@@ -2806,6 +2817,7 @@
           else showScrollIndicator(rec.items.filter(el => el.classList.contains('message-container')).length);
           applyAdminBadges();
           applyEmojiOnly();
+          attachImageLoadListeners();
           if (adminConvHasMore && !document.getElementById('loadOlderBtn') && !document.getElementById('noMoreOlderNotice')) insertLoadOlderBtn();
           return;
         }
@@ -2844,6 +2856,7 @@
         }
         applyAdminBadges();
         applyEmojiOnly();
+        attachImageLoadListeners();
         adminConvCursor = data.nextCursor || '';
         adminConvViewingOlder = false;
         if (adminConvHasMore && !document.getElementById('loadOlderBtn') && !document.getElementById('noMoreOlderNotice')) insertLoadOlderBtn();

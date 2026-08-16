@@ -950,6 +950,7 @@
       if (!el || !el.tagName) return;
 
       if (el.tagName === 'IMG') {
+        if (scrollAnchorObserver) scrollAnchorObserver.unobserve(el);
         if (el.classList.contains('reply-quote-image')) {
           // Remove the reply quote image container entirely
           const container = el.closest('.reply-quote-image-container, .reply-quote');
@@ -1372,6 +1373,7 @@
         if (!gcHasMore) showNoMoreOlderNotice(); else if (!document.getElementById('loadOlderBtn')) insertLoadOlderBtn();
         applyAdminBadges();
         applyEmojiOnly();
+        attachImageLoadListeners();
         return;
       }
 
@@ -1481,7 +1483,7 @@
       if (isFirstLoad) { isFirstLoad = false; handleFirstLoadScroll(); }
       else if (wasAtBottom || shouldAutoScroll || isFirstLoad) requestAnimationFrame(() => requestAnimationFrame(() => scrollToBottom(true, false)));
       else if (genuinelyNewCount > 0) showScrollIndicator(genuinelyNewCount);
-      applyAdminBadges(); applyEmojiOnly();
+      applyAdminBadges(); applyEmojiOnly(); attachImageLoadListeners();
       // Chat was rebuilt from scratch (e.g. cleared), so pagination state no longer applies
       gcCursor = data.nextCursor || '';
       gcViewingOlder = false;
@@ -1535,6 +1537,7 @@
         trimWindowFromBottom(PAGE_SIZE);
         if (!dmHasMore) showNoMoreOlderNotice(); else if (!document.getElementById('loadOlderBtn')) insertLoadOlderBtn();
         applyAdminBadges(); applyEmojiOnly();
+        attachImageLoadListeners();
         updateSeenIndicator();
         return;
       }
@@ -1588,7 +1591,7 @@
         if (isFirstLoad) { isFirstLoad = false; handleFirstLoadScroll(); }
         else if (wasAtBottom || shouldAutoScroll) requestAnimationFrame(() => requestAnimationFrame(() => scrollToBottom(true, false)));
         else showScrollIndicator(rec.items.filter(el => el.classList.contains('message-container')).length);
-        applyAdminBadges(); applyEmojiOnly();
+        applyAdminBadges(); applyEmojiOnly(); attachImageLoadListeners();
         if (!document.hidden && activeDM) markRead(activeDM);
         updateSeenIndicator();
         if (dmHasMore && !document.getElementById('loadOlderBtn') && !document.getElementById('noMoreOlderNotice')) insertLoadOlderBtn();
@@ -3662,11 +3665,46 @@
       }
     }
 
+    // ── Scroll anchoring for content that resizes above the viewport ──────
+    // The backread "glitch": messages are prepended above the current
+    // scroll position, and their image thumbnails don't have a reserved
+    // size (CSS is just `height:auto`), so each one pops from ~0px to its
+    // real height the moment it finishes decoding. Because that happens
+    // above where the user is currently looking, the browser's own scroll
+    // anchoring doesn't always keep up with several images resolving in
+    // quick succession, and the chat visibly jumps.
+    //
+    // ResizeObserver reports the element's actual box size on every change
+    // regardless of *why* it changed (image decode, GIF frame swap, etc.),
+    // so instead of guessing "before" and "after" heights around a single
+    // load event, this keeps watching and compensates chatBox.scrollTop by
+    // the exact delta whenever the resize happened above the visible area.
+    // Growth at or below the visible area is left alone — that's normal
+    // content arriving and shouldn't move anything.
+    const scrollAnchorHeights = new WeakMap();
+    const scrollAnchorObserver = ('ResizeObserver' in window) ? new ResizeObserver(function(entries) {
+      const chatRect = chatBox.getBoundingClientRect();
+      entries.forEach(function(entry) {
+        const el = entry.target;
+        const newHeight = entry.contentRect.height;
+        const prevHeight = scrollAnchorHeights.get(el);
+        scrollAnchorHeights.set(el, newHeight);
+        if (prevHeight === undefined) return; // first measurement is just the baseline
+        const delta = newHeight - prevHeight;
+        if (!delta) return;
+        const elRect = el.getBoundingClientRect();
+        if (elRect.top < chatRect.top) {
+          chatBox.scrollTop += delta;
+        }
+      });
+    }) : null;
+
     function attachImageLoadListeners() {
       if (!chatBox) return;
       chatBox.querySelectorAll('img:not(.avatar-img)').forEach(img => {
         if (img.dataset.scrollListener) return;
         img.dataset.scrollListener = '1';
+        if (scrollAnchorObserver) scrollAnchorObserver.observe(img);
         img.addEventListener('load', () => {
           if (isAtBottom() || shouldAutoScroll) {
             scrollToBottom(true, false);

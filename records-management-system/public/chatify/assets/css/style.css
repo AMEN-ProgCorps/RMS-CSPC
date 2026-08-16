@@ -511,6 +511,78 @@
     }
     .notify-toast strong { color: var(--text-primary); }
 
+    /* Unread-mentions badge on the sidebar bell icon */
+    .bell-badge {
+      position: absolute;
+      top: -2px;
+      right: -2px;
+      background: #e0245e;
+      color: #fff;
+      border-radius: 12px;
+      min-width: 18px;
+      height: 18px;
+      padding: 0 4px;
+      font-size: 10px;
+      font-weight: 700;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      line-height: 1;
+      box-shadow: 0 0 0 2px var(--bg-secondary);
+      pointer-events: none;
+      animation: badgePop 0.3s cubic-bezier(0.34,1.56,0.64,1);
+    }
+
+    /* Notification bell modal — list of unopened @mentions */
+    #notificationBellModal .modal-body.bell-list {
+      padding: 0;
+      max-height: 60vh;
+      overflow-y: auto;
+    }
+    .bell-item {
+      padding: 12px 20px;
+      border-bottom: 1px solid var(--border-color);
+      cursor: pointer;
+      text-align: left;
+      transition: background-color 0.15s ease;
+    }
+    .bell-item:last-child {
+      border-bottom: none;
+    }
+    .bell-item:hover,
+    .bell-item:active {
+      background-color: var(--bg-drop-overlay);
+    }
+    .bell-item-sender {
+      font-size: 14px;
+      font-weight: 600;
+      color: var(--text-primary);
+      margin-bottom: 2px;
+    }
+    .bell-item-preview {
+      font-size: 13px;
+      color: var(--text-secondary);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .bell-item-preview em {
+      font-style: italic;
+      opacity: 0.75;
+    }
+    .bell-item-time {
+      font-size: 11px;
+      color: var(--text-secondary);
+      opacity: 0.8;
+      margin-top: 4px;
+    }
+    .bell-empty {
+      padding: 28px 20px;
+      text-align: center;
+      color: var(--text-secondary);
+      font-size: 14px;
+    }
+
     @media (max-width: 480px) {
       .notify-toast-container {
         top: 10px;
@@ -765,7 +837,12 @@
       height: 100dvh;
       flex: 1;
       min-width: 0; /* Important for flex child to not overflow */
-      background-color: var(--bg-secondary);
+      /* Matches .header/#chat-box/.input-area's own background (--bg-chat)
+         instead of --bg-secondary (white). All three already paint over
+         this in normal layout, but any 1px flex rounding gap between them
+         used to expose this container's own background as a stray white
+         hairline across the width — now it just blends in instead. */
+      background-color: var(--bg-chat);
       position: relative;
       transition: background-color 0.3s ease;
     }

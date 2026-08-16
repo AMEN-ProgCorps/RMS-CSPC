@@ -1,5 +1,14 @@
 // ── All DOM element references first ──────────────────────────────────────
 
+    // Shared mobile/desktop breakpoint — matches the CSS layout breakpoint.
+    // Every viewport-width check in the app (toast-vs-bell, sidebar
+    // collapse, etc.) should go through this instead of comparing against
+    // 991 directly, so there's a single place to change it.
+    const MOBILE_BREAKPOINT = 991;
+    function isMobileViewport() {
+      return window.innerWidth <= MOBILE_BREAKPOINT;
+    }
+
     const chatBox         = document.getElementById("chat-box");
     const nameInput       = document.getElementById("nameInput");
     const messageInput    = document.getElementById("messageInput");
@@ -51,6 +60,11 @@
     const notifyContentTitle   = document.getElementById('notifyContentTitle');
     const notifyContentBody    = document.getElementById('notifyContentBody');
     const notifyContentClose   = document.getElementById('notifyContentClose');
+    const notificationBellBtn   = document.getElementById('notificationBellBtn');
+    const notificationBellBadge = document.getElementById('notificationBellBadge');
+    const notificationBellModal = document.getElementById('notificationBellModal');
+    const notificationBellList  = document.getElementById('notificationBellList');
+    const notificationBellClose = document.getElementById('notificationBellClose');
     const readMoreModal        = document.getElementById('readMoreModal');
     const readMoreModalBody    = document.getElementById('readMoreModalBody');
     const readMoreModalClose   = document.getElementById('readMoreModalClose');
@@ -676,6 +690,11 @@
           // us. This is the only delivery path now — no HTTP fallback poll.
           console.log('Received WebSocket real-time update notice:', data);
           showNotifyToast(data);
+          if (data && data.id && !bellNotifications.some(function(x) { return x.id === data.id; })) {
+            bellNotifications.unshift(data); // newest first
+            updateBellBadge();
+            renderBellList();
+          }
         } else if (data.type === 'session_kicked') {
           // Pushed by the server the instant another device logs into this
           // account — no more waiting on the 5s checkSession() poll.
@@ -817,7 +836,7 @@
 
     // Mobile layout setup - defined here but called AFTER chatBox is declared
     function setupMobileLayout() {
-      if (window.innerWidth <= 991) {
+      if (isMobileViewport()) {
         if (!activeDM && !activeAdminConv && !isGlobalChat) {
           sidebar.classList.add('open');
           const backdrop = document.getElementById('sidebarBackdrop');
@@ -1269,11 +1288,13 @@
 
     // Pulls any notify/mention toasts that were sent while we had no live
     // WS connection (page just loaded, tab was backgrounded, brief
-    // reconnect gap, etc). fetch_notifications.php only ever returns
-    // is_seen = 0 rows and immediately flips them to seen, so this is safe
-    // to call on every reconnect — already-shown notifications never come
-    // back. Called from ws.onmessage's 'auth_success' case, i.e. once per
-    // successful (re)connect, not on a timer.
+    // reconnect gap, etc). fetch_notifications.php returns every is_seen = 0
+    // row for us and does NOT mark them seen — that only happens once the
+    // user actually opens one (toast click or bell item click) — so this is
+    // safe to call on every reconnect: anything already opened never comes
+    // back, and anything still unopened keeps toasting/showing in the bell
+    // until it is. Called from ws.onmessage's 'auth_success' case, i.e. once
+    // per successful (re)connect, not on a timer.
     function catchUpMissedNotifications() {
       const xhr = new XMLHttpRequest();
       xhr.open('GET', 'fetch_notifications.php', true);
@@ -1281,7 +1302,14 @@
         if (this.status !== 200) return;
         try {
           const res = JSON.parse(this.responseText);
-          (res.notifications || []).forEach(function(n) { showNotifyToast(n); });
+          const list = res.notifications || [];
+          list.forEach(function(n) { showNotifyToast(n); });
+          // Server response is the full, authoritative set of this user's
+          // currently-unseen mentions — replace the bell's cache with it
+          // (newest first for display) rather than merging.
+          bellNotifications = list.slice().reverse();
+          updateBellBadge();
+          renderBellList();
         } catch (e) { /* ignore malformed response */ }
       };
       xhr.send();
@@ -1294,25 +1322,29 @@
     // arrive while it's still showing (several people mentioning at once,
     // someone spamming @you, a burst of catch-up notifications on
     // reconnect, etc.) we don't stack a new toast per mention — we just
-    // bump a counter on the existing one:
-    //   1 mention total  -> "Name mentioned you"
-    //   2+ mentions total -> "N others mentioned you" (name dropped once
-    //                         it's more than one person)
+    // update the existing one based on how many DISTINCT people are behind
+    // the mentions folded into it so far:
+    //   1 distinct sender (however many times they've mentioned you)
+    //                       -> "Name mentioned you"
+    //   2+ distinct senders -> "N others mentioned you" (N = distinct
+    //                          senders, name dropped once it's more than
+    //                          one person)
     // N is capped at "99+" so the UI never grows no matter how many land.
     const MENTION_TOAST_COUNT_CAP = 99;
     let activeMentionToast = null;
-    let mentionToastCount = 0; // total mentions folded into the current toast
+    let mentionToastSenders = new Set(); // distinct sender names folded into the current toast
     let mentionToastFirstSender = null;
     let mentionToastLatestData = null;
     let mentionToastDismissTimer = null;
 
     function mentionToastLabel() {
-      if (mentionToastCount <= 1) {
+      if (mentionToastSenders.size <= 1) {
         return '<strong>' + escapeHtml(mentionToastFirstSender) + '</strong> mentioned you';
       }
-      const countLabel = mentionToastCount > MENTION_TOAST_COUNT_CAP
+      const count = mentionToastSenders.size;
+      const countLabel = count > MENTION_TOAST_COUNT_CAP
         ? (MENTION_TOAST_COUNT_CAP + '+')
-        : String(mentionToastCount);
+        : String(count);
       return '<strong>' + countLabel + '</strong> others mentioned you';
     }
 
@@ -1320,7 +1352,7 @@
       if (!activeMentionToast) return;
       const toast = activeMentionToast;
       activeMentionToast = null;
-      mentionToastCount = 0;
+      mentionToastSenders = new Set();
       mentionToastFirstSender = null;
       mentionToastLatestData = null;
       if (mentionToastDismissTimer) { clearTimeout(mentionToastDismissTimer); mentionToastDismissTimer = null; }
@@ -1329,14 +1361,26 @@
     }
 
     function showNotifyToast(n) {
+      // Desktop already has the notification bell for this — the toast is a
+      // mobile-only affordance (no bell badge glance on a phone the way
+      // there is on desktop). Bell badge/list updates happen independently
+      // of this function at both call sites, so skipping the toast here
+      // doesn't lose the notification — it just won't pop up on desktop.
+      if (!isMobileViewport()) return;
+
       // Always keep the most recent mention's content — that's what opens
       // when the toast (or its content modal) is clicked.
       mentionToastLatestData = n;
 
       if (activeMentionToast) {
         // A toast is already up — fold this one into it instead of adding
-        // another toast to the stack.
-        mentionToastCount++;
+        // another toast to the stack. Only a NEW distinct sender changes
+        // the label; the same person mentioning you again just refreshes
+        // the timer and keeps showing their name.
+        mentionToastSenders.add(n.sender);
+        if (mentionToastSenders.size <= 1) {
+          mentionToastFirstSender = n.sender;
+        }
         activeMentionToast.innerHTML = mentionToastLabel();
         // A fresh mention just came in, so give the person a full new
         // window to notice it rather than letting the original timer cut
@@ -1347,12 +1391,13 @@
       }
 
       mentionToastFirstSender = n.sender;
-      mentionToastCount = 1;
+      mentionToastSenders = new Set([n.sender]);
 
       const toast = document.createElement('div');
       toast.className = 'notify-toast';
       toast.innerHTML = mentionToastLabel();
       toast.onclick = () => {
+        mentionModalOpenedFromBell = false;
         showNotifyContentModal(mentionToastLatestData);
         dismissMentionToast();
       };
@@ -1362,6 +1407,14 @@
     }
 
     const notifyContentSender = document.getElementById('notifyContentSender');
+
+    // Tracks whether the currently-open notifyContentModal was opened from
+    // the notification bell list (vs. a toast click). When true, closing
+    // the mention modal should return the user to the bell modal — but only
+    // if there are still unread mentions left in it; otherwise both modals
+    // stay closed. Reset on every open so stale state can't leak across
+    // opens.
+    let mentionModalOpenedFromBell = false;
 
     // ── Modal shown when a notification toast is clicked ──
     // Same pattern as openReadMoreModal — textContent + linkify.
@@ -1378,6 +1431,13 @@
         seenXhr.open('POST', 'mark_mention_seen.php', true);
         seenXhr.setRequestHeader('Content-Type', 'application/x-www-form-urlencoded');
         seenXhr.send('id=' + encodeURIComponent(n.id));
+
+        // This is the one moment a mention actually counts as "seen" —
+        // drop it from the bell's cache right away so the badge count and
+        // list reflect it without waiting on a re-fetch.
+        bellNotifications = bellNotifications.filter(function(x) { return x.id !== n.id; });
+        updateBellBadge();
+        renderBellList();
       }
 
       // Header: static "Mention" title + sender subtitle
@@ -1404,6 +1464,16 @@
       notifyContentModal.classList.remove('active');
       notifyContentModal.setAttribute('aria-hidden', 'true');
       document.body.style.overflow = '';
+
+      // If this mention was opened from the bell list, go back to it —
+      // unless that was the last unread one, in which case there's nothing
+      // left to show and both modals should just stay closed.
+      if (mentionModalOpenedFromBell) {
+        mentionModalOpenedFromBell = false;
+        if (bellNotifications.length > 0) {
+          openNotificationBellModal();
+        }
+      }
     }
 
     if (notifyContentClose) {
@@ -1412,6 +1482,134 @@
     if (notifyContentModal) {
       notifyContentModal.addEventListener('click', function(e) {
         if (e.target === notifyContentModal) closeNotifyContentModal();
+      });
+    }
+
+    // ── Notification bell: modal listing every unopened @mention ──────────
+    // The toast (above) is transient — if it's missed (offline, backgrounded
+    // tab, dismissed after 6s, folded into a "N others" toast that only
+    // carries the latest one's data) the mention isn't lost: it just stays
+    // is_seen = 0 and sits here until the user opens it from the bell.
+    // bellNotifications is a local cache of {id, sender, message, time},
+    // newest first, kept in sync by:
+    //   - catchUpMissedNotifications()   → replaces it wholesale (server truth)
+    //   - the WS 'notify' handler        → unshifts the new one in real time
+    //   - showNotifyContentModal()       → removes one the instant it's opened
+    //   - refreshBellNotifications()     → re-syncs from the server on open
+    let bellNotifications = [];
+
+    const MENTION_TIME_MONTHS = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+
+    // fetch_notifications.php sends `time` as "YYYY-MM-DD HH24:MI:SS", already
+    // converted to Asia/Manila wall-clock time server-side (to_char ... AT TIME
+    // ZONE 'Asia/Manila'). Parse the components directly instead of building a
+    // Date from it — going through Date/timeZone conversion here would shift
+    // it again on top of the server-side shift. Renders as e.g.
+    // "August 16, 2026 at 9:22 pm".
+    function formatMentionTime(raw) {
+      if (!raw) return '';
+      const m = /^(\d{4})-(\d{2})-(\d{2}) (\d{2}):(\d{2}):(\d{2})$/.exec(raw);
+      if (!m) return raw;
+      const year  = m[1];
+      const month = MENTION_TIME_MONTHS[parseInt(m[2], 10) - 1];
+      const day   = parseInt(m[3], 10);
+      const min   = m[5];
+      let hour    = parseInt(m[4], 10);
+      const ampm  = hour >= 12 ? 'pm' : 'am';
+      hour = hour % 12;
+      if (hour === 0) hour = 12;
+      return month + ' ' + day + ', ' + year + ' at ' + hour + ':' + min + ' ' + ampm;
+    }
+
+    function updateBellBadge() {
+      if (!notificationBellBadge) return;
+      const count = bellNotifications.length;
+      if (count > 0) {
+        notificationBellBadge.textContent = count > 100 ? '99+' : String(count);
+        notificationBellBadge.style.display = 'flex';
+      } else {
+        notificationBellBadge.style.display = 'none';
+      }
+    }
+
+    function renderBellList() {
+      if (!notificationBellList) return;
+      if (bellNotifications.length === 0) {
+        notificationBellList.innerHTML = '<div class="bell-empty">No notifications</div>';
+        return;
+      }
+      notificationBellList.innerHTML = bellNotifications.map(function(n) {
+        const preview = (n.message || '').trim();
+        const previewHtml = preview
+          ? escapeHtml(preview.length > TOAST_PREVIEW_LIMIT ? preview.slice(0, TOAST_PREVIEW_LIMIT) + '…' : preview)
+          : '<em>No message</em>';
+        return '<div class="bell-item" data-id="' + n.id + '">' +
+                 '<div class="bell-item-sender">' + escapeHtml(n.sender || 'A user') + ' mentioned you</div>' +
+                 '<div class="bell-item-preview">' + previewHtml + '</div>' +
+                 (n.time ? '<div class="bell-item-time">' + escapeHtml(formatMentionTime(n.time)) + '</div>' : '') +
+               '</div>';
+      }).join('');
+    }
+
+    // Re-syncs the bell's cache from the server — the source of truth for
+    // "still unseen". Used on open so the list is correct even if another
+    // tab/device already opened one of these mentions.
+    function refreshBellNotifications() {
+      const xhr = new XMLHttpRequest();
+      xhr.open('GET', 'fetch_notifications.php', true);
+      xhr.onload = function() {
+        if (this.status !== 200) return;
+        try {
+          const res = JSON.parse(this.responseText);
+          bellNotifications = (res.notifications || []).slice().reverse();
+          updateBellBadge();
+          renderBellList();
+        } catch (e) { /* ignore malformed response */ }
+      };
+      xhr.send();
+    }
+
+    function openNotificationBellModal() {
+      if (!notificationBellModal) return;
+      renderBellList(); // show the cached list immediately, no loading flash
+      notificationBellModal.classList.add('active');
+      notificationBellModal.setAttribute('aria-hidden', 'false');
+      document.body.style.overflow = 'hidden';
+      refreshBellNotifications();
+    }
+
+    function closeNotificationBellModal() {
+      if (!notificationBellModal) return;
+      notificationBellModal.classList.remove('active');
+      notificationBellModal.setAttribute('aria-hidden', 'true');
+      document.body.style.overflow = '';
+    }
+
+    if (notificationBellBtn) {
+      notificationBellBtn.addEventListener('click', openNotificationBellModal);
+    }
+    if (notificationBellClose) {
+      notificationBellClose.addEventListener('click', closeNotificationBellModal);
+    }
+    if (notificationBellModal) {
+      notificationBellModal.addEventListener('click', function(e) {
+        if (e.target === notificationBellModal) closeNotificationBellModal();
+      });
+    }
+    // Clicking an entry opens the same mention modal a toast click would —
+    // that call marks it seen and drops it from bellNotifications for us.
+    // Flagged as bell-opened so closeNotifyContentModal() knows to return
+    // to the bell modal afterward (see mentionModalOpenedFromBell above).
+    if (notificationBellList) {
+      notificationBellList.addEventListener('click', function(e) {
+        const item = e.target.closest('.bell-item');
+        if (!item) return;
+        const id = parseInt(item.getAttribute('data-id'), 10);
+        const n = bellNotifications.find(function(x) { return x.id === id; });
+        if (!n) return;
+        closeNotificationBellModal();
+        mentionModalOpenedFromBell = true;
+        showNotifyContentModal(n);
       });
     }
 
@@ -1705,7 +1903,7 @@
       document.getElementById('globalChatItem').classList.remove('active');
       
       // Mobile/Tablet: hide sidebar when chat is selected
-      if (window.innerWidth <= 991) {
+      if (isMobileViewport()) {
         sidebar.classList.remove('open');
         const backdrop = document.getElementById('sidebarBackdrop');
         if (backdrop) backdrop.classList.remove('visible');
@@ -1757,7 +1955,7 @@
       renderSidebarUsers();
       document.getElementById('globalChatItem').classList.add('active');
       loadGlobalChat();
-      if (window.innerWidth <= 991) {
+      if (isMobileViewport()) {
         sidebar.classList.remove('open');
         const backdrop = document.getElementById('sidebarBackdrop');
         if (backdrop) backdrop.classList.remove('visible');
@@ -2695,7 +2893,7 @@
       renderAdminConvs();
       loadAdminConv(c.convId, false);
 
-      if (window.innerWidth <= 991) {
+      if (isMobileViewport()) {
         sidebar.classList.remove('open');
         const backdrop = document.getElementById('sidebarBackdrop');
         if (backdrop) backdrop.classList.remove('visible');
@@ -2760,7 +2958,7 @@
       }
 
       // Mobile/Tablet sidebar adjustments
-      if (window.innerWidth <= 991) {
+      if (isMobileViewport()) {
         if (sidebar) sidebar.classList.add('open');
         const backdrop = document.getElementById('sidebarBackdrop');
         if (backdrop) backdrop.classList.add('visible');

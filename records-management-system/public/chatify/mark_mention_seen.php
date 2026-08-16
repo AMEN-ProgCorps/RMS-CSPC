@@ -2,11 +2,13 @@
 // =============================================================================
 // mark_mention_seen.php — Mark a single @mention notification as seen
 // =============================================================================
-// Called from the client the moment the notify toast/modal for a mention is
-// actually opened. Live WS-pushed mentions (ChatNotifier::notifyMention(),
-// pushed straight to showNotifyToast() in app-part1.js) never go through
-// fetch_notifications.php, so nothing else ever flips is_seen for them —
-// that's the gap this endpoint closes.
+// This is the ONLY place is_seen ever flips. Called from the client the
+// moment a mention is actually opened — clicking the notify toast, or
+// clicking an item in the notification bell list (showNotifyContentModal()
+// in app-part1.js calls this either way). fetch_notifications.php, which
+// feeds both the toast catch-up and the bell list, is read-only and never
+// marks anything seen — so a mention that was fetched/shown but never
+// actually clicked stays unseen and keeps showing up in the bell.
 // =============================================================================
 
 require_once __DIR__ . '/bootstrap.php';

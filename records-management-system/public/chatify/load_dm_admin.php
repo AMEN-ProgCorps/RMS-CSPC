@@ -109,7 +109,7 @@ function adminBuildReplyQuoteHtml(?string $encryptedReplyMessage, string $replyT
             $fnUrl = htmlspecialchars('uploads/' . rawurlencode($file), ENT_QUOTES);
             return "<div class='reply-quote reply-quote-image-container'><img src='{$fnUrl}' class='reply-quote-image' alt='' referrerpolicy='no-referrer'></div>";
         }
-        $snippet = 'Attachment';
+        $snippet = $file !== '' ? $file : 'Attachment';
     } else {
         $snippet = safeDecrypt($encryptedReplyMessage);
     }

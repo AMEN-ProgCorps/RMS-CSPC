@@ -418,7 +418,7 @@ class ConversationManager
                 $imageExts  = ['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp', 'svg'];
                 $snippet    = (in_array($ext, $imageExts, true) && $file !== '')
                     ? 'image:' . $file
-                    : '📎 Attachment';
+                    : ($file !== '' ? $file : '📎 Attachment');
             } else {
                 $snippet = safeDecrypt($row['message'] ?? '');
             }

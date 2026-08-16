@@ -232,16 +232,33 @@ new #[Layout('layouts.dts')] #[Title('DTS - Internal Transactions')] class exten
         ->orderBy('dtd.date_created', $sortDirection)
         ->paginate($this->perPage);
 
-        // Map remarks, received by, previous office and next office from latest logs
+        // Map Step 1 (Origin) and Step 2 (Current) Received/Released logs and Elapsed Days
         $list->getCollection()->transform(function ($t) {
-            $latestLog = DB::table('sub_document_tracking_system_logs as log')
+            $logs = DB::table('sub_document_tracking_system_logs as log')
                 ->leftJoin('account_details as ad', 'ad.account_id', '=', 'log.performed_by')
                 ->where('log.transaction_id', $t->transaction_id)
-                ->orderBy('log.id', 'desc')
-                ->select('log.notes', 'log.date_in', 'ad.first_name', 'ad.last_name')
-                ->first();
+                ->orderBy('log.id', 'asc')
+                ->select('log.*', 'ad.first_name', 'ad.last_name')
+                ->get();
+
+            $firstLog = $logs->first();
+            $secondLog = $logs->count() > 1 ? $logs->get(1) : null;
+            $latestLog = $logs->last();
+
             $t->remarks = $latestLog ? $latestLog->notes : '-';
             $t->received_by = $latestLog && $latestLog->first_name ? ($latestLog->first_name . ' ' . $latestLog->last_name) : '-';
+
+            // Step 1 Received & Released
+            $t->step1_received = $firstLog && $firstLog->date_in ? \Carbon\Carbon::parse($firstLog->date_in)->format('Y-m-d H:i') : ($t->date_created ? \Carbon\Carbon::parse($t->date_created)->format('Y-m-d H:i') : '-');
+            $t->step1_released = $firstLog && $firstLog->date_out ? \Carbon\Carbon::parse($firstLog->date_out)->format('Y-m-d H:i') : ($logs->count() > 1 ? \Carbon\Carbon::parse($firstLog?->date_in ?? $t->date_created)->format('Y-m-d H:i') : '-');
+
+            // Step 2 Received & Released
+            $t->step2_received = $secondLog && $secondLog->date_in ? \Carbon\Carbon::parse($secondLog->date_in)->format('Y-m-d H:i') : '-';
+            $t->step2_released = $secondLog && $secondLog->date_out ? \Carbon\Carbon::parse($secondLog->date_out)->format('Y-m-d H:i') : '-';
+
+            // Elapsed Days
+            $createdDateRaw = $firstLog?->date_in ?? $t->date_created;
+            $t->elapsed_days = $createdDateRaw ? (int) abs(now()->diffInDays(\Carbon\Carbon::parse($createdDateRaw))) : 0;
 
             // Previous office (from office)
             $prevLog = DB::table('sub_document_tracking_system_logs as log')
@@ -1344,18 +1361,18 @@ new #[Layout('layouts.dts')] #[Title('DTS - Internal Transactions')] class exten
                             <input type="checkbox" wire:model.live="selectAll" style="width: 16px; height: 16px; cursor: pointer; accent-color: #1e40af;">
                         </th>
                         <th style="width: 60px;">Item No.</th>
-                        <th>Control Number</th>
+                        <th>Control No.</th>
                         <th>QR Code</th>
-                        <th>Source</th>
+                        <th>Created</th>
+                        <th>Originator</th>
                         <th>Subject</th>
-                        <th>Type of Document</th>
-                        <th>Date Created</th>
-                        <th>Current Location</th>
-                        <th>Status</th>
-                        <th>Priority</th>
-                        <th>Remarks</th>
-                        <th>Received by</th>
-                        <th style="width: 60px;">View</th>
+                        <th style="color: #dc2626;">Received</th>
+                        <th style="color: #dc2626;">Released</th>
+                        <th style="color: #dc2626;">Received</th>
+                        <th style="color: #dc2626;">Released</th>
+                        <th style="color: #dc2626;">Elapsed Day</th>
+                        <th style="color: #dc2626;">Status</th>
+                        <th style="width: 60px; color: #dc2626;">View</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -1368,25 +1385,23 @@ new #[Layout('layouts.dts')] #[Title('DTS - Internal Transactions')] class exten
                                 <input type="checkbox" wire:model.live="selectedIds" value="{{ $t->transaction_id }}" style="width: 16px; height: 16px; cursor: pointer; accent-color: #1e40af;">
                             </td>
                             <td style="text-align: center;">{{ $this->transactions->firstItem() + $index }}</td>
-                            <td>{{ $t->control_number }}</td>
+                            <td style="font-weight: 600; color: #1e40af;">{{ $t->control_number }}</td>
                             <td>{{ $t->qr_code }}</td>
-                            <td>{{ $t->originated_office_name }}</td>
-                            <td>{{ $t->subject }}</td>
-                            <td>{{ (!empty($t->doc_type_name) && !str_starts_with($t->doc_type_name, 'Flow for ')) ? $t->doc_type_name : ucfirst($t->classification ?: 'Internal') }}</td>
                             <td>{{ \Carbon\Carbon::parse($t->date_created)->format('Y-m-d H:i') }}</td>
-                            <td>{{ $t->current_office_name }}</td>
+                            <td>{{ $t->originated_office_name ?: $t->originated_from }}</td>
+                            <td>{{ $t->subject }}</td>
+                            <td style="text-align: center;">{{ $t->step1_received }}</td>
+                            <td style="text-align: center;">{{ $t->step1_released }}</td>
+                            <td style="text-align: center;">{{ $t->step2_received }}</td>
+                            <td style="text-align: center;">{{ $t->step2_released }}</td>
+                            <td style="color: #dc2626; font-weight: 600; white-space: nowrap; text-align: center;">
+                                {{ $t->elapsed_days }} day(s)
+                            </td>
                             <td style="text-align: center;">
                                 <span class="status-badge status-{{ $t->status }}">
                                     {{ $t->status }}
                                 </span>
                             </td>
-                            <td style="text-align: center;">
-                                <span class="priority-badge priority-{{ $t->classification }}">
-                                    {{ $t->classification ?: 'normal' }}
-                                </span>
-                            </td>
-                            <td>{{ $t->remarks }}</td>
-                            <td>{{ $t->received_by }}</td>
                             <td style="text-align: center;">
                                 <button type="button" wire:click="openTransaction('{{ $t->transaction_id }}')" class="rms-select" style="text-decoration: none; display: inline-block; border: none; background: transparent; cursor: pointer; color: #043899; font-weight: 500;">View</button>
                             </td>

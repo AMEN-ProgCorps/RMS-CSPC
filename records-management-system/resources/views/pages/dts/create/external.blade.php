@@ -357,7 +357,7 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create External
 
         $userOfficeCode = auth()->user()?->details?->office?->office_code;
         if ($userOfficeCode) {
-            $this->source_office = $userOfficeCode;
+            $this->unit_college = $userOfficeCode;
         }
     }
 
@@ -898,6 +898,46 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create External
                 ]
             );
 
+            // Resolve or auto-create record in dts_source_office
+            $soInput = trim($this->source_office);
+            $userOfficeCode = $this->getValidUserOfficeCode();
+
+            $existingSo = DB::table('dts_source_office')
+                ->where('s_office_code', $soInput)
+                ->orWhereRaw('LOWER(s_office_code) = ?', [strtolower($soInput)])
+                ->orWhereRaw('LOWER(s_office_name) = ?', [strtolower($soInput)])
+                ->first();
+
+            if ($existingSo) {
+                $this->source_office = $existingSo->s_office_code;
+            } else {
+                // Auto add into dts_source_office if not found
+                $internalOffice = DB::table('office')
+                    ->where('office_code', $soInput)
+                    ->orWhereRaw('LOWER(office_code) = ?', [strtolower($soInput)])
+                    ->orWhereRaw('LOWER(office_name) = ?', [strtolower($soInput)])
+                    ->first();
+
+                $officeName = $internalOffice ? $internalOffice->office_name : $soInput;
+                $officeCode = $internalOffice ? $internalOffice->office_code : strtoupper(trim($soInput));
+
+                // Check if the computed code already exists
+                $codeMatch = DB::table('dts_source_office')->where('s_office_code', $officeCode)->first();
+                if ($codeMatch) {
+                    $this->source_office = $codeMatch->s_office_code;
+                } else {
+                    DB::table('dts_source_office')->insert([
+                        's_office_name' => $officeName,
+                        's_office_code' => $officeCode,
+                        'created_by_office' => $userOfficeCode,
+                        'is_active' => true,
+                        'created_at' => now(),
+                        'updated_at' => now(),
+                    ]);
+                    $this->source_office = $officeCode;
+                }
+            }
+
             // Resolve or create record in dts_requestor_history linked to source_office
             $reqName = trim($this->requestor_name);
             $reqPos = trim($this->requestor_label ?? '');
@@ -1154,6 +1194,7 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create External
 
             // Reset form properties
             $this->seq_number = '';
+            $this->source_office = '';
             $this->requestor_name = '';
             $this->requestor_label = '';
             $this->subject = '';
@@ -1166,6 +1207,13 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create External
             $this->showSuccessModal = true;
             $this->dispatch('dts-transaction-updated');
 
+        } catch (\Illuminate\Database\QueryException $e) {
+            DB::rollBack();
+            if (str_contains($e->getMessage(), 'dts_transaction_details_source_office_foreign') || str_contains($e->getMessage(), 'dts_source_office')) {
+                $this->addError('source_office', "The Source Office '{$this->source_office}' is not present in external source offices. Please add this office first or select a valid office.");
+            } else {
+                $this->addError('seq_number', 'Database error creating transaction: ' . $e->getMessage());
+            }
         } catch (\Exception $e) {
             DB::rollBack();
             $this->addError('seq_number', 'Error creating transaction: ' . $e->getMessage());
@@ -1301,14 +1349,27 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create External
                                         </div>
                                     @empty
                                         <div style="padding: 10px 14px; font-size: 12px; color: #64748b; font-style: italic;">
-                                            No external office found. Click "+ Add New External Office" to create one.
+                                            No registered external office matching '{{ $source_office }}'. It will be automatically registered on creation, or click "+ Add New External Office".
                                         </div>
                                     @endforelse
                                 </div>
                             @endif
                         </div>
+                        @if(!empty($source_office))
+                            @if($selectedSoRec)
+                                <div style="font-size: 11.5px; color: #16a34a; margin-top: 5px; display: flex; align-items: center; gap: 5px;">
+                                    <i class="fa-solid fa-circle-check"></i>
+                                    <span>Registered External Office: <strong>{{ $selectedSoRec->s_office_name }}</strong> (<code>{{ $selectedSoRec->s_office_code }}</code>)</span>
+                                </div>
+                            @else
+                                <div style="font-size: 11.5px; color: #0284c7; margin-top: 5px; display: flex; align-items: center; gap: 5px;">
+                                    <i class="fa-solid fa-circle-info"></i>
+                                    <span>'<strong>{{ $source_office }}</strong>' is not yet registered. It will be automatically added as a new external source office upon creation.</span>
+                                </div>
+                            @endif
+                        @endif
                         @error('source_office')
-                            <span class="error-msg" style="color: #dc2626; font-size: 12px; margin-top: 4px; display: block;">{{ $message }}</span>
+                            <span class="error-msg" style="color: #dc2626; font-size: 12px; margin-top: 4px; display: block;"><i class="fa-solid fa-triangle-exclamation"></i> {{ $message }}</span>
                         @enderror
                     </div>
                 </div>

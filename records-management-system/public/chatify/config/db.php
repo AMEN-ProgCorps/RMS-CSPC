@@ -9,19 +9,23 @@
 // Dynamically load settings from Laravel's .env file
 // -----------------------------------------------------------------------------
 $env = [];
-$envPath = realpath(__DIR__ . '/../../../.env');
-if ($envPath && file_exists($envPath)) {
-    $lines = file($envPath, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES);
-    foreach ($lines as $line) {
-        if (strpos(trim($line), '#') === 0) {
-            continue;
-        }
-        $parts = explode('=', $line, 2);
-        if (count($parts) === 2) {
-            $key = trim($parts[0]);
-            $val = trim($parts[1]);
-            $val = trim($val, "\"'");
-            $env[$key] = $val;
+$envFiles = [realpath(__DIR__ . '/../../../.env'), realpath(__DIR__ . '/../../../.env.docker')];
+foreach ($envFiles as $envPath) {
+    if ($envPath && file_exists($envPath)) {
+        $lines = file($envPath, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES);
+        foreach ($lines as $line) {
+            if (strpos(trim($line), '#') === 0) {
+                continue;
+            }
+            $parts = explode('=', $line, 2);
+            if (count($parts) === 2) {
+                $key = trim($parts[0]);
+                $val = trim($parts[1]);
+                $val = trim($val, "\"'");
+                if (!isset($env[$key])) {
+                    $env[$key] = $val;
+                }
+            }
         }
     }
 }

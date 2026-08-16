@@ -35,9 +35,117 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Backup & Recovery Manage
         'logs'
     ];
 
+    // Pagination & Search Filter State
+    public int $currentPage = 1;
+    public int $perPage = 5;
+    public string $search = '';
+    public string $filterType = 'all'; // 'all', 'full', 'selective'
+    public string $filterSource = 'all'; // 'all', 'google', 'local'
+
     public function mount(): void
     {
         $this->checkBackups();
+    }
+
+    public function updatedSearch(): void
+    {
+        $this->currentPage = 1;
+    }
+
+    public function updatedFilterType(): void
+    {
+        $this->currentPage = 1;
+    }
+
+    public function updatedFilterSource(): void
+    {
+        $this->currentPage = 1;
+    }
+
+    public function updatedPerPage(): void
+    {
+        $this->currentPage = 1;
+    }
+
+    public function setPage(int $page): void
+    {
+        $totalPages = $this->getTotalPages();
+        $this->currentPage = max(1, min($page, $totalPages));
+    }
+
+    public function previousPage(): void
+    {
+        if ($this->currentPage > 1) {
+            $this->currentPage--;
+        }
+    }
+
+    public function nextPage(): void
+    {
+        if ($this->currentPage < $this->getTotalPages()) {
+            $this->currentPage++;
+        }
+    }
+
+    public function resetFilters(): void
+    {
+        $this->search = '';
+        $this->filterType = 'all';
+        $this->filterSource = 'all';
+        $this->currentPage = 1;
+    }
+
+    public function getFilteredBackups(): array
+    {
+        $list = $this->backupsList;
+
+        if (!empty(trim($this->search))) {
+            $term = strtolower(trim($this->search));
+            $list = array_filter($list, function ($item) use ($term) {
+                return str_contains(strtolower($item['filename']), $term)
+                    || str_contains(strtolower($item['date_formatted']), $term)
+                    || str_contains(strtolower($item['type']), $term)
+                    || str_contains(strtolower($item['source']), $term)
+                    || str_contains(strtolower($item['size_formatted']), $term);
+            });
+        }
+
+        if ($this->filterType === 'full') {
+            $list = array_filter($list, fn($item) => ($item['type'] ?? '') === 'Full Snapshot');
+        } elseif ($this->filterType === 'selective') {
+            $list = array_filter($list, fn($item) => ($item['type'] ?? '') === 'Selective');
+        }
+
+        if ($this->filterSource === 'google') {
+            $list = array_filter($list, fn($item) => str_contains($item['source'] ?? '', 'Google Drive'));
+        } elseif ($this->filterSource === 'local') {
+            $list = array_filter($list, fn($item) => str_contains($item['source'] ?? '', 'Local Only'));
+        }
+
+        return array_values($list);
+    }
+
+    public function getTotalFilteredCount(): int
+    {
+        return count($this->getFilteredBackups());
+    }
+
+    public function getTotalPages(): int
+    {
+        $count = $this->getTotalFilteredCount();
+        return max(1, (int) ceil($count / $this->perPage));
+    }
+
+    public function getPaginatedBackups(): array
+    {
+        $filtered = $this->getFilteredBackups();
+        $totalPages = $this->getTotalPages();
+        if ($this->currentPage > $totalPages) {
+            $this->currentPage = $totalPages;
+        }
+
+        $offset = ($this->currentPage - 1) * $this->perPage;
+        return array_slice($filtered, $offset, $this->perPage);
     }
 
     public function getBackupCategoryDefinitions(): array
@@ -45,59 +153,59 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Backup & Recovery Manage
         return [
             'users' => [
                 'name' => 'Users & Accounts',
-                'description' => 'User login accounts, profiles, permissions & security keys',
+                'description' => 'User login accounts, profiles, security logs, tracking devices & security keys',
                 'icon' => 'fa-solid fa-users',
                 'color' => '#2563eb',
-                'tables' => ['account', 'account_details', 'permissions', 'account_security_keys', 'password_reset_tokens', 'sessions'],
+                'tables' => ['account', 'account_details', 'security_logs', 'security_status', 'tracking_devices_log'],
             ],
             'offices' => [
                 'name' => 'Offices & Organizational Structure',
-                'description' => 'Campus offices, units, external source offices & cluster head assignments',
+                'description' => 'Campus offices, units, clusters, cluster heads & external source offices',
                 'icon' => 'fa-solid fa-building-columns',
                 'color' => '#0891b2',
-                'tables' => ['office', 'dts_source_office', 'cluster_head'],
+                'tables' => ['office', 'cluster', 'cluster_head', 'dts_source_office'],
             ],
             'roles' => [
                 'name' => 'Roles, Clearances & System Settings',
-                'description' => 'Role clearance keys, subsystem flags & system configuration',
+                'description' => 'Role clearances, subsystem versions, global system config & personal settings',
                 'icon' => 'fa-solid fa-sliders',
                 'color' => '#7c3aed',
-                'tables' => ['condition_key', 'condition_details', 'subsystems', 'subsystems_versions', 'system_settings', 'personal_settings'],
+                'tables' => ['condition_key', 'condition_details', 'condition_defaults', 'subsystems', 'subsystem_versions_log', 'system_settings', 'personal_settings'],
             ],
             'flows' => [
                 'name' => 'Transaction Flows',
-                'description' => 'DTS routing paths, custom flow sequences & action options',
+                'description' => 'DTS routing flows, sequence rankings, action options & email access configs',
                 'icon' => 'fa-solid fa-route',
                 'color' => '#d97706',
-                'tables' => ['dts_transaction_flow', 'dts_sequence_list', 'dts_action_options'],
+                'tables' => ['dts_transaction_flow', 'dts_sequence_list', 'dts_action_options', 'dts_email_access'],
             ],
             'dts' => [
                 'name' => 'Document Tracking System (DTS)',
-                'description' => 'Document transactions, tracking logs & distribution slips',
+                'description' => 'Transactions, document trans, copy-furnished targets, QR codes, revisions & logs',
                 'icon' => 'fa-solid fa-file-contract',
                 'color' => '#059669',
-                'tables' => ['dts_transaction_details', 'dts_transaction_logs', 'dts_documents', 'dts_document_logs', 'dts_document_attachments', 'dts_routing_slips'],
+                'tables' => ['dts_transactions', 'dts_transaction_details', 'dts_document_trans', 'document_data', 'dts_copy_filled_transaction', 'dts_copy_filled_to_office', 'dts_qr_code', 'dts_transaction_version', 'dts_requestor_history', 'sub_document_tracking_system_logs', 'sub_document_tracking_system_logs_types'],
             ],
             'rdp' => [
                 'name' => 'Records Disposition Package (RDP)',
-                'description' => 'Archival records, series classifications & folder configs',
+                'description' => 'Archival records, document records, retention periods, series brackets & folder configs',
                 'icon' => 'fa-solid fa-box-archive',
                 'color' => '#475569',
-                'tables' => ['rdp_documents', 'rdp_record_series', 'folder_drives_config'],
+                'tables' => ['rdp_record', 'rdp_record_series', 'rdp_record_series_brackets', 'rdp_record_series_type', 'rdp_recorded_value', 'rdp_frequence_use', 'rdp_restriction_type', 'rdp_utility_medium', 'rdp_time_value', 'rdp_volume_value', 'rdp_volume_conversion', 'rdp_document_record', 'rdp_duplication_section', 'rdp_grouped_record', 'rdp_grouped_record_series', 'rdp_pending_record', 'rdp_pending_record_series', 'rdp_pending_status', 'rdp_period_covered', 'rdp_retention_period', 'rdp_utility_manager', 'folder_data', 'main_pending_id'],
             ],
             'chat' => [
                 'name' => 'Chatify & Messaging System',
-                'description' => 'Direct messages, group chats, attachments & chat backups',
+                'description' => 'Conversations, direct & group messages, reactions, read markers, chat backups & legal agreements',
                 'icon' => 'fa-solid fa-comments',
                 'color' => '#e11d48',
-                'tables' => ['chatify_messages', 'chatify_favorites', 'chatify_chat_backup', 'chat_conversations', 'chat_notifications', 'chatify_legal_agreements'],
+                'tables' => ['chat_conversations', 'chat_messages', 'chat_reactions', 'chat_read_markers', 'chatify_chat_backup', 'chat_notifications', 'chatify_legal_agreements'],
             ],
             'logs' => [
                 'name' => 'Audit Trails & System Logs',
-                'description' => 'Admin action history, portal logs & notification logs',
+                'description' => 'Admin action history, security login logs, chat audit logs, notifications & system tracking logs',
                 'icon' => 'fa-solid fa-clipboard-list',
                 'color' => '#4b5563',
-                'tables' => ['admin_logs', 'additional_portal_logs', 'chatify_audit_logs', 'notification_div', 'notification_content'],
+                'tables' => ['admin_logs', 'security_logs', 'chatify_audit_logs', 'notifications', 'notification_div', 'notif_content', 'sub_document_tracking_system_logs'],
             ],
         ];
     }
@@ -151,29 +259,22 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Backup & Recovery Manage
 
             $foundBackups = [];
 
-            // 1. Scan Google Drive backup/ folder
+            // 1. Scan Local storage/app/backups folder first (instant disk I/O)
             try {
-                $googleFiles = \Illuminate\Support\Facades\Storage::disk('google')->files('backup');
-                foreach ($googleFiles as $file) {
+                $localFiles = \Illuminate\Support\Facades\Storage::disk('local')->files('backups');
+                foreach ($localFiles as $file) {
                     $filename = basename($file);
                     if (str_ends_with($filename, '.json') || str_starts_with($filename, 'rms_backup_')) {
-                        $size = 0;
-                        try {
-                            $size = \Illuminate\Support\Facades\Storage::disk('google')->size($file);
-                        } catch (\Throwable) {}
-
-                        $lastModified = time();
-                        try {
-                            $lastModified = \Illuminate\Support\Facades\Storage::disk('google')->lastModified($file);
-                        } catch (\Throwable) {}
-
+                        $size = \Illuminate\Support\Facades\Storage::disk('local')->size($file);
+                        $lastModified = \Illuminate\Support\Facades\Storage::disk('local')->lastModified($file);
                         $isCustom = str_contains($filename, 'custom');
+
                         $foundBackups[$filename] = [
                             'filename' => $filename,
                             'path' => $file,
-                            'source' => 'Google Drive',
-                            'source_icon' => 'fa-brands fa-google-drive',
-                            'source_color' => '#2563eb',
+                            'source' => 'Local Only',
+                            'source_icon' => 'fa-solid fa-hard-drive',
+                            'source_color' => '#64748b',
                             'type' => $isCustom ? 'Selective' : 'Full Snapshot',
                             'type_badge' => $isCustom ? 'background: #fff7ed; color: #c2410c; border: 1px solid #ffedd5;' : 'background: #f0fdf4; color: #15803d; border: 1px solid #dcfce7;',
                             'type_icon' => $isCustom ? 'fa-solid fa-filter' : 'fa-solid fa-database',
@@ -185,30 +286,31 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Backup & Recovery Manage
                     }
                 }
             } catch (\Throwable $e) {
-                logger()->warning("Check Google Drive backups warning: " . $e->getMessage());
+                logger()->warning("Check local backups warning: " . $e->getMessage());
             }
 
-            // 2. Scan Local storage/app/backups folder
+            // 2. Scan Google Drive backup/ folder via listContents (single API call with metadata)
             try {
-                $localFiles = \Illuminate\Support\Facades\Storage::disk('local')->files('backups');
-                foreach ($localFiles as $file) {
+                $googleItems = \Illuminate\Support\Facades\Storage::disk('google')->listContents('backup');
+                foreach ($googleItems as $item) {
+                    if (!$item->isFile()) continue;
+                    $file = $item->path();
                     $filename = basename($file);
                     if (str_ends_with($filename, '.json') || str_starts_with($filename, 'rms_backup_')) {
-                        $size = \Illuminate\Support\Facades\Storage::disk('local')->size($file);
-                        $lastModified = \Illuminate\Support\Facades\Storage::disk('local')->lastModified($file);
-                        $isCustom = str_contains($filename, 'custom');
-
                         if (isset($foundBackups[$filename])) {
                             $foundBackups[$filename]['source'] = 'Google Drive & Local';
                             $foundBackups[$filename]['source_icon'] = 'fa-solid fa-cloud-arrow-down';
                             $foundBackups[$filename]['source_color'] = '#059669';
                         } else {
+                            $size = $item->fileSize() ?? 0;
+                            $lastModified = $item->lastModified() ?? time();
+                            $isCustom = str_contains($filename, 'custom');
                             $foundBackups[$filename] = [
                                 'filename' => $filename,
                                 'path' => $file,
-                                'source' => 'Local Only',
-                                'source_icon' => 'fa-solid fa-hard-drive',
-                                'source_color' => '#64748b',
+                                'source' => 'Google Drive',
+                                'source_icon' => 'fa-brands fa-google-drive',
+                                'source_color' => '#2563eb',
                                 'type' => $isCustom ? 'Selective' : 'Full Snapshot',
                                 'type_badge' => $isCustom ? 'background: #fff7ed; color: #c2410c; border: 1px solid #ffedd5;' : 'background: #f0fdf4; color: #15803d; border: 1px solid #dcfce7;',
                                 'type_icon' => $isCustom ? 'fa-solid fa-filter' : 'fa-solid fa-database',
@@ -221,7 +323,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Backup & Recovery Manage
                     }
                 }
             } catch (\Throwable $e) {
-                logger()->warning("Check local backups warning: " . $e->getMessage());
+                logger()->warning("Check Google Drive backups warning: " . $e->getMessage());
             }
 
             // Sort by last modified descending (newest first)
@@ -242,6 +344,9 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Backup & Recovery Manage
 
     public function createBackup(): void
     {
+        @set_time_limit(300);
+        @ini_set('max_execution_time', '300');
+
         $this->isBackupProcessing = true;
         $this->successMessage = '';
         $this->errorMessage = '';
@@ -489,66 +594,86 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Backup & Recovery Manage
             // Priority Tier 1: Lookups & Independent Parent Tables
             'condition_key' => 1,
             'condition_details' => 2,
-            'subsystems' => 3,
-            'subsystems_versions' => 4,
-            'system_settings' => 5,
-            'personal_settings' => 6,
-            'office' => 7,
-            'dts_source_office' => 7,
-            'cluster' => 8,
-            'security_status' => 9,
-            'sub_document_tracking_system_logs_types' => 10,
-            'document_data' => 11,
-            'dts_qr_code' => 12,
-            'notif_content' => 13,
-            'rdp_volume_conversion' => 14,
-            'rdp_volume_value' => 15,
-            'rdp_record_series' => 16,
-            'folder_drives_config' => 17,
-            'password_reset_tokens' => 18,
+            'condition_defaults' => 3,
+            'subsystems' => 4,
+            'subsystem_versions_log' => 5,
+            'system_settings' => 6,
+            'personal_settings' => 7,
+            'office' => 8,
+            'cluster' => 9,
+            'security_status' => 10,
+            'sub_document_tracking_system_logs_types' => 11,
+            'document_data' => 12,
+            'dts_qr_code' => 13,
+            'notif_content' => 14,
+            'rdp_record_series_type' => 15,
+            'rdp_recorded_value' => 16,
+            'rdp_frequence_use' => 17,
+            'rdp_restriction_type' => 18,
+            'rdp_utility_medium' => 19,
+            'rdp_time_value' => 20,
+            'rdp_volume_value' => 21,
+            'rdp_volume_conversion' => 22,
+            'rdp_pending_status' => 23,
+            'rdp_record_series' => 24,
+            'rdp_record_series_brackets' => 25,
+            'folder_data' => 26,
+            'main_pending_id' => 27,
 
             // Priority Tier 2: Accounts & User Relations (Depends on condition_key, office, cluster)
-            'account' => 20,
-            'account_details' => 21,
-            'permissions' => 22,
-            'account_security_keys' => 23,
-            'cluster_head' => 24,
+            'account' => 30,
+            'account_details' => 31,
+            'cluster_head' => 32,
+            'dts_source_office' => 33,
+            'security_logs' => 34,
+            'tracking_devices_log' => 35,
 
             // Priority Tier 3: Workflow, Options & Transaction Settings (Depends on account, office)
-            'dts_transaction_flow' => 30,
-            'dts_sequence_list' => 31,
-            'dts_action_options' => 32,
-            'dts_email_access' => 33,
-            'dts_copy_filled_transaction' => 34,
+            'dts_transaction_flow' => 40,
+            'dts_sequence_list' => 41,
+            'dts_action_options' => 42,
+            'dts_email_access' => 43,
 
             // Priority Tier 4: Transactions, Documents, Chat & Messages
-            'dts_transactions' => 40,
-            'dts_transaction_details' => 41,
-            'dts_transaction_logs' => 42,
-            'dts_documents' => 43,
-            'dts_document_logs' => 44,
-            'dts_document_attachments' => 45,
-            'dts_routing_slips' => 46,
-            'dts_transaction_version' => 47,
-            'rdp_documents' => 48,
-            'chat_conversations' => 49,
-            'chatify_messages' => 50,
-            'chatify_favorites' => 51,
-            'chatify_chat_backup' => 52,
-            'chat_notifications' => 53,
-            'chatify_legal_agreements' => 54,
+            'dts_transactions' => 50,
+            'dts_transaction_details' => 51,
+            'dts_document_trans' => 52,
+            'dts_copy_filled_transaction' => 53,
+            'dts_copy_filled_to_office' => 54,
+            'dts_transaction_version' => 55,
+            'dts_requestor_history' => 56,
+            'sub_document_tracking_system_logs' => 57,
+            'rdp_record' => 60,
+            'rdp_document_record' => 61,
+            'rdp_grouped_record' => 62,
+            'rdp_grouped_record_series' => 63,
+            'rdp_pending_record' => 64,
+            'rdp_pending_record_series' => 65,
+            'rdp_period_covered' => 66,
+            'rdp_retention_period' => 67,
+            'rdp_utility_manager' => 68,
+            'rdp_duplication_section' => 69,
+            'chat_conversations' => 70,
+            'chat_messages' => 71,
+            'chat_reactions' => 72,
+            'chat_read_markers' => 73,
+            'chatify_chat_backup' => 74,
+            'chat_notifications' => 75,
+            'chatify_legal_agreements' => 76,
 
             // Priority Tier 5: Audit & Notification Logs (Depends on account, subsystems, etc.)
-            'notifications' => 60,
-            'notification_div' => 61,
-            'admin_logs' => 62,
-            'additional_portal_logs' => 63,
-            'chatify_audit_logs' => 64,
+            'notifications' => 80,
+            'notification_div' => 81,
+            'chatify_audit_logs' => 82,
+            'admin_logs' => 83,
         ];
     }
 
     public function revertToTargetBackup(): void
     {
+        @set_time_limit(300);
+        @ini_set('max_execution_time', '300');
+
         $this->successMessage = '';
         $this->errorMessage = '';
 
@@ -566,6 +691,9 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Backup & Recovery Manage
             $jsonContent = \Illuminate\Support\Facades\Storage::disk('local')->get($localPath);
         } elseif (\Illuminate\Support\Facades\Storage::disk('google')->exists($googlePath)) {
             $jsonContent = \Illuminate\Support\Facades\Storage::disk('google')->get($googlePath);
+            try {
+                \Illuminate\Support\Facades\Storage::disk('local')->put($localPath, $jsonContent);
+            } catch (\Throwable) {}
         }
 
         if (!$jsonContent) {
@@ -586,16 +714,24 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Backup & Recovery Manage
         try {
             $tablesData = $payload['tables'];
             $driver = \DB::getDriverName();
-
-            // Sort tables according to foreign key dependency priority
             $priorityMap = $this->getTablePriorityMap();
-            uksort($tablesData, function ($a, $b) use ($priorityMap) {
-                $pA = $priorityMap[$a] ?? 99;
-                $pB = $priorityMap[$b] ?? 99;
-                return $pA <=> $pB;
+
+            // 1. Build sorted deletion list: REVERSE priority order (Children first -> Parents last)
+            $deletionOrder = array_keys($tablesData);
+            usort($deletionOrder, function ($a, $b) use ($priorityMap) {
+                $pA = $priorityMap[$a] ?? 50;
+                $pB = $priorityMap[$b] ?? 50;
+                return $pB <=> $pA; // Descending for clean child-before-parent deletion
             });
 
-            \DB::transaction(function () use ($tablesData, $driver, $filename) {
+            // 2. Build sorted insertion list: FORWARD priority order (Parents first -> Children last)
+            uksort($tablesData, function ($a, $b) use ($priorityMap) {
+                $pA = $priorityMap[$a] ?? 50;
+                $pB = $priorityMap[$b] ?? 50;
+                return $pA <=> $pB; // Ascending for safe parent-before-child insertion
+            });
+
+            \DB::transaction(function () use ($tablesData, $deletionOrder, $driver, $filename) {
                 if ($driver === 'pgsql') {
                     try {
                         \DB::statement("SET session_replication_role = 'replica';");
@@ -608,6 +744,24 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Backup & Recovery Manage
                     \DB::statement('SET FOREIGN_KEY_CHECKS = 0;');
                 }
 
+                // Delete tables in reverse dependency order (child tables first)
+                foreach ($deletionOrder as $tableName) {
+                    if (in_array($tableName, ['migrations', 'sessions', 'cache', 'cache_locks', 'jobs', 'failed_jobs'])) {
+                        continue;
+                    }
+
+                    if (!\Schema::hasTable($tableName)) {
+                        continue;
+                    }
+
+                    try {
+                        \DB::table($tableName)->delete();
+                    } catch (\Throwable $te) {
+                        logger()->warning("Could not delete rows from {$tableName}: " . $te->getMessage());
+                    }
+                }
+
+                // Insert tables in forward dependency order (parent tables first)
                 foreach ($tablesData as $tableName => $rows) {
                     if (in_array($tableName, ['migrations', 'sessions', 'cache', 'cache_locks', 'jobs', 'failed_jobs'])) {
                         continue;
@@ -617,20 +771,12 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Backup & Recovery Manage
                         continue;
                     }
 
-                    // Use delete() instead of TRUNCATE CASCADE to prevent recursive wiping of non-included tables
-                    try {
-                        \DB::table($tableName)->delete();
-                    } catch (\Throwable $te) {
-                        // fallback if needed
-                    }
-
                     if (!empty($rows)) {
                         // Retrieve valid columns existing in current database table schema
                         $dbColumns = array_flip(\Schema::getColumnListing($tableName));
 
                         $chunks = array_chunk($rows, 200);
                         foreach ($chunks as $chunk) {
-                            // Filter row data to only include columns that exist in the database table
                             $filteredChunk = [];
                             foreach ($chunk as $row) {
                                 $filteredRow = array_intersect_key((array) $row, $dbColumns);
@@ -668,6 +814,25 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Backup & Recovery Manage
                             } catch (\Throwable $e) {
                                 // ignore if exists
                             }
+                        }
+                    }
+                }
+
+                // Resynchronize PostgreSQL auto-increment sequences so subsequent inserts never collide with restored IDs
+                if ($driver === 'pgsql') {
+                    $seqTables = \DB::select("SELECT table_name FROM information_schema.tables WHERE table_schema = 'public' AND table_type = 'BASE TABLE'");
+                    foreach ($seqTables as $st) {
+                        $tbl = $st->table_name;
+                        try {
+                            $columns = \Schema::getColumnListing($tbl);
+                            if (in_array('id', $columns)) {
+                                $maxId = \DB::table($tbl)->max('id') ?: 0;
+                                $seqVal = max(1, $maxId);
+                                $isCalled = $maxId > 0 ? 'true' : 'false';
+                                \DB::statement("SELECT setval(pg_get_serial_sequence('\"{$tbl}\"', 'id'), {$seqVal}, {$isCalled})");
+                            }
+                        } catch (\Throwable $e) {
+                            // Table may not have a serial sequence on id
                         }
                     }
                 }
@@ -872,6 +1037,72 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Backup & Recovery Manage
             </div>
         @endif
 
+        <!-- Filter & Search Controls Bar -->
+        <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px; margin-bottom: 16px; background: #f8fafc; padding: 12px 16px; border-radius: 12px; border: 1px solid #e2e8f0;">
+            <!-- Left: Search Box -->
+            <div style="position: relative; flex: 1; min-width: 240px; max-width: 380px;">
+                <i class="fa-solid fa-magnifying-glass" style="position: absolute; left: 12px; top: 50%; transform: translateY(-50%); color: #94a3b8; font-size: 13px;"></i>
+                <input 
+                    type="text" 
+                    wire:model.live.debounce.250ms="search" 
+                    placeholder="Search backups by name, date, type..." 
+                    style="width: 100%; padding: 8px 32px 8px 34px; border-radius: 8px; border: 1px solid #cbd5e1; font-size: 12px; background: #ffffff; color: #0f172a; outline: none; transition: border-color 0.15s;"
+                >
+                @if(!empty($search))
+                    <button type="button" wire:click="$set('search', '')" style="position: absolute; right: 10px; top: 50%; transform: translateY(-50%); background: none; border: none; color: #94a3b8; cursor: pointer; font-size: 14px;">
+                        &times;
+                    </button>
+                @endif
+            </div>
+
+            <!-- Middle: Filters -->
+            <div style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap;">
+                <!-- Snapshot Type Filter -->
+                <div style="display: flex; align-items: center; gap: 6px;">
+                    <span style="font-size: 11px; font-weight: 700; color: #64748b; text-transform: uppercase;">Type:</span>
+                    <select wire:model.live="filterType" style="padding: 7px 12px; border-radius: 8px; border: 1px solid #cbd5e1; font-size: 12px; background: #ffffff; color: #0f172a; cursor: pointer;">
+                        <option value="all">All Snapshot Types</option>
+                        <option value="full">Full Snapshots</option>
+                        <option value="selective">Selective Backups</option>
+                    </select>
+                </div>
+
+                <!-- Storage Location Filter -->
+                <div style="display: flex; align-items: center; gap: 6px;">
+                    <span style="font-size: 11px; font-weight: 700; color: #64748b; text-transform: uppercase;">Location:</span>
+                    <select wire:model.live="filterSource" style="padding: 7px 12px; border-radius: 8px; border: 1px solid #cbd5e1; font-size: 12px; background: #ffffff; color: #0f172a; cursor: pointer;">
+                        <option value="all">All Locations</option>
+                        <option value="google">Google Drive (Synced)</option>
+                        <option value="local">Local Only</option>
+                    </select>
+                </div>
+
+                <!-- Per Page Selector -->
+                <div style="display: flex; align-items: center; gap: 6px;">
+                    <span style="font-size: 11px; font-weight: 700; color: #64748b; text-transform: uppercase;">Show:</span>
+                    <select wire:model.live="perPage" style="padding: 7px 10px; border-radius: 8px; border: 1px solid #cbd5e1; font-size: 12px; background: #ffffff; color: #0f172a; cursor: pointer; font-weight: 700;">
+                        <option value="5">5 per page</option>
+                        <option value="10">10 per page</option>
+                        <option value="20">20 per page</option>
+                        <option value="50">50 per page</option>
+                    </select>
+                </div>
+
+                @if(!empty($search) || $filterType !== 'all' || $filterSource !== 'all')
+                    <button type="button" wire:click="resetFilters" style="background: #e2e8f0; color: #475569; border: none; padding: 7px 12px; border-radius: 8px; font-size: 11px; font-weight: 700; cursor: pointer; display: inline-flex; align-items: center; gap: 5px;">
+                        <i class="fa-solid fa-xmark"></i> Reset
+                    </button>
+                @endif
+            </div>
+        </div>
+
+        @php
+            $paginatedList = $this->getPaginatedBackups();
+            $totalFiltered = $this->getTotalFilteredCount();
+            $totalPages = $this->getTotalPages();
+            $totalAll = count($backupsList);
+        @endphp
+
         <!-- Backups Inventory Table -->
         <div style="overflow-x: auto; background: #ffffff; border: 1px solid #e2e8f0; border-radius: 12px;">
             <table style="width: 100%; border-collapse: collapse; text-align: left; font-size: 13px;">
@@ -886,7 +1117,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Backup & Recovery Manage
                     </tr>
                 </thead>
                 <tbody>
-                    @forelse ($backupsList as $backup)
+                    @forelse ($paginatedList as $backup)
                         <tr style="border-bottom: 1px solid #f1f5f9; transition: background 0.15s;" onmouseover="this.style.background='#f8fafc'" onmouseout="this.style.background='transparent'">
                             <td style="padding: 14px 16px; font-weight: 700; color: #0f172a; font-family: monospace;">
                                 <i class="fa-solid fa-file-code" style="color: #64748b; margin-right: 8px;"></i>
@@ -930,18 +1161,119 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Backup & Recovery Manage
                         <tr>
                             <td colspan="6" style="padding: 36px; text-align: center; color: #64748b;">
                                 <i class="fa-solid fa-box-open" style="font-size: 32px; color: #cbd5e1; margin-bottom: 10px; display: block;"></i>
-                                <span style="font-size: 14px; font-weight: 600;">No backup files found on Google Drive backup/ folder or local storage.</span>
-                                <div style="margin-top: 12px;">
-                                    <button type="button" wire:click="openCreateBackupModal" style="background: #10b981; color: white; border: none; padding: 8px 18px; border-radius: 8px; font-weight: 700; font-size: 12px; cursor: pointer; display: inline-flex; align-items: center; gap: 6px;">
-                                        <i class="fa-solid fa-plus"></i> Create First Backup Now
-                                    </button>
-                                </div>
+                                @if(!empty($search) || $filterType !== 'all' || $filterSource !== 'all')
+                                    <span style="font-size: 14px; font-weight: 600;">No backups match your current search or filter criteria.</span>
+                                    <div style="margin-top: 12px;">
+                                        <button type="button" wire:click="resetFilters" style="background: #2563eb; color: white; border: none; padding: 8px 18px; border-radius: 8px; font-weight: 700; font-size: 12px; cursor: pointer; display: inline-flex; align-items: center; gap: 6px;">
+                                            <i class="fa-solid fa-rotate-left"></i> Clear Filters
+                                        </button>
+                                    </div>
+                                @else
+                                    <span style="font-size: 14px; font-weight: 600;">No backup files found on Google Drive backup/ folder or local storage.</span>
+                                    <div style="margin-top: 12px;">
+                                        <button type="button" wire:click="openCreateBackupModal" style="background: #10b981; color: white; border: none; padding: 8px 18px; border-radius: 8px; font-weight: 700; font-size: 12px; cursor: pointer; display: inline-flex; align-items: center; gap: 6px;">
+                                            <i class="fa-solid fa-plus"></i> Create First Backup Now
+                                        </button>
+                                    </div>
+                                @endif
                             </td>
                         </tr>
                     @endforelse
                 </tbody>
             </table>
         </div>
+
+        <!-- Pagination Controls Bar -->
+        @if ($totalFiltered > 0)
+            <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 16px; margin-top: 16px; padding-top: 14px; border-top: 1px solid #f1f5f9;">
+                <!-- Result Count Details -->
+                <div style="font-size: 12px; color: #64748b;">
+                    Showing <strong style="color: #0f172a; font-weight: 800;">{{ ($currentPage - 1) * $perPage + 1 }}</strong>
+                    to <strong style="color: #0f172a; font-weight: 800;">{{ min($currentPage * $perPage, $totalFiltered) }}</strong>
+                    of <strong style="color: #0f172a; font-weight: 800;">{{ $totalFiltered }}</strong> backup bundle(s)
+                    @if($totalFiltered !== $totalAll)
+                        <span style="background: #e2e8f0; color: #475569; padding: 2px 6px; border-radius: 4px; font-size: 11px; margin-left: 4px; font-weight: 600;">filtered from {{ $totalAll }} total</span>
+                    @endif
+                </div>
+
+                <!-- Page Navigation Buttons -->
+                @if ($totalPages > 1)
+                    <div style="display: flex; align-items: center; gap: 6px;">
+                        <!-- First Page -->
+                        <button 
+                            type="button" 
+                            wire:click="setPage(1)" 
+                            @if($currentPage === 1) disabled @endif 
+                            style="padding: 6px 10px; border-radius: 6px; border: 1px solid #cbd5e1; background: {{ $currentPage === 1 ? '#f8fafc' : '#ffffff' }}; color: {{ $currentPage === 1 ? '#94a3b8' : '#334155' }}; cursor: {{ $currentPage === 1 ? 'not-allowed' : 'pointer' }}; font-size: 12px; font-weight: 700;"
+                            title="First Page"
+                        >
+                            <i class="fa-solid fa-angles-left"></i>
+                        </button>
+
+                        <!-- Prev Page -->
+                        <button 
+                            type="button" 
+                            wire:click="previousPage" 
+                            @if($currentPage === 1) disabled @endif 
+                            style="padding: 6px 12px; border-radius: 6px; border: 1px solid #cbd5e1; background: {{ $currentPage === 1 ? '#f8fafc' : '#ffffff' }}; color: {{ $currentPage === 1 ? '#94a3b8' : '#334155' }}; cursor: {{ $currentPage === 1 ? 'not-allowed' : 'pointer' }}; font-size: 12px; font-weight: 700; display: inline-flex; align-items: center; gap: 4px;"
+                        >
+                            <i class="fa-solid fa-chevron-left"></i> Prev
+                        </button>
+
+                        <!-- Numbered Page Pills -->
+                        @php
+                            $startPage = max(1, $currentPage - 2);
+                            $endPage = min($totalPages, $currentPage + 2);
+                        @endphp
+
+                        @if ($startPage > 1)
+                            <button type="button" wire:click="setPage(1)" style="padding: 6px 11px; border-radius: 6px; border: 1px solid #cbd5e1; background: #ffffff; color: #334155; cursor: pointer; font-size: 12px; font-weight: 700;">1</button>
+                            @if ($startPage > 2)
+                                <span style="color: #94a3b8; padding: 0 4px;">...</span>
+                            @endif
+                        @endif
+
+                        @for ($page = $startPage; $page <= $endPage; $page++)
+                            <button 
+                                type="button" 
+                                wire:click="setPage({{ $page }})" 
+                                style="padding: 6px 12px; border-radius: 6px; font-size: 12px; font-weight: 800; cursor: pointer; transition: all 0.15s ease; border: 1px solid {{ $currentPage === $page ? '#2563eb' : '#cbd5e1' }}; background: {{ $currentPage === $page ? '#2563eb' : '#ffffff' }}; color: {{ $currentPage === $page ? '#ffffff' : '#334155' }}; box-shadow: {{ $currentPage === $page ? '0 2px 6px rgba(37, 99, 235, 0.3)' : 'none' }};"
+                            >
+                                {{ $page }}
+                            </button>
+                        @endfor
+
+                        @if ($endPage < $totalPages)
+                            @if ($endPage < $totalPages - 1)
+                                <span style="color: #94a3b8; padding: 0 4px;">...</span>
+                            @endif
+                            <button type="button" wire:click="setPage({{ $totalPages }})" style="padding: 6px 11px; border-radius: 6px; border: 1px solid #cbd5e1; background: #ffffff; color: #334155; cursor: pointer; font-size: 12px; font-weight: 700;">{{ $totalPages }}</button>
+                        @endif
+
+                        <!-- Next Page -->
+                        <button 
+                            type="button" 
+                            wire:click="nextPage" 
+                            @if($currentPage === $totalPages) disabled @endif 
+                            style="padding: 6px 12px; border-radius: 6px; border: 1px solid #cbd5e1; background: {{ $currentPage === $totalPages ? '#f8fafc' : '#ffffff' }}; color: {{ $currentPage === $totalPages ? '#94a3b8' : '#334155' }}; cursor: {{ $currentPage === $totalPages ? 'not-allowed' : 'pointer' }}; font-size: 12px; font-weight: 700; display: inline-flex; align-items: center; gap: 4px;"
+                        >
+                            Next <i class="fa-solid fa-chevron-right"></i>
+                        </button>
+
+                        <!-- Last Page -->
+                        <button 
+                            type="button" 
+                            wire:click="setPage({{ $totalPages }})" 
+                            @if($currentPage === $totalPages) disabled @endif 
+                            style="padding: 6px 10px; border-radius: 6px; border: 1px solid #cbd5e1; background: {{ $currentPage === $totalPages ? '#f8fafc' : '#ffffff' }}; color: {{ $currentPage === $totalPages ? '#94a3b8' : '#334155' }}; cursor: {{ $currentPage === $totalPages ? 'not-allowed' : 'pointer' }}; font-size: 12px; font-weight: 700;"
+                            title="Last Page"
+                        >
+                            <i class="fa-solid fa-angles-right"></i>
+                        </button>
+                    </div>
+                @endif
+            </div>
+        @endif
     </div>
 
     <!-- Configure & Generate System Backup Modal -->

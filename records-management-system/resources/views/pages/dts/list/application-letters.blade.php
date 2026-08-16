@@ -224,6 +224,7 @@ new #[Layout('layouts.dts')] #[Title('DTS - Application Letters')] class extends
             'dt.current_office',
             'dtd.control_number',
             'req.requestor_name',
+            'req.requestor_position',
             'dtd.subject',
             'dtd.classification',
             'dtd.action_needed',
@@ -236,24 +237,49 @@ new #[Layout('layouts.dts')] #[Title('DTS - Application Letters')] class extends
         ->orderBy('dtd.date_created', $sortDirection)
         ->paginate($this->perPage);
 
-        // Map remarks, received by, received date/time and destination from sequence flow
+        // Map remarks, received by, released/received details and elapsed days
         $list->getCollection()->transform(function ($t) {
-            $latestLog = DB::table('sub_document_tracking_system_logs as log')
+            $logs = DB::table('sub_document_tracking_system_logs as log')
                 ->leftJoin('account_details as ad', 'ad.account_id', '=', 'log.performed_by')
                 ->where('log.transaction_id', $t->transaction_id)
-                ->orderBy('log.id', 'desc')
-                ->select('log.notes', 'log.date_in', 'ad.first_name', 'ad.last_name')
-                ->first();
-            $t->remarks = $latestLog ? $latestLog->notes : '-';
-            $t->received_by = $latestLog && $latestLog->first_name ? ($latestLog->first_name . ' ' . $latestLog->last_name) : '-';
+                ->orderBy('log.id', 'asc')
+                ->select('log.*', 'ad.first_name', 'ad.last_name')
+                ->get();
 
-            // Date/Time Received is when it arrived at current location
-            $currentLog = DB::table('sub_document_tracking_system_logs')
-                ->where('transaction_id', $t->transaction_id)
-                ->where('office_code', $t->current_office)
-                ->orderBy('id', 'desc')
-                ->first();
-            $t->date_time_received = $currentLog ? $currentLog->date_in : $t->date_created;
+            $firstLog = $logs->first();
+            $latestLog = $logs->last();
+
+            $t->remarks = $latestLog ? $latestLog->notes : '-';
+
+            // Position applied
+            $pos = $t->requestor_position;
+            if (empty($pos) && !empty($t->subject) && str_starts_with($t->subject, 'Application for ')) {
+                $pos = substr($t->subject, 16);
+            }
+            $t->position_applied = $pos ?: ($t->classification ?: 'N/A');
+
+            // Released info (Step 1 / Origin)
+            $releasedAt = $firstLog?->date_out ?? ($firstLog?->date_in ?? $t->date_created);
+            $t->released_date = $releasedAt ? \Carbon\Carbon::parse($releasedAt)->format('Y-m-d') : '-';
+            $t->released_time = $releasedAt ? \Carbon\Carbon::parse($releasedAt)->format('h:i A') : '-';
+            $t->released_by = ($firstLog && $firstLog->first_name) ? ($firstLog->first_name . ' ' . $firstLog->last_name) : '-';
+
+            // Received info (Destination / Current)
+            $receiveLog = $logs->where('type', 'received')->where('id', '!=', $firstLog?->id)->last()
+                ?? $logs->where('id', '!=', $firstLog?->id)->first();
+
+            if (!$receiveLog && $firstLog && $firstLog->date_in) {
+                $receiveLog = $firstLog;
+            }
+
+            $receivedAt = $receiveLog?->date_in;
+            $t->received_date = $receivedAt ? \Carbon\Carbon::parse($receivedAt)->format('Y-m-d') : '-';
+            $t->received_time = $receivedAt ? \Carbon\Carbon::parse($receivedAt)->format('h:i A') : '-';
+            $t->received_by = ($receiveLog && $receiveLog->first_name) ? ($receiveLog->first_name . ' ' . $receiveLog->last_name) : '-';
+
+            // Elapsed Days
+            $createdDateRaw = $firstLog?->date_in ?? $t->date_created;
+            $t->elapsed_days = $createdDateRaw ? (int) abs(now()->diffInDays(\Carbon\Carbon::parse($createdDateRaw))) : 0;
 
             // Previous office (from office)
             $prevLog = DB::table('sub_document_tracking_system_logs as log')
@@ -288,6 +314,7 @@ new #[Layout('layouts.dts')] #[Title('DTS - Application Letters')] class extends
                     }
                 }
             }
+
             return $t;
         });
 
@@ -1346,23 +1373,28 @@ new #[Layout('layouts.dts')] #[Title('DTS - Application Letters')] class extends
             <table class="rms-table">
                 <thead>
                     <tr>
-                        <th style="width: 40px; text-align: center;">
+                        <th rowspan="2" style="width: 40px; text-align: center;">
                             <input type="checkbox" wire:model.live="selectAll" style="width: 16px; height: 16px; cursor: pointer; accent-color: #1e40af;">
                         </th>
-                        <th style="width: 60px;">Item No.</th>
-                        <th>Control Number</th>
-                        <th>QR Code</th>
-                        <th>Name of Applicant</th>
-                        <th>Position</th>
-                        <th>Unit/College</th>
-                        <th>Date Created</th>
-                        <th>Current Location</th>
-                        <th>Status</th>
-                        <th>Priority</th>
-                        <th>Destination</th>
-                        <th>Date/Time Received</th>
-                        <th>Received by</th>
-                        <th style="width: 60px;">View</th>
+                        <th rowspan="2" style="width: 60px;">Item No.</th>
+                        <th rowspan="2">Control No.</th>
+                        <th rowspan="2">QR Code</th>
+                        <th rowspan="2">Created</th>
+                        <th rowspan="2">Name of Applicant</th>
+                        <th rowspan="2">Position Applied</th>
+                        <th rowspan="2">Department</th>
+                        <th colspan="3" style="color: #dc2626; text-align: center; border-bottom: 1px solid #dee2e6;">Released</th>
+                        <th colspan="3" style="color: #dc2626; text-align: center; border-bottom: 1px solid #dee2e6;">Received</th>
+                        <th rowspan="2" style="color: #dc2626; text-align: center;">Elapsed Day</th>
+                        <th rowspan="2" style="width: 60px; color: #dc2626; text-align: center;">View</th>
+                    </tr>
+                    <tr>
+                        <th style="color: #dc2626; text-align: center; font-size: 0.75rem; padding: 6px 8px;">Date</th>
+                        <th style="color: #dc2626; text-align: center; font-size: 0.75rem; padding: 6px 8px;">Time</th>
+                        <th style="color: #dc2626; text-align: center; font-size: 0.75rem; padding: 6px 8px;">By</th>
+                        <th style="color: #dc2626; text-align: center; font-size: 0.75rem; padding: 6px 8px;">Date</th>
+                        <th style="color: #dc2626; text-align: center; font-size: 0.75rem; padding: 6px 8px;">Time</th>
+                        <th style="color: #dc2626; text-align: center; font-size: 0.75rem; padding: 6px 8px;">By</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -1375,32 +1407,27 @@ new #[Layout('layouts.dts')] #[Title('DTS - Application Letters')] class extends
                                 <input type="checkbox" wire:model.live="selectedIds" value="{{ $t->transaction_id }}" style="width: 16px; height: 16px; cursor: pointer; accent-color: #1e40af;">
                             </td>
                             <td style="text-align: center;">{{ $this->transactions->firstItem() + $index }}</td>
-                            <td>{{ $t->control_number }}</td>
+                            <td style="font-weight: 600; color: #1e40af;">{{ $t->control_number }}</td>
                             <td>{{ $t->qr_code }}</td>
-                            <td>{{ $t->requestor_name ?? 'N/A' }}</td>
-                            <td>{{ $t->classification ?? 'N/A' }}</td>
-                            <td>{{ $t->originated_office_name }}</td>
                             <td>{{ \Carbon\Carbon::parse($t->date_created)->format('Y-m-d H:i') }}</td>
-                            <td>{{ $t->current_office_name }}</td>
-                            <td style="text-align: center;">
-                                <span class="status-badge status-{{ $t->status }}">
-                                    {{ $t->status }}
-                                </span>
-                            </td>
-                            <td style="text-align: center;">
-                                <span class="priority-badge priority-{{ $t->classification }}">
-                                    {{ $t->classification ?: 'normal' }}
-                                </span>
-                            </td>
-                            <td>{{ $t->destination }}</td>
-                            <td>{{ $t->date_time_received ? \Carbon\Carbon::parse($t->date_time_received)->format('Y-m-d H:i') : '-' }}</td>
+                            <td>{{ $t->requestor_name ?? 'N/A' }}</td>
+                            <td>{{ $t->position_applied ?? 'N/A' }}</td>
+                            <td>{{ $t->originated_office_name ?: $t->originated_from }}</td>
+                            <td style="text-align: center;">{{ $t->released_date }}</td>
+                            <td style="text-align: center;">{{ $t->released_time }}</td>
+                            <td>{{ $t->released_by }}</td>
+                            <td style="text-align: center;">{{ $t->received_date }}</td>
+                            <td style="text-align: center;">{{ $t->received_time }}</td>
                             <td>{{ $t->received_by }}</td>
+                            <td style="color: #dc2626; font-weight: 600; white-space: nowrap; text-align: center;">
+                                {{ $t->elapsed_days }} day(s)
+                            </td>
                             <td style="text-align: center;">
                                 <button type="button" wire:click="openTransaction('{{ $t->transaction_id }}')" class="rms-select" style="text-decoration: none; display: inline-block; border: none; background: transparent; cursor: pointer; color: #043899; font-weight: 500;">View</button>
                             </td>
                         </tr>
                     @empty
-                        <tr><td colspan="15" class="rms-no-data">No transactions found.</td></tr>
+                        <tr><td colspan="16" class="rms-no-data">No transactions found.</td></tr>
                     @endforelse
                 </tbody>
             </table>

@@ -42,7 +42,16 @@ class UpdateUserOnlineStatus
                     ], 401);
                 }
 
-                if ($request->is('open-chat', 'chatify*', 'chat/*')) {
+                if ($request->is('chat/unread-count')) {
+                    return response()->json([
+                        'error' => 'Unauthenticated',
+                        'message' => $reasonMessage,
+                        'redirect' => route('login'),
+                        'unread' => 0,
+                    ], 401);
+                }
+
+                if ($request->is('open-chat', 'chatify*')) {
                     return response('<!DOCTYPE html><html><head><script>if(window.top){window.top.location.href="' . route('login') . '";}</script></head><body></body></html>', 401)
                         ->header('Content-Type', 'text/html');
                 }

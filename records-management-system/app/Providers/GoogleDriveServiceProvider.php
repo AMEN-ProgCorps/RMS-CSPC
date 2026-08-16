@@ -52,6 +52,8 @@ class GoogleDriveServiceProvider extends ServiceProvider
                     : filter_var(env('GOOGLE_DRIVE_VERIFY_SSL', false), FILTER_VALIDATE_BOOLEAN);
                 $guzzleClient = new \GuzzleHttp\Client([
                     'verify' => $verifySsl,
+                    'timeout' => 15,
+                    'connect_timeout' => 8,
                 ]);
                 $client->setHttpClient($guzzleClient);
 

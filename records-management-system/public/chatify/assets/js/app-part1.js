@@ -1543,7 +1543,8 @@
         const previewHtml = preview
           ? escapeHtml(preview.length > TOAST_PREVIEW_LIMIT ? preview.slice(0, TOAST_PREVIEW_LIMIT) + '…' : preview)
           : '<em>No message</em>';
-        return '<div class="bell-item" data-id="' + n.id + '">' +
+        const safeId = escapeHtml(String(n.id == null ? '' : n.id));
+        return '<div class="bell-item" data-id="' + safeId + '">' +
                  '<div class="bell-item-sender">' + escapeHtml(n.sender || 'A user') + ' mentioned you</div>' +
                  '<div class="bell-item-preview">' + previewHtml + '</div>' +
                  (n.time ? '<div class="bell-item-time">' + escapeHtml(formatMentionTime(n.time)) + '</div>' : '') +

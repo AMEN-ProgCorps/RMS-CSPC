@@ -474,30 +474,29 @@
       z-index: 3000;
       display: flex;
       flex-direction: column;
-      gap: 10px;
-      width: 320px;
+      align-items: flex-end;
+      gap: 8px;
       max-width: calc(100vw - 32px);
       pointer-events: none;
     }
     .notify-toast {
       background: var(--bg-modal);
       color: var(--text-primary);
-      border-radius: 10px;
+      border-radius: 20px;
+      border: 1px solid var(--border-color, rgba(0, 0, 0, 0.1));
       box-shadow: 0 4px 16px var(--shadow-color);
-      padding: 12px 14px;
+      padding: 8px 16px;
       font-size: 13px;
-      line-height: 1.4;
+      line-height: 1.3;
       animation: notifyToastIn 0.25s ease;
       cursor: pointer;
       pointer-events: auto;
-      max-width: 100%;
+      width: fit-content;
+      max-width: 250px;
       box-sizing: border-box;
-      overflow-wrap: anywhere;
-      word-break: break-word;
+      white-space: nowrap;
       overflow: hidden;
-      display: -webkit-box;
-      -webkit-line-clamp: 3;
-      -webkit-box-orient: vertical;
+      text-overflow: ellipsis;
     }
     .notify-toast.hide {
       animation: notifyToastOut 0.2s ease forwards;
@@ -511,6 +510,78 @@
       to   { transform: translateX(30px); opacity: 0; }
     }
     .notify-toast strong { color: var(--text-primary); }
+
+    /* Unread-mentions badge on the sidebar bell icon */
+    .bell-badge {
+      position: absolute;
+      top: -2px;
+      right: -2px;
+      background: #e0245e;
+      color: #fff;
+      border-radius: 12px;
+      min-width: 18px;
+      height: 18px;
+      padding: 0 4px;
+      font-size: 10px;
+      font-weight: 700;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      line-height: 1;
+      box-shadow: 0 0 0 2px var(--bg-secondary);
+      pointer-events: none;
+      animation: badgePop 0.3s cubic-bezier(0.34,1.56,0.64,1);
+    }
+
+    /* Notification bell modal — list of unopened @mentions */
+    #notificationBellModal .modal-body.bell-list {
+      padding: 0;
+      max-height: 60vh;
+      overflow-y: auto;
+    }
+    .bell-item {
+      padding: 12px 20px;
+      border-bottom: 1px solid var(--border-color);
+      cursor: pointer;
+      text-align: left;
+      transition: background-color 0.15s ease;
+    }
+    .bell-item:last-child {
+      border-bottom: none;
+    }
+    .bell-item:hover,
+    .bell-item:active {
+      background-color: var(--bg-drop-overlay);
+    }
+    .bell-item-sender {
+      font-size: 14px;
+      font-weight: 600;
+      color: var(--text-primary);
+      margin-bottom: 2px;
+    }
+    .bell-item-preview {
+      font-size: 13px;
+      color: var(--text-secondary);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .bell-item-preview em {
+      font-style: italic;
+      opacity: 0.75;
+    }
+    .bell-item-time {
+      font-size: 11px;
+      color: var(--text-secondary);
+      opacity: 0.8;
+      margin-top: 4px;
+    }
+    .bell-empty {
+      padding: 28px 20px;
+      text-align: center;
+      color: var(--text-secondary);
+      font-size: 14px;
+    }
 
     @media (max-width: 480px) {
       .notify-toast-container {
@@ -704,13 +775,14 @@
       cursor: not-allowed;
     }
 
-    /* Modal shown when a notification toast is clicked */
+    /* Notification mention modal — same layout as readMoreModal */
     #notifyContentModal .modal-body {
       white-space: pre-wrap;
       overflow-wrap: anywhere;
       word-break: break-word;
-      max-height: 50vh;
-      overflow: hidden;
+      max-height: 60vh;
+      overflow-y: auto;
+      text-align: left;
     }
 
     /* Modal shown when tapping "Read more..." on a long chat message —
@@ -765,7 +837,12 @@
       height: 100dvh;
       flex: 1;
       min-width: 0; /* Important for flex child to not overflow */
-      background-color: var(--bg-secondary);
+      /* Matches .header/#chat-box/.input-area's own background (--bg-chat)
+         instead of --bg-secondary (white). All three already paint over
+         this in normal layout, but any 1px flex rounding gap between them
+         used to expose this container's own background as a stray white
+         hairline across the width — now it just blends in instead. */
+      background-color: var(--bg-chat);
       position: relative;
       transition: background-color 0.3s ease;
     }
@@ -1011,12 +1088,19 @@
       scroll-behavior: auto;
       transition: background-color 0.3s ease;
       will-change: scroll-position;
+      /* Hide scrollbar but keep scroll functionality */
+      scrollbar-width: none; /* Firefox */
+      -ms-overflow-style: none; /* IE/Edge */
     }
 
-    /* Desktop: always show scrollbar so users know there's more content */
+    #chat-box::-webkit-scrollbar {
+      display: none; /* Chrome/Safari/Opera */
+    }
+
+    /* Desktop: keep scrolling enabled (scrollbar itself stays hidden above) */
     @media (min-width: 992px) {
       #chat-box {
-        overflow-y: scroll;
+        overflow-y: auto;
       }
     }
 
@@ -1432,6 +1516,22 @@
       -webkit-touch-callout: none;
     }
 
+    /* Chat images (thumbnails rendered by load.php/load_dm.php/
+       load_dm_admin.php as <img class="chat-viewable-image" draggable="false">)
+       must not be draggable out of our own chat UI — e.g. dragged into the
+       message composer's file drop zone, onto the desktop, or into another
+       tab. `draggable="false"` on the element handles Chrome/Edge; these
+       vendor-prefixed `user-drag` rules are needed for Safari/older Firefox,
+       which ignore the attribute on <img>. */
+    .chat-viewable-image,
+    .reply-quote-image {
+      -webkit-user-drag: none;
+      -khtml-user-drag: none;
+      -moz-user-drag: none;
+      -o-user-drag: none;
+      user-drag: none;
+    }
+
     .message-media audio {
       border-radius: 8px;
     }
@@ -1750,6 +1850,14 @@
       opacity: 0.7;
       transition: opacity 0.15s, background 0.15s;
       padding: 0;
+      /* .message-input-container uses align-items: flex-end, so every
+         child's BOTTOM edge lines up on the same line by default. #sendButton
+         is 42px tall but this button is only 28px, so lining up bottoms left
+         its center sitting 7px above #sendButton's center (the "floating"
+         look in the screenshot). Half the height difference as margin-bottom
+         nudges its box up so the two circles' centers land on the same
+         horizontal line as #sendButton. */
+      margin-bottom: 7px;
     }
     #cancelEditXBtn:hover {
       opacity: 1;
@@ -1784,35 +1892,141 @@
       margin-bottom: 2px; /* optical alignment with the textarea's bottom edge */
     }
 
-    #messageInput {
+    /* Wraps #messageInput + its #messageInputHighlight mention-highlight
+       layer. Now OWNS the visible pill chrome (background/border/radius)
+       instead of #messageInput — #messageInput's own background is fully
+       transparent so the highlight layer sitting right behind it (with
+       the blue .mention-tag spans) actually shows through. Previously
+       #messageInput kept its own opaque background on top, which hid the
+       highlight layer completely — that was the bug. */
+    .message-input-wrap {
+      position: relative;
       flex: 1;
-      padding: 10px 16px;
+      min-width: 0;
       border-radius: 18px;
-      box-sizing: border-box; /* keep scrollHeight-driven auto-resize in sync with the
-                                  actual rendered box (padding+border), otherwise the
-                                  textarea creeps/jumps in size on every keystroke */
-      /* Its own distinct fill so it still reads as an input field —
-         it's the .input-area bar behind it that now blends with the
-         chat view instead of being a separate container. */
       border: 1px solid var(--message-input-border);
       background-color: var(--message-input-bg);
-      color: var(--text-primary);
-      font-size: 14px;
-      font-family: 'Inter', sans-serif;
       transition: border-color 0.2s ease, background-color 0.2s ease;
+    }
+    .message-input-wrap:focus-within {
+      border-color: #1b74e4;
+    }
+
+    #messageInput,
+    .message-input-highlight {
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif !important;
+      font-size: 14px !important;
+      font-weight: 400 !important;
+      line-height: 1.4 !important;
+      letter-spacing: 0px !important;
+      word-spacing: 0px !important;
+      padding: 10px 16px !important;
+      border: 1px solid transparent !important;
+      box-sizing: border-box !important;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    #messageInput {
+      width: 100%;
+      border-radius: 18px;
+      border: 1px solid transparent;
+      background: transparent;
+      color: transparent;
+      caret-color: var(--text-primary);
+      position: relative;
+      z-index: 1;
       resize: none;
       overflow-y: scroll;
       min-height: 40px;
       max-height: 120px;
-      line-height: 1.4;
       display: block;
       /* Hide scrollbar — webkit */
       scrollbar-width: none;
     }
 
+    #messageInput:focus {
+      /* Focus ring lives on .message-input-wrap now (:focus-within above);
+         #messageInput's own border-color must stay transparent so it
+         doesn't double up as a second, misaligned ring on top of it. */
+      border-color: transparent;
+    }
+
     #messageInput::-webkit-scrollbar {
       width: 0;
       background: transparent;
+    }
+
+    /* Sits directly behind #messageInput, same box to the pixel (the wrap
+       has no other normal-flow siblings, so inset:0 lines up perfectly).
+       Mirrors the textarea's box model 1:1 so wrapping/line-breaks match;
+       only its own scrollTop needs syncing on input (done in JS) to track
+       the textarea when content overflows past max-height. This is what
+       actually renders the visible text + the blue .mention-tag spans. */
+    .message-input-highlight {
+      position: absolute;
+      inset: 0;
+      z-index: 0;
+      color: var(--text-primary);
+      white-space: pre-wrap;
+      word-wrap: break-word;
+      overflow: hidden;
+      pointer-events: none;
+    }
+
+    /* ── @mention user row ── shared by the Mention modal's single search
+       result, styled the same as the User Verification modal's rows. */
+    .mention-user-row {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 10px 12px;
+      border: 1px solid var(--border-color);
+      border-radius: 8px;
+      background: var(--bg-secondary);
+      cursor: pointer;
+      transition: background 0.12s ease, border-color 0.12s ease;
+    }
+    .mention-user-row:hover {
+      border-color: #1b74e4;
+      background: rgba(27, 116, 228, 0.08);
+    }
+    .mention-user-row .mention-user-avatar {
+      width: 34px;
+      height: 34px;
+      border-radius: 50%;
+      flex-shrink: 0;
+      overflow: hidden;
+      background: var(--bg-avatar-received);
+      color: var(--text-primary);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 12px;
+      font-weight: 700;
+    }
+    .mention-user-row .mention-user-avatar img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+    }
+    .mention-user-row .mention-user-info {
+      min-width: 0;
+      flex: 1;
+    }
+    .mention-user-row .mention-user-name {
+      font-size: 14px;
+      font-weight: 600;
+      color: var(--text-primary);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .mention-user-row .mention-user-sub {
+      font-size: 12px;
+      color: var(--text-secondary);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
     }
 
     input:focus, textarea:focus {
@@ -2187,48 +2401,6 @@
       transform: scale(0.96);
     }
 
-    /* Floating Load Older Messages button at top of chat container */
-    .load-older-floating-btn {
-      position: absolute;
-      top: 80px; /* Floating below header with breathing room */
-      left: 50%;
-      transform: translateX(-50%);
-      background: #1b74e4;
-      color: white;
-      padding: 8px 14px;
-      border-radius: 24px;
-      font-size: 13px;
-      font-weight: 500;
-      border: none;
-      cursor: pointer;
-      opacity: 0;
-      visibility: hidden;
-      transition: opacity 0.3s ease, visibility 0.3s ease, transform 0.2s ease, background 0.2s ease;
-      z-index: 200;
-      box-shadow: 0 2px 10px rgba(0,0,0,0.25);
-      display: flex;
-      align-items: center;
-      gap: 6px;
-      user-select: none;
-      white-space: nowrap;
-      will-change: opacity, transform;
-    }
-
-    .load-older-floating-btn.visible {
-      opacity: 1;
-      visibility: visible;
-    }
-
-    .load-older-floating-btn:hover {
-      background: #1669c1;
-      transform: translateX(-50%) translateY(-2px);
-      box-shadow: 0 4px 14px rgba(0,0,0,0.3);
-    }
-
-    .load-older-floating-btn:active {
-      transform: translateX(-50%) scale(0.96);
-    }
-
     /* Floating Load More button for Super Admin Spy Mode user cards */
     .admin-spy-floating-btn {
       position: absolute;
@@ -2422,37 +2594,6 @@
         flex-shrink: 0;
         padding-bottom: max(12px, env(safe-area-inset-bottom, 0px));
       }
-    }
-
-    /* Scrollbar Styling */
-    /* ── Scrollbar — always visible, styled ── */
-    #chat-box::-webkit-scrollbar {
-      width: 6px;
-    }
-
-    #chat-box::-webkit-scrollbar-track {
-      background: transparent;
-      margin: 6px 0;
-    }
-
-    #chat-box::-webkit-scrollbar-thumb {
-      background: var(--scrollbar-thumb);
-      border-radius: 99px;
-      min-height: 40px;
-    }
-
-    #chat-box::-webkit-scrollbar-thumb:hover {
-      background: var(--scrollbar-thumb-hover);
-    }
-
-    #chat-box::-webkit-scrollbar-thumb:active {
-      background: #1b74e4;
-    }
-
-    /* For Firefox */
-    #chat-box {
-      scrollbar-width: thin;
-      scrollbar-color: var(--scrollbar-thumb) transparent;
     }
 
     /* Drop overlay */
@@ -2770,17 +2911,21 @@
       min-width: 12px;
     }
 
-    /* ── @mention highlight in messages ── */
-    .mention-tag {
-      color: #1b74e4;
-      font-weight: 600;
-      background: rgba(27, 116, 228, 0.1);
-      border-radius: 3px;
-      padding: 0 2px;
+    /* ── @mention pure blue text in type a message box only ── */
+    /* ── @mention pure blue text in type a message box only ── */
+    .message-input-highlight .mention-tag {
+      color: #1b74e4 !important;
+      font-weight: inherit !important;
+      background: transparent !important;
+      border: none !important;
+      border-radius: 0 !important;
+      padding: 0 !important;
+      margin: 0 !important;
+      box-shadow: none !important;
+      letter-spacing: 0px !important;
     }
-    [data-theme="dark"] .mention-tag {
-      color: #5ea8ff;
-      background: rgba(94, 168, 255, 0.15);
+    [data-theme="dark"] .message-input-highlight .mention-tag {
+      color: #5ea8ff !important;
     }
 
     .sent .message-avatar {

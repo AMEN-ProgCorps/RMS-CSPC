@@ -448,8 +448,11 @@
       chatFullyLoaded = true;
       if (!isAtBottom()) {
         showScrollIndicator(0);
-        syncLoadOlderBtn();
       }
+      // If the restored scroll position (or a very short chat) already
+      // lands the user near the top, kick off the auto-load check right
+      // away instead of waiting for a scroll event that may never fire.
+      maybeAutoLoadOlderMessages();
     }
 
     const scrollIndicatorText = document.getElementById('scrollIndicatorText');
@@ -467,9 +470,15 @@
           scrollIndicatorText.textContent = 'Go to bottom';
         }
       }
-      const isAtTop = chatBox.scrollTop <= 5;
-      const hasUnread = scrollIndicator.classList.contains('has-unread');
-      if (chatFullyLoaded && (isAtTop || hasUnread)) {
+      // showScrollIndicator() is only ever called by callers that already
+      // know the user isn't at the bottom (new message arrived while
+      // scrolled up, or the main scroll listener detected !atBottom —
+      // which covers scrolling up past the loaded PAGE_SIZE window into
+      // older history too). So as long as the chat has finished its
+      // initial load, the button should show — it used to be gated on
+      // "scrollTop <= 5" (literally the very top) which meant scrolling
+      // up anywhere in the middle/older history never revealed it.
+      if (chatFullyLoaded) {
         scrollIndicator.classList.add('visible');
       } else {
         scrollIndicator.classList.remove('visible');
@@ -582,6 +591,14 @@
       messageInput.value = text;
       editingMsgId = msgId;
 
+      // messageInput.value is set programmatically here, so no 'input'
+      // event fires — renderMentionHighlight() (app-part1.js) never runs
+      // and #messageInputHighlight (the layer that actually paints the
+      // visible text, since #messageInput itself is color:transparent)
+      // stays stale/empty. Without this call the edited text is invisible,
+      // blending into the input background until the user types a key.
+      if (typeof renderMentionHighlight === 'function') renderMentionHighlight();
+
       // Show X cancel button
       showEditBanner(msgId);
 
@@ -602,7 +619,7 @@
     if (cancelEditXBtn) {
       cancelEditXBtn.addEventListener('click', () => {
         hideEditBanner();
-        messageInput.value = '';
+        resetMessageInputVisualState();
         messageInput.style.height = 'auto';
       });
     }
@@ -891,8 +908,6 @@
         shouldAutoScroll = true;
         userScrolledUp = false;
         hideScrollIndicator();
-        // Hide load-older button when user returns to bottom
-        if (chatFullyLoaded) syncLoadOlderBtn();
       } else {
         shouldAutoScroll = false;
         userScrolledUp = true;
@@ -903,8 +918,6 @@
           if (hasMessages) {
             showScrollIndicator(0);
           }
-          // Show load-older button when user scrolls up and older messages exist
-          syncLoadOlderBtn();
         }
       }
 
@@ -934,33 +947,151 @@
     // Uses capture so it fires even if the img has no bubbling listener.
     chatBox.addEventListener('error', function(event) {
       const el = event.target;
-      if (!el || el.tagName !== 'IMG') return;
+      if (!el || !el.tagName) return;
 
-      if (el.classList.contains('reply-quote-image')) {
-        // Remove the reply quote image container entirely
-        const container = el.closest('.reply-quote-image-container, .reply-quote');
-        if (container) container.remove();
-        else el.remove();
-      } else if (el.classList.contains('chat-viewable-image')) {
-        // Remove the closest wrapping media element
-        const mediaWrap = el.closest('.message-media') || el.parentElement;
-        if (mediaWrap && mediaWrap !== el) {
-          mediaWrap.remove();
-        } else {
-          el.remove();
-        }
-        // If the whole bubble-wrapper is now empty (no text, no media left),
-        // hide the entire message container so nothing renders at all.
-        const msgContainer = el.closest ? el.closest('.message-container') : null;
-        if (msgContainer) {
-          const bubbleWrapper = msgContainer.querySelector('.bubble-wrapper');
-          if (bubbleWrapper) {
-            const remaining = bubbleWrapper.querySelectorAll('.message-bubble, .message-media');
-            if (remaining.length === 0) msgContainer.style.display = 'none';
+      if (el.tagName === 'IMG') {
+        if (scrollAnchorObserver) scrollAnchorObserver.unobserve(el);
+        if (el.classList.contains('reply-quote-image')) {
+          // Remove the reply quote image container entirely
+          const container = el.closest('.reply-quote-image-container, .reply-quote');
+          if (container) container.remove();
+          else el.remove();
+        } else if (el.classList.contains('chat-viewable-image')) {
+          // Capture the message-container BEFORE detaching anything — once
+          // an element is removed its parentNode goes null, so .closest()
+          // can no longer walk up past it to find an ancestor.
+          const msgContainer = el.closest('.message-container');
+          // Remove the closest wrapping media element
+          const mediaWrap = el.closest('.message-media') || el.parentElement;
+          if (mediaWrap && mediaWrap !== el) {
+            mediaWrap.remove();
+          } else {
+            el.remove();
           }
+          hideMessageContainerIfEmpty(msgContainer);
+        }
+      } else if (el.tagName === 'AUDIO' || el.tagName === 'SOURCE') {
+        // A deleted/missing audio file fires a native 'error' event on the
+        // <audio> (or its <source>) the same way a missing <img> does — so
+        // this removes it instantly too, no page refresh needed. Whole
+        // message-bubble goes (filename label + player live in the same
+        // bubble), not just the <audio> tag.
+        const audioEl = el.tagName === 'AUDIO' ? el : el.closest('audio');
+        const bubble = audioEl ? (audioEl.closest('.message-bubble') || audioEl.parentElement) : null;
+        if (bubble) {
+          const msgContainer = bubble.closest('.message-container');
+          bubble.remove();
+          hideMessageContainerIfEmpty(msgContainer);
         }
       }
     }, true);
+
+    // Non-image, non-audio attachments (PDFs and any other file type) are
+    // rendered as a plain <a href="uploads/..."> filename link — unlike
+    // <img>/<audio>, a link never auto-fetches its target, so there's no
+    // native browser 'error' event to hook into the way the two handlers
+    // above do. To still make a deleted file's name disappear from the chat
+    // UI on its own (no manual page refresh required), every such link is
+    // verified with a lightweight HEAD request as soon as it's added to the
+    // DOM, and removed if the file no longer exists on the server.
+    //
+    // Dedup: `attachmentUrlCache` is keyed by URL (not by DOM element), so
+    // the SAME file only ever gets ONE HEAD request for the lifetime of the
+    // open chat — no matter how many messages reference it or how many
+    // times "load older" re-renders that stretch of history. A result of
+    // `false` (missing) is remembered and reused instantly for any element
+    // that references that URL afterwards, with zero extra network calls.
+    // `attachmentPending` holds elements waiting on a still-in-flight check
+    // for a URL that's already being verified elsewhere, so a burst of
+    // identical links (e.g. the same PDF quoted in several replies) never
+    // fires more than one HEAD request between them either.
+    const attachmentUrlCache = new Map(); // href -> true (exists) | false (missing)
+    const attachmentPending  = new Map(); // href -> [elements waiting on the in-flight check]
+
+    function verifyAttachmentLink(a) {
+      if (!a || a.dataset.attachmentChecked === '1') return;
+      a.dataset.attachmentChecked = '1';
+      const href = a.getAttribute('href') || '';
+      if (!/^uploads\//.test(href)) return;
+
+      if (attachmentUrlCache.has(href)) {
+        if (attachmentUrlCache.get(href) === false) removeAttachmentLink(a);
+        return; // known-good, or already resolved — no new request either way
+      }
+
+      if (attachmentPending.has(href)) {
+        attachmentPending.get(href).push(a); // ride along with the in-flight check
+        return;
+      }
+
+      attachmentPending.set(href, [a]);
+
+      fetch(href, { method: 'HEAD', credentials: 'same-origin', cache: 'no-store' })
+        .then(function (res) { resolveAttachmentCheck(href, res.ok); })
+        .catch(function () { resolveAttachmentCheck(href, false); });
+    }
+
+    function resolveAttachmentCheck(href, exists) {
+      attachmentUrlCache.set(href, exists);
+      const waiting = attachmentPending.get(href) || [];
+      attachmentPending.delete(href);
+      if (!exists) waiting.forEach(removeAttachmentLink);
+    }
+
+    function removeAttachmentLink(a) {
+      if (!a || !a.isConnected) return;
+      const bubble = a.closest('.message-bubble');
+      const msgContainer = bubble ? bubble.closest('.message-container') : null;
+      a.remove();
+      if (bubble) {
+        const content = bubble.querySelector('.message-content');
+        // Content div now empty (no text, no remaining links/images) — drop the bubble.
+        if (content && content.textContent.trim() === '' && !content.querySelector('a, img')) {
+          bubble.remove();
+        }
+      }
+      hideMessageContainerIfEmpty(msgContainer);
+    }
+
+    // Shared helper: once a piece of message content is gone, check whether
+    // its message-container has anything left at all; if not, hide the
+    // whole thing so no empty bubble/avatar row lingers in the chat. Caller
+    // must pass the .message-container reference captured BEFORE removing
+    // anything (see note above on .closest() + .remove() ordering).
+    function hideMessageContainerIfEmpty(msgContainer) {
+      if (!msgContainer) return;
+      const bubbleWrapper = msgContainer.querySelector('.bubble-wrapper');
+      const remaining = bubbleWrapper
+        ? bubbleWrapper.querySelectorAll('.message-bubble, .message-media')
+        : [];
+      if (remaining.length === 0) msgContainer.style.display = 'none';
+    }
+
+    // Scans a freshly-added chunk of chat HTML for attachment links and
+    // kicks off their existence check. Called from a MutationObserver below
+    // so this covers every code path that injects messages into chatBox
+    // (initial load, "load older", WebSocket-pushed new messages, etc.)
+    // without needing to hook each call site individually.
+    function scanForAttachmentLinks(root) {
+      if (!root || !root.querySelectorAll) return;
+      const links = root.matches && root.matches('.message-content a[href^="uploads/"]')
+        ? [root]
+        : Array.prototype.slice.call(root.querySelectorAll('.message-content a[href^="uploads/"]'));
+      links.forEach(verifyAttachmentLink);
+    }
+
+    // Run once for whatever's already rendered on first load...
+    scanForAttachmentLinks(chatBox);
+
+    // ...and keep watching for anything appended/inserted afterwards.
+    const attachmentLinkObserver = new MutationObserver(function (mutations) {
+      mutations.forEach(function (mutation) {
+        mutation.addedNodes.forEach(function (node) {
+          if (node.nodeType === 1) scanForAttachmentLinks(node);
+        });
+      });
+    });
+    attachmentLinkObserver.observe(chatBox, { childList: true, subtree: true });
 
     // "Go to bottom" is about to force-reload the latest window — stamp
     // sessionStorage as "at bottom" for this chat BEFORE the reload happens.
@@ -1021,10 +1152,58 @@
       scrollToBottom(true);
     });
 
-    // Click floating load older button to load older messages
-    if (loadOlderFloatingBtn) {
-      loadOlderFloatingBtn.addEventListener('click', loadOlderMessages);
+    // ── Auto-load older messages on backread (replaces the old floating
+    // "Load Older Messages" button) ─────────────────────────────────────
+    // Once the user scrolls up near the top of the currently loaded window,
+    // the next PAGE_SIZE (or whatever's left) is fetched and prepended
+    // automatically — no button, no tap required.
+    //
+    // Perf notes:
+    //   - `scroll` can fire dozens of times per animation frame (trackpads,
+    //     high-refresh displays), so the actual check is batched to at most
+    //     once per frame via requestAnimationFrame + a ticking flag, instead
+    //     of running on every single event.
+    //   - The listener is `passive: true` since it never calls
+    //     preventDefault(), so it can't block the browser's scroll thread.
+    //   - The real work short-circuits immediately (cheap flag reads) if
+    //     the chat isn't fully loaded yet, the user isn't near the top, a
+    //     fetch for this chat is already in flight, or there's nothing left
+    //     to load — so the common case (scrolling anywhere but the very top)
+    //     costs almost nothing.
+    const AUTO_LOAD_OLDER_THRESHOLD_PX = 120;
+    let autoLoadOlderTicking = false;
+
+    function currentChatHasOlderMessages() {
+      if (activeAdminConv) return adminConvHasMore;
+      if (isGlobalChat) return gcHasMore;
+      if (activeDM) return dmHasMore;
+      return false;
     }
+
+    function currentChatIsLoadingOlder() {
+      if (activeAdminConv) return isLoadingAdminConv;
+      if (isGlobalChat) return isLoadingGC;
+      if (activeDM) return isLoadingChat;
+      return true;
+    }
+
+    function maybeAutoLoadOlderMessages() {
+      if (!chatFullyLoaded) return;
+      if (isAdminAllChatsView && !activeAdminConv) return; // spy mode's conversation LIST is showing, no transcript open
+      if (chatBox.scrollTop > AUTO_LOAD_OLDER_THRESHOLD_PX) return;
+      if (currentChatIsLoadingOlder()) return; // a fetch is already in flight
+      if (!currentChatHasOlderMessages()) return; // nothing left to fetch
+      loadOlderMessages();
+    }
+
+    chatBox.addEventListener('scroll', function() {
+      if (autoLoadOlderTicking) return;
+      autoLoadOlderTicking = true;
+      requestAnimationFrame(function() {
+        maybeAutoLoadOlderMessages();
+        autoLoadOlderTicking = false;
+      });
+    }, { passive: true });
 
     // Generate initials from name
     function getInitials(name) {
@@ -1194,6 +1373,7 @@
         if (!gcHasMore) showNoMoreOlderNotice(); else if (!document.getElementById('loadOlderBtn')) insertLoadOlderBtn();
         applyAdminBadges();
         applyEmojiOnly();
+        attachImageLoadListeners();
         return;
       }
 
@@ -1229,7 +1409,9 @@
 
         if (toInsert.length === 0) {
           document.querySelectorAll('[data-sending-uid]').forEach(el => el.remove());
-          if (!gcViewingOlder) trimWindowFromTop(PAGE_SIZE);
+          if (!gcViewingOlder) {
+            if (trimWindowFromTop(PAGE_SIZE)) refreshCursorAfterTopTrim();
+          }
           applyAdminBadges(); applyEmojiOnly();
           if (gcHasMore && !document.getElementById('loadOlderBtn') && !document.getElementById('noMoreOlderNotice')) insertLoadOlderBtn();
           return;
@@ -1246,7 +1428,9 @@
           chatBox.appendChild(el);
         });
         document.querySelectorAll('[data-sending-uid]').forEach(el => el.remove());
-        if (!gcViewingOlder) trimWindowFromTop(PAGE_SIZE);
+        if (!gcViewingOlder) {
+          if (trimWindowFromTop(PAGE_SIZE)) refreshCursorAfterTopTrim();
+        }
 
         let revealedCount = 0;
         toInsert.forEach((el, i) => {
@@ -1299,7 +1483,7 @@
       if (isFirstLoad) { isFirstLoad = false; handleFirstLoadScroll(); }
       else if (wasAtBottom || shouldAutoScroll || isFirstLoad) requestAnimationFrame(() => requestAnimationFrame(() => scrollToBottom(true, false)));
       else if (genuinelyNewCount > 0) showScrollIndicator(genuinelyNewCount);
-      applyAdminBadges(); applyEmojiOnly();
+      applyAdminBadges(); applyEmojiOnly(); attachImageLoadListeners();
       // Chat was rebuilt from scratch (e.g. cleared), so pagination state no longer applies
       gcCursor = data.nextCursor || '';
       gcViewingOlder = false;
@@ -1353,6 +1537,7 @@
         trimWindowFromBottom(PAGE_SIZE);
         if (!dmHasMore) showNoMoreOlderNotice(); else if (!document.getElementById('loadOlderBtn')) insertLoadOlderBtn();
         applyAdminBadges(); applyEmojiOnly();
+        attachImageLoadListeners();
         updateSeenIndicator();
         return;
       }
@@ -1401,12 +1586,12 @@
         const newScrollHeight = chatBox.scrollHeight;
         chatBox.scrollTop = Math.max(0, prevScrollTop + newScrollHeight - prevScrollHeight);
         if (!dmViewingOlder) {
-          trimWindowFromTop(PAGE_SIZE);
+          if (trimWindowFromTop(PAGE_SIZE)) refreshCursorAfterTopTrim();
         }
         if (isFirstLoad) { isFirstLoad = false; handleFirstLoadScroll(); }
         else if (wasAtBottom || shouldAutoScroll) requestAnimationFrame(() => requestAnimationFrame(() => scrollToBottom(true, false)));
         else showScrollIndicator(rec.items.filter(el => el.classList.contains('message-container')).length);
-        applyAdminBadges(); applyEmojiOnly();
+        applyAdminBadges(); applyEmojiOnly(); attachImageLoadListeners();
         if (!document.hidden && activeDM) markRead(activeDM);
         updateSeenIndicator();
         if (dmHasMore && !document.getElementById('loadOlderBtn') && !document.getElementById('noMoreOlderNotice')) insertLoadOlderBtn();
@@ -1984,9 +2169,8 @@
       if (isAdmin) {
         const cmd = messageInput.value.trim().toLowerCase();
         if (cmd === '/clear') {
-          messageInput.value = '';
+          resetMessageInputVisualState();
           messageInput.style.height = 'auto';
-          messageInput.style.color = '';
           showModal();
           return;
         }
@@ -1999,9 +2183,8 @@
         // "no conversation selected" screen as long as the admin can type
         // into the message box and hit send.
         if (cmd === '/backup') {
-          messageInput.value = '';
+          resetMessageInputVisualState();
           messageInput.style.height = 'auto';
-          messageInput.style.color = '';
           showBackupConfirmModal();
           return;
         }
@@ -2024,6 +2207,20 @@
         return;
       }
 
+      // Capture who's actually still mentioned in the final text (Global
+      // Chat only, and never while editing) — sent to send.php below as
+      // mentioned_ids so it can persist + notify them server-side.
+      const mentionsToNotify = (isGlobalChat && !editingMsgId)
+        ? activeMentions.filter(function(m) { return message.indexOf('@' + m.name) !== -1; })
+        : [];
+      activeMentions = [];
+      if (typeof messageInputHighlight !== 'undefined' && messageInputHighlight) {
+        messageInputHighlight.textContent = '';
+      }
+      if (typeof closeMentionModal === 'function' && mentionModal && mentionModal.classList.contains('active')) {
+        closeMentionModal();
+      }
+
       // Capture the active reply (if any) as a real reply reference instead
       // of gluing fake "Replying to: ..." text onto the message body. Never
       // while editing an existing message — edit and reply are mutually
@@ -2043,7 +2240,7 @@
       // scrollbar-width/::-webkit-scrollbar). Setting it inline to 'hidden'
       // used to permanently override that CSS rule after the first send,
       // silently breaking scroll on every long message typed afterward.
-      messageInput.value = "";
+      resetMessageInputVisualState();
       messageInput.style.height = 'auto';
 
       // iOS: snap footer back to its default (single-line) position right away.
@@ -2111,8 +2308,15 @@
         }
         xhr.setRequestHeader('Content-type', 'application/x-www-form-urlencoded');
         const replyToParam = activeReply ? '&reply_to=' + encodeURIComponent(activeReply.msgId) : '';
+        // Sent inline with the message itself (instead of a separate
+        // notify.php call after send.php responds) so the mention is
+        // persisted + notified atomically with the message — see
+        // GlobalChatManager::addTextMessage()/recordMentions().
+        const mentionedIdsParam = mentionsToNotify.length
+          ? '&mentioned_ids=' + encodeURIComponent(JSON.stringify(mentionsToNotify.map(function(m) { return m.account_id; })))
+          : '';
         payload = isGlobalChat
-          ? 'message=' + encodeURIComponent(message) + replyToParam
+          ? 'message=' + encodeURIComponent(message) + replyToParam + mentionedIdsParam
           : 'target_id=' + encodeURIComponent(activeDMAccountId || 0) + '&target_user=' + encodeURIComponent(activeDM) + '&message=' + encodeURIComponent(message) + replyToParam;
       }
 
@@ -2126,6 +2330,11 @@
 
       xhr.onload = function () {
         if (this.status === 200) {
+          // NOTE: mentioned users are notified server-side now — see
+          // mentioned_ids in the payload above and
+          // GlobalChatManager::addTextMessage()/recordMentions(). No
+          // separate notify.php call needed here anymore.
+
           // Stop typing indicator immediately on successful send
           if (localTypingTimeout) {
             clearTimeout(localTypingTimeout);
@@ -2213,7 +2422,7 @@
                   if (activeReply.snippet && activeReply.snippet.startsWith('image:')) {
                     const imgFile = activeReply.snippet.slice(6);
                     const imgSrc  = 'uploads/' + imgFile;
-                    return `<div class="reply-quote reply-quote-image-container"><img src="${imgSrc.replace(/"/g, '&quot;')}" class="reply-quote-image" alt="" referrerpolicy="no-referrer"></div>`;
+                    return `<div class="reply-quote reply-quote-image-container"><img src="${imgSrc.replace(/"/g, '&quot;')}" class="reply-quote-image" alt="" referrerpolicy="no-referrer" draggable="false"></div>`;
                   }
                   return `<div class="reply-quote"><div class="reply-quote-text">${escapeHtml(truncateForReply(activeReply.snippet, 120))}</div></div>`;
                 })();
@@ -2237,7 +2446,8 @@
                   // .message-container inside chatBox — cap the window at
                   // PAGE_SIZE just like any other real-time append.
                   if (!gcViewingOlder && !dmViewingOlder) {
-                    trimChatMessages(PAGE_SIZE);
+                    const trimmed = trimChatMessages(PAGE_SIZE);
+                    if (trimmed) refreshCursorAfterTopTrim();
                   }
                   // Always scroll for the user's own confirmed message — see note
                   // above the optimistic-bubble scroll for why isAtBottom() is
@@ -3286,9 +3496,10 @@
       imageStagingSendBtn.addEventListener('click', function() {
         if (stagedImages.length === 0) return;
 
-        // Images are sent together as a single grid message; every other
-        // file type is sent individually — same grouping handleFileUploads
-        // used to do before files went through staging.
+        // Every file is uploaded in whatever batches make sense for the
+        // upload request itself, but the server now always saves ONE
+        // message per file (never a shared grid bundle) — so each image
+        // ends up individually reply-able, same as any other message.
         const imageBatch = stagedImages.filter(function(item) { return item.isImage; })
                                         .map(function(item) { return item.file; });
         const otherFiles = stagedImages.filter(function(item) { return !item.isImage; })
@@ -3454,11 +3665,46 @@
       }
     }
 
+    // ── Scroll anchoring for content that resizes above the viewport ──────
+    // The backread "glitch": messages are prepended above the current
+    // scroll position, and their image thumbnails don't have a reserved
+    // size (CSS is just `height:auto`), so each one pops from ~0px to its
+    // real height the moment it finishes decoding. Because that happens
+    // above where the user is currently looking, the browser's own scroll
+    // anchoring doesn't always keep up with several images resolving in
+    // quick succession, and the chat visibly jumps.
+    //
+    // ResizeObserver reports the element's actual box size on every change
+    // regardless of *why* it changed (image decode, GIF frame swap, etc.),
+    // so instead of guessing "before" and "after" heights around a single
+    // load event, this keeps watching and compensates chatBox.scrollTop by
+    // the exact delta whenever the resize happened above the visible area.
+    // Growth at or below the visible area is left alone — that's normal
+    // content arriving and shouldn't move anything.
+    const scrollAnchorHeights = new WeakMap();
+    const scrollAnchorObserver = ('ResizeObserver' in window) ? new ResizeObserver(function(entries) {
+      const chatRect = chatBox.getBoundingClientRect();
+      entries.forEach(function(entry) {
+        const el = entry.target;
+        const newHeight = entry.contentRect.height;
+        const prevHeight = scrollAnchorHeights.get(el);
+        scrollAnchorHeights.set(el, newHeight);
+        if (prevHeight === undefined) return; // first measurement is just the baseline
+        const delta = newHeight - prevHeight;
+        if (!delta) return;
+        const elRect = el.getBoundingClientRect();
+        if (elRect.top < chatRect.top) {
+          chatBox.scrollTop += delta;
+        }
+      });
+    }) : null;
+
     function attachImageLoadListeners() {
       if (!chatBox) return;
       chatBox.querySelectorAll('img:not(.avatar-img)').forEach(img => {
         if (img.dataset.scrollListener) return;
         img.dataset.scrollListener = '1';
+        if (scrollAnchorObserver) scrollAnchorObserver.observe(img);
         img.addEventListener('load', () => {
           if (isAtBottom() || shouldAutoScroll) {
             scrollToBottom(true, false);
@@ -3524,6 +3770,14 @@
       shouldAutoScroll = true;
       userScrolledUp   = false;
 
+      // Capture + clear any active reply before the async upload starts, so
+      // a second reply started while this one is still uploading can't leak
+      // into this batch. The server only attaches it to the first message
+      // it saves out of this batch (text, or otherwise the first file) —
+      // see send.php / send_dm.php.
+      const replyForThisSend = (replyState && !editingMsgId) ? replyState.msgId : null;
+      if (replyForThisSend) hideReplyBanner();
+
       // Build FormData
       const fd = new FormData();
       fd.append('chat_type', isGlobalChat ? 'global' : 'dm');
@@ -3582,6 +3836,9 @@
         let params = 'uploaded_files=' + encodeURIComponent(filesPayload);
         if (!isGlobalChat && activeDM) {
           params += '&target_id=' + encodeURIComponent(activeDMAccountId || 0) + '&target_user=' + encodeURIComponent(activeDM);
+        }
+        if (replyForThisSend) {
+          params += '&reply_to=' + encodeURIComponent(replyForThisSend);
         }
 
         sendXhr.onload = function() {

@@ -29,6 +29,21 @@ class GlobalChatManager
     /**
      * Ensure chat_messages.status exists (safety net if the migration hasn't
      * run yet — mirrors ConversationManager::ensureMessageStatusColumn()).
+     *
+     * Also self-heals the indexes that loadRaw()'s keyset queries actually
+     * need. (conv_id, status) alone lets Postgres find the right rows but
+     * still forces a sort on every page — fine at a few hundred rows, but at
+     * real scale (millions of chat_messages rows) that sort is the whole
+     * bottleneck. A partial composite index matching the exact WHERE +
+     * ORDER BY shape used by loadRaw() lets Postgres walk the index in order
+     * and stop as soon as it has LIMIT rows — no sort step, no scanning rows
+     * that don't matter. It's a *partial* index (WHERE status = 'active')
+     * so it stays small and cheap to maintain even as inactive/deleted rows
+     * pile up. We also index chat_messages.msg_uuid and chat_reactions.msg_uuid,
+     * since every "load older" page does an msg_uuid point-lookup for the
+     * cursor plus a reactions IN(...) lookup, and index chat_messages
+     * on it so the reply-preview LEFT JOIN doesn't need a seq scan either.
+     * CONCURRENTLY avoids locking chat_messages for writers while this runs.
      */
     private static function ensureMessageStatusColumn(PDO $pdo): void
     {
@@ -41,6 +56,39 @@ class GlobalChatManager
             $pdo->exec("CREATE INDEX IF NOT EXISTS idx_chat_messages_status ON chat_messages (conv_id, status)");
         } catch (Throwable $t) {
             error_log('GlobalChatManager::ensureMessageStatusColumn() — ' . $t->getMessage());
+        }
+
+        // Each statement is its own try/catch: CONCURRENTLY can't run inside
+        // a transaction, and if one of these already exists under a
+        // different name (e.g. provisioned manually) we don't want that to
+        // block the others from being created.
+        self::ensureIndexConcurrently($pdo, 'idx_chat_messages_conv_active_created',
+            "CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_chat_messages_conv_active_created
+             ON chat_messages (conv_id, created_at DESC, id DESC)
+             WHERE status = 'active'");
+
+        self::ensureIndexConcurrently($pdo, 'idx_chat_messages_msg_uuid',
+            "CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_chat_messages_msg_uuid
+             ON chat_messages (msg_uuid)");
+
+        self::ensureIndexConcurrently($pdo, 'idx_chat_reactions_msg_uuid',
+            "CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_chat_reactions_msg_uuid
+             ON chat_reactions (msg_uuid)");
+    }
+
+    /**
+     * Run a single CREATE INDEX CONCURRENTLY statement, tolerating the fact
+     * that concurrent index builds can't run inside a transaction and that
+     * two web requests may race to create the same index (Postgres handles
+     * that safely at the catalog level; IF NOT EXISTS plus this try/catch
+     * just keeps a losing race from surfacing as an error to the user).
+     */
+    private static function ensureIndexConcurrently(PDO $pdo, string $indexName, string $sql): void
+    {
+        try {
+            $pdo->exec($sql);
+        } catch (Throwable $t) {
+            error_log("GlobalChatManager::ensureIndexConcurrently({$indexName}) — " . $t->getMessage());
         }
     }
 
@@ -155,10 +203,154 @@ class GlobalChatManager
 
     /**
      * Append a plain text message to the global chat.
+     *
+     * @param int[] $mentionedIds  account_ids @mentioned in $plaintext (from
+     *                             the compose box's activeMentions — see
+     *                             send.php). Persisted to
+     *                             chat_message_mentions and notified via
+     *                             ChatNotifier once the message itself is
+     *                             safely saved.
      */
-    public static function addTextMessage(int $senderId, string $plaintext, ?string $replyToUuid = null): array|false
+    public static function addTextMessage(int $senderId, string $plaintext, ?string $replyToUuid = null, array $mentionedIds = []): array|false
     {
-        return self::insertMessage($senderId, $plaintext, 'text', $replyToUuid);
+        $result = self::insertMessage($senderId, $plaintext, 'text', $replyToUuid);
+
+        if ($result !== false) {
+            $parsedIds = self::detectMentionsFromText($senderId, $plaintext);
+            $allMentionedIds = array_values(array_unique(array_merge(
+                array_map('intval', $mentionedIds),
+                $parsedIds
+            )));
+            if (!empty($allMentionedIds)) {
+                self::recordMentions($senderId, $result['id'], $plaintext, $allMentionedIds);
+            }
+        }
+
+        return $result;
+    }
+
+    /**
+     * Parse $plaintext for any @Full Name or @username patterns matching real
+     * accounts in account_details. Serves as a fallback/enrichment so mentions
+     * typed directly into the message box without using the modal dropdown
+     * are still detected and notified.
+     *
+     * @return int[] account_ids detected
+     */
+    private static function detectMentionsFromText(int $senderId, string $plaintext): array
+    {
+        if (mb_strpos($plaintext, '@') === false) {
+            return [];
+        }
+
+        try {
+            $allUsers = UserResolver::getAllExcept($senderId);
+            $detected = [];
+
+            foreach ($allUsers as $user) {
+                $accId = (int) ($user['account_id'] ?? 0);
+                if ($accId <= 0 || $accId === $senderId) continue;
+
+                $fullName = trim($user['full_name'] ?? '');
+                $username = trim($user['username'] ?? '');
+
+                $found = false;
+                if ($fullName !== '' && mb_stripos($plaintext, '@' . $fullName) !== false) {
+                    $found = true;
+                }
+                if (!$found && $username !== '' && mb_stripos($plaintext, '@' . $username) !== false) {
+                    $found = true;
+                }
+
+                if ($found) {
+                    $detected[] = $accId;
+                }
+            }
+
+            return $detected;
+        } catch (Throwable $e) {
+            error_log('GlobalChatManager::detectMentionsFromText() — ' . $e->getMessage());
+            return [];
+        }
+    }
+
+    private static function ensureMentionsTable(PDO $pdo): void
+    {
+        static $checked = false;
+        if ($checked) return;
+        $checked = true;
+
+        try {
+            $pdo->exec("
+                CREATE TABLE IF NOT EXISTS chat_message_mentions (
+                    id BIGSERIAL PRIMARY KEY,
+                    msg_uuid VARCHAR(32) NULL,
+                    sender_account_id INT NULL,
+                    mentioned_account_id INT NOT NULL,
+                    message_snippet TEXT NULL,
+                    is_seen SMALLINT NOT NULL DEFAULT 0,
+                    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+                );
+                ALTER TABLE chat_message_mentions ADD COLUMN IF NOT EXISTS sender_account_id INT NULL;
+                ALTER TABLE chat_message_mentions ADD COLUMN IF NOT EXISTS message_snippet TEXT NULL;
+                ALTER TABLE chat_message_mentions ADD COLUMN IF NOT EXISTS is_seen SMALLINT NOT NULL DEFAULT 0;
+                CREATE INDEX IF NOT EXISTS idx_cmm_account_unseen
+                ON chat_message_mentions (mentioned_account_id, is_seen, created_at DESC);
+            ");
+        } catch (Throwable $t) {
+            error_log('GlobalChatManager::ensureMentionsTable() — ' . $t->getMessage());
+        }
+    }
+
+    /**
+     * Persist each @mention against the saved message and notify the
+     * mentioned user (chat_message_mentions + live WS push), atomic with the send.
+     *
+     * Dedupes ids and never notifies the sender for mentioning themselves.
+     *
+     * @param int[] $mentionedIds
+     */
+    private static function recordMentions(int $senderId, string $msgUuid, string $plaintext, array $mentionedIds): void
+    {
+        $ids = array_values(array_unique(array_filter(array_map('intval', $mentionedIds), function ($id) use ($senderId) {
+            return $id > 0 && $id !== $senderId;
+        })));
+
+        if (empty($ids)) {
+            return;
+        }
+
+        $snippet = mb_substr($plaintext, 0, 250);
+
+        try {
+            $pdo = Database::getConnection();
+            self::ensureMentionsTable($pdo);
+
+            $insertMention = $pdo->prepare(
+                'INSERT INTO chat_message_mentions (msg_uuid, sender_account_id, mentioned_account_id, message_snippet, is_seen, created_at)
+                 VALUES (:msg_uuid, :sender_id, :account_id, :snippet, 0, NOW())
+                 RETURNING id'
+            );
+
+            foreach ($ids as $accountId) {
+                $mentionRowId = 0;
+                try {
+                    $insertMention->execute([
+                        ':msg_uuid'   => $msgUuid,
+                        ':sender_id'  => $senderId,
+                        ':account_id' => $accountId,
+                        ':snippet'   => $snippet,
+                    ]);
+                    $mentionRowId = (int) $insertMention->fetchColumn();
+                } catch (Throwable $e) {
+                    error_log('GlobalChatManager::recordMentions() insert — ' . $e->getMessage());
+                }
+
+                ChatNotifier::notifyMention($pdo, $senderId, $accountId, $snippet, $msgUuid, $mentionRowId);
+            }
+        } catch (Throwable $e) {
+            error_log('GlobalChatManager::recordMentions() — ' . $e->getMessage());
+        }
     }
 
     /**
@@ -198,7 +390,7 @@ class GlobalChatManager
                 $imageExts  = ['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp', 'svg'];
                 $snippet    = (in_array($ext, $imageExts, true) && $file !== '')
                     ? 'image:' . $file
-                    : '📎 Attachment';
+                    : ($file !== '' ? $file : '📎 Attachment');
             } else {
                 $snippet = safeDecrypt($row['message'] ?? '');
             }

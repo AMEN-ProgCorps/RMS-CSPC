@@ -1,5 +1,14 @@
 // ── All DOM element references first ──────────────────────────────────────
 
+    // Shared mobile/desktop breakpoint — matches the CSS layout breakpoint.
+    // Every viewport-width check in the app (toast-vs-bell, sidebar
+    // collapse, etc.) should go through this instead of comparing against
+    // 991 directly, so there's a single place to change it.
+    const MOBILE_BREAKPOINT = 991;
+    function isMobileViewport() {
+      return window.innerWidth <= MOBILE_BREAKPOINT;
+    }
+
     const chatBox         = document.getElementById("chat-box");
     const nameInput       = document.getElementById("nameInput");
     const messageInput    = document.getElementById("messageInput");
@@ -9,7 +18,6 @@
     const cancelClear     = document.getElementById("cancelClear");
     const confirmClear    = document.getElementById("confirmClear");
     const scrollIndicator = document.getElementById("scrollIndicator");
-    const loadOlderFloatingBtn = document.getElementById("loadOlderFloatingBtn");
     const secretInput     = document.getElementById("secretInput");
     const secretError     = document.getElementById("secretError");
     const darkModeToggle  = document.getElementById("darkModeToggle");
@@ -52,6 +60,11 @@
     const notifyContentTitle   = document.getElementById('notifyContentTitle');
     const notifyContentBody    = document.getElementById('notifyContentBody');
     const notifyContentClose   = document.getElementById('notifyContentClose');
+    const notificationBellBtn   = document.getElementById('notificationBellBtn');
+    const notificationBellBadge = document.getElementById('notificationBellBadge');
+    const notificationBellModal = document.getElementById('notificationBellModal');
+    const notificationBellList  = document.getElementById('notificationBellList');
+    const notificationBellClose = document.getElementById('notificationBellClose');
     const readMoreModal        = document.getElementById('readMoreModal');
     const readMoreModalBody    = document.getElementById('readMoreModalBody');
     const readMoreModalClose   = document.getElementById('readMoreModalClose');
@@ -212,7 +225,7 @@
         if (String(replySnippetText).startsWith('image:')) {
           const imgFile = String(replySnippetText).slice(6);
           const imgSrc  = 'uploads/' + imgFile;
-          replyQuoteHtml = `<div class="reply-quote reply-quote-image-container"><img src="${escapeHtml(imgSrc)}" class="reply-quote-image" alt="" referrerpolicy="no-referrer"></div>`;
+          replyQuoteHtml = `<div class="reply-quote reply-quote-image-container"><img src="${escapeHtml(imgSrc)}" class="reply-quote-image" alt="" referrerpolicy="no-referrer" draggable="false"></div>`;
         } else {
           replyQuoteHtml = `<div class="reply-quote"><div class="reply-quote-text">${escapeHtml(String(replySnippetText).slice(0, 120))}</div></div>`;
         }
@@ -245,11 +258,119 @@
       // never while the user has paged back into older history.
       const viewingOlderNow = isGlobalChat ? gcViewingOlder : dmViewingOlder;
       if (!viewingOlderNow) {
-        trimChatMessages(PAGE_SIZE);
+        const trimmed = trimChatMessages(PAGE_SIZE);
+        // If we just removed messages from the top, update the pagination
+        // cursor so "Load Older" can re-fetch the trimmed messages.
+        if (trimmed) refreshCursorAfterTopTrim();
       }
 
       applyAdminBadges();
       if (atBottomNow || isSentByMe) {
+        scrollToBottom(true, true);
+      } else {
+        showScrollIndicator(1);
+      }
+    }
+
+    // Admin spy-mode equivalent of renderAndAppendWsMessage() above. Text
+    // messages arrive over WS with plaintext already included (see
+    // send_dm.php's WsPush::push(..., 'message', ['message' => plaintext...]),
+    // pushed to the admin account too), so we can append them directly here
+    // instead of routing through scheduleAdminConvReload() -> loadAdminConv()
+    // with isAutoPoll=true. That reload path is deliberately blocked by
+    // `adminConvViewingOlder` once the admin has scrolled back into older
+    // history (same guard DM/Global Chat have on their own poll) — but unlike
+    // DM/Global Chat, admin spy conv had no other path to show a live update,
+    // so new messages silently stopped appearing entirely once the admin
+    // scrolled past the initial 50. Appending directly here — bypassing the
+    // guard the same way DM's live WS append already does — fixes that.
+    function renderAndAppendAdminWsMessage(msgData) {
+      if (!chatBox || !activeAdminConv) return;
+      const msgId = msgData.msg_uuid || msgData.id;
+      if (msgId && chatBox.querySelector(`.message-container[data-msg-id="${msgId}"]`)) {
+        return; // Already rendered
+      }
+
+      const emptyNotice = chatBox.querySelector('.empty-chat');
+      if (emptyNotice) emptyNotice.remove();
+
+      // Admin spy view always renders every message "received"-style,
+      // regardless of who sent it — matches load_dm_admin.php's renderer.
+      const container = document.createElement('div');
+      container.className = 'message-container received msg-animate-received';
+      if (msgId) container.setAttribute('data-msg-id', msgId);
+      if (msgData.sender_id) container.setAttribute('data-sender-id', String(msgData.sender_id));
+      container.addEventListener('animationend', () => container.classList.remove('msg-animate-received'), { once: true });
+
+      const msgText = msgData.message || msgData.plaintext || '';
+      const senderUser = allUsersData.find(u => Number(u.account_id) === Number(msgData.sender_id));
+      const displayName = msgData.sender_name || (senderUser ? (senderUser.full_name || senderUser.username) : 'User');
+      const initials = getInitials(displayName);
+      const senderAvatarUrl = msgData.sender_avatar || (senderUser ? senderUser.avatar_url : null);
+      const senderLabel = escapeHtml(displayName.toLowerCase());
+
+      let timeDisplay = '';
+      if (msgData.created_at) {
+        const d = new Date(msgData.created_at);
+        const dateStr = d.toLocaleDateString('en-US', { timeZone: 'Asia/Manila', month: 'long', day: 'numeric', year: 'numeric' });
+        const timeStr = d.toLocaleTimeString('en-US', { timeZone: 'Asia/Manila', hour: 'numeric', minute: '2-digit', hour12: true });
+        timeDisplay = `${dateStr} at ${timeStr}`;
+      } else {
+        timeDisplay = getCurrentTime();
+      }
+
+      let replySnippetText = msgData.reply_snippet || '';
+      if (msgData.reply_to_msg_uuid && !replySnippetText) {
+        const replyTargetContainer = chatBox.querySelector(
+          `.message-container[data-msg-id="${msgData.reply_to_msg_uuid}"]`
+        );
+        if (replyTargetContainer && typeof getReplySnippet === 'function') {
+          replySnippetText = getReplySnippet(replyTargetContainer);
+        }
+      }
+
+      let replyQuoteHtml = '';
+      if (msgData.reply_to_msg_uuid && replySnippetText) {
+        if (String(replySnippetText).startsWith('image:')) {
+          const imgFile = String(replySnippetText).slice(6);
+          const imgSrc  = 'uploads/' + imgFile;
+          replyQuoteHtml = `<div class="reply-quote reply-quote-image-container"><img src="${escapeHtml(imgSrc)}" class="reply-quote-image" alt="" referrerpolicy="no-referrer" draggable="false"></div>`;
+        } else {
+          replyQuoteHtml = `<div class="reply-quote"><div class="reply-quote-text">${escapeHtml(String(replySnippetText).slice(0, 120))}</div></div>`;
+        }
+      }
+
+      container.innerHTML = `
+        <div class="message-avatar">${avatarInnerHtml(senderAvatarUrl, initials)}</div>
+        <div class="bubble-wrapper">
+          <div class="message-click-timestamp">${escapeHtml(timeDisplay)}</div>
+          ${replyQuoteHtml}
+          <div class="message-bubble">
+            <div class="message-content">${escapeHtml(msgText)}</div>
+            <div class="message-info"><span class="message-sender">${senderLabel}</span></div>
+          </div>
+        </div>
+      `;
+
+      chatBox.appendChild(container);
+
+      const contentEl = container.querySelector('.message-content');
+      if (contentEl) {
+        linkifyContent(contentEl);
+        applyReadMoreToElement(contentEl);
+      }
+
+      const atBottomNow = isAtBottom();
+
+      // Same PAGE_SIZE cap as DM/Global Chat — only trim while looking at the
+      // live/latest window, never while paged back into older history.
+      if (!adminConvViewingOlder) {
+        const trimmed = trimChatMessages(PAGE_SIZE);
+        if (trimmed) refreshCursorAfterTopTrim();
+      }
+
+      applyAdminBadges();
+      if (atBottomNow) {
         scrollToBottom(true, true);
       } else {
         showScrollIndicator(1);
@@ -264,7 +385,17 @@
           return;
         }
 
-        if (data.type === 'users_dm_response') {
+        if (data.type === 'auth_success') {
+          // The socket is now actually authenticated as us, so any 'notify'
+          // WS push from this point on will reach us live. But a mention
+          // that landed WHILE we were offline/reconnecting only exists as
+          // an unseen row in chat_notifications — nothing re-sends it over
+          // WS once we're back, so pull it once here. This is the missing
+          // half of "notify toasts show up" — without it, a mention sent
+          // while your tab was closed/backgrounded/reconnecting never
+          // shows a toast at all.
+          catchUpMissedNotifications();
+        } else if (data.type === 'users_dm_response') {
           processUsersDmPayload(data.data || {});
         } else if (data.type === 'messages_response') {
           if (data.chat_type === 'global' && isGlobalChat) {
@@ -320,7 +451,16 @@
               const s = Number(data.sender_id);
               const r = Number(data.recipient_id);
               if ((s === parts[0] && r === parts[1]) || (s === parts[1] && r === parts[0])) {
-                scheduleAdminConvReload(activeAdminConv);
+                if (data.has_upload) {
+                  // Need the real attachment markup from the server — force a
+                  // fresh, non-auto-poll load (bypasses the adminConvViewingOlder
+                  // guard entirely, same as DM's loadChatForced()) instead of the
+                  // debounced scheduleAdminConvReload(), which that guard blocks
+                  // once the admin has scrolled back into older history.
+                  loadAdminConv(activeAdminConv, false);
+                } else {
+                  renderAndAppendAdminWsMessage(data);
+                }
               }
             } else if (activeDM) {
               const sender = Number(data.sender_id);
@@ -550,6 +690,11 @@
           // us. This is the only delivery path now — no HTTP fallback poll.
           console.log('Received WebSocket real-time update notice:', data);
           showNotifyToast(data);
+          if (data && data.id && !bellNotifications.some(function(x) { return x.id === data.id; })) {
+            bellNotifications.unshift(data); // newest first
+            updateBellBadge();
+            renderBellList();
+          }
         } else if (data.type === 'session_kicked') {
           // Pushed by the server the instant another device logs into this
           // account — no more waiting on the 5s checkSession() poll.
@@ -691,7 +836,7 @@
 
     // Mobile layout setup - defined here but called AFTER chatBox is declared
     function setupMobileLayout() {
-      if (window.innerWidth <= 991) {
+      if (isMobileViewport()) {
         if (!activeDM && !activeAdminConv && !isGlobalChat) {
           sidebar.classList.add('open');
           const backdrop = document.getElementById('sidebarBackdrop');
@@ -1141,37 +1286,174 @@
       xhr.send('recipient_id=' + encodeURIComponent(notifyTargetUser.account_id) + '&message=' + encodeURIComponent(message));
     });
 
+    // Pulls any notify/mention toasts that were sent while we had no live
+    // WS connection (page just loaded, tab was backgrounded, brief
+    // reconnect gap, etc). fetch_notifications.php returns every is_seen = 0
+    // row for us and does NOT mark them seen — that only happens once the
+    // user actually opens one (toast click or bell item click) — so this is
+    // safe to call on every reconnect: anything already opened never comes
+    // back, and anything still unopened keeps toasting/showing in the bell
+    // until it is. Called from ws.onmessage's 'auth_success' case, i.e. once
+    // per successful (re)connect, not on a timer.
+    function catchUpMissedNotifications() {
+      const xhr = new XMLHttpRequest();
+      xhr.open('GET', 'fetch_notifications.php', true);
+      xhr.onload = function() {
+        if (this.status !== 200) return;
+        try {
+          const res = JSON.parse(this.responseText);
+          const list = res.notifications || [];
+          list.forEach(function(n) { showNotifyToast(n); });
+          // Server response is the full, authoritative set of this user's
+          // currently-unseen mentions — replace the bell's cache with it
+          // (newest first for display) rather than merging.
+          bellNotifications = list.slice().reverse();
+          updateBellBadge();
+          renderBellList();
+        } catch (e) { /* ignore malformed response */ }
+      };
+      xhr.send();
+    }
+
     // Max characters to show in the toast preview before truncating with "..."
     const TOAST_PREVIEW_LIMIT = 80;
 
-    function showNotifyToast(n) {
-      const toast = document.createElement('div');
-      toast.className = 'notify-toast';
-      if (n.message) {
-        const isLong = n.message.length > TOAST_PREVIEW_LIMIT;
-        const preview = isLong ? n.message.slice(0, TOAST_PREVIEW_LIMIT).trim() + '...' : n.message;
-        toast.innerHTML = '<strong>' + escapeHtml(n.sender) + '</strong> mentioned you: ' + escapeHtml(preview);
-      } else {
-        toast.innerHTML = '<strong>' + escapeHtml(n.sender) + '</strong> notified you';
+    // Only ONE mention toast is ever on screen at a time. If more mentions
+    // arrive while it's still showing (several people mentioning at once,
+    // someone spamming @you, a burst of catch-up notifications on
+    // reconnect, etc.) we don't stack a new toast per mention — we just
+    // update the existing one based on how many DISTINCT people are behind
+    // the mentions folded into it so far:
+    //   1 distinct sender (however many times they've mentioned you)
+    //                       -> "Name mentioned you"
+    //   2+ distinct senders -> "N others mentioned you" (N = distinct
+    //                          senders, name dropped once it's more than
+    //                          one person)
+    // N is capped at "99+" so the UI never grows no matter how many land.
+    const MENTION_TOAST_COUNT_CAP = 99;
+    let activeMentionToast = null;
+    let mentionToastSenders = new Set(); // distinct sender names folded into the current toast
+    let mentionToastFirstSender = null;
+    let mentionToastLatestData = null;
+    let mentionToastDismissTimer = null;
+
+    function mentionToastLabel() {
+      if (mentionToastSenders.size <= 1) {
+        return '<strong>' + escapeHtml(mentionToastFirstSender) + '</strong> mentioned you';
       }
-      const dismiss = () => {
-        toast.classList.add('hide');
-        setTimeout(() => toast.remove(), 200);
-      };
-      toast.onclick = () => {
-        showNotifyContentModal(n);
-        dismiss();
-      };
-      notifyToastContainer.appendChild(toast);
-      setTimeout(dismiss, 6000);
+      const count = mentionToastSenders.size;
+      const countLabel = count > MENTION_TOAST_COUNT_CAP
+        ? (MENTION_TOAST_COUNT_CAP + '+')
+        : String(count);
+      return '<strong>' + countLabel + '</strong> others mentioned you';
     }
 
+    function dismissMentionToast() {
+      if (!activeMentionToast) return;
+      const toast = activeMentionToast;
+      activeMentionToast = null;
+      mentionToastSenders = new Set();
+      mentionToastFirstSender = null;
+      mentionToastLatestData = null;
+      if (mentionToastDismissTimer) { clearTimeout(mentionToastDismissTimer); mentionToastDismissTimer = null; }
+      toast.classList.add('hide');
+      setTimeout(() => toast.remove(), 200);
+    }
+
+    function showNotifyToast(n) {
+      // Desktop already has the notification bell for this — the toast is a
+      // mobile-only affordance (no bell badge glance on a phone the way
+      // there is on desktop). Bell badge/list updates happen independently
+      // of this function at both call sites, so skipping the toast here
+      // doesn't lose the notification — it just won't pop up on desktop.
+      if (!isMobileViewport()) return;
+
+      // Always keep the most recent mention's content — that's what opens
+      // when the toast (or its content modal) is clicked.
+      mentionToastLatestData = n;
+
+      if (activeMentionToast) {
+        // A toast is already up — fold this one into it instead of adding
+        // another toast to the stack. Only a NEW distinct sender changes
+        // the label; the same person mentioning you again just refreshes
+        // the timer and keeps showing their name.
+        mentionToastSenders.add(n.sender);
+        if (mentionToastSenders.size <= 1) {
+          mentionToastFirstSender = n.sender;
+        }
+        activeMentionToast.innerHTML = mentionToastLabel();
+        // A fresh mention just came in, so give the person a full new
+        // window to notice it rather than letting the original timer cut
+        // it off mid-burst.
+        if (mentionToastDismissTimer) clearTimeout(mentionToastDismissTimer);
+        mentionToastDismissTimer = setTimeout(dismissMentionToast, 6000);
+        return;
+      }
+
+      mentionToastFirstSender = n.sender;
+      mentionToastSenders = new Set([n.sender]);
+
+      const toast = document.createElement('div');
+      toast.className = 'notify-toast';
+      toast.innerHTML = mentionToastLabel();
+      toast.onclick = () => {
+        mentionModalOpenedFromBell = false;
+        showNotifyContentModal(mentionToastLatestData);
+        dismissMentionToast();
+      };
+      notifyToastContainer.appendChild(toast);
+      activeMentionToast = toast;
+      mentionToastDismissTimer = setTimeout(dismissMentionToast, 6000);
+    }
+
+    const notifyContentSender = document.getElementById('notifyContentSender');
+
+    // Tracks whether the currently-open notifyContentModal was opened from
+    // the notification bell list (vs. a toast click). When true, closing
+    // the mention modal should return the user to the bell modal — but only
+    // if there are still unread mentions left in it; otherwise both modals
+    // stay closed. Reset on every open so stale state can't leak across
+    // opens.
+    let mentionModalOpenedFromBell = false;
+
     // ── Modal shown when a notification toast is clicked ──
+    // Same pattern as openReadMoreModal — textContent + linkify.
     function showNotifyContentModal(n) {
       if (!notifyContentModal) return;
-      notifyContentTitle.textContent = n.sender ? (n.sender + ' notified you') : 'Notification';
-      const content = (n.message || '').slice(0, 250);
-      notifyContentBody.textContent = content || 'No message content.';
+
+      // Live WS-pushed mentions (the normal case — see ChatNotifier::
+      // notifyMention()) never pass through fetch_notifications.php, so
+      // is_seen is still 0 in the DB at this point. Mark it seen now that
+      // the user has actually opened it. Fire-and-forget: a failed/slow
+      // request here shouldn't block showing the modal.
+      if (n && n.id) {
+        const seenXhr = new XMLHttpRequest();
+        seenXhr.open('POST', 'mark_mention_seen.php', true);
+        seenXhr.setRequestHeader('Content-Type', 'application/x-www-form-urlencoded');
+        seenXhr.send('id=' + encodeURIComponent(n.id));
+
+        // This is the one moment a mention actually counts as "seen" —
+        // drop it from the bell's cache right away so the badge count and
+        // list reflect it without waiting on a re-fetch.
+        bellNotifications = bellNotifications.filter(function(x) { return x.id !== n.id; });
+        updateBellBadge();
+        renderBellList();
+      }
+
+      // Header: static "Mention" title + sender subtitle
+      notifyContentTitle.textContent = 'Mention';
+      if (notifyContentSender) {
+        notifyContentSender.textContent = n.sender ? (n.sender + ' mentioned you') : '';
+      }
+
+      // Body: message text or "No messages." fallback — same as readMoreModal body
+      const rawContent = (n.message || '').trim();
+      notifyContentBody.textContent = rawContent || 'No messages.';
+      if (rawContent) {
+        delete notifyContentBody.dataset.linkified;
+        linkifyContent(notifyContentBody);
+      }
+
       notifyContentModal.classList.add('active');
       notifyContentModal.setAttribute('aria-hidden', 'false');
       document.body.style.overflow = 'hidden';
@@ -1182,6 +1464,16 @@
       notifyContentModal.classList.remove('active');
       notifyContentModal.setAttribute('aria-hidden', 'true');
       document.body.style.overflow = '';
+
+      // If this mention was opened from the bell list, go back to it —
+      // unless that was the last unread one, in which case there's nothing
+      // left to show and both modals should just stay closed.
+      if (mentionModalOpenedFromBell) {
+        mentionModalOpenedFromBell = false;
+        if (bellNotifications.length > 0) {
+          openNotificationBellModal();
+        }
+      }
     }
 
     if (notifyContentClose) {
@@ -1190,6 +1482,135 @@
     if (notifyContentModal) {
       notifyContentModal.addEventListener('click', function(e) {
         if (e.target === notifyContentModal) closeNotifyContentModal();
+      });
+    }
+
+    // ── Notification bell: modal listing every unopened @mention ──────────
+    // The toast (above) is transient — if it's missed (offline, backgrounded
+    // tab, dismissed after 6s, folded into a "N others" toast that only
+    // carries the latest one's data) the mention isn't lost: it just stays
+    // is_seen = 0 and sits here until the user opens it from the bell.
+    // bellNotifications is a local cache of {id, sender, message, time},
+    // newest first, kept in sync by:
+    //   - catchUpMissedNotifications()   → replaces it wholesale (server truth)
+    //   - the WS 'notify' handler        → unshifts the new one in real time
+    //   - showNotifyContentModal()       → removes one the instant it's opened
+    //   - refreshBellNotifications()     → re-syncs from the server on open
+    let bellNotifications = [];
+
+    const MENTION_TIME_MONTHS = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+
+    // fetch_notifications.php sends `time` as "YYYY-MM-DD HH24:MI:SS", already
+    // converted to Asia/Manila wall-clock time server-side (to_char ... AT TIME
+    // ZONE 'Asia/Manila'). Parse the components directly instead of building a
+    // Date from it — going through Date/timeZone conversion here would shift
+    // it again on top of the server-side shift. Renders as e.g.
+    // "August 16, 2026 at 9:22 pm".
+    function formatMentionTime(raw) {
+      if (!raw) return '';
+      const m = /^(\d{4})-(\d{2})-(\d{2}) (\d{2}):(\d{2}):(\d{2})$/.exec(raw);
+      if (!m) return raw;
+      const year  = m[1];
+      const month = MENTION_TIME_MONTHS[parseInt(m[2], 10) - 1];
+      const day   = parseInt(m[3], 10);
+      const min   = m[5];
+      let hour    = parseInt(m[4], 10);
+      const ampm  = hour >= 12 ? 'pm' : 'am';
+      hour = hour % 12;
+      if (hour === 0) hour = 12;
+      return month + ' ' + day + ', ' + year + ' at ' + hour + ':' + min + ' ' + ampm;
+    }
+
+    function updateBellBadge() {
+      if (!notificationBellBadge) return;
+      const count = bellNotifications.length;
+      if (count > 0) {
+        notificationBellBadge.textContent = count > 100 ? '99+' : String(count);
+        notificationBellBadge.style.display = 'flex';
+      } else {
+        notificationBellBadge.style.display = 'none';
+      }
+    }
+
+    function renderBellList() {
+      if (!notificationBellList) return;
+      if (bellNotifications.length === 0) {
+        notificationBellList.innerHTML = '<div class="bell-empty">No notifications</div>';
+        return;
+      }
+      notificationBellList.innerHTML = bellNotifications.map(function(n) {
+        const preview = (n.message || '').trim();
+        const previewHtml = preview
+          ? escapeHtml(preview.length > TOAST_PREVIEW_LIMIT ? preview.slice(0, TOAST_PREVIEW_LIMIT) + '…' : preview)
+          : '<em>No message</em>';
+        const safeId = escapeHtml(String(n.id == null ? '' : n.id));
+        return '<div class="bell-item" data-id="' + safeId + '">' +
+                 '<div class="bell-item-sender">' + escapeHtml(n.sender || 'A user') + ' mentioned you</div>' +
+                 '<div class="bell-item-preview">' + previewHtml + '</div>' +
+                 (n.time ? '<div class="bell-item-time">' + escapeHtml(formatMentionTime(n.time)) + '</div>' : '') +
+               '</div>';
+      }).join('');
+    }
+
+    // Re-syncs the bell's cache from the server — the source of truth for
+    // "still unseen". Used on open so the list is correct even if another
+    // tab/device already opened one of these mentions.
+    function refreshBellNotifications() {
+      const xhr = new XMLHttpRequest();
+      xhr.open('GET', 'fetch_notifications.php', true);
+      xhr.onload = function() {
+        if (this.status !== 200) return;
+        try {
+          const res = JSON.parse(this.responseText);
+          bellNotifications = (res.notifications || []).slice().reverse();
+          updateBellBadge();
+          renderBellList();
+        } catch (e) { /* ignore malformed response */ }
+      };
+      xhr.send();
+    }
+
+    function openNotificationBellModal() {
+      if (!notificationBellModal) return;
+      renderBellList(); // show the cached list immediately, no loading flash
+      notificationBellModal.classList.add('active');
+      notificationBellModal.setAttribute('aria-hidden', 'false');
+      document.body.style.overflow = 'hidden';
+      refreshBellNotifications();
+    }
+
+    function closeNotificationBellModal() {
+      if (!notificationBellModal) return;
+      notificationBellModal.classList.remove('active');
+      notificationBellModal.setAttribute('aria-hidden', 'true');
+      document.body.style.overflow = '';
+    }
+
+    if (notificationBellBtn) {
+      notificationBellBtn.addEventListener('click', openNotificationBellModal);
+    }
+    if (notificationBellClose) {
+      notificationBellClose.addEventListener('click', closeNotificationBellModal);
+    }
+    if (notificationBellModal) {
+      notificationBellModal.addEventListener('click', function(e) {
+        if (e.target === notificationBellModal) closeNotificationBellModal();
+      });
+    }
+    // Clicking an entry opens the same mention modal a toast click would —
+    // that call marks it seen and drops it from bellNotifications for us.
+    // Flagged as bell-opened so closeNotifyContentModal() knows to return
+    // to the bell modal afterward (see mentionModalOpenedFromBell above).
+    if (notificationBellList) {
+      notificationBellList.addEventListener('click', function(e) {
+        const item = e.target.closest('.bell-item');
+        if (!item) return;
+        const id = parseInt(item.getAttribute('data-id'), 10);
+        const n = bellNotifications.find(function(x) { return x.id === id; });
+        if (!n) return;
+        closeNotificationBellModal();
+        mentionModalOpenedFromBell = true;
+        showNotifyContentModal(n);
       });
     }
 
@@ -1483,7 +1904,7 @@
       document.getElementById('globalChatItem').classList.remove('active');
       
       // Mobile/Tablet: hide sidebar when chat is selected
-      if (window.innerWidth <= 991) {
+      if (isMobileViewport()) {
         sidebar.classList.remove('open');
         const backdrop = document.getElementById('sidebarBackdrop');
         if (backdrop) backdrop.classList.remove('visible');
@@ -1535,7 +1956,7 @@
       renderSidebarUsers();
       document.getElementById('globalChatItem').classList.add('active');
       loadGlobalChat();
-      if (window.innerWidth <= 991) {
+      if (isMobileViewport()) {
         sidebar.classList.remove('open');
         const backdrop = document.getElementById('sidebarBackdrop');
         if (backdrop) backdrop.classList.remove('visible');
@@ -1549,22 +1970,7 @@
       }
     }
 
-    // Track whether older messages are available for the current chat
-    let hasOlderMessages = false;
-
-    function syncLoadOlderBtn() {
-      if (!loadOlderFloatingBtn) return;
-      const isAtTop = chatBox.scrollTop <= 5;
-      if (hasOlderMessages && chatFullyLoaded && isAtTop) {
-        loadOlderFloatingBtn.classList.add('visible');
-      } else {
-        loadOlderFloatingBtn.classList.remove('visible');
-      }
-    }
-
     function removePaginationBtn() {
-      hasOlderMessages = false;
-      syncLoadOlderBtn();
       const existing = document.getElementById('loadOlderBtn');
       if (existing) existing.remove();
       const notice = document.getElementById('noMoreOlderNotice');
@@ -1605,36 +2011,82 @@
       return { type: 'replace' };
     }
 
-    // Mark that older messages exist — visibility is driven by syncLoadOlderBtn()
-    function insertLoadOlderBtn() {
-      hasOlderMessages = true;
-      syncLoadOlderBtn();
+    // Historical no-op kept so the many call sites that mark "older messages
+    // are available for this chat" (gcHasMore/dmHasMore/adminConvHasMore are
+    // what actually drive the auto-load-on-scroll-to-top behavior now — see
+    // maybeAutoLoadOlderMessages() in app-part3.js) don't need to be touched
+    // one by one. There's no more floating/inline "Load Older" button to
+    // show; the next older page is fetched automatically as the user
+    // backreads to the top instead.
+    function insertLoadOlderBtn() {}
+
+    // After trimming oldest messages from the top of the DOM, update the
+    // pagination cursor to the UUID of the new oldest visible message so
+    // that "Load Older" correctly fetches the trimmed messages on the next
+    // request. Also marks hasMore so the button stays/becomes visible.
+    function refreshCursorAfterTopTrim() {
+      const oldest = chatBox.querySelector('.message-container[data-msg-id]');
+      if (!oldest) return;
+      const uuid = oldest.getAttribute('data-msg-id');
+      if (!uuid) return;
+      if (isGlobalChat) {
+        gcCursor  = uuid;
+        gcHasMore = true;
+        if (!document.getElementById('loadOlderBtn') && !document.getElementById('noMoreOlderNotice')) {
+          insertLoadOlderBtn();
+        }
+      } else if (activeAdminConv) {
+        adminConvCursor  = uuid;
+        adminConvHasMore = true;
+        if (!document.getElementById('loadOlderBtn') && !document.getElementById('noMoreOlderNotice')) {
+          insertLoadOlderBtn();
+        }
+      } else if (activeDM) {
+        dmCursor  = uuid;
+        dmHasMore = true;
+        if (!document.getElementById('loadOlderBtn') && !document.getElementById('noMoreOlderNotice')) {
+          insertLoadOlderBtn();
+        }
+      }
     }
 
     // Keeps the chat window capped at maxCount messages by trimming the
     // trailing (newest/bottom) ones — used right after prepending an older
     // page so loading history swaps the window instead of growing it forever.
+    // Stops watching every <img> inside `el` for scroll-anchor resize
+    // compensation (see attachImageLoadListeners() in app-part3.js) before
+    // it's removed from the DOM — otherwise the ResizeObserver keeps a
+    // strong reference to detached image nodes forever, a slow memory leak
+    // over a long session of repeated backreads.
+    function unobserveImagesIn(el) {
+      if (typeof scrollAnchorObserver === 'undefined' || !scrollAnchorObserver || !el || !el.querySelectorAll) return;
+      el.querySelectorAll('img').forEach(img => scrollAnchorObserver.unobserve(img));
+    }
+
     function trimWindowFromBottom(maxCount) {
       const items = Array.from(chatBox.querySelectorAll('.message-container, .empty-chat'));
       if (items.length <= maxCount) return;
       const excess = items.length - maxCount;
       for (let i = 0; i < excess; i++) {
         const el = items[items.length - 1 - i];
-        if (el && el.parentNode) el.parentNode.removeChild(el);
+        if (el && el.parentNode) { unobserveImagesIn(el); el.parentNode.removeChild(el); }
       }
     }
 
     // Keeps the chat window capped at maxCount messages by trimming the
     // leading (oldest/top) ones — used during normal poll / initial load
     // so the message list doesn't grow forever.
+    // Returns true if any messages were actually removed (so callers can
+    // decide whether to refresh the pagination cursor).
     function trimWindowFromTop(maxCount) {
       const items = Array.from(chatBox.querySelectorAll('.message-container, .empty-chat'));
-      if (items.length <= maxCount) return;
+      if (items.length <= maxCount) return false;
       const excess = items.length - maxCount;
       for (let i = 0; i < excess; i++) {
         const el = items[i];
-        if (el && el.parentNode) el.parentNode.removeChild(el);
+        if (el && el.parentNode) { unobserveImagesIn(el); el.parentNode.removeChild(el); }
       }
+      return true;
     }
 
     // Reusable real-time trim helper: caps the number of visible
@@ -1654,24 +2106,26 @@
     // Scroll position is preserved: removing nodes from the top shrinks
     // scrollHeight, so scrollTop is shifted by the exact delta, keeping
     // whatever the user was looking at visually stable (no jump).
+    // Returns true if any messages were actually removed.
     function trimChatMessages(maxMessages = 50) {
-      if (!chatBox) return;
+      if (!chatBox) return false;
       const items = Array.from(chatBox.querySelectorAll('.message-container'));
       const excess = items.length - maxMessages;
-      if (excess <= 0) return;
+      if (excess <= 0) return false;
 
       const prevScrollTop = chatBox.scrollTop;
       const prevScrollHeight = chatBox.scrollHeight;
 
       for (let i = 0; i < excess; i++) {
         const el = items[i];
-        if (el && el.parentNode) el.parentNode.removeChild(el);
+        if (el && el.parentNode) { unobserveImagesIn(el); el.parentNode.removeChild(el); }
       }
 
       const scrollDelta = prevScrollHeight - chatBox.scrollHeight;
       if (scrollDelta !== 0) {
         chatBox.scrollTop = Math.max(0, prevScrollTop - scrollDelta);
       }
+      return true;
     }
 
     // ── Admin: render all conversations spy panel (Search-First Architecture) ──
@@ -1692,7 +2146,258 @@
       return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
     }
 
+    // =========================================================================
+    // @Mention (Global Chat compose box)
+    // =========================================================================
+    // Typing "@" (start of message, or right after whitespace) opens the
+    // Mention modal — same look/behavior as the User Verification modal:
+    // search happens inside the modal's own input, and mention_search.php
+    // intentionally returns AT MOST ONE user, so exactly one result row is
+    // ever rendered — never a full list.
+    //
+    // Picking that row swaps the "@" the user typed for "@Full Name " in
+    // the compose box and remembers it in activeMentions, so the highlight
+    // layer (#messageInputHighlight, sitting right behind the now fully
+    // transparent #messageInput — see .message-input-wrap in style.css)
+    // can render it live as a blue .mention-tag pill.
+    //
+    // On send (app-part3.js), every mention still present in the final
+    // text is sent to send.php as mentioned_ids, which persists each one
+    // to chat_message_mentions and notifies the mentioned user — see
+    // GlobalChatManager::addTextMessage()/recordMentions() and
+    // core/ChatNotifier.php.
+    const messageInputHighlight = document.getElementById('messageInputHighlight');
+    const mentionModal          = document.getElementById('mentionModal');
+    const mentionSearchInput    = document.getElementById('mentionSearchInput');
+    const mentionSearchResults  = document.getElementById('mentionSearchResults');
 
+    // { account_id, name } for every mention currently in the box. Re-synced
+    // on every keystroke (recomputeActiveMentions) — deleting/editing away a
+    // mention's "@Name" text drops it from here too, so it won't be notified.
+    let activeMentions = [];
+    // Char offset of the lone "@" that opened the modal, so picking a user
+    // knows exactly what to replace. Null while the modal is closed.
+    let mentionTriggerPos = null;
+    let mentionSearchTimer = null;
+    let mentionSearchSeq = 0; // guards a slow response from overwriting a newer one
+
+    // Rebuilds the highlight layer from the textarea's current text, wrapping
+    // every still-present "@Name" (longest name first, so e.g. "Juan" can't
+    // shadow-match inside "Juan Dela Cruz") in the same .mention-tag blue
+    // pill used to render mentions in already-sent messages.
+    function renderMentionHighlight() {
+      const text = messageInput.value;
+      messageInput.style.color = 'transparent';
+
+      const names = (activeMentions || [])
+        .map(function(m) { return m.name; })
+        .filter(function(n, i, arr) { return arr.indexOf(n) === i; })
+        .sort(function(a, b) { return b.length - a.length; });
+
+      if (names.length === 0 || text.indexOf('@') === -1) {
+        messageInputHighlight.textContent = text.endsWith('\n') ? text + ' ' : text;
+        messageInputHighlight.scrollTop = messageInput.scrollTop;
+        messageInputHighlight.scrollLeft = messageInput.scrollLeft;
+        return;
+      }
+
+      let html = '';
+      let plainRun = '';
+      let i = 0;
+      while (i < text.length) {
+        let matchedToken = null;
+        if (text[i] === '@') {
+          for (const name of names) {
+            const token = '@' + name;
+            if (text.startsWith(token, i)) { matchedToken = token; break; }
+          }
+        }
+        if (matchedToken) {
+          if (plainRun) { html += escapeHtml(plainRun); plainRun = ''; }
+          html += '<span class="mention-tag">' + escapeHtml(matchedToken) + '</span>';
+          i += matchedToken.length;
+        } else {
+          plainRun += text[i];
+          i++;
+        }
+      }
+      if (plainRun) html += escapeHtml(plainRun);
+      if (text.endsWith('\n')) html += '&nbsp;';
+      messageInputHighlight.innerHTML = html;
+      messageInputHighlight.scrollTop = messageInput.scrollTop;
+      messageInputHighlight.scrollLeft = messageInput.scrollLeft;
+    }
+
+    // Fully resets the compose box back to its empty/placeholder state.
+    // Clearing messageInput.value alone isn't enough: renderMentionHighlight()
+    // makes the real textarea text transparent and paints the visible text
+    // (including blue @mention pills) onto #messageInputHighlight sitting
+    // behind it. If a message contained a mention and got cleared (sent,
+    // edit cancelled, /clear, /backup, etc.) without also clearing that
+    // overlay, its stale "@Name" pill stays rendered on screen, floating on
+    // top of the now-empty textarea's placeholder ("Type a message...") —
+    // the two visibly overlap. Every place that resets the compose box to
+    // empty should call this instead of setting messageInput.value directly.
+    function resetMessageInputVisualState() {
+      messageInput.value = '';
+      messageInput.style.color = '';
+      activeMentions = [];
+      if (messageInputHighlight) messageInputHighlight.innerHTML = '';
+    }
+    window.resetMessageInputVisualState = resetMessageInputVisualState;
+
+    function recomputeActiveMentions() {
+      const text = messageInput.value;
+      activeMentions = activeMentions.filter(function(m) {
+        return text.indexOf('@' + m.name) !== -1;
+      });
+    }
+
+    function syncMentionHighlightScroll() {
+      messageInputHighlight.scrollTop = messageInput.scrollTop;
+    }
+    messageInput.addEventListener('scroll', syncMentionHighlightScroll);
+
+    window.closeMentionModal = function() {
+      if (!mentionModal) return;
+      mentionModal.classList.remove('active');
+      mentionModal.setAttribute('aria-hidden', 'true');
+      mentionTriggerPos = null;
+      if (mentionSearchTimer) { clearTimeout(mentionSearchTimer); mentionSearchTimer = null; }
+      messageInput.focus();
+    };
+
+    function renderMentionResultState(state, usersData) {
+      // state: 'searching' | 'empty' | 'result'
+      // Single-suggestion UI: only ever render the single best match, even
+      // if the caller hands us more than one candidate. The person keeps
+      // typing to narrow down to the right person instead of picking from
+      // a list.
+      const users = Array.isArray(usersData) ? usersData.slice(0, 1) : (usersData ? [usersData] : []);
+      if (state === 'result' && users.length > 0) {
+        const user = users[0];
+        const initials = getInitialsFromFullName(user.name);
+        const html =
+          '<div class="mention-user-row" id="mentionUserRow" data-user-idx="0">' +
+            '<div class="mention-user-avatar">' + avatarInnerHtml(user.avatar_url, initials) + '</div>' +
+            '<div class="mention-user-info">' +
+              '<div class="mention-user-name">' + escapeHtml(user.name) + '</div>' +
+              '<div class="mention-user-sub">' + escapeHtml(user.office || user.username || '') + '</div>' +
+            '</div>' +
+          '</div>';
+        mentionSearchResults.innerHTML = html;
+        const row = document.getElementById('mentionUserRow');
+        if (row) {
+          row.addEventListener('click', function() {
+            selectMentionUser(user);
+          });
+        }
+      } else if (state === 'searching') {
+        mentionSearchResults.innerHTML = '<div style="font-size:13px;color:var(--text-secondary);padding:8px 0;">Searching…</div>';
+      } else {
+        mentionSearchResults.innerHTML = '<div style="font-size:13px;color:var(--text-secondary);padding:8px 0;">No users found.</div>';
+      }
+    }
+
+    function runMentionSearch(query) {
+      if (query === '') {
+        mentionSearchResults.innerHTML = '';
+        return;
+      }
+      renderMentionResultState('searching');
+      const seq = ++mentionSearchSeq;
+      const xhr = new XMLHttpRequest();
+      xhr.open('GET', 'mention_search.php?q=' + encodeURIComponent(query), true);
+      xhr.onload = function() {
+        if (seq !== mentionSearchSeq) return; // stale — a newer query has since been typed
+        if (this.status !== 200) { renderMentionResultState('empty'); return; }
+        try {
+          const res = JSON.parse(this.responseText);
+          // Only ever surface the single best match — see renderMentionResultState.
+          const best = (res && res.user) ? res.user : ((res && res.users && res.users[0]) ? res.users[0] : null);
+          renderMentionResultState(best ? 'result' : 'empty', best ? [best] : []);
+        } catch (e) {
+          renderMentionResultState('empty');
+        }
+      };
+      xhr.onerror = function() {
+        if (seq === mentionSearchSeq) renderMentionResultState('empty');
+      };
+      xhr.send();
+    }
+
+    if (mentionSearchInput) {
+      mentionSearchInput.addEventListener('input', function() {
+        clearTimeout(mentionSearchTimer);
+        const q = this.value.trim();
+        if (q === '') { mentionSearchResults.innerHTML = ''; return; }
+        mentionSearchTimer = setTimeout(function() { runMentionSearch(q); }, 300);
+      });
+      // Enter picks the single result row currently shown, same as clicking it.
+      mentionSearchInput.addEventListener('keydown', function(e) {
+        if (e.key === 'Enter') {
+          e.preventDefault();
+          const row = document.getElementById('mentionUserRow');
+          if (row) row.click();
+        }
+      });
+    }
+
+    // Backdrop click closes the modal (leaves the typed "@" as-is, same as
+    // dismissing the User Verification modal doesn't undo anything).
+    if (mentionModal) {
+      mentionModal.addEventListener('click', function(e) {
+        if (e.target === this) closeMentionModal();
+      });
+    }
+
+    // Swaps the lone "@" that opened the modal for "@Full Name " and
+    // remembers it as an active mention.
+    function selectMentionUser(user) {
+      if (!mentionTriggerPos) { closeMentionModal(); return; }
+      const text = messageInput.value;
+      const before = text.slice(0, mentionTriggerPos.start);
+      const after  = text.slice(mentionTriggerPos.end);
+      const insertion = '@' + user.name + ' ';
+      messageInput.value = before + insertion + after;
+
+      const caretPos = before.length + insertion.length;
+
+      if (!activeMentions.some(function(m) { return m.account_id === user.account_id && m.name === user.name; })) {
+        activeMentions.push({ account_id: user.account_id, name: user.name });
+      }
+
+      closeMentionModal(); // also refocuses messageInput
+      messageInput.setSelectionRange(caretPos, caretPos);
+      renderMentionHighlight();
+      if (typeof autoResizeMessageInput === 'function') autoResizeMessageInput();
+    }
+
+    // Fires the moment "@" is typed as the very last character, and only
+    // when it's at the start of the box or right after whitespace (so
+    // emails / mid-word "@" never trigger it) — opens the Mention modal
+    // exactly once per "@", same trigger UX as any other slash/at command.
+    messageInput.addEventListener('input', function() {
+      recomputeActiveMentions();
+      renderMentionHighlight();
+
+      if (!isGlobalChat) return; // mentions are a Global Chat feature only
+      const caret = this.selectionStart;
+      const justTypedAt = this.value[caret - 1] === '@';
+      const charBeforeAt = caret >= 2 ? this.value[caret - 2] : undefined;
+      if (justTypedAt && (charBeforeAt === undefined || /\s/.test(charBeforeAt))) {
+        mentionTriggerPos = { start: caret - 1, end: caret };
+        mentionModal.classList.add('active');
+        mentionModal.setAttribute('aria-hidden', 'false');
+        mentionSearchResults.innerHTML = '';
+        if (mentionSearchInput) {
+          mentionSearchInput.value = '';
+          setTimeout(function() { mentionSearchInput.focus(); }, 80);
+        }
+      }
+    });
+
+    messageInput.addEventListener('scroll', syncMentionHighlightScroll);
 
     function fetchAdminConvs(query = '', offset = 0, isAppend = false, targetId = 0) {
       // Use isAdmin (available synchronously from PHP on page load) as a fallback,
@@ -2062,6 +2767,7 @@
           if (!adminConvHasMore) showNoMoreOlderNotice(); else if (!document.getElementById('loadOlderBtn')) insertLoadOlderBtn();
           applyAdminBadges();
           applyEmojiOnly();
+          attachImageLoadListeners();
           return;
         }
 
@@ -2105,13 +2811,14 @@
           const newScrollHeight = chatBox.scrollHeight;
           chatBox.scrollTop = Math.max(0, prevScrollTop + newScrollHeight - prevScrollHeight);
           if (!adminConvViewingOlder) {
-            trimWindowFromTop(PAGE_SIZE);
+            if (trimWindowFromTop(PAGE_SIZE)) refreshCursorAfterTopTrim();
           }
           if (isFirstLoad) { isFirstLoad = false; handleFirstLoadScroll(); }
           else if (wasAtBottom || shouldAutoScroll) requestAnimationFrame(() => requestAnimationFrame(() => scrollToBottom(true, false)));
           else showScrollIndicator(rec.items.filter(el => el.classList.contains('message-container')).length);
           applyAdminBadges();
           applyEmojiOnly();
+          attachImageLoadListeners();
           if (adminConvHasMore && !document.getElementById('loadOlderBtn') && !document.getElementById('noMoreOlderNotice')) insertLoadOlderBtn();
           return;
         }
@@ -2150,6 +2857,7 @@
         }
         applyAdminBadges();
         applyEmojiOnly();
+        attachImageLoadListeners();
         adminConvCursor = data.nextCursor || '';
         adminConvViewingOlder = false;
         if (adminConvHasMore && !document.getElementById('loadOlderBtn') && !document.getElementById('noMoreOlderNotice')) insertLoadOlderBtn();
@@ -2199,7 +2907,7 @@
       renderAdminConvs();
       loadAdminConv(c.convId, false);
 
-      if (window.innerWidth <= 991) {
+      if (isMobileViewport()) {
         sidebar.classList.remove('open');
         const backdrop = document.getElementById('sidebarBackdrop');
         if (backdrop) backdrop.classList.remove('visible');
@@ -2264,7 +2972,7 @@
       }
 
       // Mobile/Tablet sidebar adjustments
-      if (window.innerWidth <= 991) {
+      if (isMobileViewport()) {
         if (sidebar) sidebar.classList.add('open');
         const backdrop = document.getElementById('sidebarBackdrop');
         if (backdrop) backdrop.classList.add('visible');

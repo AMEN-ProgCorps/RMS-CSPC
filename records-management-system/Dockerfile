@@ -7,12 +7,19 @@ RUN apk add --no-cache \
         nginx \
         supervisor \
         libpng-dev \
+        libjpeg-turbo-dev \
+        libwebp-dev \
+        freetype-dev \
         libxml2-dev \
         oniguruma-dev \
         zip \
         unzip \
         postgresql-client \
         postgresql-dev \
+    && docker-php-ext-configure gd \
+        --with-freetype \
+        --with-jpeg \
+        --with-webp \
     && docker-php-ext-install \
         pdo_pgsql \
         pgsql \

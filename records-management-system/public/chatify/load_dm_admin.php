@@ -58,6 +58,23 @@ $mimeMap   = [
 // below points at this same directory on disk, relative to this file).
 $uploadsDir = __DIR__ . '/uploads/';
 
+/**
+ * Admin-view equivalent of gcChatImageTag()/dmChatImageTag() — builds a
+ * chat-bubble <img> using the lightweight "_thumb.webp" generated at
+ * upload time (core/ImageProcessor.php) as `src` (lazy-loaded), with
+ * `data-full-src` pointing at the full-size file for the click-to-view
+ * handler in app-part3.js. Falls back to the full image as `src` when no
+ * thumbnail exists on disk.
+ */
+function adminChatImageTag(string $uploadsDir, string $fn, string $style): string
+{
+    $fnUrl  = 'uploads/' . rawurlencode($fn);
+    $fnEsc  = htmlspecialchars($fn, ENT_QUOTES);
+    $thumb  = ImageProcessor::thumbFilenameFor($uploadsDir, $fn);
+    $srcUrl = $thumb !== null ? 'uploads/' . rawurlencode($thumb) : $fnUrl;
+    return "<img src='{$srcUrl}' alt='{$fnEsc}' class='chat-viewable-image' data-full-src='{$fnUrl}' loading='lazy' decoding='async' draggable='false' style='{$style}' />";
+}
+
 function adminGetInitials(string $name): string
 {
     $words = explode(' ', trim($name));
@@ -92,7 +109,7 @@ function adminBuildReplyQuoteHtml(?string $encryptedReplyMessage, string $replyT
             $fnUrl = htmlspecialchars('uploads/' . rawurlencode($file), ENT_QUOTES);
             return "<div class='reply-quote reply-quote-image-container'><img src='{$fnUrl}' class='reply-quote-image' alt='' referrerpolicy='no-referrer'></div>";
         }
-        $snippet = 'Attachment';
+        $snippet = $file !== '' ? $file : 'Attachment';
     } else {
         $snippet = safeDecrypt($encryptedReplyMessage);
     }
@@ -179,10 +196,8 @@ foreach ($rawMessages as $msg) {
                 if (!empty($existingFiles)) {
                     $bodyHtml .= "<div class='message-media' style='display:flex; flex-direction:column; gap:8px;'>";
                     foreach ($existingFiles as $fn) {
-                        $fn    = basename((string) $fn);
-                        $fnUrl = 'uploads/' . rawurlencode($fn);
-                        $fnEsc = htmlspecialchars($fn, ENT_QUOTES);
-                        $bodyHtml .= "<img src='{$fnUrl}' alt='{$fnEsc}' class='chat-viewable-image' data-full-src='{$fnUrl}' style='width:100%;max-width:240px;max-height:260px;height:auto;border-radius:12px;display:block;cursor:pointer;object-fit:cover;box-shadow:0 2px 8px rgba(0,0,0,0.18);' />";
+                        $fn = basename((string) $fn);
+                        $bodyHtml .= adminChatImageTag($uploadsDir, $fn, 'width:100%;max-width:240px;max-height:260px;height:auto;border-radius:12px;display:block;cursor:pointer;object-fit:cover;box-shadow:0 2px 8px rgba(0,0,0,0.18);');
                     }
                     $bodyHtml .= "<div class='message-info' style='padding:3px 2px;'><span class='message-sender'>{$senderLabel}</span></div>";
                     $bodyHtml .= "</div>"; // .message-media
@@ -201,9 +216,11 @@ foreach ($rawMessages as $msg) {
                         if (!file_exists($uploadsDir . $fn)) {
                             continue; // deleted image — skip
                         }
-                        $itemsHtml .= "<img src='{$fnUrl}' alt='{$fnEsc}' class='chat-viewable-image' data-full-src='{$fnUrl}' style='width:100%;max-width:240px;max-height:260px;height:auto;border-radius:12px;display:block;cursor:pointer;object-fit:cover;' />";
+                        $itemsHtml .= adminChatImageTag($uploadsDir, $fn, 'width:100%;max-width:240px;max-height:260px;height:auto;border-radius:12px;display:block;cursor:pointer;object-fit:cover;');
                     } else {
-                        $itemsHtml .= "<a href='{$fnUrl}' target='_blank' rel='noopener' style='color:#1b74e4;text-decoration:underline;font-size:13px;word-break:break-all;'>{$fnEsc}</a>";
+                        if (file_exists($uploadsDir . $fn)) {
+                            $itemsHtml .= "<a href='{$fnUrl}' target='_blank' rel='noopener' style='color:#1b74e4;text-decoration:underline;font-size:13px;word-break:break-all;'>{$fnEsc}</a>";
+                        }
                     }
                 }
                 if ($itemsHtml !== '') {
@@ -226,25 +243,29 @@ foreach ($rawMessages as $msg) {
             if (in_array($ext, $imageExts, true)) {
                 if (file_exists($uploadsDir . $file)) {
                     $bodyHtml .= "<div class='message-media'>";
-                    $bodyHtml .= "<img src='{$url}' alt='{$fileEsc}' class='chat-viewable-image' data-full-src='{$url}' style='width:100%;max-width:240px;max-height:260px;height:auto;border-radius:12px;display:block;cursor:pointer;object-fit:cover;box-shadow:0 2px 8px rgba(0,0,0,0.18);' />";
+                    $bodyHtml .= adminChatImageTag($uploadsDir, $file, 'width:100%;max-width:240px;max-height:260px;height:auto;border-radius:12px;display:block;cursor:pointer;object-fit:cover;box-shadow:0 2px 8px rgba(0,0,0,0.18);');
                     $bodyHtml .= "<div class='message-info' style='padding:3px 2px;'><span class='message-sender'>{$senderLabel}</span></div>";
                     $bodyHtml .= "</div>";
                 }
                 // else: deleted image — nothing rendered for this message
             } elseif (in_array($ext, $audioExts, true)) {
-                $mime = $mimeMap[$ext] ?? 'audio/' . $ext;
-                $bodyHtml .= "<div class='message-bubble'>";
-                $bodyHtml .= "<div class='message-content'>";
-                $bodyHtml .= "<div style='font-size:12px;margin-bottom:6px;font-weight:500;opacity:0.85;max-width:240px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;'>{$fileEsc}</div>";
-                $bodyHtml .= "<audio controls preload='metadata' style='width:240px;max-width:100%;display:block;border-radius:6px;'><source src='{$url}' type='{$mime}'></audio>";
-                $bodyHtml .= "</div>";
-                $bodyHtml .= "<div class='message-info'><span class='message-sender'>{$senderLabel}</span></div>";
-                $bodyHtml .= "</div>";
+                if (file_exists($uploadsDir . $file)) {
+                    $mime = $mimeMap[$ext] ?? 'audio/' . $ext;
+                    $bodyHtml .= "<div class='message-bubble'>";
+                    $bodyHtml .= "<div class='message-content'>";
+                    $bodyHtml .= "<div style='font-size:12px;margin-bottom:6px;font-weight:500;opacity:0.85;max-width:240px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;'>{$fileEsc}</div>";
+                    $bodyHtml .= "<audio controls preload='metadata' style='width:240px;max-width:100%;display:block;border-radius:6px;'><source src='{$url}' type='{$mime}'></audio>";
+                    $bodyHtml .= "</div>";
+                    $bodyHtml .= "<div class='message-info'><span class='message-sender'>{$senderLabel}</span></div>";
+                    $bodyHtml .= "</div>";
+                }
             } else {
-                $bodyHtml .= "<div class='message-bubble'>";
-                $bodyHtml .= "<div class='message-content'><a href='{$url}' target='_blank' rel='noopener' style='color:#1b74e4;text-decoration:underline;font-weight:500;font-size:13px;word-break:break-all;'>{$fileEsc}</a></div>";
-                $bodyHtml .= "<div class='message-info'><span class='message-sender'>{$senderLabel}</span></div>";
-                $bodyHtml .= "</div>";
+                if (file_exists($uploadsDir . $file)) {
+                    $bodyHtml .= "<div class='message-bubble'>";
+                    $bodyHtml .= "<div class='message-content'><a href='{$url}' target='_blank' rel='noopener' style='color:#1b74e4;text-decoration:underline;font-weight:500;font-size:13px;word-break:break-all;'>{$fileEsc}</a></div>";
+                    $bodyHtml .= "<div class='message-info'><span class='message-sender'>{$senderLabel}</span></div>";
+                    $bodyHtml .= "</div>";
+                }
             }
         }
     }

@@ -30,7 +30,17 @@ return Application::configure(basePath: dirname(__DIR__))
                 ], 401);
             }
 
-            if ($request->is('open-chat', 'chatify*', 'chat/*')) {
+            if ($request->is('chat/unread-count')) {
+                return response()->json([
+                    'error' => 'Unauthenticated',
+                    'unread' => 0,
+                    'chat_unread' => 0,
+                    'system_unread' => 0,
+                    'total_unread' => 0,
+                ], 401);
+            }
+
+            if ($request->is('open-chat', 'chatify*')) {
                 return response('<!DOCTYPE html><html><head><script>if(window.top){window.top.location.href="' . route('login') . '";}</script></head><body></body></html>', 401)
                     ->header('Content-Type', 'text/html');
             }

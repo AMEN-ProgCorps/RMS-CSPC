@@ -100,9 +100,211 @@
 (function() {
     const autoOpenSetting = @json($autoOpenChat);
     let isOpen = false;
+    let lastChatUnread = null;
+    let lastSystemUnread = null;
 
+    // --- Audio Notification System & Fallback Protocol ---
+    let pingAudio = null;
+    let audioCtx = null;
+
+    function initAudioContext() {
+        if (!audioCtx) {
+            try {
+                audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+            } catch (e) {}
+        }
+        if (audioCtx && audioCtx.state === 'suspended') {
+            audioCtx.resume().catch(() => {});
+        }
+        if (!pingAudio) {
+            try {
+                pingAudio = new Audio("{{ asset('sfx/ping-message.mp3') }}");
+                pingAudio.preload = 'auto';
+            } catch (e) {}
+        }
+    }
+
+    // Unlock browser audio context on user's first interaction anywhere on page
+    const unlockEvents = ['click', 'touchstart', 'keydown'];
+    function unlockAudioHandler() {
+        initAudioContext();
+        unlockEvents.forEach(evt => document.removeEventListener(evt, unlockAudioHandler));
+    }
+    unlockEvents.forEach(evt => document.addEventListener(evt, unlockAudioHandler, { passive: true }));
+
+    // Fallback Catch Protocol: Web Audio API synthesized 2-tone chime
+    function playSynthesizerChime() {
+        try {
+            if (!audioCtx) {
+                audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+            }
+            if (audioCtx.state === 'suspended') {
+                audioCtx.resume().catch(() => {});
+            }
+            const now = audioCtx.currentTime;
+
+            // Tone 1: 587.33 Hz (D5)
+            const osc1 = audioCtx.createOscillator();
+            const gain1 = audioCtx.createGain();
+            osc1.type = 'sine';
+            osc1.frequency.setValueAtTime(587.33, now);
+            gain1.gain.setValueAtTime(0.14, now);
+            gain1.gain.exponentialRampToValueAtTime(0.001, now + 0.18);
+            osc1.connect(gain1);
+            gain1.connect(audioCtx.destination);
+            osc1.start(now);
+            osc1.stop(now + 0.18);
+
+            // Tone 2: 880 Hz (A5)
+            const osc2 = audioCtx.createOscillator();
+            const gain2 = audioCtx.createGain();
+            osc2.type = 'sine';
+            osc2.frequency.setValueAtTime(880, now + 0.10);
+            gain2.gain.setValueAtTime(0.16, now + 0.10);
+            gain2.gain.exponentialRampToValueAtTime(0.001, now + 0.35);
+            osc2.connect(gain2);
+            gain2.connect(audioCtx.destination);
+            osc2.start(now + 0.10);
+            osc2.stop(now + 0.35);
+        } catch (e) {}
+    }
+
+    // Main Audio Player: Plays MP3, falls back smoothly to Web Audio synthesizer on error
+    function playNotificationSound() {
+        try {
+            if (!pingAudio) {
+                pingAudio = new Audio("{{ asset('sfx/ping-message.mp3') }}");
+            }
+            pingAudio.currentTime = 0;
+            const playPromise = pingAudio.play();
+            if (playPromise !== undefined) {
+                playPromise.catch(function() {
+                    // Catch protocol: fallback to synthesizer chime
+                    playSynthesizerChime();
+                });
+            }
+        } catch (e) {
+            playSynthesizerChime();
+        }
+    }
+
+    // --- Tab Title & Favicon Red Dot Indicator ---
+    let originalDocumentTitle = null;
+    let originalFaviconHref = null;
+    let badgedFaviconDataUrl = null;
+    let isBadgedFaviconActive = false;
+
+    function getBaseDocumentTitle() {
+        if (originalDocumentTitle === null) {
+            originalDocumentTitle = document.title.replace(/^\(\d+\+?\)\s*/, '');
+        }
+        return originalDocumentTitle;
+    }
+
+    function updateTabTitle(totalCount) {
+        const baseTitle = getBaseDocumentTitle();
+        if (totalCount > 0) {
+            const countText = totalCount > 99 ? '99+' : totalCount;
+            document.title = `(${countText}) ${baseTitle}`;
+        } else {
+            document.title = baseTitle;
+        }
+    }
+
+    function getFaviconElement() {
+        let link = document.querySelector("link[rel*='icon']");
+        if (!link) {
+            link = document.createElement('link');
+            link.rel = 'icon';
+            document.head.appendChild(link);
+        }
+        return link;
+    }
+
+    function updateFaviconBadge(totalCount) {
+        const link = getFaviconElement();
+        if (!link) return;
+
+        if (originalFaviconHref === null) {
+            originalFaviconHref = link.href || "{{ asset('images/cspc.webp') }}";
+        }
+
+        if (totalCount > 0) {
+            if (isBadgedFaviconActive) return;
+
+            if (badgedFaviconDataUrl) {
+                link.type = 'image/png';
+                link.href = badgedFaviconDataUrl;
+                isBadgedFaviconActive = true;
+            } else {
+                const img = new Image();
+                img.crossOrigin = 'anonymous';
+                img.src = originalFaviconHref;
+                img.onload = function() {
+                    try {
+                        const canvas = document.createElement('canvas');
+                        canvas.width = 64;
+                        canvas.height = 64;
+                        const ctx = canvas.getContext('2d');
+                        if (!ctx) return;
+
+                        ctx.drawImage(img, 0, 0, 64, 64);
+
+                        // Messenger-style Red Notification Dot on Top-Right Corner
+                        const centerX = 49;
+                        const centerY = 15;
+                        const radius = 13;
+
+                        // Outer White Ring
+                        ctx.beginPath();
+                        ctx.arc(centerX, centerY, radius + 3, 0, 2 * Math.PI);
+                        ctx.fillStyle = '#ffffff';
+                        ctx.fill();
+
+                        // Inner Red Circle
+                        ctx.beginPath();
+                        ctx.arc(centerX, centerY, radius, 0, 2 * Math.PI);
+                        ctx.fillStyle = '#ef4444';
+                        ctx.fill();
+
+                        badgedFaviconDataUrl = canvas.toDataURL('image/png');
+                        link.type = 'image/png';
+                        link.href = badgedFaviconDataUrl;
+                        isBadgedFaviconActive = true;
+                    } catch (e) {}
+                };
+                img.onerror = function() {
+                    try {
+                        const canvas = document.createElement('canvas');
+                        canvas.width = 32;
+                        canvas.height = 32;
+                        const ctx = canvas.getContext('2d');
+                        if (ctx) {
+                            ctx.beginPath();
+                            ctx.arc(16, 16, 14, 0, 2 * Math.PI);
+                            ctx.fillStyle = '#ef4444';
+                            ctx.fill();
+                            badgedFaviconDataUrl = canvas.toDataURL('image/png');
+                            link.type = 'image/png';
+                            link.href = badgedFaviconDataUrl;
+                            isBadgedFaviconActive = true;
+                        }
+                    } catch (err) {}
+                };
+            }
+        } else {
+            if (isBadgedFaviconActive) {
+                if (originalFaviconHref) {
+                    link.href = originalFaviconHref;
+                }
+                isBadgedFaviconActive = false;
+            }
+        }
+    }
+
+    // --- Widget Logic & Polling ---
     function isTabletOrDesktop() {
-        return window.innerWidth >= 768; // Screen width >= 768px (Tablet & PC)
+        return window.innerWidth >= 768;
     }
 
     function initWidgetState() {
@@ -116,7 +318,6 @@
         if (storedState !== null) {
             isOpen = storedState === 'true';
         } else {
-            // Auto-open on login ONLY if enabled AND on PC/Tablet layout (>= 768px)
             isOpen = !!autoOpenSetting && isTabletOrDesktop();
         }
 
@@ -137,27 +338,52 @@
         })
         .then(res => res.json())
         .then(data => {
-            const count = parseInt(data.unread || 0, 10);
+            const chatCount = parseInt(data.chat_unread !== undefined ? data.chat_unread : (data.unread || 0), 10);
+            const systemCount = parseInt(data.system_unread || 0, 10);
+            const totalCount = parseInt(data.total_unread !== undefined ? data.total_unread : (chatCount + systemCount), 10);
 
+            // Play notification sound if unread count increased (and not initial page load)
+            const hasNewChat = (lastChatUnread !== null && chatCount > lastChatUnread);
+            const hasNewSystem = (lastSystemUnread !== null && systemCount > lastSystemUnread);
+
+            if (hasNewChat || hasNewSystem) {
+                playNotificationSound();
+            }
+
+            lastChatUnread = chatCount;
+            lastSystemUnread = systemCount;
+
+            // 1. Update Chatify Floating Widget Button Badge
             const badge = document.getElementById('chatify-unread-badge');
             if (badge) {
-                if (count > 0) {
-                    badge.textContent = count > 99 ? '99+' : count;
+                if (chatCount > 0) {
+                    badge.textContent = chatCount > 99 ? '99+' : chatCount;
                     badge.style.display = 'flex';
                 } else {
                     badge.style.display = 'none';
                 }
             }
 
+            // 2. Update Chatify Dropdown Badge
             const dropdownBadge = document.getElementById('chatify-dropdown-unread-badge');
             if (dropdownBadge) {
-                if (count > 0) {
-                    dropdownBadge.textContent = count > 99 ? '99+' : count;
+                if (chatCount > 0) {
+                    dropdownBadge.textContent = chatCount > 99 ? '99+' : chatCount;
                     dropdownBadge.style.display = 'inline-flex';
                 } else {
                     dropdownBadge.style.display = 'none';
                 }
             }
+
+            // 3. Update Header Bell Notification Badge
+            const bellBadge = document.getElementById('header-notif-badge') || document.querySelector('.notif-badge');
+            if (bellBadge) {
+                bellBadge.style.display = systemCount > 0 ? 'block' : 'none';
+            }
+
+            // 4. Update Tab Title & Favicon Red Dot
+            updateTabTitle(totalCount);
+            updateFaviconBadge(totalCount);
         })
         .catch(() => {});
     }
@@ -169,6 +395,11 @@
             updateUnreadBadge();
             setTimeout(updateUnreadBadge, 500);
         }
+    });
+
+    window.addEventListener('rms-notification-updated', function() {
+        updateUnreadBadge();
+        setTimeout(updateUnreadBadge, 500);
     });
 
     window.toggleChatifyWidget = function() {

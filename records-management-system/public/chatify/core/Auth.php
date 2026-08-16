@@ -293,15 +293,31 @@ class Auth
             }
         }
 
-        // 2. Try reading from .env file
+        // 2. Try reading from .env or .env.docker file
         if (!$key) {
-            $env_file = $laravel_path . '/.env';
-            if (file_exists($env_file)) {
-                $content = file_get_contents($env_file);
-                if (preg_match('/^APP_KEY=(base64:[^\s]+)/m', $content, $matches)) {
-                    $key = base64_decode(str_replace('base64:', '', trim($matches[1])));
-                } elseif (preg_match('/^APP_KEY=([^\s]+)/m', $content, $matches)) {
-                    $key = base64_decode(str_replace('base64:', '', trim($matches[1])));
+            foreach (['.env', '.env.docker'] as $envName) {
+                $env_file = $laravel_path . '/' . $envName;
+                if (file_exists($env_file)) {
+                    $content = file_get_contents($env_file);
+                    if (preg_match('/^APP_KEY=(base64:[^\s]+)/m', $content, $matches)) {
+                        $key = base64_decode(str_replace('base64:', '', trim($matches[1])));
+                        break;
+                    } elseif (preg_match('/^APP_KEY=([^\s]+)/m', $content, $matches)) {
+                        $key = base64_decode(str_replace('base64:', '', trim($matches[1])));
+                        break;
+                    }
+                }
+            }
+        }
+
+        // 3. Try reading from getenv / $_ENV
+        if (!$key) {
+            $rawKey = getenv('APP_KEY') ?: ($_ENV['APP_KEY'] ?? null);
+            if ($rawKey) {
+                if (str_starts_with($rawKey, 'base64:')) {
+                    $key = base64_decode(substr($rawKey, 7));
+                } else {
+                    $key = base64_decode($rawKey);
                 }
             }
         }

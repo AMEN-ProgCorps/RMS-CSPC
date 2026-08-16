@@ -235,16 +235,73 @@ new #[Layout('layouts.dts')] #[Title('DTS - External Transactions')] class exten
         ->orderBy('dtd.date_created', $sortDirection)
         ->paginate($this->perPage);
 
-        // Map remarks, received by, previous office and next office from latest logs
+        // Map timeline path, elapsed days, and originator details
         $list->getCollection()->transform(function ($t) {
             $latestLog = DB::table('sub_document_tracking_system_logs as log')
                 ->leftJoin('account_details as ad', 'ad.account_id', '=', 'log.performed_by')
                 ->where('log.transaction_id', $t->transaction_id)
                 ->orderBy('log.id', 'desc')
-                ->select('log.notes', 'ad.first_name', 'ad.last_name')
+                ->select('log.notes', 'log.date_in', 'ad.first_name', 'ad.last_name')
                 ->first();
             $t->remarks = $latestLog ? $latestLog->notes : '-';
             $t->received_by = $latestLog && $latestLog->first_name ? ($latestLog->first_name . ' ' . $latestLog->last_name) : '-';
+
+            // Elapsed Days
+            $firstLog = DB::table('sub_document_tracking_system_logs')
+                ->where('transaction_id', $t->transaction_id)
+                ->orderBy('id', 'asc')
+                ->first();
+            $createdDateRaw = $firstLog?->date_in ?? $t->date_created;
+            $t->elapsed_days = $createdDateRaw ? (int) abs(now()->diffInDays(\Carbon\Carbon::parse($createdDateRaw))) : 0;
+
+            // Build Timeline Path
+            $flow = DB::table('dts_transaction_details')
+                ->where('id', $t->transaction_id)
+                ->first();
+            $steps = collect();
+            if ($flow && $flow->transaction_flow) {
+                $flowRow = DB::table('dts_transaction_flow')
+                    ->where('flow_code', $flow->transaction_flow)
+                    ->first();
+                if ($flowRow) {
+                    $originOfficeCode = $flow->originated_from;
+                    $originOfficeName = DB::table('office')->where('office_code', $originOfficeCode)->value('office_name') ?: $originOfficeCode;
+                    $steps = DB::table('dts_sequence_list as seq')
+                        ->leftJoin('office', 'office.office_code', '=', 'seq.office_code')
+                        ->where('seq.control_id', $flowRow->id)
+                        ->select('seq.*', 'office.office_name')
+                        ->orderBy('seq.sequence_ranking', 'asc')
+                        ->get()
+                        ->map(function ($step) use ($originOfficeCode, $originOfficeName, $t) {
+                            if ($step->office_code === 'ORIGIN') {
+                                $step->office_code = $originOfficeCode;
+                                $step->office_name = $originOfficeName;
+                            }
+                            return $step;
+                        });
+                }
+            }
+
+            if ($steps->isEmpty()) {
+                $logs = DB::table('sub_document_tracking_system_logs as log')
+                    ->leftJoin('office', 'office.office_code', '=', 'log.office_code')
+                    ->where('log.transaction_id', $t->transaction_id)
+                    ->select('log.*', 'office.office_name')
+                    ->orderBy('log.id', 'asc')
+                    ->get();
+                if ($logs->isNotEmpty()) {
+                    $steps = $logs->map(function ($logStep, $idx) use ($t) {
+                        $step = new \stdClass();
+                        $step->sequence_ranking = $idx + 1;
+                        $step->office_code = $logStep->office_code;
+                        $step->office_name = $logStep->office_name ?: $logStep->office_code;
+                        $step->date_in = $logStep->date_in;
+                        $step->date_out = $logStep->date_out;
+                        return $step;
+                    });
+                }
+            }
+            $t->timeline_path = $steps;
 
             // Previous office (from office)
             $prevLog = DB::table('sub_document_tracking_system_logs as log')
@@ -256,9 +313,6 @@ new #[Layout('layouts.dts')] #[Title('DTS - External Transactions')] class exten
             $t->from_office = $prevLog ? $prevLog->office_name : 'Originated';
 
             // Next office
-            $flow = DB::table('dts_transaction_details')
-                ->where('id', $t->transaction_id)
-                ->first();
             $t->next_office_name = 'N/A';
             if ($flow && $flow->transaction_flow) {
                 $flowRow = DB::table('dts_transaction_flow')
@@ -1342,18 +1396,15 @@ new #[Layout('layouts.dts')] #[Title('DTS - External Transactions')] class exten
                             <input type="checkbox" wire:model.live="selectAll" style="width: 16px; height: 16px; cursor: pointer; accent-color: #1e40af;">
                         </th>
                         <th style="width: 60px;">Item No.</th>
-                        <th>Control Number</th>
+                        <th>Control No.</th>
                         <th>QR Code</th>
-                        <th>Source</th>
+                        <th>Created</th>
+                        <th>Originator</th>
                         <th>Subject</th>
-                        <th>Type of Document</th>
-                        <th>Date Created</th>
-                        <th>Current Location</th>
-                        <th>Status</th>
-                        <th>Priority</th>
-                        <th>Remarks</th>
-                        <th>Received by</th>
-                        <th style="width: 60px;">View</th>
+                        <th style="color: #dc2626;">Timeline</th>
+                        <th style="color: #dc2626;">Elapsed Day</th>
+                        <th style="color: #dc2626;">Status</th>
+                        <th style="width: 60px; color: #dc2626;">View</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -1366,31 +1417,52 @@ new #[Layout('layouts.dts')] #[Title('DTS - External Transactions')] class exten
                                 <input type="checkbox" wire:model.live="selectedIds" value="{{ $t->transaction_id }}" style="width: 16px; height: 16px; cursor: pointer; accent-color: #1e40af;">
                             </td>
                             <td style="text-align: center;">{{ $this->transactions->firstItem() + $index }}</td>
-                            <td>{{ $t->control_number }}</td>
+                            <td style="font-weight: 600; color: #1e40af;">{{ $t->control_number }}</td>
                             <td>{{ $t->qr_code }}</td>
-                            <td>{{ $t->originated_office_name }}</td>
-                            <td>{{ $t->subject }}</td>
-                            <td>{{ (!empty($t->doc_type_name) && !str_starts_with($t->doc_type_name, 'Flow for ')) ? $t->doc_type_name : ucfirst($t->classification ?: 'External') }}</td>
                             <td>{{ \Carbon\Carbon::parse($t->date_created)->format('Y-m-d H:i') }}</td>
-                            <td>{{ $t->current_office_name }}</td>
+                            <td>{{ $t->requestor_name ?: ($t->originated_office_name ?: $t->originated_from) }}</td>
+                            <td>{{ $t->subject }}</td>
+                            <td style="min-width: 180px;">
+                                <div style="display: flex; align-items: center; justify-content: flex-start; gap: 4px; flex-wrap: wrap;">
+                                    @forelse ($t->timeline_path as $stepIndex => $step)
+                                        @php
+                                            $isReceived = !is_null($step->date_in) || $t->status === 'completed';
+                                            $isForwarded = !is_null($step->date_out) || $t->status === 'completed';
+                                            $dotColor = $isReceived ? '#10b981' : '#94a3b8';
+                                            $textColor = $isReceived ? '#10b981' : '#64748b';
+                                        @endphp
+                                        <div style="display: inline-flex; align-items: center; gap: 4px;">
+                                            <div style="width: 22px; height: 22px; border-radius: 50%; background: {{ $dotColor }}; color: #ffffff; font-size: 10px; font-weight: 700; display: flex; align-items: center; justify-content: center;" title="Step {{ $stepIndex + 1 }}: {{ $step->office_name ?? $step->office_code }}">
+                                                @if ($isReceived)
+                                                    <i class="fa-solid fa-check" style="font-size: 9px;"></i>
+                                                @else
+                                                    {{ $stepIndex + 1 }}
+                                                @endif
+                                            </div>
+                                            <span style="font-size: 10px; font-weight: 700; color: {{ $textColor }};">{{ $step->office_code }}</span>
+                                            @if (!$loop->last)
+                                                <span style="color: #cbd5e1; font-size: 10px;">&rarr;</span>
+                                            @endif
+                                        </div>
+                                    @empty
+                                        <span style="color: #94a3b8; font-size: 11px;">—</span>
+                                    @endforelse
+                                </div>
+                            </td>
+                            <td style="color: #dc2626; font-weight: 600; white-space: nowrap; text-align: center;">
+                                {{ $t->elapsed_days }} day(s)
+                            </td>
                             <td style="text-align: center;">
                                 <span class="status-badge status-{{ $t->status }}">
                                     {{ $t->status }}
                                 </span>
                             </td>
                             <td style="text-align: center;">
-                                <span class="priority-badge priority-{{ $t->classification }}">
-                                    {{ $t->classification ?: 'normal' }}
-                                </span>
-                            </td>
-                            <td>{{ $t->remarks }}</td>
-                            <td>{{ $t->received_by }}</td>
-                            <td style="text-align: center;">
                                 <button type="button" wire:click="openTransaction('{{ $t->transaction_id }}')" class="rms-select" style="text-decoration: none; display: inline-block; border: none; background: transparent; cursor: pointer; color: #043899; font-weight: 500;">View</button>
                             </td>
                         </tr>
                     @empty
-                        <tr><td colspan="14" class="rms-no-data">No transactions found.</td></tr>
+                        <tr><td colspan="11" class="rms-no-data">No transactions found.</td></tr>
                     @endforelse
                 </tbody>
             </table>

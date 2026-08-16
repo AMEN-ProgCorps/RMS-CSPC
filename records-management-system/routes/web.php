@@ -153,18 +153,87 @@ Route::middleware(['auth'])
     ->group(function () {
     Route::get('/open-chat', [ChatController::class, 'openChat'])->name('open-chat');
     Route::get('/chat/unread-count', function () {
-        $userId = Auth::id();
-        if (!$userId) {
-            return response()->json(['unread' => 0]);
+        $user = Auth::user();
+        if (!$user) {
+            return response()->json([
+                'unread' => 0,
+                'chat_unread' => 0,
+                'system_unread' => 0,
+                'total_unread' => 0,
+            ]);
         }
+
+        $userId = $user->id;
+
+        // 1. Chatify unread count
+        $chatUnread = 0;
         try {
             $totalUnread = \Illuminate\Support\Facades\DB::table('view_user_unread_chats')
                 ->where('account_id', $userId)
                 ->value('total_unread');
-            return response()->json(['unread' => (int) ($totalUnread ?? 0)]);
+            $chatUnread = (int) ($totalUnread ?? 0);
         } catch (\Throwable $e) {
-            return response()->json(['unread' => 0]);
+            $chatUnread = 0;
         }
+
+        // 2. RMS Office & System notifications unread count
+        $systemUnread = 0;
+        try {
+            $office = \Illuminate\Support\Facades\DB::table('account_details')
+                ->join('office', 'account_details.office_id', '=', 'office.id')
+                ->where('account_details.account_id', $userId)
+                ->select('office.office_code')
+                ->first();
+
+            if ($office) {
+                $perms = $user->permissions;
+                $allowedSubsystems = ['Profile Manager'];
+                if ($perms) {
+                    if ($perms->is_sadm) {
+                        $allowedSubsystems[] = 'Document Tracking System';
+                        $allowedSubsystems[] = 'Records Disposition Program';
+                        $allowedSubsystems[] = 'Admin Console';
+                    } else {
+                        if ($perms->can_access_dts) {
+                            $allowedSubsystems[] = 'Document Tracking System';
+                        }
+                        if ($perms->can_access_rdp) {
+                            $allowedSubsystems[] = 'Records Disposition Program';
+                        }
+                    }
+                }
+
+                $systemUnread = (int) \Illuminate\Support\Facades\DB::table('notifications')
+                    ->join('notif_content', 'notifications.contents', '=', 'notif_content.id')
+                    ->join('subsystems', 'notif_content.system', '=', 'subsystems.subsystem_id')
+                    ->leftJoin('notification_div', function ($join) use ($userId) {
+                        $join->on('notifications.id', '=', 'notification_div.id')
+                             ->where('notification_div.account_rec', '=', $userId);
+                    })
+                    ->where('notifications.office', $office->office_code)
+                    ->whereIn('subsystems.subsystem_name', $allowedSubsystems)
+                    ->where(function ($query) {
+                        $query->whereNull('notification_div.is_in_user_list')
+                              ->orWhere('notification_div.is_in_user_list', 1);
+                    })
+                    ->where(function ($query) {
+                        $query->whereNull('notification_div.status')
+                              ->orWhere('notification_div.status', 'unread');
+                    })
+                    ->count();
+            }
+        } catch (\Throwable $e) {
+            $systemUnread = 0;
+        }
+
+        $totalUnread = $chatUnread + $systemUnread;
+
+        return response()->json([
+            'unread' => $chatUnread,
+            'chat_unread' => $chatUnread,
+            'system_unread' => $systemUnread,
+            'total_unread' => $totalUnread,
+        ]);
     })->name('chat.unread-count');
 
     // Session Heartbeat & Tab Closure Beacon

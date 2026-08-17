@@ -39,7 +39,7 @@ try {
                 ad.last_name  AS sender_last_name
          FROM chat_message_mentions cmm
          LEFT JOIN account_details ad ON ad.account_id = cmm.sender_account_id
-         WHERE cmm.mentioned_account_id = :account_id AND cmm.is_seen = 0
+         WHERE cmm.mentioned_account_id = :account_id AND cmm.is_seen = FALSE
          ORDER BY cmm.created_at ASC'
     );
     $stmt->execute([':account_id' => $myAccountId]);

@@ -1397,12 +1397,11 @@
     }
 
     function showNotifyToast(n) {
-      // Desktop already has the notification bell for this — the toast is a
-      // mobile-only affordance (no bell badge glance on a phone the way
-      // there is on desktop). Bell badge/list updates happen independently
-      // of this function at both call sites, so skipping the toast here
-      // doesn't lose the notification — it just won't pop up on desktop.
-      if (!isMobileViewport()) return;
+      // Toast popup disabled — notifications now only surface via the bell
+      // icon (badge/list). Bell updates happen independently of this
+      // function at both call sites, so returning early here doesn't lose
+      // the notification, it just never pops up as a toast.
+      return;
 
       // Always keep the most recent mention's content — that's what opens
       // when the toast (or its content modal) is clicked.

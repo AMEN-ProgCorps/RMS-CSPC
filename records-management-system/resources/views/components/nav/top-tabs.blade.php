@@ -258,7 +258,7 @@
     }
 @endphp
 
-@if(!empty($tabs))
+@if((auth()->user()?->enableTopTabs() ?? true) && !empty($tabs))
 <div class="top-nav-tabs-wrapper" data-system="{{ $system }}">
     <div class="top-nav-tabs-container">
         @foreach($tabs as $tab)

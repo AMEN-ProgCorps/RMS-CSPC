@@ -16,11 +16,13 @@ class PersonalSetting extends Model
         'user',
         'auto_open_chat',
         'notification_sound_alert',
+        'enable_top_tabs',
     ];
 
     protected $casts = [
         'auto_open_chat' => 'boolean',
         'notification_sound_alert' => 'boolean',
+        'enable_top_tabs' => 'boolean',
     ];
 
     /**

@@ -19,6 +19,9 @@ new #[Layout('layouts.profile')] #[Title('Profile Manager - Preferences & Settin
     /** @var bool Personal preference for notification sound alerts (SFX) */
     public bool $notificationSoundAlert = true;
 
+    /** @var bool Personal preference for DTS and RDP top navigation tabs */
+    public bool $enableTopTabs = true;
+
     /** @var string|null Feedback notification message */
     public ?string $feedbackMessage = null;
 
@@ -41,6 +44,7 @@ new #[Layout('layouts.profile')] #[Title('Profile Manager - Preferences & Settin
             $user = $user->fresh();
             $this->autoOpenChat = $user->autoOpenChat();
             $this->notificationSoundAlert = $user->notificationSoundAlert();
+            $this->enableTopTabs = $user->enableTopTabs();
         }
     }
 
@@ -50,7 +54,7 @@ new #[Layout('layouts.profile')] #[Title('Profile Manager - Preferences & Settin
         if ($user) {
             $setting = PersonalSetting::firstOrCreate(
                 ['user' => $user->id],
-                ['auto_open_chat' => true, 'notification_sound_alert' => true]
+                ['auto_open_chat' => true, 'notification_sound_alert' => true, 'enable_top_tabs' => true]
             );
             $setting->auto_open_chat = !$setting->auto_open_chat;
             $setting->save();
@@ -65,13 +69,28 @@ new #[Layout('layouts.profile')] #[Title('Profile Manager - Preferences & Settin
         if ($user) {
             $setting = PersonalSetting::firstOrCreate(
                 ['user' => $user->id],
-                ['auto_open_chat' => true, 'notification_sound_alert' => true]
+                ['auto_open_chat' => true, 'notification_sound_alert' => true, 'enable_top_tabs' => true]
             );
             $setting->notification_sound_alert = !((bool)($setting->notification_sound_alert ?? true));
             $setting->save();
             $this->notificationSoundAlert = (bool) $setting->notification_sound_alert;
             $this->feedbackMessage = 'Preference updated: Notification sound alerts ' . ($this->notificationSoundAlert ? 'enabled' : 'disabled') . '.';
             $this->dispatch('rms-sound-setting-changed', enabled: $this->notificationSoundAlert);
+        }
+    }
+
+    public function toggleEnableTopTabs(): void
+    {
+        $user = Auth::user();
+        if ($user) {
+            $setting = PersonalSetting::firstOrCreate(
+                ['user' => $user->id],
+                ['auto_open_chat' => true, 'notification_sound_alert' => true, 'enable_top_tabs' => true]
+            );
+            $setting->enable_top_tabs = !((bool)($setting->enable_top_tabs ?? true));
+            $setting->save();
+            $this->enableTopTabs = (bool) $setting->enable_top_tabs;
+            $this->feedbackMessage = 'Preference updated: Top Navigation Tabs ' . ($this->enableTopTabs ? 'enabled' : 'disabled') . '.';
         }
     }
 
@@ -199,12 +218,10 @@ new #[Layout('layouts.profile')] #[Title('Profile Manager - Preferences & Settin
                     <span class="settings-info-desc">Automatically pop up the floating Chatify messaging widget whenever you sign into your RMS account.</span>
                 </div>
                 <div>
-                    <label style="position: relative; display: inline-block; width: 46px; height: 26px; cursor: pointer;">
-                        <input type="checkbox" wire:click="toggleAutoOpenChat" {{ $autoOpenChat ? 'checked' : '' }} style="opacity: 0; width: 0; height: 0;">
-                        <span style="position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0; background-color: {{ $autoOpenChat ? '#2563eb' : '#cbd5e1' }}; transition: .3s; border-radius: 26px;">
-                            <span style="position: absolute; content: ''; height: 20px; width: 20px; left: {{ $autoOpenChat ? '23px' : '3px' }}; bottom: 3px; background-color: white; transition: .3s; border-radius: 50%; box-shadow: 0 1px 3px rgba(0,0,0,0.15);"></span>
-                        </span>
-                    </label>
+                    <button type="button" wire:click="toggleAutoOpenChat" role="switch" aria-checked="{{ $autoOpenChat ? 'true' : 'false' }}"
+                        style="position: relative; display: inline-flex; width: 48px; height: 26px; border: none; cursor: pointer; background-color: {{ $autoOpenChat ? '#2563eb' : '#cbd5e1' }}; transition: background-color 0.25s ease; border-radius: 26px; padding: 0; outline: none; flex-shrink: 0;">
+                        <span style="position: absolute; top: 3px; left: {{ $autoOpenChat ? '25px' : '3px' }}; width: 20px; height: 20px; background-color: #ffffff; border-radius: 50%; transition: left 0.25s ease; box-shadow: 0 1px 3px rgba(0,0,0,0.2);"></span>
+                    </button>
                 </div>
             </div>
 
@@ -214,29 +231,30 @@ new #[Layout('layouts.profile')] #[Title('Profile Manager - Preferences & Settin
                     <span class="settings-info-desc">Play audio sound effects (SFX) whenever new unread messages or important system notifications arrive.</span>
                 </div>
                 <div>
-                    <label style="position: relative; display: inline-block; width: 46px; height: 26px; cursor: pointer;">
-                        <input type="checkbox" wire:click="toggleNotificationSoundAlert" {{ $notificationSoundAlert ? 'checked' : '' }} style="opacity: 0; width: 0; height: 0;">
-                        <span style="position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0; background-color: {{ $notificationSoundAlert ? '#2563eb' : '#cbd5e1' }}; transition: .3s; border-radius: 26px;">
-                            <span style="position: absolute; content: ''; height: 20px; width: 20px; left: {{ $notificationSoundAlert ? '23px' : '3px' }}; bottom: 3px; background-color: white; transition: .3s; border-radius: 50%; box-shadow: 0 1px 3px rgba(0,0,0,0.15);"></span>
-                        </span>
-                    </label>
+                    <button type="button" wire:click="toggleNotificationSoundAlert" role="switch" aria-checked="{{ $notificationSoundAlert ? 'true' : 'false' }}"
+                        style="position: relative; display: inline-flex; width: 48px; height: 26px; border: none; cursor: pointer; background-color: {{ $notificationSoundAlert ? '#2563eb' : '#cbd5e1' }}; transition: background-color 0.25s ease; border-radius: 26px; padding: 0; outline: none; flex-shrink: 0;">
+                        <span style="position: absolute; top: 3px; left: {{ $notificationSoundAlert ? '25px' : '3px' }}; width: 20px; height: 20px; background-color: #ffffff; border-radius: 50%; transition: left 0.25s ease; box-shadow: 0 1px 3px rgba(0,0,0,0.2);"></span>
+                    </button>
                 </div>
             </div>
         </div>
 
-        <!-- Personal Customizations Card (Extensible for upcoming user customizations) -->
+        <!-- Personal Customizations Card -->
         <div class="profile-card">
             <h2 class="card-title">
                 <i class="fa-solid fa-wand-magic-sparkles"></i> Personal Customizations
             </h2>
 
-            <div style="padding: 10px 0;">
-                <div style="background: #f8fafc; border: 1.5px dashed #cbd5e1; border-radius: 12px; padding: 24px; text-align: center;">
-                    <i class="fa-solid fa-palette" style="font-size: 28px; color: #94a3b8; margin-bottom: 10px; display: block;"></i>
-                    <span style="font-size: 14px; font-weight: 600; color: #334155; display: block;">Customization Hub</span>
-                    <span style="font-size: 12px; color: #64748b; display: block; margin-top: 4px; line-height: 1.5;">
-                        Personal theme preferences, layout densities, and quick action shortcuts will be configurable here.
-                    </span>
+            <div class="settings-toggle-row">
+                <div>
+                    <span class="settings-info-title">Enable DTS & RDP Top Navigation Tabs</span>
+                    <span class="settings-info-desc">Display horizontal quick-toggle tabs above the records table in Document Tracking System (DTS) and Records Disposition Program (RDP).</span>
+                </div>
+                <div>
+                    <button type="button" wire:click="toggleEnableTopTabs" role="switch" aria-checked="{{ $enableTopTabs ? 'true' : 'false' }}"
+                        style="position: relative; display: inline-flex; width: 48px; height: 26px; border: none; cursor: pointer; background-color: {{ $enableTopTabs ? '#2563eb' : '#cbd5e1' }}; transition: background-color 0.25s ease; border-radius: 26px; padding: 0; outline: none; flex-shrink: 0;">
+                        <span style="position: absolute; top: 3px; left: {{ $enableTopTabs ? '25px' : '3px' }}; width: 20px; height: 20px; background-color: #ffffff; border-radius: 50%; transition: left 0.25s ease; box-shadow: 0 1px 3px rgba(0,0,0,0.2);"></span>
+                    </button>
                 </div>
             </div>
         </div>

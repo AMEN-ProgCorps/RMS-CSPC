@@ -103,6 +103,12 @@ class User extends Authenticatable
         return $setting ? (bool)($setting->notification_sound_alert ?? true) : true;
     }
 
+    public function enableTopTabs(): bool
+    {
+        $setting = $this->personalSetting;
+        return $setting ? (bool)($setting->enable_top_tabs ?? true) : true;
+    }
+
     public function permissions(): HasOneThrough
     {
         return $this->hasOneThrough(

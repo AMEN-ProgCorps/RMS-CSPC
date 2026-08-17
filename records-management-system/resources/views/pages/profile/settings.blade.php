@@ -60,6 +60,7 @@ new #[Layout('layouts.profile')] #[Title('Profile Manager - Preferences & Settin
             $setting->save();
             $this->autoOpenChat = (bool) $setting->auto_open_chat;
             $this->feedbackMessage = 'Preference updated: Chatify auto-open ' . ($this->autoOpenChat ? 'enabled' : 'disabled') . '.';
+            $this->dispatch('rms-settings-changed', type: 'profile_preference', message: 'Chatify auto-open preference updated.');
         }
     }
 
@@ -76,6 +77,7 @@ new #[Layout('layouts.profile')] #[Title('Profile Manager - Preferences & Settin
             $this->notificationSoundAlert = (bool) $setting->notification_sound_alert;
             $this->feedbackMessage = 'Preference updated: Notification sound alerts ' . ($this->notificationSoundAlert ? 'enabled' : 'disabled') . '.';
             $this->dispatch('rms-sound-setting-changed', enabled: $this->notificationSoundAlert);
+            $this->dispatch('rms-settings-changed', type: 'profile_preference', message: 'Notification sound alerts preference updated.');
         }
     }
 
@@ -91,6 +93,7 @@ new #[Layout('layouts.profile')] #[Title('Profile Manager - Preferences & Settin
             $setting->save();
             $this->enableTopTabs = (bool) $setting->enable_top_tabs;
             $this->feedbackMessage = 'Preference updated: Top Navigation Tabs ' . ($this->enableTopTabs ? 'enabled' : 'disabled') . '.';
+            $this->dispatch('rms-settings-changed', type: 'profile_preference', message: 'DTS & RDP Top Navigation Tabs preference updated.');
         }
     }
 

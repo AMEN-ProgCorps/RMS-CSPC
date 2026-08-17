@@ -1401,10 +1401,10 @@ new #[Layout('layouts.dts')] #[Title('DTS - External Transactions')] class exten
                         <th>Created</th>
                         <th>Originator</th>
                         <th>Subject</th>
-                        <th style="color: #dc2626;">Timeline</th>
-                        <th style="color: #dc2626;">Elapsed Day</th>
-                        <th style="color: #dc2626;">Status</th>
-                        <th style="width: 60px; color: #dc2626;">View</th>
+                        <th>Timeline</th>
+                        <th>Elapsed Day</th>
+                        <th>Status</th>
+                        <th style="width: 60px;">View</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -1428,28 +1428,29 @@ new #[Layout('layouts.dts')] #[Title('DTS - External Transactions')] class exten
                                         @php
                                             $isReceived = !is_null($step->date_in) || $t->status === 'completed';
                                             $isForwarded = !is_null($step->date_out) || $t->status === 'completed';
-                                            $dotColor = $isReceived ? '#10b981' : '#94a3b8';
-                                            $textColor = $isReceived ? '#10b981' : '#64748b';
+                                            $badgeBg = $isForwarded ? '#d1fae5' : ($isReceived ? '#dbeafe' : '#f3f4f6');
+                                            $badgeColor = $isForwarded ? '#065f46' : ($isReceived ? '#1e40af' : '#6b7280');
+                                            $badgeBorder = $isForwarded ? '#a7f3d0' : ($isReceived ? '#bfdbfe' : '#e5e7eb');
                                         @endphp
-                                        <div style="display: inline-flex; align-items: center; gap: 4px;">
-                                            <div style="width: 22px; height: 22px; border-radius: 50%; background: {{ $dotColor }}; color: #ffffff; font-size: 10px; font-weight: 700; display: flex; align-items: center; justify-content: center;" title="Step {{ $stepIndex + 1 }}: {{ $step->office_name ?? $step->office_code }}">
-                                                @if ($isReceived)
-                                                    <i class="fa-solid fa-check" style="font-size: 9px;"></i>
-                                                @else
-                                                    {{ $stepIndex + 1 }}
-                                                @endif
-                                            </div>
-                                            <span style="font-size: 10px; font-weight: 700; color: {{ $textColor }};">{{ $step->office_code }}</span>
-                                            @if (!$loop->last)
-                                                <span style="color: #cbd5e1; font-size: 10px;">&rarr;</span>
+                                        <div style="display: inline-flex; align-items: center; gap: 4px; background: {{ $badgeBg }}; color: {{ $badgeColor }}; border: 1px solid {{ $badgeBorder }}; padding: 2px 6px; border-radius: 4px; font-size: 11px; font-weight: 600;" title="{{ $step->office_name ?? $step->office_code }}">
+                                            @if ($isForwarded)
+                                                <i class="fa-solid fa-check" style="font-size: 9px;"></i>
+                                            @elseif ($isReceived)
+                                                <i class="fa-solid fa-arrow-right-to-bracket" style="font-size: 9px;"></i>
+                                            @else
+                                                <i class="fa-regular fa-clock" style="font-size: 9px;"></i>
                                             @endif
+                                            <span>{{ $step->office_code }}</span>
                                         </div>
+                                        @if (!$loop->last)
+                                            <i class="fa-solid fa-chevron-right" style="font-size: 8px; color: #9ca3af;"></i>
+                                        @endif
                                     @empty
                                         <span style="color: #94a3b8; font-size: 11px;">—</span>
                                     @endforelse
                                 </div>
                             </td>
-                            <td style="color: #dc2626; font-weight: 600; white-space: nowrap; text-align: center;">
+                            <td style="font-weight: 600; white-space: nowrap; text-align: center;">
                                 {{ $t->elapsed_days }} day(s)
                             </td>
                             <td style="text-align: center;">

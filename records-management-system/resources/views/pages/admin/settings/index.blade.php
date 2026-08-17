@@ -113,6 +113,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - System Settings')] class
 
             $this->showDriveEditForm = false;
             $this->successMessage = 'Google Drive Cloud Storage credentials updated successfully!';
+            $this->dispatch('rms-settings-changed', type: 'site_settings', message: 'Google Drive credentials updated by administrator.');
 
             // Purge the resolved disk instance so the next usage rebuilds with fresh credentials from DB
             try {
@@ -182,6 +183,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - System Settings')] class
 
             $this->showSsoEditForm = false;
             $this->successMessage = 'Google SSO credentials updated successfully! Changes are live — no restart required.';
+            $this->dispatch('rms-settings-changed', type: 'site_settings', message: 'Google SSO credentials updated by administrator.');
 
             $this->testSsoConnection();
         } catch (\Throwable $e) {
@@ -600,10 +602,24 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - System Settings')] class
                 ]);
             });
 
-            $this->successMessage = 'System settings updated successfully!';
+            $this->successMessage = 'System settings updated successfully! Synchronized refresh triggered for all open tabs.';
+            $this->dispatch('rms-settings-changed', type: 'site_settings', message: 'System site settings updated by administrator.');
         } catch (\Exception $e) {
             $this->errorMessage = 'Failed to update system settings: ' . $e->getMessage();
         }
+    }
+
+    public function broadcastRefreshToAllTabs(): void
+    {
+        $this->successMessage = 'Broadcasted synchronized 5-second auto-refresh signal to all active browser tabs!';
+        $this->dispatch('rms-settings-changed', type: 'site_settings', message: 'Administrator initiated a synchronized tab refresh.');
+
+        \DB::table('admin_logs')->insert([
+            'changes' => 'Triggered system-wide cross-tab synchronized refresh across active sessions.',
+            'admin_id' => auth()->id(),
+            'what_system' => 3,
+            'when_changes' => now(),
+        ]);
     }
 
     public function ensureBackupDirectoriesExist(): void
@@ -1186,6 +1202,21 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - System Settings')] class
                             <input type="checkbox" wire:model="autoForwardCreatedTransaction">
                             <span class="slider"></span>
                         </label>
+                    </div>
+
+                    <!-- Action: Push Synchronized Refresh to Open Tabs -->
+                    <div class="setting-item" style="border-top: 1px dashed #e2e8f0; padding-top: 14px; margin-top: 6px;">
+                        <div class="setting-details">
+                            <span class="setting-title" style="display: flex; align-items: center; gap: 6px;">
+                                <i class="fa-solid fa-arrows-rotate" style="color: #2563eb;"></i>
+                                Broadcast Tab Auto-Refresh
+                            </span>
+                            <span class="setting-desc">Sends an instant synchronized 5-second countdown reload notification to all active browser windows and tabs across the system.</span>
+                        </div>
+                        <button type="button" wire:click="broadcastRefreshToAllTabs" class="form-btn-primary" style="padding: 8px 16px; font-size: 12px; font-weight: 600; white-space: nowrap; height: 36px; display: inline-flex; align-items: center; gap: 6px; background-color: #2563eb; color: #ffffff; border-radius: 8px; border: none; cursor: pointer;">
+                            <i class="fa-solid fa-satellite-dish"></i>
+                            Push Refresh
+                        </button>
                     </div>
                 </div>
             </div>

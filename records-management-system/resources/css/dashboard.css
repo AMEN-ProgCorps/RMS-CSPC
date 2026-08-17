@@ -736,3 +736,88 @@ section{
     color: #D97706;
     font-weight: 700;
 }
+
+/* ==========================================================================
+   Top Navigation Tabs (DTS & RDP Dual-Navigation)
+   ========================================================================== */
+.top-nav-tabs-wrapper {
+    position: relative;
+    width: 100%;
+    margin-bottom: 14px;
+    background: #FFFFFF;
+    border-radius: 12px;
+    padding: 6px 10px;
+    box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.05), 0 1px 2px -1px rgba(0, 0, 0, 0.03);
+    border: 1px solid #E2E8F0;
+    box-sizing: border-box;
+}
+
+.top-nav-tabs-container {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    overflow-x: auto;
+    overflow-y: hidden;
+    scrollbar-width: none; /* Firefox */
+    -ms-overflow-style: none; /* IE/Edge */
+    padding: 2px 0;
+}
+
+.top-nav-tabs-container::-webkit-scrollbar {
+    display: none;
+}
+
+.top-nav-tab-item {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 8px 18px;
+    border-radius: 8px;
+    font-family: 'Inter', Roboto, sans-serif;
+    font-size: 13.5px;
+    font-weight: 500;
+    color: #64748B;
+    text-decoration: none;
+    white-space: nowrap;
+    cursor: pointer;
+    background-color: transparent;
+    border: 1px solid transparent;
+    transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+    user-select: none;
+}
+
+.top-nav-tab-item:hover {
+    color: #043899;
+    background-color: #F1F5F9;
+    border-color: #E2E8F0;
+}
+
+.top-nav-tab-item.active {
+    color: #043899;
+    background-color: #EEF2FF;
+    font-weight: 700;
+    border-color: #C7D2FE;
+    box-shadow: 0 1px 3px 0 rgba(4, 56, 153, 0.08);
+}
+
+.top-nav-tab-item.active .top-nav-tab-indicator {
+    position: absolute;
+    bottom: -1px;
+    left: 16%;
+    right: 16%;
+    height: 3px;
+    background-color: #D97706;
+    border-radius: 3px 3px 0 0;
+}
+
+@media screen and (max-width: 768px) {
+    .top-nav-tabs-wrapper {
+        padding: 4px 6px;
+        margin-bottom: 10px;
+    }
+    .top-nav-tab-item {
+        padding: 6px 12px;
+        font-size: 12.5px;
+    }
+}

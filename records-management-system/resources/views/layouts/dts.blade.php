@@ -91,7 +91,9 @@
             </div>
         </div>
         <div id="article-container" class="article-container imdown">
+            <x-nav.top-tabs system="dts" />
             {{ $slot }}
+        </div>
     </section>
     <x-chatify.floating-widget />
     <livewire:components.scanner-modal />

@@ -88,6 +88,7 @@
             </div>
         </div>
         <div id="article-container" class="article-container imdown">
+            <x-nav.top-tabs system="rdp" />
             {{ $slot }}
         </div>
     </section>

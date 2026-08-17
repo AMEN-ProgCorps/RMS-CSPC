@@ -17,6 +17,7 @@ class PersonalSetting extends Model
         'auto_open_chat',
         'notification_sound_alert',
         'enable_top_tabs',
+        'theme',
     ];
 
     protected $casts = [

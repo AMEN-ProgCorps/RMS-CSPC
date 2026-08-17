@@ -22,6 +22,9 @@ new #[Layout('layouts.profile')] #[Title('Profile Manager - Preferences & Settin
     /** @var bool Personal preference for DTS and RDP top navigation tabs */
     public bool $enableTopTabs = true;
 
+    /** @var string Personal theme preference ('light' or 'dark') */
+    public string $theme = 'light';
+
     /** @var string|null Feedback notification message */
     public ?string $feedbackMessage = null;
 
@@ -45,6 +48,7 @@ new #[Layout('layouts.profile')] #[Title('Profile Manager - Preferences & Settin
             $this->autoOpenChat = $user->autoOpenChat();
             $this->notificationSoundAlert = $user->notificationSoundAlert();
             $this->enableTopTabs = $user->enableTopTabs();
+            $this->theme = $user->theme();
         }
     }
 
@@ -54,7 +58,7 @@ new #[Layout('layouts.profile')] #[Title('Profile Manager - Preferences & Settin
         if ($user) {
             $setting = PersonalSetting::firstOrCreate(
                 ['user' => $user->id],
-                ['auto_open_chat' => true, 'notification_sound_alert' => true, 'enable_top_tabs' => true]
+                ['auto_open_chat' => true, 'notification_sound_alert' => true, 'enable_top_tabs' => true, 'theme' => 'light']
             );
             $setting->auto_open_chat = !$setting->auto_open_chat;
             $setting->save();
@@ -70,7 +74,7 @@ new #[Layout('layouts.profile')] #[Title('Profile Manager - Preferences & Settin
         if ($user) {
             $setting = PersonalSetting::firstOrCreate(
                 ['user' => $user->id],
-                ['auto_open_chat' => true, 'notification_sound_alert' => true, 'enable_top_tabs' => true]
+                ['auto_open_chat' => true, 'notification_sound_alert' => true, 'enable_top_tabs' => true, 'theme' => 'light']
             );
             $setting->notification_sound_alert = !((bool)($setting->notification_sound_alert ?? true));
             $setting->save();
@@ -87,13 +91,31 @@ new #[Layout('layouts.profile')] #[Title('Profile Manager - Preferences & Settin
         if ($user) {
             $setting = PersonalSetting::firstOrCreate(
                 ['user' => $user->id],
-                ['auto_open_chat' => true, 'notification_sound_alert' => true, 'enable_top_tabs' => true]
+                ['auto_open_chat' => true, 'notification_sound_alert' => true, 'enable_top_tabs' => true, 'theme' => 'light']
             );
             $setting->enable_top_tabs = !((bool)($setting->enable_top_tabs ?? true));
             $setting->save();
             $this->enableTopTabs = (bool) $setting->enable_top_tabs;
             $this->feedbackMessage = 'Preference updated: Top Navigation Tabs ' . ($this->enableTopTabs ? 'enabled' : 'disabled') . '.';
             $this->dispatch('rms-settings-changed', type: 'profile_preference', message: 'DTS & RDP Top Navigation Tabs preference updated.');
+        }
+    }
+
+    public function setTheme(string $theme): void
+    {
+        $theme = in_array($theme, ['light', 'dark']) ? $theme : 'light';
+        $user = Auth::user();
+        if ($user) {
+            $setting = PersonalSetting::firstOrCreate(
+                ['user' => $user->id],
+                ['auto_open_chat' => true, 'notification_sound_alert' => true, 'enable_top_tabs' => true, 'theme' => 'light']
+            );
+            $setting->theme = $theme;
+            $setting->save();
+            $this->theme = $theme;
+            $this->feedbackMessage = 'Theme preference updated to ' . ucfirst($theme) . ' Mode.';
+            $this->js("localStorage.setItem('rms-theme', '{$theme}'); document.documentElement.setAttribute('data-theme', '{$theme}');");
+            $this->dispatch('rms-settings-changed', type: 'theme_change', message: 'Theme updated to ' . ucfirst($theme) . ' Mode.');
         }
     }
 
@@ -258,6 +280,38 @@ new #[Layout('layouts.profile')] #[Title('Profile Manager - Preferences & Settin
                         style="position: relative; display: inline-flex; width: 48px; height: 26px; border: none; cursor: pointer; background-color: {{ $enableTopTabs ? '#2563eb' : '#cbd5e1' }}; transition: background-color 0.25s ease; border-radius: 26px; padding: 0; outline: none; flex-shrink: 0;">
                         <span style="position: absolute; top: 3px; left: {{ $enableTopTabs ? '25px' : '3px' }}; width: 20px; height: 20px; background-color: #ffffff; border-radius: 50%; transition: left 0.25s ease; box-shadow: 0 1px 3px rgba(0,0,0,0.2);"></span>
                     </button>
+                </div>
+            </div>
+
+            <!-- Theme Appearance (Light / Dark) -->
+            <div class="settings-toggle-row" style="border-top: 1px solid var(--border-color, #e2e8f0); padding-top: 18px; margin-top: 14px; align-items: flex-start;">
+                <div style="flex: 1; min-width: 0; padding-right: 16px;">
+                    <span class="settings-info-title" style="display: flex; align-items: center; gap: 8px;">
+                        <i class="fa-solid fa-circle-half-stroke" style="color: #2563eb;"></i>
+                        Theme Appearance
+                    </span>
+                    <span class="settings-info-desc">
+                        Switch between Light and Dark interface modes.
+                        <br>
+                        <span style="display: inline-block; margin-top: 5px; font-size: 11.5px; color: #64748b; background: rgba(37, 99, 235, 0.08); padding: 4px 8px; border-radius: 6px; border: 1px solid rgba(37, 99, 235, 0.15);">
+                            <i class="fa-solid fa-circle-info" style="color: #2563eb; margin-right: 3px;"></i>
+                            <strong>Clarification:</strong> Dark Mode is currently supported across <strong>Admin Console</strong>, <strong>Profile Manager</strong>, <strong>Document Tracking System (DTS)</strong>, and <strong>Records Disposition Program (RDP)</strong>.
+                        </span>
+                    </span>
+                </div>
+                <div>
+                    <div style="display: inline-flex; align-items: center; background: var(--theme-toggle-bg, #f1f5f9); padding: 4px; border-radius: 10px; gap: 4px; border: 1px solid var(--border-color, #e2e8f0);" class="theme-selector-container">
+                        <button type="button" wire:click="setTheme('light')" 
+                            style="display: inline-flex; align-items: center; gap: 6px; padding: 6px 14px; font-size: 12px; font-weight: 600; border-radius: 7px; border: none; cursor: pointer; transition: all 0.2s ease; background: {{ $theme === 'light' ? '#ffffff' : 'transparent' }}; color: {{ $theme === 'light' ? '#0f172a' : '#64748b' }}; box-shadow: {{ $theme === 'light' ? '0 1px 3px rgba(0,0,0,0.1)' : 'none' }};">
+                            <i class="fa-solid fa-sun" style="color: #f59e0b;"></i>
+                            Light
+                        </button>
+                        <button type="button" wire:click="setTheme('dark')" 
+                            style="display: inline-flex; align-items: center; gap: 6px; padding: 6px 14px; font-size: 12px; font-weight: 600; border-radius: 7px; border: none; cursor: pointer; transition: all 0.2s ease; background: {{ $theme === 'dark' ? '#0f172a' : 'transparent' }}; color: {{ $theme === 'dark' ? '#f8fafc' : '#64748b' }}; box-shadow: {{ $theme === 'dark' ? '0 1px 3px rgba(0,0,0,0.3)' : 'none' }};">
+                            <i class="fa-solid fa-moon" style="color: #818cf8;"></i>
+                            Dark
+                        </button>
+                    </div>
                 </div>
             </div>
         </div>

@@ -109,6 +109,12 @@ class User extends Authenticatable
         return $setting ? (bool)($setting->enable_top_tabs ?? true) : true;
     }
 
+    public function theme(): string
+    {
+        $setting = $this->personalSetting;
+        return $setting ? ($setting->theme ?? 'light') : 'light';
+    }
+
     public function permissions(): HasOneThrough
     {
         return $this->hasOneThrough(

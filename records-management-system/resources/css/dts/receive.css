@@ -504,3 +504,60 @@
     outline: none;
 }
 
+/* Dark Mode Overrides for Receive & Transaction Modals */
+[data-theme="dark"] .receive-card,
+[data-theme="dark"] .modal-content {
+    background: #131c2e !important;
+    color: #f8fafc !important;
+    border: 1px solid #1e293b !important;
+}
+
+[data-theme="dark"] .receive-title {
+    color: #60a5fa !important;
+}
+
+[data-theme="dark"] .receive-field-label {
+    color: #f1f5f9 !important;
+}
+
+[data-theme="dark"] .receive-field-input,
+[data-theme="dark"] .active-notes-input {
+    background: #0f172a !important;
+    color: #f8fafc !important;
+    border-color: #334155 !important;
+}
+
+[data-theme="dark"] .receive-field-input:read-only {
+    background: #090d16 !important;
+    color: #cbd5e1 !important;
+    border-color: #1e293b !important;
+}
+
+[data-theme="dark"] .receive-particulars-display {
+    color: #f8fafc !important;
+    border-bottom-color: #334155 !important;
+}
+
+[data-theme="dark"] .receive-divider {
+    border-top-color: #1e293b !important;
+}
+
+[data-theme="dark"] .receive-table thead th {
+    background: #0f172a !important;
+    color: #f8fafc !important;
+    border-color: #1e293b !important;
+}
+
+[data-theme="dark"] .receive-table tbody tr,
+[data-theme="dark"] .receive-table tbody td {
+    background-color: #131c2e !important;
+    color: #cbd5e1 !important;
+    border-color: #1e293b !important;
+}
+
+[data-theme="dark"] .receive-table tbody tr:hover td {
+    background-color: #1a253c !important;
+}
+
+
+

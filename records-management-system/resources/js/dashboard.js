@@ -323,6 +323,9 @@ window.setupIconModeInteractions = setupIconModeInteractions;
 
     // Storage event fallback (guarantees cross-tab and cross-window sync)
     window.addEventListener('storage', (e) => {
+        if (e.key === 'rms-theme' && e.newValue) {
+            document.documentElement.setAttribute('data-theme', e.newValue);
+        }
         if (e.key === STORAGE_KEY && e.newValue) {
             try {
                 const data = JSON.parse(e.newValue);
@@ -367,6 +370,11 @@ window.setupIconModeInteractions = setupIconModeInteractions;
         // Ignore stale events older than 10 seconds
         if (data.timestamp && (Date.now() - data.timestamp > 10000)) return;
         lastHandledEventId = data.id;
+
+        if (data.type === 'theme_change') {
+            const currentTheme = localStorage.getItem('rms-theme') || 'light';
+            document.documentElement.setAttribute('data-theme', currentTheme);
+        }
 
         showRefreshCountdownBanner(data, isInitiator);
     }

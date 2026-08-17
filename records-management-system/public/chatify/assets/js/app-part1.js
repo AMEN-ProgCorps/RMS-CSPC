@@ -1295,6 +1295,14 @@
     // back, and anything still unopened keeps toasting/showing in the bell
     // until it is. Called from ws.onmessage's 'auth_success' case, i.e. once
     // per successful (re)connect, not on a timer.
+    // Ids we've already popped a toast for, so repeated calls to this
+    // function (from the WS-independent poll below, not just the one-shot
+    // WS auth_success call) don't keep re-popping the same still-unseen
+    // mention every tick. Cleared implicitly by a page reload; that's fine
+    // since a fresh load re-toasts anything genuinely still unseen once,
+    // which is the desired "you missed this" behavior.
+    const toastedMentionIds = new Set();
+
     function catchUpMissedNotifications() {
       const xhr = new XMLHttpRequest();
       xhr.open('GET', 'fetch_notifications.php', true);
@@ -1303,7 +1311,11 @@
         try {
           const res = JSON.parse(this.responseText);
           const list = res.notifications || [];
-          list.forEach(function(n) { showNotifyToast(n); });
+          list.forEach(function(n) {
+            if (toastedMentionIds.has(n.id)) return;
+            toastedMentionIds.add(n.id);
+            showNotifyToast(n);
+          });
           // Server response is the full, authoritative set of this user's
           // currently-unseen mentions — replace the bell's cache with it
           // (newest first for display) rather than merging.
@@ -1313,6 +1325,30 @@
         } catch (e) { /* ignore malformed response */ }
       };
       xhr.send();
+    }
+
+    // ── WS-independent notification poll ────────────────────────────────
+    // catchUpMissedNotifications() used to only run once per WS
+    // (re)connect (see ws.onmessage 'auth_success' below). That's fine when
+    // the WebSocket actually connects, but on some deployments (VPS behind
+    // Nginx without a /ws proxy block, Apache without mod_proxy_wstunnel,
+    // ws-server not kept running, firewall blocking the upgrade, etc.) the
+    // socket never connects at all — and in that case 'auth_success' never
+    // fires, so @mentions silently never toast/badge even though they ARE
+    // saved and even though the bell shows them once manually opened.
+    //
+    // This interval makes mention delivery work independently of the
+    // WebSocket: it's a plain HTTP poll, so it works over any web server /
+    // proxy setup with zero extra configuration. When the WS *is* healthy,
+    // 'notify' pushes still deliver instantly and this just acts as a
+    // redundant safety net (deduped, so no double toasts).
+    let notificationPollInterval = null;
+    function startNotificationPoll() {
+      if (notificationPollInterval) return;
+      notificationPollInterval = setInterval(function() {
+        if (document.hidden) return;
+        catchUpMissedNotifications();
+      }, 10000);
     }
 
     // Max characters to show in the toast preview before truncating with "..."

@@ -4061,6 +4061,14 @@
       // Start WebSocket client connection
       connectWebSocket();
 
+      // Start the WS-independent @mention notification poll immediately —
+      // don't wait for (or depend on) the WebSocket ever connecting. See
+      // startNotificationPoll()'s own comment in app-part1.js for why.
+      if (typeof startNotificationPoll === 'function') {
+        startNotificationPoll();
+        catchUpMissedNotifications(); // also run once right away, don't wait 10s for the first check
+      }
+
       // ── Adaptive sidebar polling ──────────────────────────────────────────────
       // • Poll every 3 s  when WebSocket is disconnected (fallback mode).
       // • Poll every 60 s when WebSocket is live — real-time refreshes now
@@ -4131,6 +4139,12 @@
         // since checkSession()/refreshOwnName() now skip ticks while hidden.
         checkSession();
         refreshOwnName();
+
+        // 3c. Catch up on any @mentions missed while the tab was hidden
+        // (the WS-independent poll also skips ticks while hidden).
+        if (typeof catchUpMissedNotifications === 'function') {
+          catchUpMissedNotifications();
+        }
 
         // 4. Resume the fallback poll if WebSocket is still down
         if (!ws || ws.readyState !== WebSocket.OPEN) {

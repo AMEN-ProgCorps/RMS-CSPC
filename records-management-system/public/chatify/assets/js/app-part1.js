@@ -906,13 +906,10 @@
       }
       renderSidebarUsers();
 
-      // Warm the cache for the visible conversation list — but only when
-      // this IS the actual conversation list (not filtered search results).
-      // Search-result users aren't necessarily conversations worth
-      // pre-fetching, and doing it here would fire on every keystroke.
-      if (!searchInput || searchInput.value.trim() === '') {
-        prefetchTopConversations();
-      }
+      // Note: we no longer warm dmMessageCache here. selectDM/performSelectDM
+      // paints only from the real load_dm.php response now (same single-paint
+      // flow as selectGlobalChat), so pre-fetching snapshots nobody reads
+      // anymore would just be wasted requests.
 
       // Deferred restore: spy-mode exit sets this when allUsersData was empty at
       // exit time.  Now that we have a fresh user list, open the DM immediately.
@@ -1153,18 +1150,6 @@
           item.appendChild(actionsRight);
 
           item.onclick = () => selectDM(u);
-          // Warm this conversation's cache as soon as the mouse is over the
-          // row — by the time the click actually lands, the fetch is often
-          // already done and selectDM() paints from cache instantly.
-          // Registered once here (not in the reuse branch below) since this
-          // element persists across re-renders; item.dataset.username /
-          // allUsersData are looked up fresh at hover time either way.
-          item.addEventListener('mouseenter', function() {
-            const uname = item.dataset.username;
-            if (!uname || uname === activeDM || dmMessageCache.has(uname)) return;
-            const freshUser = allUsersData.find(function(x) { return x.username === uname; });
-            if (freshUser) prefetchDmSnapshot(freshUser);
-          });
           item._avatar = avatar;
           item._dot = dot;
           item._info = info;
@@ -1978,7 +1963,45 @@
     // Drives the Messenger-style "Seen" indicator under our own last-read sent message.
     let dmReadUpTo = null;
 
+    // Spamming clicks across the conversation list used to make the chat
+    // pane visibly jump: every single click synchronously swapped chatBox's
+    // whole innerHTML (from the cache) and snapped/restored scroll position,
+    // so a burst of clicks played back as a rapid series of scroll jumps
+    // before finally landing on the last-clicked conversation. Instead, the
+    // heavy part (painting messages + loadChat + scroll) is debounced to
+    // only run once the clicks settle, while the row highlight updates
+    // instantly on every click and the chat pane just gives a quick "blink"
+    // so spamming still feels responsive without the jumping.
+    let selectDMDebounceTimer = null;
+    let pendingSelectUser = null;
+    const SELECT_DM_DEBOUNCE_MS = 180;
+
     function selectDM(u) {
+      pendingSelectUser = u;
+
+      // Instant, lightweight feedback: highlight the clicked row right away,
+      // without touching messages/scroll yet.
+      isGlobalChat = false;
+      activeDM = u.username;
+      activeDMAccountId = Number(u.account_id);
+      activeAdminConv = null;
+      if (!allUsersData.find(function(x) { return Number(x.account_id) === Number(u.account_id); })) {
+        allUsersData.unshift(u);
+      }
+      chatHeaderTitle.textContent = u.name;
+      applyHeaderAdminBadge();
+      applyHeaderAvatar(u);
+      renderSidebarUsers();
+      document.getElementById('globalChatItem').classList.remove('active');
+
+      if (selectDMDebounceTimer) clearTimeout(selectDMDebounceTimer);
+      selectDMDebounceTimer = setTimeout(function() {
+        selectDMDebounceTimer = null;
+        performSelectDM(pendingSelectUser);
+      }, SELECT_DM_DEBOUNCE_MS);
+    }
+
+    function performSelectDM(u) {
       isGlobalChat = false;
       activeDM = u.username;
       activeDMAccountId = Number(u.account_id);
@@ -2012,35 +2035,20 @@
       chatHeaderTitle.textContent = u.name;
       applyHeaderAdminBadge();
       applyHeaderAvatar(u);
-      // Note: we deliberately don't blank chatBox here. The previous chat's
-      // messages stay on screen (harmlessly) until loadChat's diff logic swaps
-      // them out the instant the new conversation's data arrives. Clearing it
-      // immediately, combined with loadChat's old guard silently dropping the
-      // request if one was already in flight, is what caused the chat pane to
-      // flash blank repeatedly when clicking between conversations quickly.
+      // Mirror selectGlobalChat's render flow exactly: blank the pane and do
+      // a single, deterministic paint once the real data comes back. The old
+      // approach (instant-paint from a cached snapshot, then reconcile again
+      // against whatever the network returned) meant two separate scroll
+      // adjustments could land back-to-back — that's what made the chat pane
+      // visibly jump when switching conversations quickly.
+      chatBox.innerHTML = '';
       removePaginationBtn();
 
-      const cachedSnapshot = dmMessageCache.get(u.username);
-      if (cachedSnapshot) {
-        // Paint the last snapshot we have for this conversation right now —
-        // don't wait on the network. loadChat() below still fires and will
-        // reconcile (append/nochange/full-render) once the real response
-        // comes back, same as a normal poll.
-        chatBox.innerHTML = cachedSnapshot.html;
-        dmCursor = cachedSnapshot.nextCursor;
-        dmHasMore = cachedSnapshot.hasMore;
-        dmReadUpTo = cachedSnapshot.readUpTo;
-        isFirstLoad = false; // already painted synchronously below, not on the fetch response
-        applyAdminBadges(); applyEmojiOnly(); attachImageLoadListeners();
-        handleFirstLoadScroll(); // restores this conversation's saved scroll position, or snaps to bottom
-        if (dmHasMore) insertLoadOlderBtn();
-      } else {
-        dmCursor = '';
-        dmHasMore = false;
-        dmReadUpTo = null;
-        isFirstLoad = true; // snap straight to bottom once the new conversation's messages arrive
-        chatFullyLoaded = false; // suppress scroll buttons until new chat finishes loading
-      }
+      dmCursor = '';
+      dmHasMore = false;
+      dmReadUpTo = null;
+      isFirstLoad = true; // snap straight to bottom once the new conversation's messages arrive
+      chatFullyLoaded = false; // suppress scroll buttons until new chat finishes loading
       dmViewingOlder = false;
       markRead(u.username);
       renderSidebarUsers();

@@ -906,6 +906,14 @@
       }
       renderSidebarUsers();
 
+      // Warm the cache for the visible conversation list — but only when
+      // this IS the actual conversation list (not filtered search results).
+      // Search-result users aren't necessarily conversations worth
+      // pre-fetching, and doing it here would fire on every keystroke.
+      if (!searchInput || searchInput.value.trim() === '') {
+        prefetchTopConversations();
+      }
+
       // Deferred restore: spy-mode exit sets this when allUsersData was empty at
       // exit time.  Now that we have a fresh user list, open the DM immediately.
       if (pendingRestoreDM) {
@@ -1011,6 +1019,51 @@
       }
     }
 
+    // Fetches one conversation's latest page in the background and drops it
+    // straight into dmMessageCache — no UI touched, no effect on activeDM/
+    // chatBox. Used to warm the cache BEFORE the user clicks, so the click
+    // itself (selectDM) can paint from cache immediately instead of only
+    // benefiting revisits.
+    function prefetchDmSnapshot(user) {
+      return new Promise(function(resolve) {
+        if (!user || !user.username || dmMessageCache.has(user.username)) { resolve(); return; }
+        const xhr = new XMLHttpRequest();
+        const url = 'load_dm.php?target_id=' + encodeURIComponent(user.account_id || 0) +
+                    '&target_user=' + encodeURIComponent(user.username) + '&before_uuid=';
+        xhr.open('GET', url, true);
+        xhr.onload = function() {
+          if (this.status === 200) {
+            try { cacheDmSnapshot(user.username, JSON.parse(this.responseText)); }
+            catch (e) { /* ignore malformed response */ }
+          }
+          resolve();
+        };
+        xhr.onerror = function() { resolve(); };
+        xhr.send();
+      });
+    }
+
+    // Warms the cache for the most recent conversations right after the
+    // sidebar list loads, one request at a time (gentle on the server and
+    // doesn't compete with the live WS connection or an in-flight send).
+    // This is what makes even a FIRST click on a recent conversation feel
+    // instant, not just revisits within the session.
+    const PREFETCH_LIMIT = 8;
+    let prefetchInFlight = false;
+    function prefetchTopConversations() {
+      if (prefetchInFlight) return;
+      const candidates = (allUsersData || [])
+        .filter(function(u) { return u.username !== activeDM && !dmMessageCache.has(u.username); })
+        .slice(0, PREFETCH_LIMIT);
+      if (candidates.length === 0) return;
+      prefetchInFlight = true;
+      let i = 0;
+      (function next() {
+        if (i >= candidates.length) { prefetchInFlight = false; return; }
+        prefetchDmSnapshot(candidates[i++]).then(next);
+      })();
+    }
+
     // Patches one sidebar row in-place (unread badge, move-to-top ordering)
     // using data we already have from a WS event or our own just-sent
     // message — no fetch_users_dm.php round trip needed.
@@ -1100,7 +1153,18 @@
           item.appendChild(actionsRight);
 
           item.onclick = () => selectDM(u);
-
+          // Warm this conversation's cache as soon as the mouse is over the
+          // row — by the time the click actually lands, the fetch is often
+          // already done and selectDM() paints from cache instantly.
+          // Registered once here (not in the reuse branch below) since this
+          // element persists across re-renders; item.dataset.username /
+          // allUsersData are looked up fresh at hover time either way.
+          item.addEventListener('mouseenter', function() {
+            const uname = item.dataset.username;
+            if (!uname || uname === activeDM || dmMessageCache.has(uname)) return;
+            const freshUser = allUsersData.find(function(x) { return x.username === uname; });
+            if (freshUser) prefetchDmSnapshot(freshUser);
+          });
           item._avatar = avatar;
           item._dot = dot;
           item._info = info;

@@ -11,6 +11,47 @@
 class WsPush
 {
     /**
+     * Send the HTTP response that's already been echo'd/json_encode'd to
+     * the client NOW, then run $work() afterwards.
+     *
+     * Why this exists: WsPush::push()/broadcast() are "fire-and-forget"
+     * pushes to the ws-server, but the underlying call was a *synchronous*
+     * file_get_contents() with up to a multi-second timeout — so a slow or
+     * momentarily-busy ws-server directly added that latency to whatever
+     * the browser was waiting on (e.g. mark_read.php measured ~480ms in
+     * production for what should be a single-row INSERT). The client
+     * doesn't need to wait for this at all.
+     *
+     * Call this from an endpoint AFTER it has echo'd its real JSON
+     * response, wrapping the WsPush call(s):
+     *
+     *   echo json_encode([...]);
+     *   WsPush::flushResponseThenRun(function () use (...) {
+     *       WsPush::push([...], 'message_read', [...]);
+     *   });
+     *
+     * Uses fastcgi_finish_request() (PHP-FPM) to actually close the
+     * connection to the client while the worker keeps running in the
+     * background; falls back to a plain flush() elsewhere (Apache mod_php,
+     * built-in dev server) which won't fully detach but at least doesn't
+     * change behavior there.
+     */
+    public static function flushResponseThenRun(callable $work): void
+    {
+        if (function_exists('fastcgi_finish_request')) {
+            fastcgi_finish_request();
+        } elseif (function_exists('flush')) {
+            @flush();
+        }
+
+        try {
+            $work();
+        } catch (Throwable $t) {
+            error_log('WsPush::flushResponseThenRun() — ' . $t->getMessage());
+        }
+    }
+
+    /**
      * Force-disconnect every open socket for one account. Sends a
      * 'session_kicked' event first (so the client can show a friendly
      * overlay) and tells the ws-server to close the socket shortly after.
@@ -77,7 +118,11 @@ class WsPush
                 'method'        => 'POST',
                 'header'        => "Content-Type: application/json\r\n",
                 'content'       => $body,
-                'timeout'       => 2, // seconds — never let a down ws-server stall the caller
+                // Short timeout: this fires after flushResponseThenRun() has
+                // already released the client, but the PHP-FPM worker is
+                // still occupied while this runs — a down/slow ws-server
+                // shouldn't be able to tie up worker capacity for 2s a pop.
+                'timeout'       => 0.3, // seconds
                 'ignore_errors' => true,
             ],
         ]);

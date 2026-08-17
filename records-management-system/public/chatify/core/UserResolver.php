@@ -191,6 +191,89 @@ class UserResolver
     }
 
     /**
+     * Pre-load the row cache for a specific set of account IDs in a single
+     * query, so subsequent getRow()/getUserInfo()/getFullName() calls for
+     * those same IDs are pure cache hits instead of one query each.
+     *
+     * Use this before looping over a list of account IDs and calling
+     * getUserInfo() per iteration — e.g. rendering a sidebar of N
+     * conversation partners used to fire N individual single-row queries
+     * (classic N+1); calling warmCache($ids) once before that loop turns it
+     * into exactly 1 query for all N, and the loop body doesn't change.
+     *
+     * @param  int[] $accountIds
+     */
+    public static function warmCache(array $accountIds): void
+    {
+        if (self::$loaded) {
+            return; // whole table already cached — nothing to warm
+        }
+
+        $accountIds = array_values(array_unique(array_map('intval', $accountIds)));
+        $missing    = array_filter($accountIds, fn($id) => !isset(self::$cache[$id]));
+        if (empty($missing)) {
+            return;
+        }
+
+        try {
+            $pdo          = Database::getConnection();
+            $placeholders = implode(',', array_fill(0, count($missing), '?'));
+            $stmt = $pdo->prepare(
+                "SELECT ad.account_id, ad.first_name, ad.last_name, ad.middle_name,
+                        ad.office_id, o.office_name, o.office_code, ad.email,
+                        ad.is_currently_online, ad.last_online_time, ad.avatar_url,
+                        COALESCE(ad.allow_typing_preview, TRUE) AS allow_typing_preview,
+                        COALESCE(ad.allow_see_typing_preview, TRUE) AS allow_see_typing_preview,
+                        COALESCE(ad.is_chatify_verified, FALSE) AS is_chatify_verified
+                 FROM account_details ad
+                 LEFT JOIN office o ON o.id = ad.office_id
+                 WHERE ad.account_id IN ($placeholders)"
+            );
+            $stmt->execute(array_values($missing));
+            while ($row = $stmt->fetch()) {
+                self::$cache[(int) $row['account_id']] = $row;
+            }
+        } catch (PDOException $e) {
+            // Cache stays partially warmed; getRow() will fall back to its
+            // own single-row fetch (or null) for anything that didn't load.
+        }
+    }
+
+    /**
+     * Same shape as buildNameMap(), but scoped to a specific, small set of
+     * account IDs instead of the entire account_details table.
+     *
+     * A DM conversation only ever has (at most) 2 distinct senders, so
+     * pulling every user in the system to resolve 1-2 names is wasted work
+     * that gets linearly worse as headcount grows. This resolves exactly
+     * the IDs asked for, in a single query, reusing any already-cached rows
+     * (e.g. one of the IDs was already fetched via getUserInfo()) so a
+     * caller who already has both participants' rows in cache pays zero
+     * extra queries.
+     *
+     * @param  int[] $accountIds
+     * @return array<int, string>
+     */
+    public static function buildNameMapForIds(array $accountIds): array
+    {
+        $accountIds = array_values(array_unique(array_map('intval', $accountIds)));
+        if (empty($accountIds)) {
+            return [];
+        }
+
+        self::warmCache($accountIds);
+
+        $map = [];
+        foreach ($accountIds as $id) {
+            if (isset(self::$cache[$id])) {
+                $row = self::$cache[$id];
+                $map[$id] = trim($row['first_name'] . ' ' . $row['last_name']);
+            }
+        }
+        return $map;
+    }
+
+    /**
      * Server-side user search using PostgreSQL ILIKE.
      *
      * Uses the pg_trgm GIN index (idx_acct_details_name_trgm) added by the

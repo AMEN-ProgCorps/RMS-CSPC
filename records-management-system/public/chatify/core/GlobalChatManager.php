@@ -47,33 +47,35 @@ class GlobalChatManager
      */
     private static function ensureMessageStatusColumn(PDO $pdo): void
     {
-        static $checked = false;
-        if ($checked) return;
-        $checked = true;
+        // Same underlying chat_messages/chat_reactions schema that
+        // ConversationManager::ensureMessageStatusColumn() self-heals, so
+        // this shares the SAME cache key — whichever manager runs first on
+        // a given deploy satisfies it for both. See core/SelfHealCache.php.
+        SelfHealCache::once('message_status_column', function () use ($pdo) {
+            try {
+                $pdo->exec("ALTER TABLE chat_messages ADD COLUMN IF NOT EXISTS status VARCHAR(10) NOT NULL DEFAULT 'active'");
+                $pdo->exec("CREATE INDEX IF NOT EXISTS idx_chat_messages_status ON chat_messages (conv_id, status)");
+            } catch (Throwable $t) {
+                error_log('GlobalChatManager::ensureMessageStatusColumn() — ' . $t->getMessage());
+            }
 
-        try {
-            $pdo->exec("ALTER TABLE chat_messages ADD COLUMN IF NOT EXISTS status VARCHAR(10) NOT NULL DEFAULT 'active'");
-            $pdo->exec("CREATE INDEX IF NOT EXISTS idx_chat_messages_status ON chat_messages (conv_id, status)");
-        } catch (Throwable $t) {
-            error_log('GlobalChatManager::ensureMessageStatusColumn() — ' . $t->getMessage());
-        }
+            // Each statement is its own try/catch: CONCURRENTLY can't run inside
+            // a transaction, and if one of these already exists under a
+            // different name (e.g. provisioned manually) we don't want that to
+            // block the others from being created.
+            self::ensureIndexConcurrently($pdo, 'idx_chat_messages_conv_active_created',
+                "CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_chat_messages_conv_active_created
+                 ON chat_messages (conv_id, created_at DESC, id DESC)
+                 WHERE status = 'active'");
 
-        // Each statement is its own try/catch: CONCURRENTLY can't run inside
-        // a transaction, and if one of these already exists under a
-        // different name (e.g. provisioned manually) we don't want that to
-        // block the others from being created.
-        self::ensureIndexConcurrently($pdo, 'idx_chat_messages_conv_active_created',
-            "CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_chat_messages_conv_active_created
-             ON chat_messages (conv_id, created_at DESC, id DESC)
-             WHERE status = 'active'");
+            self::ensureIndexConcurrently($pdo, 'idx_chat_messages_msg_uuid',
+                "CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_chat_messages_msg_uuid
+                 ON chat_messages (msg_uuid)");
 
-        self::ensureIndexConcurrently($pdo, 'idx_chat_messages_msg_uuid',
-            "CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_chat_messages_msg_uuid
-             ON chat_messages (msg_uuid)");
-
-        self::ensureIndexConcurrently($pdo, 'idx_chat_reactions_msg_uuid',
-            "CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_chat_reactions_msg_uuid
-             ON chat_reactions (msg_uuid)");
+            self::ensureIndexConcurrently($pdo, 'idx_chat_reactions_msg_uuid',
+                "CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_chat_reactions_msg_uuid
+                 ON chat_reactions (msg_uuid)");
+        });
     }
 
     /**

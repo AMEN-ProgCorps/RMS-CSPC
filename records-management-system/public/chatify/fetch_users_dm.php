@@ -105,6 +105,13 @@ if ($searchQuery !== '') {
         }
     }
 
+    // Batch-resolve every partner's account_details row (plus our own, since
+    // $myInfo below needs it too) in ONE query instead of the N individual
+    // single-row queries getUserInfo() used to trigger in this loop (one per
+    // conversation partner — classic N+1). getUserInfo() below now just
+    // reads from the warmed cache.
+    UserResolver::warmCache([...array_keys($convByPartner), $myAccountId]);
+
     foreach ($convByPartner as $partnerId => $conv) {
         $userInfo = UserResolver::getUserInfo($partnerId);
         if ($userInfo === null) {

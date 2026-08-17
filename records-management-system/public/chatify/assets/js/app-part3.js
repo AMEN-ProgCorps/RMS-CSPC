@@ -1545,8 +1545,16 @@
       if (!newHtml.trim()) {
         chatBox.innerHTML = '';
         isFirstLoad = false;
+        cacheDmSnapshot(requestedUser, data);
         return;
       }
+
+      // Snapshot this page for instant paint next time this conversation is
+      // opened (see dmMessageCache / selectDM in app-part1.js). Cached
+      // before the reconcile branches below so every outcome (nochange,
+      // append, full re-render) leaves the cache in sync with what's now
+      // authoritative from the server.
+      cacheDmSnapshot(requestedUser, data);
 
       const wasAtBottom = isAtBottom();
       if (dmCursor === '') dmCursor = data.nextCursor || '';
@@ -1755,6 +1763,7 @@
           hideScrollIndicator();
           // Capture conv identifiers before resetToHome() nulls them
           const clearedDM       = activeDM;
+          if (clearedDM) dmMessageCache.delete(clearedDM); // this conversation's snapshot is now stale
           const clearedDMAccId  = activeDMAccountId;
           const clearedAdminConv = activeAdminConv;
           const clearedGlobal   = isGlobalChat;

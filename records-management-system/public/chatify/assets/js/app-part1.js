@@ -602,6 +602,7 @@
           if (_partnerId !== null && _partnerId > 0) {
             const idx = allUsersData.findIndex(u => Number(u.account_id) === _partnerId);
             if (idx !== -1) {
+              dmMessageCache.delete(allUsersData[idx].username); // drop the now-stale snapshot
               allUsersData.splice(idx, 1);
               renderSidebarUsers();
             }
@@ -667,6 +668,7 @@
           fetchUsers();
         } else if (data.type === 'all_cleared') {
           console.log('Received WebSocket real-time update notice:', data);
+          dmMessageCache.clear(); // every conversation's snapshot is now stale
           gcCursor = ''; dmCursor = '';
           gcViewingOlder = false; dmViewingOlder = false;
           allConvsData = [];
@@ -981,6 +983,33 @@
 
     const sidebarUserItems = new Map(); // username -> item element
     let latestTotalUnread = 0;
+
+    // In-memory snapshot of the last-rendered page of messages per DM
+    // partner, so re-opening a conversation already visited this session
+    // paints instantly (no waiting on load_dm.php) instead of showing the
+    // old conversation's messages until the round trip finishes. A
+    // background loadChat() still runs on every open to reconcile with
+    // whatever changed server-side since the snapshot was taken — this is
+    // purely a "paint something correct immediately" optimization, not a
+    // replacement for the real fetch. Capped and LRU-evicted (Map preserves
+    // insertion order) so a long session doesn't grow this unbounded.
+    const dmMessageCache = new Map(); // username -> {html, hasMore, nextCursor, readUpTo}
+    const DM_CACHE_LIMIT = 30;
+
+    function cacheDmSnapshot(username, data) {
+      if (!username) return;
+      dmMessageCache.delete(username); // re-insert at the end = most-recently-used
+      dmMessageCache.set(username, {
+        html: data.html || '',
+        hasMore: data.hasMore || false,
+        nextCursor: data.nextCursor || '',
+        readUpTo: (typeof data.readUpTo !== 'undefined') ? data.readUpTo : null,
+      });
+      if (dmMessageCache.size > DM_CACHE_LIMIT) {
+        const oldestKey = dmMessageCache.keys().next().value;
+        dmMessageCache.delete(oldestKey);
+      }
+    }
 
     // Patches one sidebar row in-place (unread badge, move-to-top ordering)
     // using data we already have from a WS event or our own just-sent
@@ -1897,10 +1926,6 @@
         allUsersData.unshift(u);
       }
       updateClearChatButtonVisibility();
-      dmCursor = '';
-      dmHasMore = false;
-      dmViewingOlder = false;
-      dmReadUpTo = null;
       clearSendingOverlay(); // drop any pending-send bubbles from the previous conversation
       hideEditBanner();
       
@@ -1919,8 +1944,6 @@
       }
       showTypingIndicator('', false);
 
-      isFirstLoad = true; // snap straight to bottom once the new conversation's messages arrive
-      chatFullyLoaded = false; // suppress scroll buttons until new chat finishes loading
       localStorage.setItem('activeDM', u.username);
       chatHeaderTitle.textContent = u.name;
       applyHeaderAdminBadge();
@@ -1932,6 +1955,29 @@
       // request if one was already in flight, is what caused the chat pane to
       // flash blank repeatedly when clicking between conversations quickly.
       removePaginationBtn();
+
+      const cachedSnapshot = dmMessageCache.get(u.username);
+      if (cachedSnapshot) {
+        // Paint the last snapshot we have for this conversation right now —
+        // don't wait on the network. loadChat() below still fires and will
+        // reconcile (append/nochange/full-render) once the real response
+        // comes back, same as a normal poll.
+        chatBox.innerHTML = cachedSnapshot.html;
+        dmCursor = cachedSnapshot.nextCursor;
+        dmHasMore = cachedSnapshot.hasMore;
+        dmReadUpTo = cachedSnapshot.readUpTo;
+        isFirstLoad = false; // already painted synchronously below, not on the fetch response
+        applyAdminBadges(); applyEmojiOnly(); attachImageLoadListeners();
+        handleFirstLoadScroll(); // restores this conversation's saved scroll position, or snaps to bottom
+        if (dmHasMore) insertLoadOlderBtn();
+      } else {
+        dmCursor = '';
+        dmHasMore = false;
+        dmReadUpTo = null;
+        isFirstLoad = true; // snap straight to bottom once the new conversation's messages arrive
+        chatFullyLoaded = false; // suppress scroll buttons until new chat finishes loading
+      }
+      dmViewingOlder = false;
       markRead(u.username);
       renderSidebarUsers();
       loadChat(false, false, true); // force: abort any in-flight request rather than drop this one

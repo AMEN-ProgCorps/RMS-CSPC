@@ -66,6 +66,21 @@ class User extends Authenticatable
         return $this->id;
     }
 
+    public function getEmailAttribute(): ?string
+    {
+        return $this->details?->email;
+    }
+
+    public function getFirstNameAttribute(): ?string
+    {
+        return $this->details?->first_name;
+    }
+
+    public function getLastNameAttribute(): ?string
+    {
+        return $this->details?->last_name;
+    }
+
     public function details(): HasOne
     {
         return $this->hasOne(AccountDetail::class, 'account_id');
@@ -80,6 +95,12 @@ class User extends Authenticatable
     {
         $setting = $this->personalSetting;
         return $setting ? (bool)$setting->auto_open_chat : true;
+    }
+
+    public function notificationSoundAlert(): bool
+    {
+        $setting = $this->personalSetting;
+        return $setting ? (bool)($setting->notification_sound_alert ?? true) : true;
     }
 
     public function permissions(): HasOneThrough

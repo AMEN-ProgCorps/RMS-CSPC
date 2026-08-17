@@ -73,6 +73,18 @@
     // inconsistently across OS/browsers — use a proper inline SVG instead).
     const EYE_ICON_SVG = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path><circle cx="12" cy="12" r="3"></circle></svg>';
 
+    // Notify parent window on user interaction to unlock parent AudioContext
+    const chatifyIframeUnlockEvents = ['click', 'touchstart', 'keydown', 'pointerdown'];
+    function notifyParentIframeInteraction() {
+      if (window.parent && window.parent !== window) {
+        try {
+          window.parent.postMessage({ type: 'CHATIFY_USER_INTERACTION' }, '*');
+        } catch (e) {}
+      }
+      chatifyIframeUnlockEvents.forEach(evt => document.removeEventListener(evt, notifyParentIframeInteraction));
+    }
+    chatifyIframeUnlockEvents.forEach(evt => document.addEventListener(evt, notifyParentIframeInteraction, { passive: true }));
+
     // DM Sidebar state
     let activeDM = null;
     let activeDMAccountId = null; // Track recipient's account ID
@@ -506,6 +518,11 @@
               }
             }
             if (Number(data.recipient_id) === wsConfig.accountId && Number(data.sender_id) !== wsConfig.accountId) {
+              if (window.parent && window.parent !== window) {
+                try {
+                  window.parent.postMessage({ type: 'CHATIFY_NEW_MESSAGE', sender_id: data.sender_id }, '*');
+                } catch (e) {}
+              }
               const otherUser = allUsersData.find(u => Number(u.account_id) === Number(data.sender_id));
               if (otherUser) {
                 bumpSidebarUser(otherUser.username, { incrementUnread: true });
@@ -689,6 +706,11 @@
           // Pushed directly by the server the instant someone notifies/mentions
           // us. This is the only delivery path now — no HTTP fallback poll.
           console.log('Received WebSocket real-time update notice:', data);
+          if (window.parent && window.parent !== window) {
+            try {
+              window.parent.postMessage({ type: 'CHATIFY_NEW_MESSAGE', notify_id: data.id }, '*');
+            } catch (e) {}
+          }
           showNotifyToast(data);
           if (data && data.id && !bellNotifications.some(function(x) { return x.id === data.id; })) {
             bellNotifications.unshift(data); // newest first

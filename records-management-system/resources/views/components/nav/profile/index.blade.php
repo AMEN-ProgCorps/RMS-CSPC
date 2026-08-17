@@ -11,6 +11,19 @@
     </div>
 </div>
 
+<div id="profile-settings-id" class="button-section-container">
+    <div class="button-container {{ request()->routeIs('profile.settings') ? 'force-active' : '' }}" onclick="proccedto('{{ route('profile.settings') }}')">
+        <div class="button-icon">
+            <svg xmlns="http://www.w3.org/2000/svg" width="29" height="29" viewBox="0 0 29 29" fill="none">
+                <path d="M4 20.75v2.5h6.25v-2.5H4zm0-15v2.5h11.25v-2.5H4zm11.25 17.5v-2.5H25v-2.5h-9.75v-2.5H12.5v7.5h2.75zm-6.25-10v2.5H4v2.5h5v2.5h2.75v-7.5H9zm16 2.5v-2.5H14.75v2.5H25zm-6.25-5v2.5H25v-2.5h-6.25v-2.5H16v7.5h2.75z" fill="#4F4F4F"/>
+            </svg>
+        </div>
+        <div class="button-label">
+            <span>Preferences & Settings</span>
+        </div>
+    </div>
+</div>
+
 <div id="profile-security-id" class="button-section-container">
     <div class="button-container {{ request()->routeIs('profile.security-logs') ? 'force-active' : '' }}" onclick="proccedto('{{ route('profile.security-logs') }}')">
         <div class="button-icon">

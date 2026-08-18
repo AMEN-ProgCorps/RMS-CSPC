@@ -825,16 +825,8 @@ new #[Layout('layouts.dts')] #[Title('Advanced Scanner Console - DTS')] class ex
     <div style="background: #ffffff; border: 1px solid #e2e8f0; border-radius: 16px; padding: 20px 24px; margin-bottom: 24px; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05); display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 16px;">
         <div style="display: flex; align-items: center; gap: 16px;">
             <div style="width: 48px; height: 48px; border-radius: 12px; background: linear-gradient(135deg, #0284c7 0%, #0369a1 100%); display: flex; align-items: center; justify-content: center; color: #ffffff; box-shadow: 0 4px 10px rgba(2, 132, 199, 0.3);">
-                <svg xmlns="http://www.w3.org/2000/svg" width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
-                    <path d="M3 7V5a2 2 0 0 1 2-2h2"/>
-                    <path d="M17 3h2a2 2 0 0 1 2 2v2"/>
-                    <path d="M21 17v2a2 2 0 0 1-2 2h-2"/>
-                    <path d="M7 21H5a2 2 0 0 1-2-2v-2"/>
-                    <line x1="7" y1="12" x2="17" y2="12"/>
-                    <rect x="7" y="7" width="3" height="3" fill="currentColor"/>
-                    <rect x="14" y="7" width="3" height="3" fill="currentColor"/>
-                    <rect x="7" y="14" width="3" height="3" fill="currentColor"/>
-                    <rect x="14" y="14" width="3" height="3" fill="currentColor"/>
+                <svg xmlns="http://www.w3.org/2000/svg" width="26" height="26" viewBox="0 0 24 24" fill="none">
+                    <path d="M3 8V5a2 2 0 0 1 2-2h3v2H5v3H3zm13-5h3a2 2 0 0 1 2 2v3h-2V5h-3V3zM3 16v3a2 2 0 0 0 2 2h3v-2H5v-3H3zm18 0v3a2 2 0 0 1-2 2h-3v-2h3v-3h2zM7 7h3.5v3.5H7V7zm6.5 0h3.5v3.5h-3.5V7zM7 13.5h3.5v3.5H7v-3.5zm6.5 0h3.5v3.5h-3.5v-3.5z" fill="currentColor"/>
                 </svg>
             </div>
             <div>

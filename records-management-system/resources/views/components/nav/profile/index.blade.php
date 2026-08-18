@@ -14,8 +14,8 @@
 <div id="profile-settings-id" class="button-section-container">
     <div class="button-container {{ request()->routeIs('profile.settings') ? 'force-active' : '' }}" onclick="proccedto('{{ route('profile.settings') }}')">
         <div class="button-icon">
-            <svg xmlns="http://www.w3.org/2000/svg" width="29" height="29" viewBox="0 0 29 29" fill="none">
-                <path d="M4 20.75v2.5h6.25v-2.5H4zm0-15v2.5h11.25v-2.5H4zm11.25 17.5v-2.5H25v-2.5h-9.75v-2.5H12.5v7.5h2.75zm-6.25-10v2.5H4v2.5h5v2.5h2.75v-7.5H9zm16 2.5v-2.5H14.75v2.5H25zm-6.25-5v2.5H25v-2.5h-6.25v-2.5H16v7.5h2.75z" fill="#4F4F4F"/>
+            <svg xmlns="http://www.w3.org/2000/svg" width="29" height="29" viewBox="0 0 24 24" fill="none">
+                <path d="M3 17v2h6v-2H3zM3 5v2h10V5H3zm10 16v-2h8v-2h-8v-2h-2v6h2zM7 9v2H3v2h4v2h2V9H7zm14 4v-2H11v2h10zm-6-4h2V7h4V5h-4V3h-2v6z" fill="#4F4F4F"/>
             </svg>
         </div>
         <div class="button-label">

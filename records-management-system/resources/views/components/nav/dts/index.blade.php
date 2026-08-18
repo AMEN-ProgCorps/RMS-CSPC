@@ -57,16 +57,8 @@
 <div id="dts-scanner-id" class="button-section-container">
     <div class="button-container {{ request()->routeIs('dts.scanner') ? 'force-active' : '' }}" onclick="proccedto('{{ route('dts.scanner') }}')">
         <div class="button-icon">
-            <svg xmlns="http://www.w3.org/2000/svg" width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#4F4F4F" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                <path d="M3 7V5a2 2 0 0 1 2-2h2"/>
-                <path d="M17 3h2a2 2 0 0 1 2 2v2"/>
-                <path d="M21 17v2a2 2 0 0 1-2 2h-2"/>
-                <path d="M7 21H5a2 2 0 0 1-2-2v-2"/>
-                <line x1="7" y1="12" x2="17" y2="12"/>
-                <rect x="7" y="7" width="3" height="3" fill="#4F4F4F"/>
-                <rect x="14" y="7" width="3" height="3" fill="#4F4F4F"/>
-                <rect x="7" y="14" width="3" height="3" fill="#4F4F4F"/>
-                <rect x="14" y="14" width="3" height="3" fill="#4F4F4F"/>
+            <svg xmlns="http://www.w3.org/2000/svg" width="29" height="29" viewBox="0 0 24 24" fill="none">
+                <path d="M3 8V5a2 2 0 0 1 2-2h3v2H5v3H3zm13-5h3a2 2 0 0 1 2 2v3h-2V5h-3V3zM3 16v3a2 2 0 0 0 2 2h3v-2H5v-3H3zm18 0v3a2 2 0 0 1-2 2h-3v-2h3v-3h2zM7 7h3.5v3.5H7V7zm6.5 0h3.5v3.5h-3.5V7zM7 13.5h3.5v3.5H7v-3.5zm6.5 0h3.5v3.5h-3.5v-3.5z" fill="#4F4F4F"/>
             </svg>
         </div>
         <div class="button-label">

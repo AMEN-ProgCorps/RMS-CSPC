@@ -658,7 +658,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 1')
     @vite(['resources/css/admin/console.css'])
 @endpush
 
-<div style="padding: 24px; background: #f8fafc; min-height: 100vh; font-family: 'Inter', system-ui, -apple-system, sans-serif;">
+<div class="nap-page-container" style="padding: 24px; min-height: 100vh; font-family: 'Inter', system-ui, -apple-system, sans-serif;">
     <style>
         .nap-card { background: #ffffff; border: 1px solid #e2e8f0; border-radius: 12px; padding: 20px; box-shadow: 0 4px 12px rgba(0,0,0,0.02); margin-bottom: 24px; }
         .nap-table { width: 100%; border-collapse: collapse; font-size: 13.5px; text-align: left; }
@@ -670,6 +670,104 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 1')
         .nap-btn-secondary { background: #f1f5f9; color: #475569; border: 1px solid #cbd5e1; }
         .nap-btn-secondary:hover { background: #e2e8f0; }
 
+        .nap-page-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 24px; flex-wrap: wrap; gap: 16px; }
+        .nap-page-title { font-size: 24px; font-weight: 800; color: #0f172a; margin: 0; }
+        .nap-page-subtitle { font-size: 14px; color: #64748b; margin: 4px 0 0 0; }
+
+        .nap-stat-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 16px; margin-bottom: 24px; }
+        .nap-stat-card { background: #ffffff; border: 1px solid #e2e8f0; border-radius: 12px; padding: 18px; box-shadow: 0 4px 12px rgba(0,0,0,0.02); display: flex; align-items: center; gap: 16px; }
+        .nap-stat-icon { width: 44px; height: 44px; border-radius: 10px; display: flex; align-items: center; justify-content: center; font-size: 20px; font-weight: 800; }
+        .nap-stat-icon-blue { background: #eff6ff; color: #2563eb; }
+        .nap-stat-icon-green { background: #f0fdf4; color: #16a34a; }
+        .nap-stat-icon-orange { background: #fff7ed; color: #ea580c; }
+        .nap-stat-value { font-size: 22px; font-weight: 800; color: #0f172a; }
+        .nap-stat-label { font-size: 12.5px; font-weight: 600; color: #64748b; }
+
+        .nap-input { padding: 9px 14px; border: 1px solid #cbd5e1; border-radius: 8px; font-size: 13px; outline: none; background: #ffffff; color: #0f172a; }
+        .nap-search-input { min-width: 280px; }
+        .nap-select-input { font-weight: 600; }
+
+        /* Dark Mode Overrides */
+        [data-theme="dark"] .nap-page-container {
+            background: transparent !important;
+        }
+        [data-theme="dark"] .nap-page-title {
+            color: #f8fafc !important;
+        }
+        [data-theme="dark"] .nap-page-subtitle {
+            color: #94a3b8 !important;
+        }
+        [data-theme="dark"] .nap-stat-card {
+            background: #131c2e !important;
+            border-color: #1e293b !important;
+            box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3) !important;
+        }
+        [data-theme="dark"] .nap-stat-value {
+            color: #f8fafc !important;
+        }
+        [data-theme="dark"] .nap-stat-label {
+            color: #94a3b8 !important;
+        }
+        [data-theme="dark"] .nap-stat-icon-blue {
+            background: rgba(37, 99, 235, 0.2) !important;
+            color: #60a5fa !important;
+        }
+        [data-theme="dark"] .nap-stat-icon-green {
+            background: rgba(16, 185, 129, 0.2) !important;
+            color: #34d399 !important;
+        }
+        [data-theme="dark"] .nap-stat-icon-orange {
+            background: rgba(249, 115, 22, 0.2) !important;
+            color: #fb923c !important;
+        }
+        [data-theme="dark"] .nap-card {
+            background: #131c2e !important;
+            border-color: #1e293b !important;
+            color: #cbd5e1 !important;
+        }
+        [data-theme="dark"] .nap-input {
+            background: #0f172a !important;
+            border-color: #334155 !important;
+            color: #f8fafc !important;
+        }
+        [data-theme="dark"] .nap-input::placeholder {
+            color: #64748b !important;
+        }
+        [data-theme="dark"] .nap-table th {
+            background: #0f172a !important;
+            color: #cbd5e1 !important;
+            border-bottom-color: #1e293b !important;
+            border-right-color: #1e293b !important;
+        }
+        [data-theme="dark"] .nap-table tr:nth-child(2) th {
+            background: #0f172a !important;
+            color: #cbd5e1 !important;
+            border-bottom-color: #1e293b !important;
+            border-right-color: #1e293b !important;
+        }
+        [data-theme="dark"] .nap-table td {
+            color: #cbd5e1 !important;
+            border-bottom-color: #1e293b !important;
+        }
+        [data-theme="dark"] .nap-table tr:hover td {
+            background-color: #1a253c !important;
+        }
+        [data-theme="dark"] .table-section-divider-row td {
+            background: #1e293b !important;
+            color: #60a5fa !important;
+            border-color: #334155 !important;
+        }
+        [data-theme="dark"] .nap-btn-secondary {
+            background: #0f172a !important;
+            color: #cbd5e1 !important;
+            border-color: #334155 !important;
+        }
+        [data-theme="dark"] .modal-dialog {
+            background: #131c2e !important;
+            border: 1px solid #1e293b !important;
+            color: #cbd5e1 !important;
+        }
+
         /* Modal Overlay & Card Styling */
         .modal-overlay { position: fixed; inset: 0; background: rgba(15, 23, 42, 0.65); backdrop-filter: blur(4px); z-index: 9999; display: flex; align-items: center; justify-content: center; padding: 20px; }
         .modal-content { background: #cbd5e1; width: 100%; max-width: 1100px; max-height: 94vh; border-radius: 14px; overflow-y: auto; box-shadow: 0 20px 40px rgba(0,0,0,0.3); padding: 24px; display: flex; flex-direction: column; gap: 20px; }
@@ -680,7 +778,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 1')
         .print-page { 
             width: 1020px; 
             min-height: 700px; 
-            height: auto;
+            height: auto; 
             background: #ffffff; 
             border: none; 
             margin: 0 auto 30px auto; 
@@ -777,10 +875,10 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 1')
     </style>
 
     <!-- Header Section -->
-    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 24px; flex-wrap: wrap; gap: 16px;">
+    <div class="nap-page-header">
         <div>
-            <h1 style="font-size: 24px; font-weight: 800; color: #0f172a; margin: 0;">NAP Form 1: Records Inventory and Appraisal</h1>
-            <p style="font-size: 14px; color: #64748b; margin: 4px 0 0 0;">Official inventory listing & appraisal schedule for all record series.</p>
+            <h1 class="nap-page-title">NAP Form 1: Records Inventory and Appraisal</h1>
+            <p class="nap-page-subtitle">Official inventory listing & appraisal schedule for all record series.</p>
         </div>
         <div style="display: flex; gap: 10px; flex-wrap: wrap;">
             <button type="button" wire:click="openClusterModal" class="nap-btn nap-btn-primary" {{ empty($selectedIds) ? 'disabled style="opacity: 0.5; cursor: not-allowed;"' : '' }}>
@@ -790,34 +888,34 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 1')
     </div>
 
     <!-- Stat Summary Cards -->
-    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 16px; margin-bottom: 24px;">
-        <div style="background: #ffffff; border: 1px solid #e2e8f0; border-radius: 12px; padding: 18px; box-shadow: 0 4px 12px rgba(0,0,0,0.02); display: flex; align-items: center; gap: 16px;">
-            <div style="width: 44px; height: 44px; border-radius: 10px; background: #eff6ff; color: #2563eb; display: flex; align-items: center; justify-content: center; font-size: 20px; font-weight: 800;">
+    <div class="nap-stat-grid">
+        <div class="nap-stat-card">
+            <div class="nap-stat-icon nap-stat-icon-blue">
                 📁
             </div>
             <div>
-                <div style="font-size: 22px; font-weight: 800; color: #0f172a;">{{ number_format($totalCount) }}</div>
-                <div style="font-size: 12.5px; font-weight: 600; color: #64748b;">Total Record Series</div>
+                <div class="nap-stat-value">{{ number_format($totalCount) }}</div>
+                <div class="nap-stat-label">Total Record Series</div>
             </div>
         </div>
 
-        <div style="background: #ffffff; border: 1px solid #e2e8f0; border-radius: 12px; padding: 18px; box-shadow: 0 4px 12px rgba(0,0,0,0.02); display: flex; align-items: center; gap: 16px;">
-            <div style="width: 44px; height: 44px; border-radius: 10px; background: #f0fdf4; color: #16a34a; display: flex; align-items: center; justify-content: center; font-size: 20px; font-weight: 800;">
+        <div class="nap-stat-card">
+            <div class="nap-stat-icon nap-stat-icon-green">
                 ♾️
             </div>
             <div>
-                <div style="font-size: 22px; font-weight: 800; color: #0f172a;">{{ number_format($permanentCount) }}</div>
-                <div style="font-size: 12.5px; font-weight: 600; color: #64748b;">Permanent Series</div>
+                <div class="nap-stat-value">{{ number_format($permanentCount) }}</div>
+                <div class="nap-stat-label">Permanent Series</div>
             </div>
         </div>
 
-        <div style="background: #ffffff; border: 1px solid #e2e8f0; border-radius: 12px; padding: 18px; box-shadow: 0 4px 12px rgba(0,0,0,0.02); display: flex; align-items: center; gap: 16px;">
-            <div style="width: 44px; height: 44px; border-radius: 10px; background: #fff7ed; color: #ea580c; display: flex; align-items: center; justify-content: center; font-size: 20px; font-weight: 800;">
+        <div class="nap-stat-card">
+            <div class="nap-stat-icon nap-stat-icon-orange">
                 ⏳
             </div>
             <div>
-                <div style="font-size: 22px; font-weight: 800; color: #0f172a;">{{ number_format($temporaryCount) }}</div>
-                <div style="font-size: 12.5px; font-weight: 600; color: #64748b;">Temporary Series</div>
+                <div class="nap-stat-value">{{ number_format($temporaryCount) }}</div>
+                <div class="nap-stat-label">Temporary Series</div>
             </div>
         </div>
     </div>
@@ -826,15 +924,15 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 1')
     <div class="nap-card">
         <div style="display: flex; gap: 12px; align-items: center; justify-content: space-between; flex-wrap: wrap; margin-bottom: 20px;">
             <div style="display: flex; gap: 12px; flex-wrap: wrap; flex: 1;">
-                <input type="text" wire:model.live.debounce.300ms="search" placeholder="Search item no, series title, description, remarks..." style="padding: 9px 14px; border: 1px solid #cbd5e1; border-radius: 8px; font-size: 13px; min-width: 280px; outline: none;">
+                <input type="text" wire:model.live.debounce.300ms="search" placeholder="Search item no, series title, description, remarks..." class="nap-input nap-search-input">
                 
-                <select wire:model.live="retentionFilter" style="padding: 9px 14px; border: 1px solid #cbd5e1; border-radius: 8px; font-size: 13px; background: #fff; outline: none;">
+                <select wire:model.live="retentionFilter" class="nap-input nap-select-input">
                     <option value="">All Retention Types</option>
                     <option value="permanent">Permanent Retention</option>
                     <option value="temporary">Temporary Retention</option>
                 </select>
 
-                <select wire:model.live="officeFilter" style="padding: 9px 14px; border: 1px solid #cbd5e1; border-radius: 8px; font-size: 13px; background: #fff; outline: none; font-weight: 600; color: #0f172a;">
+                <select wire:model.live="officeFilter" class="nap-input nap-select-input">
                     <option value="">All Offices</option>
                     @foreach($officesList as $off)
                         <option value="{{ $off->office_code }}">{{ $off->office_name }} ({{ $off->office_code }})</option>
@@ -866,9 +964,9 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 1')
                         <th colspan="3" style="text-align: center; border-bottom: 1px solid #cbd5e1;">RETENTION PERIOD</th>
                         <th rowspan="2" style="width: 130px; text-align: right;">ACTION</th>
                     </tr>
-                    <tr style="background: #f1f5f9; font-size: 11px; text-transform: uppercase;">
-                        <th style="width: 65px; text-align: center; border-right: 1px solid #cbd5e1; padding: 6px 4px;">ACTIVE</th>
-                        <th style="width: 65px; text-align: center; border-right: 1px solid #cbd5e1; padding: 6px 4px;">STORAGE</th>
+                    <tr style="font-size: 11px; text-transform: uppercase;">
+                        <th style="width: 65px; text-align: center; padding: 6px 4px;">ACTIVE</th>
+                        <th style="width: 65px; text-align: center; padding: 6px 4px;">STORAGE</th>
                         <th style="width: 70px; text-align: center; padding: 6px 4px;">TOTAL</th>
                     </tr>
                 </thead>

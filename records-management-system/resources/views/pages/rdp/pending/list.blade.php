@@ -546,6 +546,106 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Pending List
             box-shadow: 0 20px 25px -5px rgba(0,0,0,0.1);
         }
 
+        /* ==========================================================================
+           Pending List - Dark Mode Overrides
+           ========================================================================== */
+        [data-theme="dark"] .header-card {
+            background: #131c2e !important;
+            border-color: #1e293b !important;
+            box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3) !important;
+        }
+
+        [data-theme="dark"] .header-title h1 {
+            color: #f8fafc !important;
+        }
+
+        [data-theme="dark"] .header-title p {
+            color: #94a3b8 !important;
+        }
+
+        [data-theme="dark"] .dts-tab-bar {
+            background: #0f172a !important;
+            border-color: #1e293b !important;
+        }
+
+        [data-theme="dark"] .dts-tab-btn {
+            color: #94a3b8 !important;
+        }
+
+        [data-theme="dark"] .dts-tab-btn.active {
+            background: #131c2e !important;
+            color: #60a5fa !important;
+            box-shadow: 0 2px 6px rgba(0, 0, 0, 0.4) !important;
+        }
+
+        [data-theme="dark"] .layout-toggle-btn {
+            background: #0f172a !important;
+            border-color: #334155 !important;
+            color: #cbd5e1 !important;
+        }
+
+        [data-theme="dark"] .search-input,
+        [data-theme="dark"] .select-filter {
+            background: #0f172a !important;
+            border-color: #334155 !important;
+            color: #f8fafc !important;
+        }
+
+        [data-theme="dark"] .pending-table-wrapper {
+            background: #131c2e !important;
+            border-color: #1e293b !important;
+        }
+
+        [data-theme="dark"] .pending-table th {
+            background: #0f172a !important;
+            color: #94a3b8 !important;
+            border-right-color: #1e293b !important;
+            border-bottom: 2px solid #1e293b !important;
+        }
+
+        [data-theme="dark"] .pending-table td {
+            color: #cbd5e1 !important;
+            border-bottom-color: #1e293b !important;
+            border-right-color: #1e293b !important;
+        }
+
+        [data-theme="dark"] .pending-table tr:hover td {
+            background-color: #1a253c !important;
+        }
+
+        [data-theme="dark"] .cluster-card {
+            background: #131c2e !important;
+            border-color: #1e293b !important;
+        }
+
+        [data-theme="dark"] .card-title {
+            color: #f8fafc !important;
+        }
+
+        [data-theme="dark"] .card-meta {
+            color: #94a3b8 !important;
+        }
+
+        [data-theme="dark"] .card-footer {
+            border-top-color: #1e293b !important;
+        }
+
+        [data-theme="dark"] .btn-view {
+            background: #0f172a !important;
+            color: #60a5fa !important;
+            border-color: #3b82f6 !important;
+        }
+
+        [data-theme="dark"] .btn-view:hover {
+            background: #1e293b !important;
+        }
+
+        [data-theme="dark"] .modal-card {
+            background: #131c2e !important;
+            border: 1px solid #1e293b !important;
+            color: #cbd5e1 !important;
+        }
+
         /* Print Modal & Media Query Defaults */
         @media print {
             @page {

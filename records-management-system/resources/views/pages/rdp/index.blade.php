@@ -317,8 +317,15 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Landing Page
     @vite(['resources/css/admin/console.css'])
 @endpush
 
-<div style="padding: 28px; background: #f8fafc; min-height: 100vh; font-family: 'Inter', system-ui, -apple-system, sans-serif;">
+<div class="rdp-page-container">
     <style>
+        .rdp-page-container {
+            padding: 28px;
+            background: #f8fafc;
+            min-height: 100vh;
+            font-family: 'Inter', system-ui, -apple-system, sans-serif;
+        }
+
         /* Monochromatic Blue Design Tokens */
         :root {
             --blue-900: #0f172a;
@@ -539,6 +546,165 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Landing Page
             background: #2563eb;
             transform: translateY(-2px);
             box-shadow: 0 12px 24px rgba(37, 99, 235, 0.35);
+        }
+
+        /* ==========================================================================
+           RDP Dashboard - Dark Mode Overrides
+           ========================================================================== */
+        [data-theme="dark"] .rdp-page-container {
+            background: transparent !important;
+        }
+
+        [data-theme="dark"] .stat-card {
+            background: #131c2e !important;
+            border-color: #1e293b !important;
+            box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3) !important;
+        }
+
+        [data-theme="dark"] .stat-card:hover {
+            border-color: #3b82f6 !important;
+            box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45) !important;
+        }
+
+        [data-theme="dark"] .stat-card div[style*="color: #0f172a"] {
+            color: #f8fafc !important;
+        }
+
+        [data-theme="dark"] .stat-card div[style*="color: #64748b"] {
+            color: #94a3b8 !important;
+        }
+
+        [data-theme="dark"] .stat-icon {
+            background: #0f172a !important;
+        }
+
+        [data-theme="dark"] .dashboard-section {
+            background: #131c2e !important;
+            border-color: #1e293b !important;
+            box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3) !important;
+        }
+
+        [data-theme="dark"] .dashboard-section h3 {
+            color: #f8fafc !important;
+        }
+
+        [data-theme="dark"] .dashboard-section span[style*="color: #64748b"] {
+            color: #94a3b8 !important;
+        }
+
+        [data-theme="dark"] .dashboard-section div[style*="color: #1e3a8a"] {
+            color: #60a5fa !important;
+        }
+
+        [data-theme="dark"] div[style*="background: #e0f2fe"] {
+            background: #0f172a !important;
+        }
+
+        [data-theme="dark"] .dashboard-section div[style*="font-size: 12.5px"] span {
+            color: #cbd5e1 !important;
+        }
+
+        [data-theme="dark"] h3[style*="color: #0f172a"] {
+            color: #f8fafc !important;
+        }
+
+        [data-theme="dark"] .module-card {
+            background: #131c2e !important;
+            border-color: #1e293b !important;
+            box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3) !important;
+        }
+
+        [data-theme="dark"] .module-card:hover {
+            border-color: #3b82f6 !important;
+            box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45) !important;
+        }
+
+        [data-theme="dark"] .module-card h4 {
+            color: #f8fafc !important;
+        }
+
+        [data-theme="dark"] .module-card p {
+            color: #94a3b8 !important;
+        }
+
+        [data-theme="dark"] .module-card span[style*="background: #eff6ff"],
+        [data-theme="dark"] .module-card span[style*="background: #dbeafe"],
+        [data-theme="dark"] .module-card span[style*="background: #e0f2fe"],
+        [data-theme="dark"] .module-card span[style*="background: #f1f5f9"] {
+            background: #0f172a !important;
+            color: #60a5fa !important;
+            border: 1px solid #1e293b !important;
+        }
+
+        [data-theme="dark"] .module-card span[style*="color: #64748b"] {
+            color: #94a3b8 !important;
+        }
+
+        [data-theme="dark"] .nap-btn-secondary {
+            background: #0f172a !important;
+            color: #93c5fd !important;
+            border-color: #334155 !important;
+        }
+
+        [data-theme="dark"] .nap-btn-secondary:hover {
+            background: #1e293b !important;
+            color: #60a5fa !important;
+            border-color: #475569 !important;
+        }
+
+        [data-theme="dark"] .data-table th {
+            background: #0f172a !important;
+            color: #94a3b8 !important;
+            border-bottom: 2px solid #1e293b !important;
+        }
+
+        [data-theme="dark"] .data-table tr[style*="background: #f8fafc"] th {
+            background: #0f172a !important;
+            color: #94a3b8 !important;
+            border-bottom: 2px solid #1e293b !important;
+        }
+
+        [data-theme="dark"] .data-table td {
+            color: #cbd5e1 !important;
+            border-bottom-color: #1e293b !important;
+        }
+
+        [data-theme="dark"] .data-table td[style*="color: #0f172a"] {
+            color: #f8fafc !important;
+        }
+
+        [data-theme="dark"] .data-table td[style*="color: #475569"] {
+            color: #94a3b8 !important;
+        }
+
+        [data-theme="dark"] .data-table tr:hover td {
+            background-color: #1a253c !important;
+        }
+
+        [data-theme="dark"] input[type="text"] {
+            background: #0f172a !important;
+            border-color: #334155 !important;
+            color: #f8fafc !important;
+        }
+
+        [data-theme="dark"] .modal-dialog {
+            background: #131c2e !important;
+            border: 1px solid #1e293b !important;
+        }
+
+        [data-theme="dark"] .modal-dialog h3 {
+            color: #f8fafc !important;
+        }
+
+        [data-theme="dark"] .modal-dialog label {
+            color: #94a3b8 !important;
+        }
+
+        [data-theme="dark"] .modal-dialog input,
+        [data-theme="dark"] .modal-dialog textarea {
+            background: #0f172a !important;
+            border-color: #334155 !important;
+            color: #f8fafc !important;
         }
     </style>
 

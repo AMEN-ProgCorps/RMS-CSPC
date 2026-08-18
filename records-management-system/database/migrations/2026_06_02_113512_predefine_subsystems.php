@@ -19,23 +19,36 @@ return new class extends Migration
         $subsystems = [
             ['name' => 'Document Tracking System', 'version' => '2.0.0'],
             ['name' => 'Records Disposition Program', 'version' => '1.0.0'],
+            ['name' => 'Document Control System', 'version' => '1.0.0'],
             ['name' => 'Admin Console', 'version' => '1.0.0'],
             ['name' => 'Profile Manager', 'version' => '1.0.0'],
-        ];
+            ['name' => 'Chatify', 'version' => '1.0.0'],
+         ];
 
-        // Insert subsystems and their version logs
+        $hasActive = Schema::hasColumn('subsystems', 'is_active');
+
         foreach ($subsystems as $subsystem) {
             $existing = DB::table('subsystems')->where('subsystem_name', $subsystem['name'])->first();
             if ($existing) {
+                $update = ['subsystem_version' => $subsystem['version'], 'update_at' => now()];
+                if ($hasActive) {
+                    $update['is_active'] = true;
+                }
+                DB::table('subsystems')->where('subsystem_id', $existing->subsystem_id)->update($update);
                 continue;
             }
 
-            $id = DB::table('subsystems')->insertGetId([
+            $row = [
                 'subsystem_name' => $subsystem['name'],
                 'subsystem_version' => $subsystem['version'],
                 'created_at' => now(),
                 'update_at' => now(),
-            ], 'subsystem_id');
+            ];
+            if ($hasActive) {
+                $row['is_active'] = true;
+            }
+
+            $id = DB::table('subsystems')->insertGetId($row, 'subsystem_id');
 
             DB::table('subsystem_versions_log')->insert([
                 'subsystem_key' => $id,
@@ -58,8 +71,10 @@ return new class extends Migration
         $names = [
             'Document Tracking System',
             'Records Disposition Program',
+            'Document Control System',
             'Admin Console',
             'Profile Manager',
+            'Chatify',
         ];
 
         // Delete related version log entries for these subsystems

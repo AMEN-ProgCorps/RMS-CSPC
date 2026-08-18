@@ -19,6 +19,7 @@ return Application::configure(basePath: dirname(__DIR__))
             'can.access.admin' => \App\Http\Middleware\CanAccessAdmin::class,
             'can.access.dts'   => \App\Http\Middleware\CanAccessDts::class,
             'can.access.rdp'   => \App\Http\Middleware\CanAccessRdp::class,
+            'can.access.dcs'   => \App\Http\Middleware\CanAccessDcs::class,
         ]);
     })
     ->withExceptions(function (Exceptions $exceptions): void {

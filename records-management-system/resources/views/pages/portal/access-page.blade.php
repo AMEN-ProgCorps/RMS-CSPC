@@ -87,6 +87,7 @@ new #[Layout('layouts.portal')] #[Title('RMS CSPC Portal')] class extends Compon
 
         $dtsActive = in_array('Document Tracking System', $activeSubsystems);
         $rdpActive = in_array('Records Disposition Program', $activeSubsystems);
+        $dcsActive = in_array('Document Control System', $activeSubsystems);
         $adminActive = in_array('Admin Console', $activeSubsystems);
         $chatifyActive = in_array('Chatify', $activeSubsystems);
 
@@ -138,9 +139,18 @@ new #[Layout('layouts.portal')] #[Title('RMS CSPC Portal')] class extends Compon
                 'is_desktop_only' => true,
             ];
         }
+        if (($perms?->is_sadm || $perms?->can_access_dcs) && $dcsActive) {
+            $mainItems[] = [
+                'id' => 'dcs',
+                'route' => route('dcs'),
+                'label' => 'Document Control System',
+                'target' => '_self',
+                'is_desktop_only' => true,
+            ];
+        }
 
         // Dynamic subsystems in DB
-        $knownNames = ['Document Tracking System', 'Records Disposition Program', 'Admin Console', 'Chatify', 'Profile Manager'];
+        $knownNames = ['Document Tracking System', 'Records Disposition Program', 'Document Control System', 'Admin Console', 'Chatify', 'Profile Manager'];
         $extraSubsystems = \DB::table('subsystems')
             ->where('is_active', true)
             ->whereNotIn('subsystem_name', $knownNames)

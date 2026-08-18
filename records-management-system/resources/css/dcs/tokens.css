@@ -1,0 +1,324 @@
+/* Shared DCS design tokens — imported by chrome + every page stylesheet. */
+:root {
+    --dcs-font: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    --dcs-header: #000080;
+    --dcs-gold: #FFB800;
+    --dcs-accent: #0d2a7a;
+    --dcs-accent-hover: #0b2368;
+    --dcs-accent-dark: #091d5a;
+    --dcs-accent-light: #1a3a9e;
+    --dcs-accent-subtle: #eef2ff;
+    --dcs-accent-glow: rgba(13, 42, 122, 0.08);
+    --dcs-surface: #ffffff;
+    --dcs-surface-hover: #f4f6fb;
+    --dcs-surface-active: #eef2ff;
+    --dcs-bg: #f8fafc;
+    --dcs-border: #e2e8f0;
+    --dcs-border-light: #f1f5f9;
+    --dcs-border-strong: #cbd5e1;
+    --dcs-text: #1e293b;
+    --dcs-text-secondary: #64748b;
+    --dcs-text-sec: #475569;
+    --dcs-text-muted: #64748b;
+    --dcs-text-subtle: #94a3b8;
+    --dcs-green: #059669;
+    --dcs-green-bg: #ecfdf5;
+    --dcs-success: #16a34a;
+    --dcs-success-bg: #f0fdf4;
+    --dcs-success-border: #86efac;
+    --dcs-red: #dc2626;
+    --dcs-red-bg: #fef2f2;
+    --dcs-red-border: #fecaca;
+    --dcs-red-light: #ef4444;
+    --dcs-amber: #d97706;
+    --dcs-amber-bg: #fffbeb;
+    --dcs-gold-alt: #c9a227;
+    --dcs-gold-bg: #fdf8ec;
+    --dcs-radius: 10px;
+    --dcs-radius-sm: 8px;
+    --dcs-radius-lg: 12px;
+    --dcs-shadow: 0 1px 3px rgba(15, 23, 42, 0.04), 0 4px 12px rgba(15, 23, 42, 0.03);
+    --dcs-shadow-hover: 0 4px 16px rgba(15, 23, 42, 0.08), 0 1px 4px rgba(15, 23, 42, 0.04);
+    --dcs-shadow-sm: 0 1px 3px rgba(15, 23, 42, 0.04);
+    --dcs-shadow-md: 0 4px 16px rgba(15, 23, 42, 0.06);
+    --dcs-shadow-lg: 0 8px 32px rgba(15, 23, 42, 0.08);
+    --dcs-page-pad: 28px 32px;
+    --dcs-header-height: 70px;
+    --dcs-sidebar: 300px;
+    --dcs-sidebar-collapsed: 68px;
+    --dcs-ease: 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    --dcs-ease-fast: 0.18s ease;
+    --dcs-ease-slow: 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+    --dcs-page-in: 0.35s ease;
+    --dcs-title-size: 1.6rem;
+    --dcs-crumb-size: 0.78rem;
+    --dcs-body-size: 0.85rem;
+
+    /* Chrome */
+    --header-height: var(--dcs-header-height);
+    --header-bg: var(--dcs-header);
+    --gold: var(--dcs-gold);
+    --nav-top: var(--dcs-header-height);
+    --nav-width: var(--dcs-sidebar);
+    --nav-collapsed: var(--dcs-sidebar-collapsed);
+    --sidebar-width: var(--dcs-sidebar);
+    --sidebar-collapsed: var(--dcs-sidebar-collapsed);
+    --content-padding: var(--dcs-page-pad);
+    --white-100: #ffffff;
+    --white-80: rgba(255, 255, 255, 0.8);
+    --white-70: rgba(255, 255, 255, 0.7);
+    --white-50: rgba(255, 255, 255, 0.5);
+    --white-45: rgba(255, 255, 255, 0.45);
+    --white-15: rgba(255, 255, 255, 0.15);
+    --white-12: rgba(255, 255, 255, 0.12);
+    --white-08: rgba(255, 255, 255, 0.08);
+    --white-06: rgba(255, 255, 255, 0.06);
+    --accent: var(--dcs-accent);
+    --accent-light: var(--dcs-accent-light);
+    --accent-subtle: var(--dcs-accent-subtle);
+    --accent-glow: var(--dcs-accent-glow);
+    --surface: var(--dcs-surface);
+    --surface-hover: var(--dcs-surface-hover);
+    --surface-active: var(--dcs-surface-active);
+    --border: var(--dcs-border);
+    --border-light: var(--dcs-border-light);
+    --text: var(--dcs-text);
+    --text-muted: var(--dcs-text-muted);
+    --text-subtle: var(--dcs-text-subtle);
+    --red: var(--dcs-red);
+    --red-light: var(--dcs-red-light);
+    --shadow-sm: var(--dcs-shadow-sm);
+    --shadow-md: var(--dcs-shadow-md);
+    --shadow-lg: var(--dcs-shadow-lg);
+    --radius: var(--dcs-radius-sm);
+    --radius-sm: 6px;
+    --transition-fast: var(--dcs-ease-fast);
+    --transition: var(--dcs-ease);
+    --transition-slow: var(--dcs-ease-slow);
+
+    /* Dashboard */
+    --dash-accent: var(--dcs-accent);
+    --dash-accent-light: var(--dcs-accent-light);
+    --dash-accent-subtle: var(--dcs-accent-subtle);
+    --dash-surface: var(--dcs-surface);
+    --dash-bg: var(--dcs-bg);
+    --dash-border: var(--dcs-border);
+    --dash-border-light: var(--dcs-border-light);
+    --dash-text: var(--dcs-text);
+    --dash-text-muted: var(--dcs-text-muted);
+    --dash-text-subtle: var(--dcs-text-subtle);
+    --dash-green: var(--dcs-green);
+    --dash-green-bg: var(--dcs-green-bg);
+    --dash-red: var(--dcs-red);
+    --dash-red-bg: var(--dcs-red-bg);
+    --dash-amber: var(--dcs-amber);
+    --dash-amber-bg: var(--dcs-amber-bg);
+    --dash-radius: var(--dcs-radius-lg);
+    --dash-radius-sm: var(--dcs-radius-sm);
+    --dash-shadow: var(--dcs-shadow);
+    --dash-shadow-hover: var(--dcs-shadow-hover);
+
+    /* Register / edit */
+    --reg-accent: var(--dcs-accent);
+    --reg-accent-dark: var(--dcs-accent-dark);
+    --reg-accent-subtle: var(--dcs-accent-subtle);
+    --reg-surface: var(--dcs-surface);
+    --reg-bg: var(--dcs-bg);
+    --reg-border: var(--dcs-border);
+    --reg-border-strong: var(--dcs-border-strong);
+    --reg-text: var(--dcs-text);
+    --reg-text-muted: var(--dcs-text-muted);
+    --reg-text-subtle: var(--dcs-text-subtle);
+    --reg-text-sec: var(--dcs-text-sec);
+    --reg-radius: var(--dcs-radius);
+    --reg-radius-sm: var(--dcs-radius-sm);
+    --reg-shadow: var(--dcs-shadow);
+    --reg-error: var(--dcs-red);
+    --reg-error-bg: var(--dcs-red-bg);
+    --reg-error-border: var(--dcs-red-border);
+    --reg-success: var(--dcs-success);
+    --reg-success-bg: var(--dcs-success-bg);
+    --reg-success-border: var(--dcs-success-border);
+
+    /* Update */
+    --upd-accent: var(--dcs-accent);
+    --upd-accent-dark: var(--dcs-accent-dark);
+    --upd-accent-subtle: var(--dcs-accent-subtle);
+    --upd-surface: var(--dcs-surface);
+    --upd-bg: var(--dcs-bg);
+    --upd-border: var(--dcs-border);
+    --upd-text: var(--dcs-text);
+    --upd-text-muted: var(--dcs-text-muted);
+    --upd-text-subtle: var(--dcs-text-subtle);
+    --upd-radius: var(--dcs-radius);
+    --upd-radius-sm: var(--dcs-radius-sm);
+    --upd-shadow: var(--dcs-shadow);
+    --upd-error: var(--dcs-red);
+    --upd-success: var(--dcs-success);
+
+    /* History */
+    --hst-accent: var(--dcs-accent);
+    --hst-accent-dark: var(--dcs-accent-dark);
+    --hst-accent-subtle: var(--dcs-accent-subtle);
+    --hst-surface: var(--dcs-surface);
+    --hst-bg: var(--dcs-bg);
+    --hst-border: var(--dcs-border);
+    --hst-text: var(--dcs-text);
+    --hst-text-muted: var(--dcs-text-muted);
+    --hst-text-subtle: var(--dcs-text-subtle);
+    --hst-success: var(--dcs-success);
+    --hst-success-bg: var(--dcs-success-bg);
+    --hst-radius: var(--dcs-radius);
+    --hst-shadow: var(--dcs-shadow);
+
+    /* Reports */
+    --rpt-bg: var(--dcs-bg);
+    --rpt-surface: var(--dcs-surface);
+    --rpt-border: var(--dcs-border);
+    --rpt-border-light: var(--dcs-border-light);
+    --rpt-accent: var(--dcs-accent);
+    --rpt-accent-hover: var(--dcs-accent-hover);
+    --rpt-accent-light: var(--dcs-accent-light);
+    --rpt-accent-subtle: var(--dcs-accent-subtle);
+    --rpt-text: var(--dcs-text);
+    --rpt-text-secondary: var(--dcs-text-secondary);
+    --rpt-text-subtle: var(--dcs-text-subtle);
+    --rpt-text-muted: var(--dcs-text-muted);
+    --rpt-green: var(--dcs-green);
+    --rpt-green-bg: var(--dcs-green-bg);
+    --rpt-red: var(--dcs-red);
+    --rpt-red-bg: var(--dcs-red-bg);
+    --rpt-radius: var(--dcs-radius-sm);
+    --rpt-radius-lg: var(--dcs-radius-lg);
+    --rpt-shadow: var(--dcs-shadow);
+    --rpt-shadow-hover: var(--dcs-shadow-hover);
+    --rpt-page-pad: var(--dcs-page-pad);
+    --rpt-gap-sm: 8px;
+    --rpt-gap-md: 14px;
+    --rpt-gap-lg: 18px;
+    --rpt-gap-xl: 28px;
+
+    /* Stamping */
+    --st-accent: var(--dcs-accent);
+    --st-accent-dark: var(--dcs-accent-dark);
+    --st-accent-subtle: var(--dcs-accent-subtle);
+    --st-surface: var(--dcs-surface);
+    --st-bg: var(--dcs-bg);
+    --st-border: var(--dcs-border);
+    --st-text: var(--dcs-text);
+    --st-text-muted: var(--dcs-text-muted);
+    --st-text-subtle: var(--dcs-text-subtle);
+    --st-radius: var(--dcs-radius-lg);
+    --st-radius-sm: var(--dcs-radius-sm);
+    --st-shadow: var(--dcs-shadow);
+    --st-error: var(--dcs-red);
+    --st-success: var(--dcs-success);
+
+    /* Database */
+    --db-primary: var(--dcs-accent);
+    --db-primary-hover: var(--dcs-accent-light);
+    --db-accent: var(--dcs-accent);
+    --db-accent-light: var(--dcs-accent-subtle);
+    --db-gold: var(--dcs-gold-alt);
+    --db-green: var(--dcs-green);
+    --db-green-light: var(--dcs-green-bg);
+    --db-amber: var(--dcs-amber);
+    --db-amber-light: var(--dcs-amber-bg);
+    --db-red: var(--dcs-red);
+    --db-red-light: var(--dcs-red-bg);
+    --db-border: var(--dcs-border);
+    --db-border-hover: var(--dcs-border-strong);
+    --db-bg: var(--dcs-bg);
+    --db-white: var(--dcs-surface);
+    --db-text: var(--dcs-text);
+    --db-text-sec: var(--dcs-text-sec);
+    --db-text-muted: var(--dcs-text-subtle);
+    --db-radius: var(--dcs-radius-sm);
+    --db-shadow: var(--dcs-shadow);
+    --db-shadow-lg: var(--dcs-shadow-hover);
+
+    /* Settings */
+    --set-accent: var(--dcs-accent);
+    --set-accent-light: var(--dcs-accent-light);
+    --set-accent-subtle: var(--dcs-accent-subtle);
+    --set-gold: var(--dcs-gold-alt);
+    --set-gold-bg: var(--dcs-gold-bg);
+    --set-surface: var(--dcs-surface);
+    --set-bg: var(--dcs-bg);
+    --set-border: var(--dcs-border);
+    --set-border-light: var(--dcs-border-light);
+    --set-text: var(--dcs-text);
+    --set-text-sec: var(--dcs-text-sec);
+    --set-text-muted: var(--dcs-text-subtle);
+    --set-text-subtle: var(--dcs-text-subtle);
+    --set-green: var(--dcs-green);
+    --set-green-bg: var(--dcs-green-bg);
+    --set-red: var(--dcs-red);
+    --set-red-bg: var(--dcs-red-bg);
+    --set-radius: var(--dcs-radius-lg);
+    --set-radius-sm: var(--dcs-radius-sm);
+    --set-shadow: var(--dcs-shadow);
+    --set-shadow-hover: var(--dcs-shadow-hover);
+}
+
+.reg-breadcrumb,
+.upd-breadcrumb,
+.settings-breadcrumb,
+.db-breadcrumb,
+.st-breadcrumb,
+.rpt-crumb {
+    font-size: var(--dcs-crumb-size);
+    color: var(--dcs-text-subtle);
+    font-weight: 400;
+    margin-bottom: 4px;
+}
+
+.reg-breadcrumb span,
+.upd-breadcrumb span,
+.settings-breadcrumb span,
+.db-breadcrumb span,
+.st-breadcrumb span,
+.rpt-crumb span {
+    font-weight: 600;
+    color: var(--dcs-text-secondary);
+}
+
+@keyframes fadeInUp {
+    from { opacity: 0; transform: translateY(12px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes modalSlideUp {
+    from { opacity: 0; transform: translateY(12px) scale(0.98); }
+    to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+@keyframes toastSlideIn {
+    from { opacity: 0; transform: translateY(12px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+
+/* Same enter motion on every DCS page shell. */
+.dashboard-main,
+.settings-main,
+.reg-container,
+.db-page,
+.st-container,
+.rpt-page,
+.upd-container,
+.hst-container {
+    animation: fadeInUp var(--dcs-page-in) both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .dashboard-main,
+    .settings-main,
+    .reg-container,
+    .db-page,
+    .st-container,
+    .rpt-page,
+    .upd-container,
+    .hst-container {
+        animation: none;
+    }
+}

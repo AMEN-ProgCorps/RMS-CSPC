@@ -477,11 +477,71 @@
         setTimeout(updateUnreadBadge, 2000);
     };
 
+    function disableChatifySearchAutoInput() {
+        const iframe = document.getElementById('chatify-iframe');
+        if (!iframe) return;
+
+        try {
+            const iframeDoc = iframe.contentDocument || iframe.contentWindow?.document;
+            if (!iframeDoc) return;
+
+            const searchInputs = iframeDoc.querySelectorAll('#searchInput, #adminSearchInput, .sidebar-search input, .admin-search input');
+
+            searchInputs.forEach(input => {
+                // 1. Universal Anti-Autofill & Password Manager Ignore Attributes
+                input.setAttribute('autocomplete', 'new-password');
+                input.setAttribute('autocorrect', 'off');
+                input.setAttribute('autocapitalize', 'off');
+                input.setAttribute('spellcheck', 'false');
+                input.setAttribute('data-lpignore', 'true');
+                input.setAttribute('data-1p-ignore', 'true');
+                input.setAttribute('data-form-type', 'other');
+
+                // 2. Readonly Protection on Load (blocks browser autofill engine across all browsers)
+                input.setAttribute('readonly', 'readonly');
+
+                // Seamlessly remove readonly the instant the user interacts
+                const unlockInput = () => {
+                    input.removeAttribute('readonly');
+                };
+                input.addEventListener('focus', unlockInput, { once: true });
+                input.addEventListener('pointerdown', unlockInput, { once: true });
+                input.addEventListener('mousedown', unlockInput, { once: true });
+                input.addEventListener('touchstart', unlockInput, { once: true });
+                input.addEventListener('keydown', unlockInput, { once: true });
+
+                // 3. Clear any value auto-injected by the browser on load
+                if (input.value) {
+                    input.value = '';
+                    input.dispatchEvent(new Event('input', { bubbles: true }));
+                }
+
+                // Delayed purge for browsers / password managers injecting 50ms - 500ms after load
+                [50, 150, 300, 600].forEach(delay => {
+                    setTimeout(() => {
+                        if (input.hasAttribute('readonly') && input.value) {
+                            input.value = '';
+                            input.dispatchEvent(new Event('input', { bubbles: true }));
+                        }
+                    }, delay);
+                });
+
+                // 4. Prevent unwanted auto-focus on page load
+                if (iframeDoc.activeElement === input) {
+                    input.blur();
+                }
+            });
+        } catch (e) {
+            // Failsafe in case of cross-origin boundaries
+        }
+    }
+
     window.hideChatifyLoader = function() {
         const loader = document.getElementById('chatify-iframe-loader');
         if (loader) {
             loader.style.display = 'none';
         }
+        disableChatifySearchAutoInput();
         updateUnreadBadge();
         setTimeout(updateUnreadBadge, 600);
     };
@@ -549,10 +609,21 @@
         }
     });
 
+    function attachIframeLoadListeners() {
+        const iframe = document.getElementById('chatify-iframe');
+        if (iframe) {
+            iframe.addEventListener('load', disableChatifySearchAutoInput);
+        }
+    }
+
     if (document.readyState === 'loading') {
-        document.addEventListener('DOMContentLoaded', initWidgetState);
+        document.addEventListener('DOMContentLoaded', function() {
+            initWidgetState();
+            attachIframeLoadListeners();
+        });
     } else {
         initWidgetState();
+        attachIframeLoadListeners();
     }
 })();
 </script>

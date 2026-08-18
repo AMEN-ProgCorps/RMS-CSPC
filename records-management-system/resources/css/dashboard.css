@@ -1267,8 +1267,25 @@ section{
 }
 
 [data-theme="dark"] .theme-selector-container {
-    background-color: #0f172a !important;
+    background-color: #0b0f19 !important;
     border-color: #334155 !important;
+}
+
+[data-theme="dark"] .theme-option-btn--active-dark {
+    background-color: #2563eb !important;
+    color: #ffffff !important;
+    border-color: #3b82f6 !important;
+    box-shadow: 0 2px 8px rgba(37, 99, 235, 0.5) !important;
+}
+
+[data-theme="dark"] .theme-option-btn--active-dark i {
+    color: #ffffff !important;
+}
+
+[data-theme="dark"] .theme-option-btn--active-light {
+    background-color: #ffffff !important;
+    color: #0f172a !important;
+    box-shadow: 0 2px 8px rgba(255, 255, 255, 0.25) !important;
 }
 
 /* Tables, Headers & Rows */

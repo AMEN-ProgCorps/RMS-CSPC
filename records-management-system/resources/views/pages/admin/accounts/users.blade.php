@@ -1174,8 +1174,8 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Users')] class extends C
                                             </span>
                                         </td>
                                         <td style="padding: 10px 12px; text-align: right;">
-                                            <button type="button" class="btn-table-action" wire:click.stop="selectRequestorItem({{ $req->id }})" style="padding: 4px 8px; font-size: 11px; border-radius: 4px; border: 1px solid #cbd5e1; background: #fff; cursor: pointer;">
-                                                Configure
+                                            <button type="button" class="btn-table-action" wire:click.stop="selectRequestorItem({{ $req->id }})" style="padding: 5px 12px; font-size: 11.5px; font-weight: 600; border-radius: 6px; border: 1px solid #3b82f6; background: rgba(37, 99, 235, 0.12); color: #2563eb; cursor: pointer; display: inline-flex; align-items: center; gap: 5px;">
+                                                <i class="fa-solid fa-pen-to-square"></i> Configure
                                             </button>
                                         </td>
                                     </tr>
@@ -1225,11 +1225,28 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Users')] class extends C
                 <div class="details-panel" wire:key="req-details-panel-{{ $selectedRequestorId }}">
                     <!-- Header -->
                     <div class="details-header">
-                        <div class="header-content">
-                            <h3>{{ $selectedRequestorId === -1 ? 'Create Requestor Contact' : 'Requestor Configuration' }}</h3>
-                            <p>{{ $selectedRequestorId === -1 ? 'Register a new frequent requestor for internal or external transactions.' : 'Update requestor name, job position, and assigned office.' }}</p>
+                        <div class="details-header-avatar" style="background-color: #0284c7; color: white;">
+                            @if($selectedRequestorId === -1)
+                                <i class="fa-solid fa-user-plus" style="font-size: 20px;"></i>
+                            @else
+                                <i class="fa-solid fa-user-pen" style="font-size: 20px;"></i>
+                            @endif
                         </div>
-                        <button type="button" class="btn-close" wire:click="cancelRequestorSelection">&times;</button>
+                        <div class="details-header-info">
+                            <h2 class="details-header-name">{{ $selectedRequestorId === -1 ? 'Create Requestor Contact' : ($reqName ?: 'Requestor Configuration') }}</h2>
+                            <span class="details-header-sub">
+                                @if($selectedRequestorId === -1)
+                                    Register a new frequent requestor for internal or external transactions
+                                @else
+                                    <i class="fa-solid fa-building"></i> {{ $reqOffice ?: 'Assigned Office' }} &nbsp;•&nbsp; 
+                                    <i class="fa-solid fa-circle {{ $reqIsActive ? 'online' : 'offline' }}" style="color: {{ $reqIsActive ? '#10b981' : '#cbd5e1' }}; font-size: 8px;"></i>
+                                    {{ $reqIsActive ? 'Active Contact' : 'Inactive' }}
+                                @endif
+                            </span>
+                        </div>
+                        <button type="button" class="btn-close-details" wire:click="cancelRequestorSelection" title="Close Details Panel">
+                            <i class="fa-solid fa-xmark"></i>
+                        </button>
                     </div>
 
                     <!-- Alerts -->
@@ -1251,21 +1268,21 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Users')] class extends C
                                 <!-- Requestor Full Name -->
                                 <div class="form-group full-width">
                                     <label class="form-label">Requestor Name <span style="color:#ef4444;">*</span></label>
-                                    <input type="text" class="form-control" wire:model="reqName" placeholder="e.g. Dr. Juan Dela Cruz">
+                                    <input type="text" class="form-input" wire:model="reqName" placeholder="e.g. Dr. Juan Dela Cruz">
                                     @error('reqName') <span style="color:#ef4444; font-size:11px; margin-top:2px;">{{ $message }}</span> @enderror
                                 </div>
 
                                 <!-- Requestor Job Position -->
                                 <div class="form-group full-width">
                                     <label class="form-label">Job Position / Title <span style="font-size: 11px; color: #94a3b8; font-weight: normal;">(Optional)</span></label>
-                                    <input type="text" class="form-control" wire:model="reqPosition" placeholder="e.g. Regional Director / Faculty Officer">
+                                    <input type="text" class="form-input" wire:model="reqPosition" placeholder="e.g. Regional Director / Faculty Officer">
                                     @error('reqPosition') <span style="color:#ef4444; font-size:11px; margin-top:2px;">{{ $message }}</span> @enderror
                                 </div>
 
                                 <!-- Office / Agency Dropdown -->
                                 <div class="form-group full-width">
                                     <label class="form-label">Office / Agency <span style="color:#ef4444;">*</span></label>
-                                    <select class="form-control" wire:model="reqOffice">
+                                    <select class="form-select" wire:model="reqOffice">
                                         <option value="">Select Office / Agency</option>
                                         <optgroup label="Internal CSPC Offices">
                                             @foreach($offices as $o)

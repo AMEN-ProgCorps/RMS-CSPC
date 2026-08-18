@@ -198,6 +198,85 @@ new #[Layout('layouts.profile')] #[Title('Profile Manager - Preferences & Settin
             from { opacity: 0; transform: translateY(-4px); }
             to { opacity: 1; transform: translateY(0); }
         }
+
+        .settings-clarification-badge {
+            display: inline-block;
+            margin-top: 6px;
+            font-size: 11.5px;
+            line-height: 1.5;
+            color: #64748b;
+            background: rgba(37, 99, 235, 0.08);
+            padding: 6px 10px;
+            border-radius: 8px;
+            border: 1px solid rgba(37, 99, 235, 0.18);
+        }
+        [data-theme="dark"] .settings-clarification-badge {
+            background: rgba(37, 99, 235, 0.12) !important;
+            border-color: rgba(37, 99, 235, 0.3) !important;
+            color: #cbd5e1 !important;
+        }
+        [data-theme="dark"] .settings-clarification-badge strong {
+            color: #60a5fa !important;
+        }
+
+        .theme-selector-container {
+            background: #f1f5f9;
+            border: 1px solid #e2e8f0;
+            box-shadow: inset 0 1px 2px rgba(0,0,0,0.04);
+        }
+        [data-theme="dark"] .theme-selector-container {
+            background: #090d16 !important;
+            border: 1px solid #1e293b !important;
+            box-shadow: inset 0 1px 3px rgba(0,0,0,0.4) !important;
+        }
+
+        .theme-option-btn {
+            background: transparent;
+            color: #64748b;
+        }
+        .theme-option-btn:hover {
+            color: #1e293b;
+            background: rgba(0, 0, 0, 0.03);
+        }
+        [data-theme="dark"] .theme-option-btn {
+            color: #94a3b8;
+        }
+        [data-theme="dark"] .theme-option-btn:hover {
+            color: #f8fafc;
+            background: rgba(255, 255, 255, 0.06);
+        }
+
+        .theme-option-btn--active-light {
+            background: #ffffff !important;
+            color: #043899 !important;
+            border-color: #cbd5e1 !important;
+            box-shadow: 0 2px 5px rgba(0, 0, 0, 0.08), 0 1px 2px rgba(0, 0, 0, 0.04) !important;
+        }
+        [data-theme="dark"] .theme-option-btn--active-light {
+            background: #ffffff !important;
+            color: #0f172a !important;
+            border-color: #ffffff !important;
+            box-shadow: 0 2px 8px rgba(255, 255, 255, 0.25) !important;
+        }
+
+        .theme-option-btn--active-dark {
+            background: #1e293b !important;
+            color: #60a5fa !important;
+            border-color: #334155 !important;
+            box-shadow: 0 2px 5px rgba(0, 0, 0, 0.15) !important;
+        }
+        [data-theme="dark"] .theme-option-btn--active-dark {
+            background: #2563eb !important;
+            color: #ffffff !important;
+            border-color: #3b82f6 !important;
+            box-shadow: 0 2px 10px rgba(37, 99, 235, 0.45) !important;
+        }
+        .theme-option-btn--active-dark i {
+            color: #818cf8;
+        }
+        [data-theme="dark"] .theme-option-btn--active-dark i {
+            color: #ffffff !important;
+        }
     </style>
 @endpush
 
@@ -293,23 +372,25 @@ new #[Layout('layouts.profile')] #[Title('Profile Manager - Preferences & Settin
                     <span class="settings-info-desc">
                         Switch between Light and Dark interface modes.
                         <br>
-                        <span style="display: inline-block; margin-top: 5px; font-size: 11.5px; color: #64748b; background: rgba(37, 99, 235, 0.08); padding: 4px 8px; border-radius: 6px; border: 1px solid rgba(37, 99, 235, 0.15);">
-                            <i class="fa-solid fa-circle-info" style="color: #2563eb; margin-right: 3px;"></i>
+                        <span class="settings-clarification-badge">
+                            <i class="fa-solid fa-circle-info" style="color: #2563eb; margin-right: 4px;"></i>
                             <strong>Clarification:</strong> Dark Mode is currently supported across <strong>Admin Console</strong>, <strong>Profile Manager</strong>, <strong>Document Tracking System (DTS)</strong>, and <strong>Records Disposition Program (RDP)</strong>.
                         </span>
                     </span>
                 </div>
                 <div>
-                    <div style="display: inline-flex; align-items: center; background: var(--theme-toggle-bg, #f1f5f9); padding: 4px; border-radius: 10px; gap: 4px; border: 1px solid var(--border-color, #e2e8f0);" class="theme-selector-container">
+                    <div class="theme-selector-container" style="display: inline-flex; align-items: center; padding: 4px; border-radius: 12px; gap: 4px; box-sizing: border-box;">
                         <button type="button" wire:click="setTheme('light')" 
-                            style="display: inline-flex; align-items: center; gap: 6px; padding: 6px 14px; font-size: 12px; font-weight: 600; border-radius: 7px; border: none; cursor: pointer; transition: all 0.2s ease; background: {{ $theme === 'light' ? '#ffffff' : 'transparent' }}; color: {{ $theme === 'light' ? '#0f172a' : '#64748b' }}; box-shadow: {{ $theme === 'light' ? '0 1px 3px rgba(0,0,0,0.1)' : 'none' }};">
-                            <i class="fa-solid fa-sun" style="color: #f59e0b;"></i>
-                            Light
+                            class="theme-option-btn {{ $theme === 'light' ? 'theme-option-btn--active-light' : '' }}"
+                            style="display: inline-flex; align-items: center; gap: 7px; padding: 7px 16px; font-size: 13px; font-weight: {{ $theme === 'light' ? '700' : '500' }}; border-radius: 9px; cursor: pointer; transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1); outline: none; border: 1px solid transparent; font-family: 'Inter', sans-serif;">
+                            <i class="fa-solid fa-sun" style="color: #f59e0b; font-size: 14px;"></i>
+                            <span>Light</span>
                         </button>
                         <button type="button" wire:click="setTheme('dark')" 
-                            style="display: inline-flex; align-items: center; gap: 6px; padding: 6px 14px; font-size: 12px; font-weight: 600; border-radius: 7px; border: none; cursor: pointer; transition: all 0.2s ease; background: {{ $theme === 'dark' ? '#0f172a' : 'transparent' }}; color: {{ $theme === 'dark' ? '#f8fafc' : '#64748b' }}; box-shadow: {{ $theme === 'dark' ? '0 1px 3px rgba(0,0,0,0.3)' : 'none' }};">
-                            <i class="fa-solid fa-moon" style="color: #818cf8;"></i>
-                            Dark
+                            class="theme-option-btn {{ $theme === 'dark' ? 'theme-option-btn--active-dark' : '' }}"
+                            style="display: inline-flex; align-items: center; gap: 7px; padding: 7px 16px; font-size: 13px; font-weight: {{ $theme === 'dark' ? '700' : '500' }}; border-radius: 9px; cursor: pointer; transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1); outline: none; border: 1px solid transparent; font-family: 'Inter', sans-serif;">
+                            <i class="fa-solid fa-moon" style="font-size: 13px;"></i>
+                            <span>Dark</span>
                         </button>
                     </div>
                 </div>
@@ -317,3 +398,5 @@ new #[Layout('layouts.profile')] #[Title('Profile Manager - Preferences & Settin
         </div>
     </div>
 </div>
+
+

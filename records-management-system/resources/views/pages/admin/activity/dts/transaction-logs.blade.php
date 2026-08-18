@@ -145,72 +145,97 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - DTS Transactions Logs')]
                 <thead>
                     <tr>
                         <th style="width: 15%">Control Number</th>
-                        <th style="width: 12%">Action</th>
+                        <th style="width: 13%">Action / Status</th>
                         <th style="width: 20%">Performed By</th>
                         <th style="width: 18%">Office Scope</th>
-                        <th style="width: 15%">Time In</th>
-                        <th style="width: 15%">Time Out</th>
-                        <th style="width: 15%">Notes</th>
+                        <th style="width: 14%">Time In</th>
+                        <th style="width: 14%">Time Out</th>
+                        <th style="width: 16%">Notes</th>
                     </tr>
                 </thead>
                 <tbody>
                     @forelse($logs as $log)
                         @php
                             $actionLabel = $log->type_label ?? 'Log';
-                            $badgeClass = match (strtolower($actionLabel)) {
+                            $actionLower = strtolower($actionLabel);
+                            $badgeClass = match ($actionLower) {
                                 'created' => 'badge-created',
                                 'forwarded' => 'badge-forwarded',
                                 'received' => 'badge-received',
-                                'returned for revision' => 'badge-returned',
+                                'returned for revision', 'returned' => 'badge-returned',
                                 'completed' => 'badge-completed',
                                 default => 'badge-default',
+                            };
+
+                            $actionIcon = match ($actionLower) {
+                                'created' => 'fa-plus-circle',
+                                'forwarded' => 'fa-paper-plane',
+                                'received' => 'fa-circle-check',
+                                'returned for revision', 'returned' => 'fa-rotate-left',
+                                'completed' => 'fa-flag-checkered',
+                                default => 'fa-circle-info',
                             };
                         @endphp
                         <tr wire:key="dts-log-{{ $log->id }}">
                             <td>
-                                <span style="font-weight: 700; color: #003699;">{{ $log->control_number ?? $log->transaction_id }}</span>
+                                <span style="font-weight: 700; color: #38bdf8; font-family: monospace; font-size: 13px;">{{ $log->control_number ?? $log->transaction_id }}</span>
                             </td>
                             <td>
-                                <span class="badge-type {{ $badgeClass }}">
-                                    {{ $actionLabel }}
-                                </span>
+                                @if($actionLower === 'forwarded' && !$log->date_in)
+                                    <span class="badge-type badge-forwarded" style="display: inline-flex; align-items: center; gap: 5px;">
+                                        <i class="fa-solid fa-hourglass-half"></i> In Transit
+                                    </span>
+                                @else
+                                    <span class="badge-type {{ $badgeClass }}" style="display: inline-flex; align-items: center; gap: 5px;">
+                                        <i class="fa-solid {{ $actionIcon }}"></i> {{ $actionLabel }}
+                                    </span>
+                                @endif
                             </td>
                             <td>
                                 <div class="admin-name-cell">
                                     @if($log->first_name || $log->last_name)
-                                        <span class="name">{{ $log->first_name }} {{ $log->last_name }}</span>
-                                        <span class="email-sub">{{ $log->username }}</span>
+                                        <span class="name" style="font-weight: 600; color: #f8fafc;">{{ $log->first_name }} {{ $log->last_name }}</span>
+                                        <span class="email-sub" style="color: #94a3b8; font-size: 11.5px;">@ {{ $log->username }}</span>
+                                    @elseif($log->username)
+                                        <span class="name" style="font-weight: 600; color: #f8fafc;">{{ $log->username }}</span>
+                                        <span class="email-sub" style="color: #94a3b8; font-size: 11.5px;">System Account</span>
                                     @else
-                                        <span class="name">{{ $log->username ?? 'System Process' }}</span>
+                                        <span class="name" style="color: #94a3b8; font-style: italic;">System Automatic</span>
                                     @endif
                                 </div>
                             </td>
                             <td>
                                 <div class="admin-name-cell">
-                                    <span class="name" style="font-size: 13px;">{{ $log->office_name ?? 'N/A' }}</span>
+                                    <span class="name" style="font-size: 13px; font-weight: 600; color: #f8fafc;">{{ $log->office_name ?? 'N/A' }}</span>
                                     @if($log->office_code)
-                                        <span class="email-sub">Code: {{ $log->office_code }}</span>
+                                        <span class="email-sub" style="color: #94a3b8; font-size: 11.5px;">Code: <strong style="color: #60a5fa;">{{ $log->office_code }}</strong></span>
                                     @endif
                                 </div>
                             </td>
                             <td>
-                                <span class="log-timestamp">
-                                    {{ $log->date_in ? \Carbon\Carbon::parse($log->date_in)->format('Y-m-d H:i:s') : 'N/A' }}
+                                <div class="log-timestamp">
                                     @if($log->date_in)
-                                        <span class="time-ago">{{ \Carbon\Carbon::parse($log->date_in)->diffForHumans() }}</span>
+                                        <span class="log-date" style="font-weight: 600; color: #f8fafc; font-size: 12px;">{{ \Carbon\Carbon::parse($log->date_in)->format('M d, Y h:i A') }}</span>
+                                        <span class="time-ago" style="color: #94a3b8; font-size: 11px;">{{ \Carbon\Carbon::parse($log->date_in)->diffForHumans() }}</span>
+                                    @else
+                                        <span style="color: #64748b; font-style: italic; font-size: 12px;">Not yet received</span>
                                     @endif
-                                </span>
+                                </div>
                             </td>
                             <td>
-                                <span class="log-timestamp">
-                                    {{ $log->date_out ? \Carbon\Carbon::parse($log->date_out)->format('Y-m-d H:i:s') : 'Pending / Ongoing' }}
+                                <div class="log-timestamp">
                                     @if($log->date_out)
-                                        <span class="time-ago">{{ \Carbon\Carbon::parse($log->date_out)->diffForHumans() }}</span>
+                                        <span class="log-date" style="font-weight: 600; color: #f8fafc; font-size: 12px;">{{ \Carbon\Carbon::parse($log->date_out)->format('M d, Y h:i A') }}</span>
+                                        <span class="time-ago" style="color: #94a3b8; font-size: 11px;">{{ \Carbon\Carbon::parse($log->date_out)->diffForHumans() }}</span>
+                                    @else
+                                        <span style="display: inline-flex; align-items: center; gap: 4px; padding: 3px 8px; border-radius: 4px; font-size: 11px; font-weight: 600; background: rgba(245, 158, 11, 0.12); color: #fbbf24; border: 1px solid rgba(245, 158, 11, 0.25);">
+                                            <i class="fa-solid fa-clock" style="font-size: 10px;"></i> Pending / Ongoing
+                                        </span>
                                     @endif
-                                </span>
+                                </div>
                             </td>
                             <td>
-                                <div class="log-description" style="font-size: 12.5px; color: #475569;">
+                                <div class="log-description" style="font-size: 12.5px; color: #cbd5e1; max-width: 260px; line-height: 1.4;">
                                     {{ $log->notes ?: 'No description' }}
                                 </div>
                             </td>

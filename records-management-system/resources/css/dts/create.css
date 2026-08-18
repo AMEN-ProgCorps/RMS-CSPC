@@ -558,4 +558,33 @@
     border-top-color: #1e293b !important;
 }
 
+/* Custom Flow / Sequence Path Modal & Elements */
+[data-theme="dark"] label[style*="color: #334155"],
+[data-theme="dark"] label[style*="color:#334155"] {
+    color: #f8fafc !important;
+}
+
+[data-theme="dark"] span[style*="color: #1e293b"],
+[data-theme="dark"] span[style*="color:#1e293b"] {
+    color: #f8fafc !important;
+}
+
+[data-theme="dark"] span[style*="color: #64748b"],
+[data-theme="dark"] span[style*="color:#64748b"] {
+    color: #94a3b8 !important;
+}
+
+[data-theme="dark"] select[style*="background: #ffffff"],
+[data-theme="dark"] select[style*="background:#ffffff"] {
+    background-color: #0f172a !important;
+    color: #f8fafc !important;
+    border-color: #334155 !important;
+}
+
+[data-theme="dark"] select option {
+    background-color: #0f172a !important;
+    color: #f8fafc !important;
+}
+
+
 

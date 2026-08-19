@@ -616,7 +616,6 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Backup & Recovery Manage
             'subsystems' => 4,
             'subsystem_versions_log' => 5,
             'system_settings' => 6,
-            'personal_settings' => 7,
             'office' => 8,
             'cluster' => 9,
             'security_status' => 10,
@@ -641,10 +640,11 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Backup & Recovery Manage
             // Priority Tier 2: Accounts & User Relations (Depends on condition_key, office, cluster)
             'account' => 30,
             'account_details' => 31,
-            'cluster_head' => 32,
-            'dts_source_office' => 33,
-            'security_logs' => 34,
-            'tracking_devices_log' => 35,
+            'personal_settings' => 32,
+            'cluster_head' => 33,
+            'dts_source_office' => 34,
+            'security_logs' => 35,
+            'tracking_devices_log' => 36,
 
             // Priority Tier 3: Workflow, Options & Transaction Settings (Depends on account, office)
             'dts_transaction_flow' => 40,
@@ -879,14 +879,18 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Backup & Recovery Manage
                         $tbl = $st->table_name;
                         try {
                             $columns = \Schema::getColumnListing($tbl);
-                            if (in_array('id', $columns)) {
-                                $maxId = \DB::table($tbl)->max('id') ?: 0;
-                                $seqVal = max(1, $maxId);
-                                $isCalled = $maxId > 0 ? 'true' : 'false';
-                                \DB::statement("SELECT setval(pg_get_serial_sequence('\"{$tbl}\"', 'id'), {$seqVal}, {$isCalled})");
+                            foreach ($columns as $col) {
+                                $seq = \DB::selectOne("SELECT pg_get_serial_sequence(?, ?) AS seq", ["\"{$tbl}\"", $col]);
+                                $seqName = $seq->seq ?? null;
+                                if ($seqName) {
+                                    $maxId = \DB::table($tbl)->max($col) ?: 0;
+                                    $seqVal = max(1, (int) $maxId);
+                                    $isCalled = $maxId > 0;
+                                    \DB::statement("SELECT setval(?, ?, ?)", [$seqName, $seqVal, $isCalled]);
+                                }
                             }
                         } catch (\Throwable $e) {
-                            // Table may not have a serial sequence on id
+                            // Column or table may not have a serial sequence
                         }
                     }
                 }

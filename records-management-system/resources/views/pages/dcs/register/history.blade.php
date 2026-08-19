@@ -20,81 +20,159 @@ new #[Layout('layouts.dcs')] #[Title('Revision History — CSPC DCS')] class ext
 }; ?>
 
 <div class="hst-container" x-data @keydown.escape.window="window.location.href = '{{ route('dcs.register.update') }}'">
-    <div class="reg-header">
+    <div class="hst-header">
         <div>
             <div class="reg-breadcrumb">Document Control System / Update / <span>History</span></div>
-            <div style="display:flex; align-items:center; gap:12px;">
-                <div class="reg-title">{{ $docTitle }}</div>
-                <span class="hst-badge"><i class="fa-solid fa-clock-rotate-left"></i> {{ $revisions->count() }} {{ \Illuminate\Support\Str::plural('revision', $revisions->count()) }}</span>
-            </div>
+            <h1 class="hst-page-title">History</h1>
         </div>
-        <a href="{{ route('dcs.register.update') }}" class="reg-btn reg-btn-cancel">
-            <i class="fa-solid fa-arrow-left"></i> Back to Documents
-        </a>
+        <div class="hst-header-actions">
+            <span class="hst-badge"><i class="fa-solid fa-clock-rotate-left"></i> {{ count($revisions) }} {{ \Illuminate\Support\Str::plural('revision', count($revisions)) }}</span>
+            <a href="{{ route('dcs.register.update') }}" class="reg-btn reg-btn-cancel">
+                <i class="fa-solid fa-arrow-left"></i> Back to Documents
+            </a>
+        </div>
     </div>
 
-    <div class="hst-timeline">
-        @foreach($revisions as $i => $rev)
-            @php
-                $isLatest = ($rev->revision_status ?? '') === 'latest'
-                    || (($rev->revision_status ?? null) === null && $i === 0);
-                $checklists = [];
-                if ($rev->drf_id) $checklists[] = 'DRF';
-                if ($rev->dcn_id) $checklists[] = 'DCN';
-                if ($rev->doc_title || $rev->revise_no !== null) $checklists[] = 'ML';
-            @endphp
-            <div class="hst-node {{ $isLatest ? 'hst-node-current' : '' }}">
-                <div class="hst-dot">
-                    @if($isLatest)
-                        <i class="fa-solid fa-circle-check"></i>
-                    @else
-                        <i class="fa-solid fa-circle"></i>
-                    @endif
+    <div class="hst-panel">
+        <div class="hst-doc">
+            <span class="hst-info-label">Document</span>
+            <p class="hst-doc-title" title="{{ $docTitle }}">{{ $docTitle }}</p>
+            <span class="hst-docno">{{ $docNo }}</span>
+        </div>
+
+        <div class="hst-timeline">
+        @forelse($revisions as $rev)
+            @php $firstTab = $rev['checklists'][0]['key'] ?? 'masterlist'; @endphp
+            <div
+                class="hst-node {{ $rev['is_latest'] ? 'hst-node-current' : '' }}"
+                x-data="{
+                    open: {{ $rev['is_latest'] ? 'true' : 'false' }},
+                    tab: {{ $rev['is_latest'] ? json_encode($firstTab) : 'null' }},
+                    first: {{ json_encode($firstTab) }},
+                    select(key) {
+                        if (this.open && this.tab === key) {
+                            this.open = false;
+                            this.tab = null;
+                            return;
+                        }
+                        this.tab = key;
+                        this.open = true;
+                    },
+                    toggle() {
+                        this.open = !this.open;
+                        if (this.open && !this.tab) this.tab = this.first;
+                        if (!this.open) this.tab = null;
+                    }
+                }"
+            >
+                <div class="hst-rail">
+                    <span class="hst-dot" title="Revision {{ $rev['revise_no'] }}">{{ $rev['revise_no'] }}</span>
                 </div>
-                <div class="hst-card">
-                    <div class="hst-card-header">
-                        <span class="hst-rev-badge">Rev {{ $rev->revise_no ?? 0 }}</span>
-                        @if($isLatest) <span class="hst-current-tag">Current</span> @endif
-                        <span class="hst-date">{{ $rev->created_at ? \Carbon\Carbon::parse($rev->created_at)->format('M d, Y h:i A') : 'N/A' }}</span>
+                <div class="hst-card" :class="{ 'is-open': open }">
+                    <div class="hst-card-header" @click="toggle()" role="button" tabindex="0" @keydown.enter="toggle()" @keydown.space.prevent="toggle()">
+                        <div class="hst-card-heading">
+                            <i class="fa-solid fa-chevron-right hst-chevron" :class="{ 'is-open': open }"></i>
+                            <span class="hst-rev-badge">Rev {{ $rev['revise_no'] }}</span>
+                            @if($rev['is_latest'])
+                                <span class="hst-current-tag">Current</span>
+                            @else
+                                <span class="hst-prior-tag">Previous</span>
+                            @endif
+                            @if($rev['is_initial'])
+                                <span class="hst-initial-tag">Initial</span>
+                            @elseif(($rev['changed_count'] ?? 0) > 0)
+                                <span class="hst-changed-tag">{{ $rev['changed_count'] }} {{ \Illuminate\Support\Str::plural('change', $rev['changed_count']) }}</span>
+                            @endif
+                            <span class="hst-tags">
+                                @foreach($rev['checklists'] as $cl)
+                                    <button
+                                        type="button"
+                                        class="hst-tag"
+                                        :class="{ 'is-active': tab === '{{ $cl['key'] }}' }"
+                                        @click.stop="select('{{ $cl['key'] }}')"
+                                    >{{ $cl['label'] }}</button>
+                                @endforeach
+                            </span>
+                        </div>
+                        <div class="hst-card-meta">
+                            <time class="hst-date">{{ $rev['created_label'] }}</time>
+                            @if($rev['is_latest'])
+                                <a href="{{ route('dcs.register.edit', $rev['id']) }}" class="hst-btn-edit" @click.stop>
+                                    <i class="fa-solid fa-pen-to-square"></i> Edit
+                                </a>
+                            @endif
+                        </div>
                     </div>
-                    <div class="hst-card-body">
-                        <div class="hst-info-grid">
-                            <div class="hst-info-item">
-                                <span class="hst-info-label">Title</span>
-                                <span class="hst-info-value">{{ $rev->doc_title ?? 'N/A' }}</span>
+
+                    <div class="hst-card-body" x-show="open" x-cloak>
+                        @foreach($rev['sections'] as $section)
+                            <div x-show="tab === '{{ $section['key'] }}'">
+                                <h2 class="hst-section-title">{{ $section['title'] }}</h2>
+                                @if(($section['key'] ?? '') === 'syllabi' && !empty($section['table']['courses']))
+                                    @if(!empty($section['table']['meta']))
+                                        <div class="hst-syl-meta">
+                                            @foreach($section['table']['meta'] as $row)
+                                                <div class="{{ !empty($row['changed']) ? 'is-changed' : '' }}">
+                                                    <span class="hst-info-label">{{ $row['label'] }}</span>
+                                                    <span class="hst-val">{{ $row['value'] }}</span>
+                                                    @if(!empty($row['changed']))
+                                                        <span class="hst-was">Was: {{ $row['previous'] ?? '—' }}</span>
+                                                    @endif
+                                                </div>
+                                            @endforeach
+                                        </div>
+                                    @endif
+                                    <div class="hst-table-wrap">
+                                        <table class="hst-table">
+                                            <thead>
+                                                <tr>
+                                                    <th>Course</th>
+                                                    <th>Available</th>
+                                                    <th>Copies</th>
+                                                    <th>Pages</th>
+                                                    <th>Received</th>
+                                                    <th>Faculty</th>
+                                                    <th>DRF</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody>
+                                                @foreach($section['table']['courses'] as $course)
+                                                    <tr>
+                                                        @foreach(['course' => 'is-course', 'avail' => 'is-tight', 'copies' => 'is-tight', 'pages' => 'is-tight', 'received' => 'is-tight', 'faculty' => '', 'drf' => ''] as $col => $cls)
+                                                            @php $cell = $course[$col] ?? ['value' => '—']; @endphp
+                                                            <td class="{{ $cls }} {{ !empty($cell['changed']) ? 'is-changed' : '' }}">
+                                                                <span class="hst-val">{{ $cell['value'] ?? '—' }}</span>
+                                                                @if(!empty($cell['changed']))
+                                                                    <span class="hst-was">Was: {{ $cell['previous'] ?? '—' }}</span>
+                                                                @endif
+                                                            </td>
+                                                        @endforeach
+                                                    </tr>
+                                                @endforeach
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                @else
+                                    <div class="hst-grid">
+                                        @foreach($section['rows'] as $row)
+                                            <div class="hst-field {{ !empty($row['changed']) ? 'is-changed' : '' }}">
+                                                <span class="hst-info-label">{{ $row['label'] }}</span>
+                                                <span class="hst-val">{!! nl2br(e($row['value'])) !!}</span>
+                                                @if(!empty($row['changed']))
+                                                    <span class="hst-was">Was: {!! nl2br(e($row['previous'] ?? '—')) !!}</span>
+                                                @endif
+                                            </div>
+                                        @endforeach
+                                    </div>
+                                @endif
                             </div>
-                            <div class="hst-info-item">
-                                <span class="hst-info-label">Effectivity</span>
-                                <span class="hst-info-value">{{ $rev->effectivity_date ? \Carbon\Carbon::parse($rev->effectivity_date)->format('M d, Y') : 'N/A' }}</span>
-                            </div>
-                            <div class="hst-info-item">
-                                <span class="hst-info-label">Pages</span>
-                                <span class="hst-info-value">{{ $rev->no_pages ?? 'N/A' }}</span>
-                            </div>
-                            <div class="hst-info-item">
-                                <span class="hst-info-label">Originator</span>
-                                <span class="hst-info-value">{{ $rev->originator_name ?? 'N/A' }}</span>
-                            </div>
-                            <div class="hst-info-item">
-                                <span class="hst-info-label">Purpose</span>
-                                <span class="hst-info-value">{{ $rev->brief_purpose ?? 'N/A' }}</span>
-                            </div>
-                        </div>
-                        <div class="hst-tags">
-                            @foreach($checklists as $cl)
-                                <span class="hst-tag">{{ $cl }}</span>
-                            @endforeach
-                        </div>
+                        @endforeach
                     </div>
-                    @if($isLatest)
-                        <div class="hst-card-actions">
-                            <a href="{{ route('dcs.register.edit', $rev->id) }}" class="hst-btn-edit">
-                                <i class="fa-solid fa-pen-to-square"></i> Edit This Revision
-                            </a>
-                        </div>
-                    @endif
                 </div>
             </div>
-        @endforeach
+        @empty
+            <div class="hst-empty">No revision history found for this document.</div>
+        @endforelse
+        </div>
     </div>
 </div>

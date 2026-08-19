@@ -272,38 +272,1242 @@ class RegisterQueryHelper
         ];
     }
 
-    public static function history(string $docNo): array
+    public static function reviewList(string $search, string $docTypeId, int $page, int $perPage = 15): array
     {
-        $mls = DB::table('dcs_masterlist_registration as ml')
+        $empty = [
+            'rows' => [],
+            'total' => 0,
+            'current_page' => 1,
+            'last_page' => 1,
+            'per_page' => $perPage,
+            'filtered' => trim($search) !== '' || ($docTypeId !== '' && $docTypeId !== 'all'),
+        ];
+
+        $visibleIds = self::visibleRequestIds();
+        if ($visibleIds === []) {
+            return $empty;
+        }
+
+        $latestMl = DB::table('dcs_masterlist_registration as ml')
+            ->select('ml.doc_no', DB::raw('MAX(ml.id) as ml_id'))
+            ->whereNotNull('ml.doc_no')
+            ->where('ml.doc_no', '!=', '')
+            ->groupBy('ml.doc_no');
+
+        $revCounts = DB::table('dcs_masterlist_registration')
+            ->select('doc_no', DB::raw('COUNT(*) as rev_count'))
+            ->whereNotNull('doc_no')
+            ->where('doc_no', '!=', '')
+            ->groupBy('doc_no');
+
+        $query = DB::table('dcs_masterlist_registration as ml')
+            ->joinSub($latestMl, 'latest', function ($join) {
+                $join->on('ml.id', '=', 'latest.ml_id');
+            })
+            ->joinSub($revCounts, 'rc', function ($join) {
+                $join->on('rc.doc_no', '=', 'ml.doc_no');
+            })
             ->join('dcs_document_requests as dr', 'dr.id', '=', 'ml.request_id')
             ->leftJoin('dcs_doc_types as dt', 'dt.id', '=', 'dr.doc_type_id')
             ->leftJoin('dcs_document_request_form as drf', 'drf.request_id', '=', 'dr.id')
             ->leftJoin('dcs_document_change_notice as dcn', 'dcn.request_id', '=', 'dr.id')
-            ->where('ml.doc_no', $docNo)
-            ->orderByDesc('ml.revise_no')
-            ->get([
-                'dr.id',
-                'dr.created_at',
+            ->leftJoin('dcs_document_retrieval as ret', 'ret.request_id', '=', 'dr.id')
+            ->leftJoin('dcs_document_distribution as dist', 'dist.request_id', '=', 'dr.id')
+            ->whereIn('dr.id', $visibleIds)
+            ->orderByDesc('ml.id')
+            ->select([
+                'dr.id as request_id',
+                'ml.doc_no',
                 'ml.doc_title',
                 'ml.revise_no',
-                'ml.revision_status',
-                'ml.effectivity_date',
-                'ml.no_pages',
-                'ml.originator_name',
-                'ml.brief_purpose',
+                'dt.doc_type_name',
+                'rc.rev_count',
                 'drf.id as drf_id',
                 'dcn.id as dcn_id',
+                'ml.id as ml_id',
+                'ret.id as ret_id',
+                'dist.id as dist_id',
+            ]);
+
+        if ($docTypeId !== '' && $docTypeId !== 'all') {
+            $query->where('dr.doc_type_id', (int) $docTypeId);
+        }
+
+        $search = trim($search);
+        if ($search !== '') {
+            $like = '%' . $search . '%';
+            $query->where(function ($q) use ($like) {
+                $q->where('ml.doc_no', 'ilike', $like)
+                    ->orWhere('ml.doc_title', 'ilike', $like);
+            });
+        }
+
+        $total = (clone $query)->count();
+        $lastPage = max(1, (int) ceil($total / $perPage));
+        $page = min(max(1, $page), $lastPage);
+        $documents = $total === 0 ? collect() : $query->skip(($page - 1) * $perPage)->take($perPage)->get();
+
+        $checklistNames = [
+            1 => 'Document Request Form',
+            2 => 'Document Change Notice',
+            3 => 'Masterlist',
+            4 => 'Retrieval',
+            5 => 'Distribution',
+        ];
+        foreach (DB::table('dcs_checklist_types')->get(['id', 'checklist_name']) as $row) {
+            $checklistNames[$row->id] = $row->checklist_name;
+        }
+
+        $rows = $documents->map(function ($doc) use ($checklistNames) {
+            $revCount = (int) ($doc->rev_count ?? 0);
+            $canCompare = $revCount >= 2;
+            $checklists = [];
+            if ($doc->drf_id) {
+                $checklists[] = $checklistNames[1] ?? 'DRF';
+            }
+            if ($doc->dcn_id) {
+                $checklists[] = $checklistNames[2] ?? 'DCN';
+            }
+            if ($doc->ml_id) {
+                $checklists[] = $checklistNames[3] ?? 'Masterlist';
+            }
+            if ($doc->ret_id) {
+                $checklists[] = $checklistNames[4] ?? 'Retrieval';
+            }
+            if ($doc->dist_id) {
+                $checklists[] = $checklistNames[5] ?? 'Distribution';
+            }
+
+            return [
+                'request_id' => (int) $doc->request_id,
+                'doc_no' => (string) $doc->doc_no,
+                'title' => $doc->doc_title ?: $doc->doc_no,
+                'rev_no' => (int) ($doc->revise_no ?? 0),
+                'rev_count' => $revCount,
+                'can_compare' => $canCompare,
+                'reason' => $canCompare
+                    ? null
+                    : 'Only one revision is registered. Comparison needs two revisions of this same document.',
+                'doc_type' => $doc->doc_type_name ?? 'N/A',
+                'checklists' => $checklists,
+            ];
+        })->all();
+
+        return [
+            'rows' => $rows,
+            'total' => $total,
+            'current_page' => $page,
+            'last_page' => $lastPage,
+            'per_page' => $perPage,
+            'filtered' => $empty['filtered'],
+        ];
+    }
+
+    public static function history(string $docNo): array
+    {
+        $mls = DB::table('dcs_masterlist_registration as ml')
+            ->join('dcs_document_requests as dr', 'dr.id', '=', 'ml.request_id')
+            ->where('ml.doc_no', $docNo)
+            ->orderByDesc('ml.revise_no')
+            ->orderByDesc('ml.id')
+            ->get([
+                'ml.*',
+                'dr.version_id as request_version_id',
+                'dr.approval_status',
+                'dr.created_at as request_created_at',
+                'dr.created_by as request_created_by',
             ]);
 
         if ($mls->isEmpty()) {
             abort(404, 'Document not found.');
         }
 
+        $requestIds = self::intIds($mls->pluck('request_id'));
+        $docs = self::hydrateRequests(
+            DB::table('dcs_document_requests')->whereIn('id', $requestIds)->get()
+        )->keyBy(fn ($d) => (int) $d->id);
+
+        $drfIds = $docs->map(fn ($d) => $d->documentRequestForm->id ?? null)->filter()->values()->all();
+        $drfOffices = $drfIds
+            ? DB::table('dcs_drf_offices as d')
+                ->leftJoin('office as o', 'o.id', '=', 'd.office_id')
+                ->whereIn('d.document_request_form_id', $drfIds)
+                ->get(['d.document_request_form_id', 'o.office_name'])
+                ->groupBy('document_request_form_id')
+            : collect();
+
+        $dcnIds = $docs->map(fn ($d) => $d->documentChangeNotice->id ?? null)->filter()->values()->all();
+        $dcnOffices = $dcnIds
+            ? DB::table('dcs_dcn_offices as d')
+                ->leftJoin('office as o', 'o.id', '=', 'd.office_id')
+                ->whereIn('d.dcn_id', $dcnIds)
+                ->get(['d.dcn_id', 'o.office_name'])
+                ->groupBy('dcn_id')
+            : collect();
+
+        foreach ($docs as $doc) {
+            if ($doc->documentRequestForm) {
+                $doc->documentRequestForm->offices = $drfOffices->get($doc->documentRequestForm->id, collect());
+            }
+            if ($doc->documentChangeNotice) {
+                $doc->documentChangeNotice->offices = $dcnOffices->get($doc->documentChangeNotice->id, collect());
+            }
+        }
+
+        $lookups = [
+            'versions' => DB::table('dcs_version_type')->pluck('version_name', 'id'),
+            'approvals' => DB::table('dcs_approval_body')->pluck('approval_name', 'id'),
+            'colleges' => DB::table('dcs_colleges')->pluck('college_name', 'id'),
+            'programs' => DB::table('dcs_programs')->pluck('program_name', 'id'),
+            'semesters' => DB::table('dcs_semesters')->pluck('semester_name', 'id'),
+            'years' => DB::table('dcs_school_years')->pluck('school_year', 'id'),
+            'creators' => collect(),
+        ];
+
+        $creatorIds = $mls->pluck('request_created_by')->merge($mls->pluck('created_by'))->filter()->unique()->all();
+        if ($creatorIds) {
+            $lookups['creators'] = DB::table('account_details')
+                ->whereIn('account_id', $creatorIds)
+                ->get()
+                ->mapWithKeys(fn ($d) => [(int) $d->account_id => trim($d->first_name . ' ' . $d->last_name)]);
+        }
+
+        $revisions = [];
+        foreach ($mls as $i => $ml) {
+            $doc = $docs->get((int) $ml->request_id);
+            $revisions[] = self::buildHistoryRevision($ml, $doc, $lookups, $i === 0);
+        }
+
+        $noiseKeys = ['revise_no', 'registered_at', 'registered_by'];
+        $summaryKeys = ['doc_type', 'sub_type', 'originator', 'effectivity', 'pages', 'purpose', 'deadline', 'drf_no', 'dcn_no'];
+
+        for ($i = 0; $i < count($revisions); $i++) {
+            $older = $revisions[$i + 1] ?? null;
+            $changes = [];
+            foreach ($revisions[$i]['sections'] as $s => $section) {
+                $olderRows = [];
+                if ($older) {
+                    foreach ($older['sections'] as $os) {
+                        if ($os['key'] === $section['key']) {
+                            foreach ($os['rows'] as $or) {
+                                $olderRows[$or['key']] = $or;
+                            }
+                        }
+                    }
+                }
+                $sectionChanged = false;
+                foreach ($section['rows'] as $r => $row) {
+                    $prev = $olderRows[$row['key']] ?? null;
+                    $isChanged = $older !== null
+                        && ($prev === null || ($prev['compare'] ?? '') !== ($row['compare'] ?? ''));
+                    $revisions[$i]['sections'][$s]['rows'][$r]['changed'] = $isChanged;
+                    $revisions[$i]['sections'][$s]['rows'][$r]['previous'] = $isChanged
+                        ? ($prev['value'] ?? '—')
+                        : null;
+                    if ($isChanged && !in_array($row['key'], $noiseKeys, true)) {
+                        $changes[] = $revisions[$i]['sections'][$s]['rows'][$r];
+                        $sectionChanged = true;
+                    }
+                }
+                $revisions[$i]['sections'][$s]['changed'] = $sectionChanged;
+                if (($section['key'] ?? '') === 'syllabi') {
+                    $revisions[$i]['sections'][$s]['table'] = self::hstSyllabiTableFromRows(
+                        $revisions[$i]['sections'][$s]['rows']
+                    );
+                }
+            }
+            $revisions[$i]['is_initial'] = $older === null;
+            $revisions[$i]['changes'] = $changes;
+            $revisions[$i]['changed_count'] = count($changes);
+            $revisions[$i]['summary'] = self::hstPickRows($revisions[$i]['sections'], $summaryKeys);
+        }
+
         return [
             'docNo' => $docNo,
             'docTitle' => $mls->first()->doc_title ?: $docNo,
-            'revisions' => $mls,
+            'revisions' => $revisions,
         ];
+    }
+
+    public static function reviewCompare(string $docNo, ?int $leftId = null, ?int $rightId = null, ?string $extractTab = null): array
+    {
+        $empty = [
+            'docNo' => trim($docNo),
+            'docTitle' => '',
+            'options' => [],
+            'left_id' => null,
+            'right_id' => null,
+            'tabs' => [],
+            'pairs' => [],
+            'can_compare' => false,
+            'error' => null,
+            'left_label' => 'Older',
+            'right_label' => 'Newer',
+        ];
+
+        $docNo = trim($docNo);
+        if ($docNo === '' || strcasecmp($docNo, 'N/A') === 0) {
+            return array_merge($empty, ['error' => 'no_doc_no']);
+        }
+
+        if (!DB::table('dcs_masterlist_registration')->where('doc_no', $docNo)->exists()) {
+            return array_merge($empty, ['error' => 'not_found']);
+        }
+
+        $history = self::history($docNo);
+        $revs = $history['revisions'];
+        $byId = [];
+        foreach ($revs as $rev) {
+            $byId[(int) $rev['id']] = $rev;
+        }
+
+        $options = [];
+        foreach ($revs as $rev) {
+            $options[] = [
+                'id' => (int) $rev['id'],
+                'revise_no' => (int) $rev['revise_no'],
+                'is_latest' => (bool) $rev['is_latest'],
+                'created_label' => $rev['created_label'] ?? '',
+                'label' => 'Rev ' . $rev['revise_no'] . ($rev['is_latest'] ? ' · current' : ''),
+            ];
+        }
+
+        $base = [
+            'docNo' => $history['docNo'],
+            'docTitle' => $history['docTitle'],
+            'options' => $options,
+            'left_id' => null,
+            'right_id' => null,
+            'tabs' => [],
+            'pairs' => [],
+            'can_compare' => false,
+            'error' => null,
+            'left_label' => 'Older',
+            'right_label' => 'Newer',
+        ];
+
+        if (count($revs) < 2) {
+            return array_merge($base, ['error' => 'need_two_revisions']);
+        }
+
+        $rightId = ($rightId && isset($byId[$rightId])) ? $rightId : (int) $revs[0]['id'];
+        $leftId = ($leftId && isset($byId[$leftId])) ? $leftId : (int) $revs[1]['id'];
+
+        if ($leftId === $rightId) {
+            return array_merge($base, [
+                'left_id' => $leftId,
+                'right_id' => $rightId,
+                'error' => 'same_revision',
+            ]);
+        }
+
+        $left = $byId[$leftId];
+        $right = $byId[$rightId];
+        if (!self::reviewRevIsOlder($left, $right)) {
+            [$leftId, $rightId] = [$rightId, $leftId];
+            [$left, $right] = [$right, $left];
+        }
+
+        $leftLabel = 'Rev ' . $left['revise_no'] . ' · older';
+        $rightLabel = 'Rev ' . $right['revise_no'] . ' · newer';
+
+        $tabLabels = [
+            'masterlist' => 'Masterlist',
+            'drf' => 'DRF',
+            'dcn' => 'DCN',
+            'distribution' => 'Distribution',
+            'retrieval' => 'Retrieval',
+            'approval' => 'Approval',
+            'syllabi' => 'Syllabi',
+        ];
+        $present = [];
+        foreach ([$left, $right] as $rev) {
+            if (!$rev) {
+                continue;
+            }
+            foreach ($rev['sections'] as $section) {
+                $present[$section['key']] = true;
+            }
+        }
+
+        $tabs = [];
+        foreach ($tabLabels as $key => $label) {
+            if (!empty($present[$key])) {
+                $tabs[] = ['key' => $key, 'label' => $label];
+            }
+        }
+
+        $pairs = [];
+        foreach ($tabs as $tab) {
+            $pairs[$tab['key']] = self::reviewPairSection($left, $right, $tab['key']);
+        }
+
+        return [
+            'docNo' => $history['docNo'],
+            'docTitle' => $history['docTitle'],
+            'options' => $options,
+            'left_id' => $leftId,
+            'right_id' => $rightId,
+            'tabs' => $tabs,
+            'pairs' => $pairs,
+            'can_compare' => true,
+            'error' => null,
+            'left_label' => $leftLabel,
+            'right_label' => $rightLabel,
+        ];
+    }
+
+    private static function reviewRevIsOlder(array $left, array $right): bool
+    {
+        $leftRev = (int) ($left['revise_no'] ?? 0);
+        $rightRev = (int) ($right['revise_no'] ?? 0);
+        if ($leftRev !== $rightRev) {
+            return $leftRev < $rightRev;
+        }
+
+        return strcmp((string) ($left['created_at'] ?? ''), (string) ($right['created_at'] ?? '')) <= 0;
+    }
+
+    private static function reviewPairSection(?array $left, ?array $right, string $key): array
+    {
+        $leftSection = self::reviewSectionByKey($left, $key);
+        $rightSection = self::reviewSectionByKey($right, $key);
+        $skip = ['scanned_ml', 'drf_scan', 'dcn_scan', 'dist_scan', 'ret_scan'];
+
+        $rows = [];
+        if ($key !== 'syllabi') {
+            $leftMap = self::reviewRowMap($leftSection);
+            $rightMap = self::reviewRowMap($rightSection);
+            $order = [];
+            foreach (array_merge(array_keys($leftMap), array_keys($rightMap)) as $rowKey) {
+                if (in_array($rowKey, $skip, true) || isset($order[$rowKey])) {
+                    continue;
+                }
+                $order[$rowKey] = true;
+            }
+            foreach (array_keys($order) as $rowKey) {
+                $l = $leftMap[$rowKey] ?? null;
+                $r = $rightMap[$rowKey] ?? null;
+                if (($l['kind'] ?? $r['kind'] ?? '') === 'offices' || in_array($rowKey, ['sources', 'drf_offices', 'dcn_offices', 'dist_offices', 'ret_offices'], true)) {
+                    $rows[] = self::reviewOfficePair($l, $r);
+                    continue;
+                }
+                $leftVal = $l['value'] ?? '—';
+                $rightVal = $r['value'] ?? '—';
+                $rows[] = array_merge(self::reviewInlineDiff($leftVal, $rightVal), [
+                    'key' => $rowKey,
+                    'label' => $l['label'] ?? $r['label'] ?? $rowKey,
+                ]);
+            }
+        }
+
+        $syllabi = null;
+        if ($key === 'syllabi') {
+            $leftTable = $leftSection['table'] ?? self::hstSyllabiTableFromRows($leftSection['rows'] ?? []);
+            $rightTable = $rightSection['table'] ?? self::hstSyllabiTableFromRows($rightSection['rows'] ?? []);
+            $meta = [];
+            $leftMeta = self::reviewRowMap(['rows' => $leftTable['meta'] ?? []]);
+            $rightMeta = self::reviewRowMap(['rows' => $rightTable['meta'] ?? []]);
+            foreach (['syl_college', 'syl_program', 'syl_sem', 'syl_sy'] as $metaKey) {
+                if (!isset($leftMeta[$metaKey]) && !isset($rightMeta[$metaKey])) {
+                    continue;
+                }
+                $l = $leftMeta[$metaKey] ?? null;
+                $r = $rightMeta[$metaKey] ?? null;
+                $meta[] = array_merge(self::reviewInlineDiff($l['value'] ?? '—', $r['value'] ?? '—'), [
+                    'key' => $metaKey,
+                    'label' => $l['label'] ?? $r['label'] ?? $metaKey,
+                ]);
+            }
+
+            $fields = ['course', 'avail', 'copies', 'pages', 'received', 'faculty', 'drf'];
+            $leftCourses = [];
+            foreach ($leftTable['courses'] ?? [] as $course) {
+                $name = $course['course']['compare'] ?? mb_strtolower($course['course']['value'] ?? '');
+                $leftCourses[$name !== '' ? $name : uniqid('l.', true)] = $course;
+            }
+            $rightCourses = [];
+            foreach ($rightTable['courses'] ?? [] as $course) {
+                $name = $course['course']['compare'] ?? mb_strtolower($course['course']['value'] ?? '');
+                $rightCourses[$name !== '' ? $name : uniqid('r.', true)] = $course;
+            }
+            $names = array_unique(array_merge(array_keys($leftCourses), array_keys($rightCourses)));
+            $courses = [];
+            foreach ($names as $name) {
+                $lc = $leftCourses[$name] ?? null;
+                $rc = $rightCourses[$name] ?? null;
+                $cells = [];
+                $rowStatus = 'same';
+                foreach ($fields as $field) {
+                    $diff = self::reviewInlineDiff($lc[$field]['value'] ?? '—', $rc[$field]['value'] ?? '—');
+                    $cells[$field] = $diff;
+                    if ($diff['status'] !== 'same' && $rowStatus === 'same') {
+                        $rowStatus = $diff['status'];
+                    } elseif ($diff['status'] !== 'same' && $diff['status'] !== $rowStatus) {
+                        $rowStatus = 'changed';
+                    }
+                }
+                $courses[] = ['status' => $rowStatus, 'cells' => $cells];
+            }
+            $syllabi = ['meta' => $meta, 'courses' => $courses];
+        }
+
+        $leftScan = self::reviewScanPayload($leftSection);
+        $rightScan = self::reviewScanPayload($rightSection);
+        $textDiff = self::reviewScanDiff($leftScan, $rightScan);
+
+        return [
+            'title' => $leftSection['title'] ?? $rightSection['title'] ?? ucfirst($key),
+            'rows' => $rows,
+            'syllabi' => $syllabi,
+            'left_scan' => $leftScan,
+            'right_scan' => $rightScan,
+            'text_diff' => $textDiff,
+            'scan_status' => $textDiff['status'] ?? 'none',
+        ];
+    }
+
+    private static function reviewSectionByKey(?array $rev, string $key): ?array
+    {
+        if (!$rev) {
+            return null;
+        }
+        foreach ($rev['sections'] as $section) {
+            if (($section['key'] ?? '') === $key) {
+                return $section;
+            }
+        }
+
+        return null;
+    }
+
+    private static function reviewRowMap(?array $section): array
+    {
+        $map = [];
+        foreach ($section['rows'] ?? [] as $row) {
+            $map[$row['key']] = $row;
+        }
+
+        return $map;
+    }
+
+    private static function reviewOfficePair(?array $left, ?array $right): array
+    {
+        $leftMap = self::reviewOfficeItemMap($left);
+        $rightMap = self::reviewOfficeItemMap($right);
+        $withCopies = (bool) ($left['with_copies'] ?? $right['with_copies'] ?? false);
+        if (!$withCopies) {
+            foreach (array_merge($leftMap, $rightMap) as $item) {
+                if (($item['copies'] ?? null) !== null) {
+                    $withCopies = true;
+                    break;
+                }
+            }
+        }
+
+        $names = array_unique(array_merge(array_keys($leftMap), array_keys($rightMap)));
+        sort($names, SORT_NATURAL | SORT_FLAG_CASE);
+
+        $offices = [];
+        $status = 'same';
+        foreach ($names as $key) {
+            $l = $leftMap[$key] ?? null;
+            $r = $rightMap[$key] ?? null;
+            $name = $l['name'] ?? $r['name'] ?? $key;
+            $leftCopies = $l['copies'] ?? null;
+            $rightCopies = $r['copies'] ?? null;
+            $leftPresent = $l !== null;
+            $rightPresent = $r !== null;
+
+            if ($leftPresent && $rightPresent) {
+                if ($withCopies && (string) $leftCopies !== (string) $rightCopies) {
+                    $rowStatus = 'changed';
+                    $leftHtml = '<span class="drr-chg">' . e((string) $leftCopies) . '</span>';
+                    $rightHtml = '<span class="drr-chg">' . e((string) $rightCopies) . '</span>';
+                } else {
+                    $rowStatus = 'same';
+                    $leftHtml = $withCopies ? e((string) ($leftCopies ?? '1')) : 'Present';
+                    $rightHtml = $withCopies ? e((string) ($rightCopies ?? '1')) : 'Present';
+                }
+            } elseif ($leftPresent) {
+                $rowStatus = 'removed';
+                $leftHtml = $withCopies
+                    ? '<span class="drr-del">' . e((string) ($leftCopies ?? '1')) . '</span>'
+                    : '<span class="drr-del">Present</span>';
+                $rightHtml = '<span class="drr-del">Removed</span>';
+            } else {
+                $rowStatus = 'added';
+                $leftHtml = '—';
+                $rightHtml = $withCopies
+                    ? '<span class="drr-ins">' . e((string) ($rightCopies ?? '1')) . '</span>'
+                    : '<span class="drr-ins">Present</span>';
+            }
+
+            if ($rowStatus !== 'same' && $status === 'same') {
+                $status = $rowStatus;
+            } elseif ($rowStatus !== 'same' && $rowStatus !== $status) {
+                $status = 'changed';
+            }
+
+            $offices[] = [
+                'name' => $name,
+                'status' => $rowStatus,
+                'left_html' => $leftHtml,
+                'right_html' => $rightHtml,
+            ];
+        }
+
+        return [
+            'key' => $left['key'] ?? $right['key'] ?? 'offices',
+            'label' => $left['label'] ?? $right['label'] ?? 'Offices',
+            'kind' => 'offices',
+            'with_copies' => $withCopies,
+            'status' => $status,
+            'offices' => $offices,
+            'left_html' => '',
+            'right_html' => '',
+        ];
+    }
+
+    private static function reviewOfficeItemMap(?array $row): array
+    {
+        if (!$row) {
+            return [];
+        }
+
+        $map = [];
+        foreach ($row['items'] ?? [] as $item) {
+            $name = trim((string) ($item['name'] ?? ''));
+            if ($name === '') {
+                continue;
+            }
+            $map[mb_strtolower($name)] = [
+                'name' => $name,
+                'copies' => $item['copies'] ?? null,
+            ];
+        }
+        if ($map !== []) {
+            return $map;
+        }
+
+        $value = trim((string) ($row['value'] ?? ''));
+        if ($value === '' || $value === '—') {
+            return [];
+        }
+
+        foreach (preg_split('/\s*,\s*/', $value) as $part) {
+            $part = trim($part);
+            if ($part === '') {
+                continue;
+            }
+            $copies = null;
+            $name = $part;
+            if (preg_match('/^(.*)\s+\((\d+)\)\s*$/u', $part, $match)) {
+                $name = trim($match[1]);
+                $copies = $match[2];
+            }
+            if ($name === '') {
+                continue;
+            }
+            $map[mb_strtolower($name)] = [
+                'name' => $name,
+                'copies' => $copies,
+            ];
+        }
+
+        return $map;
+    }
+
+    private static function reviewScanPayload(?array $section): array
+    {
+        $path = $section['scan_path'] ?? null;
+        $url = $section['scan_url'] ?? null;
+        $ext = $path ? strtolower(pathinfo($path, PATHINFO_EXTENSION)) : '';
+
+        return [
+            'path' => $path,
+            'url' => $url,
+            'name' => $path ? basename($path) : null,
+            'is_pdf' => $ext === 'pdf',
+            'text' => '',
+            'has_text' => false,
+        ];
+    }
+
+    private static function reviewScanDiff(array $leftScan, array $rightScan): array
+    {
+        $leftHas = (bool) ($leftScan['url'] ?? null);
+        $rightHas = (bool) ($rightScan['url'] ?? null);
+        $leftText = (string) ($leftScan['text'] ?? '');
+        $rightText = (string) ($rightScan['text'] ?? '');
+
+        if (!$leftHas && !$rightHas) {
+            return [
+                'status' => 'none',
+                'left_html' => '',
+                'right_html' => '',
+                'has_text' => false,
+                'note' => null,
+            ];
+        }
+
+        if ($leftText !== '' || $rightText !== '') {
+            $diff = self::reviewLineDiff($leftText, $rightText);
+            $diff['has_text'] = true;
+            $diff['note'] = null;
+
+            return $diff;
+        }
+
+        $status = 'same';
+        if ($leftHas && !$rightHas) {
+            $status = 'removed';
+        } elseif (!$leftHas && $rightHas) {
+            $status = 'added';
+        } elseif (($leftScan['path'] ?? '') !== ($rightScan['path'] ?? '')) {
+            $status = 'changed';
+        }
+
+        return [
+            'status' => $status,
+            'left_html' => '',
+            'right_html' => '',
+            'has_text' => false,
+            'note' => 'No extractable text on these scans. Only file presence could be compared.',
+        ];
+    }
+
+    private static function reviewLineDiff(string $old, string $new): array
+    {
+        $oldLines = preg_split("/\r\n|\r|\n/", $old) ?: [];
+        $newLines = preg_split("/\r\n|\r|\n/", $new) ?: [];
+        $oldLines = array_slice($oldLines, 0, 250);
+        $newLines = array_slice($newLines, 0, 250);
+
+        if (implode("\n", $oldLines) === implode("\n", $newLines)) {
+            $html = e($old !== '' ? $old : '—');
+
+            return [
+                'status' => 'same',
+                'left_html' => $html,
+                'right_html' => $html,
+            ];
+        }
+
+        $ops = self::reviewLcsOps($oldLines, $newLines);
+        $left = '';
+        $right = '';
+        foreach ($ops as $op) {
+            $line = (string) $op['t'];
+            if ($op['k'] === 'eq') {
+                $left .= e($line) . "\n";
+                $right .= e($line) . "\n";
+            } elseif ($op['k'] === 'del') {
+                $left .= '<span class="drr-del">' . e($line) . "</span>\n";
+            } else {
+                $right .= '<span class="drr-ins">' . e($line) . "</span>\n";
+            }
+        }
+
+        $status = 'changed';
+        if (trim($old) === '') {
+            $status = 'added';
+        } elseif (trim($new) === '') {
+            $status = 'removed';
+        }
+
+        return [
+            'status' => $status,
+            'left_html' => rtrim($left),
+            'right_html' => rtrim($right),
+        ];
+    }
+
+    private static function reviewInlineDiff(string $old, string $new): array
+    {
+        $oldPlain = $old === '—' ? '' : $old;
+        $newPlain = $new === '—' ? '' : $new;
+
+        if ($oldPlain === $newPlain) {
+            $safe = e($old !== '' ? $old : '—');
+
+            return [
+                'status' => 'same',
+                'left_html' => $safe,
+                'right_html' => $safe,
+                'left' => $old !== '' ? $old : '—',
+                'right' => $new !== '' ? $new : '—',
+            ];
+        }
+
+        if ($oldPlain === '' && $newPlain !== '') {
+            return [
+                'status' => 'added',
+                'left_html' => '—',
+                'right_html' => '<span class="drr-ins">' . e($new) . '</span>',
+                'left' => '—',
+                'right' => $new,
+            ];
+        }
+
+        if ($newPlain === '' && $oldPlain !== '') {
+            return [
+                'status' => 'removed',
+                'left_html' => '<span class="drr-del">' . e($old) . '</span>',
+                'right_html' => '—',
+                'left' => $old,
+                'right' => '—',
+            ];
+        }
+
+        [$leftHtml, $rightHtml] = self::reviewTokenDiffHtml($oldPlain, $newPlain);
+
+        return [
+            'status' => 'changed',
+            'left_html' => $leftHtml,
+            'right_html' => $rightHtml,
+            'left' => $old,
+            'right' => $new,
+        ];
+    }
+
+    private static function reviewTokenDiffHtml(string $old, string $new): array
+    {
+        $a = self::reviewTokens($old);
+        $b = self::reviewTokens($new);
+        $a = array_slice($a, 0, 800);
+        $b = array_slice($b, 0, 800);
+        $ops = self::reviewLcsOps($a, $b);
+
+        $left = '';
+        $right = '';
+        foreach ($ops as $op) {
+            $token = e($op['t']);
+            if ($op['k'] === 'eq') {
+                $left .= $token;
+                $right .= $token;
+            } elseif ($op['k'] === 'del') {
+                $left .= '<span class="drr-del">' . $token . '</span>';
+            } else {
+                $right .= '<span class="drr-ins">' . $token . '</span>';
+            }
+        }
+
+        return [trim($left), trim($right)];
+    }
+
+    private static function reviewTokens(string $text): array
+    {
+        $parts = preg_split('/(\s+)/u', $text, -1, PREG_SPLIT_DELIM_CAPTURE);
+
+        return array_values(array_filter($parts === false ? [] : $parts, fn ($part) => $part !== ''));
+    }
+
+    private static function reviewLcsOps(array $a, array $b): array
+    {
+        $n = count($a);
+        $m = count($b);
+        $dp = array_fill(0, $n + 1, array_fill(0, $m + 1, 0));
+        for ($i = 1; $i <= $n; $i++) {
+            for ($j = 1; $j <= $m; $j++) {
+                $dp[$i][$j] = $a[$i - 1] === $b[$j - 1]
+                    ? $dp[$i - 1][$j - 1] + 1
+                    : max($dp[$i - 1][$j], $dp[$i][$j - 1]);
+            }
+        }
+
+        $ops = [];
+        $i = $n;
+        $j = $m;
+        while ($i > 0 || $j > 0) {
+            if ($i > 0 && $j > 0 && $a[$i - 1] === $b[$j - 1]) {
+                $ops[] = ['k' => 'eq', 't' => $a[$i - 1]];
+                $i--;
+                $j--;
+            } elseif ($j > 0 && ($i === 0 || $dp[$i][$j - 1] >= $dp[$i - 1][$j])) {
+                $ops[] = ['k' => 'ins', 't' => $b[$j - 1]];
+                $j--;
+            } else {
+                $ops[] = ['k' => 'del', 't' => $a[$i - 1]];
+                $i--;
+            }
+        }
+
+        return array_reverse($ops);
+    }
+
+    private static function hstRow(string $key, string $label, mixed $value, array $extra = []): array
+    {
+        $text = trim((string) ($value ?? ''));
+        if ($text === '') {
+            $text = '—';
+        }
+
+        return array_merge([
+            'key' => $key,
+            'label' => $label,
+            'value' => $text,
+            'compare' => mb_strtolower($text === '—' ? '' : $text),
+        ], $extra);
+    }
+
+    private static function hstDate(mixed $val): string
+    {
+        return $val ? Carbon::parse($val)->format('M d, Y') : '—';
+    }
+
+    private static function hstDateTime(mixed $val): string
+    {
+        return $val ? Carbon::parse($val)->format('M d, Y · h:i A') : '—';
+    }
+
+    private static function hstTime(mixed $val): string
+    {
+        return $val ? Carbon::parse($val)->format('h:i A') : '—';
+    }
+
+    private static function hstFile(mixed $path): string
+    {
+        return $path ? basename((string) $path) : '—';
+    }
+
+    private static function hstOfficeItems($rows, bool $withCopies = false): array
+    {
+        if (!$rows || (method_exists($rows, 'isEmpty') && $rows->isEmpty())) {
+            return [];
+        }
+
+        $items = [];
+        foreach (collect($rows) as $row) {
+            $name = trim((string) ($row->office->office_name ?? $row->office_name ?? ''));
+            if ($name === '') {
+                continue;
+            }
+            $key = mb_strtolower($name);
+            $items[$key] = [
+                'name' => $name,
+                'copies' => $withCopies ? (string) max(1, (int) ($row->copies ?? 1)) : null,
+            ];
+        }
+
+        return array_values($items);
+    }
+
+    private static function hstOfficeRow(string $key, string $label, $rows, bool $withCopies = false): array
+    {
+        $items = self::hstOfficeItems($rows, $withCopies);
+        $value = $items === []
+            ? '—'
+            : collect($items)->map(function ($item) {
+                return $item['copies'] !== null ? $item['name'] . ' (' . $item['copies'] . ')' : $item['name'];
+            })->implode(', ');
+
+        return self::hstRow($key, $label, $value, [
+            'kind' => 'offices',
+            'items' => $items,
+            'with_copies' => $withCopies,
+        ]);
+    }
+
+    private static function hstFilledRows(array $rows): array
+    {
+        return array_values(array_filter($rows, function ($row) {
+            $value = trim((string) ($row['value'] ?? ''));
+
+            return $value !== '' && $value !== '—';
+        }));
+    }
+
+    private static function hstScanMeta(?string $path): array
+    {
+        $path = $path ? trim($path) : '';
+        if ($path === '') {
+            return ['scan_path' => null, 'scan_url' => null];
+        }
+
+        return [
+            'scan_path' => $path,
+            'scan_url' => Storage::disk('public')->url($path),
+        ];
+    }
+
+    private static function hstPushSection(array &$sections, string $key, string $title, array $rows, array $extra = []): void
+    {
+        $rows = self::hstFilledRows($rows);
+        if ($rows === [] && empty($extra['scan_path'])) {
+            return;
+        }
+
+        $sections[] = array_merge([
+            'key' => $key,
+            'title' => $title,
+            'rows' => $rows,
+            'scan_path' => null,
+            'scan_url' => null,
+        ], $extra);
+    }
+
+    private static function buildHistoryRevision(object $ml, ?object $doc, array $lookups, bool $isLatestFlag): array
+    {
+        $isLatest = ($ml->revision_status ?? '') === 'latest'
+            || (($ml->revision_status ?? null) === null && $isLatestFlag);
+
+        $mlHydrated = $doc->masterlistRegistration ?? $ml;
+        $drf = $doc->documentRequestForm ?? null;
+        $dcn = $doc->documentChangeNotice ?? null;
+        $dist = $doc->documentDistribution ?? null;
+        $ret = $doc->documentRetrieval ?? null;
+        $approvals = $doc->approvalRecords ?? collect();
+        $syllabi = $doc->syllabi ?? collect();
+
+        $versionId = $ml->request_version_id ?? $doc->version_id ?? null;
+        $creatorId = $ml->request_created_by ?? $ml->created_by ?? null;
+
+        $sections = [];
+
+        self::hstPushSection($sections, 'masterlist', 'Masterlist', [
+            self::hstRow('title', 'Title', $ml->doc_title),
+            self::hstRow('doc_type', 'Document type', $doc->docType->doc_type_name ?? null),
+            self::hstRow('sub_type', 'Sub type', $doc->subType->doc_type_name ?? null),
+            self::hstRow('version', 'Version', $lookups['versions'][$versionId] ?? null),
+            self::hstRow('revise_no', 'Revision no.', $ml->revise_no === null ? null : (string) $ml->revise_no),
+            self::hstRow('registered_at', 'Registered', self::hstDateTime($ml->request_created_at ?? $ml->created_at)),
+            self::hstRow('registered_by', 'Registered by', $lookups['creators'][(int) $creatorId] ?? null),
+            self::hstRow('originator', 'Originator', $ml->originator_name),
+            self::hstOfficeRow('sources', 'Source offices', $mlHydrated->sourceOffices ?? collect()),
+            self::hstRow('effectivity', 'Effectivity', self::hstDate($ml->effectivity_date)),
+            self::hstRow('deadline', 'Deadline', self::hstDate($ml->deadline)),
+            self::hstRow('pages', 'Pages', $ml->no_pages === null ? null : (string) $ml->no_pages),
+            self::hstRow('purpose', 'Purpose', $ml->brief_purpose),
+            self::hstRow('receipt_date', 'Date received', self::hstDate($ml->doc_receipt_date)),
+            self::hstRow('receipt_time', 'Time received', self::hstTime($ml->doc_receipt_time)),
+            self::hstRow('reg_date', 'Date registered', self::hstDate($ml->doc_registered_date)),
+            self::hstRow('reg_time', 'Time registered', self::hstTime($ml->doc_registered_time)),
+            self::hstRow('time_spent', 'Time spent', $ml->time_spent === null ? null : (string) $ml->time_spent),
+            self::hstRow('related', 'Related documents', collect($mlHydrated->relatedList ?? [])
+                ->map(fn ($r) => trim(($r->doc_title ?? '') . ($r->doc_no ? ' (' . $r->doc_no . ')' : '')))
+                ->filter()
+                ->unique()
+                ->implode(', ')),
+            self::hstRow('scanned_ml', 'Scanned masterlist', self::hstFile($ml->scanned_masterlist)),
+        ], self::hstScanMeta($ml->scanned_masterlist));
+
+        if ($drf) {
+            self::hstPushSection($sections, 'drf', 'Document Request Form', [
+                self::hstRow('drf_no', 'DRF no.', $drf->drf_no ?? null),
+                self::hstRow('drf_date', 'DRF date', self::hstDate($drf->drf_date ?? null)),
+                self::hstRow('drf_receipt_date', 'DRF received date', self::hstDate($drf->drf_receipt_date ?? null)),
+                self::hstRow('drf_receipt_time', 'DRF received time', self::hstTime($drf->drf_receipt_time ?? null)),
+                self::hstOfficeRow('drf_offices', 'DRF offices', $drf->offices ?? collect()),
+                self::hstRow('drf_scan', 'Scanned DRF', self::hstFile($drf->scanned_drf ?? null)),
+            ], self::hstScanMeta($drf->scanned_drf ?? null));
+        }
+
+        if ($dcn) {
+            $dcnRevText = collect($dcn->revisions ?? [])->map(function ($rev) {
+                $bits = array_filter([
+                    $rev->title ?: null,
+                    $rev->document_no ? 'No. ' . $rev->document_no : null,
+                    $rev->revision_no !== null ? 'Rev ' . $rev->revision_no : null,
+                    $rev->effectivity_date ? self::hstDate($rev->effectivity_date) : null,
+                    $rev->brief_purpose ?: null,
+                ]);
+
+                return implode(' · ', $bits);
+            })->filter()->implode("\n");
+
+            self::hstPushSection($sections, 'dcn', 'Document Change Notice', [
+                self::hstRow('dcn_no', 'DCN no.', $dcn->dcn_no ?? null),
+                self::hstRow('dcn_date', 'DCN date', self::hstDate($dcn->dcn_date ?? null)),
+                self::hstRow('dcn_receipt_date', 'DCN received date', self::hstDate($dcn->dcn_receipt_date ?? null)),
+                self::hstRow('dcn_receipt_time', 'DCN received time', self::hstTime($dcn->dcn_receipt_time ?? null)),
+                self::hstOfficeRow('dcn_offices', 'DCN offices', $dcn->offices ?? collect()),
+                self::hstRow('dcn_scan', 'Scanned DCN', self::hstFile($dcn->scanned_dcn ?? null)),
+                self::hstRow('dcn_revs', 'Change items', $dcnRevText),
+            ], self::hstScanMeta($dcn->scanned_dcn ?? null));
+        }
+
+        if ($dist) {
+            self::hstPushSection($sections, 'distribution', 'Distribution', [
+                self::hstRow('dist_date_actual', 'Actual date', self::hstDate($dist->doc_distribution_date_actual ?? null)),
+                self::hstRow('dist_time_actual', 'Actual time', self::hstTime($dist->doc_distribution_time_actual ?? null)),
+                self::hstRow('dist_date_file', 'File date', self::hstDate($dist->doc_distribution_date_file ?? null)),
+                self::hstRow('dist_time_file', 'File time', self::hstTime($dist->doc_distribution_time_file ?? null)),
+                self::hstRow('dist_spent', 'Time spent', $dist->time_spent ?? null),
+                self::hstOfficeRow('dist_offices', 'Offices / copies', $dist->offices ?? collect(), true),
+                self::hstRow('dist_remarks', 'Remarks', $dist->remarks ?? null),
+                self::hstRow('dist_scan', 'Scanned copy', self::hstFile($dist->scanned_distribution ?? null)),
+            ], self::hstScanMeta($dist->scanned_distribution ?? null));
+        }
+
+        if ($ret) {
+            self::hstPushSection($sections, 'retrieval', 'Retrieval', [
+                self::hstRow('ret_date_actual', 'Actual date', self::hstDate($ret->doc_retrieval_date_actual ?? null)),
+                self::hstRow('ret_time_actual', 'Actual time', self::hstTime($ret->doc_retrieval_time_actual ?? null)),
+                self::hstRow('ret_date_file', 'File date', self::hstDate($ret->doc_retrieval_date_file ?? null)),
+                self::hstRow('ret_time_file', 'File time', self::hstTime($ret->doc_retrieval_time_file ?? null)),
+                self::hstRow('ret_spent', 'Time spent', $ret->time_spent ?? null),
+                self::hstOfficeRow('ret_offices', 'Offices / copies', $ret->offices ?? collect(), true),
+                self::hstRow('ret_remarks', 'Remarks', $ret->remarks ?? null),
+                self::hstRow('ret_scan', 'Scanned copy', self::hstFile($ret->scanned_retrieval ?? null)),
+            ], self::hstScanMeta($ret->scanned_retrieval ?? null));
+        }
+
+        $approvalText = collect($approvals)->map(function ($a) use ($lookups) {
+            $body = $lookups['approvals'][$a->approval_body_id] ?? null;
+            $bits = array_filter([
+                $body,
+                $a->approval_no ? 'No. ' . $a->approval_no : null,
+                $a->approval_date ? self::hstDate($a->approval_date) : null,
+            ]);
+
+            return implode(' · ', $bits);
+        })->filter()->implode('; ');
+
+        self::hstPushSection($sections, 'approval', 'Approval', [
+            self::hstRow('approval_status', 'Approval status', $ml->approval_status ?? $doc->approval_status ?? null),
+            self::hstRow('approval_records', 'Approval records', $approvalText),
+        ]);
+
+        if ($syllabi->isNotEmpty()) {
+            $first = $syllabi->first();
+            $metaRows = self::hstFilledRows([
+                self::hstRow('syl_college', 'College', $lookups['colleges'][$first->college_id] ?? null),
+                self::hstRow('syl_program', 'Program', $lookups['programs'][$first->program_id] ?? null),
+                self::hstRow('syl_sem', 'Semester', $lookups['semesters'][$first->semester_id] ?? null),
+                self::hstRow('syl_sy', 'School year', $lookups['years'][$first->school_year_id] ?? null),
+            ]);
+
+            $courseRows = [];
+            foreach ($syllabi as $idx => $syl) {
+                $code = $syl->course->course_code ?? $syl->course_code ?? '';
+                $name = $syl->course->course_name ?? $syl->course_name ?? '';
+                $label = trim($code . ' ' . $name) ?: ('Course ' . ($idx + 1));
+                $prefix = 'syl.' . ($syl->course_id ?? $syl->id);
+                $faculties = collect($syl->drfs ?? [])->pluck('faculty_name')->filter()->unique()->implode(', ');
+                $drfBits = collect($syl->drfs ?? [])->map(function ($d) {
+                    if (!self::pgBool($d->is_drf_available ?? false)) {
+                        return null;
+                    }
+
+                    return trim(($d->faculty_name ? $d->faculty_name . ': ' : '') . ($d->drf_no ?: 'DRF') .
+                        ($d->drf_date ? ' (' . self::hstDate($d->drf_date) . ')' : ''));
+                })->filter()->implode('; ');
+
+                $recv = [];
+                if ($syl->date_received) {
+                    $recv[] = self::hstDate($syl->date_received);
+                }
+                if ($syl->time_received) {
+                    $recv[] = self::hstTime($syl->time_received);
+                }
+
+                $courseRows[] = self::hstRow($prefix . '.course', 'Course', $label);
+                $courseRows[] = self::hstRow($prefix . '.avail', 'Available', self::pgBool($syl->is_available) ? 'Yes' : 'No');
+                $courseRows[] = self::hstRow($prefix . '.copies', 'Copies', (string) ($syl->no_copies ?? 1));
+                $courseRows[] = self::hstRow($prefix . '.pages', 'Pages', $syl->no_pages === null ? null : (string) $syl->no_pages);
+                $courseRows[] = self::hstRow($prefix . '.received', 'Received', implode(' ', $recv));
+                $courseRows[] = self::hstRow($prefix . '.faculty', 'Faculty', $faculties);
+                $courseRows[] = self::hstRow($prefix . '.drf', 'DRF', $drfBits);
+            }
+
+            $sections[] = [
+                'key' => 'syllabi',
+                'title' => 'Syllabi',
+                'rows' => array_merge($metaRows, $courseRows),
+                'table' => ['meta' => $metaRows, 'courses' => []],
+                'scan_path' => null,
+                'scan_url' => null,
+            ];
+        }
+
+        $tabLabels = [
+            'masterlist' => 'Masterlist',
+            'drf' => 'DRF',
+            'dcn' => 'DCN',
+            'distribution' => 'Distribution',
+            'retrieval' => 'Retrieval',
+            'approval' => 'Approval',
+            'syllabi' => 'Syllabi',
+        ];
+        $checklists = [];
+        foreach ($sections as $section) {
+            if (isset($tabLabels[$section['key']])) {
+                $checklists[] = [
+                    'key' => $section['key'],
+                    'label' => $tabLabels[$section['key']],
+                ];
+            }
+        }
+
+        return [
+            'id' => (int) $ml->request_id,
+            'revise_no' => (int) ($ml->revise_no ?? 0),
+            'is_latest' => $isLatest,
+            'created_at' => $ml->request_created_at ?? $ml->created_at,
+            'created_label' => self::hstDateTime($ml->request_created_at ?? $ml->created_at),
+            'checklists' => $checklists,
+            'sections' => $sections,
+            'summary' => [],
+            'changes' => [],
+        ];
+    }
+
+    private static function hstSyllabiTableFromRows(array $rows): array
+    {
+        $byKey = [];
+        foreach ($rows as $row) {
+            $byKey[$row['key']] = $row;
+        }
+
+        $meta = [];
+        foreach (['syl_college', 'syl_program', 'syl_sem', 'syl_sy'] as $key) {
+            if (isset($byKey[$key])) {
+                $meta[] = $byKey[$key];
+            }
+        }
+
+        $prefixes = [];
+        foreach ($rows as $row) {
+            if (preg_match('/^(syl\.[^.]+)\./', $row['key'] ?? '', $match)) {
+                $prefixes[$match[1]] = true;
+            }
+        }
+
+        $fields = ['course', 'avail', 'copies', 'pages', 'received', 'faculty', 'drf'];
+        $empty = ['value' => '—', 'changed' => false, 'previous' => null];
+        $courses = [];
+        foreach (array_keys($prefixes) as $prefix) {
+            $course = [];
+            foreach ($fields as $field) {
+                $course[$field] = $byKey[$prefix . '.' . $field] ?? $empty;
+            }
+            $courses[] = $course;
+        }
+
+        return [
+            'meta' => $meta,
+            'courses' => $courses,
+        ];
+    }
+
+    private static function hstPickRows(array $sections, array $keys): array
+    {
+        $found = [];
+        foreach ($sections as $section) {
+            foreach ($section['rows'] as $row) {
+                $found[$row['key']] = $row;
+            }
+        }
+
+        $picked = [];
+        foreach ($keys as $key) {
+            if (isset($found[$key])) {
+                $picked[] = $found[$key];
+            }
+        }
+
+        return $picked;
     }
 
     public static function searchDocuments(Request $request)
@@ -1035,7 +2239,7 @@ class RegisterQueryHelper
                 ->whereIn('dof.distribution_id', $distIds)
                 ->orderBy('dof.sort_order')
                 ->orderBy('dof.id')
-                ->get(['dof.distribution_id', 'dof.office_id', 'o.office_name'])
+                ->get(['dof.distribution_id', 'dof.office_id', 'dof.copies', 'o.office_name'])
                 ->groupBy('distribution_id')
                 ->map(fn ($rows) => $rows->map(function ($row) {
                     $row->office = (object) ['office_name' => $row->office_name];
@@ -1050,7 +2254,7 @@ class RegisterQueryHelper
             ? DB::table('dcs_retrieval_offices as rof')
                 ->leftJoin('office as o', 'o.id', '=', 'rof.office_id')
                 ->whereIn('rof.retrieval_id', $retIds)
-                ->get(['rof.retrieval_id', 'rof.office_id', 'o.office_name'])
+                ->get(['rof.retrieval_id', 'rof.office_id', 'rof.copies', 'o.office_name'])
                 ->groupBy('retrieval_id')
                 ->map(fn ($rows) => $rows->map(function ($row) {
                     $row->office = (object) ['office_name' => $row->office_name];

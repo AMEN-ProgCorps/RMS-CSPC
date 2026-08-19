@@ -19,7 +19,7 @@ return new class extends Migration
         DB::table('dcs_semesters')->insert([
             ['semester_name' => '1st Semester', 'created_at' => now(), 'updated_at' => now()],
             ['semester_name' => '2nd Semester', 'created_at' => now(), 'updated_at' => now()],
-            ['semester_name' => 'Summer', 'created_at' => now(), 'updated_at' => now()],
+            ['semester_name' => 'Mid Year', 'created_at' => now(), 'updated_at' => now()],
         ]);
     }
 

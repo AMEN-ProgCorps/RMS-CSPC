@@ -1425,8 +1425,21 @@ body {
     cursor: default;
 }
 
-.syllabi-faculty-input:read-only {
+.syllabi-faculty-input:read-only,
+.syllabi-faculty-input:disabled {
     background: #f8fafc;
+    cursor: default;
+    pointer-events: none;
+    color: #64748b;
+}
+
+input[name="syllabiDateReceived[]"].is-locked,
+input[name="syllabiTimeReceived[]"].is-locked,
+.syllabi-merged-copies.is-locked,
+.syllabi-merged-pages.is-locked {
+    pointer-events: none;
+    background: #f8fafc;
+    color: #64748b;
     cursor: default;
 }
 

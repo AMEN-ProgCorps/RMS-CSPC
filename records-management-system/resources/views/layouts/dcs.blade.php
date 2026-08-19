@@ -33,6 +33,8 @@
         @vite(['resources/css/dcs/edit.css', 'resources/css/dcs/register.css'])
     @elseif(request()->routeIs('dcs.register.history'))
         @vite(['resources/css/dcs/history.css', 'resources/css/dcs/register.css'])
+    @elseif(request()->routeIs('dcs.review'))
+        @vite(['resources/css/dcs/review.css', 'resources/js/dcs/review-pdf.js'])
     @elseif(request()->routeIs('dcs.reports.*'))
         @vite(['resources/css/dcs/reports.css'])
     @elseif(request()->routeIs('dcs.stamping.index'))

@@ -525,6 +525,7 @@ body:has(#dcs-sidebar-collapsed:checked) .st-container,
 body:has(#dcs-sidebar-collapsed:checked) .reg-container,
 body:has(#dcs-sidebar-collapsed:checked) .upd-container,
 body:has(#dcs-sidebar-collapsed:checked) .hst-container,
+body:has(#dcs-sidebar-collapsed:checked) .drr-container,
 body:has(#dcs-sidebar-collapsed:checked) .settings-main {
     left: var(--dcs-sidebar-collapsed);
 }
@@ -537,6 +538,7 @@ body:has(#dcs-sidebar-collapsed:checked) .settings-main {
     .reg-container,
     .upd-container,
     .hst-container,
+    .drr-container,
     .settings-main,
     body:has(#dcs-sidebar-collapsed:checked) .dashboard-main,
     body:has(#dcs-sidebar-collapsed:checked) .rpt-page,
@@ -545,6 +547,7 @@ body:has(#dcs-sidebar-collapsed:checked) .settings-main {
     body:has(#dcs-sidebar-collapsed:checked) .reg-container,
     body:has(#dcs-sidebar-collapsed:checked) .upd-container,
     body:has(#dcs-sidebar-collapsed:checked) .hst-container,
+    body:has(#dcs-sidebar-collapsed:checked) .drr-container,
     body:has(#dcs-sidebar-collapsed:checked) .settings-main {
         left: 0;
     }

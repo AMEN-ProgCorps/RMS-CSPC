@@ -1390,3 +1390,173 @@ body {
 .rpt-inline-filters[hidden] {
     display: none !important;
 }
+
+/* ── Syllabi & TOS/Rubrics monitoring table ── */
+.mon-table-wrap {
+    overflow: auto;
+    max-height: calc(100vh - 280px);
+    border: 1px solid #1e3a5f;
+    background: #fff;
+}
+
+.mon-table {
+    border-collapse: collapse;
+    min-width: 1480px;
+    width: 100%;
+}
+
+.mon-table thead th {
+    position: relative;
+    top: auto;
+    border: 1px solid #0f2744;
+    color: #fff;
+    background: #0d2a7a;
+    white-space: nowrap;
+}
+
+.mon-table thead tr.mon-leaf th {
+    background: #bfdbfe;
+    color: #0f172a;
+    font-size: 0.68rem;
+    letter-spacing: 0.02em;
+}
+
+.mon-table td,
+.mon-table tfoot td {
+    border: 1px solid #94a3b8;
+    font-size: 0.78rem;
+    padding: 8px 10px;
+    background: #dbeafe;
+}
+
+.mon-table tbody tr:hover td {
+    background: #c7d7fb;
+}
+
+.mon-table .mon-sticky {
+    position: sticky;
+    left: 0;
+    z-index: 4;
+    min-width: 92px;
+    background: #bfdbfe;
+    color: #0f172a;
+}
+
+.mon-table thead .mon-sticky {
+    z-index: 6;
+    background: #bfdbfe;
+    color: #0f172a;
+}
+
+.mon-table tfoot .mon-sticky,
+.mon-table tfoot td {
+    font-weight: 700;
+    background: #93c5fd;
+}
+
+.mon-program {
+    font-weight: 700;
+    text-align: left;
+    white-space: nowrap;
+}
+
+.mon-list {
+    text-align: left;
+    min-width: 160px;
+    font-size: 0.72rem;
+    line-height: 1.35;
+}
+
+.mon-ratio {
+    font-weight: 700;
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap !important;
+    min-width: 4.5rem;
+}
+
+.mon-pct {
+    display: inline-block;
+    font-size: 0.78rem;
+    font-weight: 700;
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+    color: #334155;
+}
+
+.mon-pct-full { color: #047857; }
+.mon-pct-good { color: #1d4ed8; }
+.mon-pct-mid { color: #b45309; }
+.mon-pct-low { color: #b91c1c; }
+.mon-pct-empty { color: #64748b; }
+
+.mon-remark {
+    width: 100%;
+    min-width: 138px;
+    border: 1px solid transparent;
+    border-radius: 999px;
+    padding: 5px 10px;
+    font: inherit;
+    font-size: 0.72rem;
+    font-weight: 700;
+    cursor: pointer;
+}
+
+.mon-remark-empty {
+    background: #fff;
+    color: #64748b;
+    border-color: #cbd5e1;
+}
+
+.mon-remark-controlled {
+    background: #dbeafe;
+    color: #1d4ed8;
+    border-color: #93c5fd;
+}
+
+.mon-remark-released {
+    background: #d1fae5;
+    color: #047857;
+    border-color: #6ee7b7;
+}
+
+.mon-remark-incomplete {
+    background: #fef3c7;
+    color: #b45309;
+    border-color: #fcd34d;
+}
+
+.mon-remark-late_submission {
+    background: #fee2e2;
+    color: #b91c1c;
+    border-color: #fca5a5;
+}
+
+.mon-muted {
+    color: #475569;
+    font-size: 0.68rem;
+}
+
+@media print {
+    .side-nav,
+    .top-nav,
+    .rpt-crumb,
+    .rpt-inline-filters,
+    .rpt-results-actions,
+    .dcs-notif-slot,
+    .floating-widget {
+        display: none !important;
+    }
+    .rpt-page {
+        position: static;
+        padding: 0;
+        overflow: visible;
+    }
+    .mon-table-wrap {
+        max-height: none;
+        overflow: visible;
+        border: none;
+    }
+    .mon-table {
+        min-width: 0;
+    }
+}

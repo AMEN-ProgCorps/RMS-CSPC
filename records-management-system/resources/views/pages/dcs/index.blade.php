@@ -18,9 +18,15 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
             ->selectRaw("COUNT(dr.id) FILTER (WHERE ml.revision_status = 'obsolete')::int as obsolete")
             ->first();
 
-        $byType = fn (int $typeId) => DB::table('dcs_document_requests')
-            ->whereIn('approval_status', ['applicable', 'not_applicable'])
-            ->where('doc_type_id', $typeId)
+        $byType = fn (int $typeId) => DB::table('dcs_document_requests as dr')
+            ->leftJoin('dcs_masterlist_registration as ml', 'ml.request_id', '=', 'dr.id')
+            ->whereIn('dr.approval_status', ['applicable', 'not_applicable'])
+            ->where('dr.doc_type_id', $typeId)
+            ->where(function ($q) {
+                $q->whereNull('ml.revision_status')
+                    ->orWhere('ml.revision_status', '')
+                    ->orWhere('ml.revision_status', 'latest');
+            })
             ->count();
 
         $stats = [
@@ -99,7 +105,7 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                     ['id' => 'logbooksCount', 'typeKey' => 'logbooks', 'label' => 'Logbooks', 'icon' => 'fa-book', 'accent' => 'green'],
                 ] as $box)
                     @php $count = (int) ($stats[$box['id']] ?? 0); @endphp
-                    <a href="{{ route('dcs.database.index', ['type' => $typeIds[$box['typeKey']] ?? null], absolute: false) }}" class="stat-box" @if($box['accent']) data-accent="{{ $box['accent'] }}" @endif>
+                    <a href="{{ route('dcs.database.index', ['type' => $typeIds[$box['typeKey']] ?? null, 'revision' => 'latest'], absolute: false) }}" class="stat-box" @if($box['accent']) data-accent="{{ $box['accent'] }}" @endif>
                         <div class="stat-icon-wrap"><i class="fa-solid {{ $box['icon'] }}"></i></div>
                         <div class="stat-body">
                             <p class="stat-label">{{ $box['label'] }}</p>

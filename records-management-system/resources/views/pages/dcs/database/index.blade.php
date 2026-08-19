@@ -857,9 +857,6 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                                     <span class="db-expand-btn" :class="{ expanded: expandedRevs['{{ $revKey }}'] }" x-on:click.stop="toggleRev('{{ $revKey }}')" title="Show older revisions" x-text="expandedRevs['{{ $revKey }}'] ? '▼' : '▶'"></span>
                                 @endif
                                 {{ $itemNo }}
-                                @if(($group['obsolete_count'] ?? 0) > 0)
-                                    <span class="db-obsolete-count">{{ $group['obsolete_count'] }} obsolete</span>
-                                @endif
                             </td>
                             @include('pages.dcs.database._row', ['r' => $r])
                         </tr>

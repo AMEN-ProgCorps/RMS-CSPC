@@ -306,7 +306,8 @@
 .st-container,
 .rpt-page,
 .upd-container,
-.hst-container {
+.hst-container,
+.drr-container {
     animation: fadeInUp var(--dcs-page-in) both;
 }
 
@@ -318,7 +319,8 @@
     .st-container,
     .rpt-page,
     .upd-container,
-    .hst-container {
+    .hst-container,
+    .drr-container {
         animation: none;
     }
 }

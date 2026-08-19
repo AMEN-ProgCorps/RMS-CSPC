@@ -47,6 +47,13 @@
                 </ul>
             </details>
         </li>
+        <li class="nav-item {{ request()->routeIs('dcs.review') ? 'active' : '' }}">
+            <a href="{{ route('dcs.review', absolute: false) }}">
+                <i class="fa-solid fa-code-compare"></i>
+                <span>Document Review</span>
+                <span class="tooltip">Document Review</span>
+            </a>
+        </li>
         <li class="nav-item dropdown {{ request()->is('dcs/reports*') ? 'active' : '' }}">
             <details {{ request()->is('dcs/reports*') ? 'open' : '' }}>
                 <summary class="dropdown-trigger">
@@ -58,6 +65,7 @@
                 <ul class="sub-dropdown">
                     <li><a href="{{ route('dcs.reports.masterlist', absolute: false) }}" class="{{ request()->routeIs('dcs.reports.masterlist') ? 'active-sub' : '' }}">Masterlists</a></li>
                     <li><a href="{{ route('dcs.reports.monitoring', absolute: false) }}" class="{{ request()->routeIs('dcs.reports.monitoring') ? 'active-sub' : '' }}">Monitoring Reports</a></li>
+                    <li><a href="{{ route('dcs.reports.syllabiTos', absolute: false) }}" class="{{ request()->routeIs('dcs.reports.syllabiTos') ? 'active-sub' : '' }}">Syllabi &amp; TOS/Rubrics</a></li>
                     <li><a href="{{ route('dcs.reports.opcr', absolute: false) }}" class="{{ request()->routeIs('dcs.reports.opcr') ? 'active-sub' : '' }}">OPCR Targets</a></li>
                     <li><a href="{{ route('dcs.reports.others', absolute: false) }}" class="{{ request()->routeIs('dcs.reports.others') ? 'active-sub' : '' }}">Others</a></li>
                 </ul>

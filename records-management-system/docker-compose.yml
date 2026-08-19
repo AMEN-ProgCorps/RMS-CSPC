@@ -35,7 +35,7 @@ services:
     ports:
       - "5173:5173"
     command: >
-      sh -c "[ -d node_modules/.bin ] || npm install && npm run dev"
+      sh -c "npm install && npm run dev"
     networks:
       - rms_net
 
@@ -45,15 +45,15 @@ services:
     container_name: rms_db
     restart: unless-stopped
     environment:
-      POSTGRES_DB: rms
-      POSTGRES_USER: adminrms
-      POSTGRES_PASSWORD: admin
+      POSTGRES_DB: ${DB_DATABASE:-rms}
+      POSTGRES_USER: ${DB_USERNAME:-adminrms}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-admin}
     ports:
-      - "5432:5432"
+      - "${DB_PORT:-5432}:5432"
     volumes:
       - pg_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U adminrms -d rms"]
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USERNAME:-adminrms} -d ${DB_DATABASE:-rms}"]
       interval: 5s
       timeout: 5s
       retries: 12
@@ -66,7 +66,7 @@ services:
     container_name: rms_adminer
     restart: unless-stopped
     ports:
-      - "8080:8080"
+      - "${ADMINER_PORT:-8088}:8080"
     networks:
       - rms_net
 
@@ -77,7 +77,8 @@ services:
     working_dir: /app/public/chatify/ws-server
     restart: unless-stopped
     environment:
-      - PORT=${WS_PORT:-8080}
+      PORT: "${WS_PORT:-8080}"
+      PHP_APP_BASE_URL: "http://app"
     volumes:
       - .:/app
     env_file:

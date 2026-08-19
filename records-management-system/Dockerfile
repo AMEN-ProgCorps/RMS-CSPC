@@ -4,9 +4,12 @@ FROM php:8.4-fpm-alpine
 RUN apk add --no-cache \
         bash \
         curl \
+        git \
         nginx \
         supervisor \
         libpng-dev \
+        libzip-dev \
+        icu-dev \
         libjpeg-turbo-dev \
         libwebp-dev \
         freetype-dev \
@@ -16,6 +19,11 @@ RUN apk add --no-cache \
         unzip \
         postgresql-client \
         postgresql-dev \
+        tesseract-ocr \
+        tesseract-ocr-data-eng \
+        ghostscript \
+        imagemagick \
+        imagemagick-dev \
     && docker-php-ext-configure gd \
         --with-freetype \
         --with-jpeg \
@@ -28,6 +36,17 @@ RUN apk add --no-cache \
         pcntl \
         bcmath \
         gd \
+        zip \
+        intl \
+    && apk add --no-cache --virtual .build-deps $PHPIZE_DEPS \
+    && pecl install imagick \
+    && docker-php-ext-enable imagick \
+    && find /etc -name 'policy.xml' -exec sed -i \
+        -e 's/rights="none" pattern="PDF"/rights="read|write" pattern="PDF"/I' \
+        -e 's/rights="none" pattern="{PS,PDF,XPS}"/rights="read|write" pattern="{PS,PDF,XPS}"/I' \
+        -e 's/pattern="{GIF,JPEG,PNG,WEBP}"/pattern="{GIF,JPEG,PNG,WEBP,PDF,PS}"/I' \
+        {} \; \
+    && apk del .build-deps \
     && mkdir -p /run/nginx /var/log/supervisor /var/log/nginx
 
 # ── Composer ──────────────────────────────────────────────────────────────────

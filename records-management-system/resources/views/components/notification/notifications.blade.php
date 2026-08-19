@@ -60,6 +60,7 @@ new class extends Component {
             if ($perms->is_sadm) {
                 $allowedSubsystems[] = 'Document Tracking System';
                 $allowedSubsystems[] = 'Records Disposition Program';
+                $allowedSubsystems[] = 'Document Control System';
                 $allowedSubsystems[] = 'Admin Console';
             } else {
                 if ($perms->can_access_dts) {
@@ -67,6 +68,9 @@ new class extends Component {
                 }
                 if ($perms->can_access_rdp) {
                     $allowedSubsystems[] = 'Records Disposition Program';
+                }
+                if ($perms->can_access_dcs) {
+                    $allowedSubsystems[] = 'Document Control System';
                 }
             }
         }

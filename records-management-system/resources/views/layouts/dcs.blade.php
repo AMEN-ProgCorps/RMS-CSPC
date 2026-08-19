@@ -1,0 +1,89 @@
+<!DOCTYPE html>
+<html lang="{{ str_replace('_', '-', app()->getLocale()) }}">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="csrf-token" content="{{ csrf_token() }}">
+    <x-dcs-meta :title="$title ?? null" />
+    <link rel="icon" href="{{ asset('images/logo.png') }}" type="image/png">
+    <title>{{ $title ?? 'CSPC - Document Control System' }}</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        body, button, input, select, textarea, a, span, div, h1, h2, h3, h4, h5, h6, label {
+            font-family: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif !important;
+        }
+    </style>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    @vite([
+        'resources/css/dcs/chrome.css',
+        'resources/css/notifications.css',
+        'resources/js/dashboard.js',
+    ])
+    @if(request()->routeIs('dcs', 'dcs.dashboard'))
+        @vite(['resources/css/dcs/dashboard.css'])
+    @elseif(request()->routeIs('dcs.settings.index'))
+        @vite(['resources/css/dcs/settings.css'])
+    @elseif(request()->routeIs('dcs.register.create') || request()->routeIs('dcs.register.revised'))
+        @vite(['resources/css/dcs/register.css'])
+    @elseif(request()->routeIs('dcs.register.update'))
+        @vite(['resources/css/dcs/update.css'])
+    @elseif(request()->routeIs('dcs.register.edit'))
+        @vite(['resources/css/dcs/edit.css', 'resources/css/dcs/register.css'])
+    @elseif(request()->routeIs('dcs.register.history'))
+        @vite(['resources/css/dcs/history.css', 'resources/css/dcs/register.css'])
+    @elseif(request()->routeIs('dcs.reports.*'))
+        @vite(['resources/css/dcs/reports.css'])
+    @elseif(request()->routeIs('dcs.stamping.index'))
+        @vite(['resources/css/dcs/stamping.css'])
+    @elseif(request()->routeIs('dcs.database.index'))
+        @vite(['resources/css/dcs/database.css'])
+    @endif
+    @stack('styles')
+    @livewireStyles
+</head>
+<body>
+    <input type="checkbox" id="dcs-nav-open" class="dcs-chrome-toggle">
+    <input type="checkbox" id="dcs-sidebar-collapsed" class="dcs-chrome-toggle">
+
+    <header class="top-nav">
+        <div class="header-left">
+            <label class="mobile-nav-toggle" for="dcs-nav-open" aria-label="Open navigation">
+                <i class="fa-solid fa-bars"></i>
+            </label>
+
+            <div class="logo-container">
+                <img src="{{ asset('images/logo.png') }}" alt="CSPC Logo" class="logo">
+            </div>
+            <div class="title-text">
+                <p class="sub-title">Camarines Sur Polytechnic Colleges</p>
+                <h1 class="main-title">Records Management System</h1>
+            </div>
+        </div>
+
+        <div class="header-right">
+            <div class="top-row">
+                <div class="dcs-notif-slot">
+                    <livewire:components.notification.notifications />
+                </div>
+                <x-actions.dropdown />
+            </div>
+            <p class="office-label">{{ auth()->user()?->details?->office?->office_name ?? 'Records and Freedom of Information Office' }}</p>
+        </div>
+    </header>
+
+    <x-nav.dcs />
+
+    @auth
+        <livewire:components.dcs.session-guard />
+    @endauth
+
+    {{ $slot }}
+
+    <x-dcs.toast />
+    <x-chatify.floating-widget />
+    @stack('scripts')
+    @livewireScripts
+</body>
+</html>

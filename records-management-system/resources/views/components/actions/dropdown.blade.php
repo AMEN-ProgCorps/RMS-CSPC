@@ -5,6 +5,7 @@
         ->toArray();
     $dtsActive = in_array('Document Tracking System', $activeSubsystems);
     $rdpActive = in_array('Records Disposition Program', $activeSubsystems);
+    $dcsActive = in_array('Document Control System', $activeSubsystems);
     $adminActive = in_array('Admin Console', $activeSubsystems);
 @endphp
 <div class="actions-container">
@@ -36,6 +37,12 @@
         <button class="subSystem" onclick="window.location.href='/rdp'">
             <img src="{{ asset('icons/rdp.svg') }}" alt="Records Disposition Icon">
             <span>Records Disposition</span>
+        </button>
+        @endif
+        @if((auth()->user()?->permissions?->is_sadm || auth()->user()?->permissions?->can_access_dcs) && !request()->is('dcs*') && $dcsActive)
+        <button class="subSystem" onclick="window.location.href='/dcs'">
+            <img src="{{ asset('icons/dts.svg') }}" alt="Document Control Icon">
+            <span>Document Control</span>
         </button>
         @endif
         <hr>

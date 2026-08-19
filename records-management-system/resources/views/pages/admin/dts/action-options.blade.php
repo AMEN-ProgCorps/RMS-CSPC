@@ -309,6 +309,84 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Action Options')] class 
         .addon-btn-cancel:hover {
             background: #e2e8f0;
         }
+
+        /* Dark Mode Overrides */
+        [data-theme="dark"] .addon-card {
+            background: #131c2e !important;
+            border-color: #1e293b !important;
+            box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3) !important;
+        }
+        [data-theme="dark"] .addon-card h3 {
+            color: #f8fafc !important;
+        }
+        [data-theme="dark"] .addon-card label {
+            color: #94a3b8 !important;
+        }
+        [data-theme="dark"] .addon-input {
+            background: #0f172a !important;
+            border-color: #334155 !important;
+            color: #f8fafc !important;
+        }
+        [data-theme="dark"] .addon-input:focus {
+            border-color: #3b82f6 !important;
+            box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.25) !important;
+        }
+        [data-theme="dark"] .addon-table th {
+            background: #0f172a !important;
+            color: #94a3b8 !important;
+            border-bottom: 1px solid #1e293b !important;
+        }
+        [data-theme="dark"] .addon-table td {
+            color: #cbd5e1 !important;
+            border-bottom: 1px solid #1e293b !important;
+        }
+        [data-theme="dark"] .addon-table td[style*="font-weight: 600"] {
+            color: #f8fafc !important;
+        }
+        [data-theme="dark"] .addon-table tr:hover td {
+            background: #1a253c !important;
+        }
+        [data-theme="dark"] .addon-btn-primary {
+            background: #2563eb !important;
+            box-shadow: 0 4px 12px rgba(37, 99, 235, 0.35) !important;
+        }
+        [data-theme="dark"] .addon-btn-primary:hover {
+            background: #1d4ed8 !important;
+        }
+        [data-theme="dark"] .addon-btn-edit {
+            background: rgba(37, 99, 235, 0.15) !important;
+            color: #60a5fa !important;
+        }
+        [data-theme="dark"] .addon-btn-edit:hover {
+            background: #2563eb !important;
+            color: #ffffff !important;
+        }
+        [data-theme="dark"] .addon-btn-delete {
+            background: rgba(239, 68, 68, 0.15) !important;
+            color: #f87171 !important;
+        }
+        [data-theme="dark"] .addon-btn-delete:hover {
+            background: #dc2626 !important;
+            color: #ffffff !important;
+        }
+        [data-theme="dark"] .addon-btn-cancel {
+            background: #0f172a !important;
+            color: #cbd5e1 !important;
+            border: 1px solid #334155 !important;
+        }
+        [data-theme="dark"] .addon-btn-cancel:hover {
+            background: #1e293b !important;
+            color: #f8fafc !important;
+        }
+        [data-theme="dark"] .logs-title-main {
+            color: #f8fafc !important;
+        }
+        [data-theme="dark"] .logs-subtitle-sub {
+            color: #94a3b8 !important;
+        }
+        [data-theme="dark"] .logs-title-main i {
+            color: #60a5fa !important;
+        }
     </style>
 @endpush
 

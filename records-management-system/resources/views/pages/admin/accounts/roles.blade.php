@@ -774,8 +774,8 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Roles')] class extends C
                                     @endif
                                 </td>
                                 <td style="padding: 10px 12px; text-align: right;">
-                                    <button type="button" class="btn-table-action" wire:click.stop="selectRole({{ $role->id }})" style="padding: 4px 8px; font-size: 11px; border-radius: 4px; border: 1px solid #cbd5e1; background: #fff; cursor: pointer;">
-                                        Configure
+                                    <button type="button" class="btn-table-action" wire:click.stop="selectRole({{ $role->id }})" style="padding: 5px 12px; font-size: 11.5px; font-weight: 600; border-radius: 6px; border: 1px solid #3b82f6; background: rgba(37, 99, 235, 0.12); color: #2563eb; cursor: pointer; display: inline-flex; align-items: center; gap: 5px;">
+                                        <i class="fa-solid fa-pen-to-square"></i> Configure
                                     </button>
                                 </td>
                             </tr>
@@ -840,7 +840,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Roles')] class extends C
                         {{ $selectedRoleId === -1 ? 'Configure access clearance permissions from scratch' : 'Review & adjust active clearance clearances' }}
                     </span>
                 </div>
-                <button type="button" class="btn-close-details" wire:click="cancelSelection" title="Close details panel" style="background: transparent; border: none; color: #94a3b8; font-size: 18px; cursor: pointer; padding: 6px 10px; border-radius: 8px; margin-left: auto;">
+                <button type="button" class="btn-close-details" wire:click="cancelSelection" title="Close Details Panel">
                     <i class="fa-solid fa-xmark"></i>
                 </button>
             </div>

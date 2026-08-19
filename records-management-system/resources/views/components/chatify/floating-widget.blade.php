@@ -3,6 +3,7 @@
 @php
     $user = auth()->user();
     $autoOpenChat = $user ? $user->autoOpenChat() : true;
+    $notificationSoundAlert = $user ? $user->notificationSoundAlert() : true;
 @endphp
 
 <div id="chatify-global-widget" style="position: fixed; bottom: 24px; right: 24px; z-index: 999999; font-family: 'Inter', system-ui, -apple-system, sans-serif;">
@@ -99,6 +100,7 @@
 <script>
 (function() {
     const autoOpenSetting = @json($autoOpenChat);
+    let soundAlertsEnabled = @json($notificationSoundAlert);
     let isOpen = false;
     let lastChatUnread = null;
     let lastSystemUnread = null;
@@ -110,7 +112,10 @@
     function initAudioContext() {
         if (!audioCtx) {
             try {
-                audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+                const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+                if (AudioContextClass) {
+                    audioCtx = new AudioContextClass();
+                }
             } catch (e) {}
         }
         if (audioCtx && audioCtx.state === 'suspended') {
@@ -120,65 +125,85 @@
             try {
                 pingAudio = new Audio("{{ asset('sfx/ping-message.mp3') }}");
                 pingAudio.preload = 'auto';
+                pingAudio.volume = 0.8;
             } catch (e) {}
         }
     }
 
-    // Unlock browser audio context on user's first interaction anywhere on page
-    const unlockEvents = ['click', 'touchstart', 'keydown'];
+    // Unlock browser audio context on user's first interaction anywhere on page or in iframe
+    const unlockEvents = ['click', 'touchstart', 'keydown', 'pointerdown', 'mousemove', 'focus', 'scroll'];
     function unlockAudioHandler() {
         initAudioContext();
         unlockEvents.forEach(evt => document.removeEventListener(evt, unlockAudioHandler));
     }
     unlockEvents.forEach(evt => document.addEventListener(evt, unlockAudioHandler, { passive: true }));
 
-    // Fallback Catch Protocol: Web Audio API synthesized 2-tone chime
+    // Fallback Catch Protocol: Web Audio API synthesized 2-tone melodic chime
     function playSynthesizerChime() {
+        if (!soundAlertsEnabled) return;
         try {
             if (!audioCtx) {
-                audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+                const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+                if (AudioContextClass) {
+                    audioCtx = new AudioContextClass();
+                }
             }
+            if (!audioCtx) return;
+
+            const emitChime = () => {
+                try {
+                    const now = audioCtx.currentTime;
+
+                    // Tone 1: 587.33 Hz (D5)
+                    const osc1 = audioCtx.createOscillator();
+                    const gain1 = audioCtx.createGain();
+                    osc1.type = 'sine';
+                    osc1.frequency.setValueAtTime(587.33, now);
+                    gain1.gain.setValueAtTime(0.2, now);
+                    gain1.gain.exponentialRampToValueAtTime(0.0001, now + 0.18);
+                    osc1.connect(gain1);
+                    gain1.connect(audioCtx.destination);
+                    osc1.start(now);
+                    osc1.stop(now + 0.18);
+
+                    // Tone 2: 880 Hz (A5)
+                    const osc2 = audioCtx.createOscillator();
+                    const gain2 = audioCtx.createGain();
+                    osc2.type = 'sine';
+                    osc2.frequency.setValueAtTime(880, now + 0.10);
+                    gain2.gain.setValueAtTime(0.25, now + 0.10);
+                    gain2.gain.exponentialRampToValueAtTime(0.0001, now + 0.38);
+                    osc2.connect(gain2);
+                    gain2.connect(audioCtx.destination);
+                    osc2.start(now + 0.10);
+                    osc2.stop(now + 0.38);
+                } catch (err) {}
+            };
+
             if (audioCtx.state === 'suspended') {
-                audioCtx.resume().catch(() => {});
+                audioCtx.resume().then(emitChime).catch(() => {});
+            } else {
+                emitChime();
             }
-            const now = audioCtx.currentTime;
-
-            // Tone 1: 587.33 Hz (D5)
-            const osc1 = audioCtx.createOscillator();
-            const gain1 = audioCtx.createGain();
-            osc1.type = 'sine';
-            osc1.frequency.setValueAtTime(587.33, now);
-            gain1.gain.setValueAtTime(0.14, now);
-            gain1.gain.exponentialRampToValueAtTime(0.001, now + 0.18);
-            osc1.connect(gain1);
-            gain1.connect(audioCtx.destination);
-            osc1.start(now);
-            osc1.stop(now + 0.18);
-
-            // Tone 2: 880 Hz (A5)
-            const osc2 = audioCtx.createOscillator();
-            const gain2 = audioCtx.createGain();
-            osc2.type = 'sine';
-            osc2.frequency.setValueAtTime(880, now + 0.10);
-            gain2.gain.setValueAtTime(0.16, now + 0.10);
-            gain2.gain.exponentialRampToValueAtTime(0.001, now + 0.35);
-            osc2.connect(gain2);
-            gain2.connect(audioCtx.destination);
-            osc2.start(now + 0.10);
-            osc2.stop(now + 0.35);
         } catch (e) {}
     }
 
     // Main Audio Player: Plays MP3, falls back smoothly to Web Audio synthesizer on error
     function playNotificationSound() {
+        if (!soundAlertsEnabled) return;
         try {
+            initAudioContext();
             if (!pingAudio) {
                 pingAudio = new Audio("{{ asset('sfx/ping-message.mp3') }}");
+                pingAudio.preload = 'auto';
+                pingAudio.volume = 0.8;
             }
             pingAudio.currentTime = 0;
             const playPromise = pingAudio.play();
             if (playPromise !== undefined) {
-                playPromise.catch(function() {
+                playPromise.then(() => {
+                    // Audio played successfully
+                }).catch(function() {
                     // Catch protocol: fallback to synthesizer chime
                     playSynthesizerChime();
                 });
@@ -187,6 +212,16 @@
             playSynthesizerChime();
         }
     }
+
+    window.playRMSNotificationSound = playNotificationSound;
+
+    window.addEventListener('rms-sound-setting-changed', function(event) {
+        if (event && event.detail !== undefined) {
+            soundAlertsEnabled = typeof event.detail === 'object' && event.detail.enabled !== undefined
+                ? !!event.detail.enabled 
+                : !!event.detail;
+        }
+    });
 
     // --- Tab Title & Favicon Red Dot Indicator ---
     let originalDocumentTitle = null;
@@ -391,7 +426,18 @@
     window.updateChatifyUnreadBadge = updateUnreadBadge;
 
     window.addEventListener('message', function(event) {
-        if (event.data && (event.data.type === 'CHATIFY_MARK_READ' || event.data.type === 'CHATIFY_REFRESH_BADGE')) {
+        if (!event.data) return;
+
+        if (event.data.type === 'CHATIFY_NEW_MESSAGE') {
+            playNotificationSound();
+            updateUnreadBadge();
+            setTimeout(updateUnreadBadge, 400);
+            setTimeout(updateUnreadBadge, 1200);
+        } else if (event.data.type === 'CHATIFY_PLAY_SOUND') {
+            playNotificationSound();
+        } else if (event.data.type === 'CHATIFY_USER_INTERACTION') {
+            initAudioContext();
+        } else if (event.data.type === 'CHATIFY_MARK_READ' || event.data.type === 'CHATIFY_REFRESH_BADGE') {
             updateUnreadBadge();
             setTimeout(updateUnreadBadge, 500);
         }
@@ -400,6 +446,10 @@
     window.addEventListener('rms-notification-updated', function() {
         updateUnreadBadge();
         setTimeout(updateUnreadBadge, 500);
+    });
+
+    window.addEventListener('rms-play-sound', function() {
+        playNotificationSound();
     });
 
     window.toggleChatifyWidget = function() {
@@ -427,11 +477,71 @@
         setTimeout(updateUnreadBadge, 2000);
     };
 
+    function disableChatifySearchAutoInput() {
+        const iframe = document.getElementById('chatify-iframe');
+        if (!iframe) return;
+
+        try {
+            const iframeDoc = iframe.contentDocument || iframe.contentWindow?.document;
+            if (!iframeDoc) return;
+
+            const searchInputs = iframeDoc.querySelectorAll('#searchInput, #adminSearchInput, .sidebar-search input, .admin-search input');
+
+            searchInputs.forEach(input => {
+                // 1. Universal Anti-Autofill & Password Manager Ignore Attributes
+                input.setAttribute('autocomplete', 'new-password');
+                input.setAttribute('autocorrect', 'off');
+                input.setAttribute('autocapitalize', 'off');
+                input.setAttribute('spellcheck', 'false');
+                input.setAttribute('data-lpignore', 'true');
+                input.setAttribute('data-1p-ignore', 'true');
+                input.setAttribute('data-form-type', 'other');
+
+                // 2. Readonly Protection on Load (blocks browser autofill engine across all browsers)
+                input.setAttribute('readonly', 'readonly');
+
+                // Seamlessly remove readonly the instant the user interacts
+                const unlockInput = () => {
+                    input.removeAttribute('readonly');
+                };
+                input.addEventListener('focus', unlockInput, { once: true });
+                input.addEventListener('pointerdown', unlockInput, { once: true });
+                input.addEventListener('mousedown', unlockInput, { once: true });
+                input.addEventListener('touchstart', unlockInput, { once: true });
+                input.addEventListener('keydown', unlockInput, { once: true });
+
+                // 3. Clear any value auto-injected by the browser on load
+                if (input.value) {
+                    input.value = '';
+                    input.dispatchEvent(new Event('input', { bubbles: true }));
+                }
+
+                // Delayed purge for browsers / password managers injecting 50ms - 500ms after load
+                [50, 150, 300, 600].forEach(delay => {
+                    setTimeout(() => {
+                        if (input.hasAttribute('readonly') && input.value) {
+                            input.value = '';
+                            input.dispatchEvent(new Event('input', { bubbles: true }));
+                        }
+                    }, delay);
+                });
+
+                // 4. Prevent unwanted auto-focus on page load
+                if (iframeDoc.activeElement === input) {
+                    input.blur();
+                }
+            });
+        } catch (e) {
+            // Failsafe in case of cross-origin boundaries
+        }
+    }
+
     window.hideChatifyLoader = function() {
         const loader = document.getElementById('chatify-iframe-loader');
         if (loader) {
             loader.style.display = 'none';
         }
+        disableChatifySearchAutoInput();
         updateUnreadBadge();
         setTimeout(updateUnreadBadge, 600);
     };
@@ -499,10 +609,21 @@
         }
     });
 
+    function attachIframeLoadListeners() {
+        const iframe = document.getElementById('chatify-iframe');
+        if (iframe) {
+            iframe.addEventListener('load', disableChatifySearchAutoInput);
+        }
+    }
+
     if (document.readyState === 'loading') {
-        document.addEventListener('DOMContentLoaded', initWidgetState);
+        document.addEventListener('DOMContentLoaded', function() {
+            initWidgetState();
+            attachIframeLoadListeners();
+        });
     } else {
         initWidgetState();
+        attachIframeLoadListeners();
     }
 })();
 </script>

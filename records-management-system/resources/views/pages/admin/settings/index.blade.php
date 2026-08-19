@@ -113,6 +113,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - System Settings')] class
 
             $this->showDriveEditForm = false;
             $this->successMessage = 'Google Drive Cloud Storage credentials updated successfully!';
+            $this->dispatch('rms-settings-changed', type: 'site_settings', message: 'Google Drive credentials updated by administrator.');
 
             // Purge the resolved disk instance so the next usage rebuilds with fresh credentials from DB
             try {
@@ -182,6 +183,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - System Settings')] class
 
             $this->showSsoEditForm = false;
             $this->successMessage = 'Google SSO credentials updated successfully! Changes are live — no restart required.';
+            $this->dispatch('rms-settings-changed', type: 'site_settings', message: 'Google SSO credentials updated by administrator.');
 
             $this->testSsoConnection();
         } catch (\Throwable $e) {
@@ -600,10 +602,24 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - System Settings')] class
                 ]);
             });
 
-            $this->successMessage = 'System settings updated successfully!';
+            $this->successMessage = 'System settings updated successfully! Synchronized refresh triggered for all open tabs.';
+            $this->dispatch('rms-settings-changed', type: 'site_settings', message: 'System site settings updated by administrator.');
         } catch (\Exception $e) {
             $this->errorMessage = 'Failed to update system settings: ' . $e->getMessage();
         }
+    }
+
+    public function broadcastRefreshToAllTabs(): void
+    {
+        $this->successMessage = 'Broadcasted synchronized 5-second auto-refresh signal to all active browser tabs!';
+        $this->dispatch('rms-settings-changed', type: 'site_settings', message: 'Administrator initiated a synchronized tab refresh.');
+
+        \DB::table('admin_logs')->insert([
+            'changes' => 'Triggered system-wide cross-tab synchronized refresh across active sessions.',
+            'admin_id' => auth()->id(),
+            'what_system' => 3,
+            'when_changes' => now(),
+        ]);
     }
 
     public function ensureBackupDirectoriesExist(): void
@@ -799,6 +815,84 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - System Settings')] class
             background-color: #1d4ed8;
             box-shadow: 0 4px 12px rgba(37,99,235,0.25);
         }
+
+        /* Dark Mode Overrides */
+        [data-theme="dark"] .page-header h1 {
+            color: #f8fafc !important;
+        }
+        [data-theme="dark"] .page-header p {
+            color: #94a3b8 !important;
+        }
+        [data-theme="dark"] .settings-card {
+            background: #131c2e !important;
+            border-color: #1e293b !important;
+            box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3) !important;
+        }
+        [data-theme="dark"] .settings-card-header {
+            border-bottom: 1px solid #1e293b !important;
+        }
+        [data-theme="dark"] .settings-card-header h3 {
+            color: #f8fafc !important;
+        }
+        [data-theme="dark"] .settings-card-header i {
+            color: #60a5fa !important;
+        }
+        [data-theme="dark"] .setting-item {
+            border-bottom-color: #1a253c !important;
+        }
+        [data-theme="dark"] .setting-title {
+            color: #f8fafc !important;
+        }
+        [data-theme="dark"] .setting-desc {
+            color: #94a3b8 !important;
+        }
+        [data-theme="dark"] .slider {
+            background-color: #334155 !important;
+        }
+        [data-theme="dark"] input:checked + .slider {
+            background-color: #2563eb !important;
+        }
+        [data-theme="dark"] select.form-input {
+            background-color: #0f172a !important;
+            border-color: #334155 !important;
+            color: #f8fafc !important;
+        }
+        [data-theme="dark"] select.form-input option {
+            background-color: #0f172a !important;
+            color: #f8fafc !important;
+        }
+        [data-theme="dark"] div[style*="background: #f8fafc"],
+        [data-theme="dark"] div[style*="background:#f8fafc"] {
+            background-color: #0f172a !important;
+            border-color: #1e293b !important;
+        }
+        [data-theme="dark"] div[style*="background: #eff6ff"],
+        [data-theme="dark"] div[style*="background:#eff6ff"] {
+            background-color: rgba(37, 99, 235, 0.12) !important;
+            border-color: rgba(37, 99, 235, 0.25) !important;
+            color: #93c5fd !important;
+        }
+        [data-theme="dark"] div[style*="background: #eff6ff"] strong,
+        [data-theme="dark"] div[style*="background:#eff6ff"] strong {
+            color: #60a5fa !important;
+        }
+        [data-theme="dark"] div[style*="background: #f8fafc"] span[style*="color: #64748b"] {
+            color: #94a3b8 !important;
+        }
+        [data-theme="dark"] div[style*="background: #f8fafc"] div[style*="color: #0f172a"] {
+            color: #f8fafc !important;
+        }
+        [data-theme="dark"] div[style*="background: #f8fafc"] label {
+            color: #94a3b8 !important;
+        }
+        [data-theme="dark"] div[style*="background: #f8fafc"] input {
+            background-color: #131c2e !important;
+            border-color: #334155 !important;
+            color: #f8fafc !important;
+        }
+        [data-theme="dark"] div[style*="background: #f8fafc"] h4 {
+            color: #f8fafc !important;
+        }
     </style>
 @endpush
 
@@ -909,11 +1003,6 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - System Settings')] class
                         <h3 style="font-size: 17px; font-weight: 800; color: #0f172a; margin: 0;">Google Drive Cloud Storage Manager</h3>
                         <span style="font-size: 12px; color: #64748b;">Automated multi-tier cloud storage & database caching workflow</span>
                     </div>
-                </div>
-                <div style="display: flex; align-items: center; gap: 8px;">
-                    <span style="display: inline-flex; align-items: center; gap: 6px; padding: 4px 12px; border-radius: 9999px; font-size: 12px; font-weight: 700; background: #dcfce7; color: #15803d;">
-                        <i class="fa-solid fa-circle-check"></i> Connected
-                    </span>
                 </div>
             </div>
 
@@ -1029,25 +1118,6 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - System Settings')] class
                         <h3 style="font-size: 17px; font-weight: 800; color: #0f172a; margin: 0;">Google SSO Credential Manager</h3>
                         <span style="font-size: 12px; color: #64748b;">Manage Google Single Sign-On (OAuth 2.0) credentials for portal authentication — live changes, no restart needed</span>
                     </div>
-                </div>
-                <div style="display: flex; align-items: center; gap: 8px;">
-                    @if ($ssoStatus === 'connected')
-                        <span style="display: inline-flex; align-items: center; gap: 6px; padding: 4px 12px; border-radius: 9999px; font-size: 12px; font-weight: 700; background: #dcfce7; color: #15803d;">
-                            <i class="fa-solid fa-circle-check"></i> Configured
-                        </span>
-                    @elseif ($ssoStatus === 'warning')
-                        <span style="display: inline-flex; align-items: center; gap: 6px; padding: 4px 12px; border-radius: 9999px; font-size: 12px; font-weight: 700; background: #fef9c3; color: #854d0e;">
-                            <i class="fa-solid fa-triangle-exclamation"></i> Warning
-                        </span>
-                    @elseif ($ssoStatus === 'error')
-                        <span style="display: inline-flex; align-items: center; gap: 6px; padding: 4px 12px; border-radius: 9999px; font-size: 12px; font-weight: 700; background: #fef2f2; color: #991b1b;">
-                            <i class="fa-solid fa-circle-xmark"></i> Not Configured
-                        </span>
-                    @else
-                        <span style="display: inline-flex; align-items: center; gap: 6px; padding: 4px 12px; border-radius: 9999px; font-size: 12px; font-weight: 700; background: #f1f5f9; color: #64748b;">
-                            <i class="fa-solid fa-circle-question"></i> Unknown
-                        </span>
-                    @endif
                 </div>
             </div>
 
@@ -1186,6 +1256,21 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - System Settings')] class
                             <input type="checkbox" wire:model="autoForwardCreatedTransaction">
                             <span class="slider"></span>
                         </label>
+                    </div>
+
+                    <!-- Action: Push Synchronized Refresh to Open Tabs -->
+                    <div class="setting-item" style="border-top: 1px dashed #e2e8f0; padding-top: 14px; margin-top: 6px;">
+                        <div class="setting-details">
+                            <span class="setting-title" style="display: flex; align-items: center; gap: 6px;">
+                                <i class="fa-solid fa-arrows-rotate" style="color: #2563eb;"></i>
+                                Broadcast Tab Auto-Refresh
+                            </span>
+                            <span class="setting-desc">Sends an instant synchronized 5-second countdown reload notification to all active browser windows and tabs across the system.</span>
+                        </div>
+                        <button type="button" wire:click="broadcastRefreshToAllTabs" class="form-btn-primary" style="padding: 8px 16px; font-size: 12px; font-weight: 600; white-space: nowrap; height: 36px; display: inline-flex; align-items: center; gap: 6px; background-color: #2563eb; color: #ffffff; border-radius: 8px; border: none; cursor: pointer;">
+                            <i class="fa-solid fa-satellite-dish"></i>
+                            Push Refresh
+                        </button>
                     </div>
                 </div>
             </div>

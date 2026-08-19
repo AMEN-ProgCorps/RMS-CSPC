@@ -148,6 +148,7 @@ new class extends Component {
             ]
         );
         $this->loadNotifications();
+        $this->dispatch('rms-notification-updated');
     }
 
     /**
@@ -174,6 +175,7 @@ new class extends Component {
             }
         }
         $this->loadNotifications();
+        $this->dispatch('rms-notification-updated');
     }
 
     /**
@@ -201,6 +203,7 @@ new class extends Component {
             ]
         );
         $this->loadNotifications();
+        $this->dispatch('rms-notification-updated');
     }
 };
 ?>

@@ -281,6 +281,7 @@ Route::middleware(['auth'])
 
     // Profile Manager
     Volt::route('/profile', 'pages.profile.index')->name('profile');
+    Volt::route('/profile/settings', 'pages.profile.settings')->name('profile.settings');
     Volt::route('/profile/security-logs', 'pages.profile.security-logs')->name('profile.security-logs');
     Volt::route('/profile/notification-manager', 'pages.profile.notification-manager')->name('profile.notification-manager');
     

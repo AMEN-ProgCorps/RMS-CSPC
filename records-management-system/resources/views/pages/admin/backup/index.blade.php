@@ -1011,6 +1011,59 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Backup & Recovery Manage
     }
 }; ?>
 
+@push('styles')
+    @vite(['resources/css/admin/activity_logs.css', 'resources/css/admin/subsystems.css'])
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css">
+    <style>
+        [data-theme="dark"] div[style*="background: #ffffff"],
+        [data-theme="dark"] div[style*="background:#ffffff"],
+        [data-theme="dark"] div[style*="background: white"] {
+            background-color: #131c2e !important;
+            border-color: #1e293b !important;
+            box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3) !important;
+        }
+        [data-theme="dark"] h1[style*="color: #0f172a"],
+        [data-theme="dark"] h2[style*="color: #0f172a"],
+        [data-theme="dark"] h3[style*="color: #0f172a"],
+        [data-theme="dark"] h4[style*="color: #0f172a"] {
+            color: #f8fafc !important;
+        }
+        [data-theme="dark"] p[style*="color: #64748b"],
+        [data-theme="dark"] span[style*="color: #64748b"] {
+            color: #94a3b8 !important;
+        }
+        [data-theme="dark"] div[style*="background: #f8fafc"],
+        [data-theme="dark"] div[style*="background:#f8fafc"] {
+            background-color: #0f172a !important;
+            border-color: #1e293b !important;
+        }
+        [data-theme="dark"] input[type="text"],
+        [data-theme="dark"] select {
+            background-color: #0f172a !important;
+            border-color: #334155 !important;
+            color: #f8fafc !important;
+        }
+        [data-theme="dark"] table thead tr {
+            background-color: #0f172a !important;
+            color: #94a3b8 !important;
+            border-bottom-color: #1e293b !important;
+        }
+        [data-theme="dark"] table tbody tr {
+            border-bottom-color: #1e293b !important;
+        }
+        [data-theme="dark"] table tbody td {
+            color: #cbd5e1 !important;
+        }
+        [data-theme="dark"] table tbody tr:hover td {
+            background-color: #1a253c !important;
+        }
+        [data-theme="dark"] code {
+            background: #0f172a !important;
+            color: #60a5fa !important;
+        }
+    </style>
+@endpush
+
 <div class="space-y-6">
     <!-- Header Banner -->
     <div style="background: #ffffff; padding: 24px 28px; border-radius: 16px; border: 1px solid #e2e8f0; box-shadow: 0 4px 12px rgba(0, 0, 0, 0.03); display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 16px;">

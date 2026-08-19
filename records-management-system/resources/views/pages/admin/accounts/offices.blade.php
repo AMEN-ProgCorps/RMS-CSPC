@@ -175,7 +175,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Offices & Clusters')] cl
 
             $userOfficeCode = auth()->user()?->details?->office?->office_code;
             if (!$userOfficeCode || !\DB::table('office')->where('office_code', $userOfficeCode)->exists()) {
-                $userOfficeCode = \DB::table('office')->where('is_active', true)->whereNotIn('office_code', ['ORIGIN', '[H]'])->value('office_code') ?: 'ORIGIN';
+                $userOfficeCode = \DB::table('office')->where('is_active', true)->whereNotIn('office_code', ['ORIGIN', '[H]', '[HUB]', 'HUB'])->value('office_code') ?: 'ORIGIN';
             }
 
             \DB::table('dts_source_office')->insert([
@@ -587,7 +587,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Offices & Clusters')] cl
                     // --- EDIT MODE ---
                     $office = \App\Models\office::findOrFail($this->selectedOfficeId);
                     
-                    if ($office->office_code === 'ORIGIN' || $office->office_code === '[H]') {
+                    if (in_array($office->office_code, ['ORIGIN', '[H]', '[HUB]', 'HUB'])) {
                         $this->isActive = true;
                         $this->officeCode = $office->office_code;
                     }
@@ -643,7 +643,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Offices & Clusters')] cl
             \DB::transaction(function () {
                 $office = \App\Models\office::findOrFail($this->selectedOfficeId);
                 
-                if ($office->office_code === 'ORIGIN' || $office->office_code === '[H]') {
+                if (in_array($office->office_code, ['ORIGIN', '[H]', '[HUB]', 'HUB'])) {
                     throw new \Exception("The system placeholder office '{$office->office_name}' ({$office->office_code}) cannot be deleted.");
                 }
 
@@ -686,7 +686,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Offices & Clusters')] cl
     public function toggleAllOffices(): void
     {
         $visibleIds = \App\Models\office::where('is_active', true)
-            ->whereNotIn('office_code', ['ORIGIN', '[H]'])
+            ->whereNotIn('office_code', ['ORIGIN', '[H]', '[HUB]', 'HUB'])
             ->when($this->search !== '', function ($q) {
                 $q->where(function ($sub) {
                     $sub->where('office_name', 'like', '%' . $this->search . '%')
@@ -718,7 +718,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Offices & Clusters')] cl
         try {
             \DB::transaction(function () {
                 $offices = \App\Models\office::whereIn('id', $this->selectedOfficeIds)
-                    ->whereNotIn('office_code', ['ORIGIN', '[H]'])
+                    ->whereNotIn('office_code', ['ORIGIN', '[H]', '[HUB]', 'HUB'])
                     ->get();
 
                 if ($offices->isEmpty()) {
@@ -1225,7 +1225,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Offices & Clusters')] cl
     {
         $officeQuery = \App\Models\office::query()
             ->where('is_active', true)
-            ->whereNotIn('office_code', ['ORIGIN', '[H]']);
+            ->whereNotIn('office_code', ['ORIGIN', '[H]', '[HUB]', 'HUB']);
         if ($this->search !== '') {
             $searchVal = '%' . $this->search . '%';
             $officeQuery->where(function($q) use ($searchVal) {
@@ -1508,6 +1508,9 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Offices & Clusters')] cl
                                 <h2 class="details-header-name">Import Offices from File</h2>
                                 <span class="details-header-sub">Upload a .txt file containing multiple office configurations</span>
                             </div>
+                            <button type="button" class="btn-close-details" wire:click="cancelSelection" title="Close Details Panel">
+                                <i class="fa-solid fa-xmark"></i>
+                            </button>
                         </div>
 
                         <!-- Body Form -->
@@ -1564,6 +1567,9 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Offices & Clusters')] cl
                                     {{ $selectedOfficeId === -1 ? 'Add a new office entry to register tracking clearance' : 'Review & adjust active office registration' }}
                                 </span>
                             </div>
+                            <button type="button" class="btn-close-details" wire:click="cancelSelection" title="Close Details Panel">
+                                <i class="fa-solid fa-xmark"></i>
+                            </button>
                         </div>
 
                         <!-- Body Form -->
@@ -1579,7 +1585,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Offices & Clusters')] cl
                                 <!-- Office Code -->
                                 <div class="form-group">
                                     <span class="form-label">Office Short Code</span>
-                                    <input type="text" class="form-input" placeholder="e.g. CCS" wire:model="officeCode" {{ in_array($officeCode, ['ORIGIN', '[H]']) ? 'disabled' : '' }}>
+                                    <input type="text" class="form-input" placeholder="e.g. CCS" wire:model="officeCode" {{ in_array($officeCode, ['ORIGIN', '[H]', '[HUB]', 'HUB']) ? 'disabled' : '' }}>
                                     @error('officeCode') <span style="color:#ef4444; font-size:11px; margin-top:2px;">{{ $message }}</span> @enderror
                                 </div>
 
@@ -1593,12 +1599,12 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Offices & Clusters')] cl
                                                wire:model.live="officeClusterSearch" 
                                                wire:focus="$set('showOfficeClusterDropdown', true)" 
                                                autocomplete="off" 
-                                               style="padding-right: 32px; background-color: white;">
+                                               style="padding-right: 32px;">
                                         <span style="position: absolute; right: 12px; top: 50%; transform: translateY(-50%); pointer-events: none; color: #94a3b8; font-size: 10px;">▼</span>
                                         
                                         @if($showOfficeClusterDropdown)
-                                            <div style="position: absolute; top: 100%; left: 0; right: 0; margin-top: 4px; background: #ffffff; border: 1.5px solid #cbd5e1; border-radius: 8px; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1), 0 2px 4px -1px rgba(0,0,0,0.06); max-height: 160px; overflow-y: auto; z-index: 50;">
-                                                <div wire:click="selectOfficeCluster('', '')" style="padding: 9px 14px; font-size: 13px; color: #64748b; cursor: pointer; border-bottom: 1px solid #f1f5f9; font-style: italic;" onmouseover="this.style.backgroundColor='#f1f5f9'" onmouseout="this.style.backgroundColor='transparent'">
+                                            <div style="position: absolute; top: 100%; left: 0; right: 0; margin-top: 4px; border-radius: 8px; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1), 0 2px 4px -1px rgba(0,0,0,0.06); max-height: 160px; overflow-y: auto; z-index: 50;">
+                                                <div wire:click="selectOfficeCluster('', '')" style="padding: 9px 14px; font-size: 13px; color: #64748b; cursor: pointer; border-bottom: 1px solid #f1f5f9; font-style: italic;">
                                                     None (No Cluster)
                                                 </div>
                                                 @php
@@ -1611,7 +1617,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Offices & Clusters')] cl
                                                     });
                                                 @endphp
                                                 @forelse($filteredClusters as $clusterObj)
-                                                    <div wire:click="selectOfficeCluster('{{ $clusterObj->cluster_code }}', '{{ addslashes($clusterObj->cluster_name) }}')" style="padding: 9px 14px; font-size: 13px; color: #334155; cursor: pointer; border-bottom: 1px solid #f1f5f9;" onmouseover="this.style.backgroundColor='#f1f5f9'" onmouseout="this.style.backgroundColor='transparent'">
+                                                    <div wire:click="selectOfficeCluster('{{ $clusterObj->cluster_code }}', '{{ addslashes($clusterObj->cluster_name) }}')" style="padding: 9px 14px; font-size: 13px; cursor: pointer; border-bottom: 1px solid #f1f5f9;">
                                                         {{ $clusterObj->cluster_name }} ({{ $clusterObj->cluster_code }})
                                                     </div>
                                                 @empty
@@ -1632,7 +1638,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Offices & Clusters')] cl
                                                 <span class="status-toggle-desc">Toggle whether this office is active or soft-deactivated for transparency.</span>
                                             </div>
                                             <label class="switch">
-                                                <input type="checkbox" wire:model="isActive" {{ in_array($officeCode, ['ORIGIN', '[H]']) ? 'disabled' : '' }}>
+                                                <input type="checkbox" wire:model="isActive" {{ in_array($officeCode, ['ORIGIN', '[H]', '[HUB]', 'HUB']) ? 'disabled' : '' }}>
                                                 <span class="slider"></span>
                                             </label>
                                         </div>
@@ -1643,7 +1649,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Offices & Clusters')] cl
 
                         <!-- Footer Actions -->
                         <div class="details-footer">
-                            @if($selectedOfficeId > 0 && !in_array($officeCode, ['ORIGIN', '[H]']))
+                            @if($selectedOfficeId > 0 && !in_array($officeCode, ['ORIGIN', '[H]', '[HUB]', 'HUB']))
                                 <button type="button" class="btn-delete" wire:click="deleteOffice" style="margin-right: auto;">
                                     <i class="fa-solid fa-trash-can"></i> Delete Office
                                 </button>

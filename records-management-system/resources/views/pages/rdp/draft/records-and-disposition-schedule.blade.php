@@ -388,6 +388,96 @@ new #[Layout('layouts.rdp')] #[Title('Draft Records and Disposition Schedule')] 
             font-size: 14px;
             outline: none;
         }
+
+        /* ==========================================================================
+           Draft Schedule - Dark Mode Overrides
+           ========================================================================== */
+        [data-theme="dark"] .header-card {
+            background: #131c2e !important;
+            border-color: #1e293b !important;
+            box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3) !important;
+        }
+
+        [data-theme="dark"] .header-title h1 {
+            color: #f8fafc !important;
+        }
+
+        [data-theme="dark"] .header-title p {
+            color: #94a3b8 !important;
+        }
+
+        [data-theme="dark"] .search-input {
+            background: #0f172a !important;
+            border-color: #334155 !important;
+            color: #f8fafc !important;
+        }
+
+        [data-theme="dark"] .draft-table-wrapper {
+            background: #131c2e !important;
+            border-color: #1e293b !important;
+        }
+
+        [data-theme="dark"] .draft-table th {
+            background: #0f172a !important;
+            color: #94a3b8 !important;
+            border-right-color: #1e293b !important;
+            border-bottom: 2px solid #1e293b !important;
+        }
+
+        [data-theme="dark"] .draft-table td {
+            color: #cbd5e1 !important;
+            border-bottom-color: #1e293b !important;
+            border-right-color: #1e293b !important;
+        }
+
+        [data-theme="dark"] .draft-table tr:hover td {
+            background-color: #1a253c !important;
+        }
+
+        [data-theme="dark"] .btn-resume {
+            background: #0f172a !important;
+            color: #60a5fa !important;
+            border-color: #3b82f6 !important;
+        }
+
+        [data-theme="dark"] .btn-resume:hover {
+            background: #1e293b !important;
+        }
+
+        [data-theme="dark"] .btn-delete {
+            background: rgba(239, 68, 68, 0.15) !important;
+            color: #f87171 !important;
+            border-color: rgba(239, 68, 68, 0.3) !important;
+        }
+
+        [data-theme="dark"] .btn-delete:hover {
+            background: rgba(239, 68, 68, 0.25) !important;
+        }
+
+        [data-theme="dark"] .ia-modal-card {
+            background: #131c2e !important;
+            border: 1px solid #1e293b !important;
+        }
+
+        [data-theme="dark"] .ia-modal-header,
+        [data-theme="dark"] .ia-modal-footer {
+            background: #0f172a !important;
+            border-color: #1e293b !important;
+        }
+
+        [data-theme="dark"] .ia-modal-header h3 {
+            color: #f8fafc !important;
+        }
+
+        [data-theme="dark"] .form-group label {
+            color: #94a3b8 !important;
+        }
+
+        [data-theme="dark"] .form-control {
+            background: #0f172a !important;
+            border-color: #334155 !important;
+            color: #f8fafc !important;
+        }
     </style>
 
     <div class="header-card">

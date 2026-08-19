@@ -150,3 +150,22 @@
     background: #dcfce7;
     border-color: #bbf7d0;
 }
+
+/* Subsystems Dark Mode */
+[data-theme="dark"] .subsystem-form-card {
+    background: #131c2e !important;
+    border: 1px solid #1e293b !important;
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4) !important;
+}
+
+[data-theme="dark"] .form-group label {
+    color: #f8fafc !important;
+}
+
+[data-theme="dark"] .form-group input,
+[data-theme="dark"] .form-group select {
+    background-color: #0f172a !important;
+    border-color: #334155 !important;
+    color: #f8fafc !important;
+}
+

@@ -1383,18 +1383,18 @@ new #[Layout('layouts.dts')] #[Title('DTS - Application Letters')] class extends
                         <th rowspan="2">Name of Applicant</th>
                         <th rowspan="2">Position Applied</th>
                         <th rowspan="2">Department</th>
-                        <th colspan="3" style="color: #dc2626; text-align: center; border-bottom: 1px solid #dee2e6;">Released</th>
-                        <th colspan="3" style="color: #dc2626; text-align: center; border-bottom: 1px solid #dee2e6;">Received</th>
-                        <th rowspan="2" style="color: #dc2626; text-align: center;">Elapsed Day</th>
-                        <th rowspan="2" style="width: 60px; color: #dc2626; text-align: center;">View</th>
+                        <th colspan="3" style="text-align: center; border-bottom: 1px solid #dee2e6;">Released</th>
+                        <th colspan="3" style="text-align: center; border-bottom: 1px solid #dee2e6;">Received</th>
+                        <th rowspan="2" style="text-align: center;">Elapsed Day</th>
+                        <th rowspan="2" style="width: 60px; text-align: center;">View</th>
                     </tr>
                     <tr>
-                        <th style="color: #dc2626; text-align: center; font-size: 0.75rem; padding: 6px 8px;">Date</th>
-                        <th style="color: #dc2626; text-align: center; font-size: 0.75rem; padding: 6px 8px;">Time</th>
-                        <th style="color: #dc2626; text-align: center; font-size: 0.75rem; padding: 6px 8px;">By</th>
-                        <th style="color: #dc2626; text-align: center; font-size: 0.75rem; padding: 6px 8px;">Date</th>
-                        <th style="color: #dc2626; text-align: center; font-size: 0.75rem; padding: 6px 8px;">Time</th>
-                        <th style="color: #dc2626; text-align: center; font-size: 0.75rem; padding: 6px 8px;">By</th>
+                        <th style="text-align: center; font-size: 0.75rem; padding: 6px 8px;">Date</th>
+                        <th style="text-align: center; font-size: 0.75rem; padding: 6px 8px;">Time</th>
+                        <th style="text-align: center; font-size: 0.75rem; padding: 6px 8px;">By</th>
+                        <th style="text-align: center; font-size: 0.75rem; padding: 6px 8px;">Date</th>
+                        <th style="text-align: center; font-size: 0.75rem; padding: 6px 8px;">Time</th>
+                        <th style="text-align: center; font-size: 0.75rem; padding: 6px 8px;">By</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -1419,7 +1419,7 @@ new #[Layout('layouts.dts')] #[Title('DTS - Application Letters')] class extends
                             <td style="text-align: center;">{{ $t->received_date }}</td>
                             <td style="text-align: center;">{{ $t->received_time }}</td>
                             <td>{{ $t->received_by }}</td>
-                            <td style="color: #dc2626; font-weight: 600; white-space: nowrap; text-align: center;">
+                            <td style="font-weight: 600; white-space: nowrap; text-align: center;">
                                 {{ $t->elapsed_days }} day(s)
                             </td>
                             <td style="text-align: center;">

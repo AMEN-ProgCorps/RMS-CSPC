@@ -158,6 +158,7 @@ new #[Layout('layouts.profile')] #[Title('Profile Manager - Notification Manager
             ]
         );
         $this->loadNotifications();
+        $this->dispatch('rms-notification-updated');
     }
 
     /**
@@ -186,6 +187,7 @@ new #[Layout('layouts.profile')] #[Title('Profile Manager - Notification Manager
             ]
         );
         $this->loadNotifications();
+        $this->dispatch('rms-notification-updated');
     }
 };
 ?>

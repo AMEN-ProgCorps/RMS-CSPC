@@ -16,6 +16,7 @@ require_once __DIR__ . '/config/db.php';
 require_once __DIR__ . '/config/encryption.php';
 require_once __DIR__ . '/core/Encryption.php';
 require_once __DIR__ . '/core/Database.php';
+require_once __DIR__ . '/core/SelfHealCache.php';
 require_once __DIR__ . '/core/UserResolver.php';
 require_once __DIR__ . '/core/Auth.php';
 require_once __DIR__ . '/core/AuthRedirect.php';

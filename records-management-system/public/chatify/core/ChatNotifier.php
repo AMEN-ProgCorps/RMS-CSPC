@@ -43,12 +43,12 @@ class ChatNotifier
                     sender_account_id INT NULL,
                     mentioned_account_id INT NOT NULL,
                     message_snippet TEXT NULL,
-                    is_seen SMALLINT NOT NULL DEFAULT 0,
+                    is_seen BOOLEAN NOT NULL DEFAULT FALSE,
                     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
                 );
                 ALTER TABLE chat_message_mentions ADD COLUMN IF NOT EXISTS sender_account_id INT NULL;
                 ALTER TABLE chat_message_mentions ADD COLUMN IF NOT EXISTS message_snippet TEXT NULL;
-                ALTER TABLE chat_message_mentions ADD COLUMN IF NOT EXISTS is_seen SMALLINT NOT NULL DEFAULT 0;
+                ALTER TABLE chat_message_mentions ADD COLUMN IF NOT EXISTS is_seen BOOLEAN NOT NULL DEFAULT FALSE;
                 CREATE INDEX IF NOT EXISTS idx_cmm_account_unseen
                 ON chat_message_mentions (mentioned_account_id, is_seen, created_at DESC);
             ");
@@ -77,7 +77,7 @@ class ChatNotifier
                 $snippet = ($message === null || $message === '') ? null : mb_substr($message, 0, 250);
                 $insert = $pdo->prepare(
                     'INSERT INTO chat_message_mentions (msg_uuid, sender_account_id, mentioned_account_id, message_snippet, is_seen, created_at)
-                     VALUES (:msg_uuid, :sender, :recipient, :snippet, 0, NOW())
+                     VALUES (:msg_uuid, :sender, :recipient, :snippet, FALSE, NOW())
                      RETURNING id'
                 );
                 $insert->execute([

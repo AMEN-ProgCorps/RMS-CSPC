@@ -101,7 +101,14 @@ $readUpTo = ConversationManager::getReadMarker($convId, $targetId);
 $nextCursor = !empty($rawMessages) ? $rawMessages[0]['id'] : null;
 
 // ── Name cache ───────────────────────────────────────────────────
-$nameMap = UserResolver::buildNameMap();
+// A DM conversation only ever has 2 participants (myself + target), so
+// resolve exactly those instead of UserResolver::buildNameMap()'s old
+// behavior of loading the entire account_details table on every page
+// load/poll — that scan gets linearly slower as headcount grows and buys
+// nothing here, since at most 2 distinct sender_ids can ever appear in
+// $rawMessages. $targetInfo above already queried the target's row, so
+// this reuses it from cache and costs zero extra queries in the common case.
+$nameMap = UserResolver::buildNameMapForIds([$myAccountId, $targetId]);
 
 // ── Verification cache (lazily populated per-sender inside the loop) ─────
 $verifiedIds = [];

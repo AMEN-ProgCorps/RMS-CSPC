@@ -23,16 +23,21 @@ if ($targetId <= 0 || $targetId === $myAccountId) {
 $convId      = ConversationManager::convId($myAccountId, $targetId);
 $lastMsgUuid = ConversationManager::markRead($convId, $myAccountId);
 
-// Notify the other participant's live socket immediately, so their "Seen"
-// indicator updates in real time instead of waiting for their next poll.
-// Admin (1) is included too, for spymode parity with other DM events.
-if ($lastMsgUuid !== null) {
-    WsPush::push([$targetId, 1], 'message_read', [
-        'reader_id'    => $myAccountId,
-        'target_id'    => $targetId,
-        'last_msg_uuid'=> $lastMsgUuid,
-    ]);
-}
-
+// Respond to the browser immediately — everything below is a best-effort
+// live-socket notification and must never be what the client is waiting on.
 header('Content-Type: application/json');
 echo json_encode(['success' => true]);
+
+// Notify the other participant's live socket, so their "Seen" indicator
+// updates in real time instead of waiting for their next poll. Admin (1)
+// is included too, for spymode parity with other DM events. Deferred until
+// after the response above is flushed — see WsPush::flushResponseThenRun().
+if ($lastMsgUuid !== null) {
+    WsPush::flushResponseThenRun(function () use ($targetId, $myAccountId, $lastMsgUuid) {
+        WsPush::push([$targetId, 1], 'message_read', [
+            'reader_id'    => $myAccountId,
+            'target_id'    => $targetId,
+            'last_msg_uuid'=> $lastMsgUuid,
+        ]);
+    });
+}

@@ -31,10 +31,13 @@ class ConversationManager
      */
     private static function ensureConversationsTable(PDO $pdo): void
     {
-        static $checked = false;
-        if ($checked) return;
-        $checked = true;
+        SelfHealCache::once('conversations_table', function () use ($pdo) {
+            self::doEnsureConversationsTable($pdo);
+        });
+    }
 
+    private static function doEnsureConversationsTable(PDO $pdo): void
+    {
         try {
             $pdo->query("SELECT 1 FROM chat_conversations LIMIT 1");
         } catch (PDOException $e) {
@@ -140,33 +143,37 @@ class ConversationManager
      */
     private static function ensureMessageStatusColumn(PDO $pdo): void
     {
-        static $checked = false;
-        if ($checked) return;
-        $checked = true;
+        // See core/SelfHealCache.php — this used to be guarded by a
+        // `static $checked` flag, which under PHP-FPM resets every request
+        // and made this fire 5 DDL round-trips (including 3x CREATE INDEX
+        // CONCURRENTLY catalog checks) on every single message load/send.
+        // Now it's cached across the whole worker pool via APCu and only
+        // actually re-runs once per hour.
+        SelfHealCache::once('message_status_column', function () use ($pdo) {
+            try {
+                $pdo->exec("ALTER TABLE chat_messages ADD COLUMN IF NOT EXISTS status VARCHAR(10) NOT NULL DEFAULT 'active'");
+                $pdo->exec("CREATE INDEX IF NOT EXISTS idx_chat_messages_status ON chat_messages (conv_id, status)");
+            } catch (Throwable $t) {
+                error_log('ConversationManager::ensureMessageStatusColumn() — ' . $t->getMessage());
+            }
 
-        try {
-            $pdo->exec("ALTER TABLE chat_messages ADD COLUMN IF NOT EXISTS status VARCHAR(10) NOT NULL DEFAULT 'active'");
-            $pdo->exec("CREATE INDEX IF NOT EXISTS idx_chat_messages_status ON chat_messages (conv_id, status)");
-        } catch (Throwable $t) {
-            error_log('ConversationManager::ensureMessageStatusColumn() — ' . $t->getMessage());
-        }
+            // Each statement is its own try/catch: CONCURRENTLY can't run inside
+            // a transaction, and a losing race against another request (or an
+            // index that already exists under a different name) shouldn't block
+            // the others from being created.
+            self::ensureIndexConcurrently($pdo, 'idx_chat_messages_conv_active_created',
+                "CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_chat_messages_conv_active_created
+                 ON chat_messages (conv_id, created_at DESC, id DESC)
+                 WHERE status = 'active'");
 
-        // Each statement is its own try/catch: CONCURRENTLY can't run inside
-        // a transaction, and a losing race against another request (or an
-        // index that already exists under a different name) shouldn't block
-        // the others from being created.
-        self::ensureIndexConcurrently($pdo, 'idx_chat_messages_conv_active_created',
-            "CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_chat_messages_conv_active_created
-             ON chat_messages (conv_id, created_at DESC, id DESC)
-             WHERE status = 'active'");
+            self::ensureIndexConcurrently($pdo, 'idx_chat_messages_msg_uuid',
+                "CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_chat_messages_msg_uuid
+                 ON chat_messages (msg_uuid)");
 
-        self::ensureIndexConcurrently($pdo, 'idx_chat_messages_msg_uuid',
-            "CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_chat_messages_msg_uuid
-             ON chat_messages (msg_uuid)");
-
-        self::ensureIndexConcurrently($pdo, 'idx_chat_reactions_msg_uuid',
-            "CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_chat_reactions_msg_uuid
-             ON chat_reactions (msg_uuid)");
+            self::ensureIndexConcurrently($pdo, 'idx_chat_reactions_msg_uuid',
+                "CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_chat_reactions_msg_uuid
+                 ON chat_reactions (msg_uuid)");
+        });
     }
 
     /**

@@ -109,6 +109,12 @@ if ($uploadedRaw !== '') {
 header('Content-Type: application/json');
 
 if (empty($errors) && !empty($allResults)) {
+    // Build every WS push payload BEFORE responding — getReplyPreview() is a
+    // real DB read, so it has to happen before we tell the client "done".
+    // The actual network push to the ws-server, though, does not: that part
+    // is deferred below so a slow/busy ws-server can never add to the
+    // latency the person sending the message actually feels.
+    $pushPayloads = [];
     foreach ($allResults as $msgData) {
         if (empty($msgData['id'])) continue;
 
@@ -136,7 +142,7 @@ if (empty($errors) && !empty($allResults)) {
             );
         }
 
-        WsPush::push([$targetId, $senderId, 1], 'message', [
+        $pushPayloads[] = [
             'chat_type'         => 'private',
             'sender_id'         => $senderId,
             'sender_name'       => $_SESSION['full_name'] ?? ($_SESSION['first_name'] ?? ''),
@@ -148,16 +154,26 @@ if (empty($errors) && !empty($allResults)) {
             'has_upload'        => ($msgData['type'] ?? '') === 'upload',
             'reply_to_msg_uuid' => $msgData['reply_to_msg_uuid'] ?? null,
             'reply_snippet'     => $replyPreview['snippet'] ?? null,
-        ]);
+        ];
     }
+
     echo json_encode(['success' => true, 'message' => $allResults[0], 'messages' => $allResults]);
-    // ── Audit log (fire-and-forget) ───────────────────────────────────────────
-    ChatAuditLogger::log($senderId, 'send_dm', $allResults[0]['id'] ?? null, [
-        'recipient_id' => $targetId,
-        'has_text'     => $message !== '',
-        'has_file'     => $uploadedRaw !== '',
-        'file_count'   => count($allResults) - ($message !== '' ? 1 : 0),
-    ]);
+
+    // Everything below is best-effort side-effects (live socket push, audit
+    // log) that must never be on the critical path of "message got saved,
+    // tell the sender". Deferred until after the response above is flushed.
+    WsPush::flushResponseThenRun(function () use ($pushPayloads, $targetId, $senderId, $allResults, $message, $uploadedRaw) {
+        foreach ($pushPayloads as $payload) {
+            WsPush::push([$targetId, $senderId, 1], 'message', $payload);
+        }
+
+        ChatAuditLogger::log($senderId, 'send_dm', $allResults[0]['id'] ?? null, [
+            'recipient_id' => $targetId,
+            'has_text'     => $message !== '',
+            'has_file'     => $uploadedRaw !== '',
+            'file_count'   => count($allResults) - ($message !== '' ? 1 : 0),
+        ]);
+    });
 } else {
     http_response_code(500);
     echo json_encode(['success' => false, 'errors' => $errors]);

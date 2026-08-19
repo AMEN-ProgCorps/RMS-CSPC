@@ -619,6 +619,7 @@
           if (_partnerId !== null && _partnerId > 0) {
             const idx = allUsersData.findIndex(u => Number(u.account_id) === _partnerId);
             if (idx !== -1) {
+              dmMessageCache.delete(allUsersData[idx].username); // drop the now-stale snapshot
               allUsersData.splice(idx, 1);
               renderSidebarUsers();
             }
@@ -684,6 +685,7 @@
           fetchUsers();
         } else if (data.type === 'all_cleared') {
           console.log('Received WebSocket real-time update notice:', data);
+          dmMessageCache.clear(); // every conversation's snapshot is now stale
           gcCursor = ''; dmCursor = '';
           gcViewingOlder = false; dmViewingOlder = false;
           allConvsData = [];
@@ -926,6 +928,11 @@
       }
       renderSidebarUsers();
 
+      // Note: we no longer warm dmMessageCache here. selectDM/performSelectDM
+      // paints only from the real load_dm.php response now (same single-paint
+      // flow as selectGlobalChat), so pre-fetching snapshots nobody reads
+      // anymore would just be wasted requests.
+
       // Deferred restore: spy-mode exit sets this when allUsersData was empty at
       // exit time.  Now that we have a fresh user list, open the DM immediately.
       if (pendingRestoreDM) {
@@ -1003,6 +1010,78 @@
 
     const sidebarUserItems = new Map(); // username -> item element
     let latestTotalUnread = 0;
+
+    // In-memory snapshot of the last-rendered page of messages per DM
+    // partner, so re-opening a conversation already visited this session
+    // paints instantly (no waiting on load_dm.php) instead of showing the
+    // old conversation's messages until the round trip finishes. A
+    // background loadChat() still runs on every open to reconcile with
+    // whatever changed server-side since the snapshot was taken — this is
+    // purely a "paint something correct immediately" optimization, not a
+    // replacement for the real fetch. Capped and LRU-evicted (Map preserves
+    // insertion order) so a long session doesn't grow this unbounded.
+    const dmMessageCache = new Map(); // username -> {html, hasMore, nextCursor, readUpTo}
+    const DM_CACHE_LIMIT = 30;
+
+    function cacheDmSnapshot(username, data) {
+      if (!username) return;
+      dmMessageCache.delete(username); // re-insert at the end = most-recently-used
+      dmMessageCache.set(username, {
+        html: data.html || '',
+        hasMore: data.hasMore || false,
+        nextCursor: data.nextCursor || '',
+        readUpTo: (typeof data.readUpTo !== 'undefined') ? data.readUpTo : null,
+      });
+      if (dmMessageCache.size > DM_CACHE_LIMIT) {
+        const oldestKey = dmMessageCache.keys().next().value;
+        dmMessageCache.delete(oldestKey);
+      }
+    }
+
+    // Fetches one conversation's latest page in the background and drops it
+    // straight into dmMessageCache — no UI touched, no effect on activeDM/
+    // chatBox. Used to warm the cache BEFORE the user clicks, so the click
+    // itself (selectDM) can paint from cache immediately instead of only
+    // benefiting revisits.
+    function prefetchDmSnapshot(user) {
+      return new Promise(function(resolve) {
+        if (!user || !user.username || dmMessageCache.has(user.username)) { resolve(); return; }
+        const xhr = new XMLHttpRequest();
+        const url = 'load_dm.php?target_id=' + encodeURIComponent(user.account_id || 0) +
+                    '&target_user=' + encodeURIComponent(user.username) + '&before_uuid=';
+        xhr.open('GET', url, true);
+        xhr.onload = function() {
+          if (this.status === 200) {
+            try { cacheDmSnapshot(user.username, JSON.parse(this.responseText)); }
+            catch (e) { /* ignore malformed response */ }
+          }
+          resolve();
+        };
+        xhr.onerror = function() { resolve(); };
+        xhr.send();
+      });
+    }
+
+    // Warms the cache for the most recent conversations right after the
+    // sidebar list loads, one request at a time (gentle on the server and
+    // doesn't compete with the live WS connection or an in-flight send).
+    // This is what makes even a FIRST click on a recent conversation feel
+    // instant, not just revisits within the session.
+    const PREFETCH_LIMIT = 8;
+    let prefetchInFlight = false;
+    function prefetchTopConversations() {
+      if (prefetchInFlight) return;
+      const candidates = (allUsersData || [])
+        .filter(function(u) { return u.username !== activeDM && !dmMessageCache.has(u.username); })
+        .slice(0, PREFETCH_LIMIT);
+      if (candidates.length === 0) return;
+      prefetchInFlight = true;
+      let i = 0;
+      (function next() {
+        if (i >= candidates.length) { prefetchInFlight = false; return; }
+        prefetchDmSnapshot(candidates[i++]).then(next);
+      })();
+    }
 
     // Patches one sidebar row in-place (unread badge, move-to-top ordering)
     // using data we already have from a WS event or our own just-sent
@@ -1093,7 +1172,6 @@
           item.appendChild(actionsRight);
 
           item.onclick = () => selectDM(u);
-
           item._avatar = avatar;
           item._dot = dot;
           item._info = info;
@@ -1317,6 +1395,14 @@
     // back, and anything still unopened keeps toasting/showing in the bell
     // until it is. Called from ws.onmessage's 'auth_success' case, i.e. once
     // per successful (re)connect, not on a timer.
+    // Ids we've already popped a toast for, so repeated calls to this
+    // function (from the WS-independent poll below, not just the one-shot
+    // WS auth_success call) don't keep re-popping the same still-unseen
+    // mention every tick. Cleared implicitly by a page reload; that's fine
+    // since a fresh load re-toasts anything genuinely still unseen once,
+    // which is the desired "you missed this" behavior.
+    const toastedMentionIds = new Set();
+
     function catchUpMissedNotifications() {
       const xhr = new XMLHttpRequest();
       xhr.open('GET', 'fetch_notifications.php', true);
@@ -1325,7 +1411,11 @@
         try {
           const res = JSON.parse(this.responseText);
           const list = res.notifications || [];
-          list.forEach(function(n) { showNotifyToast(n); });
+          list.forEach(function(n) {
+            if (toastedMentionIds.has(n.id)) return;
+            toastedMentionIds.add(n.id);
+            showNotifyToast(n);
+          });
           // Server response is the full, authoritative set of this user's
           // currently-unseen mentions — replace the bell's cache with it
           // (newest first for display) rather than merging.
@@ -1335,6 +1425,30 @@
         } catch (e) { /* ignore malformed response */ }
       };
       xhr.send();
+    }
+
+    // ── WS-independent notification poll ────────────────────────────────
+    // catchUpMissedNotifications() used to only run once per WS
+    // (re)connect (see ws.onmessage 'auth_success' below). That's fine when
+    // the WebSocket actually connects, but on some deployments (VPS behind
+    // Nginx without a /ws proxy block, Apache without mod_proxy_wstunnel,
+    // ws-server not kept running, firewall blocking the upgrade, etc.) the
+    // socket never connects at all — and in that case 'auth_success' never
+    // fires, so @mentions silently never toast/badge even though they ARE
+    // saved and even though the bell shows them once manually opened.
+    //
+    // This interval makes mention delivery work independently of the
+    // WebSocket: it's a plain HTTP poll, so it works over any web server /
+    // proxy setup with zero extra configuration. When the WS *is* healthy,
+    // 'notify' pushes still deliver instantly and this just acts as a
+    // redundant safety net (deduped, so no double toasts).
+    let notificationPollInterval = null;
+    function startNotificationPoll() {
+      if (notificationPollInterval) return;
+      notificationPollInterval = setInterval(function() {
+        if (document.hidden) return;
+        catchUpMissedNotifications();
+      }, 10000);
     }
 
     // Max characters to show in the toast preview before truncating with "..."
@@ -1383,12 +1497,11 @@
     }
 
     function showNotifyToast(n) {
-      // Desktop already has the notification bell for this — the toast is a
-      // mobile-only affordance (no bell badge glance on a phone the way
-      // there is on desktop). Bell badge/list updates happen independently
-      // of this function at both call sites, so skipping the toast here
-      // doesn't lose the notification — it just won't pop up on desktop.
-      if (!isMobileViewport()) return;
+      // Toast popup disabled — notifications now only surface via the bell
+      // icon (badge/list). Bell updates happen independently of this
+      // function at both call sites, so returning early here doesn't lose
+      // the notification, it just never pops up as a toast.
+      return;
 
       // Always keep the most recent mention's content — that's what opens
       // when the toast (or its content modal) is clicked.
@@ -1872,7 +1985,45 @@
     // Drives the Messenger-style "Seen" indicator under our own last-read sent message.
     let dmReadUpTo = null;
 
+    // Spamming clicks across the conversation list used to make the chat
+    // pane visibly jump: every single click synchronously swapped chatBox's
+    // whole innerHTML (from the cache) and snapped/restored scroll position,
+    // so a burst of clicks played back as a rapid series of scroll jumps
+    // before finally landing on the last-clicked conversation. Instead, the
+    // heavy part (painting messages + loadChat + scroll) is debounced to
+    // only run once the clicks settle, while the row highlight updates
+    // instantly on every click and the chat pane just gives a quick "blink"
+    // so spamming still feels responsive without the jumping.
+    let selectDMDebounceTimer = null;
+    let pendingSelectUser = null;
+    const SELECT_DM_DEBOUNCE_MS = 180;
+
     function selectDM(u) {
+      pendingSelectUser = u;
+
+      // Instant, lightweight feedback: highlight the clicked row right away,
+      // without touching messages/scroll yet.
+      isGlobalChat = false;
+      activeDM = u.username;
+      activeDMAccountId = Number(u.account_id);
+      activeAdminConv = null;
+      if (!allUsersData.find(function(x) { return Number(x.account_id) === Number(u.account_id); })) {
+        allUsersData.unshift(u);
+      }
+      chatHeaderTitle.textContent = u.name;
+      applyHeaderAdminBadge();
+      applyHeaderAvatar(u);
+      renderSidebarUsers();
+      document.getElementById('globalChatItem').classList.remove('active');
+
+      if (selectDMDebounceTimer) clearTimeout(selectDMDebounceTimer);
+      selectDMDebounceTimer = setTimeout(function() {
+        selectDMDebounceTimer = null;
+        performSelectDM(pendingSelectUser);
+      }, SELECT_DM_DEBOUNCE_MS);
+    }
+
+    function performSelectDM(u) {
       isGlobalChat = false;
       activeDM = u.username;
       activeDMAccountId = Number(u.account_id);
@@ -1884,10 +2035,6 @@
         allUsersData.unshift(u);
       }
       updateClearChatButtonVisibility();
-      dmCursor = '';
-      dmHasMore = false;
-      dmViewingOlder = false;
-      dmReadUpTo = null;
       clearSendingOverlay(); // drop any pending-send bubbles from the previous conversation
       hideEditBanner();
       
@@ -1906,19 +2053,25 @@
       }
       showTypingIndicator('', false);
 
-      isFirstLoad = true; // snap straight to bottom once the new conversation's messages arrive
-      chatFullyLoaded = false; // suppress scroll buttons until new chat finishes loading
       localStorage.setItem('activeDM', u.username);
       chatHeaderTitle.textContent = u.name;
       applyHeaderAdminBadge();
       applyHeaderAvatar(u);
-      // Note: we deliberately don't blank chatBox here. The previous chat's
-      // messages stay on screen (harmlessly) until loadChat's diff logic swaps
-      // them out the instant the new conversation's data arrives. Clearing it
-      // immediately, combined with loadChat's old guard silently dropping the
-      // request if one was already in flight, is what caused the chat pane to
-      // flash blank repeatedly when clicking between conversations quickly.
+      // Mirror selectGlobalChat's render flow exactly: blank the pane and do
+      // a single, deterministic paint once the real data comes back. The old
+      // approach (instant-paint from a cached snapshot, then reconcile again
+      // against whatever the network returned) meant two separate scroll
+      // adjustments could land back-to-back — that's what made the chat pane
+      // visibly jump when switching conversations quickly.
+      chatBox.innerHTML = '';
       removePaginationBtn();
+
+      dmCursor = '';
+      dmHasMore = false;
+      dmReadUpTo = null;
+      isFirstLoad = true; // snap straight to bottom once the new conversation's messages arrive
+      chatFullyLoaded = false; // suppress scroll buttons until new chat finishes loading
+      dmViewingOlder = false;
       markRead(u.username);
       renderSidebarUsers();
       loadChat(false, false, true); // force: abort any in-flight request rather than drop this one

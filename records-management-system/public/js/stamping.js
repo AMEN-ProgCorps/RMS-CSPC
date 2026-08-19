@@ -201,10 +201,19 @@ document.addEventListener('DOMContentLoaded', function () {
 
             const span = document.createElement('span');
             span.className = 'st-file-option-label';
+
+            const icon = document.createElement('i');
+            icon.className = file.stamped ? 'fa-solid fa-stamp' : 'fa-solid fa-file-pdf';
+            if (file.stamped) icon.style.color = 'var(--st-accent)';
+            span.appendChild(icon);
+            span.appendChild(document.createTextNode(' ' + (file.label || '')));
+
             if (file.stamped) {
-                span.innerHTML = '<i class="fa-solid fa-stamp" style="color:var(--st-accent)"></i> ' + file.label + ' <small style="color:var(--st-text-subtle);margin-left:auto">(' + file.stamp_type.replace(/_/g, ' ') + ')</small>';
-            } else {
-                span.innerHTML = '<i class="fa-solid fa-file-pdf"></i> ' + file.label;
+                const small = document.createElement('small');
+                small.style.color = 'var(--st-text-subtle)';
+                small.style.marginLeft = 'auto';
+                small.textContent = '(' + String(file.stamp_type || '').replace(/_/g, ' ') + ')';
+                span.appendChild(small);
             }
 
             lbl.appendChild(radio);

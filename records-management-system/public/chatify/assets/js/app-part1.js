@@ -472,14 +472,7 @@
                 if (sender !== wsConfig.accountId) {
                   // Incoming message from the other person — render it via WS
                   if (data.has_upload) {
-                    // loadChatForced() is an async network round-trip — the
-                    // image/file HTML isn't actually in the DOM yet when we
-                    // get here. loadChat()'s own completion handler (processChatData)
-                    // calls markRead(activeDM) once the fetched HTML (with the real
-                    // attachment) has been rendered, AND — same as the text path
-                    // below — only does so if `!document.hidden`, so the attachment
-                    // is never flagged "Seen" unless the recipient is genuinely
-                    // looking at the chat. Skip calling markRead again here.
+                    if (typeof dmMessageCache !== 'undefined' && activeDM) dmMessageCache.delete(activeDM);
                     loadChatForced();
                   } else {
                     renderAndAppendWsMessage(data);
@@ -904,6 +897,10 @@
         userSearchHasMore = !!data.hasMore;
         serverIsAdmin = !!(data.currentUser && data.currentUser.is_admin);
       }
+      if (activeDM) {
+        const activeUser = (allUsersData || []).find(u => u.username === activeDM);
+        if (activeUser) activeUser.unreadCount = 0;
+      }
       renderSidebarUsers();
 
       // Note: we no longer warm dmMessageCache here. selectDM/performSelectDM
@@ -998,8 +995,11 @@
     // purely a "paint something correct immediately" optimization, not a
     // replacement for the real fetch. Capped and LRU-evicted (Map preserves
     // insertion order) so a long session doesn't grow this unbounded.
-    const dmMessageCache = new Map(); // username -> {html, hasMore, nextCursor, readUpTo}
+    const dmMessageCache = new Map(); // username -> {html, hasMore, nextCursor, readUpTo, _raw}
     const DM_CACHE_LIMIT = 30;
+    const dmPrefetchInFlight = new Set(); // username set for active prefetch requests
+    const dmPrefetchPromises = new Map(); // username -> Promise
+    window.dmPrefetchPromises = dmPrefetchPromises;
 
     function cacheDmSnapshot(username, data) {
       if (!username) return;
@@ -1009,10 +1009,47 @@
         hasMore: data.hasMore || false,
         nextCursor: data.nextCursor || '',
         readUpTo: (typeof data.readUpTo !== 'undefined') ? data.readUpTo : null,
+        _raw: data
       });
       if (dmMessageCache.size > DM_CACHE_LIMIT) {
         const oldestKey = dmMessageCache.keys().next().value;
         dmMessageCache.delete(oldestKey);
+      }
+    }
+
+    function speculateConversationCard(user, cardElement) {
+      if (!user || !user.username) return;
+      if (cardElement && cardElement.dataset.preloaded === 'true') return;
+      if (dmMessageCache.has(user.username) || dmPrefetchInFlight.has(user.username) || dmPrefetchPromises.has(user.username)) {
+        if (cardElement) cardElement.dataset.preloaded = 'true';
+        return;
+      }
+      if (cardElement) cardElement.dataset.preloaded = 'true';
+
+      prefetchDmSnapshot(user);
+
+      // Register Speculation Rules API rule dynamically for Chrome's speculative engine
+      if (typeof HTMLScriptElement !== 'undefined' && HTMLScriptElement.supports && HTMLScriptElement.supports('speculationrules')) {
+        const url = 'load_dm.php?target_id=' + encodeURIComponent(user.account_id || 0) +
+                    '&target_user=' + encodeURIComponent(user.username) + '&before_uuid=';
+        const ruleId = 'speculation-rule-conv-' + String(user.username).replace(/[^a-zA-Z0-9_-]/g, '');
+        if (!document.getElementById(ruleId)) {
+          try {
+            const ruleScript = document.createElement('script');
+            ruleScript.id = ruleId;
+            ruleScript.type = 'speculationrules';
+            ruleScript.textContent = JSON.stringify({
+              "prefetch": [
+                {
+                  "source": "list",
+                  "urls": [url],
+                  "eagerness": "immediate"
+                }
+              ]
+            });
+            document.head.appendChild(ruleScript);
+          } catch (e) {}
+        }
       }
     }
 
@@ -1022,22 +1059,35 @@
     // itself (selectDM) can paint from cache immediately instead of only
     // benefiting revisits.
     function prefetchDmSnapshot(user) {
-      return new Promise(function(resolve) {
-        if (!user || !user.username || dmMessageCache.has(user.username)) { resolve(); return; }
+      if (!user || !user.username) return Promise.resolve(null);
+      if (dmMessageCache.has(user.username)) return Promise.resolve(dmMessageCache.get(user.username));
+      if (dmPrefetchPromises.has(user.username)) return dmPrefetchPromises.get(user.username);
+
+      dmPrefetchInFlight.add(user.username);
+      const promise = new Promise(function(resolve) {
         const xhr = new XMLHttpRequest();
         const url = 'load_dm.php?target_id=' + encodeURIComponent(user.account_id || 0) +
                     '&target_user=' + encodeURIComponent(user.username) + '&before_uuid=';
         xhr.open('GET', url, true);
         xhr.onload = function() {
+          dmPrefetchInFlight.delete(user.username);
+          dmPrefetchPromises.delete(user.username);
           if (this.status === 200) {
             try { cacheDmSnapshot(user.username, JSON.parse(this.responseText)); }
             catch (e) { /* ignore malformed response */ }
           }
-          resolve();
+          resolve(dmMessageCache.get(user.username) || null);
         };
-        xhr.onerror = function() { resolve(); };
+        xhr.onerror = function() {
+          dmPrefetchInFlight.delete(user.username);
+          dmPrefetchPromises.delete(user.username);
+          resolve(null);
+        };
         xhr.send();
       });
+
+      dmPrefetchPromises.set(user.username, promise);
+      return promise;
     }
 
     // Warms the cache for the most recent conversations right after the
@@ -1045,20 +1095,11 @@
     // doesn't compete with the live WS connection or an in-flight send).
     // This is what makes even a FIRST click on a recent conversation feel
     // instant, not just revisits within the session.
-    const PREFETCH_LIMIT = 8;
-    let prefetchInFlight = false;
+    // Preloading is strictly demand-driven: triggered ONLY when hovering (mouseenter)
+    // or touching (pointerdown) a sidebar conversation card.
     function prefetchTopConversations() {
-      if (prefetchInFlight) return;
-      const candidates = (allUsersData || [])
-        .filter(function(u) { return u.username !== activeDM && !dmMessageCache.has(u.username); })
-        .slice(0, PREFETCH_LIMIT);
-      if (candidates.length === 0) return;
-      prefetchInFlight = true;
-      let i = 0;
-      (function next() {
-        if (i >= candidates.length) { prefetchInFlight = false; return; }
-        prefetchDmSnapshot(candidates[i++]).then(next);
-      })();
+      // Intentionally no-op: preloading happens on card hover
+      return;
     }
 
     // Patches one sidebar row in-place (unread badge, move-to-top ordering)
@@ -1072,7 +1113,9 @@
       if (idx === -1) return false;
 
       const u = allUsersData[idx];
-      if (opts.incrementUnread && activeDM !== username) {
+      if (username === activeDM) {
+        u.unreadCount = 0;
+      } else if (opts.incrementUnread) {
         u.unreadCount = (u.unreadCount || 0) + 1;
       }
       if (idx > 0) {
@@ -1086,8 +1129,19 @@
     function renderSidebarUsers() {
       const query = searchInput ? searchInput.value.toLowerCase().trim() : '';
 
+      if (activeDM || activeDMAccountId) {
+        const activeUser = (allUsersData || []).find(u =>
+          (activeDMAccountId && Number(u.account_id) === Number(activeDMAccountId)) ||
+          (activeDM && u.username === activeDM)
+        );
+        if (activeUser) activeUser.unreadCount = 0;
+      }
+
       if (query === '') {
-        latestTotalUnread = (allUsersData || []).reduce((sum, u) => sum + (u.unreadCount || 0), 0);
+        latestTotalUnread = (allUsersData || []).reduce((sum, u) => {
+          const isAct = (activeDMAccountId && Number(u.account_id) === Number(activeDMAccountId)) || (activeDM && u.username === activeDM);
+          return sum + (isAct ? 0 : (u.unreadCount || 0));
+        }, 0);
         updateTabTitle(latestTotalUnread);
 
         if (!allUsersData || allUsersData.length === 0) {
@@ -1112,7 +1166,9 @@
       const seen = new Set();
 
       allUsersData.forEach((u, index) => {
-        const hasUnread = u.unreadCount > 0 && activeDM !== u.username;
+        const isThisActive = (activeDMAccountId && Number(u.account_id) === Number(activeDMAccountId)) || (activeDM && u.username === activeDM);
+        if (isThisActive) u.unreadCount = 0;
+        const hasUnread = u.unreadCount > 0 && !isThisActive;
         seen.add(u.username);
 
         let item = sidebarUserItems.get(u.username);
@@ -1150,6 +1206,8 @@
           item.appendChild(actionsRight);
 
           item.onclick = () => selectDM(u);
+          item.onmouseenter = () => speculateConversationCard(u, item);
+          item.onpointerdown = () => speculateConversationCard(u, item);
           item._avatar = avatar;
           item._dot = dot;
           item._info = info;
@@ -1168,6 +1226,8 @@
           officeEl = item._officeEl || item.querySelector('.user-office');
           actionsRight = item._actionsRight || item.querySelector('.user-actions-right');
           item.onclick = () => selectDM(u);
+          item.onmouseenter = () => speculateConversationCard(u, item);
+          item.onpointerdown = () => speculateConversationCard(u, item);
         }
 
         const newClassName = 'user-item' + (activeDM === u.username ? ' active' : '') + (hasUnread ? ' has-unread' : '');
@@ -1884,32 +1944,24 @@
     });
 
     function markRead(targetUsername) {
-      // Immediately zero out in local data so badge disappears instantly
-      const u = allUsersData.find(u => u.username === targetUsername);
+      if (!targetUsername) return;
+      const u = allUsersData.find(x => x.username === targetUsername || (activeDMAccountId && Number(x.account_id) === activeDMAccountId));
       if (u) u.unreadCount = 0;
+      if (activeDM === targetUsername || (activeDMAccountId && u && Number(u.account_id) === activeDMAccountId)) {
+        const activeU = allUsersData.find(x => x.username === activeDM || (activeDMAccountId && Number(x.account_id) === activeDMAccountId));
+        if (activeU) activeU.unreadCount = 0;
+      }
       renderSidebarUsers();
 
-      const targetId = activeDMAccountId || 0;
+      const targetId = activeDMAccountId || (u ? Number(u.account_id) : 0);
+      if (!targetId) return;
 
-      // Fast path: relay over the already-open WebSocket, same as typing
-      // indicators — no new HTTP connection, no debounce, delivered to the
-      // other participant's live socket the instant this fires. Deliberately
-      // sends no last_msg_uuid: trying to compute one here from our own
-      // chatBox is unreliable (e.g. right when a new message just arrived
-      // via WS it hasn't been rendered into the DOM yet, and right after
-      // selectDM() the previous conversation's messages are still on
-      // screen). The receiving side fills in the correct id from its own
-      // chatBox instead — see the 'message_read' handler below.
+      // Real-time WebSocket relay: ALWAYS fire immediately
       if (ws && ws.readyState === WebSocket.OPEN && targetId) {
         ws.send(JSON.stringify({ type: 'mark_read', target_id: targetId }));
       }
 
-      // Durable path: persist to Postgres via HTTP so the correct read
-      // marker survives reloads / other tabs / the WS relay above being
-      // missed during a brief reconnect gap. This also re-broadcasts
-      // 'message_read' with the DB-confirmed last_msg_uuid shortly after,
-      // which harmlessly reconciles the indicator if the optimistic
-      // WS-only value above ever guessed wrong.
+      // Durable path: persist to Postgres via HTTP immediately
       const xhr = new XMLHttpRequest();
       xhr.open('POST', 'mark_read.php', true);
       xhr.setRequestHeader('Content-type', 'application/x-www-form-urlencoded');
@@ -1985,6 +2037,7 @@
       activeDM = u.username;
       activeDMAccountId = Number(u.account_id);
       activeAdminConv = null;
+      u.unreadCount = 0;
       if (!allUsersData.find(function(x) { return Number(x.account_id) === Number(u.account_id); })) {
         allUsersData.unshift(u);
       }
@@ -2006,6 +2059,7 @@
       activeDM = u.username;
       activeDMAccountId = Number(u.account_id);
       activeAdminConv = null;
+      u.unreadCount = 0;
 
       // Ensure the selected user is in allUsersData so avatar lookups work
       // immediately on new chats where this person hasn't been loaded yet.
@@ -2721,6 +2775,8 @@
           }
 
           item.onclick = () => selectAdminSpyTargetUser(u);
+          item.onmouseenter = () => speculateConversationCard(u, item);
+          item.onpointerdown = () => speculateConversationCard(u, item);
 
           if (nameEl.textContent !== u.full_name) nameEl.textContent = u.full_name;
 
@@ -3087,6 +3143,23 @@
     });
 
     function resetToHome() {
+      if (activeDM) {
+        const currentActive = activeDM;
+        const currentActiveId = activeDMAccountId;
+        const u = allUsersData.find(x => x.username === currentActive || (currentActiveId && Number(x.account_id) === currentActiveId));
+        if (u) u.unreadCount = 0;
+
+        if (currentActiveId) {
+          if (ws && ws.readyState === WebSocket.OPEN) {
+            ws.send(JSON.stringify({ type: 'mark_read', target_id: currentActiveId }));
+          }
+          const xhr = new XMLHttpRequest();
+          xhr.open('POST', 'mark_read.php', true);
+          xhr.setRequestHeader('Content-type', 'application/x-www-form-urlencoded');
+          xhr.send('target_id=' + encodeURIComponent(currentActiveId) + '&target_user=' + encodeURIComponent(currentActive));
+        }
+      }
+
       activeDM = null;
       activeDMAccountId = null;
       activeAdminConv = null;

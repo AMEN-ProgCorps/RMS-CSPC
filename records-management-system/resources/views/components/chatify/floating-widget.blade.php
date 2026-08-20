@@ -5,6 +5,18 @@
     $autoOpenChat = $user ? $user->autoOpenChat() : true;
 @endphp
 
+<script type="speculationrules">
+{
+  "prerender": [
+    {
+      "source": "list",
+      "urls": ["{{ route('open-chat') }}"],
+      "eagerness": "moderate"
+    }
+  ]
+}
+</script>
+
 <div id="chatify-global-widget" style="position: fixed; bottom: 24px; right: 24px; z-index: 999999; font-family: 'Inter', system-ui, -apple-system, sans-serif;">
     <!-- Chat Window Container -->
     <div id="chatify-widget-card" 
@@ -307,7 +319,50 @@
         return window.innerWidth >= 768;
     }
 
+    function speculatePreloadChatifyIframe() {
+        if (!isTabletOrDesktop()) return;
+        const iframe = document.getElementById('chatify-iframe');
+        if (iframe && (!iframe.src || iframe.src.includes('about:blank'))) {
+            const loader = document.getElementById('chatify-iframe-loader');
+            if (loader) loader.style.display = 'flex';
+            iframe.src = iframe.getAttribute('data-src');
+        }
+    }
+
+    function attachSpeculativeListeners() {
+        // Feature detection check for Speculation Rules API
+        if (typeof HTMLScriptElement !== 'undefined' && HTMLScriptElement.supports && HTMLScriptElement.supports('speculationrules')) {
+            if (!document.getElementById('chatify-speculation-rules-dynamic')) {
+                try {
+                    const specScript = document.createElement('script');
+                    specScript.id = 'chatify-speculation-rules-dynamic';
+                    specScript.type = 'speculationrules';
+                    specScript.textContent = JSON.stringify({
+                        prerender: [{
+                            source: "list",
+                            urls: ["{{ route('open-chat') }}"],
+                            eagerness: "moderate"
+                        }]
+                    });
+                    document.head.appendChild(specScript);
+                } catch (e) {}
+            }
+        }
+
+        const btn = document.getElementById('chatify-widget-btn');
+        if (btn) {
+            btn.addEventListener('mouseenter', speculatePreloadChatifyIframe, { passive: true });
+            btn.addEventListener('pointerdown', speculatePreloadChatifyIframe, { passive: true });
+        }
+        const dropdownBadge = document.getElementById('chatify-dropdown-unread-badge');
+        if (dropdownBadge && dropdownBadge.parentElement) {
+            dropdownBadge.parentElement.addEventListener('mouseenter', speculatePreloadChatifyIframe, { passive: true });
+            dropdownBadge.parentElement.addEventListener('pointerdown', speculatePreloadChatifyIframe, { passive: true });
+        }
+    }
+
     function initWidgetState() {
+        attachSpeculativeListeners();
         if (!isTabletOrDesktop()) {
             isOpen = false;
             setWidgetVisibility(false, false);

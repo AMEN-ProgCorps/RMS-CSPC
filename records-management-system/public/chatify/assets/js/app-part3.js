@@ -1490,10 +1490,89 @@
       if (gcHasMore && !document.getElementById('loadOlderBtn') && !document.getElementById('noMoreOlderNotice')) insertLoadOlderBtn();
     }
 
-    function loadGlobalChat(isAutoPoll = false, loadOlderMode = false) {
+    let globalChatPrefetchedData = null;
+    let gcPrefetchPromise = null;
+
+    function prefetchGlobalChatSnapshot() {
+      if (globalChatPrefetchedData) return Promise.resolve(globalChatPrefetchedData);
+      if (gcPrefetchPromise) return gcPrefetchPromise;
+
+      gcPrefetchPromise = new Promise(function(resolve) {
+        const xhr = new XMLHttpRequest();
+        xhr.open('GET', 'load.php?before_uuid=', true);
+        xhr.onload = function() {
+          if (this.status === 200) {
+            try { globalChatPrefetchedData = JSON.parse(this.responseText); } catch(e) {}
+          }
+          resolve(globalChatPrefetchedData);
+        };
+        xhr.onerror = function() {
+          resolve(null);
+        };
+        xhr.send();
+      });
+      return gcPrefetchPromise;
+    }
+
+    function speculateGlobalChatCard(cardElement) {
+      const el = cardElement || document.getElementById('globalChatItem');
+      if (el && el.dataset.preloaded === 'true') return;
+      if (globalChatPrefetchedData || gcPrefetchPromise) {
+        if (el) el.dataset.preloaded = 'true';
+        return;
+      }
+      if (el) el.dataset.preloaded = 'true';
+
+      prefetchGlobalChatSnapshot();
+
+      // Register Speculation Rules API rule dynamically for load.php
+      if (typeof HTMLScriptElement !== 'undefined' && HTMLScriptElement.supports && HTMLScriptElement.supports('speculationrules')) {
+        const url = 'load.php?before_uuid=';
+        const ruleId = 'speculation-rule-global-chat';
+        if (!document.getElementById(ruleId)) {
+          try {
+            const ruleScript = document.createElement('script');
+            ruleScript.id = ruleId;
+            ruleScript.type = 'speculationrules';
+            ruleScript.textContent = JSON.stringify({
+              "prefetch": [
+                {
+                  "source": "list",
+                  "urls": [url],
+                  "eagerness": "immediate"
+                }
+              ]
+            });
+            document.head.appendChild(ruleScript);
+          } catch (e) {}
+        }
+      }
+    }
+    window.speculateGlobalChatCard = speculateGlobalChatCard;
+
+    function loadGlobalChat(isAutoPoll = false, loadOlderMode = false, force = false) {
       if (!isGlobalChat) return;
-      if (isLoadingGC) return;
+      if (isLoadingGC && !force) return;
       if (isAutoPoll && !loadOlderMode && gcViewingOlder) return;
+
+      if (!loadOlderMode && !isAutoPoll) {
+        if (globalChatPrefetchedData) {
+          const data = globalChatPrefetchedData;
+          processGlobalChatData(data, false);
+          return;
+        }
+        if (gcPrefetchPromise) {
+          isLoadingGC = true;
+          gcPrefetchPromise.then(function(data) {
+            isLoadingGC = false;
+            if (data && isGlobalChat) {
+              processGlobalChatData(data, false);
+            }
+          });
+          return;
+        }
+      }
+
       isLoadingGC = true;
 
       const cursor = loadOlderMode ? gcCursor : '';
@@ -1649,6 +1728,29 @@
       if (isAdminAllChatsView || activeAdminConv) return;
       if (!activeDM) return;
       if (isAutoPoll && !loadOlderMode && dmViewingOlder) return;
+
+      // Consume preloaded snapshot from hover cache if available on initial open
+      if (!loadOlderMode && !isAutoPoll) {
+        if (dmMessageCache.has(activeDM)) {
+          const cachedData = dmMessageCache.get(activeDM);
+          if (cachedData && cachedData._raw) {
+            processChatData(cachedData._raw, activeDM, false);
+            return;
+          }
+        }
+        if (window.dmPrefetchPromises && window.dmPrefetchPromises.has(activeDM)) {
+          const requestedUser = activeDM;
+          isLoadingChat = true;
+          window.dmPrefetchPromises.get(activeDM).then(function() {
+            isLoadingChat = false;
+            if (requestedUser === activeDM && dmMessageCache.has(activeDM)) {
+              processChatData(dmMessageCache.get(activeDM)._raw, activeDM, false);
+            }
+          });
+          return;
+        }
+      }
+
       if (isLoadingChat) {
         if (!force) return;
         if (chatXhr) chatXhr.abort();
@@ -4132,11 +4234,6 @@
           loadGlobalChat(false);
         } else if (activeDM) {
           loadChat(false);
-          // Don't wait on that fetch to resolve before syncing the read
-          // marker — the chat is visibly open again right now, so mark it
-          // read immediately (loadChat's own markRead calls further down
-          // will simply no-op/repeat harmlessly once it resolves).
-          markRead(activeDM);
         } else if (activeAdminConv) {
           loadAdminConv(activeAdminConv, false);
         }

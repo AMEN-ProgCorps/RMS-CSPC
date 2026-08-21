@@ -58,8 +58,8 @@
             <span id="chatify-dropdown-unread-badge" style="display: none; background: #ef4444; color: #ffffff; font-size: 10px; font-weight: 700; min-width: 18px; height: 18px; border-radius: 9px; padding: 0 5px; align-items: center; justify-content: center;">0</span>
         </button>
 
-        <button class="subSystem" onclick="window.location.href='/logout'">
-            <img src="{{ asset('icons/Logout.svg') }}" alt="Logout Icon">
+        <button class="subSystem subSystem--logout" onclick="window.location.href='/logout'">
+            <img src="{{ asset('icons/logout.svg') }}" alt="Logout Icon">
             <span>LOGOUT</span>
         </button>
     </div>

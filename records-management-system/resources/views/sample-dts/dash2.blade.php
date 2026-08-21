@@ -114,8 +114,8 @@
                     <img src="{{ asset('icons/profile.svg') }}" alt="Profile Icon">
                     <span>Profile</span>
                 </button>
-                <button class="subSystem" onclick="window.location.href='/logout'">
-                    <img src="{{ asset('icons/Logout.svg') }}" alt="Logout Icon">
+                <button class="subSystem subSystem--logout" onclick="window.location.href='/logout'">
+                    <img src="{{ asset('icons/logout.svg') }}" alt="Logout Icon">
                     <span>LOGOUT</span>
                 </button>
             </div>

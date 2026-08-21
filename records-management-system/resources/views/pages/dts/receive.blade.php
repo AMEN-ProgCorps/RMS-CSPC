@@ -99,35 +99,19 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Receive Transac
             // Silently ignore log write failures to not block UI
         }
 
-        // Check if the QR code exists in the dts_qr_code directory
-        // or matches a valid transaction control number.
         $qrExists = DB::table('dts_qr_code')->where('code_id', $code)->exists();
-        $cnExists = DB::table('dts_transaction_details')->where('control_number', $code)->exists();
-
-        if (!$qrExists && !$cnExists) {
-            $this->errorMessage = 'Invalid Code: The scanned code is neither a registered QR Code nor a valid Control Number.';
+        if (!$qrExists) {
+            $this->errorMessage = 'Invalid QR Code: Only valid, registered QR codes can be processed by the scanner.';
             return;
         }
 
-        // If it is a registered QR code, check if it's assigned to a transaction
-        if ($qrExists) {
-            $hasTransaction = DB::table('dts_transactions')->where('qr_code', $code)->exists();
-            if (!$hasTransaction) {
-                $this->errorMessage = 'Inactive QR Code: This QR Code is registered in the system but has not been associated with any transaction yet.';
-                return;
-            }
-        }
-
-        // Match either raw QR code sequence ID or control number
+        // Match raw QR code sequence ID
         $transaction = DB::table('dts_transactions as dt')
             ->join('dts_transaction_details as dtd', 'dtd.id', '=', 'dt.transaction_id')
             ->leftJoin('dts_requestor_history as req', 'req.id', '=', 'dtd.requestor_id')
             ->leftJoin('office as originated_office', 'originated_office.office_code', '=', 'dtd.originated_from')
             ->leftJoin('document_data as doc', 'doc.document_path', '=', 'dt.doc_dir')
-            ->where(function($q) use ($code) {
-                $q->where('dt.qr_code', $code)
-                  ->orWhere('dtd.control_number', $code);
-            })
+            ->where('dt.qr_code', $code)
             ->select(
                 'dt.transaction_id',
                 'dt.trans_type as type',
@@ -148,21 +132,35 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Receive Transac
             ->first();
 
         if (!$transaction) {
-            $this->errorMessage = 'No transaction found matching the scanned code: ' . $code;
+            $this->errorMessage = 'Inactive QR Code: This QR Code is registered in the system but has not been associated with any transaction yet.';
             return;
         }
 
-        $userOfficeCode = auth()->user()?->details?->office?->office_code;
-        $isFreeFlow = ($transaction->transaction_flow === 'FLOW-FREE-FLOW' || str_starts_with($transaction->transaction_flow, 'FLOW-FREE-FLOW'));
-        $hasOfficeLog = DB::table('sub_document_tracking_system_logs')
-            ->where('transaction_id', $transaction->transaction_id)
-            ->where('office_code', $userOfficeCode)
-            ->exists();
-
-        if (!$isFreeFlow && !$hasOfficeLog && $transaction->current_office !== $userOfficeCode) {
-            $currentOfficeName = DB::table('office')->where('office_code', $transaction->current_office)->value('office_name') ?: $transaction->current_office;
-            $this->errorMessage = "Warning: This transaction is currently at '{$currentOfficeName}'. Your office cannot receive or forward it at this stage.";
+        $rawStatus = strtolower($transaction->status);
+        if ($rawStatus === 'completed') {
+            $this->errorMessage = 'That QR code is already finished its transaction.';
+            return;
         }
+
+        if ($rawStatus === 'cancelled') {
+            $this->errorMessage = 'That QR code transaction has been cancelled.';
+            return;
+        }
+
+        $userOfficeCode = auth()->user()?->details?->office?->office_code
+            ?? \App\Services\DocumentStorageService::resolveOfficeCode(auth()->user());
+
+        if (!$userOfficeCode) {
+            $this->errorMessage = 'Could not resolve your user office profile.';
+            return;
+        }
+
+        if ($transaction->current_office !== $userOfficeCode) {
+            $this->errorMessage = 'That QR code is no longer within your office transaction list.';
+            return;
+        }
+
+        $isFreeFlow = ($transaction->transaction_flow === 'FLOW-FREE-FLOW' || str_starts_with($transaction->transaction_flow, 'FLOW-FREE-FLOW'));
 
         // Check if already received at current office
         $currentLog = DB::table('sub_document_tracking_system_logs')
@@ -220,15 +218,11 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Receive Transac
             return;
         }
 
-        $userOfficeCode = auth()->user()?->details?->office?->office_code;
-        $isFreeFlow = ($this->activeTransaction['transaction_flow'] === 'FLOW-FREE-FLOW' || str_starts_with($this->activeTransaction['transaction_flow'], 'FLOW-FREE-FLOW'));
-        $hasOfficeLog = DB::table('sub_document_tracking_system_logs')
-            ->where('transaction_id', $this->activeTransaction['transaction_id'])
-            ->where('office_code', $userOfficeCode)
-            ->exists();
+        $userOfficeCode = auth()->user()?->details?->office?->office_code
+            ?? \App\Services\DocumentStorageService::resolveOfficeCode(auth()->user());
 
-        if (!$isFreeFlow && !$hasOfficeLog && $this->activeTransaction['current_office'] !== $userOfficeCode) {
-            $this->errorMessage = 'Unauthorized: This transaction is not currently at your office.';
+        if ($this->activeTransaction['current_office'] !== $userOfficeCode) {
+            $this->errorMessage = 'That QR code is no longer within your office transaction list.';
             return;
         }
 
@@ -310,9 +304,11 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Receive Transac
             return;
         }
 
-        $userOfficeCode = auth()->user()?->details?->office?->office_code;
+        $userOfficeCode = auth()->user()?->details?->office?->office_code
+            ?? \App\Services\DocumentStorageService::resolveOfficeCode(auth()->user());
+
         if ($this->activeTransaction['current_office'] !== $userOfficeCode) {
-            $this->errorMessage = 'Unauthorized: This transaction is not currently at your office.';
+            $this->errorMessage = 'That QR code is no longer within your office transaction list.';
             return;
         }
 

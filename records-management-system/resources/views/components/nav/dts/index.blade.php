@@ -17,7 +17,7 @@
 @endphp
 
 {{-- 1. Transactions Section --}}
-<div id="dts-transactions-id" class="button-section-container {{ (request()->routeIs('dts') || request()->routeIs('dts.incoming') || request()->routeIs('dts.my-transactions') || request()->routeIs('dts.received') || request()->routeIs('dts.forwarded')) ? 'show' : '' }}">
+<div id="dts-transactions-id" class="button-section-container {{ ((request()->routeIs('dts') || request()->routeIs('dts.incoming') || request()->routeIs('dts.my-transactions') || request()->routeIs('dts.received') || request()->routeIs('dts.forwarded')) && !$enableTopTabs) ? 'show' : '' }}">
     <div class="button-container {{ (request()->routeIs('dts') || request()->routeIs('dts.incoming') || request()->routeIs('dts.my-transactions') || request()->routeIs('dts.received') || request()->routeIs('dts.forwarded')) ? 'force-active' : '' }}" 
          onclick="{{ $enableTopTabs ? "proccedto('{$defaultTransactionsRoute}')" : "showButtonSection('dts-transactions-id')" }}">
         <div class="button-icon">
@@ -43,14 +43,12 @@
         </div>
         @endif
     </div>
-    @if(!$enableTopTabs)
     <div class="functions-container">
         <div class="function-button {{ request()->routeIs('dts.my-transactions') ? 'force-active' : '' }}" onclick="proccedto('{{ route('dts.my-transactions') }}')">My Transactions</div>
         <div class="function-button {{ (request()->routeIs('dts.incoming') || (request()->routeIs('dts') && !request()->routeIs('dts.*'))) ? 'force-active' : '' }}" onclick="proccedto('{{ route('dts.incoming') }}')">Incoming Transactions</div>
         <div class="function-button {{ request()->routeIs('dts.received') ? 'force-active' : '' }}" onclick="proccedto('{{ route('dts.received') }}')">Received Transactions</div>
         <div class="function-button {{ request()->routeIs('dts.forwarded') ? 'force-active' : '' }}" onclick="proccedto('{{ route('dts.forwarded') }}')">Forwarded Transactions</div>
     </div>
-    @endif
 </div>
 
 {{-- 2. Scanner Section --}}
@@ -69,7 +67,7 @@
 
 {{-- 3. Create Transaction Section --}}
 @if($canAnyCreate)
-<div id="dts-create-id" class="button-section-container {{ request()->routeIs('dts.create.*') ? 'show' : '' }}">
+<div id="dts-create-id" class="button-section-container {{ (request()->routeIs('dts.create.*') && !$enableTopTabs) ? 'show' : '' }}">
     <div class="button-container {{ request()->routeIs('dts.create.*') ? 'force-active' : '' }}" 
          onclick="{{ $enableTopTabs ? "proccedto('{$defaultCreateRoute}')" : "showButtonSection('dts-create-id')" }}">
         <div class="button-icon">
@@ -88,7 +86,6 @@
         </div>
         @endif
     </div>
-    @if(!$enableTopTabs)
     <div class="functions-container">
         @if($canInternal)
             <div class="function-button {{ request()->routeIs('dts.create.internal') ? 'force-active' : '' }}" onclick="proccedto('{{ route('dts.create.internal') }}')">Internal Transaction</div>
@@ -103,13 +100,12 @@
             <div class="function-button {{ request()->routeIs('dts.create.issuances') ? 'force-active' : '' }}" onclick="proccedto('{{ route('dts.create.issuances') }}')">Issuances</div>
         @endif
     </div>
-    @endif
 </div>
 @endif
 
 {{-- 4. List of Transactions Section --}}
 @if($canAnyCreate)
-<div id="dts-list-id" class="button-section-container {{ request()->routeIs('dts.list.*') ? 'show' : '' }}">
+<div id="dts-list-id" class="button-section-container {{ (request()->routeIs('dts.list.*') && !$enableTopTabs) ? 'show' : '' }}">
     <div class="button-container {{ request()->routeIs('dts.list.*') ? 'force-active' : '' }}" 
          onclick="{{ $enableTopTabs ? "proccedto('{$defaultListRoute}')" : "showButtonSection('dts-list-id')" }}">
         <div class="button-icon">
@@ -128,7 +124,6 @@
         </div>
         @endif
     </div>
-    @if(!$enableTopTabs)
     <div class="functions-container">
         @if($canInternal)
             <div class="function-button {{ request()->routeIs('dts.list.internal') ? 'force-active' : '' }}" onclick="proccedto('{{ route('dts.list.internal') }}')">Internal Transaction</div>
@@ -143,13 +138,12 @@
             <div class="function-button {{ request()->routeIs('dts.list.issuances') ? 'force-active' : '' }}" onclick="proccedto('{{ route('dts.list.issuances') }}')">Issuances</div>
         @endif
     </div>
-    @endif
 </div>
 @endif
 
 {{-- 5. Transaction History Section --}}
 @if($canAnyCreate)
-<div id="dts-history-id" class="button-section-container {{ request()->routeIs('dts.history.*') ? 'show' : '' }}">
+<div id="dts-history-id" class="button-section-container {{ (request()->routeIs('dts.history.*') && !$enableTopTabs) ? 'show' : '' }}">
     <div class="button-container {{ request()->routeIs('dts.history.*') ? 'force-active' : '' }}" 
          onclick="{{ $enableTopTabs ? "proccedto('{$defaultHistoryRoute}')" : "showButtonSection('dts-history-id')" }}">
         <div class="button-icon">
@@ -168,7 +162,6 @@
         </div>
         @endif
     </div>
-    @if(!$enableTopTabs)
     <div class="functions-container">
         @if($canInternal)
             <div class="function-button {{ request()->routeIs('dts.history.internal') ? 'force-active' : '' }}" onclick="proccedto('{{ route('dts.history.internal') }}')">Internal Transaction</div>
@@ -183,6 +176,5 @@
             <div class="function-button {{ request()->routeIs('dts.history.issuances') ? 'force-active' : '' }}" onclick="proccedto('{{ route('dts.history.issuances') }}')">Issuances</div>
         @endif
     </div>
-    @endif
 </div>
 @endif

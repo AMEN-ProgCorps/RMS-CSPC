@@ -26,7 +26,7 @@
     </div>
 </div>
 
-<div id="rdp-add-records-id" class="button-section-container {{ request()->routeIs('rdp.add-records.*') ? 'show' : '' }}">
+<div id="rdp-add-records-id" class="button-section-container {{ (request()->routeIs('rdp.add-records.*') && !$enableTopTabs) ? 'show' : '' }}">
     <div class="button-container {{ request()->routeIs('rdp.add-records.*') ? 'force-active' : '' }}" 
          onclick="{{ $enableTopTabs ? "proccedto('{$defaultAddRecordsRoute}')" : "showButtonSection('rdp-add-records-id')" }}">
         <div class="button-icon">
@@ -49,15 +49,13 @@
         </div>
         @endif
     </div>
-    @if(!$enableTopTabs)
     <div class="functions-container">
         <div class="function-button {{ request()->routeIs('rdp.add-records.inventory-and-appraisal') ? 'force-active' : '' }}" onclick="proccedto('{{ route('rdp.add-records.inventory-and-appraisal') }}')">Inventory and Appraisal</div>
         <div class="function-button {{ request()->routeIs('rdp.add-records.records-and-disposition-schedule') ? 'force-active' : '' }}" onclick="proccedto('{{ route('rdp.add-records.records-and-disposition-schedule') }}')">Records and Disposition Schedule</div>
     </div>
-    @endif
 </div>
 
-<div id="rdp-draft-id" class="button-section-container {{ request()->routeIs('rdp.draft.*') ? 'show' : '' }}">
+<div id="rdp-draft-id" class="button-section-container {{ (request()->routeIs('rdp.draft.*') && !$enableTopTabs) ? 'show' : '' }}">
     <div class="button-container {{ request()->routeIs('rdp.draft.*') ? 'force-active' : '' }}" 
          onclick="{{ $enableTopTabs ? "proccedto('{$defaultDraftRoute}')" : "showButtonSection('rdp-draft-id')" }}">
         <div class="button-icon">
@@ -80,15 +78,13 @@
         </div>
         @endif
     </div>
-    @if(!$enableTopTabs)
     <div class="functions-container">
         <div class="function-button {{ request()->routeIs('rdp.draft.inventory-and-appraisal') ? 'force-active' : '' }}" onclick="proccedto('{{ route('rdp.draft.inventory-and-appraisal') }}')">Inventory and Appraisal</div>
         <div class="function-button {{ request()->routeIs('rdp.draft.records-and-disposition-schedule') ? 'force-active' : '' }}" onclick="proccedto('{{ route('rdp.draft.records-and-disposition-schedule') }}')">Records and Disposition Schedule</div>
     </div>
-    @endif
 </div>
 
-<div id="rdp-pending-id" class="button-section-container {{ request()->routeIs('rdp.pending.*') ? 'show' : '' }}">
+<div id="rdp-pending-id" class="button-section-container {{ (request()->routeIs('rdp.pending.*') && !$enableTopTabs) ? 'show' : '' }}">
     <div class="button-container {{ request()->routeIs('rdp.pending.*') ? 'force-active' : '' }}" 
          onclick="{{ $enableTopTabs ? "proccedto('{$defaultPendingRoute}')" : "showButtonSection('rdp-pending-id')" }}">
         <div class="button-icon">
@@ -111,15 +107,13 @@
         </div>
         @endif
     </div>
-    @if(!$enableTopTabs)
     <div class="functions-container">
         <div class="function-button {{ request()->routeIs('rdp.pending.list') ? 'force-active' : '' }}" onclick="proccedto('{{ route('rdp.pending.list') }}')">List</div>
         <div class="function-button {{ request()->routeIs('rdp.pending.for-approval') ? 'force-active' : '' }}" onclick="proccedto('{{ route('rdp.pending.for-approval') }}')">For Approval</div>
     </div>
-    @endif
 </div>
 
-<div id="rdp-references-id" class="button-section-container {{ request()->routeIs('rdp.references.*') ? 'show' : '' }}">
+<div id="rdp-references-id" class="button-section-container {{ (request()->routeIs('rdp.references.*') && !$enableTopTabs) ? 'show' : '' }}">
     <div class="button-container {{ request()->routeIs('rdp.references.*') ? 'force-active' : '' }}" 
          onclick="{{ $enableTopTabs ? "proccedto('{$defaultRefRoute}')" : "showButtonSection('rdp-references-id')" }}">
         <div class="button-icon">
@@ -142,7 +136,6 @@
         </div>
         @endif
     </div>
-    @if(!$enableTopTabs)
     <div class="functions-container">
         @foreach($refTypes as $typeItem)
             @php
@@ -153,10 +146,9 @@
             </div>
         @endforeach
     </div>
-    @endif
 </div>
 
-<div id="rdp-reports-id" class="button-section-container {{ request()->routeIs('rdp.reports.*') ? 'show' : '' }}">
+<div id="rdp-reports-id" class="button-section-container {{ (request()->routeIs('rdp.reports.*') && !$enableTopTabs) ? 'show' : '' }}">
     <div class="button-container {{ request()->routeIs('rdp.reports.*') ? 'force-active' : '' }}" 
          onclick="{{ $enableTopTabs ? "proccedto('{$defaultReportsRoute}')" : "showButtonSection('rdp-reports-id')" }}">
         <div class="button-icon">
@@ -179,13 +171,11 @@
         </div>
         @endif
     </div>
-    @if(!$enableTopTabs)
     <div class="functions-container">
         <div class="function-button {{ request()->routeIs('rdp.reports.nap-form-1') ? 'force-active' : '' }}" onclick="proccedto('{{ route('rdp.reports.nap-form-1') }}')">NAP Form 1</div>
         <div class="function-button {{ request()->routeIs('rdp.reports.nap-form-2') ? 'force-active' : '' }}" onclick="proccedto('{{ route('rdp.reports.nap-form-2') }}')">NAP Form 2</div>
         <div class="function-button {{ request()->routeIs('rdp.reports.nap-form-3') ? 'force-active' : '' }}" onclick="proccedto('{{ route('rdp.reports.nap-form-3') }}')">NAP Form 3</div>
     </div>
-    @endif
 </div>
 
 <div id="rdp-manage-files-id" class="button-section-container">

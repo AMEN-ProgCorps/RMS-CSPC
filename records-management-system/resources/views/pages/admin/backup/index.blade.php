@@ -1091,36 +1091,72 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Backup & Recovery Manage
     @vite(['resources/css/admin/activity_logs.css', 'resources/css/admin/subsystems.css'])
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css">
     <style>
+        /* Dark mode container & card backgrounds */
         [data-theme="dark"] div[style*="background: #ffffff"],
         [data-theme="dark"] div[style*="background:#ffffff"],
-        [data-theme="dark"] div[style*="background: white"] {
+        [data-theme="dark"] div[style*="background: white"],
+        [data-theme="dark"] div[style*="background:white"] {
             background-color: #131c2e !important;
             border-color: #1e293b !important;
             box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3) !important;
         }
+
+        /* Dark mode secondary backgrounds & filter bars */
+        [data-theme="dark"] div[style*="background: #f8fafc"],
+        [data-theme="dark"] div[style*="background:#f8fafc"] {
+            background-color: #0b1120 !important;
+            border-color: #1e293b !important;
+        }
+
+        /* Dark mode typography colors */
         [data-theme="dark"] h1[style*="color: #0f172a"],
         [data-theme="dark"] h2[style*="color: #0f172a"],
         [data-theme="dark"] h3[style*="color: #0f172a"],
-        [data-theme="dark"] h4[style*="color: #0f172a"] {
+        [data-theme="dark"] h4[style*="color: #0f172a"],
+        [data-theme="dark"] div[style*="color: #0f172a"],
+        [data-theme="dark"] span[style*="color: #0f172a"],
+        [data-theme="dark"] strong[style*="color: #0f172a"],
+        [data-theme="dark"] b[style*="color: #0f172a"],
+        [data-theme="dark"] td[style*="color: #0f172a"],
+        [data-theme="dark"] p[style*="color: #0f172a"] {
             color: #f8fafc !important;
         }
+
+        [data-theme="dark"] div[style*="color: #334155"],
+        [data-theme="dark"] span[style*="color: #334155"],
+        [data-theme="dark"] td[style*="color: #334155"],
+        [data-theme="dark"] label[style*="color: #334155"] {
+            color: #cbd5e1 !important;
+        }
+
         [data-theme="dark"] p[style*="color: #64748b"],
-        [data-theme="dark"] span[style*="color: #64748b"] {
+        [data-theme="dark"] span[style*="color: #64748b"],
+        [data-theme="dark"] div[style*="color: #64748b"],
+        [data-theme="dark"] td[style*="color: #64748b"] {
             color: #94a3b8 !important;
         }
-        [data-theme="dark"] div[style*="background: #f8fafc"],
-        [data-theme="dark"] div[style*="background:#f8fafc"] {
-            background-color: #0f172a !important;
-            border-color: #1e293b !important;
-        }
+
+        /* Dark mode inputs & selects */
         [data-theme="dark"] input[type="text"],
         [data-theme="dark"] select {
-            background-color: #0f172a !important;
+            background-color: #0b1120 !important;
             border-color: #334155 !important;
             color: #f8fafc !important;
         }
+        [data-theme="dark"] input[type="text"]::placeholder {
+            color: #64748b !important;
+        }
+
+        /* Dark mode table & cells */
+        [data-theme="dark"] table {
+            background-color: #131c2e !important;
+        }
         [data-theme="dark"] table thead tr {
-            background-color: #0f172a !important;
+            background-color: #0b1120 !important;
+            color: #94a3b8 !important;
+            border-bottom-color: #1e293b !important;
+        }
+        [data-theme="dark"] table thead th {
             color: #94a3b8 !important;
             border-bottom-color: #1e293b !important;
         }
@@ -1130,11 +1166,60 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Backup & Recovery Manage
         [data-theme="dark"] table tbody td {
             color: #cbd5e1 !important;
         }
-        [data-theme="dark"] table tbody tr:hover td {
-            background-color: #1a253c !important;
+        [data-theme="dark"] table tbody tr:hover td,
+        [data-theme="dark"] table tbody tr:hover {
+            background-color: #1e293b !important;
         }
+
+        /* Badges and pills */
+        [data-theme="dark"] span[style*="background: #f8fafc"],
+        [data-theme="dark"] span[style*="background:#f8fafc"] {
+            background-color: #0b1120 !important;
+            border-color: #1e293b !important;
+        }
+        [data-theme="dark"] span[style*="background: #fff7ed"],
+        [data-theme="dark"] span[style*="background:#fff7ed"] {
+            background-color: rgba(234, 88, 12, 0.15) !important;
+            color: #fb923c !important;
+            border-color: rgba(234, 88, 12, 0.3) !important;
+        }
+        [data-theme="dark"] span[style*="background: #f0fdf4"],
+        [data-theme="dark"] span[style*="background:#f0fdf4"] {
+            background-color: rgba(34, 197, 94, 0.15) !important;
+            color: #4ade80 !important;
+            border-color: rgba(34, 197, 94, 0.3) !important;
+        }
+
+        /* Pagination buttons */
+        [data-theme="dark"] button[style*="background: #ffffff"],
+        [data-theme="dark"] button[style*="background:#ffffff"] {
+            background-color: #1e293b !important;
+            border-color: #334155 !important;
+            color: #cbd5e1 !important;
+        }
+        [data-theme="dark"] button[style*="background: #f8fafc"],
+        [data-theme="dark"] button[style*="background:#f8fafc"] {
+            background-color: #0b1120 !important;
+            border-color: #1e293b !important;
+            color: #64748b !important;
+        }
+
+        /* Selective category labels in modal */
+        [data-theme="dark"] label[style*="background: #ffffff"],
+        [data-theme="dark"] label[style*="background:#ffffff"] {
+            background-color: #0b1120 !important;
+            border-color: #1e293b !important;
+        }
+
+        /* Dividers & Borders */
+        [data-theme="dark"] div[style*="border-bottom: 1px solid #f1f5f9"],
+        [data-theme="dark"] div[style*="border-top: 1px solid #f1f5f9"],
+        [data-theme="dark"] div[style*="border-bottom: 1px solid #e2e8f0"] {
+            border-color: #1e293b !important;
+        }
+
         [data-theme="dark"] code {
-            background: #0f172a !important;
+            background: #0b1120 !important;
             color: #60a5fa !important;
         }
     </style>
@@ -1301,7 +1386,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Backup & Recovery Manage
                 </thead>
                 <tbody>
                     @forelse ($paginatedList as $backup)
-                        <tr style="border-bottom: 1px solid #f1f5f9; transition: background 0.15s;" onmouseover="this.style.background='#f8fafc'" onmouseout="this.style.background='transparent'">
+                        <tr style="border-bottom: 1px solid #f1f5f9; transition: background 0.15s;">
                             <td style="padding: 14px 16px;">
                                 @if(!empty($backup['custom_label']))
                                     <div style="font-size: 14px; font-weight: 800; color: #0f172a; margin-bottom: 3px; display: flex; align-items: center; gap: 6px;">

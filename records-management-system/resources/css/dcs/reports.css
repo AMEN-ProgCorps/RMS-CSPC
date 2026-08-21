@@ -1360,6 +1360,107 @@ body {
     background: #fff;
 }
 
+.rpt-preview-shell--opcr {
+    min-height: 0;
+    background: #e8eef5;
+    padding: 16px;
+}
+
+.opcr-doc {
+    max-width: 1100px;
+    margin: 0 auto;
+    background: #fff;
+    border: 1px solid var(--rpt-border);
+    box-shadow: 0 1px 3px rgba(15, 23, 42, 0.06);
+    display: flex;
+    flex-direction: column;
+    min-height: 520px;
+}
+
+.opcr-doc-header {
+    padding: 20px 24px 8px;
+}
+
+.opcr-doc-brand {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+}
+
+.opcr-doc-logo {
+    width: 72px;
+    height: 72px;
+    object-fit: contain;
+}
+
+.opcr-doc-republic {
+    font-size: 0.72rem;
+    color: #64748b;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+}
+
+.opcr-doc-name {
+    font-size: 0.78rem;
+    font-weight: 700;
+    color: #0d2a7a;
+    text-transform: uppercase;
+    letter-spacing: 0.02em;
+    margin: 2px 0;
+}
+
+.opcr-doc-loc {
+    font-size: 0.72rem;
+    color: #64748b;
+}
+
+.opcr-doc-rule {
+    margin: 12px 0 14px;
+    border-top: 2px solid #0d2a7a;
+}
+
+.opcr-doc-title {
+    margin: 0 0 12px;
+    text-align: center;
+    font-size: 0.85rem;
+    font-weight: 700;
+    color: #1e293b;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+}
+
+.opcr-doc-body {
+    flex: 1;
+    max-height: min(58vh, 640px);
+    padding: 0 16px;
+}
+
+.opcr-doc-footer {
+    padding: 0 24px 14px;
+    margin-top: auto;
+}
+
+.opcr-doc-footer-rule {
+    border-top: 2px solid #0d2a7a;
+    margin-bottom: 8px;
+}
+
+.opcr-doc-footer-row {
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr;
+    font-size: 0.75rem;
+    color: #1e293b;
+}
+
+.opcr-doc-footer-row span:nth-child(2) {
+    text-align: center;
+}
+
+.opcr-doc-footer-row span:nth-child(3) {
+    text-align: right;
+    font-weight: 600;
+}
+
 .rpt-preview-frame {
     width: 100%;
     min-height: 680px;
@@ -1538,7 +1639,7 @@ body {
 
 @media print {
     .side-nav,
-    .top-nav,
+    header.rms-app-header,
     .rpt-crumb,
     .rpt-inline-filters,
     .rpt-results-actions,

@@ -443,6 +443,10 @@ body {
 }
 
 @media (max-width: 900px) {
+    .hst-container {
+        left: 0 !important;
+    }
+
     .hst-header {
         flex-direction: column;
         align-items: stretch;

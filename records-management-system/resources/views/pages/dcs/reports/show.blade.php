@@ -146,9 +146,13 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
     public function exportUrl(string $format): string
     {
         $query = $this->queryInput();
-        $query['format'] = $format === 'print' ? 'html' : $format;
+        // Always print via PDF in a blank window so Chrome does not inject URL/timestamp headers
         if ($format === 'print') {
+            $query['format'] = 'pdf';
+            $query['inline'] = 1;
             $query['autoPrint'] = 1;
+        } else {
+            $query['format'] = $format;
         }
 
         return route('dcs.reports.export', $query);
@@ -380,7 +384,7 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                 </div>
             </section>
 
-            <div class="rpt-preview-shell {{ $isOpcr ? 'rpt-preview-shell--table' : 'rpt-preview-shell--frame' }}">
+            <div class="rpt-preview-shell {{ $isOpcr ? 'rpt-preview-shell--opcr' : 'rpt-preview-shell--frame' }}">
                 @if($error)
                     <div class="rpt-state">
                         <div class="rpt-state-icon state-error"><i class="fa-solid fa-circle-exclamation"></i></div>
@@ -393,40 +397,106 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                         $rows = $result['rows'] ?? [];
                         $groups = $result['group_headers'] ?? [];
                         $keys = array_keys($cols);
+                        $rowCount = count($rows);
+                        $rowsPerPage = 12;
+                        $pageTotal = max(1, (int) ceil(max($rowCount, 1) / $rowsPerPage));
+                        $logoPath = public_path('images/logo.png');
+                        $logoSrc = file_exists($logoPath) ? asset('images/logo.png') : '';
                     @endphp
-                    <div class="rpt-table-scroll">
-                        <table class="rpt-table">
-                            <thead>
-                                <tr>
-                                    @foreach($keys as $key)
-                                        <th>{{ $cols[$key] }}</th>
-                                    @endforeach
-                                </tr>
-                            </thead>
-                            <tbody>
-                                @forelse($rows as $row)
-                                    <tr>
-                                        @foreach($keys as $key)
-                                            @if(in_array($key, ['rating_q', 'rating_e', 'rating_t', 'rating_a'], true))
-                                                <td class="opcr-rating-td">
-                                                    <input type="number" class="opcr-rating-input" min="0" max="10" step="0.01"
-                                                        value="{{ $row[$key] }}"
-                                                        wire:blur="saveRatingField({{ (int) $row['request_id'] }}, '{{ $key }}', $event.target.value)">
-                                                </td>
-                                            @elseif($key === 'days_diff')
-                                                <td class="{{ ($row[$key] ?? 0) > 0 ? 'opcr-days-advanced' : (($row[$key] ?? 0) < 0 ? 'opcr-days-delayed' : 'opcr-days-zero') }}">
-                                                    {{ $row[$key] === null ? '—' : (($row[$key] > 0 ? '+' : '') . $row[$key]) }}
-                                                </td>
-                                            @else
-                                                <td>{{ $row[$key] ?: '—' }}</td>
-                                            @endif
-                                        @endforeach
-                                    </tr>
-                                @empty
-                                    <tr><td colspan="{{ max(count($keys), 1) }}"><div class="rpt-state"><h4>No records found</h4></div></td></tr>
-                                @endforelse
-                            </tbody>
-                        </table>
+                    <div class="opcr-doc">
+                        <div class="opcr-doc-header">
+                            <div class="opcr-doc-brand">
+                                @if($logoSrc)
+                                    <img src="{{ $logoSrc }}" alt="" class="opcr-doc-logo">
+                                @endif
+                                <div>
+                                    <div class="opcr-doc-republic">Republic of the Philippines</div>
+                                    <div class="opcr-doc-name">Camarines Sur Polytechnic Colleges</div>
+                                    <div class="opcr-doc-loc">Nabua, Camarines Sur</div>
+                                </div>
+                            </div>
+                            <div class="opcr-doc-rule"></div>
+                            <h2 class="opcr-doc-title">{{ $result['title'] ?? 'OPCR Targets' }}</h2>
+                        </div>
+
+                        <div class="rpt-table-scroll opcr-doc-body">
+                            <table class="rpt-table">
+                                <thead>
+                                    @php
+                                        $hasGroups = collect($groups)->contains(fn ($g) => $g !== null && $g !== '');
+                                    @endphp
+                                    @if($hasGroups)
+                                        <tr>
+                                            @php $i = 0; @endphp
+                                            @while($i < count($keys))
+                                                @php
+                                                    $key = $keys[$i];
+                                                    $group = $groups[$key] ?? null;
+                                                @endphp
+                                                @if($group === null || $group === '')
+                                                    <th rowspan="2">{{ $cols[$key] }}</th>
+                                                    @php $i++; @endphp
+                                                @else
+                                                    @php
+                                                        $span = 1;
+                                                        while ($i + $span < count($keys) && ($groups[$keys[$i + $span]] ?? null) === $group) {
+                                                            $span++;
+                                                        }
+                                                    @endphp
+                                                    <th colspan="{{ $span }}">{{ $group }}</th>
+                                                    @php $i += $span; @endphp
+                                                @endif
+                                            @endwhile
+                                        </tr>
+                                        <tr>
+                                            @foreach($keys as $key)
+                                                @if(($groups[$key] ?? null) !== null && ($groups[$key] ?? null) !== '')
+                                                    <th @class(['opcr-rating-th' => in_array($key, ['rating_q', 'rating_e', 'rating_t', 'rating_a'], true)])>{{ $cols[$key] }}</th>
+                                                @endif
+                                            @endforeach
+                                        </tr>
+                                    @else
+                                        <tr>
+                                            @foreach($keys as $key)
+                                                <th @class(['opcr-rating-th' => in_array($key, ['rating_q', 'rating_e', 'rating_t', 'rating_a'], true)])>{{ $cols[$key] }}</th>
+                                            @endforeach
+                                        </tr>
+                                    @endif
+                                </thead>
+                                <tbody>
+                                    @forelse($rows as $row)
+                                        <tr>
+                                            @foreach($keys as $key)
+                                                @if(in_array($key, ['rating_q', 'rating_e', 'rating_t', 'rating_a'], true))
+                                                    <td class="opcr-rating-td">
+                                                        <input type="number" class="opcr-rating-input" min="0" max="10" step="0.01"
+                                                            value="{{ $row[$key] }}"
+                                                            wire:blur="saveRatingField({{ (int) $row['request_id'] }}, '{{ $key }}', $event.target.value)">
+                                                    </td>
+                                                @elseif($key === 'days_diff')
+                                                    <td class="{{ ($row[$key] ?? 0) > 0 ? 'opcr-days-advanced' : (($row[$key] ?? 0) < 0 ? 'opcr-days-delayed' : 'opcr-days-zero') }}">
+                                                        {{ $row[$key] === null ? '—' : (($row[$key] > 0 ? '+' : '') . $row[$key]) }}
+                                                    </td>
+                                                @else
+                                                    <td>{{ $row[$key] ?: '—' }}</td>
+                                                @endif
+                                            @endforeach
+                                        </tr>
+                                    @empty
+                                        <tr><td colspan="{{ max(count($keys), 1) }}"><div class="rpt-state"><h4>No records found</h4></div></td></tr>
+                                    @endforelse
+                                </tbody>
+                            </table>
+                        </div>
+
+                        <div class="opcr-doc-footer">
+                            <div class="opcr-doc-footer-rule"></div>
+                            <div class="opcr-doc-footer-row">
+                                <span>Effectivity Date:</span>
+                                <span>Rev.</span>
+                                <span>Page 1 of {{ $pageTotal }}</span>
+                            </div>
+                        </div>
                     </div>
                 @else
                     <iframe class="rpt-preview-frame" title="Report preview" src="{{ $this->previewUrl() }}" wire:key="preview-{{ $templateId }}"></iframe>

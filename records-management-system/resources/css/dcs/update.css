@@ -280,3 +280,15 @@ body {
     font-size: 0.78rem;
     font-weight: 600;
 }
+@media (max-width: 900px) {
+    .upd-container {
+        left: 0 !important;
+        padding: 20px 16px;
+    }
+
+    .upd-header {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 12px;
+    }
+}

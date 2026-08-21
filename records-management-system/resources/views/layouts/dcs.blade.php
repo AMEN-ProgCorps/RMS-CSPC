@@ -5,8 +5,21 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="csrf-token" content="{{ csrf_token() }}">
     <x-dcs-meta :title="$title ?? null" />
-    <link rel="icon" href="{{ asset('images/logo.png') }}" type="image/png">
+    <link rel="icon" href="{{ asset('images/cspc.webp') }}" type="image/webp">
     <title>{{ $title ?? 'CSPC - Document Control System' }}</title>
+    <script>
+        (function() {
+            var theme = localStorage.getItem('rms-theme') || '{{ auth()->user()?->theme() ?? "light" }}';
+            document.documentElement.setAttribute('data-theme', theme);
+        })();
+        window.assetPaths = {
+            toggleNavSection: "{{ asset('icons/toggle-nav-section.svg') }}",
+            toggleNavDefault: "{{ asset('icons/toggle-nav-default.svg') }}",
+        };
+        window.proccedto = window.proccedto || function(url) {
+            window.location.href = url;
+        };
+    </script>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
@@ -49,30 +62,22 @@
     <input type="checkbox" id="dcs-nav-open" class="dcs-chrome-toggle">
     <input type="checkbox" id="dcs-sidebar-collapsed" class="dcs-chrome-toggle">
 
-    <header class="top-nav">
-        <div class="header-left">
-            <label class="mobile-nav-toggle" for="dcs-nav-open" aria-label="Open navigation">
-                <i class="fa-solid fa-bars"></i>
-            </label>
-
-            <div class="logo-container">
-                <img src="{{ asset('images/logo.png') }}" alt="CSPC Logo" class="logo">
-            </div>
-            <div class="title-text">
-                <p class="sub-title">Camarines Sur Polytechnic Colleges</p>
-                <h1 class="main-title">Records Management System</h1>
-            </div>
+    <header class="rms-app-header">
+        <label class="mobile-nav-toggle" for="dcs-nav-open" aria-label="Open navigation">
+            <i class="fa-solid fa-bars"></i>
+        </label>
+        <div class="cspc-logo">
+            <img class="ico" src="{{ asset('images/cspc.png') }}" alt="CSPC">
         </div>
-
-        <div class="header-right">
-            <div class="top-row">
-                <div class="dcs-notif-slot">
-                    <livewire:components.notification.notifications />
-                </div>
-                <x-actions.dropdown />
-            </div>
-            <p class="office-label">{{ auth()->user()?->details?->office?->office_name ?? 'Records and Freedom of Information Office' }}</p>
+        <div class="label-container">
+            <span class="subtitle">Camarines Sur Polytechnic Colleges</span>
+            <span class="title">Records Management System</span>
         </div>
+        <div class="notification-container">
+            <livewire:components.notification.notifications />
+        </div>
+        <span class="office_name">{{ auth()->user()?->details?->office?->office_name ?? 'Records and Freedom of Information Office' }}</span>
+        <x-actions.dropdown />
     </header>
 
     <x-nav.dcs />
@@ -80,6 +85,10 @@
     @auth
         <livewire:components.dcs.session-guard />
     @endauth
+
+    <div class="dcs-top-tabs-host">
+        <x-nav.top-tabs system="dcs" />
+    </div>
 
     {{ $slot }}
 

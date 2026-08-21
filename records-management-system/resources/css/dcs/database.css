@@ -428,6 +428,12 @@ td.col-bg-retrieval {
     background-clip: padding-box;
 }
 
+/* Full-row hover (Related Docs + left columns, not only col-groups) */
+.db-parent-row:hover > td,
+.db-child-row:hover > td {
+    background-color: #f1f5f9 !important;
+}
+
 /* ── GRAY GROUPS: hover ── */
 .db-parent-row:hover td.col-group-approval,
 .db-parent-row:hover td.col-group-masterlist,

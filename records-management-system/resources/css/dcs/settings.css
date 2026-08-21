@@ -761,7 +761,7 @@ body {
 /* ── Small tablets / off-canvas sidebar ── */
 @media (max-width: 900px) {
     .settings-main {
-        left: 0;
+        left: 0 !important;
     }
 
     .settings-header h1 {

@@ -773,6 +773,11 @@ body {
 }
 
 @media (max-width: 900px) {
+    .drr-container {
+        left: 0 !important;
+        padding: 20px 16px;
+    }
+
     .drr-scans,
     .drr-text-diff {
         grid-template-columns: 1fr;

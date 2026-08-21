@@ -255,6 +255,111 @@
                 ],
             ];
         }
+    } elseif ($system === 'dcs') {
+        // 1. Dashboard
+        if (request()->routeIs('dcs') || request()->routeIs('dcs.dashboard')) {
+            $sectionTitle = 'Dashboard';
+            $tabs = [
+                [
+                    'label' => 'Dashboard',
+                    'url' => route('dcs'),
+                    'active' => request()->routeIs('dcs') || request()->routeIs('dcs.dashboard'),
+                ],
+            ];
+        }
+        // 2. Document Registration
+        elseif (request()->routeIs('dcs.register.*')) {
+            $sectionTitle = 'Document Registration';
+            $tabs = [
+                [
+                    'label' => 'Register',
+                    'url' => route('dcs.register.create'),
+                    'active' => request()->routeIs('dcs.register.create') || request()->routeIs('dcs.register.revised'),
+                ],
+                [
+                    'label' => 'Update',
+                    'url' => route('dcs.register.update'),
+                    'active' => request()->routeIs('dcs.register.update')
+                        || request()->routeIs('dcs.register.edit')
+                        || request()->routeIs('dcs.register.history'),
+                ],
+            ];
+        }
+        // 3. Document Review
+        elseif (request()->routeIs('dcs.review')) {
+            $sectionTitle = 'Document Review';
+            $tabs = [
+                [
+                    'label' => 'Document Review',
+                    'url' => route('dcs.review'),
+                    'active' => request()->routeIs('dcs.review'),
+                ],
+            ];
+        }
+        // 4. Generate Report
+        elseif (request()->routeIs('dcs.reports.*')) {
+            $sectionTitle = 'Generate Report';
+            $tabs = [
+                [
+                    'label' => 'Masterlists',
+                    'url' => route('dcs.reports.masterlist'),
+                    'active' => request()->routeIs('dcs.reports.masterlist'),
+                ],
+                [
+                    'label' => 'Monitoring Reports',
+                    'url' => route('dcs.reports.monitoring'),
+                    'active' => request()->routeIs('dcs.reports.monitoring'),
+                ],
+                [
+                    'label' => 'Syllabi & TOS/Rubrics',
+                    'url' => route('dcs.reports.syllabiTos'),
+                    'active' => request()->routeIs('dcs.reports.syllabiTos'),
+                ],
+                [
+                    'label' => 'OPCR Targets',
+                    'url' => route('dcs.reports.opcr'),
+                    'active' => request()->routeIs('dcs.reports.opcr'),
+                ],
+                [
+                    'label' => 'Others',
+                    'url' => route('dcs.reports.others'),
+                    'active' => request()->routeIs('dcs.reports.others'),
+                ],
+            ];
+        }
+        // 5. Stamp Document
+        elseif (request()->routeIs('dcs.stamping.*') || request()->routeIs('dcs.stamp.*')) {
+            $sectionTitle = 'Stamp Document';
+            $tabs = [
+                [
+                    'label' => 'Stamp Document',
+                    'url' => route('dcs.stamping.index'),
+                    'active' => request()->routeIs('dcs.stamping.*') || request()->routeIs('dcs.stamp.*'),
+                ],
+            ];
+        }
+        // 6. Database
+        elseif (request()->routeIs('dcs.database.*')) {
+            $sectionTitle = 'Database';
+            $tabs = [
+                [
+                    'label' => 'Database',
+                    'url' => route('dcs.database.index'),
+                    'active' => request()->routeIs('dcs.database.*'),
+                ],
+            ];
+        }
+        // 7. Settings
+        elseif (request()->routeIs('dcs.settings.*')) {
+            $sectionTitle = 'Settings';
+            $tabs = [
+                [
+                    'label' => 'Settings',
+                    'url' => route('dcs.settings.index'),
+                    'active' => request()->routeIs('dcs.settings.*'),
+                ],
+            ];
+        }
     }
 @endphp
 

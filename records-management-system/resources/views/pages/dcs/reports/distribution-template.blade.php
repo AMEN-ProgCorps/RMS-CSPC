@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>{{ $title }} - CSPC DCS</title>
+    <title></title>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         html, body { min-height: 100%; }
@@ -75,7 +75,7 @@
 </head>
 <body class="{{ !empty($letterheadUrl) ? 'has-letterhead' : '' }}">
     <div class="print-toolbar" id="toolbar">
-        <button class="btn-print" type="button" onclick="window.print()">Print</button>
+        <button class="btn-print" type="button" id="btnPrint">Print</button>
         <button class="btn-close" type="button" onclick="window.close()">Close</button>
     </div>
 
@@ -130,6 +130,18 @@
     <script>
         document.addEventListener('DOMContentLoaded', function () {
             document.getElementById('toolbar')?.classList.add('visible');
+            document.getElementById('btnPrint')?.addEventListener('click', function () {
+                var markup = document.documentElement.outerHTML
+                    .replace(/<title>[^<]*<\/title>/i, '<title></title>')
+                    .replace('print-toolbar visible', 'print-toolbar');
+                var w = window.open('', '_blank');
+                if (!w) { window.print(); return; }
+                w.document.open();
+                w.document.write(markup);
+                w.document.close();
+                w.focus();
+                setTimeout(function () { w.print(); }, 400);
+            });
         });
     </script>
 </body>

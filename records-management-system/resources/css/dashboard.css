@@ -94,17 +94,36 @@ body {
             display: flex;
                 align-items: center;
                 gap: 10px;
+            border-radius: 8px;
+            transition: all 0.2s ease;
         }
             .drop_down-container button img {
                 max-width: 21px;
                 max-height: 21px;
-                color: #003699;
+                transition: transform 0.2s ease, filter 0.2s ease;
             }
         .drop_down-container button:hover {
             cursor: pointer;
+            background-color: #F1F5F9;
         }    
+        .drop_down-container button:hover img {
+            transform: scale(1.1);
+        }
         .drop_down-container button:hover span {
             color: #003699;
+        }
+        .drop_down-container button.subSystem--logout:hover,
+        .drop_down-container button[onclick*="logout"]:hover {
+            background-color: #fef2f2 !important;
+        }
+        .drop_down-container button.subSystem--logout:hover span,
+        .drop_down-container button[onclick*="logout"]:hover span {
+            color: #ef4444 !important;
+        }
+        .drop_down-container button.subSystem--logout:hover img,
+        .drop_down-container button[onclick*="logout"]:hover img {
+            filter: invert(36%) sepia(93%) saturate(3000%) hue-rotate(345deg) brightness(98%) contrast(92%) !important;
+            transform: scale(1.12) translateX(2px);
         }
 header{
     --padding-header:15px;
@@ -737,8 +756,45 @@ section{
     font-weight: 700;
 }
 
+/* Sidebar Nav Tree Groups */
+.nav-tree-group {
+    margin-bottom: 6px;
+}
+.nav-tree-group:last-child {
+    margin-bottom: 0;
+}
+.nav-tree-title {
+    font-size: 10px;
+    font-weight: 800;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: #64748b;
+    padding: 6px 12px 3px 12px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    opacity: 0.85;
+}
+
+/* Flyout Popover Group Header */
+.flyout-group-title {
+    font-size: 10px;
+    font-weight: 800;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: #94a3b8;
+    padding: 8px 12px 2px 12px;
+    margin-top: 4px;
+    border-top: 1px solid rgba(226, 232, 240, 0.7);
+}
+.flyout-group-title:first-child {
+    margin-top: 0;
+    border-top: none;
+    padding-top: 2px;
+}
+
 /* ==========================================================================
-   Top Navigation Tabs (DTS & RDP Dual-Navigation)
+   Top Navigation Tabs (DTS, RDP & Admin Dual-Navigation)
    ========================================================================== */
 .top-nav-tabs-wrapper {
     position: relative;
@@ -765,6 +821,54 @@ section{
 
 .top-nav-tabs-container::-webkit-scrollbar {
     display: none;
+}
+
+/* Category Switcher Group for Multi-Tree Navigation (Activity Logs) */
+.top-nav-category-group {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    flex-shrink: 0;
+}
+
+.top-nav-category-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 13px;
+    border-radius: 8px;
+    font-family: 'Inter', Roboto, sans-serif;
+    font-size: 12.5px;
+    font-weight: 700;
+    text-decoration: none;
+    color: #475569;
+    background: #f1f5f9;
+    border: 1px solid #e2e8f0;
+    white-space: nowrap;
+    cursor: pointer;
+    transition: all 0.18s ease;
+    user-select: none;
+}
+
+.top-nav-category-pill:hover {
+    background: #e2e8f0;
+    color: #0f172a;
+    border-color: #cbd5e1;
+}
+
+.top-nav-category-pill.active {
+    background: #003699;
+    color: #ffffff;
+    border-color: #003699;
+    box-shadow: 0 2px 6px rgba(0, 54, 153, 0.22);
+}
+
+.top-nav-category-divider {
+    width: 1.5px;
+    height: 22px;
+    background: #cbd5e1;
+    margin: 0 6px;
+    flex-shrink: 0;
 }
 
 .top-nav-tab-item {
@@ -1118,6 +1222,15 @@ section{
     font-weight: 600 !important;
 }
 
+[data-theme="dark"] .nav-tree-title {
+    color: #94a3b8 !important;
+}
+
+[data-theme="dark"] .flyout-group-title {
+    color: #94a3b8 !important;
+    border-top-color: #334155 !important;
+}
+
 [data-theme="dark"] .account-container {
     border-top: 1px solid #1e293b !important;
 }
@@ -1132,13 +1245,37 @@ section{
 
 /* Top Navigation Tabs (DTS & RDP) */
 [data-theme="dark"] .top-nav-tabs-wrapper {
-    background-color: #0b0f19 !important;
-    border-bottom: 1px solid #1e293b !important;
+    background-color: #131c2e !important;
+    border: 1px solid #1e293b !important;
+    box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.4) !important;
 }
 
 [data-theme="dark"] .top-nav-tabs-container {
-    background-color: #131c2e !important;
-    border-color: #1e293b !important;
+    background-color: transparent !important;
+    border: none !important;
+}
+
+[data-theme="dark"] .top-nav-category-pill {
+    background: #1e293b !important;
+    color: #94a3b8 !important;
+    border-color: #334155 !important;
+}
+
+[data-theme="dark"] .top-nav-category-pill:hover {
+    background: #334155 !important;
+    color: #f8fafc !important;
+    border-color: #475569 !important;
+}
+
+[data-theme="dark"] .top-nav-category-pill.active {
+    background: #2563eb !important;
+    color: #ffffff !important;
+    border-color: #2563eb !important;
+    box-shadow: 0 2px 6px rgba(37, 99, 235, 0.35) !important;
+}
+
+[data-theme="dark"] .top-nav-category-divider {
+    background: #334155 !important;
 }
 
 [data-theme="dark"] .top-nav-tab-item {
@@ -1449,11 +1586,52 @@ section{
 /* Actions Dropdown & Flyout Menu */
 [data-theme="dark"] .dropdown-menu,
 [data-theme="dark"] .actions-dropdown-container,
-[data-theme="dark"] #dropdown {
+[data-theme="dark"] #dropdown,
+[data-theme="dark"] .drop_down-container {
     background-color: #131c2e !important;
-    border: 1px solid #334155 !important;
+    border: 1px solid #1e293b !important;
     color: #f8fafc !important;
     box-shadow: 0 10px 25px rgba(0, 0, 0, 0.5) !important;
+}
+
+[data-theme="dark"] .drop_down-container hr {
+    border: 0.5px solid #1e293b !important;
+}
+
+[data-theme="dark"] .drop_down-container span {
+    color: #94a3b8 !important;
+}
+
+[data-theme="dark"] .drop_down-container button img {
+    filter: invert(56%) sepia(85%) saturate(1450%) hue-rotate(195deg) brightness(102%) contrast(98%) !important;
+}
+
+[data-theme="dark"] .drop_down-container button:hover {
+    background-color: #1e293b !important;
+}
+
+[data-theme="dark"] .drop_down-container button:hover span {
+    color: #60a5fa !important;
+}
+
+[data-theme="dark"] .drop_down-container button:hover img {
+    filter: invert(65%) sepia(80%) saturate(1800%) hue-rotate(195deg) brightness(110%) contrast(105%) !important;
+}
+
+[data-theme="dark"] .drop_down-container button.subSystem--logout:hover,
+[data-theme="dark"] .drop_down-container button[onclick*="logout"]:hover {
+    background-color: rgba(239, 68, 68, 0.15) !important;
+}
+
+[data-theme="dark"] .drop_down-container button.subSystem--logout:hover span,
+[data-theme="dark"] .drop_down-container button[onclick*="logout"]:hover span {
+    color: #f87171 !important;
+}
+
+[data-theme="dark"] .drop_down-container button.subSystem--logout:hover img,
+[data-theme="dark"] .drop_down-container button[onclick*="logout"]:hover img {
+    filter: invert(45%) sepia(70%) saturate(2500%) hue-rotate(340deg) brightness(105%) contrast(95%) !important;
+    transform: scale(1.12) translateX(2px) !important;
 }
 
 [data-theme="dark"] .dropdown-item,

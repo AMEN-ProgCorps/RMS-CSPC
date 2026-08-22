@@ -21,6 +21,9 @@ if [ ! -f ".env" ]; then
     fi
 fi
 
+# ── Clean stale cache files ──────────────────────────────────────────────────
+rm -f bootstrap/cache/*.php
+
 # ── Install / sync PHP dependencies ─────────────────────────────────────────
 echo "[1/5] Checking PHP dependencies..."
 composer install --no-interaction --prefer-dist --optimize-autoloader

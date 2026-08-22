@@ -396,7 +396,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - System Settings')] class
         }
 
         $this->isPreloading = true;
-        $this->preloadLogs[] = "🚀 Initializing office folder preload sequence for " . count($this->preloadOfficesList) . " offices...";
+        $this->preloadLogs[] = "- Initializing office folder preload sequence for " . count($this->preloadOfficesList) . " offices...";
         
         $this->executePreloadStep(0);
     }
@@ -411,7 +411,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - System Settings')] class
         if ($index >= $total) {
             $this->preloadProgress = 100;
             $this->isPreloading = false;
-            $this->preloadLogs[] = "🎉 All office folder structures successfully preloaded and verified (100%)!";
+            $this->preloadLogs[] = "- All office folder structures successfully preloaded and verified (100%)!";
             $this->successMessage = "Successfully preloaded office folder structures on Google Drive & database for {$total} offices! Uploads will now be instant.";
             
             \DB::table('admin_logs')->insert([
@@ -430,7 +430,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - System Settings')] class
         }
 
         $this->preloadCurrentOffice = $officeName;
-        $this->preloadLogs[] = "🔍 Checking if [{$officeName}] folder structure exists on server & Google Drive...";
+        $this->preloadLogs[] = "- Checking if [{$officeName}] folder structure exists on server & Google Drive...";
 
         // 1. Local cache directories
         try {
@@ -439,7 +439,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - System Settings')] class
         } catch (\Throwable $e) {}
 
         // 2. Google Drive directories
-        $this->preloadLogs[] = "📁 Attempting to verify / create [{$officeName}], [{$officeName}/DTS], and [{$officeName}/RDP] on Google Drive...";
+        $this->preloadLogs[] = "- Attempting to verify / create [{$officeName}], [{$officeName}/DTS], and [{$officeName}/RDP] on Google Drive...";
         try {
             \Illuminate\Support\Facades\Storage::disk('google')->makeDirectory($officeName);
             \Illuminate\Support\Facades\Storage::disk('google')->makeDirectory("{$officeName}/DTS");
@@ -470,13 +470,13 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - System Settings')] class
             ]);
         }
 
-        $this->preloadLogs[] = "✅ Creation & DB verification success for [{$officeName}]!";
+        $this->preloadLogs[] = "- Creation & DB verification success for [{$officeName}]!";
         
         $this->preloadCurrentIndex = $index + 1;
         $this->preloadProgress = (int) round(($this->preloadCurrentIndex / $total) * 100);
 
         if ($this->preloadCurrentIndex < $total) {
-            $this->preloadLogs[] = "➡️ Proceeding to next office folder (" . ($this->preloadCurrentIndex + 1) . " of {$total})...";
+            $this->preloadLogs[] = "- Proceeding to next office folder (" . ($this->preloadCurrentIndex + 1) . " of {$total})...";
             $this->js('$wire.executePreloadStep(' . $this->preloadCurrentIndex . ')');
         } else {
             $this->executePreloadStep($total);
@@ -926,14 +926,12 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - System Settings')] class
             <div x-data x-init="$nextTick(() => { $el.scrollTop = $el.scrollHeight })" x-effect="$nextTick(() => { $el.scrollTop = $el.scrollHeight })" style="background: #0f172a; color: #38bdf8; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; font-size: 11px; padding: 14px; border-radius: 10px; height: 170px; overflow-y: auto; text-align: left; line-height: 1.6; border: 1px solid #1e293b; margin-bottom: 18px;">
                 @foreach ($preloadLogs as $log)
                     <div style="margin-bottom: 4px; border-bottom: 1px solid rgba(255,255,255,0.05); padding-bottom: 2px;">
-                        @if (str_contains($log, '✅'))
+                        @if (str_contains($log, 'success') || str_contains($log, '100%'))
                             <span style="color: #4ade80; font-weight: 600;">{{ $log }}</span>
-                        @elseif (str_contains($log, '🔍'))
+                        @elseif (str_contains($log, 'Checking'))
                             <span style="color: #fde047;">{{ $log }}</span>
-                        @elseif (str_contains($log, '📁'))
+                        @elseif (str_contains($log, 'Attempting') || str_contains($log, 'Proceeding') || str_contains($log, 'Initializing'))
                             <span style="color: #60a5fa;">{{ $log }}</span>
-                        @elseif (str_contains($log, '🎉'))
-                            <span style="color: #a7f3d0; font-weight: 800;">{{ $log }}</span>
                         @else
                             <span style="color: #94a3b8;">{{ $log }}</span>
                         @endif

@@ -21,8 +21,18 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Backup & Recovery Manage
     public bool $isBackupProcessing = false;
     public string $backupConfirmInput = '';
 
+    // Live Reverting State (Preload Modal Style)
+    public bool $isReverting = false;
+    public int $revertProgress = 0;
+    public string $revertCurrentTable = '';
+    public int $revertCurrentIndex = 0;
+    public array $revertTablesList = [];
+    public array $revertLogs = [];
+    public string $revertTargetFilename = '';
+
     // Backup Selection & Modal State
     public bool $showCreateBackupModal = false;
+    public string $customBackupLabel = '';
     public string $backupMode = 'full'; // 'full' or 'selective'
     public array $selectedBackupCategories = [
         'users',
@@ -104,6 +114,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Backup & Recovery Manage
             $term = strtolower(trim($this->search));
             $list = array_filter($list, function ($item) use ($term) {
                 return str_contains(strtolower($item['filename']), $term)
+                    || str_contains(strtolower($item['custom_label'] ?? ''), $term)
                     || str_contains(strtolower($item['date_formatted']), $term)
                     || str_contains(strtolower($item['type']), $term)
                     || str_contains(strtolower($item['source']), $term)
@@ -231,6 +242,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Backup & Recovery Manage
     public function openCreateBackupModal(): void
     {
         $this->showCreateBackupModal = true;
+        $this->customBackupLabel = '';
         $this->successMessage = '';
         $this->errorMessage = '';
     }
@@ -282,13 +294,19 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Backup & Recovery Manage
                 $localFiles = \Illuminate\Support\Facades\Storage::disk('local')->files('backups');
                 foreach ($localFiles as $file) {
                     $filename = basename($file);
-                    if (str_ends_with($filename, '.json') || str_starts_with($filename, 'rms_backup_')) {
+                    if (str_ends_with($filename, '.json') || str_starts_with($filename, 'rms_backup_') || str_contains($filename, 'rms_backup_')) {
                         $size = \Illuminate\Support\Facades\Storage::disk('local')->size($file);
                         $lastModified = \Illuminate\Support\Facades\Storage::disk('local')->lastModified($file);
                         $isCustom = str_contains($filename, 'custom');
 
+                        $customLabel = null;
+                        if (preg_match('/^\[(.*?)\](.*)$/', $filename, $matches)) {
+                            $customLabel = $matches[1];
+                        }
+
                         $foundBackups[$filename] = [
                             'filename' => $filename,
+                            'custom_label' => $customLabel,
                             'path' => $file,
                             'source' => 'Local Only',
                             'source_icon' => 'fa-solid fa-hard-drive',
@@ -314,7 +332,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Backup & Recovery Manage
                     if (!$item->isFile()) continue;
                     $file = $item->path();
                     $filename = basename($file);
-                    if (str_ends_with($filename, '.json') || str_starts_with($filename, 'rms_backup_')) {
+                    if (str_ends_with($filename, '.json') || str_starts_with($filename, 'rms_backup_') || str_contains($filename, 'rms_backup_')) {
                         if (isset($foundBackups[$filename])) {
                             $foundBackups[$filename]['source'] = 'Google Drive & Local';
                             $foundBackups[$filename]['source_icon'] = 'fa-solid fa-cloud-arrow-down';
@@ -323,8 +341,15 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Backup & Recovery Manage
                             $size = $item->fileSize() ?? 0;
                             $lastModified = $item->lastModified() ?? time();
                             $isCustom = str_contains($filename, 'custom');
+
+                            $customLabel = null;
+                            if (preg_match('/^\[(.*?)\](.*)$/', $filename, $matches)) {
+                                $customLabel = $matches[1];
+                            }
+
                             $foundBackups[$filename] = [
                                 'filename' => $filename,
+                                'custom_label' => $customLabel,
                                 'path' => $file,
                                 'source' => 'Google Drive',
                                 'source_icon' => 'fa-brands fa-google-drive',
@@ -406,9 +431,14 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Backup & Recovery Manage
                 return;
             }
 
+            $label = trim($this->customBackupLabel);
+            $cleanLabel = preg_replace('/[\/\\\:\*\?"<>\|]/', '', $label);
+            $cleanLabel = trim($cleanLabel);
+
             $backupData = [
                 'app_name' => config('app.name', 'RMS CSPC'),
                 'version' => '1.0',
+                'custom_label' => !empty($cleanLabel) ? $cleanLabel : null,
                 'backup_mode' => $this->backupMode,
                 'categories_included' => $categoriesIncluded,
                 'created_at' => now()->toIso8601String(),
@@ -473,7 +503,8 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Backup & Recovery Manage
 
             $jsonContent = json_encode($backupData, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
             $modePrefix = ($this->backupMode === 'selective') ? 'rms_backup_custom_' : 'rms_backup_full_';
-            $filename = $modePrefix . date('Y-m-d_His') . '.json';
+            $baseFilename = $modePrefix . date('Y-m-d_His') . '.json';
+            $filename = !empty($cleanLabel) ? "[{$cleanLabel}]{$baseFilename}" : $baseFilename;
 
             // 1. Save to local storage
             \Illuminate\Support\Facades\Storage::disk('local')->put("backups/{$filename}", $jsonContent);
@@ -496,6 +527,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Backup & Recovery Manage
             ]);
 
             $this->showCreateBackupModal = false;
+            $this->customBackupLabel = '';
             $this->successMessage = "🎉 {$typeLabel} [{$filename}] created successfully! (" . count($tablesToBackup) . " tables, {$totalRecords} total records backupped).";
 
             $this->checkBackups();
@@ -723,11 +755,8 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Backup & Recovery Manage
         ];
     }
 
-    public function revertToTargetBackup(): void
+    public function startRevertProcess(): void
     {
-        @set_time_limit(300);
-        @ini_set('max_execution_time', '300');
-
         $this->successMessage = '';
         $this->errorMessage = '';
 
@@ -763,33 +792,60 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Backup & Recovery Manage
             return;
         }
 
-        $this->isBackupProcessing = true;
+        $priorityMap = $this->getTablePriorityMap();
+        $tablesData = $payload['tables'];
 
-        try {
-            $tablesData = $payload['tables'];
-            $driver = \DB::getDriverName();
-            $priorityMap = $this->getTablePriorityMap();
+        // Insertion order: forward priority order (parents first)
+        uksort($tablesData, function ($a, $b) use ($priorityMap) {
+            $pA = $priorityMap[$a] ?? 50;
+            $pB = $priorityMap[$b] ?? 50;
+            return $pA <=> $pB;
+        });
 
-            // 1. Build sorted deletion list: REVERSE priority order (Children first -> Parents last)
-            $deletionOrder = array_keys($tablesData);
-            usort($deletionOrder, function ($a, $b) use ($priorityMap) {
-                $pA = $priorityMap[$a] ?? 50;
-                $pB = $priorityMap[$b] ?? 50;
-                return $pB <=> $pA; // Descending for clean child-before-parent deletion
-            });
+        $this->revertTablesList = array_keys($tablesData);
+        $this->revertTargetFilename = $filename;
+        $this->showRevertConfirmModal = false;
+        $this->isReverting = true;
+        $this->revertProgress = 0;
+        $this->revertCurrentIndex = 0;
+        $this->revertCurrentTable = 'Initializing...';
+        $this->revertLogs = [
+            "- Initializing database restoration sequence from [{$filename}]...",
+            "- Payload validated: " . count($tablesData) . " tables ready for restoration."
+        ];
 
-            // 2. Build sorted insertion list: FORWARD priority order (Parents first -> Children last)
-            uksort($tablesData, function ($a, $b) use ($priorityMap) {
-                $pA = $priorityMap[$a] ?? 50;
-                $pB = $priorityMap[$b] ?? 50;
-                return $pA <=> $pB; // Ascending for safe parent-before-child insertion
-            });
+        // Store payload in cache for step execution
+        \Illuminate\Support\Facades\Cache::put('rms_revert_payload_' . auth()->id(), $payload, now()->addMinutes(15));
 
-            \DB::transaction(function () use ($tablesData, $deletionOrder, $driver, $filename) {
+        $this->executeRevertStep(0);
+    }
+
+    public function executeRevertStep(int $step): void
+    {
+        if (!$this->isReverting) {
+            return;
+        }
+
+        @set_time_limit(120);
+
+        $payload = \Illuminate\Support\Facades\Cache::get('rms_revert_payload_' . auth()->id());
+        if (!$payload || !isset($payload['tables'])) {
+            $this->isReverting = false;
+            $this->errorMessage = 'Restoration session expired or payload missing.';
+            return;
+        }
+
+        $driver = \DB::getDriverName();
+        $totalTables = count($this->revertTablesList);
+
+        // Step 0: Disable constraints & clear existing database
+        if ($step === 0) {
+            $this->revertLogs[] = "- Disabling foreign key constraints & preparing {$driver} database...";
+            try {
                 if ($driver === 'pgsql') {
                     try {
                         \DB::statement("SET session_replication_role = 'replica';");
-                    } catch (\Throwable $e) {
+                    } catch (\Throwable) {
                         \DB::statement('SET CONSTRAINTS ALL DEFERRED;');
                     }
                 } elseif ($driver === 'sqlite') {
@@ -797,155 +853,171 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Backup & Recovery Manage
                 } elseif ($driver === 'mysql') {
                     \DB::statement('SET FOREIGN_KEY_CHECKS = 0;');
                 }
+                $this->revertLogs[] = "- Foreign key constraints suspended.";
+            } catch (\Throwable $e) {
+                $this->revertLogs[] = "- Notice while configuring constraints: " . $e->getMessage();
+            }
 
-                // Delete tables in reverse dependency order (child tables first)
-                foreach ($deletionOrder as $tableName) {
-                    if (in_array($tableName, ['migrations', 'sessions', 'cache', 'cache_locks', 'jobs', 'failed_jobs'])) {
-                        continue;
-                    }
-
-                    if (!\Schema::hasTable($tableName)) {
-                        continue;
-                    }
-
-                    try {
-                        \DB::table($tableName)->delete();
-                    } catch (\Throwable $te) {
-                        logger()->warning("Could not delete rows from {$tableName}: " . $te->getMessage());
-                    }
-                }
-
-                // Insert tables in forward dependency order (parent tables first)
-                foreach ($tablesData as $tableName => $rows) {
-                    if (in_array($tableName, ['migrations', 'sessions', 'cache', 'cache_locks', 'jobs', 'failed_jobs'])) {
-                        continue;
-                    }
-
-                    if (!\Schema::hasTable($tableName)) {
-                        continue;
-                    }
-
-                    if (!empty($rows)) {
-                        // Retrieve valid columns existing in current database table schema
-                        $dbColumns = array_flip(\Schema::getColumnListing($tableName));
-
-                        $chunks = array_chunk($rows, 200);
-                        foreach ($chunks as $chunk) {
-                            $filteredChunk = [];
-                            foreach ($chunk as $row) {
-                                $filteredRow = array_intersect_key((array) $row, $dbColumns);
-                                if (!empty($filteredRow)) {
-                                    $filteredChunk[] = $filteredRow;
-                                }
-                            }
-
-                            if (!empty($filteredChunk)) {
-                                \DB::table($tableName)->insert($filteredChunk);
-                            }
-                        }
-                    }
-                }
-
-                // If any account_role in account table is missing from condition_key, insert fallback role entry
-                if (\Schema::hasTable('account') && \Schema::hasTable('condition_key')) {
-                    $missingRoles = \DB::table('account')
-                        ->whereNotNull('account_role')
-                        ->whereNotIn('account_role', \DB::table('condition_key')->pluck('id'))
-                        ->pluck('account_role')
-                        ->unique();
-
-                    if ($missingRoles->isNotEmpty()) {
-                        $firstModifierKey = \DB::table('condition_details')->value('key_id') ?: 1;
-                        foreach ($missingRoles as $roleId) {
-                            try {
-                                \DB::table('condition_key')->insert([
-                                    'id' => $roleId,
-                                    'key_name' => "Role #{$roleId}",
-                                    'modifier_key' => $firstModifierKey,
-                                    'date_created' => now(),
-                                    'date_updated' => now(),
-                                ]);
-                            } catch (\Throwable $e) {
-                                // ignore if exists
-                            }
-                        }
-                    }
-                }
-
-                // Resynchronize PostgreSQL auto-increment sequences so subsequent inserts never collide with restored IDs
-                if ($driver === 'pgsql') {
-                    $seqTables = \DB::select("SELECT table_name FROM information_schema.tables WHERE table_schema = 'public' AND table_type = 'BASE TABLE'");
-                    foreach ($seqTables as $st) {
-                        $tbl = $st->table_name;
-                        try {
-                            $columns = \Schema::getColumnListing($tbl);
-                            foreach ($columns as $col) {
-                                $seq = \DB::selectOne("SELECT pg_get_serial_sequence(?, ?) AS seq", ["\"{$tbl}\"", $col]);
-                                $seqName = $seq->seq ?? null;
-                                if ($seqName) {
-                                    $maxId = \DB::table($tbl)->max($col) ?: 0;
-                                    $seqVal = max(1, (int) $maxId);
-                                    $isCalled = $maxId > 0;
-                                    \DB::statement("SELECT setval(?, ?, ?)", [$seqName, $seqVal, $isCalled]);
-                                }
-                            }
-                        } catch (\Throwable $e) {
-                            // Column or table may not have a serial sequence
-                        }
-                    }
-                }
-
-                // Safely log emergency revert action before restoring foreign key constraints
-                try {
-                    $adminId = auth()->id();
-                    if (\Schema::hasTable('account')) {
-                        if (!$adminId || !\DB::table('account')->where('id', $adminId)->exists()) {
-                            $adminId = \DB::table('account')->value('id');
-                        }
-                    }
-
-                    $whatSystem = 3;
-                    if (\Schema::hasTable('subsystems')) {
-                        if (!\DB::table('subsystems')->where('subsystem_id', $whatSystem)->exists()) {
-                            $whatSystem = \DB::table('subsystems')->value('subsystem_id');
-                        }
-                    }
-
-                    if ($adminId && $whatSystem && \Schema::hasTable('admin_logs')) {
-                        \DB::table('admin_logs')->insert([
-                            'changes' => "EMERGENCY REVERT PERFORMED: System database restored to target backup [{$filename}]",
-                            'admin_id' => $adminId,
-                            'what_system' => $whatSystem,
-                            'when_changes' => now(),
-                        ]);
-                    }
-                } catch (\Throwable $logEx) {
-                    // Prevent log error from failing the database revert transaction
-                }
-
-                if ($driver === 'pgsql') {
-                    try {
-                        \DB::statement("SET session_replication_role = 'origin';");
-                    } catch (\Throwable $e) {
-                        // ignore
-                    }
-                } elseif ($driver === 'sqlite') {
-                    \DB::statement('PRAGMA foreign_keys = ON;');
-                } elseif ($driver === 'mysql') {
-                    \DB::statement('SET FOREIGN_KEY_CHECKS = 1;');
-                }
+            // Deletion order: reverse priority (children first)
+            $priorityMap = $this->getTablePriorityMap();
+            $deletionOrder = $this->revertTablesList;
+            usort($deletionOrder, function ($a, $b) use ($priorityMap) {
+                $pA = $priorityMap[$a] ?? 50;
+                $pB = $priorityMap[$b] ?? 50;
+                return $pB <=> $pA;
             });
 
-            $this->showRevertConfirmModal = false;
-            $this->selectedTargetBackup = '';
-            $this->backupConfirmInput = '';
-            $this->successMessage = "🎉 System successfully reverted to target backup [{$filename}]! Database records have been restored.";
+            $this->revertLogs[] = "- Clearing existing table data in reverse dependency order...";
+            foreach ($deletionOrder as $tbl) {
+                if (in_array($tbl, ['migrations', 'sessions', 'cache', 'cache_locks', 'jobs', 'failed_jobs'])) continue;
+                if (\Schema::hasTable($tbl)) {
+                    try {
+                        \DB::table($tbl)->delete();
+                    } catch (\Throwable) {}
+                }
+            }
+            $this->revertLogs[] = "- Existing records cleared.";
 
-        } catch (\Throwable $e) {
-            $this->errorMessage = "❌ Revert process failed: " . $e->getMessage();
+            $this->revertProgress = 5;
+            $this->revertCurrentIndex = 0;
+            $this->revertCurrentTable = $this->revertTablesList[0] ?? 'Ready';
+            $this->js('$wire.executeRevertStep(1)');
+            return;
         }
 
-        $this->isBackupProcessing = false;
+        // Steps 1 to N: Process table by table
+        $tableIndex = $step - 1;
+        if ($tableIndex < $totalTables) {
+            $tableName = $this->revertTablesList[$tableIndex];
+            $rows = $payload['tables'][$tableName] ?? [];
+            $this->revertCurrentTable = $tableName;
+            $this->revertCurrentIndex = $tableIndex + 1;
+
+            if (\Schema::hasTable($tableName) && !in_array($tableName, ['migrations', 'sessions', 'cache', 'cache_locks', 'jobs', 'failed_jobs'])) {
+                $count = count($rows);
+                $this->revertLogs[] = "- Restoring table [{$tableName}] ({$count} records)...";
+
+                if (!empty($rows)) {
+                    $dbColumns = array_flip(\Schema::getColumnListing($tableName));
+                    $chunks = array_chunk($rows, 200);
+                    foreach ($chunks as $chunk) {
+                        $filteredChunk = [];
+                        foreach ($chunk as $row) {
+                            $filteredRow = array_intersect_key((array) $row, $dbColumns);
+                            if (!empty($filteredRow)) {
+                                $filteredChunk[] = $filteredRow;
+                            }
+                        }
+                        if (!empty($filteredChunk)) {
+                            \DB::table($tableName)->insert($filteredChunk);
+                        }
+                    }
+                }
+                $this->revertLogs[] = "- Table [{$tableName}] restored successfully.";
+            } else {
+                $this->revertLogs[] = "- Skipped [{$tableName}] (table does not exist in schema).";
+            }
+
+            $this->revertProgress = (int) round(5 + (($this->revertCurrentIndex / $totalTables) * 90));
+            $nextStep = $step + 1;
+            $this->js('$wire.executeRevertStep(' . $nextStep . ')');
+            return;
+        }
+
+        // Final Step: Complete restoration, sequences & re-enable constraints
+        $this->revertLogs[] = "- Synchronizing database sequences & role references...";
+
+        // Check condition_key fallback
+        if (\Schema::hasTable('account') && \Schema::hasTable('condition_key')) {
+            $missingRoles = \DB::table('account')
+                ->whereNotNull('account_role')
+                ->whereNotIn('account_role', \DB::table('condition_key')->pluck('id'))
+                ->pluck('account_role')
+                ->unique();
+
+            if ($missingRoles->isNotEmpty()) {
+                $firstModifierKey = \DB::table('condition_details')->value('key_id') ?: 1;
+                foreach ($missingRoles as $roleId) {
+                    try {
+                        \DB::table('condition_key')->insert([
+                            'id' => $roleId,
+                            'key_name' => "Role #{$roleId}",
+                            'modifier_key' => $firstModifierKey,
+                            'date_created' => now(),
+                            'date_updated' => now(),
+                        ]);
+                    } catch (\Throwable) {}
+                }
+            }
+        }
+
+        // Resync PostgreSQL sequences if applicable
+        if ($driver === 'pgsql') {
+            $seqTables = \DB::select("SELECT table_name FROM information_schema.tables WHERE table_schema = 'public' AND table_type = 'BASE TABLE'");
+            foreach ($seqTables as $st) {
+                $tbl = $st->table_name;
+                try {
+                    $columns = \Schema::getColumnListing($tbl);
+                    foreach ($columns as $col) {
+                        $seq = \DB::selectOne("SELECT pg_get_serial_sequence(?, ?) AS seq", ["\"{$tbl}\"", $col]);
+                        $seqName = $seq->seq ?? null;
+                        if ($seqName) {
+                            $maxId = \DB::table($tbl)->max($col) ?: 0;
+                            $seqVal = max(1, (int) $maxId);
+                            $isCalled = $maxId > 0;
+                            \DB::statement("SELECT setval(?, ?, ?)", [$seqName, $seqVal, $isCalled]);
+                        }
+                    }
+                } catch (\Throwable) {}
+            }
+        }
+
+        // Log action
+        try {
+            $adminId = auth()->id();
+            if (\Schema::hasTable('account') && (!$adminId || !\DB::table('account')->where('id', $adminId)->exists())) {
+                $adminId = \DB::table('account')->value('id');
+            }
+            $whatSystem = 3;
+            if (\Schema::hasTable('subsystems') && !\DB::table('subsystems')->where('subsystem_id', $whatSystem)->exists()) {
+                $whatSystem = \DB::table('subsystems')->value('subsystem_id');
+            }
+            if ($adminId && $whatSystem && \Schema::hasTable('admin_logs')) {
+                \DB::table('admin_logs')->insert([
+                    'changes' => "EMERGENCY REVERT PERFORMED: System database restored to target backup [{$this->revertTargetFilename}]",
+                    'admin_id' => $adminId,
+                    'what_system' => $whatSystem,
+                    'when_changes' => now(),
+                ]);
+            }
+        } catch (\Throwable) {}
+
+        // Re-enable constraints
+        if ($driver === 'pgsql') {
+            try {
+                \DB::statement("SET session_replication_role = 'origin';");
+            } catch (\Throwable) {}
+        } elseif ($driver === 'sqlite') {
+            \DB::statement('PRAGMA foreign_keys = ON;');
+        } elseif ($driver === 'mysql') {
+            \DB::statement('SET FOREIGN_KEY_CHECKS = 1;');
+        }
+
+        \Illuminate\Support\Facades\Cache::forget('rms_revert_payload_' . auth()->id());
+        $this->revertProgress = 100;
+        $this->revertLogs[] = "- System database successfully restored from [{$this->revertTargetFilename}] (100%)!";
+        $this->successMessage = "System successfully reverted to target backup [{$this->revertTargetFilename}]! All records have been restored.";
+        $this->isReverting = false;
+        $this->selectedTargetBackup = '';
+        $this->backupConfirmInput = '';
+        $this->checkBackups();
+    }
+
+    public function cancelRevert(): void
+    {
+        $this->isReverting = false;
+        \Illuminate\Support\Facades\Cache::forget('rms_revert_payload_' . auth()->id());
+        $this->errorMessage = 'Database revert operation was cancelled by administrator.';
     }
 
     public function deleteBackup(string $filename): void
@@ -1019,36 +1091,72 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Backup & Recovery Manage
     @vite(['resources/css/admin/activity_logs.css', 'resources/css/admin/subsystems.css'])
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css">
     <style>
+        /* Dark mode container & card backgrounds */
         [data-theme="dark"] div[style*="background: #ffffff"],
         [data-theme="dark"] div[style*="background:#ffffff"],
-        [data-theme="dark"] div[style*="background: white"] {
+        [data-theme="dark"] div[style*="background: white"],
+        [data-theme="dark"] div[style*="background:white"] {
             background-color: #131c2e !important;
             border-color: #1e293b !important;
             box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3) !important;
         }
+
+        /* Dark mode secondary backgrounds & filter bars */
+        [data-theme="dark"] div[style*="background: #f8fafc"],
+        [data-theme="dark"] div[style*="background:#f8fafc"] {
+            background-color: #0b1120 !important;
+            border-color: #1e293b !important;
+        }
+
+        /* Dark mode typography colors */
         [data-theme="dark"] h1[style*="color: #0f172a"],
         [data-theme="dark"] h2[style*="color: #0f172a"],
         [data-theme="dark"] h3[style*="color: #0f172a"],
-        [data-theme="dark"] h4[style*="color: #0f172a"] {
+        [data-theme="dark"] h4[style*="color: #0f172a"],
+        [data-theme="dark"] div[style*="color: #0f172a"],
+        [data-theme="dark"] span[style*="color: #0f172a"],
+        [data-theme="dark"] strong[style*="color: #0f172a"],
+        [data-theme="dark"] b[style*="color: #0f172a"],
+        [data-theme="dark"] td[style*="color: #0f172a"],
+        [data-theme="dark"] p[style*="color: #0f172a"] {
             color: #f8fafc !important;
         }
+
+        [data-theme="dark"] div[style*="color: #334155"],
+        [data-theme="dark"] span[style*="color: #334155"],
+        [data-theme="dark"] td[style*="color: #334155"],
+        [data-theme="dark"] label[style*="color: #334155"] {
+            color: #cbd5e1 !important;
+        }
+
         [data-theme="dark"] p[style*="color: #64748b"],
-        [data-theme="dark"] span[style*="color: #64748b"] {
+        [data-theme="dark"] span[style*="color: #64748b"],
+        [data-theme="dark"] div[style*="color: #64748b"],
+        [data-theme="dark"] td[style*="color: #64748b"] {
             color: #94a3b8 !important;
         }
-        [data-theme="dark"] div[style*="background: #f8fafc"],
-        [data-theme="dark"] div[style*="background:#f8fafc"] {
-            background-color: #0f172a !important;
-            border-color: #1e293b !important;
-        }
+
+        /* Dark mode inputs & selects */
         [data-theme="dark"] input[type="text"],
         [data-theme="dark"] select {
-            background-color: #0f172a !important;
+            background-color: #0b1120 !important;
             border-color: #334155 !important;
             color: #f8fafc !important;
         }
+        [data-theme="dark"] input[type="text"]::placeholder {
+            color: #64748b !important;
+        }
+
+        /* Dark mode table & cells */
+        [data-theme="dark"] table {
+            background-color: #131c2e !important;
+        }
         [data-theme="dark"] table thead tr {
-            background-color: #0f172a !important;
+            background-color: #0b1120 !important;
+            color: #94a3b8 !important;
+            border-bottom-color: #1e293b !important;
+        }
+        [data-theme="dark"] table thead th {
             color: #94a3b8 !important;
             border-bottom-color: #1e293b !important;
         }
@@ -1058,11 +1166,60 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Backup & Recovery Manage
         [data-theme="dark"] table tbody td {
             color: #cbd5e1 !important;
         }
-        [data-theme="dark"] table tbody tr:hover td {
-            background-color: #1a253c !important;
+        [data-theme="dark"] table tbody tr:hover td,
+        [data-theme="dark"] table tbody tr:hover {
+            background-color: #1e293b !important;
         }
+
+        /* Badges and pills */
+        [data-theme="dark"] span[style*="background: #f8fafc"],
+        [data-theme="dark"] span[style*="background:#f8fafc"] {
+            background-color: #0b1120 !important;
+            border-color: #1e293b !important;
+        }
+        [data-theme="dark"] span[style*="background: #fff7ed"],
+        [data-theme="dark"] span[style*="background:#fff7ed"] {
+            background-color: rgba(234, 88, 12, 0.15) !important;
+            color: #fb923c !important;
+            border-color: rgba(234, 88, 12, 0.3) !important;
+        }
+        [data-theme="dark"] span[style*="background: #f0fdf4"],
+        [data-theme="dark"] span[style*="background:#f0fdf4"] {
+            background-color: rgba(34, 197, 94, 0.15) !important;
+            color: #4ade80 !important;
+            border-color: rgba(34, 197, 94, 0.3) !important;
+        }
+
+        /* Pagination buttons */
+        [data-theme="dark"] button[style*="background: #ffffff"],
+        [data-theme="dark"] button[style*="background:#ffffff"] {
+            background-color: #1e293b !important;
+            border-color: #334155 !important;
+            color: #cbd5e1 !important;
+        }
+        [data-theme="dark"] button[style*="background: #f8fafc"],
+        [data-theme="dark"] button[style*="background:#f8fafc"] {
+            background-color: #0b1120 !important;
+            border-color: #1e293b !important;
+            color: #64748b !important;
+        }
+
+        /* Selective category labels in modal */
+        [data-theme="dark"] label[style*="background: #ffffff"],
+        [data-theme="dark"] label[style*="background:#ffffff"] {
+            background-color: #0b1120 !important;
+            border-color: #1e293b !important;
+        }
+
+        /* Dividers & Borders */
+        [data-theme="dark"] div[style*="border-bottom: 1px solid #f1f5f9"],
+        [data-theme="dark"] div[style*="border-top: 1px solid #f1f5f9"],
+        [data-theme="dark"] div[style*="border-bottom: 1px solid #e2e8f0"] {
+            border-color: #1e293b !important;
+        }
+
         [data-theme="dark"] code {
-            background: #0f172a !important;
+            background: #0b1120 !important;
             color: #60a5fa !important;
         }
     </style>
@@ -1229,10 +1386,22 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Backup & Recovery Manage
                 </thead>
                 <tbody>
                     @forelse ($paginatedList as $backup)
-                        <tr style="border-bottom: 1px solid #f1f5f9; transition: background 0.15s;" onmouseover="this.style.background='#f8fafc'" onmouseout="this.style.background='transparent'">
-                            <td style="padding: 14px 16px; font-weight: 700; color: #0f172a; font-family: monospace;">
-                                <i class="fa-solid fa-file-code" style="color: #64748b; margin-right: 8px;"></i>
-                                {{ $backup['filename'] }}
+                        <tr style="border-bottom: 1px solid #f1f5f9; transition: background 0.15s;">
+                            <td style="padding: 14px 16px;">
+                                @if(!empty($backup['custom_label']))
+                                    <div style="font-size: 14px; font-weight: 800; color: #0f172a; margin-bottom: 3px; display: flex; align-items: center; gap: 6px;">
+                                        <i class="fa-solid fa-tag" style="color: #2563eb; font-size: 12px;"></i>
+                                        <span>{{ $backup['custom_label'] }}</span>
+                                    </div>
+                                    <div style="font-size: 11px; color: #64748b; font-family: monospace;">
+                                        {{ $backup['filename'] }}
+                                    </div>
+                                @else
+                                    <div style="font-weight: 700; color: #0f172a; font-family: monospace; font-size: 13px;">
+                                        <i class="fa-solid fa-file-code" style="color: #64748b; margin-right: 6px;"></i>
+                                        {{ $backup['filename'] }}
+                                    </div>
+                                @endif
                             </td>
                             <td style="padding: 14px 16px;">
                                 <span style="display: inline-flex; align-items: center; gap: 6px; font-size: 11px; font-weight: 700; padding: 4px 10px; border-radius: 6px; {{ $backup['type_badge'] ?? '' }}">
@@ -1439,6 +1608,27 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Backup & Recovery Manage
                     </div>
                 </div>
 
+                <!-- Custom Backup Label / Name Input -->
+                <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 12px; padding: 14px 16px; margin-bottom: 18px;">
+                    <label style="display: block; font-size: 13px; font-weight: 700; color: #334155; margin-bottom: 6px;">
+                        <i class="fa-solid fa-tag" style="color: #2563eb; margin-right: 6px;"></i>
+                        Custom Backup Name / Label <span style="font-size: 11px; font-weight: 500; color: #64748b;">(Optional)</span>
+                    </label>
+                    <input 
+                        type="text" 
+                        wire:model.live.debounce.250ms="customBackupLabel" 
+                        placeholder="e.g. BACKUP for testing, Before 2026 Migration, Pre-update Snapshot" 
+                        style="width: 100%; padding: 9px 12px; border-radius: 8px; border: 1px solid #cbd5e1; font-size: 13px; background: #ffffff; color: #0f172a; outline: none; box-sizing: border-box;"
+                    >
+                    <div style="font-size: 11px; color: #64748b; margin-top: 5px;">
+                        @if(trim($customBackupLabel))
+                            File name preview: <code style="font-family: monospace; font-weight: 700; color: #2563eb; background: #eff6ff; padding: 2px 6px; border-radius: 4px;">[{{ preg_replace('/[\/\\\:\*\?"<>\|]/', '', trim($customBackupLabel)) }}]{{ $backupMode === 'selective' ? 'rms_backup_custom_' : 'rms_backup_full_' }}{{ date('Y-m-d_His') }}.json</code>
+                        @else
+                            File name preview: <code style="font-family: monospace; color: #64748b; background: #e2e8f0; padding: 2px 6px; border-radius: 4px;">{{ $backupMode === 'selective' ? 'rms_backup_custom_' : 'rms_backup_full_' }}{{ date('Y-m-d_His') }}.json</code>
+                        @endif
+                    </div>
+                </div>
+
                 <!-- Category Checkboxes (Only when Selective mode is active) -->
                 @if ($backupMode === 'selective')
                     <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 12px; padding: 16px; margin-bottom: 16px;">
@@ -1509,33 +1699,77 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Backup & Recovery Manage
                 All current database records will be replaced with data from this target backup file.
             </div>
 
-            <!-- Active Loading State Banner -->
-            <div wire:loading wire:target="revertToTargetBackup" style="background: #eff6ff; border: 1px solid #93c5fd; border-radius: 10px; padding: 14px 16px; font-size: 13px; color: #1e40af; margin-bottom: 16px; display: flex; align-items: center; gap: 12px; font-weight: 600;">
-                <i class="fa-solid fa-circle-notch fa-spin" style="font-size: 22px; color: #2563eb;"></i>
-                <div>
-                    <div>Database restoration in progress...</div>
-                    <div style="font-size: 11px; color: #3b82f6; font-weight: 400; margin-top: 2px;">Restoring tables and foreign key relations. Please do not close or refresh this page.</div>
-                </div>
-            </div>
-
             <div style="margin-bottom: 16px;">
                 <label style="display: block; font-size: 12px; font-weight: 700; color: #334155; margin-bottom: 6px;">
                     Type <span style="color: #ef4444; font-family: monospace;">REVERT</span> below to authorize:
                 </label>
-                <input type="text" wire:model="backupConfirmInput" wire:loading.attr="disabled" wire:target="revertToTargetBackup" placeholder="Type REVERT" style="width: 100%; padding: 10px 12px; border: 1px solid #cbd5e1; border-radius: 8px; font-size: 13px; font-family: monospace; font-weight: 700; color: #0f172a;">
+                <input type="text" wire:model="backupConfirmInput" placeholder="Type REVERT" style="width: 100%; padding: 10px 12px; border: 1px solid #cbd5e1; border-radius: 8px; font-size: 13px; font-family: monospace; font-weight: 700; color: #0f172a;">
             </div>
 
             <div style="display: flex; gap: 10px; justify-content: flex-end;">
-                <button type="button" wire:click="cancelRevertModal" wire:loading.attr="disabled" wire:target="revertToTargetBackup" style="background: #e2e8f0; color: #475569; border: none; padding: 10px 18px; border-radius: 8px; font-weight: 700; font-size: 13px; cursor: pointer;">
+                <button type="button" wire:click="cancelRevertModal" style="background: #e2e8f0; color: #475569; border: none; padding: 10px 18px; border-radius: 8px; font-weight: 700; font-size: 13px; cursor: pointer;">
                     Cancel
                 </button>
-                <button type="button" wire:click="revertToTargetBackup" wire:loading.attr="disabled" wire:target="revertToTargetBackup" style="background: #d97706; color: #ffffff; border: none; padding: 10px 20px; border-radius: 8px; font-weight: 700; font-size: 13px; cursor: pointer; display: inline-flex; align-items: center; gap: 8px; box-shadow: 0 4px 12px rgba(217, 119, 6, 0.3);">
-                    <i class="fa-solid fa-rotate-left" wire:loading.remove wire:target="revertToTargetBackup"></i>
-                    <i class="fa-solid fa-circle-notch fa-spin" wire:loading wire:target="revertToTargetBackup"></i>
-                    <span wire:loading.remove wire:target="revertToTargetBackup">Execute Target Revert</span>
-                    <span wire:loading wire:target="revertToTargetBackup">Reverting Database... Please wait</span>
+                <button type="button" wire:click="startRevertProcess" style="background: #d97706; color: #ffffff; border: none; padding: 10px 20px; border-radius: 8px; font-weight: 700; font-size: 13px; cursor: pointer; display: inline-flex; align-items: center; gap: 8px; box-shadow: 0 4px 12px rgba(217, 119, 6, 0.3);">
+                    <i class="fa-solid fa-rotate-left"></i>
+                    <span>Execute Target Revert</span>
                 </button>
             </div>
+        </div>
+    </div>
+    @endif
+
+    <!-- Live Step-by-Step Terminal Progress Modal for Database Reverting (Preload-style) -->
+    @if ($isReverting)
+    <div style="position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(15, 23, 42, 0.85); backdrop-filter: blur(6px); z-index: 99999; display: flex; align-items: center; justify-content: center; color: white; padding: 20px;">
+        <div style="background: #ffffff; color: #0f172a; padding: 28px 32px; border-radius: 16px; box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.45); width: 100%; max-width: 600px; border: 1px solid #cbd5e1; display: flex; flex-direction: column;">
+            
+            <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px;">
+                <div style="display: flex; align-items: center; gap: 10px;">
+                    <i class="fa-solid fa-rotate-left fa-spin" style="font-size: 22px; color: #d97706;"></i>
+                    <h4 style="font-size: 18px; font-weight: 800; margin: 0; color: #0f172a;">Reverting System Database</h4>
+                </div>
+                <span style="font-size: 14px; font-weight: 800; color: #d97706; background: #fffbeb; padding: 4px 12px; border-radius: 9999px; border: 1px solid #fde68a;">
+                    {{ $revertProgress }}%
+                </span>
+            </div>
+
+            <!-- Animated Progress Bar -->
+            <div style="width: 100%; background: #e2e8f0; height: 12px; border-radius: 9999px; overflow: hidden; margin-bottom: 14px; box-shadow: inset 0 1px 2px rgba(0,0,0,0.1);">
+                <div style="width: {{ $revertProgress }}%; background: linear-gradient(90deg, #d97706 0%, #f59e0b 100%); height: 100%; transition: width 0.3s ease-in-out; border-radius: 9999px;"></div>
+            </div>
+
+            <div style="font-size: 12px; font-weight: 600; color: #475569; margin-bottom: 10px; display: flex; justify-content: space-between;">
+                <span>Target Table: <strong style="color: #0f172a; font-family: monospace;">{{ $revertCurrentTable ?: 'Initializing...' }}</strong></span>
+                <span>({{ $revertCurrentIndex }} / {{ count($revertTablesList) }} Tables)</span>
+            </div>
+
+            <!-- Step-by-Step Live Terminal Console Output -->
+            <div x-data x-init="$nextTick(() => { $el.scrollTop = $el.scrollHeight })" x-effect="$nextTick(() => { $el.scrollTop = $el.scrollHeight })" style="background: #0f172a; color: #f59e0b; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; font-size: 11px; padding: 14px; border-radius: 10px; height: 190px; overflow-y: auto; text-align: left; line-height: 1.6; border: 1px solid #1e293b; margin-bottom: 18px;">
+                @foreach ($revertLogs as $log)
+                    <div style="margin-bottom: 4px; border-bottom: 1px solid rgba(255,255,255,0.05); padding-bottom: 2px;">
+                        @if (str_contains($log, 'success') || str_contains($log, '100%') || str_contains($log, 'restored successfully') || str_contains($log, 'records cleared') || str_contains($log, 'suspended'))
+                            <span style="color: #4ade80; font-weight: 600;">{{ $log }}</span>
+                        @elseif (str_contains($log, 'Initializing') || str_contains($log, 'Payload'))
+                            <span style="color: #38bdf8; font-weight: 700;">{{ $log }}</span>
+                        @elseif (str_contains($log, 'Restoring table'))
+                            <span style="color: #fde047;">{{ $log }}</span>
+                        @elseif (str_contains($log, 'Clearing') || str_contains($log, 'Skipped'))
+                            <span style="color: #fb7185;">{{ $log }}</span>
+                        @elseif (str_contains($log, 'Synchronizing') || str_contains($log, 'Disabling'))
+                            <span style="color: #a78bfa;">{{ $log }}</span>
+                        @elseif (str_contains($log, 'Notice') || str_contains($log, 'Error') || str_contains($log, 'failed'))
+                            <span style="color: #ef4444; font-weight: 700;">{{ $log }}</span>
+                        @else
+                            <span style="color: #94a3b8;">{{ $log }}</span>
+                        @endif
+                    </div>
+                @endforeach
+            </div>
+
+            <button type="button" wire:click="cancelRevert" onclick="window.stop(); window.location.reload();" style="width: 100%; background: #ef4444; color: #ffffff; border: none; padding: 10px 20px; border-radius: 8px; font-weight: 700; font-size: 13px; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; gap: 8px; transition: all 0.2s; box-shadow: 0 4px 12px rgba(239, 68, 68, 0.25);">
+                <i class="fa-solid fa-circle-stop"></i> Emergency Cancel Process
+            </button>
         </div>
     </div>
     @endif

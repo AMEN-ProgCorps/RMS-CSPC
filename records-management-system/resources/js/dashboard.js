@@ -199,26 +199,66 @@ function setupIconModeInteractions() {
                 const menuList = document.createElement('div');
                 menuList.className = 'flyout-menu-list';
 
-                subButtons.forEach(sub => {
-                    const subText = sub.textContent.trim();
-                    const isActive = sub.classList.contains('force-active');
-                    const onclickAttr = sub.getAttribute('onclick') || '';
+                const treeGroups = functionsContainer ? functionsContainer.querySelectorAll('.nav-tree-group') : [];
 
-                    const item = document.createElement('div');
-                    item.className = `flyout-item ${isActive ? 'force-active' : ''}`;
-                    item.textContent = subText;
+                if (treeGroups && treeGroups.length > 0) {
+                    treeGroups.forEach(group => {
+                        const groupTitleEl = group.querySelector('.nav-tree-title');
+                        const groupName = group.dataset.groupName || (groupTitleEl ? groupTitleEl.textContent.trim() : '');
+                        const groupButtons = group.querySelectorAll('.function-button');
 
-                    item.addEventListener('click', () => {
-                        closeNavFlyout();
+                        if (groupButtons.length > 0) {
+                            if (groupName) {
+                                const groupHeader = document.createElement('div');
+                                groupHeader.className = 'flyout-group-title';
+                                groupHeader.textContent = groupName.toUpperCase();
+                                menuList.appendChild(groupHeader);
+                            }
 
-                        const urlMatch = onclickAttr.match(/proccedto\('([^']+)'\)/);
-                        if (urlMatch && urlMatch[1]) {
-                            proccedto(urlMatch[1]);
+                            groupButtons.forEach(sub => {
+                                const subText = sub.textContent.trim();
+                                const isActive = sub.classList.contains('force-active');
+                                const onclickAttr = sub.getAttribute('onclick') || '';
+
+                                const item = document.createElement('div');
+                                item.className = `flyout-item ${isActive ? 'force-active' : ''}`;
+                                item.textContent = subText;
+
+                                item.addEventListener('click', () => {
+                                    closeNavFlyout();
+
+                                    const urlMatch = onclickAttr.match(/proccedto\('([^']+)'\)/);
+                                    if (urlMatch && urlMatch[1]) {
+                                        proccedto(urlMatch[1]);
+                                    }
+                                });
+
+                                menuList.appendChild(item);
+                            });
                         }
                     });
+                } else {
+                    subButtons.forEach(sub => {
+                        const subText = sub.textContent.trim();
+                        const isActive = sub.classList.contains('force-active');
+                        const onclickAttr = sub.getAttribute('onclick') || '';
 
-                    menuList.appendChild(item);
-                });
+                        const item = document.createElement('div');
+                        item.className = `flyout-item ${isActive ? 'force-active' : ''}`;
+                        item.textContent = subText;
+
+                        item.addEventListener('click', () => {
+                            closeNavFlyout();
+
+                            const urlMatch = onclickAttr.match(/proccedto\('([^']+)'\)/);
+                            if (urlMatch && urlMatch[1]) {
+                                proccedto(urlMatch[1]);
+                            }
+                        });
+
+                        menuList.appendChild(item);
+                    });
+                }
 
                 flyout.appendChild(header);
                 flyout.appendChild(menuList);
@@ -324,7 +364,9 @@ window.setupIconModeInteractions = setupIconModeInteractions;
     // Storage event fallback (guarantees cross-tab and cross-window sync)
     window.addEventListener('storage', (e) => {
         if (e.key === 'rms-theme' && e.newValue) {
-            document.documentElement.setAttribute('data-theme', e.newValue);
+            if (!document.querySelector('meta[name="rms-portal"]')) {
+                document.documentElement.setAttribute('data-theme', e.newValue);
+            }
         }
         if (e.key === STORAGE_KEY && e.newValue) {
             try {
@@ -372,8 +414,10 @@ window.setupIconModeInteractions = setupIconModeInteractions;
         lastHandledEventId = data.id;
 
         if (data.type === 'theme_change') {
-            const currentTheme = localStorage.getItem('rms-theme') || 'light';
-            document.documentElement.setAttribute('data-theme', currentTheme);
+            if (!document.querySelector('meta[name="rms-portal"]')) {
+                const currentTheme = localStorage.getItem('rms-theme') || 'light';
+                document.documentElement.setAttribute('data-theme', currentTheme);
+            }
         }
 
         showRefreshCountdownBanner(data, isInitiator);

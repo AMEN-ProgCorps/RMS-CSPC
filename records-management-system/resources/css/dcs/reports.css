@@ -443,15 +443,20 @@ body {
     border: 1px solid #d1d5db;
 }
 
-/* ── Filter Drawer Panel (filter-panel partial) ── */
+/* ── Filter Drawer Panel (right side, same pattern as Database) ── */
+.rpt-filter-portal {
+    position: relative;
+    z-index: 60000;
+}
+
 .rpt-filter-overlay {
     position: fixed;
     inset: 0;
-    background: rgba(15, 23, 42, 0.35);
+    background: rgba(15, 23, 42, 0.4);
     opacity: 0;
     visibility: hidden;
     transition: opacity 0.2s ease, visibility 0.2s ease;
-    z-index: 9998;
+    z-index: 60000;
 }
 .rpt-filter-overlay.visible {
     opacity: 1;
@@ -462,16 +467,21 @@ body {
     position: fixed !important;
     top: 0 !important;
     right: 0 !important;
+    left: auto !important;
     bottom: 0 !important;
-    width: 340px !important;
-    max-width: 90vw !important;
+    width: 380px !important;
+    max-width: 95vw !important;
+    max-height: none;
+    height: 100%;
     background: #fff;
-    box-shadow: -8px 0 24px rgba(15, 23, 42, 0.12);
+    box-shadow: -4px 0 24px rgba(0, 0, 0, 0.15);
     display: flex;
     flex-direction: column;
-    z-index: 9999 !important;
+    z-index: 60001 !important;
     transform: translateX(100%);
-    transition: transform 0.25s cubic-bezier(0.4, 0, 0.2, 1) !important;
+    transition: transform 0.25s ease !important;
+    border-bottom: none;
+    border-left: 1px solid var(--rpt-border);
 }
 .rpt-filter-panel.open {
     transform: translateX(0) !important;
@@ -740,6 +750,38 @@ body {
     color: var(--rpt-text-secondary);
 }
 
+.opcr-days-td {
+    width: 72px;
+    max-width: 80px;
+    white-space: nowrap;
+    text-align: center;
+    font-weight: 600;
+    font-size: 0.82rem;
+}
+
+.opcr-remarks-td {
+    min-width: 220px;
+    width: 28%;
+}
+
+.opcr-remarks-input {
+    width: 100%;
+    min-width: 180px;
+    padding: 6px 8px;
+    border: 1.5px solid var(--rpt-border);
+    border-radius: 6px;
+    font-family: inherit;
+    font-size: 0.82rem;
+    color: var(--rpt-text);
+    background: #fff;
+}
+
+.opcr-remarks-input:focus {
+    outline: none;
+    border-color: var(--rpt-accent);
+    box-shadow: 0 0 0 3px rgba(13, 42, 122, 0.07);
+}
+
 /* ── Print ── */
 @media print {
     body { background: #fff; }
@@ -865,10 +907,10 @@ body {
         padding: 5px 6px;
     }
 
-    /* Filter drawer — full width */
+    /* Filter drawer — full width on small screens (same as Database) */
     .rpt-filter-panel {
         width: 100% !important;
-        max-width: 100% !important;
+        max-width: 100vw !important;
     }
     .rpt-filter-form {
         padding: 14px 16px;
@@ -1660,4 +1702,86 @@ body {
     .mon-table {
         min-width: 0;
     }
+}
+
+.mon-table-wrap--simple {
+    border: 1px solid var(--rpt-border);
+    border-radius: var(--rpt-radius);
+}
+
+.mon-table--simple {
+    min-width: 960px;
+}
+
+.mon-table--simple td,
+.mon-table--simple tfoot td {
+    background: #fff;
+    border: 1px solid var(--rpt-border, #e2e8f0);
+}
+
+.mon-table--simple tbody tr:hover td {
+    background: #f8fafc;
+}
+
+.mon-table--simple .mon-sticky {
+    background: #fff;
+    color: var(--rpt-text, #0f172a);
+}
+
+.mon-table--simple thead tr.mon-head-primary th {
+    background: #0d2a7a;
+    color: #fff;
+    border-color: #0a1f5c;
+    font-size: 0.72rem;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+}
+
+.mon-table--simple thead tr.mon-head-secondary th {
+    background: #1e3a6e;
+    color: #fff;
+    border-color: #0a1f5c;
+    font-size: 0.68rem;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+}
+
+.mon-table--simple thead tr.mon-leaf th {
+    background: #fff;
+    color: #0f172a;
+    border: 1px solid var(--rpt-border, #e2e8f0);
+    font-size: 0.68rem;
+    letter-spacing: 0.02em;
+    text-transform: none;
+}
+
+.mon-table--simple thead .mon-sticky {
+    background: #0d2a7a;
+    color: #fff;
+    z-index: 6;
+}
+
+.mon-group-toggle {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    background: none;
+    border: none;
+    padding: 0;
+    font: inherit;
+    font-weight: 700;
+    color: var(--rpt-accent);
+    cursor: pointer;
+}
+
+.mon-group-toggle:hover {
+    text-decoration: underline;
+}
+
+.mon-group-toggle--inverse {
+    color: #fff;
+}
+
+.mon-group-toggle--inverse:hover {
+    color: #dbeafe;
 }

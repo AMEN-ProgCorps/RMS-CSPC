@@ -7,10 +7,19 @@ use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Facades\Storage;
 
 class RegisterUpdateHelper
 {
+    /** Build a real RedirectResponse (avoid Livewire's redirect() Redirector). */
+    private static function flashRedirect(string $route, string $type, string $message, array $params = []): RedirectResponse
+    {
+        session()->flash($type, $message);
+
+        return new RedirectResponse(route($route, $params, false));
+    }
+
     public static function update(Request $request, int $id): RedirectResponse
     {
         RegisterPersistHelper::blankStringsToNull($request);
@@ -27,14 +36,12 @@ class RegisterUpdateHelper
             return $redirect;
         }
 
-        $docRequest = DB::table('dcs_document_requests')->where('id', $id)->first();
+        $docRequest = RegisterQueryHelper::findDocumentRequest($id);
         abort_unless($docRequest, 404);
 
         $ml = DB::table('dcs_masterlist_registration')->where('request_id', $id)->first();
-        if ($ml && $ml->doc_no && ($ml->revision_status ?? 'latest') !== 'latest') {
-            return redirect()->route('dcs.register.update')
-                ->with('error', 'Only the latest revision can be edited.');
-        }
+        $editingObsolete = $ml && $ml->doc_no
+            && strtolower(trim((string) ($ml->revision_status ?? ''))) === 'obsolete';
 
         $previousDocNo = $ml?->doc_no ?? null;
 
@@ -186,6 +193,7 @@ class RegisterUpdateHelper
                     'dcn_receipt_time' => $request->receiptTime,
                     'office_id' => $firstDcnOffice ?: null,
                     'scanned_dcn' => $dcnFile,
+                    'brief_purpose' => $request->dcnJustification,
                     'updated_at' => $now,
                 ];
                 if ($dcn) {
@@ -267,10 +275,21 @@ class RegisterUpdateHelper
                     'no_pages' => $request->masterlistNoOfPages,
                     'originator_name' => $request->masterlistOriginator,
                     'deadline' => $request->deadlineOfSubmission,
-                    'brief_purpose' => $request->briefPurpose,
                     'scanned_masterlist' => $masterlistFile,
                     'updated_at' => $now,
                 ];
+                $keywordVal = $request->keywords ?? $request->briefPurpose;
+                if (Schema::hasColumn('dcs_masterlist_registration', 'keywords')) {
+                    $masterlistData['keywords'] = $keywordVal;
+                } else {
+                    $masterlistData['brief_purpose'] = $keywordVal;
+                }
+                if ($previousDocNo
+                    && $request->masterlistDocNo
+                    && strcasecmp($previousDocNo, trim((string) $request->masterlistDocNo)) !== 0
+                    && Schema::hasColumn('dcs_masterlist_registration', 'revised_from_doc_no')) {
+                    $masterlistData['revised_from_doc_no'] = $previousDocNo;
+                }
                 if ($masterlist) {
                     DB::table('dcs_masterlist_registration')->where('id', $masterlist->id)->update($masterlistData);
                     $masterlistId = $masterlist->id;
@@ -328,10 +347,15 @@ class RegisterUpdateHelper
                     'revise_no' => $masterlist?->revise_no ?? $request->masterlistRevisionNo ?? 0,
                     'no_pages' => $totalPages,
                     'originator_name' => $request->masterlistOriginator,
-                    'brief_purpose' => $request->briefPurpose,
                     'scanned_masterlist' => $masterlistFile,
                     'updated_at' => $now,
                 ];
+                $syllabiKeywordVal = $request->keywords ?? $request->briefPurpose;
+                if (Schema::hasColumn('dcs_masterlist_registration', 'keywords')) {
+                    $masterlistData['keywords'] = $syllabiKeywordVal;
+                } else {
+                    $masterlistData['brief_purpose'] = $syllabiKeywordVal;
+                }
                 if ($masterlist) {
                     DB::table('dcs_masterlist_registration')->where('id', $masterlist->id)->update($masterlistData);
                     $masterlistId = $masterlist->id;
@@ -404,11 +428,18 @@ class RegisterUpdateHelper
                         if ($oid <= 0) {
                             continue;
                         }
-                        DB::table('dcs_retrieval_offices')->insert([
+                        $retrievalOfficeRow = [
                             'retrieval_id' => $retrievalId,
                             'office_id' => $oid,
                             'copies' => $request->retrievalCopies[$i] ?? 1,
-                        ]);
+                            'retrieval_status' => Schema::hasColumn('dcs_retrieval_offices', 'retrieval_status')
+                                ? ($request->input('retrievalStatus')[$i] ?? 'pending')
+                                : null,
+                        ];
+                        if (Schema::hasColumn('dcs_retrieval_offices', 'retrieval_date')) {
+                            $retrievalOfficeRow['retrieval_date'] = $request->input('retrievalOfficeDate')[$i] ?? null;
+                        }
+                        DB::table('dcs_retrieval_offices')->insert($retrievalOfficeRow);
                     }
                 }
             }
@@ -476,7 +507,16 @@ class RegisterUpdateHelper
 
             $savedMl = DB::table('dcs_masterlist_registration')->where('request_id', $requestId)->first();
             if ($savedMl) {
-                RegisterPersistHelper::syncRevisionStatusForMasterlist((int) $savedMl->id);
+                if ($editingObsolete) {
+                    // Keep the current tip as latest; do not promote this obsolete row.
+                    RegisterPersistHelper::promoteLatestForDoc(
+                        (string) $savedMl->doc_no,
+                        (int) $docRequest->doc_type_id,
+                        $docRequest->sub_type_id ? (int) $docRequest->sub_type_id : null
+                    );
+                } else {
+                    RegisterPersistHelper::syncRevisionStatusForMasterlist((int) $savedMl->id);
+                }
             }
             if ($previousDocNo && $savedMl && $previousDocNo !== $savedMl->doc_no) {
                 RegisterPersistHelper::promoteLatestForDoc(
@@ -508,18 +548,91 @@ class RegisterUpdateHelper
 
     public static function destroy(int $id): RedirectResponse
     {
-        $docRequest = DB::table('dcs_document_requests')->where('id', $id)->first();
+        if (!RegisterQueryHelper::supportsSoftDelete()) {
+            return self::flashRedirect(
+                'dcs.register.update',
+                'error',
+                'Recycle bin requires a pending database migration. Run php artisan migrate.'
+            );
+        }
+
+        $docRequest = RegisterQueryHelper::findDocumentRequest($id);
         abort_unless($docRequest, 404);
 
         $ml = DB::table('dcs_masterlist_registration')->where('request_id', $id)->first();
         if ($ml && $ml->doc_no && ($ml->revision_status ?? 'latest') !== 'latest') {
-            return redirect()->route('dcs.register.update')
-                ->with('error', 'Only the latest revision can be deleted.');
+            return self::flashRedirect(
+                'dcs.register.update',
+                'error',
+                'Only the latest revision can be deleted.'
+            );
         }
 
         $promoteDocNo = $ml?->doc_no ?? null;
         $promoteTypeId = (int) $docRequest->doc_type_id;
         $promoteSubTypeId = $docRequest->sub_type_id ? (int) $docRequest->sub_type_id : null;
+
+        DB::beginTransaction();
+        try {
+            $now = now();
+            $update = ['deleted_at' => $now, 'updated_at' => $now];
+            if (Schema::hasColumn('dcs_document_requests', 'deleted_by')) {
+                $update['deleted_by'] = auth()->id();
+            }
+            DB::table('dcs_document_requests')->where('id', $id)->update($update);
+
+            if ($promoteDocNo) {
+                RegisterPersistHelper::promoteLatestForDoc($promoteDocNo, $promoteTypeId, $promoteSubTypeId);
+            }
+
+            DB::commit();
+
+            return self::flashRedirect(
+                'dcs.register.update',
+                'success',
+                'Document moved to the recycle bin.'
+            );
+        } catch (\Throwable $e) {
+            DB::rollBack();
+            $refId = uniqid('err_');
+            Log::error("Document soft-delete failed [{$refId}]: " . $e->getMessage());
+
+            return self::flashRedirect(
+                'dcs.register.update',
+                'error',
+                'Failed to delete document. Please try again. (ref: ' . $refId . ')'
+            );
+        }
+    }
+
+    public static function restore(int $id): RedirectResponse
+    {
+        $docRequest = RegisterQueryHelper::findTrashedDocumentRequest($id);
+        abort_unless($docRequest, 404);
+
+        $ml = DB::table('dcs_masterlist_registration')->where('request_id', $id)->first();
+        $now = now();
+        $update = ['deleted_at' => null, 'updated_at' => $now];
+        if (Schema::hasColumn('dcs_document_requests', 'deleted_by')) {
+            $update['deleted_by'] = null;
+        }
+        DB::table('dcs_document_requests')->where('id', $id)->update($update);
+
+        if ($ml) {
+            RegisterPersistHelper::syncRevisionStatusForMasterlist((int) $ml->id);
+        }
+
+        return self::flashRedirect(
+            'dcs.recycle-bin',
+            'success',
+            'Document restored successfully.'
+        );
+    }
+
+    public static function permanentDestroy(int $id): RedirectResponse
+    {
+        $docRequest = RegisterQueryHelper::findTrashedDocumentRequest($id);
+        abort_unless($docRequest, 404);
 
         DB::beginTransaction();
         $filesToDelete = [];
@@ -584,11 +697,8 @@ class RegisterUpdateHelper
             }
 
             DB::table('dcs_approval_records')->where('request_id', $id)->delete();
+            DB::table('dcs_opcr_ratings')->where('request_id', $id)->delete();
             DB::table('dcs_document_requests')->where('id', $id)->delete();
-
-            if ($promoteDocNo) {
-                RegisterPersistHelper::promoteLatestForDoc($promoteDocNo, $promoteTypeId, $promoteSubTypeId);
-            }
 
             DB::commit();
             StampBackupService::pruneOrphans();
@@ -597,14 +707,21 @@ class RegisterUpdateHelper
                 Storage::disk('public')->delete($file);
             }
 
-            return redirect()->route('dcs.register.update')
-                ->with('success', 'Document deleted successfully!');
+            return self::flashRedirect(
+                'dcs.recycle-bin',
+                'success',
+                'Document permanently deleted.'
+            );
         } catch (\Throwable $e) {
             DB::rollBack();
             $refId = uniqid('err_');
-            Log::error("Document deletion failed [{$refId}]: " . $e->getMessage());
+            Log::error("Document permanent deletion failed [{$refId}]: " . $e->getMessage());
 
-            return back()->with('error', 'Failed to delete document. Please try again. (ref: ' . $refId . ')');
+            return self::flashRedirect(
+                'dcs.recycle-bin',
+                'error',
+                'Failed to permanently delete document. Please try again. (ref: ' . $refId . ')'
+            );
         }
     }
 

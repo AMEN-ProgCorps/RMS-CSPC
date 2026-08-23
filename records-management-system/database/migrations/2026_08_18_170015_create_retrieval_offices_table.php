@@ -17,6 +17,8 @@ return new class extends Migration
             $table->unsignedInteger('office_id');
             $table->foreign('office_id')->references('id')->on('office');
             $table->integer('copies')->nullable();
+            $table->string('retrieval_status', 20)->default('pending');
+            $table->date('retrieval_date')->nullable();
         });
     }
 

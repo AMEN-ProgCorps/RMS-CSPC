@@ -45,7 +45,7 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
     }
 }; ?>
 
-<main class="rpt-page" id="rptPage">
+<main class="rpt-page" id="rptPage" x-data="{ openDetail: true }">
     <header class="rpt-hdr">
         <div>
             <div class="rpt-crumb">Document Control System / Generate Report /<span> Syllabi &amp; TOS/Rubrics</span></div>
@@ -112,20 +112,24 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                 </div>
             </div>
 
-            <div class="rpt-table-scroll mon-table-wrap">
-                <table class="rpt-table mon-table">
+            <div class="rpt-table-scroll mon-table-wrap mon-table-wrap--simple">
+                <table class="rpt-table mon-table mon-table--simple">
                     <thead>
-                        <tr>
+                        <tr class="mon-head-primary">
                             <th class="mon-sticky" rowspan="3">Programs</th>
-                            <th colspan="15">SYLLABI</th>
+                            <th colspan="15">
+                                <button type="button" class="mon-group-toggle mon-group-toggle--inverse" @click="openDetail = !openDetail">
+                                    <span x-text="openDetail ? '▼' : '▶'"></span> SYLLABI
+                                </button>
+                            </th>
                             <th colspan="3">TOS/RUBRICS</th>
                         </tr>
-                        <tr>
+                        <tr class="mon-head-secondary" x-show="openDetail" x-cloak>
                             <th colspan="8">SYLLABI</th>
                             <th colspan="7">DOCUMENT REQUEST FORM</th>
-                            <th colspan="3" class="mon-tos-group">TOS/RUBRICS</th>
+                            <th colspan="3"></th>
                         </tr>
-                        <tr class="mon-leaf">
+                        <tr class="mon-leaf" x-show="openDetail" x-cloak>
                             <th>Syllabi</th>
                             <th>Target</th>
                             <th>Actual</th>
@@ -151,32 +155,33 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                             <tr>
                                 <td class="mon-sticky mon-program" title="{{ $row['program_name'] }}">{{ $row['program_code'] }}</td>
                                 <td class="mon-ratio">{{ $row['syllabi_label'] }}</td>
-                                <td>{{ $row['syllabi_target'] }}</td>
-                                <td>{{ $row['syllabi_actual'] }}</td>
-                                <td>@include('pages.dcs.reports._pct', ['pct' => $row['syllabi_pct']])</td>
-                                <td class="mon-list">
+                                <td class="mon-ratio" x-show="!openDetail" x-cloak>{{ $row['drf_label'] }}</td>
+                                <td x-show="openDetail">{{ $row['syllabi_target'] }}</td>
+                                <td x-show="openDetail">{{ $row['syllabi_actual'] }}</td>
+                                <td x-show="openDetail">@include('pages.dcs.reports._pct', ['pct' => $row['syllabi_pct']])</td>
+                                <td x-show="openDetail" class="mon-list">
                                     @forelse($row['syllabi_lacking_names'] as $course)
                                         <div>{{ $course }}</div>
                                     @empty
                                         <span class="rpt-na">—</span>
                                     @endforelse
                                 </td>
-                                <td>{{ $row['submission_dates'] !== '' ? $row['submission_dates'] : '—' }}</td>
-                                <td>{{ $row['effectivity_date'] !== '' ? $row['effectivity_date'] : '—' }}</td>
-                                <td>{{ $row['released_date'] !== '' ? $row['released_date'] : '—' }}</td>
-                                <td class="mon-ratio">{{ $row['drf_label'] }}</td>
-                                <td>{{ $row['drf_target'] }}</td>
-                                <td>{{ $row['drf_actual'] }}</td>
-                                <td>@include('pages.dcs.reports._pct', ['pct' => $row['drf_pct']])</td>
-                                <td class="mon-list">
+                                <td x-show="openDetail">{{ $row['submission_dates'] !== '' ? $row['submission_dates'] : '—' }}</td>
+                                <td x-show="openDetail">{{ $row['effectivity_date'] !== '' ? $row['effectivity_date'] : '—' }}</td>
+                                <td x-show="openDetail">{{ $row['released_date'] !== '' ? $row['released_date'] : '—' }}</td>
+                                <td x-show="openDetail" class="mon-ratio">{{ $row['drf_label'] }}</td>
+                                <td x-show="openDetail">{{ $row['drf_target'] }}</td>
+                                <td x-show="openDetail">{{ $row['drf_actual'] }}</td>
+                                <td x-show="openDetail">@include('pages.dcs.reports._pct', ['pct' => $row['drf_pct']])</td>
+                                <td x-show="openDetail" class="mon-list">
                                     @forelse($row['drf_lacking_names'] as $course)
                                         <div>{{ $course }}</div>
                                     @empty
                                         <span class="rpt-na">—</span>
                                     @endforelse
                                 </td>
-                                <td>{{ $row['drf_received'] !== '' ? $row['drf_received'] : '—' }}</td>
-                                <td>
+                                <td x-show="openDetail">{{ $row['drf_received'] !== '' ? $row['drf_received'] : '—' }}</td>
+                                <td x-show="openDetail">
                                     <select class="mon-remark mon-remark-{{ $row['syllabi_status'] ?: 'empty' }}"
                                         wire:change="saveRemark({{ $row['program_id'] }}, 'syllabi', $event.target.value)">
                                         <option value="">Select</option>
@@ -208,19 +213,21 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                             <tr>
                                 <td class="mon-sticky">Total</td>
                                 <td class="mon-ratio">{{ $report['totals']['syllabi_actual'] }} / {{ $report['totals']['syllabi_target'] }}</td>
-                                <td>{{ $report['totals']['syllabi_target'] }}</td>
-                                <td>{{ $report['totals']['syllabi_actual'] }}</td>
-                                <td>@include('pages.dcs.reports._pct', ['pct' => $report['totals']['syllabi_pct']])</td>
-                                <td>{{ $report['totals']['syllabi_lacking'] }}</td>
-                                <td colspan="3"></td>
-                                <td class="mon-ratio">{{ $report['totals']['drf_actual'] }} / {{ $report['totals']['drf_target'] }}</td>
-                                <td>{{ $report['totals']['drf_target'] }}</td>
-                                <td>{{ $report['totals']['drf_actual'] }}</td>
-                                <td>@include('pages.dcs.reports._pct', ['pct' => $report['totals']['drf_pct']])</td>
-                                <td>{{ $report['totals']['drf_lacking'] }}</td>
-                                <td colspan="2"></td>
+                                <td class="mon-ratio" x-show="!openDetail" x-cloak>{{ $report['totals']['drf_actual'] }} / {{ $report['totals']['drf_target'] }}</td>
+                                <td x-show="openDetail">{{ $report['totals']['syllabi_target'] }}</td>
+                                <td x-show="openDetail">{{ $report['totals']['syllabi_actual'] }}</td>
+                                <td x-show="openDetail">@include('pages.dcs.reports._pct', ['pct' => $report['totals']['syllabi_pct']])</td>
+                                <td x-show="openDetail">{{ $report['totals']['syllabi_lacking'] }}</td>
+                                <td x-show="openDetail" colspan="3"></td>
+                                <td x-show="openDetail" class="mon-ratio">{{ $report['totals']['drf_actual'] }} / {{ $report['totals']['drf_target'] }}</td>
+                                <td x-show="openDetail">{{ $report['totals']['drf_target'] }}</td>
+                                <td x-show="openDetail">{{ $report['totals']['drf_actual'] }}</td>
+                                <td x-show="openDetail">@include('pages.dcs.reports._pct', ['pct' => $report['totals']['drf_pct']])</td>
+                                <td x-show="openDetail">{{ $report['totals']['drf_lacking'] }}</td>
+                                <td x-show="openDetail" colspan="2"></td>
                                 <td class="mon-ratio">{{ $report['totals']['tos_actual'] }} / {{ $report['totals']['tos_target'] }}</td>
-                                <td colspan="2"></td>
+                                <td></td>
+                                <td></td>
                             </tr>
                         </tfoot>
                     @endif

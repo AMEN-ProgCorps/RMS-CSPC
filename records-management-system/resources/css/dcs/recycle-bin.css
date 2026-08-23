@@ -1,0 +1,539 @@
+@import './tokens.css';
+
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+body {
+    display: flex;
+    flex-direction: column;
+    height: 100vh;
+    background: var(--rb-bg, #f1f5f9);
+}
+
+.rb-container {
+    position: fixed;
+    top: var(--dcs-header-height, 70px);
+    left: var(--dcs-sidebar, 260px);
+    right: 0;
+    bottom: 0;
+    padding: var(--dcs-page-pad, 24px);
+    overflow-y: auto;
+    transition: left 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.rb-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-end;
+    gap: 16px;
+    margin-bottom: 20px;
+}
+
+.rb-title-wrap {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+}
+
+.rb-title-icon {
+    width: 48px;
+    height: 48px;
+    border-radius: 14px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: linear-gradient(135deg, #ecfdf5 0%, #d1fae5 100%);
+    color: #047857;
+    font-size: 1.2rem;
+    border: 1px solid #a7f3d0;
+}
+
+.rb-title {
+    font-size: var(--dcs-title-size, 1.5rem);
+    font-weight: 800;
+    color: var(--rb-text, #0f172a);
+    letter-spacing: -0.02em;
+}
+
+.rb-subtitle {
+    margin-top: 2px;
+    font-size: 0.82rem;
+    color: var(--rb-text-muted, #64748b);
+}
+
+.rb-header-actions {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.rb-count-badge,
+.rb-back-link {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 14px;
+    border-radius: 999px;
+    font-size: 0.78rem;
+    font-weight: 650;
+    text-decoration: none;
+    transition: all 0.2s ease;
+}
+
+.rb-count-badge {
+    background: #fff;
+    border: 1px solid var(--rb-border, #e2e8f0);
+    color: var(--rb-text-muted, #64748b);
+}
+
+.rb-back-link {
+    background: var(--rb-accent, #0d2a7a);
+    color: #fff;
+}
+
+.rb-back-link:hover {
+    background: #0a2163;
+}
+
+.rb-callout {
+    display: flex;
+    gap: 14px;
+    align-items: flex-start;
+    padding: 14px 16px;
+    margin-bottom: 18px;
+    border-radius: 12px;
+    border: 1px solid #bfdbfe;
+    background: linear-gradient(180deg, #eff6ff 0%, #f8fafc 100%);
+}
+
+.rb-callout-icon {
+    width: 36px;
+    height: 36px;
+    border-radius: 10px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: #dbeafe;
+    color: #1d4ed8;
+    flex-shrink: 0;
+}
+
+.rb-callout-text strong {
+    display: block;
+    font-size: 0.84rem;
+    color: #1e3a8a;
+    margin-bottom: 4px;
+}
+
+.rb-callout-text p {
+    font-size: 0.78rem;
+    line-height: 1.5;
+    color: #475569;
+}
+
+.rb-search-bar {
+    display: flex;
+    gap: 12px;
+    margin-bottom: 16px;
+}
+
+.rb-search-wrapper {
+    position: relative;
+    flex: 1;
+}
+
+.rb-search-wrapper i {
+    position: absolute;
+    left: 14px;
+    top: 50%;
+    transform: translateY(-50%);
+    color: #94a3b8;
+    font-size: 0.85rem;
+    pointer-events: none;
+}
+
+.rb-search-input {
+    width: 100%;
+    height: 42px;
+    border: 1.5px solid var(--rb-border, #e2e8f0);
+    border-radius: 10px;
+    padding: 0 14px 0 38px;
+    font-size: 0.85rem;
+    color: var(--rb-text, #0f172a);
+    background: #fff;
+    outline: none;
+    transition: all 0.2s ease;
+}
+
+.rb-search-input:focus {
+    border-color: var(--rb-accent, #0d2a7a);
+    box-shadow: 0 0 0 3px rgba(13, 42, 122, 0.08);
+}
+
+.rb-table-card {
+    background: #fff;
+    border: 1px solid var(--rb-border, #e2e8f0);
+    border-radius: 14px;
+    box-shadow: 0 10px 30px rgba(15, 23, 42, 0.05);
+    overflow: hidden;
+}
+
+.rb-table {
+    width: 100%;
+    border-collapse: collapse;
+}
+
+.rb-table thead {
+    background: linear-gradient(180deg, #0d2a7a 0%, #12358f 100%);
+}
+
+.rb-table thead th {
+    color: #fff;
+    font-size: 0.72rem;
+    font-weight: 600;
+    padding: 12px 18px;
+    text-align: left;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+    white-space: nowrap;
+}
+
+.rb-table tbody tr {
+    border-bottom: 1px solid var(--rb-border, #e2e8f0);
+    transition: background 0.15s ease;
+}
+
+.rb-table tbody tr:hover {
+    background: #f8fafc;
+}
+
+.rb-table tbody tr:last-child {
+    border-bottom: none;
+}
+
+.rb-table tbody td {
+    padding: 14px 18px;
+    font-size: 0.84rem;
+    color: var(--rb-text, #0f172a);
+    vertical-align: middle;
+}
+
+.rb-doc-title {
+    font-weight: 650;
+    max-width: 260px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.rb-doc-no {
+    font-size: 0.78rem;
+    font-weight: 600;
+    color: var(--rb-text-muted, #64748b);
+    font-variant-numeric: tabular-nums;
+}
+
+.rb-type-badge {
+    display: inline-flex;
+    align-items: center;
+    padding: 3px 10px;
+    border-radius: 999px;
+    font-size: 0.72rem;
+    font-weight: 650;
+    background: #eff6ff;
+    color: #1d4ed8;
+    white-space: nowrap;
+}
+
+.rb-rev-badge {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 34px;
+    padding: 2px 8px;
+    border-radius: 6px;
+    font-size: 0.78rem;
+    font-weight: 700;
+    background: #f0fdf4;
+    color: #166534;
+}
+
+.rb-deleted-at {
+    font-size: 0.78rem;
+    color: var(--rb-text-muted, #64748b);
+    white-space: nowrap;
+}
+
+.rb-deleted-by {
+    display: block;
+    margin-top: 2px;
+    font-size: 0.68rem;
+    color: #94a3b8;
+}
+
+.rb-actions {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+}
+
+.rb-btn {
+    height: 34px;
+    padding: 0 12px;
+    border-radius: 8px;
+    border: 1px solid var(--rb-border, #e2e8f0);
+    background: #fff;
+    color: var(--rb-text-muted, #64748b);
+    font-size: 0.76rem;
+    font-weight: 650;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    transition: all 0.2s ease;
+}
+
+.rb-btn:hover {
+    transform: translateY(-1px);
+}
+
+.rb-btn-restore {
+    color: #047857;
+    border-color: #a7f3d0;
+    background: #ecfdf5;
+}
+
+.rb-btn-restore:hover {
+    background: #d1fae5;
+    border-color: #6ee7b7;
+}
+
+.rb-btn-delete {
+    color: #b91c1c;
+    border-color: #fecaca;
+    background: #fef2f2;
+}
+
+.rb-btn-delete:hover {
+    background: #fee2e2;
+    border-color: #fca5a5;
+}
+
+.rb-empty {
+    text-align: center;
+    padding: 72px 20px;
+    color: var(--rb-text-muted, #64748b);
+}
+
+.rb-empty-icon {
+    width: 72px;
+    height: 72px;
+    margin: 0 auto 16px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: #ecfdf5;
+    color: #059669;
+    font-size: 1.8rem;
+}
+
+.rb-empty h3 {
+    font-size: 1rem;
+    font-weight: 700;
+    color: var(--rb-text, #0f172a);
+    margin-bottom: 6px;
+}
+
+.rb-empty p {
+    font-size: 0.82rem;
+    line-height: 1.5;
+}
+
+.rb-pagination {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 14px 18px;
+    border-top: 1px solid var(--rb-border, #e2e8f0);
+    background: #f8fafc;
+}
+
+.rb-pagination-info {
+    font-size: 0.82rem;
+    color: var(--rb-text-muted, #64748b);
+}
+
+.rb-pagination-links {
+    display: flex;
+    gap: 6px;
+}
+
+.rb-pg {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 34px;
+    height: 34px;
+    padding: 0 12px;
+    border: 1px solid var(--rb-border, #e2e8f0);
+    border-radius: 8px;
+    font-size: 0.82rem;
+    font-weight: 650;
+    color: var(--rb-text, #0f172a);
+    background: #fff;
+    cursor: pointer;
+    transition: all 0.15s ease;
+}
+
+.rb-pg:hover {
+    border-color: var(--rb-accent, #0d2a7a);
+    color: var(--rb-accent, #0d2a7a);
+    background: #eff6ff;
+}
+
+.rb-modal-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(15, 23, 42, 0.45);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 50000;
+    padding: 20px;
+}
+
+.rb-modal {
+    background: #fff;
+    border-radius: 16px;
+    padding: 28px 32px;
+    width: min(440px, 92vw);
+    text-align: center;
+    box-shadow: 0 24px 48px rgba(15, 23, 42, 0.18);
+    border: 1px solid var(--rb-border, #e2e8f0);
+    animation: rbModalIn 0.2s ease;
+}
+
+@keyframes rbModalIn {
+    from { opacity: 0; transform: scale(0.95) translateY(8px); }
+    to { opacity: 1; transform: scale(1) translateY(0); }
+}
+
+.rb-modal-icon {
+    width: 52px;
+    height: 52px;
+    border-radius: 14px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1.3rem;
+    margin: 0 auto 16px;
+}
+
+.rb-modal-icon.is-restore {
+    background: #ecfdf5;
+    color: #047857;
+}
+
+.rb-modal-icon.is-danger {
+    background: #fef2f2;
+    color: #dc2626;
+}
+
+.rb-modal h3 {
+    font-size: 1.1rem;
+    font-weight: 700;
+    color: var(--rb-text, #0f172a);
+    margin-bottom: 8px;
+}
+
+.rb-modal p {
+    font-size: 0.82rem;
+    color: var(--rb-text-muted, #64748b);
+    line-height: 1.55;
+    margin-bottom: 24px;
+}
+
+.rb-modal-actions {
+    display: flex;
+    gap: 10px;
+}
+
+.rb-modal-btn {
+    flex: 1;
+    padding: 10px 16px;
+    border-radius: 10px;
+    font-size: 0.82rem;
+    font-weight: 650;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    border: none;
+}
+
+.rb-modal-cancel {
+    background: #fff;
+    color: var(--rb-text-muted, #64748b);
+    border: 1.5px solid var(--rb-border, #e2e8f0);
+}
+
+.rb-modal-cancel:hover {
+    background: #f8fafc;
+}
+
+.rb-modal-restore {
+    background: #059669;
+    color: #fff;
+}
+
+.rb-modal-restore:hover {
+    background: #047857;
+}
+
+.rb-modal-danger {
+    background: #dc2626;
+    color: #fff;
+}
+
+.rb-modal-danger:hover {
+    background: #b91c1c;
+}
+
+@media (max-width: 900px) {
+    .rb-header {
+        flex-direction: column;
+        align-items: flex-start;
+    }
+
+    .rb-table thead {
+        display: none;
+    }
+
+    .rb-table tbody tr {
+        display: block;
+        padding: 12px 14px;
+    }
+
+    .rb-table tbody td {
+        display: flex;
+        justify-content: space-between;
+        gap: 12px;
+        padding: 8px 0;
+        border: none;
+    }
+
+    .rb-table tbody td::before {
+        content: attr(data-label);
+        font-size: 0.68rem;
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 0.04em;
+        color: #94a3b8;
+    }
+}

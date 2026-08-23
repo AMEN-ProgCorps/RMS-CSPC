@@ -25,6 +25,7 @@ return new class extends Migration
             $table->time('dcn_receipt_time')->nullable();
             $table->unsignedInteger('office_id')->nullable();
             $table->string('scanned_dcn')->nullable();
+            $table->text('brief_purpose')->nullable();
             $table->unsignedInteger('created_by');
             $table->foreign('office_id')->references('id')->on('office')->nullOnDelete();
             $table->foreign('created_by')->references('id')->on('account');

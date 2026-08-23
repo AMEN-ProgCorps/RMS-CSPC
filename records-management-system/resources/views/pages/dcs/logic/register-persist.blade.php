@@ -122,12 +122,16 @@ class RegisterPersistHelper
             if ($id <= 0) {
                 continue;
             }
-            DB::table('dcs_distribution_offices')->insert([
+            $row = [
                 'distribution_id' => $distributionId,
                 'office_id' => $id,
                 'copies' => $request->input('distCopies')[$i] ?? 1,
                 'sort_order' => $i,
-            ]);
+            ];
+            if (Schema::hasColumn('dcs_distribution_offices', 'distribution_date')) {
+                $row['distribution_date'] = $request->input('distOfficeDate')[$i] ?? null;
+            }
+            DB::table('dcs_distribution_offices')->insert($row);
         }
     }
 
@@ -142,37 +146,48 @@ class RegisterPersistHelper
             $docNo = trim((string) ($isSyllabi
                 ? $request->input('syllabiDocNo')
                 : $request->input('masterlistDocNo')));
+            $fromDocNo = trim((string) $request->input('revised_from_doc_no', ''));
+            $lookupDocNo = $fromDocNo !== '' ? $fromDocNo : $docNo;
             $docTypeId = $request->input('doc_type_id');
             $subTypeId = $request->input('sub_type_id');
 
-            if ($docNo === '') {
+            if ($lookupDocNo === '') {
                 return back()->withInput()
                     ->with('error', 'You must enter a registered document number before revising it. Register it as a New Document first if it is not yet registered.');
             }
 
-            $result = self::findMatchingRegistrationRows($docNo, (int) $docTypeId, $subTypeId ? (int) $subTypeId : null);
+            if ($docNo === '') {
+                return back()->withInput()
+                    ->with('error', 'Document number is required for the revised registration.');
+            }
+
+            $result = self::findMatchingRegistrationRows($lookupDocNo, (int) $docTypeId, $subTypeId ? (int) $subTypeId : null);
 
             if (!$result['found']) {
                 if (($result['reason'] ?? '') === 'not_registered') {
                     return back()->withInput()
-                        ->with('error', 'Document "' . $docNo . '" is not registered. You must register it as a New Document first before revising it.');
+                        ->with('error', 'Document "' . $lookupDocNo . '" is not registered. You must register it as a New Document first before revising it.');
                 }
 
                 return back()->withInput()
-                    ->with('error', self::mismatchErrorMessageFromRow($docNo, $result));
+                    ->with('error', self::mismatchErrorMessageFromRow($lookupDocNo, $result));
             }
 
             $requestedRev = (int) $request->input('masterlistRevisionNo');
-            $matchingIds = $result['matches']->pluck('id');
-            $duplicateExists = DB::table('dcs_masterlist_registration')
-                ->whereIn('request_id', $matchingIds)
-                ->where('doc_no', $docNo)
-                ->where('revise_no', $requestedRev)
-                ->exists();
+            // Duplicate check is against the NEW document number (may differ when renumbering).
+            $newFamily = self::findMatchingRegistrationRows($docNo, (int) $docTypeId, $subTypeId ? (int) $subTypeId : null);
+            if ($newFamily['found']) {
+                $matchingIds = $newFamily['matches']->pluck('id');
+                $duplicateExists = DB::table('dcs_masterlist_registration')
+                    ->whereIn('request_id', $matchingIds)
+                    ->where('doc_no', $docNo)
+                    ->where('revise_no', $requestedRev)
+                    ->exists();
 
-            if ($duplicateExists) {
-                return back()->withInput()
-                    ->with('error', 'Revision ' . $requestedRev . ' for document "' . $docNo . '" already exists. Please use a different revision number.');
+                if ($duplicateExists) {
+                    return back()->withInput()
+                        ->with('error', 'Revision ' . $requestedRev . ' for document "' . $docNo . '" already exists. Please use a different revision number.');
+                }
             }
         }
 
@@ -304,6 +319,7 @@ class RegisterPersistHelper
                     'dcn_receipt_time' => $request->receiptTime,
                     'office_id' => $firstDcnOffice ?: null,
                     'scanned_dcn' => $dcnFile,
+                    'brief_purpose' => $request->dcnJustification,
                     'created_by' => $userId,
                     'created_at' => $now,
                     'updated_at' => $now,
@@ -348,7 +364,7 @@ class RegisterPersistHelper
                     $masterlistTimeSpent = intval($request->masterlistTimeSpent);
                 }
 
-                $masterlistId = DB::table('dcs_masterlist_registration')->insertGetId([
+                $masterlistRow = [
                     'checklist_id' => 3,
                     'version_id' => $versionId,
                     'request_id' => $requestId,
@@ -366,12 +382,25 @@ class RegisterPersistHelper
                     'no_pages' => $request->masterlistNoOfPages,
                     'originator_name' => $request->masterlistOriginator,
                     'deadline' => $request->deadlineOfSubmission,
-                    'brief_purpose' => $request->briefPurpose,
                     'scanned_masterlist' => $masterlistFile,
                     'created_by' => $userId,
                     'created_at' => $now,
                     'updated_at' => $now,
-                ]);
+                ];
+                $keywordVal = $request->keywords ?? $request->briefPurpose;
+                if (Schema::hasColumn('dcs_masterlist_registration', 'keywords')) {
+                    $masterlistRow['keywords'] = $keywordVal;
+                } else {
+                    $masterlistRow['brief_purpose'] = $keywordVal;
+                }
+                if ($mode === 'revised' && Schema::hasColumn('dcs_masterlist_registration', 'revised_from_doc_no')) {
+                    $fromDocNo = trim((string) $request->input('revised_from_doc_no', ''));
+                    $newDocNo = trim((string) $request->masterlistDocNo);
+                    if ($fromDocNo !== '' && strcasecmp($fromDocNo, $newDocNo) !== 0) {
+                        $masterlistRow['revised_from_doc_no'] = $fromDocNo;
+                    }
+                }
+                $masterlistId = DB::table('dcs_masterlist_registration')->insertGetId($masterlistRow);
 
                 self::saveOriginsFromOfficeIds($masterlistId, $request->input('masterlistOfficeIds', []));
                 $relatedIds = array_filter(array_map('intval', $request->input('relatedDocumentIds', [])));
@@ -419,10 +448,15 @@ class RegisterPersistHelper
                     'revision_status' => 'latest',
                     'no_pages' => $totalPages,
                     'originator_name' => $request->masterlistOriginator,
-                    'brief_purpose' => $request->briefPurpose,
                     'scanned_masterlist' => $masterlistFile,
                     'updated_at' => $now,
                 ];
+                $keywordVal = $request->keywords ?? $request->briefPurpose;
+                if (Schema::hasColumn('dcs_masterlist_registration', 'keywords')) {
+                    $masterlistData['keywords'] = $keywordVal;
+                } else {
+                    $masterlistData['brief_purpose'] = $keywordVal;
+                }
 
                 if ($masterlist) {
                     DB::table('dcs_masterlist_registration')->where('id', $masterlist->id)->update($masterlistData);
@@ -479,11 +513,18 @@ class RegisterPersistHelper
                         if ($id <= 0) {
                             continue;
                         }
-                        DB::table('dcs_retrieval_offices')->insert([
+                        $retrievalOfficeRow = [
                             'retrieval_id' => $retrievalId,
                             'office_id' => $id,
                             'copies' => $request->retrievalCopies[$i] ?? 1,
-                        ]);
+                            'retrieval_status' => Schema::hasColumn('dcs_retrieval_offices', 'retrieval_status')
+                                ? ($request->input('retrievalStatus')[$i] ?? 'pending')
+                                : null,
+                        ];
+                        if (Schema::hasColumn('dcs_retrieval_offices', 'retrieval_date')) {
+                            $retrievalOfficeRow['retrieval_date'] = $request->input('retrievalOfficeDate')[$i] ?? null;
+                        }
+                        DB::table('dcs_retrieval_offices')->insert($retrievalOfficeRow);
                     }
                 }
             }
@@ -537,6 +578,22 @@ class RegisterPersistHelper
             $savedMl = DB::table('dcs_masterlist_registration')->where('request_id', $requestId)->first();
             if ($savedMl) {
                 self::syncRevisionStatusForMasterlist((int) $savedMl->id);
+
+                // When a revision renumbers the document, mark the previous number's family obsolete.
+                if ($mode === 'revised') {
+                    $fromDocNo = trim((string) $request->input('revised_from_doc_no', ''));
+                    $newDocNo = trim((string) ($savedMl->doc_no ?? ''));
+                    if ($fromDocNo !== '' && $newDocNo !== '' && strcasecmp($fromDocNo, $newDocNo) !== 0) {
+                        $requestIds = RegisterQueryHelper::requestIdsWithSameDocType((object) [
+                            'doc_type_id' => $docTypeId,
+                            'sub_type_id' => $request->sub_type_id ? (int) $request->sub_type_id : null,
+                        ]);
+                        DB::table('dcs_masterlist_registration')
+                            ->where('doc_no', $fromDocNo)
+                            ->whereIn('request_id', $requestIds)
+                            ->update(['revision_status' => 'obsolete', 'updated_at' => now()]);
+                    }
+                }
             }
 
             DB::commit();
@@ -592,6 +649,14 @@ class RegisterPersistHelper
 
         $requestIds = $allMl->pluck('request_id')->unique()->filter();
         $relatedDocRequests = DB::table('dcs_document_requests')->whereIn('id', $requestIds)->get();
+        if (\Illuminate\Support\Facades\Schema::hasColumn('dcs_document_requests', 'deleted_at')) {
+            $relatedDocRequests = $relatedDocRequests->filter(fn ($dr) => $dr->deleted_at === null)->values();
+        }
+
+        if ($relatedDocRequests->isEmpty()) {
+            return ['found' => false, 'reason' => 'not_registered'];
+        }
+
         $hasSubType = $subTypeId && (int) $subTypeId > 0;
 
         $matching = $relatedDocRequests->filter(function ($dr) use ($docTypeId, $subTypeId, $hasSubType) {
@@ -1068,11 +1133,16 @@ class RegisterPersistHelper
             'sub_type_id' => $subTypeId,
         ]);
 
-        $next = DB::table('dcs_masterlist_registration')
-            ->where('doc_no', $docNo)
-            ->whereIn('request_id', $requestIds)
-            ->orderByDesc('revise_no')
-            ->orderByDesc('id')
+        $nextQuery = DB::table('dcs_masterlist_registration as ml')
+            ->join('dcs_document_requests as dr', 'dr.id', '=', 'ml.request_id')
+            ->where('ml.doc_no', $docNo)
+            ->whereIn('ml.request_id', $requestIds);
+        RegisterQueryHelper::applyNotDeleted($nextQuery, 'dr');
+
+        $next = $nextQuery
+            ->orderByDesc('ml.revise_no')
+            ->orderByDesc('ml.id')
+            ->select('ml.*')
             ->first();
 
         if ($next) {

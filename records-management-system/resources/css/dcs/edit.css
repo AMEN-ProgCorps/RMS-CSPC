@@ -21,13 +21,23 @@
 }
 .reg-current-file i { color: var(--reg-accent); font-size: 0.85rem; }
 .reg-current-file span { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.reg-current-file a {
+.reg-current-file a,
+.reg-current-file-view {
     color: var(--reg-accent);
     text-decoration: none;
     font-weight: 600;
     font-size: 0.78rem;
 }
-.reg-current-file a:hover { text-decoration: underline; }
+.reg-current-file a:hover,
+.reg-current-file-view:hover {
+    text-decoration: underline;
+}
+.reg-current-file-view {
+    border: 0;
+    background: transparent;
+    padding: 0;
+    cursor: pointer;
+}
 .edit-badge {
     display: inline-flex;
     align-items: center;

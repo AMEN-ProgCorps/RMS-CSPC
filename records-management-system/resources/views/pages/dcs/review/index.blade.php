@@ -29,27 +29,31 @@ new #[Layout('layouts.dcs')] #[Title('Document Review — CSPC DCS')] class exte
             ? RegisterQueryHelper::reviewCompare(
                 $this->selectedDocNo,
                 $this->leftId !== '' ? (int) $this->leftId : null,
-                $this->rightId !== '' ? (int) $this->rightId : null
+                null
             )
             : [
                 'docNo' => '',
                 'docTitle' => '',
                 'options' => [],
+                'prior_options' => [],
                 'left_id' => null,
                 'right_id' => null,
+                'latest_id' => null,
+                'latest_revise_no' => null,
                 'tabs' => [],
                 'pairs' => [],
                 'can_compare' => false,
+                'can_view' => false,
                 'error' => null,
-                'left_label' => 'Older',
-                'right_label' => 'Newer',
+                'left_label' => 'Selected revision',
+                'right_label' => 'Latest',
             ];
 
-        if (($compare['left_id'] ?? null) && (string) $compare['left_id'] !== $this->leftId) {
-            $this->leftId = (string) $compare['left_id'];
-        }
         if (($compare['right_id'] ?? null) && (string) $compare['right_id'] !== $this->rightId) {
             $this->rightId = (string) $compare['right_id'];
+        }
+        if (($compare['left_id'] ?? null) && (string) $compare['left_id'] !== $this->leftId) {
+            $this->leftId = (string) $compare['left_id'];
         }
 
         $tabKeys = array_column($compare['tabs'], 'key');
@@ -100,8 +104,9 @@ new #[Layout('layouts.dcs')] #[Title('Document Review — CSPC DCS')] class exte
 
         $this->selectedDocNo = $docNo;
         $preview = RegisterQueryHelper::reviewCompare($docNo, null, null);
+        // Right side is always the latest; left is the selected prior revision (if any).
+        $this->rightId = (string) ($preview['right_id'] ?? $preview['latest_id'] ?? '');
         $this->leftId = (string) ($preview['left_id'] ?? '');
-        $this->rightId = (string) ($preview['right_id'] ?? '');
         $this->tab = $preview['tabs'][0]['key'] ?? 'masterlist';
     }
 
@@ -120,22 +125,23 @@ new #[Layout('layouts.dcs')] #[Title('Document Review — CSPC DCS')] class exte
 
     public function updatedRightId(): void
     {
+        // Newer side is always locked to the latest revision.
         $this->normalizeRevisionOrder();
     }
 
     private function normalizeRevisionOrder(): void
     {
-        if ($this->selectedDocNo === '' || $this->leftId === '' || $this->rightId === '') {
+        if ($this->selectedDocNo === '') {
             return;
         }
 
         $preview = RegisterQueryHelper::reviewCompare(
             $this->selectedDocNo,
-            (int) $this->leftId,
-            (int) $this->rightId
+            $this->leftId !== '' ? (int) $this->leftId : null,
+            null
         );
-        $this->leftId = (string) ($preview['left_id'] ?? $this->leftId);
-        $this->rightId = (string) ($preview['right_id'] ?? $this->rightId);
+        $this->rightId = (string) ($preview['right_id'] ?? $preview['latest_id'] ?? '');
+        $this->leftId = (string) ($preview['left_id'] ?? '');
     }
 
     public function setTab(string $tab): void
@@ -174,7 +180,7 @@ new #[Layout('layouts.dcs')] #[Title('Document Review — CSPC DCS')] class exte
                 <i class="fa-solid fa-xmark"></i> Clear
             </button>
         </div>
-        <p class="drr-hint">You can only compare two revisions of the same document number — not two different documents.</p>
+        <p class="drr-hint">Each row shows the latest revision. Open a document to review it, then pick an older revision to compare against the latest.</p>
 
         <div class="drr-table-card">
             <div class="drr-table-scroll" @if(count($list['rows']) === 0) style="display:none" @endif>
@@ -184,9 +190,8 @@ new #[Layout('layouts.dcs')] #[Title('Document Review — CSPC DCS')] class exte
                             <th>Doc Type</th>
                             <th>Title</th>
                             <th>Document No.</th>
-                            <th>Current rev</th>
+                            <th>Latest rev</th>
                             <th>Revisions</th>
-                            <th>Checklists</th>
                             <th style="width:110px;">Review</th>
                         </tr>
                     </thead>
@@ -196,16 +201,11 @@ new #[Layout('layouts.dcs')] #[Title('Document Review — CSPC DCS')] class exte
                                 <td>{{ $doc['doc_type'] }}</td>
                                 <td class="drr-doc-title" title="{{ $doc['title'] }}">{{ $doc['title'] }}</td>
                                 <td class="drr-doc-no">{{ $doc['doc_no'] }}</td>
-                                <td>{{ $doc['rev_no'] }}</td>
+                                <td><span class="drr-rev-pill">Rev {{ $doc['rev_no'] }}</span></td>
                                 <td>{{ $doc['rev_count'] }}</td>
                                 <td>
-                                    @foreach($doc['checklists'] as $cl)
-                                        <span class="drr-chip">{{ $cl }}</span>
-                                    @endforeach
-                                </td>
-                                <td>
                                     <button type="button" class="drr-btn-review" wire:click="selectDocument(@js($doc['doc_no']))">
-                                        Compare
+                                        Review
                                     </button>
                                 </td>
                             </tr>
@@ -220,7 +220,7 @@ new #[Layout('layouts.dcs')] #[Title('Document Review — CSPC DCS')] class exte
                     <span>Try another title or document number, or clear the filters.</span>
                 @else
                     <p>No documents are available to review.</p>
-                    <span>Register a document and at least one later revision. Comparison is only between revisions of the same document.</span>
+                    <span>Register a document to start reviewing scanned masterlist copies.</span>
                 @endif
             </div>
             <div class="drr-pagination" @if($list['total'] === 0) style="display:none" @endif>
@@ -238,20 +238,26 @@ new #[Layout('layouts.dcs')] #[Title('Document Review — CSPC DCS')] class exte
     @else
         @php
             $reviewErrors = [
-                'no_doc_no' => 'This record has no document number, so its revisions cannot be compared.',
+                'no_doc_no' => 'This record has no document number, so its revisions cannot be reviewed.',
                 'not_found' => 'This document could not be found. It may have been removed.',
-                'need_two_revisions' => 'Only one revision is registered. Comparison needs two revisions of this same document.',
-                'same_revision' => 'Older and newer must be two different revisions of this document.',
+                'need_scan' => 'This document has no masterlist scan to review.',
+                'same_revision' => 'Pick a different older revision to compare against the latest.',
             ];
             $reviewError = $reviewErrors[$compare['error'] ?? ''] ?? null;
-            $olderLabel = $compare['left_label'] ?? 'Older';
-            $newerLabel = $compare['right_label'] ?? 'Newer';
+            $olderLabel = $compare['left_label'] ?? 'Selected revision';
+            $newerLabel = $compare['right_label'] ?? 'Latest';
+            $priorOptions = $compare['prior_options'] ?? [];
+            $canCompare = !empty($compare['can_compare']);
+            $canView = !empty($compare['can_view']) || $canCompare;
         @endphp
         <div class="drr-panel">
             <div class="drr-doc">
                 <span class="drr-info-label">Document</span>
                 <p class="drr-doc-heading" title="{{ $compare['docTitle'] ?: $selectedDocNo }}">{{ $compare['docTitle'] ?: $selectedDocNo }}</p>
                 <span class="drr-docno">{{ $compare['docNo'] ?: $selectedDocNo }}</span>
+                @if(($compare['latest_revise_no'] ?? null) !== null)
+                    <span class="drr-latest-pill">Latest · Rev {{ $compare['latest_revise_no'] }}</span>
+                @endif
             </div>
 
             @if($reviewError)
@@ -259,196 +265,100 @@ new #[Layout('layouts.dcs')] #[Title('Document Review — CSPC DCS')] class exte
                     <i class="fa-solid fa-triangle-exclamation"></i>
                     <div>
                         <p>{{ $reviewError }}</p>
-                        <span>You can only compare revisions that belong to this document number.</span>
+                        <span>The latest revision is always shown on the right. Use the selector to pick an older revision when available.</span>
                     </div>
                 </div>
             @endif
 
-            @if(count($compare['options']) > 0)
-                <div class="drr-rev-bar">
-                    <label>
-                        Older (left)
-                        <select wire:model.live="leftId" @disabled(count($compare['options']) < 2)>
-                            @foreach($compare['options'] as $opt)
-                                <option value="{{ $opt['id'] }}">{{ $opt['label'] }} — {{ $opt['created_label'] }}</option>
-                            @endforeach
-                        </select>
-                    </label>
-                    <label>
-                        Newer (right)
-                        <select wire:model.live="rightId" @disabled(count($compare['options']) < 2)>
-                            @foreach($compare['options'] as $opt)
-                                <option value="{{ $opt['id'] }}">{{ $opt['label'] }} — {{ $opt['created_label'] }}</option>
-                            @endforeach
-                        </select>
-                    </label>
-                    @if($compare['can_compare'])
-                        <div class="drr-legend">
-                            <span class="drr-leg drr-leg-del">Removed</span>
-                            <span class="drr-leg drr-leg-ins">Added</span>
-                            <span class="drr-leg drr-leg-chg">Changed</span>
-                        </div>
-                    @endif
+            <div class="drr-rev-bar">
+                <div class="drr-latest-lock">
+                    <span class="drr-info-label">Latest (right)</span>
+                    <div class="drr-latest-value">
+                        <i class="fa-solid fa-lock"></i>
+                        Rev {{ $compare['latest_revise_no'] ?? '—' }} · current
+                    </div>
                 </div>
-            @endif
 
-            @if(!$compare['can_compare'])
+                <label class="drr-rev-select">
+                    Compare with (left)
+                    <select wire:model.live="leftId" @disabled(count($priorOptions) < 1)>
+                        @forelse($priorOptions as $opt)
+                            <option value="{{ $opt['id'] }}">{{ $opt['label'] }} — {{ $opt['created_label'] }}</option>
+                        @empty
+                            <option value="">No earlier revision</option>
+                        @endforelse
+                    </select>
+                </label>
+
+                @if($canCompare)
+                    <div class="drr-legend">
+                        <span class="drr-leg drr-leg-del">Removed</span>
+                        <span class="drr-leg drr-leg-ins">Added</span>
+                        <span class="drr-leg drr-leg-chg">Changed</span>
+                    </div>
+                @endif
+            </div>
+
+            @if(!$canView)
                 @if(!$reviewError)
                     <div class="drr-empty">
                         <i class="fa-solid fa-code-compare"></i>
-                        <p>Nothing to compare for this document.</p>
+                        <p>Nothing to review for this document.</p>
                     </div>
                 @endif
             @elseif(count($compare['tabs']) === 0)
                 <div class="drr-empty">
-                    <p>This document has no registered checklist data to compare.</p>
+                    <p>This document has no masterlist scan to compare.</p>
                 </div>
             @else
-                <div class="drr-tabs">
-                    @foreach($compare['tabs'] as $cl)
-                        <button
-                            type="button"
-                            class="drr-tab {{ $activeTab === $cl['key'] ? 'is-active' : '' }}"
-                            wire:click="setTab(@js($cl['key']))"
-                        >{{ $cl['label'] }}</button>
-                    @endforeach
-                </div>
-
                 @if($pair)
                     <div class="drr-section" wire:key="pair-{{ $tab }}-{{ $leftId }}-{{ $rightId }}">
-                        <h2 class="drr-section-title">{{ $pair['title'] }}</h2>
-
-                        @if($activeTab === 'syllabi' && $pair['syllabi'])
-                            @if(!empty($pair['syllabi']['meta']))
-                                <table class="drr-compare-table">
-                                    <thead>
-                                        <tr>
-                                            <th>Field</th>
-                                            <th>{{ $olderLabel }}</th>
-                                            <th>{{ $newerLabel }}</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody>
-                                        @foreach($pair['syllabi']['meta'] as $row)
-                                            <tr class="is-{{ $row['status'] }}">
-                                                <td class="drr-field-name">{{ $row['label'] }}</td>
-                                                <td class="is-{{ $row['status'] }}">{!! $row['left_html'] !!}</td>
-                                                <td class="is-{{ $row['status'] }}">{!! $row['right_html'] !!}</td>
-                                            </tr>
-                                        @endforeach
-                                    </tbody>
-                                </table>
+                        <h2 class="drr-section-title">
+                            Masterlist — Scanned PDF
+                            @if($canCompare)
+                                Comparison
+                            @else
+                                (Latest)
                             @endif
-                            <div class="drr-table-scroll">
-                                <table class="drr-syl-table">
-                                    <thead>
-                                        <tr>
-                                            <th>Course</th>
-                                            <th>Available<br><span class="drr-th-sub">{{ $olderLabel }} / {{ $newerLabel }}</span></th>
-                                            <th>Copies<br><span class="drr-th-sub">{{ $olderLabel }} / {{ $newerLabel }}</span></th>
-                                            <th>Pages<br><span class="drr-th-sub">{{ $olderLabel }} / {{ $newerLabel }}</span></th>
-                                            <th>Received<br><span class="drr-th-sub">{{ $olderLabel }} / {{ $newerLabel }}</span></th>
-                                            <th>Faculty<br><span class="drr-th-sub">{{ $olderLabel }} / {{ $newerLabel }}</span></th>
-                                            <th>DRF<br><span class="drr-th-sub">{{ $olderLabel }} / {{ $newerLabel }}</span></th>
-                                        </tr>
-                                    </thead>
-                                    <tbody>
-                                        @forelse($pair['syllabi']['courses'] as $course)
-                                            <tr class="is-{{ $course['status'] }}">
-                                                @foreach(['course', 'avail', 'copies', 'pages', 'received', 'faculty', 'drf'] as $field)
-                                                    <td class="is-{{ $course['cells'][$field]['status'] }}">
-                                                        <div class="drr-cell-pair">
-                                                            <div><span class="drr-side">Older</span> {!! $course['cells'][$field]['left_html'] !!}</div>
-                                                            <div><span class="drr-side">Newer</span> {!! $course['cells'][$field]['right_html'] !!}</div>
-                                                        </div>
-                                                    </td>
-                                                @endforeach
-                                            </tr>
-                                        @empty
-                                            <tr><td colspan="7">No courses registered.</td></tr>
-                                        @endforelse
-                                    </tbody>
-                                </table>
-                            </div>
-                        @else
-                            <table class="drr-compare-table">
-                                <thead>
-                                    <tr>
-                                        <th>Field</th>
-                                        <th>{{ $olderLabel }}</th>
-                                        <th>{{ $newerLabel }}</th>
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    @forelse($pair['rows'] as $row)
-                                        @if(($row['kind'] ?? '') === 'offices')
-                                            <tr>
-                                                <td colspan="3" class="drr-nested-cell">
-                                                    <span class="drr-field-label">{{ $row['label'] }}</span>
-                                                    <table class="drr-office-table">
-                                                        <thead>
-                                                            <tr>
-                                                                <th>Office</th>
-                                                                <th>{{ !empty($row['with_copies']) ? $olderLabel . ' copies' : $olderLabel }}</th>
-                                                                <th>{{ !empty($row['with_copies']) ? $newerLabel . ' copies' : $newerLabel }}</th>
-                                                            </tr>
-                                                        </thead>
-                                                        <tbody>
-                                                            @forelse($row['offices'] as $office)
-                                                                <tr class="is-{{ $office['status'] }}">
-                                                                    <td class="drr-office-name">{{ $office['name'] }}</td>
-                                                                    <td class="is-{{ $office['status'] }}">{!! $office['left_html'] !!}</td>
-                                                                    <td class="is-{{ $office['status'] }}">{!! $office['right_html'] !!}</td>
-                                                                </tr>
-                                                            @empty
-                                                                <tr><td colspan="3">No offices listed.</td></tr>
-                                                            @endforelse
-                                                        </tbody>
-                                                    </table>
-                                                </td>
-                                            </tr>
-                                        @else
-                                            <tr class="is-{{ $row['status'] }}">
-                                                <td class="drr-field-name">{{ $row['label'] }}</td>
-                                                <td class="is-{{ $row['status'] }}">{!! $row['left_html'] !!}</td>
-                                                <td class="is-{{ $row['status'] }}">{!! $row['right_html'] !!}</td>
-                                            </tr>
-                                        @endif
-                                    @empty
-                                        <tr><td colspan="3">No field data for this checklist on the selected revisions.</td></tr>
-                                    @endforelse
-                                </tbody>
-                            </table>
-                        @endif
+                        </h2>
 
-                        <h3 class="drr-scans-title">Scanned copies</h3>
                         <div
-                            class="drr-scans"
+                            class="drr-scans @if(!$canCompare) drr-scans-single @endif"
                             id="drr-pdf-compare"
-                            data-left-url="{{ $pair['left_scan']['is_pdf'] ? ($pair['left_scan']['url'] ?? '') : '' }}"
+                            data-left-url="{{ $canCompare && $pair['left_scan']['is_pdf'] ? ($pair['left_scan']['url'] ?? '') : '' }}"
                             data-right-url="{{ $pair['right_scan']['is_pdf'] ? ($pair['right_scan']['url'] ?? '') : '' }}"
-                            data-left-img="{{ !$pair['left_scan']['is_pdf'] ? ($pair['left_scan']['url'] ?? '') : '' }}"
+                            data-left-img="{{ $canCompare && !$pair['left_scan']['is_pdf'] ? ($pair['left_scan']['url'] ?? '') : '' }}"
                             data-right-img="{{ !$pair['right_scan']['is_pdf'] ? ($pair['right_scan']['url'] ?? '') : '' }}"
                             wire:key="scans-{{ $tab }}-{{ $leftId }}-{{ $rightId }}"
                         >
-                            @foreach([
-                                ['side' => 'left', 'scan' => $pair['left_scan'], 'label' => $olderLabel],
-                                ['side' => 'right', 'scan' => $pair['right_scan'], 'label' => $newerLabel],
-                            ] as $pane)
+                            @if($canCompare)
                                 @php $scanStatus = $pair['scan_status'] ?? 'none'; @endphp
                                 <div class="drr-scan is-{{ $scanStatus }}">
-                                    <div class="drr-scan-label">{{ $pane['label'] }}{{ $pane['scan']['name'] ? ' · ' . $pane['scan']['name'] : '' }}</div>
-                                    @if($pane['scan']['url'] && $pane['scan']['is_pdf'])
-                                        <div class="drr-pdf-stage" data-review-side="{{ $pane['side'] }}" wire:ignore></div>
-                                        <p class="drr-pdf-note" data-review-note="{{ $pane['side'] }}"></p>
-                                    @elseif($pane['scan']['url'])
-                                        <img class="drr-scan-img" src="{{ $pane['scan']['url'] }}" alt="{{ $pane['label'] }} scan">
+                                    <div class="drr-scan-label">{{ $olderLabel }}{{ $pair['left_scan']['name'] ? ' · ' . $pair['left_scan']['name'] : '' }}</div>
+                                    @if($pair['left_scan']['url'] && $pair['left_scan']['is_pdf'])
+                                        <div class="drr-pdf-stage" data-review-side="left" wire:ignore></div>
+                                        <p class="drr-pdf-note" data-review-note="left"></p>
+                                    @elseif($pair['left_scan']['url'])
+                                        <img class="drr-scan-img" src="{{ $pair['left_scan']['url'] }}" alt="{{ $olderLabel }} scan">
                                         <p class="drr-muted">This file is not a PDF, so words cannot be highlighted on the page.</p>
                                     @else
-                                        <div class="drr-scan-empty">No scan on this revision</div>
+                                        <div class="drr-scan-empty">No masterlist scan on this revision</div>
                                     @endif
                                 </div>
-                            @endforeach
+                            @endif
+
+                            <div class="drr-scan is-{{ $canCompare ? ($pair['scan_status'] ?? 'none') : 'same' }}">
+                                <div class="drr-scan-label">{{ $newerLabel }}{{ $pair['right_scan']['name'] ? ' · ' . $pair['right_scan']['name'] : '' }}</div>
+                                @if($pair['right_scan']['url'] && $pair['right_scan']['is_pdf'])
+                                    <div class="drr-pdf-stage" data-review-side="right" wire:ignore></div>
+                                    <p class="drr-pdf-note" data-review-note="right"></p>
+                                @elseif($pair['right_scan']['url'])
+                                    <img class="drr-scan-img" src="{{ $pair['right_scan']['url'] }}" alt="{{ $newerLabel }} scan">
+                                    <p class="drr-muted">This file is not a PDF, so words cannot be highlighted on the page.</p>
+                                @else
+                                    <div class="drr-scan-empty">No masterlist scan on this revision</div>
+                                @endif
+                            </div>
                         </div>
                     </div>
                 @endif

@@ -63,14 +63,6 @@
             </li>
         @endif
 
-        <li class="nav-item {{ request()->routeIs('dcs.review') ? 'active' : '' }}">
-            <a href="{{ route('dcs.review', absolute: false) }}">
-                <i class="fa-solid fa-code-compare"></i>
-                <span>Document Review</span>
-                <span class="tooltip">Document Review</span>
-            </a>
-        </li>
-
         @if($enableTopTabs)
             <li class="nav-item {{ request()->is('dcs/reports*') ? 'active' : '' }}">
                 <a href="{{ route('dcs.reports.masterlist', absolute: false) }}">
@@ -99,6 +91,14 @@
             </li>
         @endif
 
+        <li class="nav-item {{ request()->routeIs('dcs.review') ? 'active' : '' }}">
+            <a href="{{ route('dcs.review', absolute: false) }}">
+                <i class="fa-solid fa-code-compare"></i>
+                <span>Document Review</span>
+                <span class="tooltip">Document Review</span>
+            </a>
+        </li>
+
         <li class="nav-item {{ request()->routeIs('dcs.stamping.*') || request()->routeIs('dcs.stamp.*') ? 'active' : '' }}">
             <a href="{{ route('dcs.stamping.index', absolute: false) }}">
                 <i class="fa-solid fa-stamp"></i>
@@ -118,6 +118,13 @@
                 <i class="fa-solid fa-gear"></i>
                 <span>Settings</span>
                 <span class="tooltip">Settings</span>
+            </a>
+        </li>
+        <li class="nav-item {{ request()->routeIs('dcs.recycle-bin') ? 'active' : '' }}">
+            <a href="{{ route('dcs.recycle-bin', absolute: false) }}">
+                <i class="fa-solid fa-recycle"></i>
+                <span>Recycle Bin</span>
+                <span class="tooltip">Recycle Bin</span>
             </a>
         </li>
     </ul>

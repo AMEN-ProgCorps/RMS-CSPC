@@ -93,6 +93,77 @@ body {
     background: #f0fdf4; color: #166534;
 }
 
+.upd-expand-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 22px;
+    height: 22px;
+    margin-right: 6px;
+    padding: 0;
+    border: 1px solid var(--upd-border);
+    border-radius: 5px;
+    background: var(--upd-surface);
+    color: var(--upd-text-muted);
+    cursor: pointer;
+    font-size: 0.65rem;
+    vertical-align: middle;
+}
+.upd-expand-btn:hover,
+.upd-expand-btn.open {
+    border-color: var(--upd-accent);
+    color: var(--upd-accent);
+    background: var(--upd-accent-subtle);
+}
+.upd-parent-row td:first-child {
+    white-space: nowrap;
+}
+.upd-child-row td {
+    background: #f8fafc;
+    color: var(--upd-text-muted);
+    font-size: 0.82rem;
+}
+.upd-child-row:hover td {
+    background: #f1f5f9;
+}
+.upd-child-ind {
+    padding-left: 28px !important;
+    color: var(--upd-text-subtle);
+    font-size: 0.78rem;
+}
+.upd-child-dot {
+    display: inline-block;
+    width: 6px;
+    height: 6px;
+    margin-right: 8px;
+    border-radius: 50%;
+    background: #cbd5e1;
+    vertical-align: middle;
+}
+.upd-status-badge {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 999px;
+    font-size: 0.7rem;
+    font-weight: 700;
+    letter-spacing: 0.02em;
+}
+.upd-status-badge.is-latest {
+    background: #ecfdf5;
+    color: #047857;
+}
+.upd-status-badge.is-obsolete {
+    background: #fef2f2;
+    color: #b91c1c;
+}
+.upd-rev-count {
+    display: inline-block;
+    margin-left: 6px;
+    font-size: 0.7rem;
+    color: var(--upd-text-subtle);
+    font-weight: 600;
+}
+
 /* ── Actions ── */
 .upd-actions { display: flex; gap: 6px; align-items: center; }
 .upd-btn-icon,
@@ -169,7 +240,7 @@ body {
 /* ── Delete Modal ── */
 .upd-modal-overlay {
     position: fixed; inset: 0; background: rgba(15,23,42,0.4);
-    display: flex; align-items: center; justify-content: center; z-index: 20000;
+    display: flex; align-items: center; justify-content: center; z-index: 50000;
 }
 .upd-modal {
     background: var(--upd-surface); border-radius: 16px; padding: 28px 32px;
@@ -181,6 +252,19 @@ body {
 .upd-modal-icon {
     width: 52px; height: 52px; border-radius: 14px; background: #fef2f2; color: var(--upd-error);
     display: flex; align-items: center; justify-content: center; font-size: 1.3rem; margin: 0 auto 16px;
+}
+.upd-modal-icon-recycle {
+    background: #ecfdf5;
+    color: #047857;
+}
+.upd-modal-link {
+    color: var(--upd-accent);
+    font-weight: 650;
+    text-decoration: underline;
+    text-underline-offset: 2px;
+}
+.upd-modal-link:hover {
+    color: var(--upd-accent-dark);
 }
 .upd-modal h3 { font-size: 1.1rem; font-weight: 700; color: var(--upd-text); margin-bottom: 8px; }
 .upd-modal p { font-size: 0.82rem; color: var(--upd-text-muted); line-height: 1.5; margin-bottom: 24px; }

@@ -241,55 +241,6 @@ window.__registerCatalog = @json($catalog);
                     <span>Document Change Notice</span>
                 </div>
                 <div class="reg-card-body">
-                    <div class="reg-grid-3">
-                        <div class="reg-field">
-                            <label>DCN No.</label>
-                            <input type="text" id="dcnNumber" name="dcnNumber" placeholder="DCN-001" value="{{ $dcn->dcn_no ?? '' }}">
-                        </div>
-                        <div class="reg-field">
-                            <label>DCN Date</label>
-                            <input type="date" id="noticeDate" name="noticeDate" value="{{ \App\Helpers\RegisterQueryHelper::formatDate($dcn->dcn_date ?? '') }}">
-                        </div>
-                        <div class="reg-field">
-                            <label>DCN Receipt</label>
-                            <div class="reg-dual">
-                                <input type="date" id="receiptDate" name="receiptDate" value="{{ \App\Helpers\RegisterQueryHelper::formatDate($dcn->dcn_receipt_date ?? '') }}">
-                                <input type="time" id="receiptTime" name="receiptTime" value="{{ \App\Helpers\RegisterQueryHelper::formatTime($dcn->dcn_receipt_time ?? '') }}">
-                            </div>
-                        </div>
-                    </div>
-                    <div class="reg-grid-2-1">
-                        <div class="reg-field">
-                            <label>Upload Scanned DCN</label>
-                            @if($dcn && $dcn->scanned_dcn)
-                                <div class="reg-current-file">
-                                    <i class="fa-solid fa-file-pdf"></i>
-                                    <span>{{ basename($dcn->scanned_dcn) }}</span>
-                                    <a href="{{ asset('storage/' . $dcn->scanned_dcn) }}" target="_blank">View</a>
-                                </div>
-                            @endif
-                            <label class="reg-upload">
-                                <input type="file" id="dcnFile" name="dcnFile" accept=".pdf">
-                                <i class="fa-solid fa-cloud-arrow-up"></i>
-                                <span>{{ $dcn && $dcn->scanned_dcn ? 'Replace file' : 'Choose scanned PDF' }}</span>
-                            </label>
-                        </div>
-                        <div class="reg-field">
-                            <label>Source Unit</label>
-                            <div class="reg-reldocs" id="dcnSourceUnitWidget">
-                                <div class="reg-reldocs-inputwrap">
-                                    <input type="text" id="dcnSourceUnitSearch" class="reg-reldocs-input"
-                                        placeholder="Type to search offices..." autocomplete="off">
-                                    <button type="button" class="reg-reldocs-arrow-btn" id="dcnSourceArrowBtn">
-                                        <i class="fa-solid fa-chevron-down"></i>
-                                    </button>
-                                </div>
-                                <div id="dcnSourceResults" class="reg-reldocs-dropdown" style="display:none;"></div>
-                                <div id="dcnSourceInlineChips" class="reg-reldocs-dropdown reg-reldocs-selected-panel" style="display:none;"></div>
-                            </div>
-                        </div>
-                    </div>
-
                     <div class="reg-field reg-revision-table">
                         <label>Document Revisions</label>
                         <div class="reg-table-wrap">
@@ -349,6 +300,60 @@ window.__registerCatalog = @json($catalog);
                         <button type="button" class="reg-add-row" onclick="addRevisionRow()">
                             <i class="fa-solid fa-plus"></i> Add Revision Row
                         </button>
+                    </div>
+
+                    <div class="reg-field">
+                        <label>Justification</label>
+                        <input type="text" id="dcnJustification" name="dcnJustification" placeholder="Enter justification for this change notice..." value="{{ $dcn->brief_purpose ?? '' }}">
+                    </div>
+
+                    <div class="reg-grid-3">
+                        <div class="reg-field">
+                            <label>DCN No.</label>
+                            <input type="text" id="dcnNumber" name="dcnNumber" placeholder="DCN-001" value="{{ $dcn->dcn_no ?? '' }}">
+                        </div>
+                        <div class="reg-field">
+                            <label>DCN Date</label>
+                            <input type="date" id="noticeDate" name="noticeDate" value="{{ \App\Helpers\RegisterQueryHelper::formatDate($dcn->dcn_date ?? '') }}">
+                        </div>
+                        <div class="reg-field">
+                            <label>DCN Receipt</label>
+                            <div class="reg-dual">
+                                <input type="date" id="receiptDate" name="receiptDate" value="{{ \App\Helpers\RegisterQueryHelper::formatDate($dcn->dcn_receipt_date ?? '') }}">
+                                <input type="time" id="receiptTime" name="receiptTime" value="{{ \App\Helpers\RegisterQueryHelper::formatTime($dcn->dcn_receipt_time ?? '') }}">
+                            </div>
+                        </div>
+                    </div>
+                    <div class="reg-grid-2-1">
+                        <div class="reg-field">
+                            <label>Upload Scanned DCN</label>
+                            @if($dcn && $dcn->scanned_dcn)
+                                <div class="reg-current-file">
+                                    <i class="fa-solid fa-file-pdf"></i>
+                                    <span>{{ basename($dcn->scanned_dcn) }}</span>
+                                    <a href="{{ asset('storage/' . $dcn->scanned_dcn) }}" target="_blank">View</a>
+                                </div>
+                            @endif
+                            <label class="reg-upload">
+                                <input type="file" id="dcnFile" name="dcnFile" accept=".pdf">
+                                <i class="fa-solid fa-cloud-arrow-up"></i>
+                                <span>{{ $dcn && $dcn->scanned_dcn ? 'Replace file' : 'Choose scanned PDF' }}</span>
+                            </label>
+                        </div>
+                        <div class="reg-field">
+                            <label>Source Unit</label>
+                            <div class="reg-reldocs" id="dcnSourceUnitWidget">
+                                <div class="reg-reldocs-inputwrap">
+                                    <input type="text" id="dcnSourceUnitSearch" class="reg-reldocs-input"
+                                        placeholder="Type to search offices..." autocomplete="off">
+                                    <button type="button" class="reg-reldocs-arrow-btn" id="dcnSourceArrowBtn">
+                                        <i class="fa-solid fa-chevron-down"></i>
+                                    </button>
+                                </div>
+                                <div id="dcnSourceResults" class="reg-reldocs-dropdown" style="display:none;"></div>
+                                <div id="dcnSourceInlineChips" class="reg-reldocs-dropdown reg-reldocs-selected-panel" style="display:none;"></div>
+                            </div>
+                        </div>
                     </div>
                 </div>
             </section>
@@ -412,7 +417,32 @@ window.__registerCatalog = @json($catalog);
                         </label>
                     </div>
                 </div>
-            </section>    
+            </section>
+
+            <!-- ═══ APPROVAL ═══ -->
+            <section class="reg-card" id="section-approval" style="display: {{ $approval ? 'block' : 'none' }};">
+                <div class="reg-card-header">
+                    <span>Approval Details</span>
+                </div>
+                <div class="reg-card-body">
+                    <div class="reg-grid-3">
+                        <div class="reg-field">
+                            <label>Approving Body</label>
+                            <select id="approvalBody" name="approvalBody" autocomplete="off">
+                                <option value="" selected disabled>Select approving body</option>
+                            </select>
+                        </div>
+                        <div class="reg-field">
+                            <label>Approval Date</label>
+                            <input type="date" id="approvalDate" name="approvalDate" value="{{ \App\Helpers\RegisterQueryHelper::formatDate($approval->approval_date ?? '') }}">
+                        </div>
+                        <div class="reg-field">
+                            <label>Approval No.</label>
+                            <input type="text" id="approvalNo" name="approvalNo" placeholder="Approval number" value="{{ $approval->approval_no ?? '' }}">
+                        </div>
+                    </div>
+                </div>
+            </section>
 
             <!-- ═══ SECTION 3 — MASTERLIST ═══ -->
             <section class="reg-card" id="section-3" style="display: {{ $masterlist ? 'block' : 'none' }};">
@@ -502,8 +532,8 @@ window.__registerCatalog = @json($catalog);
                     </div>
                     <div class="reg-grid-2">
                         <div class="reg-field">
-                            <label>Justification</label>
-                            <input type="text" id="briefPurpose" name="briefPurpose" placeholder="Type here..." value="{{ $masterlist->brief_purpose ?? '' }}">
+                            <label>Keywords</label>
+                            <input type="text" id="keywords" name="keywords" placeholder="Comma-separated keywords..." value="{{ $masterlist->keywords ?? $masterlist->brief_purpose ?? '' }}">
                         </div>
                         <div class="reg-field">
                             <label>Related Documents</label>
@@ -531,7 +561,7 @@ window.__registerCatalog = @json($catalog);
                             <div class="reg-current-file">
                                 <i class="fa-solid fa-file-pdf"></i>
                                 <span>{{ basename($masterlist->scanned_masterlist) }}</span>
-                                <a href="{{ asset('storage/' . $masterlist->scanned_masterlist) }}" target="_blank">View</a>
+                                <button type="button" class="reg-current-file-view" data-preview-url="{{ asset('storage/' . $masterlist->scanned_masterlist) }}" data-preview-title="{{ basename($masterlist->scanned_masterlist) }}">View</button>
                             </div>
                         @endif
                         <label class="reg-upload">
@@ -539,31 +569,6 @@ window.__registerCatalog = @json($catalog);
                             <i class="fa-solid fa-cloud-arrow-up"></i>
                             <span>{{ $masterlist && $masterlist->scanned_masterlist ? 'Replace file' : 'Choose scanned PDF' }}</span>
                         </label>
-                    </div>
-                </div>
-            </section>
-
-            <!-- ═══ APPROVAL ═══ -->
-            <section class="reg-card" id="section-approval" style="display: {{ $approval ? 'block' : 'none' }};">
-                <div class="reg-card-header">
-                    <span>Approval Details</span>
-                </div>
-                <div class="reg-card-body">
-                    <div class="reg-grid-3">
-                        <div class="reg-field">
-                            <label>Approval Body</label>
-                            <select id="approvalBody" name="approvalBody" autocomplete="off">
-                                <option value="" selected disabled>Select approval body</option>
-                            </select>
-                        </div>
-                        <div class="reg-field">
-                            <label>Approval Date</label>
-                            <input type="date" id="approvalDate" name="approvalDate" value="{{ \App\Helpers\RegisterQueryHelper::formatDate($approval->approval_date ?? '') }}">
-                        </div>
-                        <div class="reg-field">
-                            <label>Approval No.</label>
-                            <input type="text" id="approvalNo" name="approvalNo" placeholder="Approval number" value="{{ $approval->approval_no ?? '' }}">
-                        </div>
                     </div>
                 </div>
             </section>
@@ -620,7 +625,8 @@ window.__registerCatalog = @json($catalog);
                     </div>
                     <div class="reg-split-right">
                         <div class="reg-field">
-                            <label>Select office(s) for retrieval</label>
+                            <label>Office retrieval status</label>
+                            <p class="reg-field-hint">Mark offices as retrieved to include them in Distribution again.</p>
                             <div class="reg-search">
                                 <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                                     <circle cx="11" cy="11" r="8"/>
@@ -637,13 +643,14 @@ window.__registerCatalog = @json($catalog);
                                 <thead>
                                     <tr>
                                         <th>Receiving Office(s)</th>
+                                        <th style="width:130px;">Status</th>
                                         <th style="width:110px; text-align:center;">No. of Copies</th>
                                         <th style="width:40px;"></th>
                                     </tr>
                                 </thead>
                                 <tbody id="retrievalBody">
                                     @forelse($retrievalOffices as $retOff)
-                                    
+                                    @php $retStatus = ($retOff->retrieval_status ?? 'pending') === 'retrieved' ? 'retrieved' : 'pending'; @endphp
                                     <tr class="reg-office-added">
                                         <td>
                                             <input type="hidden" name="retrievalOffice[]" value="{{ $retOff->office_id }}">
@@ -651,6 +658,12 @@ window.__registerCatalog = @json($catalog);
                                                 <div class="reg-office-icon"><i class="fa-solid fa-building"></i></div>
                                                 <span class="reg-office-text">{{ $retOff->office_name ?? 'Unknown' }}</span>
                                             </div>
+                                        </td>
+                                        <td>
+                                            <select name="retrievalStatus[]" class="reg-retrieval-status" onchange="handleRetrievalStatusChange(this)">
+                                                <option value="pending" @selected($retStatus === 'pending')>Pending</option>
+                                                <option value="retrieved" @selected($retStatus === 'retrieved')>Retrieved</option>
+                                            </select>
                                         </td>
                                         <td style="text-align:center;">
                                             <input type="number" name="retrievalCopies[]" value="{{ $retOff->copies }}" min="1" oninput="updateTotal('retrievalTotal', 'retrievalBody')">
@@ -663,7 +676,7 @@ window.__registerCatalog = @json($catalog);
                                     </tr>
                                     @empty
                                     <tr class="reg-empty-row">
-                                        <td colspan="3">
+                                        <td colspan="4">
                                             <div class="reg-empty-state">
                                                 <i class="fa-solid fa-building-circle-xmark"></i>
                                                 <span>No offices added yet</span>
@@ -674,8 +687,9 @@ window.__registerCatalog = @json($catalog);
                                 </tbody>
                                 <tfoot>
                                     <tr>
-                                        <td colspan="2" style="text-align:right; font-weight:700;">Total No. of Copies:</td>
+                                        <td colspan="2">Total No. of Copies</td>
                                         <td id="retrievalTotal" style="text-align:center; font-weight:700;">{{ $retrievalOffices->sum('copies') }}</td>
+                                        <td></td>
                                     </tr>
                                 </tfoot>
                             </table>
@@ -791,8 +805,9 @@ window.__registerCatalog = @json($catalog);
                                 </tbody>
                                 <tfoot>
                                     <tr>
-                                        <td colspan="2" style="text-align:right; font-weight:700;">Total No. of Copies:</td>
+                                        <td>Total No. of Copies</td>
                                         <td id="distTotal" style="text-align:center; font-weight:700;">{{ $distributionOffices->sum('copies') }}</td>
+                                        <td></td>
                                     </tr>
                                 </tfoot>
                             </table>
@@ -839,6 +854,23 @@ window.__registerCatalog = @json($catalog);
                 <button type="button" class="reg-btn reg-btn-save" onclick="submitForm()">
                     <i class="fa-solid fa-check"></i> Confirm Update
                 </button>
+            </div>
+        </div>
+    </div>
+    </template>
+
+    <template x-teleport="body">
+    <div class="reg-modal-overlay" id="filePreviewModal" aria-hidden="true" onclick="if(event.target===this)closeFilePreviewModal()">
+        <div class="reg-modal reg-modal--preview">
+            <div class="reg-modal-header">
+                <i class="fa-solid fa-file-pdf"></i>
+                <h3 id="filePreviewModalTitle">File preview</h3>
+                <button type="button" class="reg-modal-close" onclick="closeFilePreviewModal()">
+                    <i class="fa-solid fa-xmark"></i>
+                </button>
+            </div>
+            <div class="reg-modal-body reg-modal-body--preview">
+                <iframe id="filePreviewModalFrame" title="Uploaded file preview"></iframe>
             </div>
         </div>
     </div>
@@ -973,8 +1005,90 @@ function filterOffices(query) {
     return allOffices.filter(o => officeMatchesQuery(o, q));
 }
 
-function emptyOfficeRowHTML() {
-    return '<tr class="reg-empty-row"><td colspan="3"><div class="reg-empty-state"><i class="fa-solid fa-building-circle-xmark"></i><span>No offices added yet</span></div></td></tr>';
+function emptyOfficeRowHTML(tbodyId) {
+    const isRetrieval = tbodyId === 'retrievalBody';
+    const cols = isRetrieval ? 4 : 3;
+    return '<tr class="reg-empty-row"><td colspan="' + cols + '"><div class="reg-empty-state"><i class="fa-solid fa-building-circle-xmark"></i><span>No offices added yet</span></div></td></tr>';
+}
+
+function retrievalStatusSelectHTML(status) {
+    const value = status === 'retrieved' ? 'retrieved' : 'pending';
+    return '<select name="retrievalStatus[]" class="reg-retrieval-status" onchange="handleRetrievalStatusChange(this)">' +
+        '<option value="pending"' + (value === 'pending' ? ' selected' : '') + '>Pending</option>' +
+        '<option value="retrieved"' + (value === 'retrieved' ? ' selected' : '') + '>Retrieved</option>' +
+    '</select>';
+}
+
+function distBodyHasOffice(officeId) {
+    const tbody = document.getElementById('distBody');
+    if (!tbody) return false;
+    return [...tbody.querySelectorAll('input[type="hidden"][name="distOffice[]"]')]
+        .some(inp => String(inp.value) === String(officeId));
+}
+
+function addRetrievedOfficeToDistribution(officeId, officeName, copies) {
+    if (distBodyHasOffice(officeId)) return;
+    seedOfficeRow('distBody', 'distTotal', officeId, officeName, copies);
+    const tbody = document.getElementById('distBody');
+    const inp = [...tbody.querySelectorAll('input[type="hidden"][name="distOffice[]"]')]
+        .find(i => String(i.value) === String(officeId));
+    if (inp?.closest('tr')) inp.closest('tr').dataset.fromRetrieval = '1';
+    updateTotal('distTotal', 'distBody');
+    if (typeof syncDistClusterChipState === 'function') syncDistClusterChipState();
+}
+
+function removeRetrievedOfficeFromDistribution(officeId) {
+    const tbody = document.getElementById('distBody');
+    if (!tbody) return;
+    for (const inp of tbody.querySelectorAll('input[type="hidden"][name="distOffice[]"]')) {
+        const tr = inp.closest('tr');
+        if (String(inp.value) === String(officeId) && tr?.dataset.fromRetrieval === '1') {
+            tr.remove();
+            break;
+        }
+    }
+    updateTotal('distTotal', 'distBody');
+    if (tbody.querySelectorAll('tr.reg-office-added').length === 0) {
+        tbody.innerHTML = emptyOfficeRowHTML('distBody');
+    }
+    if (typeof syncDistClusterChipState === 'function') syncDistClusterChipState();
+}
+
+window.handleRetrievalStatusChange = function (select) {
+    const tr = select?.closest('tr');
+    if (!tr) return;
+    const officeId = tr.querySelector('input[type="hidden"][name="retrievalOffice[]"]')?.value;
+    const officeName = tr.querySelector('.reg-office-text')?.textContent?.trim() || 'Office';
+    const copies = tr.querySelector('input[type="number"][name="retrievalCopies[]"]')?.value || 1;
+    if (select.value === 'retrieved') {
+        addRetrievedOfficeToDistribution(officeId, officeName, copies);
+    } else {
+        removeRetrievedOfficeFromDistribution(officeId);
+    }
+};
+
+function seedRetrievalOfficeRow(tbodyId, totalId, officeId, officeName, copies, status) {
+    const tbody = document.getElementById(tbodyId);
+    if (!tbody) return;
+    const emptyRow = tbody.querySelector('.reg-empty-row');
+    if (emptyRow) emptyRow.remove();
+    const existing = [...tbody.querySelectorAll('input[type="hidden"][name="retrievalOffice[]"]')]
+        .find(inp => String(inp.value) === String(officeId));
+    if (existing) return;
+    const tr = document.createElement('tr');
+    tr.className = 'reg-office-added';
+    tr.innerHTML = `
+        <td><input type="hidden" name="retrievalOffice[]" value="${officeId}"><div class="reg-office-name"><div class="reg-office-icon"><i class="fa-solid fa-building"></i></div><span class="reg-office-text">${escapeHtml(officeName)}</span></div></td>
+        <td>${retrievalStatusSelectHTML(status || 'pending')}</td>
+        <td style="text-align:center;"><input type="number" name="retrievalCopies[]" value="${copies}" min="1" oninput="updateTotal('${totalId}', '${tbodyId}')"></td>
+        <td><button type="button" class="btn-remove" onclick="removeOffice(this, '${totalId}', '${tbodyId}')"><i class="fa-solid fa-xmark"></i></button></td>
+    `;
+    tbody.appendChild(tr);
+    if ((status || 'pending') === 'retrieved') {
+        handleRetrievalStatusChange(tr.querySelector('.reg-retrieval-status'));
+    } else {
+        removeRetrievedOfficeFromDistribution(officeId);
+    }
 }
 
 function filterItems(list, labelKey, query) {
@@ -988,18 +1102,21 @@ function filterItems(list, labelKey, query) {
 }
 
 function seedOfficeRow(tbodyId, totalId, officeId, officeName, copies) {
+    if (tbodyId === 'retrievalBody') {
+        seedRetrievalOfficeRow(tbodyId, totalId, officeId, officeName, copies, 'pending');
+        return;
+    }
     const tbody = document.getElementById(tbodyId);
     if (!tbody) return;
-    const isRetrieval = tbodyId === "retrievalBody";
-    const officeNameAttr = isRetrieval ? "retrievalOffice[]" : "distOffice[]";
-    const copiesNameAttr = isRetrieval ? "retrievalCopies[]" : "distCopies[]";
+    const officeNameAttr = "distOffice[]";
+    const copiesNameAttr = "distCopies[]";
     const emptyRow = tbody.querySelector(".reg-empty-row");
     if (emptyRow) emptyRow.remove();
     const existing = [...tbody.querySelectorAll('input[type="hidden"]')].find(inp => inp.value == officeId);
     if (existing) return;
     const tr = document.createElement("tr");
     tr.className = "reg-office-added";
-    if (!isRetrieval) tr.draggable = true;
+    tr.draggable = true;
     tr.innerHTML = `
         <td><input type="hidden" name="${officeNameAttr}" value="${officeId}"><div class="reg-office-name"><div class="reg-office-icon"><i class="fa-solid fa-building"></i></div><span class="reg-office-text">${escapeHtml(officeName)}</span></div></td>
         <td style="text-align:center;"><input type="number" name="${copiesNameAttr}" value="${copies}" min="1" oninput="updateTotal('${totalId}', '${tbodyId}')"></td>
@@ -1086,6 +1203,24 @@ document.addEventListener("DOMContentLoaded", async function () {
         sel.setAttribute("autocomplete", "off");
         sel.setAttribute("autofill", "off");
     });
+    document.addEventListener('click', (e) => {
+        const btn = e.target.closest('.reg-current-file-view');
+        if (!btn) return;
+        e.preventDefault();
+        const url = btn.dataset.previewUrl;
+        const title = btn.dataset.previewTitle || 'File preview';
+        if (url) openFilePreviewModal(url, title);
+    });
+    document.querySelectorAll('#retrievalBody tr.reg-office-added').forEach(tr => {
+        const status = tr.querySelector('.reg-retrieval-status')?.value;
+        const officeId = tr.querySelector('input[name="retrievalOffice[]"]')?.value;
+        if (status !== 'retrieved' || !officeId) return;
+        const distInp = [...document.querySelectorAll('#distBody input[name="distOffice[]"]')]
+            .find(i => String(i.value) === String(officeId));
+        if (distInp?.closest('tr')) {
+            distInp.closest('tr').dataset.fromRetrieval = '1';
+        }
+    });
     const form = document.getElementById("masterForm");
     if (form) form.setAttribute("autocomplete", "off");
 
@@ -1156,6 +1291,7 @@ document.addEventListener("DOMContentLoaded", async function () {
         const revField = document.getElementById('masterlistRevisionNo');
         initDocNoLookup(revField);
         wireSyllabiMasterlistSync();
+        wireApprovalDeadlineSync();
 
         // ── Auto-copy DRF title to Masterlist title ──
         const drfTitle = document.getElementById('drfTitle');
@@ -1608,6 +1744,104 @@ async function runDocNoLookup(docNo, hintEl, revField) {
     }
 }
 
+function applyRevisedDocumentContext(data, options = {}) {
+    const { docNo, hintEl, revField } = options;
+    const revFieldEl = revField || document.getElementById('masterlistRevisionNo');
+    const hint = hintEl !== undefined ? hintEl : document.getElementById('docNoHint');
+
+    if (docNo !== undefined && docNo !== null) {
+        const docNoInput = document.getElementById('masterlistDocNo');
+        if (docNoInput) docNoInput.value = docNo;
+        window.__revisedFromDocNo = String(docNo).trim();
+    }
+
+    if (revFieldEl && !revFieldEl.disabled) {
+        if (!revFieldEl.value || revFieldEl.dataset.userEdited !== 'true') {
+            revFieldEl.value = data.next_rev;
+        }
+        revFieldEl.readOnly = false;
+        revFieldEl.style.background = '';
+        revFieldEl.style.cursor = '';
+        revFieldEl.removeAttribute('min');
+        revFieldEl.setAttribute('title', 'Suggested: Rev ' + data.next_rev + ' (latest is ' + data.latest_rev + '). Lower revision numbers are allowed.');
+    }
+
+    const titleField = document.getElementById('masterlistDocTitle');
+    if (titleField && data.latest_title) {
+        titleField.value = data.latest_title;
+        titleField.readOnly = false;
+    }
+
+    window.__syncingSourceUnits = true;
+    try {
+        if (window.__sourceWidgets.masterlist) {
+            window.__sourceWidgets.masterlist.reset();
+            if (data.latest_source_unit) {
+                window.__sourceWidgets.masterlist.seedFromString(data.latest_source_unit, true);
+            }
+        }
+
+        if (window.__sourceWidgets.masterlistOriginator) {
+            window.__sourceWidgets.masterlistOriginator.reset();
+            if (data.latest_originator) {
+                window.__sourceWidgets.masterlistOriginator.seedFromString(data.latest_originator, true);
+            }
+        }
+    } finally {
+        window.__syncingSourceUnits = false;
+    }
+
+    if (window.__sourceWidgets.masterlist) {
+        syncSourceUnitsAcrossSections([...window.__sourceWidgets.masterlist.selected], 'masterlist');
+    }
+
+    if (data.latest_related_documents && data.latest_related_documents.length > 0 && relatedDocsSelected.length === 0) {
+        relatedDocsSelected = data.latest_related_documents.slice();
+        renderRelatedDocsChips();
+    }
+
+    if (data.latest_distribution_offices && data.latest_distribution_offices.length > 0
+        && tableIsEmpty('retrievalBody')) {
+        data.latest_distribution_offices.forEach(o => {
+            seedRetrievalOfficeRow('retrievalBody', 'totalRetrievalCopies', o.office_id, o.office_name, o.copies, 'pending');
+        });
+        updateTotal('totalRetrievalCopies', 'retrievalBody');
+    }
+
+    if (hint) {
+        hint.innerHTML = '<i class="fa-solid fa-circle-check"></i> ' + escapeHtml(data.message || '') +
+            '<br><span style="font-weight:400;font-size:11px;">Document No., originator, and source unit are prefilled from the previous revision and remain editable.</span>';
+        hint.style.color = '#16a34a';
+        hint.dataset.valid = 'true';
+    }
+}
+
+function isDcnSectionVisible() {
+    const section = document.getElementById('section-2');
+    return section && section.style.display !== 'none';
+}
+
+async function bridgeDcnPickToMasterlist(docNo) {
+    const hintEl = document.getElementById('docNoHint');
+    const revField = document.getElementById('masterlistRevisionNo');
+    try {
+        const docTypeId = document.getElementById('docType').value;
+        const subTypeId = document.getElementById('subType').value;
+        const excludeRequestId = document.getElementById('requestId')?.value || '';
+        const url = '/dcs/register/check-docno?doc_no=' + encodeURIComponent(docNo) +
+                    (docTypeId ? '&doc_type_id=' + docTypeId : '') +
+                    (subTypeId ? '&sub_type_id=' + subTypeId : '') +
+                    (excludeRequestId ? '&exclude_request_id=' + excludeRequestId : '');
+        const res = await fetch(url);
+        const data = await res.json();
+        if (data.exists) {
+            applyRevisedDocumentContext(data, { docNo, hintEl, revField });
+        }
+    } catch (e) {
+        console.error('DCN pick check-docno failed:', e);
+    }
+}
+
 // ══════════════════════════════════════════════
 // REVISION MODE HELPERS
 // ══════════════════════════════════════════════
@@ -1727,13 +1961,8 @@ function handleRevisionSearchInput(input, key, field) {
     }, 300);
 }
 
-window.pickRevisionDocument = function (key, idx) {
-    const doc = (revSearchCache[key] || [])[idx];
-    if (!doc) return;
-    const uid = key.split('_')[0];
-    const row = document.querySelector(`#revisionTableBody tr[data-uid="${uid}"]`);
-    if (!row) return;
-
+function populateRevisionRowFromDoc(row, doc) {
+    if (!row || !doc) return;
     const titleInput   = row.querySelector('input[name="documentTitle[]"]');
     const noInput      = row.querySelector('input[name="documentNo[]"]');
     const effField     = row.querySelector('input[name="effectiveDate[]"]');
@@ -1750,7 +1979,81 @@ window.pickRevisionDocument = function (key, idx) {
 
     lockRevisionRowFields(row);
     lockRevisionScannedCopyCell(row, doc.scanned_copy_url);
+}
+
+function getRevisedFromDocNo() {
+    return (window.__revisedFromDocNo || '').trim();
+}
+
+function clearAllLinkedRevisionRows(tbody, exceptRow) {
+    if (!tbody) return;
+    [...tbody.querySelectorAll('tr')].forEach(tr => {
+        if (tr === exceptRow) return;
+        if (tr.dataset.linked === 'true') {
+            removeRevisionRowDropdowns(tr);
+            tr.remove();
+        }
+    });
+}
+
+async function fillRevisionTableWithDocumentHistory(anchorRow, docs, options = {}) {
+    const tbody = document.getElementById('revisionTableBody');
+    if (!tbody || !anchorRow || !docs.length) return;
+
+    const pickedDocNo = String((options.docNo || docs[0].doc_no) || '').trim().toLowerCase();
+
+    clearAllLinkedRevisionRows(tbody, anchorRow);
+
+    const rowsToFill = docs.slice();
+
+    populateRevisionRowFromDoc(anchorRow, rowsToFill[0]);
+    anchorRow.dataset.linked = 'true';
+    anchorRow.dataset.linkedDocNo = pickedDocNo;
+
+    let insertAfter = anchorRow;
+    for (let i = 1; i < rowsToFill.length; i++) {
+        const tr = document.createElement('tr');
+        tr.innerHTML = revisionRowCellsHTML();
+        insertAfter.after(tr);
+        bindRevisionRowSearch(tr);
+        populateRevisionRowFromDoc(tr, rowsToFill[i]);
+        tr.dataset.linkedDocNo = pickedDocNo;
+        insertAfter = tr;
+    }
+}
+
+window.pickRevisionDocument = async function (key, idx) {
+    const doc = (revSearchCache[key] || [])[idx];
+    if (!doc) return;
+    const uid = key.split('_')[0];
+    const row = document.querySelector(`#revisionTableBody tr[data-uid="${uid}"]`);
+    if (!row) return;
+
     closeRevSearchDropdown(key);
+
+    let revisions = [];
+    try {
+        if (doc.request_id) {
+            const params = new URLSearchParams({ request_id: String(doc.request_id) });
+            if (doc.doc_no) params.set('doc_no', doc.doc_no);
+            revisions = await fetch('/dcs/api/documents/revisions?' + params.toString())
+                .then(r => r.json());
+        }
+    } catch (e) {
+        console.error('Failed to load document revisions:', e);
+    }
+
+    if (!Array.isArray(revisions) || revisions.length === 0) {
+        revisions = [doc];
+    }
+
+    const pickedNo = String(doc.doc_no || '').trim().toLowerCase();
+
+    await fillRevisionTableWithDocumentHistory(row, revisions, { docNo: pickedNo });
+
+    if (isDcnSectionVisible() && doc.doc_no) {
+        await bridgeDcnPickToMasterlist(doc.doc_no);
+    }
 };
 
 function lockRevisionPopulatedField(el) {
@@ -1839,6 +2142,29 @@ document.addEventListener('click', function (e) {
 // SHARED SOURCE UNIT WIDGET FACTORY
 // ══════════════════════════════════════════════
 window.__sourceWidgets = {};
+window.__syncingSourceUnits = false;
+
+const SYNCED_SOURCE_UNIT_KEYS = ['drf', 'dcn', 'masterlist'];
+
+function isSyncedSourceUnitKey(key) {
+    return SYNCED_SOURCE_UNIT_KEYS.includes(key);
+}
+
+function syncSourceUnitsAcrossSections(selection, sourceKey) {
+    if (window.__syncingSourceUnits || !isSyncedSourceUnitKey(sourceKey)) return;
+
+    window.__syncingSourceUnits = true;
+    try {
+        const items = selection.map(i => ({ type: i.type, id: i.id, label: i.label }));
+        SYNCED_SOURCE_UNIT_KEYS.forEach(key => {
+            if (key === sourceKey) return;
+            const widget = window.__sourceWidgets[key];
+            if (widget?.setSelectedItems) widget.setSelectedItems(items);
+        });
+    } finally {
+        window.__syncingSourceUnits = false;
+    }
+}
 
 function createSourceUnitWidget(opts) {
     let selected = opts.initial || [];
@@ -1865,6 +2191,7 @@ function createSourceUnitWidget(opts) {
         else if (isOfficeSelected(itemId)) return;
         selected.push({ type: 'office', id: item[idKey], label: item[labelKey] });
         render();
+        maybeSyncSourceUnits();
     }
 
     function addFreeText(val) {
@@ -1874,11 +2201,19 @@ function createSourceUnitWidget(opts) {
         idCounter++;
         selected.push({ type: 'name', id: 'n' + idCounter, label: val });
         render();
+        maybeSyncSourceUnits();
     }
 
     function removeItem(type, id) {
         selected = selected.filter(i => !(i.type === type && String(i.id) === String(id)));
         render();
+        maybeSyncSourceUnits();
+    }
+
+    function maybeSyncSourceUnits() {
+        if (isSyncedSourceUnitKey(opts.key)) {
+            syncSourceUnitsAcrossSections(selected.slice(), opts.key);
+        }
     }
 
     function syncInputText() {
@@ -2042,6 +2377,7 @@ function createSourceUnitWidget(opts) {
         const inputEl = document.getElementById(opts.inputId);
         if (inputEl) inputEl.value = '';
         render();
+        maybeSyncSourceUnits();
     }
 
     function removeItemAndSync(type, id) {
@@ -2049,8 +2385,16 @@ function createSourceUnitWidget(opts) {
         syncInputText();
     }
 
-    function seedFromString(str) {
-        if (!str || selected.length > 0) return;
+    function setSelectedItems(items) {
+        selected = items.map(i => ({ type: i.type, id: i.id, label: i.label }));
+        render();
+        syncInputText();
+    }
+
+    function seedFromString(str, force) {
+        if (!str) return;
+        if (!force && selected.length > 0) return;
+        if (force) selected = [];
         str.split(',').map(s => s.trim()).filter(Boolean).forEach(part => {
             const office = findOfficeByLabelOrCode(part, getList())
                 || getList().find(o => o[labelKey].toLowerCase() === part.toLowerCase());
@@ -2063,6 +2407,7 @@ function createSourceUnitWidget(opts) {
         });
         render();
         syncInputText();
+        maybeSyncSourceUnits();
     }
 
     function jumpCaretToEnd() {
@@ -2090,7 +2435,10 @@ function createSourceUnitWidget(opts) {
 
     render();
 
-    const api = { pick, removeItem: removeItemAndSync, reset, seedFromString, openPanel: togglePanel, get selected() { return selected; } };
+    const api = {
+        pick, removeItem: removeItemAndSync, reset, seedFromString, setSelectedItems,
+        openPanel: togglePanel, get selected() { return selected; }
+    };
     window.__sourceWidgets[opts.key] = api;
     return api;
 }
@@ -2363,7 +2711,7 @@ function initFileInputs() {
 function processUploadAreaFile(input, container, icon, label, originalText) {
     container.classList.remove('reg-upload-success', 'reg-upload-error', 'reg-upload-drag');
     removeExistingError(container);
-    removeExistingRemoveBtn(container);
+    removeUploadFieldActions(container);
 
     if (!input.files || !input.files[0]) { resetUploadArea(container, icon, label, originalText); return; }
 
@@ -2379,14 +2727,11 @@ function processUploadAreaFile(input, container, icon, label, originalText) {
     }
 
     container.classList.add('reg-upload-success');
-    container.style.borderColor = 'var(--reg-success-border)';
-    container.style.background = 'var(--reg-success-bg)';
-    container.style.borderStyle = 'solid';
     setFileIcon(icon, check.ext);
     label.textContent = file.name;
     label.style.color = 'var(--reg-success)';
     label.style.fontWeight = '600';
-    addRemoveBtn(container, input, icon, label, originalText);
+    attachUploadFieldActions(container, input, file, icon, label, originalText);
 
     if (input.id === 'drfFile' && check.ext === 'pdf' && file.size <= OCR_MAX_FILE_SIZE) {
         triggerScanExtraction(input, file);
@@ -2468,23 +2813,92 @@ function showUploadFieldError(container, message) {
 }
 
 function resetUploadArea(container, icon, label, originalText) {
-    container.classList.remove('reg-upload-success', 'reg-upload-error', 'reg-upload-drag');
+    container.classList.remove('reg-upload-success', 'reg-upload-error', 'reg-upload-drag', 'reg-upload-has-file');
     container.style.borderColor = ''; container.style.background = ''; container.style.borderStyle = ''; container.style.animation = '';
     clearFileIcon(icon, label, originalText);
-    removeExistingRemoveBtn(container); removeExistingError(container);
+    removeUploadFieldActions(container);
+    removeExistingError(container);
 }
 
-function addRemoveBtn(container, input, icon, label, originalText) {
-    removeExistingRemoveBtn(container);
-    const btn = document.createElement('button');
-    btn.type = 'button'; btn.className = 'reg-file-remove'; btn.title = 'Remove file';
-    btn.innerHTML = '<i class="fa-solid fa-xmark"></i>';
-    btn.addEventListener('click', function (e) {
-        e.preventDefault(); e.stopPropagation();
+function removeUploadFieldActions(container) {
+    if (!container) return;
+    const actions = container.querySelector('.reg-upload-field-actions');
+    if (actions?.dataset.blobUrl) {
+        URL.revokeObjectURL(actions.dataset.blobUrl);
+    }
+    actions?.remove();
+    container.querySelectorAll('.reg-file-remove').forEach(el => el.remove());
+    container.classList.remove('reg-upload-has-file');
+}
+
+function removeExistingPreview(container) {
+    removeUploadFieldActions(container);
+}
+
+function attachUploadFieldActions(container, input, file, icon, label, originalText) {
+    removeUploadFieldActions(container);
+    if (!container || !file) return;
+
+    const check = checkFile(file);
+    if (!check.valid) return;
+
+    container.classList.add('reg-upload-has-file');
+
+    const actions = document.createElement('div');
+    actions.className = 'reg-upload-field-actions';
+
+    if (check.ext === 'pdf') {
+        const url = URL.createObjectURL(file);
+        actions.dataset.blobUrl = url;
+        actions.innerHTML =
+            '<button type="button" class="reg-upload-view-btn">' +
+                '<i class="fa-solid fa-eye"></i> View' +
+            '</button>' +
+            '<button type="button" class="reg-upload-clear" title="Remove file">' +
+                '<i class="fa-solid fa-xmark"></i>' +
+            '</button>';
+        actions.querySelector('.reg-upload-view-btn')?.addEventListener('click', (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            openFilePreviewModal(url, file.name);
+        });
+    } else {
+        actions.innerHTML =
+            '<button type="button" class="reg-upload-clear" title="Remove file">' +
+                '<i class="fa-solid fa-xmark"></i>' +
+            '</button>';
+    }
+
+    actions.querySelector('.reg-upload-clear')?.addEventListener('click', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
         input.value = '';
         resetUploadArea(container, icon, label, originalText);
     });
-    container.appendChild(btn);
+
+    container.appendChild(actions);
+}
+
+function openFilePreviewModal(url, title) {
+    const overlay = document.getElementById('filePreviewModal');
+    const frame = document.getElementById('filePreviewModalFrame');
+    const titleEl = document.getElementById('filePreviewModalTitle');
+    if (!overlay || !frame) return;
+    frame.src = url;
+    if (titleEl) titleEl.textContent = title || 'File preview';
+    overlay.classList.add('is-open');
+    overlay.setAttribute('aria-hidden', 'false');
+    document.body.style.overflow = 'hidden';
+}
+
+function closeFilePreviewModal() {
+    const overlay = document.getElementById('filePreviewModal');
+    const frame = document.getElementById('filePreviewModalFrame');
+    if (!overlay) return;
+    overlay.classList.remove('is-open');
+    overlay.setAttribute('aria-hidden', 'true');
+    if (frame) frame.src = 'about:blank';
+    document.body.style.overflow = '';
 }
 
 function removeExistingRemoveBtn(c) { const o = c.querySelector('.reg-file-remove'); if (o) o.remove(); }
@@ -2666,6 +3080,25 @@ window.handleApprovalToggle = function (applicable) {
     const el = document.getElementById("section-approval");
     if (el) el.style.display = applicable ? "block" : "none";
 };
+
+function wireApprovalDeadlineSync() {
+    const approval = document.getElementById('approvalDate');
+    const deadline = document.getElementById('deadlineOfSubmission');
+    if (!approval || !deadline) return;
+    let syncing = false;
+    approval.addEventListener('change', () => {
+        if (syncing) return;
+        syncing = true;
+        deadline.value = approval.value;
+        syncing = false;
+    });
+    deadline.addEventListener('change', () => {
+        if (syncing) return;
+        syncing = true;
+        approval.value = deadline.value;
+        syncing = false;
+    });
+}
 
 function enableApproval() {
     document.querySelectorAll('input[name="approval_status"]').forEach(r => r.disabled = false);
@@ -4100,7 +4533,7 @@ function removeOfficesByCluster(clusterCode) {
 
     updateTotal('distTotal', 'distBody');
     if (tbody.querySelectorAll('tr.reg-office-added').length === 0) {
-        tbody.innerHTML = emptyOfficeRowHTML();
+        tbody.innerHTML = emptyOfficeRowHTML('distBody');
     }
     syncDistClusterChipState();
 }
@@ -4111,6 +4544,7 @@ function toggleOfficesByCluster(clusterCode) {
     } else {
         addOfficesByCluster(clusterCode);
     }
+    syncDistClusterChipState();
 }
 
 function syncDistClusterChipState() {
@@ -4433,7 +4867,7 @@ function collectMissingFields() {
             checkText("Masterlist", "masterlistEffectivityDate", "Effectivity Date");
         }
         checkText("Masterlist", "masterlistNoOfPages", "No. of Pages");
-        checkText("Masterlist", "briefPurpose", "Justification");
+        checkText("Masterlist", "keywords", "Keywords");
         if (!window.__sourceWidgets.masterlistOriginator || window.__sourceWidgets.masterlistOriginator.selected.length === 0) missing.push("Masterlist: Originator");
         if (!window.__sourceWidgets.masterlist || window.__sourceWidgets.masterlist.selected.length === 0) missing.push("Masterlist: Source Unit");
     }
@@ -4489,12 +4923,16 @@ function renderMissingFieldsWarning(container, missing) {
             </div>
         </div>
         <div class="review-missing-body">${groupsHtml}</div>
-        <label class="review-missing-confirm">
-            <input type="checkbox" id="confirmSaveAnyway" onchange="handleConfirmSaveAnywayToggle(this)">
-            <span>I understand some information is missing, and I still want to save.</span>
-        </label>
     `;
-    container.prepend(warn);
+    container.appendChild(warn);
+
+    const confirmWrap = document.createElement("label");
+    confirmWrap.className = "review-missing-confirm";
+    confirmWrap.innerHTML = `
+        <input type="checkbox" id="confirmSaveAnyway" onchange="handleConfirmSaveAnywayToggle(this)">
+        <span>I have reviewed the entries above. Some required information is still missing, and I want to proceed with saving anyway.</span>
+    `;
+    container.appendChild(confirmWrap);
 
     if (confirmBtn) {
         confirmBtn.disabled = true;
@@ -4713,7 +5151,7 @@ function buildMasterlistReview(reviewContent) {
         { label: "Pages", value: getInputVal("masterlistNoOfPages") },
         { label: "Originator", value: window.__sourceWidgets.masterlistOriginator?.selected.length > 0 ? window.__sourceWidgets.masterlistOriginator.selected.map(o => o.label).join(', ') : null },
         { label: "Source Unit", value: window.__sourceWidgets.masterlist?.selected.length > 0 ? window.__sourceWidgets.masterlist.selected.map(i => i.label).join(', ') : null },
-        { label: "Purpose", value: getInputVal("briefPurpose") },
+        { label: "Keywords", value: getInputVal("keywords") },
         { label: "Related Docs", value: relatedDocsSelected.length > 0 ? relatedDocsSelected.map(d => d.doc_title).join(', ') : null },
         { label: "File", value: f && f.length > 0 ? f[0].name : null, isFile: true },
     ]);
@@ -4821,8 +5259,6 @@ window.handleSearch = function (input, resultsId, bodyId, totalId) {
 window.addOffice = function (officeId, officeName, bodyId, totalId, resultsId) {
     const tbody = document.getElementById(bodyId); const dropdown = document.getElementById(resultsId); if (!tbody) return;
     const isRetrieval = bodyId === "retrievalBody";
-    const officeNameAttr = isRetrieval ? "retrievalOffice[]" : "distOffice[]";
-    const copiesNameAttr = isRetrieval ? "retrievalCopies[]" : "distCopies[]";
 
     const emptyRow = tbody.querySelector(".reg-empty-row"); if (emptyRow) emptyRow.remove();
     for (const inp of tbody.querySelectorAll('input[type="hidden"]')) {
@@ -4836,10 +5272,23 @@ window.addOffice = function (officeId, officeName, bodyId, totalId, resultsId) {
         }
     }
 
+    if (isRetrieval) {
+        seedRetrievalOfficeRow(bodyId, totalId, officeId, officeName, 1, 'pending');
+        updateTotal(totalId, bodyId);
+        if (dropdown) {
+            dropdown.style.display = "none";
+            const searchInput = dropdown.parentElement?.querySelector("input[type='text']");
+            if (searchInput) searchInput.value = "";
+        }
+        return;
+    }
+
+    const officeNameAttr = "distOffice[]";
+    const copiesNameAttr = "distCopies[]";
     const safeDisplay = escapeHtml(officeName);
     const tr = document.createElement("tr");
     tr.className = "reg-office-added";
-    if (!isRetrieval) tr.draggable = true;
+    tr.draggable = true;
     tr.innerHTML = `<td><input type="hidden" name="${officeNameAttr}" value="${officeId}"><div class="reg-office-name"><div class="reg-office-icon"><i class="fa-solid fa-building"></i></div><span class="reg-office-text">${safeDisplay}</span></div></td><td style="text-align:center;"><input type="number" name="${copiesNameAttr}" value="1" min="1" oninput="updateTotal('${totalId}', '${bodyId}')"></td><td><button type="button" class="btn-remove" onclick="removeOffice(this, '${totalId}', '${bodyId}')"><i class="fa-solid fa-xmark"></i></button></td>`;
     tbody.appendChild(tr);
     updateTotal(totalId, bodyId);
@@ -4853,12 +5302,19 @@ window.addOffice = function (officeId, officeName, bodyId, totalId, resultsId) {
 
 window.removeOffice = function (btn, totalId, bodyId) {
     const tr = btn.closest("tr");
+    if (bodyId === 'retrievalBody') {
+        const officeId = tr.querySelector('input[type="hidden"][name="retrievalOffice[]"]')?.value;
+        const status = tr.querySelector('.reg-retrieval-status')?.value;
+        if (officeId && status === 'retrieved') {
+            removeRetrievedOfficeFromDistribution(officeId);
+        }
+    }
     tr.style.opacity = "0"; tr.style.transform = "translateX(20px)"; tr.style.transition = "all 0.2s ease";
     setTimeout(() => {
         tr.remove(); updateTotal(totalId, bodyId);
         const tbody = document.getElementById(bodyId);
         if (tbody && tbody.querySelectorAll("tr").length === 0) {
-            tbody.innerHTML = emptyOfficeRowHTML();
+            tbody.innerHTML = emptyOfficeRowHTML(bodyId);
         }
         if (bodyId === 'distBody') syncDistClusterChipState();
     }, 200);

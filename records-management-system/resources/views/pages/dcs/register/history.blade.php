@@ -38,6 +38,12 @@ new #[Layout('layouts.dcs')] #[Title('Revision History — CSPC DCS')] class ext
             <span class="hst-info-label">Document</span>
             <p class="hst-doc-title" title="{{ $docTitle }}">{{ $docTitle }}</p>
             <span class="hst-docno">{{ $docNo }}</span>
+            @if(!empty($lineageDocNos) && count($lineageDocNos) > 1)
+                <span class="hst-lineage-note" title="Includes prior document numbers from renumbering">
+                    <i class="fa-solid fa-link"></i>
+                    {{ count($lineageDocNos) }} document numbers in lineage
+                </span>
+            @endif
         </div>
 
         <div class="hst-timeline">
@@ -73,6 +79,9 @@ new #[Layout('layouts.dcs')] #[Title('Revision History — CSPC DCS')] class ext
                         <div class="hst-card-heading">
                             <i class="fa-solid fa-chevron-right hst-chevron" :class="{ 'is-open': open }"></i>
                             <span class="hst-rev-badge">Rev {{ $rev['revise_no'] }}</span>
+                            @if(!empty($rev['doc_no']) && $rev['doc_no'] !== $docNo)
+                                <span class="hst-docno-tag" title="Prior document number">{{ $rev['doc_no'] }}</span>
+                            @endif
                             @if($rev['is_latest'])
                                 <span class="hst-current-tag">Current</span>
                             @else
@@ -151,6 +160,43 @@ new #[Layout('layouts.dcs')] #[Title('Revision History — CSPC DCS')] class ext
                                                 @endforeach
                                             </tbody>
                                         </table>
+                                    </div>
+                                @elseif(!empty($section['revisions']))
+                                    <div class="hst-table-wrap">
+                                        <h3 class="hst-subsection-title">Documents for Revision</h3>
+                                        <table class="hst-table">
+                                            <thead>
+                                                <tr>
+                                                    <th>Document No.</th>
+                                                    <th>Title</th>
+                                                    <th>Effectivity</th>
+                                                    <th>Rev</th>
+                                                    <th>Brief Purpose</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody>
+                                                @foreach($section['revisions'] as $dcnRev)
+                                                    <tr>
+                                                        <td>{{ $dcnRev['document_no'] ?? '—' }}</td>
+                                                        <td>{{ $dcnRev['title'] ?? '—' }}</td>
+                                                        <td>{{ $dcnRev['effectivity_date'] ?? '—' }}</td>
+                                                        <td>{{ $dcnRev['revision_no'] ?? '—' }}</td>
+                                                        <td>{{ $dcnRev['brief_purpose'] ?? '—' }}</td>
+                                                    </tr>
+                                                @endforeach
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                    <div class="hst-grid hst-grid-after-table">
+                                        @foreach($section['rows'] as $row)
+                                            <div class="hst-field {{ !empty($row['changed']) ? 'is-changed' : '' }}">
+                                                <span class="hst-info-label">{{ $row['label'] }}</span>
+                                                <span class="hst-val">{!! nl2br(e($row['value'])) !!}</span>
+                                                @if(!empty($row['changed']))
+                                                    <span class="hst-was">Was: {!! nl2br(e($row['previous'] ?? '—')) !!}</span>
+                                                @endif
+                                            </div>
+                                        @endforeach
                                     </div>
                                 @else
                                     <div class="hst-grid">

@@ -23,6 +23,9 @@ return new class extends Migration
             $table->foreign('created_by')->references('id')->on('account');
             $table->foreign('updated_by')->references('id')->on('account');
             $table->timestamps();
+            $table->timestamp('deleted_at')->nullable();
+            $table->unsignedInteger('deleted_by')->nullable();
+            $table->foreign('deleted_by')->references('id')->on('account')->nullOnDelete();
         });
     }
 

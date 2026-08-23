@@ -19,6 +19,7 @@ return new class extends Migration
             $table->decimal('rating_e', 5, 2)->nullable();
             $table->decimal('rating_t', 5, 2)->nullable();
             $table->decimal('rating_a', 5, 2)->nullable();
+            $table->text('remarks_override')->nullable();
             $table->timestamps();
 
             $table->unique(['request_id', 'sub_type']);

@@ -97,6 +97,44 @@ body {
     font-variant-numeric: tabular-nums;
 }
 
+.hst-lineage-note {
+    flex-shrink: 0;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 3px 10px;
+    border-radius: 999px;
+    background: #eff6ff;
+    border: 1px solid #bfdbfe;
+    color: #1d4ed8;
+    font-size: 0.68rem;
+    font-weight: 650;
+}
+
+.hst-docno-tag {
+    display: inline-flex;
+    align-items: center;
+    padding: 2px 8px;
+    border-radius: 6px;
+    background: #fff;
+    border: 1px solid var(--hst-border);
+    color: var(--hst-text-muted);
+    font-size: 0.68rem;
+    font-weight: 650;
+    font-variant-numeric: tabular-nums;
+}
+
+.hst-subsection-title {
+    margin: 0 0 8px;
+    font-size: 0.72rem;
+    font-weight: 700;
+    color: var(--hst-text);
+}
+
+.hst-grid-after-table {
+    margin-top: 10px;
+}
+
 .hst-badge {
     display: inline-flex;
     align-items: center;

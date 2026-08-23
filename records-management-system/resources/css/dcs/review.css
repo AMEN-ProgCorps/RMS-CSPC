@@ -327,6 +327,23 @@ body {
     border-radius: 20px;
 }
 
+.drr-latest-pill,
+.drr-rev-pill {
+    display: inline-flex;
+    align-items: center;
+    padding: 4px 10px;
+    border-radius: 999px;
+    font-size: 0.72rem;
+    font-weight: 700;
+    background: #dcfce7;
+    color: #166534;
+}
+
+.drr-rev-pill {
+    background: #eff6ff;
+    color: #1d4ed8;
+}
+
 .drr-rev-bar {
     display: flex;
     flex-wrap: wrap;
@@ -334,6 +351,38 @@ body {
     align-items: flex-end;
     padding: 16px 18px;
     border-bottom: 1px solid var(--dcs-border);
+}
+
+.drr-latest-lock {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    min-width: 180px;
+}
+
+.drr-latest-value {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    height: 38px;
+    padding: 0 12px;
+    border-radius: var(--dcs-radius-sm);
+    border: 1.5px solid #bbf7d0;
+    background: #f0fdf4;
+    color: #166534;
+    font-size: 0.85rem;
+    font-weight: 700;
+}
+
+.drr-rev-select {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    font-size: 0.72rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--dcs-text-muted);
 }
 
 .drr-rev-bar label {
@@ -347,7 +396,8 @@ body {
     color: var(--dcs-text-muted);
 }
 
-.drr-rev-bar select {
+.drr-rev-bar select,
+.drr-rev-select select {
     min-width: 240px;
     height: 38px;
     border: 1.5px solid var(--dcs-border);
@@ -683,6 +733,12 @@ body {
     display: grid;
     grid-template-columns: 1fr 1fr;
     gap: 14px;
+}
+
+.drr-scans-single {
+    grid-template-columns: 1fr;
+    max-width: 920px;
+    margin: 0 auto;
 }
 
 .drr-scan {

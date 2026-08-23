@@ -4,6 +4,7 @@ namespace App\Helpers;
 
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schema;
 
 class ReportHelper
 {
@@ -96,6 +97,10 @@ class ReportHelper
             return [$dateFrom ?: null, $dateTo ?: null, $asOf ?: null, 'custom'];
         }
 
+        if ($period === 'all') {
+            return [null, null, $asOf ?: null, 'all'];
+        }
+
         $end = $asOf
             ? \Carbon\Carbon::parse($asOf)->startOfDay()
             : \Carbon\Carbon::now('Asia/Manila')->startOfDay();
@@ -123,6 +128,7 @@ class ReportHelper
             'monthly'   => 'Monthly',
             'quarterly' => 'Quarterly',
             'annually'  => 'Annually',
+            'all'       => 'All time',
             default     => 'Custom',
         };
     }
@@ -130,12 +136,22 @@ class ReportHelper
     private function parseReportFilters(Request $request): array
     {
         $raw = $request->input('sub_type_ids', '');
+        $subTypeEmpty = $request->boolean('sub_type_empty');
         if (is_array($raw)) {
             $subTypeIds = array_filter(array_map('intval', $raw));
         } elseif (is_string($raw) && $raw !== '') {
             $subTypeIds = array_filter(array_map('intval', explode(',', $raw)));
         } else {
             $subTypeIds = [];
+        }
+
+        $uiSubRaw = $request->input('ui_sub_type_ids', '');
+        if (is_array($uiSubRaw)) {
+            $uiSubTypeIds = array_filter(array_map('intval', $uiSubRaw));
+        } elseif (is_string($uiSubRaw) && $uiSubRaw !== '') {
+            $uiSubTypeIds = array_filter(array_map('intval', explode(',', $uiSubRaw)));
+        } else {
+            $uiSubTypeIds = [];
         }
 
         return [
@@ -145,20 +161,40 @@ class ReportHelper
             'rev_no'           => $request->input('rev_no'),
             'revision_status'  => $request->input('revision_status'),
             'sub_type_ids'     => $subTypeIds,
+            'sub_type_empty'   => $subTypeEmpty,
+            'ui_doc_type'      => $request->input('ui_doc_type'),
+            'ui_sub_type_ids'  => $uiSubTypeIds,
         ];
     }
 
     private function applySubTypeFilter($query, array $filters)
     {
+        if (!empty($filters['sub_type_empty'])) {
+            return $query->whereRaw('0 = 1');
+        }
+
         if (empty($filters['sub_type_ids'])) {
             return $query;
         }
 
-        $ids = $filters['sub_type_ids'];
-        // Include uncategorized rows (null sub_type) under the parent doc type.
-        $query->where(function ($q) use ($ids) {
-            $q->whereIn('dr.sub_type_id', $ids)->orWhereNull('dr.sub_type_id');
-        });
+        return $query->whereIn('dr.sub_type_id', $filters['sub_type_ids']);
+    }
+
+    private function applyUiMonitoringFilters($query, array $filters)
+    {
+        if (!empty($filters['ui_doc_type'])) {
+            $docType = $filters['ui_doc_type'];
+            $query->whereExists(function ($q) use ($docType) {
+                $q->select(DB::raw(1))->from('dcs_doc_types as dt')
+                    ->whereColumn('dt.id', 'dr.doc_type_id')
+                    ->where('dt.doc_type_name', $docType);
+            });
+        }
+
+        if (!empty($filters['ui_sub_type_ids'])) {
+            $ids = $filters['ui_sub_type_ids'];
+            $query->whereIn('dr.sub_type_id', $ids);
+        }
 
         return $query;
     }
@@ -208,6 +244,10 @@ class ReportHelper
 
     private function applyMasterlistSubTypeFilter($query, array $filters)
     {
+        if (!empty($filters['sub_type_empty'])) {
+            return $query->whereRaw('0 = 1');
+        }
+
         if (empty($filters['sub_type_ids'])) {
             return $query;
         }
@@ -217,9 +257,7 @@ class ReportHelper
             $q->select(DB::raw(1))
                 ->from('dcs_document_requests as dr')
                 ->whereColumn('dr.id', 'ml.request_id')
-                ->where(function ($q2) use ($ids) {
-                    $q2->whereIn('dr.sub_type_id', $ids)->orWhereNull('dr.sub_type_id');
-                });
+                ->whereIn('dr.sub_type_id', $ids);
         });
 
         return $query;
@@ -389,6 +427,11 @@ class ReportHelper
         // Source of truth: dcs_masterlist_registration (not document_requests alone).
         $query = DB::table('dcs_masterlist_registration as ml')
             ->whereNotNull('ml.doc_no')->where('ml.doc_no', '!=', '');
+        $query->whereExists(function ($q) {
+            $q->select(DB::raw(1))->from('dcs_document_requests as dr')
+                ->whereColumn('dr.id', 'ml.request_id');
+            RegisterQueryHelper::applyNotDeleted($q, 'dr');
+        });
 
         $query = $this->applyMasterlistCategoryFilter($query, $sub);
         $query = $this->applyMasterlistSubTypeFilter($query, $filters);
@@ -465,8 +508,9 @@ class ReportHelper
         ];
         $docTypeName = $docTypeMap[$sub] ?? 'Forms';
 
-        $query = DB::table('dcs_document_requests as dr')
-        ->whereExists(function ($q) use ($docTypeName) {
+        $query = DB::table('dcs_document_requests as dr');
+        RegisterQueryHelper::applyNotDeleted($query, 'dr');
+        $query->whereExists(function ($q) use ($docTypeName) {
             $q->select(DB::raw(1))->from('dcs_doc_types as dt')
                 ->whereColumn('dt.id', 'dr.doc_type_id')
                 ->where('dt.doc_type_name', $docTypeName);
@@ -487,6 +531,7 @@ class ReportHelper
 
         $query = $this->applyCommonFilters($query, $filters);
         $query = $this->applySubTypeFilter($query, $filters);
+        $query = $this->applyUiMonitoringFilters($query, $filters);
 
         $docs = RegisterQueryHelper::hydrateRequests($query->orderByDesc('dr.id')->get());
         $docs = $this->filterRequestsByRevisionStatus($docs, $filters);
@@ -648,8 +693,9 @@ class ReportHelper
      */
     private function documentMonitoringLog(string $docTypeName, ?string $dateFrom, ?string $dateTo, array $filters = [])
     {
-        $query = DB::table('dcs_document_requests as dr')
-        ->whereExists(function ($q) use ($docTypeName) {
+        $query = DB::table('dcs_document_requests as dr');
+        RegisterQueryHelper::applyNotDeleted($query, 'dr');
+        $query->whereExists(function ($q) use ($docTypeName) {
             $q->select(DB::raw(1))->from('dcs_doc_types as dt')
                 ->whereColumn('dt.id', 'dr.doc_type_id')
                 ->where('dt.doc_type_name', $docTypeName);
@@ -670,6 +716,7 @@ class ReportHelper
 
         $query = $this->applyCommonFilters($query, $filters);
         $query = $this->applySubTypeFilter($query, $filters);
+        $query = $this->applyUiMonitoringFilters($query, $filters);
 
         $docs = RegisterQueryHelper::hydrateRequests($query->orderByDesc('dr.id')->get());
         $docs = $this->filterRequestsByRevisionStatus($docs, $filters);
@@ -816,6 +863,7 @@ class ReportHelper
             ->join('dcs_document_requests as dr', 'dr.id', '=', 'drf.request_id')
             ->leftJoin('dcs_doc_types as dt', 'dt.id', '=', 'dr.doc_type_id')
             ->select('drf.*', 'dt.doc_type_name');
+        RegisterQueryHelper::applyNotDeleted($query, 'dr');
 
         if ($dateFrom) {
             $query->where('drf.drf_date', '>=', $dateFrom);
@@ -868,6 +916,7 @@ class ReportHelper
             ->join('dcs_document_requests as dr', 'dr.id', '=', 'dcn.request_id')
             ->leftJoin('dcs_doc_types as dt', 'dt.id', '=', 'dr.doc_type_id')
             ->select('dcn.*', 'dt.doc_type_name');
+        RegisterQueryHelper::applyNotDeleted($query, 'dr');
 
         if ($dateFrom) {
             $query->where('dcn.dcn_date', '>=', $dateFrom);
@@ -925,8 +974,9 @@ class ReportHelper
     // ════════════════════════════════════════════
     private function opcrData(?string $sub, ?string $dateFrom, ?string $dateTo, array $filters = [])
     {
-        $startDate = $dateFrom ? \Carbon\Carbon::parse($dateFrom) : \Carbon\Carbon::now()->startOfYear();
-        $endDate   = $dateTo   ? \Carbon\Carbon::parse($dateTo)   : \Carbon\Carbon::now();
+        // Null dates = all-time (do not fall back to current year — that hides External docs).
+        $startDate = $dateFrom ? \Carbon\Carbon::parse($dateFrom)->startOfDay() : null;
+        $endDate   = $dateTo   ? \Carbon\Carbon::parse($dateTo)->endOfDay()   : null;
 
         $subLabel = $this->getReportCategories()['opcr']['subs'][$sub] ?? 'OPCR Targets';
 
@@ -974,7 +1024,6 @@ class ReportHelper
             $ml = $doc->masterlistRegistration;
             $dist = $doc->documentDistribution;
             $drf = $doc->documentRequestForm;
-            $dcn = $doc->documentChangeNotice;
 
             // Request / document received — prefer DRF receipt, else masterlist receipt
             $recvDateRaw = null;
@@ -1042,6 +1091,10 @@ class ReportHelper
 
             $opcrRating = $ratingsByRequest->get($doc->id);
             $docNo = $ml ? $ml->doc_no : null;
+            // Editable remarks start empty — user enters them like Q/E/T/A (do not auto-fill DCN).
+            $remarksOverride = ($opcrRating && isset($opcrRating->remarks_override) && $opcrRating->remarks_override !== null && $opcrRating->remarks_override !== '')
+                ? $opcrRating->remarks_override
+                : null;
 
             $row = [
                 'no'             => $index + 1,
@@ -1051,11 +1104,12 @@ class ReportHelper
                 'date_received'  => $dateReceived,
                 'days_diff'      => $daysDiff,
                 'days_type'      => $daysType,
-                'rating_q'       => $opcrRating?->rating_q ?? null,
-                'rating_e'       => $opcrRating?->rating_e ?? null,
-                'rating_t'       => $opcrRating?->rating_t ?? null,
-                'rating_a'       => $opcrRating?->rating_a ?? null,
-                'remarks'        => $dcn && $dcn->dcn_no ? 'DCN: ' . $dcn->dcn_no : null,
+                'rating_q'       => $opcrRating?->rating_q !== null ? (int) $opcrRating->rating_q : null,
+                'rating_e'       => $opcrRating?->rating_e !== null ? (int) $opcrRating->rating_e : null,
+                'rating_t'       => $opcrRating?->rating_t !== null ? (int) $opcrRating->rating_t : null,
+                'rating_a'       => $opcrRating?->rating_a !== null ? (int) $opcrRating->rating_a : null,
+                'remarks'        => $remarksOverride,
+                'remarks_override' => $remarksOverride,
                 'pdf_path'       => $ml && $ml->scanned_masterlist
                     ? '/storage/' . $ml->scanned_masterlist : null,
             ];
@@ -1178,9 +1232,15 @@ class ReportHelper
                 $q->select(DB::raw(1))->from('dcs_masterlist_registration as ml')
                     ->whereColumn('ml.request_id', 'dr.id')
                     ->whereNotNull('ml.doc_no')
-                    ->where('ml.doc_no', '!=', '')
-                    ->whereBetween('ml.doc_registered_date', [$startDate, $endDate]);
+                    ->where('ml.doc_no', '!=', '');
+                if ($startDate) {
+                    $q->whereDate('ml.doc_registered_date', '>=', $startDate);
+                }
+                if ($endDate) {
+                    $q->whereDate('ml.doc_registered_date', '<=', $endDate);
+                }
             });
+        RegisterQueryHelper::applyNotDeleted($query, 'dr');
 
         if ($docTypeNames) {
             $query->whereExists(function ($q) use ($docTypeNames) {
@@ -1196,28 +1256,91 @@ class ReportHelper
         return RegisterQueryHelper::hydrateRequests($query->orderByDesc('dr.id')->get());
     }
 
+    /** Persist a single OPCR rating/remarks field without clobbering the others. */
+    public function saveOpcrRatingField(int $requestId, string $sub, string $field, $value)
+    {
+        $ratingFields = ['rating_q', 'rating_e', 'rating_t', 'rating_a'];
+        $isRating = in_array($field, $ratingFields, true);
+        $isRemarks = $field === 'remarks_override';
+
+        if (! $isRating && ! $isRemarks) {
+            return null;
+        }
+
+        if ($isRating) {
+            if ($value === '' || $value === null) {
+                $normalized = null;
+            } else {
+                $normalized = max(1, min(5, (int) $value));
+            }
+        } else {
+            $normalized = ($value === '' || $value === null) ? null : (string) $value;
+            if ($isRemarks && ! Schema::hasColumn('dcs_opcr_ratings', 'remarks_override')) {
+                return $normalized;
+            }
+        }
+
+        $attrs = [
+            'request_id' => $requestId,
+            'sub_type'   => $sub,
+        ];
+        $values = [
+            $field => $normalized,
+            'updated_at' => now(),
+        ];
+
+        if (DB::table('dcs_opcr_ratings')->where($attrs)->exists()) {
+            DB::table('dcs_opcr_ratings')->where($attrs)->update($values);
+        } else {
+            $insert = $attrs + [
+                'rating_q' => null,
+                'rating_e' => null,
+                'rating_t' => null,
+                'rating_a' => null,
+                'created_at' => now(),
+                'updated_at' => now(),
+            ];
+            if (Schema::hasColumn('dcs_opcr_ratings', 'remarks_override')) {
+                $insert['remarks_override'] = null;
+            }
+            $insert[$field] = $normalized;
+            DB::table('dcs_opcr_ratings')->insert($insert);
+        }
+
+        return $normalized;
+    }
+
     public function saveOpcrRatings(Request $request)
     {
         $request->validate([
             'request_id' => 'required|integer',
             'sub'        => 'required|string',
-            'rating_q'   => 'nullable|numeric|min:0|max:10',
-            'rating_e'   => 'nullable|numeric|min:0|max:10',
-            'rating_t'   => 'nullable|numeric|min:0|max:10',
-            'rating_a'   => 'nullable|numeric|min:0|max:10',
+            'rating_q'   => 'nullable|integer|min:1|max:5',
+            'rating_e'   => 'nullable|integer|min:1|max:5',
+            'rating_t'   => 'nullable|integer|min:1|max:5',
+            'rating_a'   => 'nullable|integer|min:1|max:5',
+            'remarks_override' => 'nullable|string|max:2000',
         ]);
+
+        $normalize = fn ($value) => ($value === '' || $value === null)
+            ? null
+            : max(1, min(5, (int) $value));
 
         $attrs = [
             'request_id' => $request->request_id,
             'sub_type'   => $request->sub,
         ];
         $values = [
-            'rating_q' => $request->rating_q,
-            'rating_e' => $request->rating_e,
-            'rating_t' => $request->rating_t,
-            'rating_a' => $request->rating_a,
+            'rating_q' => $normalize($request->rating_q),
+            'rating_e' => $normalize($request->rating_e),
+            'rating_t' => $normalize($request->rating_t),
+            'rating_a' => $normalize($request->rating_a),
             'updated_at' => now(),
         ];
+        if (Schema::hasColumn('dcs_opcr_ratings', 'remarks_override')) {
+            $remarks = $request->input('remarks_override');
+            $values['remarks_override'] = ($remarks === '' || $remarks === null) ? null : $remarks;
+        }
         if (DB::table('dcs_opcr_ratings')->where($attrs)->exists()) {
             DB::table('dcs_opcr_ratings')->where($attrs)->update($values);
         } else {
@@ -1234,6 +1357,7 @@ class ReportHelper
     private function othersData(?string $dateFrom, ?string $dateTo, array $filters = [])
     {
         $query = DB::table('dcs_document_requests as dr');
+        RegisterQueryHelper::applyNotDeleted($query, 'dr');
 
         if ($dateFrom || $dateTo) {
             $query->whereExists(function ($q) use ($dateFrom, $dateTo) {

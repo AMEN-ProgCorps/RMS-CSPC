@@ -71,19 +71,19 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
     }
 }; ?>
 
-<main class="dashboard-main">
+<main class="dashboard-main" wire:ignore x-data="dcsDashboardCalendar()">
     <div class="dashboard-header">
         <div class="welcome-text">
-            <p class="header-greeting">Welcome back, {{ auth()->user()?->name ?: 'User' }}</p>
             <h1 class="page-title">Document Control System</h1>
         </div>
-        <div class="header-date">
+        <button type="button" class="header-date dash-calendar-trigger" @click.stop="calendarOpen = !calendarOpen" :aria-expanded="calendarOpen.toString()">
             <i class="fa-regular fa-calendar"></i>
             <span>{{ $headerDate }}</span>
-        </div>
+            <i class="fa-solid fa-chevron-down dash-calendar-chevron" :class="{ 'is-open': calendarOpen }"></i>
+        </button>
     </div>
 
-    <div class="dashboard-content-wrapper">
+    <div class="dashboard-content-wrapper dashboard-content-wrapper--full">
         <div class="main-column">
             <section class="dash-queue-bar">
                 <a href="{{ route('dcs.database.index', absolute: false) }}" class="dash-queue-chip">
@@ -96,6 +96,7 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                     <span>Obsolete</span><strong>{{ number_format((int) $stats['obsoleteCount']) }}</strong>
                 </a>
             </section>
+
             <section class="stats-row">
                 @foreach([
                     ['id' => 'internalCount', 'typeKey' => 'internal_docs', 'label' => 'Internal Documents', 'icon' => 'fa-file-shield', 'accent' => null],
@@ -117,43 +118,10 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                 @endforeach
             </section>
 
-            <section class="actions-section">
-                <div class="section-header">
-                    <h2>Quick Actions</h2>
-                    <span class="section-subtitle">Frequently used operations</span>
-                </div>
-                <div class="actions-row">
-                    <a href="{{ route('dcs.register.create', absolute: false) }}" class="action-box">
-                        <div class="action-icon-wrap"><i class="fa-solid fa-file-circle-plus"></i></div>
-                        <div class="action-content">
-                            <h4>Register New Document</h4>
-                            <p>Create and route initial document draft</p>
-                        </div>
-                        <i class="fa-solid fa-arrow-right action-arrow"></i>
-                    </a>
-                    <a href="{{ route('dcs.register.create', ['type' => 'revised'], absolute: false) }}" class="action-box">
-                        <div class="action-icon-wrap"><i class="fa-solid fa-file-pen"></i></div>
-                        <div class="action-content">
-                            <h4>Register Revised Document</h4>
-                            <p>Upload new version for approval</p>
-                        </div>
-                        <i class="fa-solid fa-arrow-right action-arrow"></i>
-                    </a>
-                    <a href="{{ route('dcs.register.update', absolute: false) }}" class="action-box">
-                        <div class="action-icon-wrap"><i class="fa-solid fa-rotate"></i></div>
-                        <div class="action-content">
-                            <h4>Update Document</h4>
-                            <p>Modify metadata or access permissions</p>
-                        </div>
-                        <i class="fa-solid fa-arrow-right action-arrow"></i>
-                    </a>
-                </div>
-            </section>
-
-            <section class="dash-search-section" x-data="dcsDashboardSearch()" @keydown.escape.window="checklistModal ? closeChecklistModal() : close()">
+            <section class="dash-search-section" x-data="dcsDashboardSearch()" @keydown.escape.window="detailModal ? closeDetailModal() : close()">
                 <div class="section-header">
                     <h2>Search Documents</h2>
-                    <span class="section-subtitle">Find by document no. or title</span>
+                    <span class="section-subtitle">Find by document no., title, or keywords</span>
                 </div>
 
                 <div class="dash-search-card" :class="{ 'has-results': open && query.trim().length > 0 }">
@@ -164,7 +132,7 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                             class="dash-search-input"
                             x-model="query"
                             @input="search()"
-                            placeholder="Search by document no. or title..."
+                            placeholder="Search by document no., title, or keywords..."
                             autocomplete="off"
                         >
                         <button type="button" class="dash-search-clear" x-show="query.length > 0" x-cloak @click="clear()">
@@ -196,7 +164,7 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                         <template x-if="!loading && results.length > 0">
                             <div class="dash-search-list">
                                 <template x-for="doc in results" :key="doc.masterlist_id">
-                                    <article class="dash-search-item">
+                                    <article class="dash-search-item dash-search-item-clickable" @click="openDetail(doc)" role="button" tabindex="0" @keydown.enter.prevent="openDetail(doc)">
                                         <div class="dash-search-item-top">
                                             <div class="dash-search-item-main">
                                                 <code class="dash-search-docno" x-text="doc.doc_no || 'No number'"></code>
@@ -214,24 +182,9 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                                             </div>
                                             <span class="dash-search-rev" x-text="'Rev ' + (doc.revise_no ?? 0)"></span>
                                         </div>
-                                        <div class="dash-search-checklists">
-                                            <span class="dash-search-checklists-label">Checklists</span>
-                                            <div class="dash-search-checklists-row">
-                                                <template x-for="cl in checklistButtons(doc)" :key="cl.key">
-                                                    <button
-                                                        type="button"
-                                                        class="dash-cl-btn"
-                                                        :class="{ 'is-active': activeChecklistKey === cl.key && activeRequestId === doc.request_id }"
-                                                        @click.stop="openChecklist(doc, cl.key)"
-                                                        x-text="cl.label"
-                                                    ></button>
-                                                </template>
-                                            </div>
-                                            <div class="dash-search-actions">
-                                                <a :href="doc.edit_url" class="dash-search-link">Edit</a>
-                                                <a :href="doc.stamp_url" class="dash-search-link">Stamp</a>
-                                                <a :href="doc.inventory_url" class="dash-search-link">Inventory</a>
-                                            </div>
+                                        <div class="dash-search-item-hint">
+                                            <span>Click to view checklists and revisions</span>
+                                            <i class="fa-solid fa-arrow-right"></i>
                                         </div>
                                     </article>
                                 </template>
@@ -242,69 +195,85 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
 
                 <template x-teleport="body">
                     <div
-                        class="dash-cl-overlay"
-                        x-show="checklistModal"
+                        class="dash-cl-overlay dash-detail-overlay"
+                        x-show="detailModal"
                         x-cloak
-                        @click.self="closeChecklistModal()"
+                        @click.self="closeDetailModal()"
                         style="display:none;"
-                        :style="checklistModal ? 'display:flex' : 'display:none'"
+                        :style="detailModal ? 'display:flex' : 'display:none'"
                     >
-                        <div class="dash-cl-modal" @click.stop role="dialog" aria-modal="true">
+                        <div class="dash-detail-modal" @click.stop role="dialog" aria-modal="true">
                             <div class="dash-cl-modal-head">
                                 <div class="dash-cl-modal-head-text">
-                                    <p class="dash-cl-modal-kicker">Checklist Preview</p>
-                                    <h3 x-text="checklistPreview?.title || 'Checklist'"></h3>
-                                    <p class="dash-cl-modal-doc" x-show="checklistDocLabel" x-text="checklistDocLabel"></p>
+                                    <p class="dash-cl-modal-kicker">Document Detail</p>
+                                    <h3 x-text="detailDoc?.doc_title || 'Untitled'"></h3>
+                                    <p class="dash-cl-modal-doc" x-show="detailDocLabel" x-text="detailDocLabel"></p>
                                 </div>
-                                <button type="button" class="dash-cl-modal-close" @click="closeChecklistModal()" aria-label="Close">
+                                <button type="button" class="dash-cl-modal-close" @click="closeDetailModal()" aria-label="Close">
                                     <i class="fa-solid fa-xmark"></i>
                                 </button>
                             </div>
 
-                            <div class="dash-cl-modal-body">
-                                <template x-if="checklistLoading">
-                                    <div class="dash-cl-loading">
-                                        <i class="fa-solid fa-spinner fa-spin"></i>
-                                        <span>Loading checklist data...</span>
+                            <div class="dash-detail-body">
+                                <div class="dash-detail-main">
+                                    <div class="dash-detail-checklist-tabs">
+                                        <template x-for="cl in detailChecklistOptions()" :key="cl.key">
+                                            <button
+                                                type="button"
+                                                class="dash-cl-btn"
+                                                :class="{ 'is-active': activeChecklistKey === cl.key }"
+                                                @click="loadChecklist(cl.key)"
+                                                x-text="cl.label"
+                                            ></button>
+                                        </template>
                                     </div>
-                                </template>
 
-                                <template x-if="!checklistLoading && checklistPreview">
-                                    <div class="dash-cl-body">
-                                        <table class="dash-cl-table">
-                                            <tbody>
-                                                <template x-for="field in checklistPreview.fields" :key="field.label">
-                                                    <tr>
-                                                        <th x-text="field.label"></th>
-                                                        <td x-text="field.value"></td>
-                                                    </tr>
-                                                </template>
-                                            </tbody>
-                                        </table>
+                                    <div class="dash-detail-preview">
+                                        <template x-if="checklistLoading">
+                                            <div class="dash-cl-loading">
+                                                <i class="fa-solid fa-spinner fa-spin"></i>
+                                                <span>Loading checklist data...</span>
+                                            </div>
+                                        </template>
 
-                                        <template x-for="(section, idx) in (checklistPreview.sections || [])" :key="idx">
-                                            <div class="dash-cl-section">
-                                                <h4 x-text="section.heading"></h4>
-                                                <template x-if="section.items">
-                                                    <ul class="dash-cl-list">
-                                                        <template x-for="item in section.items" :key="item">
-                                                            <li x-text="item"></li>
+                                        <template x-if="!checklistLoading && checklistPreview">
+                                            <div class="dash-cl-body">
+                                                <table class="dash-cl-table">
+                                                    <tbody>
+                                                        <template x-for="field in checklistPreview.fields" :key="field.label">
+                                                            <tr>
+                                                                <th x-text="field.label"></th>
+                                                                <td x-text="field.value"></td>
+                                                            </tr>
                                                         </template>
-                                                    </ul>
-                                                </template>
-                                                <template x-if="section.revisions">
-                                                    <div class="dash-cl-revisions">
-                                                        <template x-for="(rev, revIdx) in section.revisions" :key="revIdx">
-                                                            <div class="dash-cl-rev-card">
-                                                                <div class="dash-cl-rev-title">
-                                                                    <strong x-text="rev.document_no"></strong>
-                                                                    <span x-text="rev.title"></span>
-                                                                </div>
-                                                                <div class="dash-cl-rev-meta">
-                                                                    <span x-text="'Rev ' + rev.revision_no"></span>
-                                                                    <span x-text="rev.effectivity_date"></span>
-                                                                </div>
-                                                                <p x-show="rev.brief_purpose && rev.brief_purpose !== '—'" x-text="rev.brief_purpose"></p>
+                                                    </tbody>
+                                                </table>
+
+                                                <template x-for="(section, idx) in (checklistPreview.sections || [])" :key="idx">
+                                                    <div class="dash-cl-section">
+                                                        <h4 x-text="section.heading"></h4>
+                                                        <template x-if="section.items">
+                                                            <ul class="dash-cl-list">
+                                                                <template x-for="item in section.items" :key="item">
+                                                                    <li x-text="item"></li>
+                                                                </template>
+                                                            </ul>
+                                                        </template>
+                                                        <template x-if="section.revisions">
+                                                            <div class="dash-cl-revisions">
+                                                                <template x-for="(rev, revIdx) in section.revisions" :key="revIdx">
+                                                                    <div class="dash-cl-rev-card">
+                                                                        <div class="dash-cl-rev-title">
+                                                                            <strong x-text="rev.document_no"></strong>
+                                                                            <span x-text="rev.title"></span>
+                                                                        </div>
+                                                                        <div class="dash-cl-rev-meta">
+                                                                            <span x-text="'Rev ' + rev.revision_no"></span>
+                                                                            <span x-text="rev.effectivity_date"></span>
+                                                                        </div>
+                                                                        <p x-show="rev.brief_purpose && rev.brief_purpose !== '—'" x-text="rev.brief_purpose"></p>
+                                                                    </div>
+                                                                </template>
                                                             </div>
                                                         </template>
                                                     </div>
@@ -312,196 +281,264 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                                             </div>
                                         </template>
                                     </div>
-                                </template>
+                                </div>
+
+                                <aside class="dash-detail-revisions">
+                                    <h4>Revisions</h4>
+                                    <template x-if="revisionsLoading">
+                                        <div class="dash-detail-rev-loading">Loading...</div>
+                                    </template>
+                                    <template x-if="!revisionsLoading && revisions.length === 0">
+                                        <p class="dash-detail-rev-empty">No other revisions</p>
+                                    </template>
+                                    <template x-if="!revisionsLoading && revisions.length > 0">
+                                        <div class="dash-detail-rev-list">
+                                            <template x-for="rev in revisions" :key="rev.request_id">
+                                                <button
+                                                    type="button"
+                                                    class="dash-detail-rev-btn"
+                                                    :class="{ 'is-active': activeRequestId === rev.request_id }"
+                                                    @click="selectRevision(rev)"
+                                                >
+                                                    <span class="dash-detail-rev-no" x-text="'Rev ' + rev.revise_no"></span>
+                                                    <span class="dash-detail-rev-status" x-show="rev.revision_status === 'obsolete'">Obsolete</span>
+                                                    <span class="dash-detail-rev-date" x-text="rev.effectivity_date || '—'"></span>
+                                                </button>
+                                            </template>
+                                        </div>
+                                    </template>
+                                </aside>
                             </div>
 
                             <div class="dash-cl-modal-foot">
                                 <a class="dash-cl-close-btn" :href="checklistEditUrl" x-show="checklistEditUrl">Edit document</a>
                                 <a class="dash-cl-close-btn" :href="checklistStampUrl" x-show="checklistStampUrl">Stamp</a>
-                                <button type="button" class="dash-cl-close-btn" @click="closeChecklistModal()">Close</button>
+                                <button type="button" class="dash-cl-close-btn" @click="closeDetailModal()">Close</button>
                             </div>
                         </div>
                     </div>
                 </template>
             </section>
+
+            <section class="actions-section">
+                <div class="section-header">
+                    <h2>Quick Actions</h2>
+                    <span class="section-subtitle">Frequently used operations</span>
+                </div>
+                <div class="actions-row">
+                    <a href="{{ route('dcs.register.create', ['type' => 'new'], absolute: false) }}" class="action-box">
+                        <div class="action-icon-wrap"><i class="fa-solid fa-file-circle-plus"></i></div>
+                        <div class="action-content">
+                            <h4>Register New Document</h4>
+                            <p>Create and route initial document draft</p>
+                        </div>
+                        <i class="fa-solid fa-arrow-right action-arrow"></i>
+                    </a>
+                    <a href="{{ route('dcs.register.create', ['type' => 'revised'], absolute: false) }}" class="action-box">
+                        <div class="action-icon-wrap"><i class="fa-solid fa-file-pen"></i></div>
+                        <div class="action-content">
+                            <h4>Register Revised Document</h4>
+                            <p>Upload new version for approval</p>
+                        </div>
+                        <i class="fa-solid fa-arrow-right action-arrow"></i>
+                    </a>
+                    <a href="{{ route('dcs.register.update', absolute: false) }}" class="action-box">
+                        <div class="action-icon-wrap"><i class="fa-solid fa-rotate"></i></div>
+                        <div class="action-content">
+                            <h4>Update Document</h4>
+                            <p>Modify metadata or access permissions</p>
+                        </div>
+                        <i class="fa-solid fa-arrow-right action-arrow"></i>
+                    </a>
+                </div>
+            </section>
         </div>
+    </div>
 
-        <div class="side-column" wire:ignore x-data="dcsDashboardCalendar()">
-            <div class="widget calendar-widget white-card">
-                <div class="calendar-header">
-                    <h3 x-text="title"></h3>
-                    <div class="cal-nav">
-                        <button type="button" x-on:click="changeMonth(-1)"><i class="fa-solid fa-chevron-left"></i></button>
-                        <button type="button" x-on:click="changeMonth(1)"><i class="fa-solid fa-chevron-right"></i></button>
-                    </div>
-                </div>
-                <div class="weekdays">
-                    <div>S</div><div>M</div><div>T</div><div>W</div><div>T</div><div>F</div><div>S</div>
-                </div>
-                <div class="calendar-grid">
-                    <template x-for="cell in cells" :key="cell.iso + cell.outside">
-                        <div class="cal-cell" :class="{ 'out-month': cell.outside }" x-on:click="openDay(cell.iso)">
-                            <div class="day-num"
-                                :class="{ today: cell.today && !cell.colors.length, holiday: cell.holiday && !cell.colors.length }"
-                                :style="cell.colors.length ? ('background-color:' + cell.colors[0] + ';color:#fff;font-weight:700') : ''"
-                                x-text="cell.day"></div>
-                            <div class="day-markers">
-                                <span class="day-marker holiday" x-show="cell.holiday"></span>
-                                <template x-for="(color, idx) in cell.colors" :key="idx">
-                                    <span class="day-marker event" x-show="idx > 0" :style="'background-color:' + color"></span>
-                                </template>
-                            </div>
+    <template x-teleport="body">
+        <div class="dash-calendar-portal" x-show="calendarOpen || modal !== null" x-cloak @keydown.escape.window="dismissCalendarPortal()">
+            <div class="dash-calendar-backdrop" @click="dismissCalendarPortal()"></div>
+            <div class="dash-calendar-dropdown" x-show="calendarOpen" @click.stop>
+                <div class="widget calendar-widget white-card">
+                    <div class="calendar-header">
+                        <h3 x-text="title"></h3>
+                        <div class="cal-nav">
+                            <button type="button" x-on:click="changeMonth(-1)"><i class="fa-solid fa-chevron-left"></i></button>
+                            <button type="button" x-on:click="changeMonth(1)"><i class="fa-solid fa-chevron-right"></i></button>
                         </div>
-                    </template>
-                </div>
-                <div class="cal-legend">
-                    <span class="legend-item"><span class="dot holiday-dot"></span> Holiday</span>
-                    <span class="legend-item"><span class="dot event-dot"></span> Event</span>
-                    <button type="button" class="btn-mini" x-on:click="openAdd(todayIso())">+ Add Event</button>
-                </div>
-            </div>
-
-            <div class="widget upcoming-widget white-card">
-                <div class="widget-header">
-                    <h3>Upcoming</h3>
-                    <span class="badge" x-text="upcoming.length"></span>
-                </div>
-                <div class="upcoming-list">
-                    <template x-if="upcoming.length === 0">
-                        <div class="upcoming-empty">
-                            <i class="fa-regular fa-calendar-check"></i>
-                            <span>No events in the next 14 days</span>
-                        </div>
-                    </template>
-                    <template x-for="ev in upcoming" :key="ev.id">
-                        <div class="upcoming-item" x-on:click="openDay(ev.date)">
-                            <div class="upcoming-event-dot" :style="'background-color:' + (ev.color || '#0d2a7a')"></div>
-                            <div class="upcoming-info">
-                                <div class="title" x-text="ev.title"></div>
-                                <div class="time" x-text="(ev.category_name ? ev.category_name + ' · ' : '') + formatTime(ev.startTime) + ' — ' + formatTime(ev.endTime)"></div>
-                            </div>
-                        </div>
-                    </template>
-                </div>
-            </div>
-
-            <template x-teleport="body">
-    <div class="overlay" x-show="modal !== null" x-cloak x-on:click.self="modal = null">
-        <div class="modal" x-on:click.stop>
-            <template x-if="modal === 'day'">
-                <div class="ev-modal">
-                    <div class="ev-modal-top">
-                        <div class="ev-modal-icon is-view"><i class="fa-regular fa-calendar"></i></div>
-                        <button type="button" class="ev-modal-close" x-on:click="modal = null"><i class="fa-solid fa-xmark"></i></button>
                     </div>
-                    <h3 class="ev-modal-title" x-text="displayDate(activeIso)"></h3>
-                    <p class="ev-modal-desc" x-text="dayEvents.length + ' event' + (dayEvents.length === 1 ? '' : 's') + ' scheduled'"></p>
-                    <div class="ev-holiday" x-show="holidayName(activeIso)">
-                        <i class="fa-solid fa-umbrella-beach"></i><span x-text="holidayName(activeIso)"></span>
+                    <div class="weekdays">
+                        <div>S</div><div>M</div><div>T</div><div>W</div><div>T</div><div>F</div><div>S</div>
                     </div>
-                    <div class="ev-card-list">
-                        <template x-if="dayEvents.length === 0">
-                            <div class="ev-empty"><i class="fa-regular fa-calendar"></i><span>No events scheduled</span></div>
-                        </template>
-                        <template x-for="ev in dayEvents" :key="ev.id">
-                            <div class="ev-card">
-                                <div class="ev-card-color" :style="'background:' + (ev.color || '#0d2a7a')"></div>
-                                <div class="ev-card-body">
-                                    <div class="ev-card-top">
-                                        <div class="ev-card-title" x-text="ev.title"></div>
-                                        <div class="ev-card-btns" x-show="!ev.readonly">
-                                            <button type="button" class="ev-card-btn" x-on:click="openEdit(ev.id)"><i class="fa-solid fa-pen"></i></button>
-                                            <button type="button" class="ev-card-btn ev-card-btn-danger" x-on:click="removeEvent(ev.id)"><i class="fa-solid fa-trash-can"></i></button>
-                                        </div>
-                                    </div>
-                                    <div class="ev-card-time">
-                                        <i class="fa-regular fa-clock"></i>
-                                        <span x-text="formatTime(ev.startTime) + ' — ' + formatTime(ev.endTime)"></span>
-                                    </div>
-                                    <div class="ev-card-time" x-show="ev.category_name">
-                                        <i class="fa-solid fa-tag"></i>
-                                        <span x-text="ev.category_name"></span>
-                                    </div>
+                    <div class="calendar-grid">
+                        <template x-for="cell in cells" :key="cell.iso + cell.outside">
+                            <div class="cal-cell" :class="{ 'out-month': cell.outside }" x-on:click="openDay(cell.iso)">
+                                <div class="day-num"
+                                    :class="{ today: cell.today && !cell.colors.length, holiday: cell.holiday && !cell.colors.length }"
+                                    :style="cell.colors.length ? ('background-color:' + cell.colors[0] + ';color:#fff;font-weight:700') : ''"
+                                    x-text="cell.day"></div>
+                                <div class="day-markers">
+                                    <span class="day-marker holiday" x-show="cell.holiday"></span>
+                                    <template x-for="(color, idx) in cell.colors" :key="idx">
+                                        <span class="day-marker event" x-show="idx > 0" :style="'background-color:' + color"></span>
+                                    </template>
                                 </div>
                             </div>
                         </template>
                     </div>
-                    <div class="ev-actions-row">
-                        <button type="button" class="ev-btn ev-btn-primary" style="width:100%;" x-on:click="openAdd(activeIso)">
-                            <i class="fa-solid fa-plus"></i> Add Event
-                        </button>
+                    <div class="cal-legend">
+                        <span class="legend-item"><span class="dot holiday-dot"></span> Holiday</span>
+                        <span class="legend-item"><span class="dot event-dot"></span> Event</span>
+                        <button type="button" class="btn-mini" x-on:click="openAdd(todayIso())">+ Add Event</button>
                     </div>
                 </div>
-            </template>
-            <template x-if="modal === 'form'">
-                <div class="ev-modal">
-                    <div class="ev-modal-top">
-                        <div class="ev-modal-icon" :class="editingId ? 'is-edit' : 'is-add'">
-                            <i class="fa-solid" :class="editingId ? 'fa-pen' : 'fa-plus'"></i>
-                        </div>
-                        <button type="button" class="ev-modal-close" x-on:click="openDay(form.date)"><i class="fa-solid fa-xmark"></i></button>
+
+                <div class="widget upcoming-widget white-card">
+                    <div class="widget-header">
+                        <h3>Events</h3>
+                        <span class="badge" x-text="filteredUpcoming.length"></span>
                     </div>
-                    <h3 class="ev-modal-title" x-text="editingId ? 'Edit Event' : 'New Event'"></h3>
-                    <p class="ev-modal-desc" x-text="displayDate(form.date)"></p>
-                    <form action="#" method="post" @submit.prevent="saveForm">
-                        <div class="ev-field">
-                            <label class="ev-label">Title</label>
-                            <input class="ev-input" x-model="form.title" required autocomplete="off">
-                        </div>
-                        <div class="ev-field">
-                            <label class="ev-label">Category</label>
-                            <div class="ev-cat-select-row">
-                                <select class="ev-input" x-model="form.category_id" required>
-                                    <option value="">Select category</option>
-                                    <template x-for="cat in categories" :key="cat.id">
-                                        <option :value="cat.id" x-text="cat.name"></option>
-                                    </template>
-                                </select>
-                                <button type="button" class="ev-cat-icon-btn" title="Add category" :class="{ 'is-open': addingCategory }" @click="toggleAddCategory()">
-                                    <i class="fa-solid fa-plus"></i>
-                                </button>
-                                <button type="button" class="ev-cat-icon-btn ev-cat-row-del" title="Delete selected category" x-show="form.category_id" @click="removeSelectedCategory()">
-                                    <i class="fa-solid fa-trash"></i>
-                                </button>
+                    <div class="ev-category-pills" x-show="categories.length > 0">
+                        <button type="button" class="ev-cat-pill" :class="{ 'is-active': eventCategoryFilter === '' }" @click="eventCategoryFilter = ''">All</button>
+                        <template x-for="cat in categories" :key="cat.id">
+                            <button type="button" class="ev-cat-pill" :class="{ 'is-active': String(eventCategoryFilter) === String(cat.id) }" @click="eventCategoryFilter = cat.id" x-text="cat.name"></button>
+                        </template>
+                    </div>
+                    <div class="upcoming-list">
+                        <template x-if="filteredUpcoming.length === 0">
+                            <div class="upcoming-empty">
+                                <i class="fa-regular fa-calendar-check"></i>
+                                <span>No events in the next 14 days</span>
                             </div>
-                            <div class="ev-cat-add" x-show="addingCategory" x-cloak>
-                                <input class="ev-input" x-ref="newCatInput" x-model="newCategory" placeholder="Category name" autocomplete="off" @keydown.enter.prevent="addCategory">
-                                <button type="button" class="ev-btn ev-btn-ghost" @click="addCategory">Add</button>
+                        </template>
+                        <template x-for="ev in filteredUpcoming" :key="ev.id">
+                            <div class="upcoming-item" x-on:click="openDay(ev.date)">
+                                <div class="upcoming-event-dot" :style="'background-color:' + (ev.color || '#0d2a7a')"></div>
+                                <div class="upcoming-info">
+                                    <div class="title" x-text="ev.title"></div>
+                                    <div class="time" x-text="(ev.category_name ? ev.category_name + ' · ' : '') + formatTime(ev.startTime) + ' — ' + formatTime(ev.endTime)"></div>
+                                </div>
                             </div>
+                        </template>
+                    </div>
+                </div>
+            </div>
+
+            <div class="dash-event-layer" x-cloak x-bind:style="modal !== null ? 'display:flex' : 'display:none'">
+                <div class="dash-event-panel" @click.stop>
+                <template x-if="modal === 'day'">
+                    <div class="ev-modal">
+                        <div class="ev-modal-top">
+                            <div class="ev-modal-icon is-view"><i class="fa-regular fa-calendar"></i></div>
+                            <button type="button" class="ev-modal-close" x-on:click="modal = null"><i class="fa-solid fa-xmark"></i></button>
                         </div>
-                        <div class="ev-field">
-                            <label class="ev-label">Date</label>
-                            <input type="date" class="ev-input" x-model="form.date" required>
+                        <h3 class="ev-modal-title" x-text="displayDate(activeIso)"></h3>
+                        <p class="ev-modal-desc" x-text="dayEvents.length + ' event' + (dayEvents.length === 1 ? '' : 's') + ' scheduled'"></p>
+                        <div class="ev-holiday" x-show="holidayName(activeIso)">
+                            <i class="fa-solid fa-umbrella-beach"></i><span x-text="holidayName(activeIso)"></span>
                         </div>
-                        <div class="ev-time-row">
-                            <div class="ev-field ev-field-half">
-                                <label class="ev-label">Start</label>
-                                <input type="time" class="ev-input" x-model="form.startTime" required>
-                            </div>
-                            <div class="ev-field ev-field-half">
-                                <label class="ev-label">End</label>
-                                <input type="time" class="ev-input" x-model="form.endTime" required>
-                            </div>
-                        </div>
-                        <div class="ev-field">
-                            <label class="ev-label">Notes <span class="ev-optional">Optional</span></label>
-                            <textarea class="ev-textarea" rows="2" x-model="form.description"></textarea>
+                        <div class="ev-card-list">
+                            <template x-if="dayEvents.length === 0">
+                                <div class="ev-empty"><i class="fa-regular fa-calendar"></i><span>No events scheduled</span></div>
+                            </template>
+                            <template x-for="ev in dayEvents" :key="ev.id">
+                                <div class="ev-card">
+                                    <div class="ev-card-color" :style="'background:' + (ev.color || '#0d2a7a')"></div>
+                                    <div class="ev-card-body">
+                                        <div class="ev-card-top">
+                                            <div class="ev-card-title" x-text="ev.title"></div>
+                                            <div class="ev-card-btns" x-show="!ev.readonly">
+                                                <button type="button" class="ev-card-btn" x-on:click="openEdit(ev.id)"><i class="fa-solid fa-pen"></i></button>
+                                                <button type="button" class="ev-card-btn ev-card-btn-danger" x-on:click="removeEvent(ev.id)"><i class="fa-solid fa-trash-can"></i></button>
+                                            </div>
+                                        </div>
+                                        <div class="ev-card-time">
+                                            <i class="fa-regular fa-clock"></i>
+                                            <span x-text="formatTime(ev.startTime) + ' — ' + formatTime(ev.endTime)"></span>
+                                        </div>
+                                        <div class="ev-card-time" x-show="ev.category_name">
+                                            <i class="fa-solid fa-tag"></i>
+                                            <span x-text="ev.category_name"></span>
+                                        </div>
+                                    </div>
+                                </div>
+                            </template>
                         </div>
                         <div class="ev-actions-row">
-                            <button type="button" class="ev-btn ev-btn-ghost" x-on:click="openDay(form.date)">Cancel</button>
-                            <button type="submit" class="ev-btn ev-btn-primary">
-                                <i class="fa-solid" :class="editingId ? 'fa-check' : 'fa-plus'"></i>
-                                <span x-text="editingId ? 'Save' : 'Create'"></span>
+                            <button type="button" class="ev-btn ev-btn-primary" style="width:100%;" x-on:click="openAdd(activeIso)">
+                                <i class="fa-solid fa-plus"></i> Add Event
                             </button>
                         </div>
-                    </form>
+                    </div>
+                </template>
+                <template x-if="modal === 'form'">
+                    <div class="ev-modal">
+                        <div class="ev-modal-top">
+                            <div class="ev-modal-icon" :class="editingId ? 'is-edit' : 'is-add'">
+                                <i class="fa-solid" :class="editingId ? 'fa-pen' : 'fa-plus'"></i>
+                            </div>
+                            <button type="button" class="ev-modal-close" x-on:click="openDay(form.date)"><i class="fa-solid fa-xmark"></i></button>
+                        </div>
+                        <h3 class="ev-modal-title" x-text="editingId ? 'Edit Event' : 'New Event'"></h3>
+                        <p class="ev-modal-desc" x-text="displayDate(form.date)"></p>
+                        <form action="#" method="post" @submit.prevent="saveForm">
+                            <div class="ev-field">
+                                <label class="ev-label">Title</label>
+                                <input class="ev-input" x-model="form.title" required autocomplete="off">
+                            </div>
+                            <div class="ev-field">
+                                <label class="ev-label">Category</label>
+                                <div class="ev-cat-select-row">
+                                    <select class="ev-input" x-model="form.category_id" required>
+                                        <option value="">Select category</option>
+                                        <template x-for="cat in categories" :key="cat.id">
+                                            <option :value="cat.id" x-text="cat.name"></option>
+                                        </template>
+                                    </select>
+                                    <button type="button" class="ev-cat-icon-btn" title="Add category" :class="{ 'is-open': addingCategory }" @click="toggleAddCategory()">
+                                        <i class="fa-solid fa-plus"></i>
+                                    </button>
+                                    <button type="button" class="ev-cat-icon-btn ev-cat-row-del" title="Delete selected category" x-show="form.category_id" @click="removeSelectedCategory()">
+                                        <i class="fa-solid fa-trash"></i>
+                                    </button>
+                                </div>
+                                <div class="ev-cat-add" x-show="addingCategory" x-cloak>
+                                    <input class="ev-input" x-ref="newCatInput" x-model="newCategory" placeholder="Category name" autocomplete="off" @keydown.enter.prevent="addCategory">
+                                    <button type="button" class="ev-btn ev-btn-ghost" @click="addCategory">Add</button>
+                                </div>
+                            </div>
+                            <div class="ev-field">
+                                <label class="ev-label">Date</label>
+                                <input type="date" class="ev-input" x-model="form.date" required>
+                            </div>
+                            <div class="ev-time-row">
+                                <div class="ev-field ev-field-half">
+                                    <label class="ev-label">Start</label>
+                                    <input type="time" class="ev-input" x-model="form.startTime" required>
+                                </div>
+                                <div class="ev-field ev-field-half">
+                                    <label class="ev-label">End</label>
+                                    <input type="time" class="ev-input" x-model="form.endTime" required>
+                                </div>
+                            </div>
+                            <div class="ev-field">
+                                <label class="ev-label">Notes <span class="ev-optional">Optional</span></label>
+                                <textarea class="ev-textarea" rows="2" x-model="form.description"></textarea>
+                            </div>
+                            <div class="ev-actions-row">
+                                <button type="button" class="ev-btn ev-btn-ghost" x-on:click="openDay(form.date)">Cancel</button>
+                                <button type="submit" class="ev-btn ev-btn-primary">
+                                    <i class="fa-solid" :class="editingId ? 'fa-check' : 'fa-plus'"></i>
+                                    <span x-text="editingId ? 'Save' : 'Create'"></span>
+                                </button>
+                            </div>
+                        </form>
+                    </div>
+                </template>
                 </div>
-            </template>
+            </div>
         </div>
-    </div>
-            </template>
-        </div>
-    </div>
+    </template>
 </main>
 
 <script>
@@ -512,10 +549,13 @@ document.addEventListener('alpine:init', () => {
         loading: false,
         open: false,
         timer: null,
-        checklistModal: false,
+        detailModal: false,
+        detailDoc: null,
+        detailDocLabel: '',
+        revisions: [],
+        revisionsLoading: false,
         checklistLoading: false,
         checklistPreview: null,
-        checklistDocLabel: '',
         checklistEditUrl: '',
         checklistStampUrl: '',
         activeChecklistKey: '',
@@ -524,6 +564,7 @@ document.addEventListener('alpine:init', () => {
             { key: 'drf', label: 'DRF' },
             { key: 'dcn', label: 'DCN' },
             { key: 'masterlist', label: 'Masterlist' },
+            { key: 'approval', label: 'Approving Body' },
             { key: 'distribution', label: 'Distribution' },
             { key: 'retrieval', label: 'Retrieval' },
         ],
@@ -555,28 +596,91 @@ document.addEventListener('alpine:init', () => {
             this.results = [];
             this.open = false;
             this.loading = false;
-            this.closeChecklistModal();
+            this.closeDetailModal();
         },
         close() {
             this.open = false;
         },
-        checklistButtons(doc) {
-            if (!doc?.checklists) return [];
-            return this.checklistOptions.filter((cl) => doc.checklists[cl.key]);
+        detailChecklistOptions() {
+            if (!this.detailDoc?.checklists) return [];
+            return this.checklistOptions.filter((cl) => this.detailDoc.checklists[cl.key]);
         },
-        async openChecklist(doc, type) {
-            this.activeChecklistKey = type;
-            this.activeRequestId = doc.request_id;
-            this.checklistModal = true;
-            this.checklistLoading = true;
+        resolveMatchedRevision(doc, revisions) {
+            const targetId = doc.match_request_id || doc.request_id;
+            if (!targetId) return null;
+            const fromList = (revisions || []).find((r) => r.request_id === targetId);
+            if (fromList) return fromList;
+            if (targetId === doc.request_id) {
+                return {
+                    request_id: doc.request_id,
+                    doc_no: doc.doc_no,
+                    revise_no: doc.revise_no ?? 0,
+                };
+            }
+            if (doc.match_request_id && doc.match_revise_no != null) {
+                return {
+                    request_id: doc.match_request_id,
+                    doc_no: doc.doc_no,
+                    revise_no: doc.match_revise_no,
+                };
+            }
+            return null;
+        },
+        applyActiveRevision(rev) {
+            if (!rev?.request_id) return;
+            this.activeRequestId = rev.request_id;
+            this.detailDocLabel = (rev.doc_no || this.detailDoc?.doc_no || 'No number')
+                + ' — Rev ' + (rev.revise_no ?? 0);
+            this.checklistEditUrl = '/dcs/register/' + rev.request_id + '/edit';
+        },
+        scrollActiveRevisionIntoView() {
+            this.$nextTick(() => {
+                const el = document.querySelector('.dash-detail-rev-btn.is-active');
+                el?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+            });
+        },
+        async openDetail(doc) {
+            this.detailDoc = doc;
+            this.detailModal = true;
+            this.revisions = [];
             this.checklistPreview = null;
-            this.checklistDocLabel = (doc.doc_no || 'No number') + ' — ' + (doc.doc_title || 'Untitled') + ' (Rev ' + (doc.revise_no ?? 0) + ')';
-            this.checklistEditUrl = doc.edit_url || '';
+            this.activeChecklistKey = '';
             this.checklistStampUrl = doc.stamp_url || '';
             document.body.classList.add('dash-cl-open');
 
+            this.revisionsLoading = true;
             try {
-                const res = await fetch('/dcs/api/documents/' + doc.request_id + '/checklist/' + type);
+                const res = await fetch('/dcs/api/documents/revisions?request_id=' + doc.request_id);
+                this.revisions = res.ok ? await res.json() : [];
+            } catch (e) {
+                this.revisions = [];
+            } finally {
+                this.revisionsLoading = false;
+            }
+
+            const matched = this.resolveMatchedRevision(doc, this.revisions);
+            this.applyActiveRevision(matched || doc);
+            if (matched && matched.request_id !== doc.request_id) {
+                this.scrollActiveRevisionIntoView();
+            }
+
+            const options = this.detailChecklistOptions();
+            if (options.length) {
+                await this.loadChecklist(options[0].key);
+            }
+        },
+        async selectRevision(rev) {
+            if (!rev || rev.request_id === this.activeRequestId) return;
+            this.applyActiveRevision(rev);
+            const key = this.activeChecklistKey || this.detailChecklistOptions()[0]?.key;
+            if (key) await this.loadChecklist(key);
+        },
+        async loadChecklist(type) {
+            this.activeChecklistKey = type;
+            this.checklistLoading = true;
+            this.checklistPreview = null;
+            try {
+                const res = await fetch('/dcs/api/documents/' + this.activeRequestId + '/checklist/' + type);
                 if (!res.ok) throw new Error('not found');
                 this.checklistPreview = await res.json();
             } catch (e) {
@@ -589,11 +693,13 @@ document.addEventListener('alpine:init', () => {
                 this.checklistLoading = false;
             }
         },
-        closeChecklistModal() {
-            this.checklistModal = false;
+        closeDetailModal() {
+            this.detailModal = false;
+            this.detailDoc = null;
+            this.revisions = [];
             this.checklistLoading = false;
             this.checklistPreview = null;
-            this.checklistDocLabel = '';
+            this.detailDocLabel = '';
             this.checklistEditUrl = '';
             this.checklistStampUrl = '';
             this.activeChecklistKey = '';
@@ -605,6 +711,8 @@ document.addEventListener('alpine:init', () => {
     Alpine.data('dcsDashboardCalendar', () => ({
         months: ['January','February','March','April','May','June','July','August','September','October','November','December'],
         holidays: @json($holidays),
+        calendarOpen: false,
+        eventCategoryFilter: '',
         year: new Date().getFullYear(),
         month: new Date().getMonth(),
         events: [],
@@ -626,6 +734,13 @@ document.addEventListener('alpine:init', () => {
         },
         async init() {
             await this.loadAll();
+        },
+        dismissCalendarPortal() {
+            if (this.modal !== null) {
+                this.modal = null;
+                return;
+            }
+            this.calendarOpen = false;
         },
         async loadAll() {
             try {
@@ -701,7 +816,15 @@ document.addEventListener('alpine:init', () => {
                     return { ...ev, when: d === t ? 'today' : d };
                 });
         },
-        openDay(iso) { this.activeIso = iso; this.modal = 'day'; },
+        get filteredUpcoming() {
+            const list = this.upcoming;
+            if (!this.eventCategoryFilter) return list;
+            return list.filter(ev => String(ev.category_id) === String(this.eventCategoryFilter));
+        },
+        openDay(iso) {
+            this.activeIso = iso;
+            this.modal = 'day';
+        },
         openAdd(iso) {
             this.editingId = null;
             this.form = {

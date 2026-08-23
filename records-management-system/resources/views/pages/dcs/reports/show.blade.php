@@ -20,7 +20,10 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
     public string $revisionStatus = 'all';
     public string $revNo = '';
     public array $subTypeIds = [];
+    public string $monitoringDocType = '';
+    public array $monitoringSubTypeIds = [];
     public bool $exportOpen = false;
+    public bool $filterOpen = false;
     public string $error = '';
     public array $result = [];
     public string $templateId = '0';
@@ -35,6 +38,11 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
             'dcs.reports.others' => 'others',
             default => 'masterlist',
         };
+        // Masterlist / Monitoring / OPCR default to all-time so older registration
+        // dates (common for External docs) are not hidden by the annual window.
+        if (in_array($this->category, ['masterlist', 'monitoring', 'opcr'], true)) {
+            $this->period = 'all';
+        }
         if ($this->category === 'others') {
             $this->loadReport();
         }
@@ -82,15 +90,40 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
         } else {
             $this->subTypeIds = [];
         }
+        if ($this->category === 'monitoring') {
+            $this->monitoringDocType = match ($sub) {
+                'internal_docs' => 'Internal',
+                'external_docs' => 'External',
+                'internal_forms' => 'Internal Forms',
+                'forms' => 'Forms',
+                'logbooks' => 'Logbooks',
+                default => '',
+            };
+            $this->monitoringSubTypeIds = [];
+        }
+        $this->loadReport();
+    }
+
+    public function openFilters(): void
+    {
+        $this->filterOpen = true;
+    }
+
+    public function closeFilters(): void
+    {
+        $this->filterOpen = false;
+    }
+
+    public function applyFilters(): void
+    {
+        $this->filterOpen = false;
         $this->loadReport();
     }
 
     public function updated($name): void
     {
-        if (in_array($name, ['period', 'asOf', 'dateFrom', 'dateTo', 'originator', 'sourceUnit', 'revisionStatus', 'revNo', 'subTypeIds'], true)) {
-            if ($this->category === 'others' || $this->sub !== '') {
-                $this->loadReport();
-            }
+        if ($this->category === 'others' && in_array($name, ['period', 'asOf', 'dateFrom', 'dateTo', 'originator', 'sourceUnit', 'revisionStatus', 'revNo', 'subTypeIds'], true)) {
+            $this->loadReport();
         }
     }
 
@@ -101,8 +134,27 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
 
     public function clearSubTypes(): void
     {
-        $this->subTypeIds = [];
-        $this->loadReport();
+        $this->selectAllSubTypes();
+    }
+
+    public function resetFilters(): void
+    {
+        $this->period = in_array($this->category, ['masterlist', 'monitoring', 'opcr'], true) ? 'all' : 'annually';
+        $this->asOf = now('Asia/Manila')->toDateString();
+        $this->dateFrom = '';
+        $this->dateTo = '';
+        $this->originator = '';
+        $this->sourceUnit = '';
+        $this->revisionStatus = 'all';
+        $this->revNo = '';
+        $this->monitoringSubTypeIds = [];
+        if ($this->sub !== '') {
+            $this->selectAllSubTypes();
+        } else {
+            $this->subTypeIds = [];
+            $this->loadReport();
+        }
+        $this->filterOpen = false;
     }
 
     public function loadReport(): void
@@ -128,24 +180,47 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
         ]));
     }
 
-    public function saveRatingField(int $requestId, string $field, $value): void
+    public function saveRatingField(int $requestId, string $field, $value = null): void
     {
-        $row = collect($this->result['rows'] ?? [])->firstWhere('request_id', $requestId) ?? [];
-        request()->merge([
-            'request_id' => $requestId,
-            'sub' => $this->sub,
-            'rating_q' => $field === 'rating_q' ? $value : ($row['rating_q'] ?? null),
-            'rating_e' => $field === 'rating_e' ? $value : ($row['rating_e'] ?? null),
-            'rating_t' => $field === 'rating_t' ? $value : ($row['rating_t'] ?? null),
-            'rating_a' => $field === 'rating_a' ? $value : ($row['rating_a'] ?? null),
-        ]);
-        app(ReportHelper::class)->saveOpcrRatings(request());
-        $this->loadReport();
+        $allowed = ['rating_q', 'rating_e', 'rating_t', 'rating_a', 'remarks'];
+        if (! in_array($field, $allowed, true) || $this->sub === '') {
+            return;
+        }
+
+        // Normalize Livewire/JS payloads (string "5", int 5, or empty).
+        if (is_array($value) && array_key_exists('value', $value)) {
+            $value = $value['value'];
+        }
+        if (is_string($value)) {
+            $value = trim($value);
+        }
+
+        $saved = app(ReportHelper::class)->saveOpcrRatingField(
+            $requestId,
+            $this->sub,
+            $field === 'remarks' ? 'remarks_override' : $field,
+            $value === '' ? null : $value
+        );
+
+        $rows = $this->result['rows'] ?? [];
+        foreach ($rows as $i => $r) {
+            if ((int) ($r['request_id'] ?? 0) !== $requestId) {
+                continue;
+            }
+            if ($field === 'remarks') {
+                $rows[$i]['remarks'] = $saved;
+                $rows[$i]['remarks_override'] = $saved;
+            } else {
+                $rows[$i][$field] = $saved;
+            }
+            break;
+        }
+        $this->result['rows'] = $rows;
     }
 
     public function exportUrl(string $format): string
     {
-        $query = $this->queryInput();
+        $query = $this->queryInput(forExport: true);
         // Always print via PDF in a blank window so Chrome does not inject URL/timestamp headers
         if ($format === 'print') {
             $query['format'] = 'pdf';
@@ -158,7 +233,7 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
         return route('dcs.reports.export', $query);
     }
 
-    private function queryInput(): array
+    private function queryInput(bool $forExport = false): array
     {
         $input = [
             'category' => $this->category,
@@ -181,8 +256,20 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
             ->pluck('id')
             ->map(fn ($id) => (string) $id)
             ->all();
-        if ($allIds && count($this->subTypeIds) > 0 && count($this->subTypeIds) < count($allIds)) {
-            $input['sub_type_ids'] = implode(',', $this->subTypeIds);
+        if ($parentId && $allIds !== []) {
+            $selected = $this->subTypeIds !== [] ? $this->subTypeIds : $allIds;
+            if (count($selected) < count($allIds)) {
+                $input['sub_type_ids'] = implode(',', $selected);
+            }
+        }
+
+        if (!$forExport && $this->category === 'monitoring') {
+            if ($this->monitoringDocType !== '') {
+                $input['ui_doc_type'] = $this->monitoringDocType;
+            }
+            if ($this->monitoringSubTypeIds !== []) {
+                $input['ui_sub_type_ids'] = implode(',', $this->monitoringSubTypeIds);
+            }
         }
 
         return array_filter($input, fn ($v) => $v !== '' && $v !== null);
@@ -200,6 +287,153 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
 }; ?>
 
 <main class="rpt-page" id="rptPage">
+    @teleport('body')
+    <div class="rpt-filter-portal" @if($filterOpen) data-open="1" @endif>
+        <div
+            class="rpt-filter-overlay {{ $filterOpen ? 'visible' : '' }}"
+            wire:click="closeFilters"
+            @if(!$filterOpen) style="pointer-events:none;" @endif
+        ></div>
+        <aside
+            class="rpt-filter-panel {{ $filterOpen ? 'open' : '' }}"
+            id="rptFilterPanel"
+            role="dialog"
+            aria-modal="true"
+            aria-label="Report filters"
+            @if(!$filterOpen) aria-hidden="true" @endif
+        >
+            <div class="rpt-filter-panel-head">
+                <h3><i class="fa-solid fa-filter"></i> Filters</h3>
+                <button type="button" class="rpt-filter-close" wire:click="closeFilters" aria-label="Close filters">&times;</button>
+            </div>
+            <div class="rpt-filter-form">
+                <div class="rpt-filter-group">
+                    <label>Report period</label>
+                    <select wire:model="period">
+                        @if(in_array($category, ['masterlist', 'monitoring', 'opcr'], true))
+                            <option value="all">All time</option>
+                        @endif
+                        <option value="monthly">Monthly</option>
+                        <option value="quarterly">Quarterly</option>
+                        <option value="annually">Annually</option>
+                        <option value="custom">Custom range</option>
+                    </select>
+                </div>
+                @if($period === 'custom')
+                    <div class="rpt-filter-group">
+                        <label>Date from</label>
+                        <input type="date" wire:model="dateFrom">
+                    </div>
+                    <div class="rpt-filter-group">
+                        <label>Date to</label>
+                        <input type="date" wire:model="dateTo">
+                    </div>
+                @else
+                    <div class="rpt-filter-group">
+                        <label>As of</label>
+                        <input type="date" wire:model="asOf">
+                    </div>
+                @endif
+                <div class="rpt-filter-group">
+                    <label>Originator</label>
+                    <select wire:model="originator">
+                        <option value="">All Originators</option>
+                        @foreach($originators as $o)
+                            <option value="{{ $o->originator_name }}">{{ $o->originator_name }}</option>
+                        @endforeach
+                    </select>
+                </div>
+                <div class="rpt-filter-group">
+                    <label>Source Office</label>
+                    <select wire:model="sourceUnit">
+                        <option value="">All Offices</option>
+                        @foreach($offices as $o)
+                            <option value="{{ $o->id }}">{{ $o->office_name }}</option>
+                        @endforeach
+                    </select>
+                </div>
+                <div class="rpt-filter-group">
+                    <label>Revision</label>
+                    <select wire:model="revisionStatus">
+                        <option value="all">All revisions</option>
+                        <option value="latest">Latest only</option>
+                        <option value="obsolete">Obsolete only</option>
+                    </select>
+                </div>
+                <div class="rpt-filter-group">
+                    <label>Revision No.</label>
+                    <select wire:model="revNo">
+                        <option value="">Any</option>
+                        @forelse($revisionNos as $rev)
+                            <option value="{{ $rev }}">{{ $rev }}</option>
+                        @empty
+                            @for($i = 0; $i <= 10; $i++)
+                                <option value="{{ $i }}">{{ $i }}</option>
+                            @endfor
+                        @endforelse
+                    </select>
+                </div>
+                @if($childTypes->isNotEmpty())
+                    <div class="rpt-subtype-block">
+                        <div class="rpt-subtype-head">
+                            <span class="rpt-subtype-title">Sub-types</span>
+                            <button type="button" class="rpt-link-btn" wire:click="selectAllSubTypes">Select all</button>
+                            <button type="button" class="rpt-link-btn" wire:click="clearSubTypes">Clear</button>
+                        </div>
+                        <div class="rpt-subtype-grid">
+                            @foreach($childTypes as $child)
+                                <label class="rpt-subtype-item">
+                                    <input type="checkbox" value="{{ $child->id }}" wire:model="subTypeIds">
+                                    <span>{{ $child->doc_type_name }}</span>
+                                </label>
+                            @endforeach
+                        </div>
+                    </div>
+                @endif
+                @if($category === 'monitoring' && in_array($sub, ['internal_docs', 'external_docs', 'internal_forms', 'forms', 'logbooks'], true))
+                    <div class="rpt-filter-sep">Preview-only filters (not included in export)</div>
+                    <div class="rpt-filter-group">
+                        <label>Document type</label>
+                        <select wire:model="monitoringDocType">
+                            <option value="">Use tab default</option>
+                            <option value="Internal">Internal</option>
+                            <option value="External">External</option>
+                            <option value="Internal Forms">Internal Forms</option>
+                            <option value="Forms">Forms</option>
+                            <option value="Logbooks">Logbooks</option>
+                        </select>
+                    </div>
+                    @php
+                        $monitorParentId = RegisterQueryHelper::parentTypeIdMap()[$sub] ?? null;
+                        $monitorChildTypes = $monitorParentId
+                            ? $allDocTypes->filter(fn ($d) => (string) $d->parent_id === (string) $monitorParentId)->values()
+                            : collect();
+                    @endphp
+                    @if($monitorChildTypes->isNotEmpty())
+                        <div class="rpt-subtype-block">
+                            <div class="rpt-subtype-head">
+                                <span class="rpt-subtype-title">Sub-types (preview)</span>
+                            </div>
+                            <div class="rpt-subtype-grid">
+                                @foreach($monitorChildTypes as $child)
+                                    <label class="rpt-subtype-item">
+                                        <input type="checkbox" value="{{ $child->id }}" wire:model="monitoringSubTypeIds">
+                                        <span>{{ $child->doc_type_name }}</span>
+                                    </label>
+                                @endforeach
+                            </div>
+                        </div>
+                    @endif
+                @endif
+            </div>
+            <div class="rpt-filter-panel-foot">
+                <button type="button" class="rpt-btn rpt-btn-outline" wire:click="resetFilters">Reset</button>
+                <button type="button" class="rpt-btn rpt-btn-primary" wire:click="applyFilters">Apply Filters</button>
+            </div>
+        </aside>
+    </div>
+    @endteleport
+
     <header class="rpt-hdr">
         <div>
             <div class="rpt-crumb">Document Control System / Generate Report /<span> {{ $pageTitle }}</span></div>
@@ -230,91 +464,6 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
         </nav>
     @endif
 
-    <section class="rpt-inline-filters" @if($category !== 'others' && $sub === '') hidden @endif>
-        <div class="rpt-inline-filters-grid">
-            <div class="rpt-filter-group">
-                <label>Report period</label>
-                <select wire:model.live="period">
-                    <option value="monthly">Monthly</option>
-                    <option value="quarterly">Quarterly</option>
-                    <option value="annually">Annually</option>
-                    <option value="custom">Custom range</option>
-                </select>
-            </div>
-            @if($period === 'custom')
-                <div class="rpt-filter-group">
-                    <label>Date from</label>
-                    <input type="date" wire:model.live="dateFrom">
-                </div>
-                <div class="rpt-filter-group">
-                    <label>Date to</label>
-                    <input type="date" wire:model.live="dateTo">
-                </div>
-            @else
-                <div class="rpt-filter-group">
-                    <label>As of</label>
-                    <input type="date" wire:model.live="asOf">
-                </div>
-            @endif
-            <div class="rpt-filter-group">
-                <label>Originator</label>
-                <select wire:model.live="originator">
-                    <option value="">All Originators</option>
-                    @foreach($originators as $o)
-                        <option value="{{ $o->originator_name }}">{{ $o->originator_name }}</option>
-                    @endforeach
-                </select>
-            </div>
-            <div class="rpt-filter-group">
-                <label>Source Office</label>
-                <select wire:model.live="sourceUnit">
-                    <option value="">All Offices</option>
-                    @foreach($offices as $o)
-                        <option value="{{ $o->id }}">{{ $o->office_name }}</option>
-                    @endforeach
-                </select>
-            </div>
-            <div class="rpt-filter-group">
-                <label>Revision</label>
-                <select wire:model.live="revisionStatus">
-                    <option value="all">All revisions</option>
-                    <option value="latest">Latest only</option>
-                    <option value="obsolete">Obsolete only</option>
-                </select>
-            </div>
-            <div class="rpt-filter-group">
-                <label>Revision No.</label>
-                <select wire:model.live="revNo">
-                    <option value="">Any</option>
-                    @forelse($revisionNos as $rev)
-                        <option value="{{ $rev }}">{{ $rev }}</option>
-                    @empty
-                        @for($i = 0; $i <= 10; $i++)
-                            <option value="{{ $i }}">{{ $i }}</option>
-                        @endfor
-                    @endforelse
-                </select>
-            </div>
-        </div>
-        @if($childTypes->isNotEmpty())
-            <div class="rpt-subtype-block">
-                <div class="rpt-subtype-head">
-                    <span class="rpt-subtype-title">Sub-types</span>
-                    <button type="button" class="rpt-link-btn" wire:click="selectAllSubTypes">Select all</button>
-                    <button type="button" class="rpt-link-btn" wire:click="clearSubTypes">Clear</button>
-                </div>
-                <div class="rpt-subtype-grid">
-                    @foreach($childTypes as $child)
-                        <label class="rpt-subtype-item">
-                            <input type="checkbox" value="{{ $child->id }}" wire:model.live="subTypeIds">
-                            <span>{{ $child->doc_type_name }}</span>
-                        </label>
-                    @endforeach
-                </div>
-            </div>
-        @endif
-    </section>
-
     @if($sub !== '' || $category === 'others')
         <section class="rpt-results">
             <div class="rpt-results-head">
@@ -322,8 +471,11 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                     <h3>{{ $result['title'] ?? 'Report Preview' }}</h3>
                     <span class="rpt-results-count">{{ $result['total_rows'] ?? 0 }} records</span>
                 </div>
-                <div class="rpt-results-actions" x-data="{ open: false }" @click.outside="open = false">
-                    <div class="rpt-export-wrap" :class="{ open: open }">
+                <div class="rpt-results-actions">
+                    <button type="button" class="rpt-btn rpt-btn-outline" wire:click="openFilters">
+                        <i class="fa-solid fa-filter"></i> Filter
+                    </button>
+                    <div class="rpt-export-wrap" :class="{ open: open }" x-data="{ open: false }" @click.outside="open = false">
                         <button class="rpt-btn rpt-btn-outline" type="button" @click="open = !open">
                             <i class="fa-solid fa-download"></i> Export
                             <i class="fa-solid fa-chevron-down rpt-chevron"></i>
@@ -469,13 +621,23 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                                             @foreach($keys as $key)
                                                 @if(in_array($key, ['rating_q', 'rating_e', 'rating_t', 'rating_a'], true))
                                                     <td class="opcr-rating-td">
-                                                        <input type="number" class="opcr-rating-input" min="0" max="10" step="0.01"
-                                                            value="{{ $row[$key] }}"
-                                                            wire:blur="saveRatingField({{ (int) $row['request_id'] }}, '{{ $key }}', $event.target.value)">
+                                                        <input type="number" class="opcr-rating-input" min="1" max="5" step="1" inputmode="numeric"
+                                                            wire:key="opcr-{{ (int) $row['request_id'] }}-{{ $key }}"
+                                                            value="{{ $row[$key] !== null && $row[$key] !== '' ? (int) $row[$key] : '' }}"
+                                                            x-on:change="$wire.saveRatingField({{ (int) $row['request_id'] }}, '{{ $key }}', $event.target.value)"
+                                                            x-on:blur="$wire.saveRatingField({{ (int) $row['request_id'] }}, '{{ $key }}', $event.target.value)">
                                                     </td>
                                                 @elseif($key === 'days_diff')
-                                                    <td class="{{ ($row[$key] ?? 0) > 0 ? 'opcr-days-advanced' : (($row[$key] ?? 0) < 0 ? 'opcr-days-delayed' : 'opcr-days-zero') }}">
+                                                    <td class="opcr-days-td {{ ($row[$key] ?? 0) > 0 ? 'opcr-days-advanced' : (($row[$key] ?? 0) < 0 ? 'opcr-days-delayed' : 'opcr-days-zero') }}">
                                                         {{ $row[$key] === null ? '—' : (($row[$key] > 0 ? '+' : '') . $row[$key]) }}
+                                                    </td>
+                                                @elseif($key === 'remarks')
+                                                    <td class="opcr-remarks-td">
+                                                        <input type="text" class="opcr-remarks-input" placeholder="Enter remarks"
+                                                            wire:key="opcr-{{ (int) $row['request_id'] }}-remarks"
+                                                            value="{{ $row['remarks_override'] ?? ($row[$key] ?? '') }}"
+                                                            x-on:change="$wire.saveRatingField({{ (int) $row['request_id'] }}, 'remarks', $event.target.value)"
+                                                            x-on:blur="$wire.saveRatingField({{ (int) $row['request_id'] }}, 'remarks', $event.target.value)">
                                                     </td>
                                                 @else
                                                     <td>{{ $row[$key] ?: '—' }}</td>
@@ -499,7 +661,7 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                         </div>
                     </div>
                 @else
-                    <iframe class="rpt-preview-frame" title="Report preview" src="{{ $this->previewUrl() }}" wire:key="preview-{{ $templateId }}"></iframe>
+                    <iframe class="rpt-preview-frame" title="Report preview" src="{{ $this->previewUrl() }}" wire:key="preview-{{ $category }}-{{ $sub }}-{{ $period }}-{{ $asOf }}-{{ $dateFrom }}-{{ $dateTo }}-{{ $templateId }}-{{ md5(json_encode([$originator, $sourceUnit, $revisionStatus, $revNo, $subTypeIds, $monitoringDocType, $monitoringSubTypeIds])) }}"></iframe>
                 @endif
             </div>
         </section>

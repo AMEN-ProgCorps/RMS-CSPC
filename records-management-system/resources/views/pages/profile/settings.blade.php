@@ -97,7 +97,7 @@ new #[Layout('layouts.profile')] #[Title('Profile Manager - Preferences & Settin
             $setting->save();
             $this->enableTopTabs = (bool) $setting->enable_top_tabs;
             $this->feedbackMessage = 'Preference updated: Top Navigation Tabs ' . ($this->enableTopTabs ? 'enabled' : 'disabled') . '.';
-            $this->dispatch('rms-settings-changed', type: 'profile_preference', message: 'DTS, RDP & DCS Top Navigation Tabs preference updated.');
+            $this->dispatch('rms-settings-changed', type: 'profile_preference', message: 'Admin, DTS, RDP & DCS Top Navigation Tabs preference updated.');
         }
     }
 
@@ -349,10 +349,17 @@ new #[Layout('layouts.profile')] #[Title('Profile Manager - Preferences & Settin
                 <i class="fa-solid fa-wand-magic-sparkles"></i> Personal Customizations
             </h2>
 
-            <div class="settings-toggle-row">
-                <div>
-                    <span class="settings-info-title">Enable DTS, RDP & DCS Top Navigation Tabs</span>
-                    <span class="settings-info-desc">Display horizontal quick-toggle tabs above the page content in Document Tracking System (DTS), Records Disposition Program (RDP), and Document Control System (DCS).</span>
+            <div class="settings-toggle-row" style="align-items: flex-start;">
+                <div style="flex: 1; min-width: 0; padding-right: 16px;">
+                    <span class="settings-info-title">Enable Top Navigation Tabs</span>
+                    <span class="settings-info-desc">
+                        Display horizontal quick-toggle tabs above views for fast section switching.
+                        <br>
+                        <span class="settings-clarification-badge">
+                            <i class="fa-solid fa-circle-info" style="color: #2563eb; margin-right: 4px;"></i>
+                            <strong>Clarification:</strong> Top Navigation Tabs are currently supported across <strong>Admin Console</strong>, <strong>Document Tracking System (DTS)</strong>, <strong>Records Disposition Program (RDP)</strong>, and <strong>Document Control System (DCS)</strong>.
+                        </span>
+                    </span>
                 </div>
                 <div>
                     <button type="button" wire:click="toggleEnableTopTabs" role="switch" aria-checked="{{ $enableTopTabs ? 'true' : 'false' }}"

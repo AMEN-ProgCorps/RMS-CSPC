@@ -3,6 +3,7 @@
 @php
     $currentRoute = request()->route()?->getName() ?? '';
     $tabs = [];
+    $categoryTabs = [];
     $sectionTitle = '';
     $sectionIcon = '';
 
@@ -360,12 +361,218 @@
                 ],
             ];
         }
+    } elseif ($system === 'admin') {
+        $perms = auth()->user()?->permissions;
+        $isSadm = $perms?->is_sadm ?? false;
+
+        // 1. Management Section (Users, Roles, Offices)
+        if (request()->routeIs('admin.accounts.*')) {
+            $sectionTitle = 'Management';
+            $tabs = [
+                [
+                    'label' => 'Users',
+                    'url' => route('admin.accounts.users'),
+                    'active' => request()->routeIs('admin.accounts.users'),
+                ],
+                [
+                    'label' => 'Roles',
+                    'url' => route('admin.accounts.roles'),
+                    'active' => request()->routeIs('admin.accounts.roles'),
+                ],
+                [
+                    'label' => 'Offices',
+                    'url' => route('admin.accounts.offices'),
+                    'active' => request()->routeIs('admin.accounts.offices'),
+                ],
+            ];
+        }
+        // 2. Activity Logs Group (with Category Switcher Pills: Systems | DTS | RDP | Chatify)
+        elseif (request()->routeIs('admin.activity.*')) {
+            $sectionTitle = 'Activity Logs';
+            
+            $categoryTabs = [
+                [
+                    'label' => 'Systems',
+                    'icon' => 'fa-solid fa-server',
+                    'url' => route('admin.activity.logins'),
+                    'active' => request()->routeIs('admin.activity.logins') || request()->routeIs('admin.activity.account-changes') || request()->routeIs('admin.activity.file-uploads') || request()->routeIs('admin.activity.notifications'),
+                ],
+                [
+                    'label' => 'DTS',
+                    'icon' => 'fa-solid fa-file-lines',
+                    'url' => route('admin.activity.dts.transaction-logs'),
+                    'active' => request()->routeIs('admin.activity.dts.*'),
+                ],
+                [
+                    'label' => 'RDP',
+                    'icon' => 'fa-solid fa-box-archive',
+                    'url' => route('admin.activity.rdp.records-logs'),
+                    'active' => request()->routeIs('admin.activity.rdp.*'),
+                ],
+                [
+                    'label' => 'Chatify',
+                    'icon' => 'fa-solid fa-comments',
+                    'url' => route('admin.activity.chat-audit'),
+                    'active' => request()->routeIs('admin.activity.chat-audit'),
+                ],
+            ];
+
+            // Sub-tabs for Systems
+            if (request()->routeIs('admin.activity.logins') || request()->routeIs('admin.activity.account-changes') || request()->routeIs('admin.activity.file-uploads') || request()->routeIs('admin.activity.notifications')) {
+                $tabs = [
+                    [
+                        'label' => 'Logins',
+                        'url' => route('admin.activity.logins'),
+                        'active' => request()->routeIs('admin.activity.logins'),
+                    ],
+                    [
+                        'label' => 'Account Changes',
+                        'url' => route('admin.activity.account-changes'),
+                        'active' => request()->routeIs('admin.activity.account-changes'),
+                    ],
+                    [
+                        'label' => 'File Uploads',
+                        'url' => route('admin.activity.file-uploads'),
+                        'active' => request()->routeIs('admin.activity.file-uploads'),
+                    ],
+                    [
+                        'label' => 'Notifications',
+                        'url' => route('admin.activity.notifications'),
+                        'active' => request()->routeIs('admin.activity.notifications'),
+                    ],
+                ];
+            }
+            // Sub-tabs for DTS
+            elseif (request()->routeIs('admin.activity.dts.*')) {
+                $tabs = [
+                    [
+                        'label' => 'Transaction Logs',
+                        'url' => route('admin.activity.dts.transaction-logs'),
+                        'active' => request()->routeIs('admin.activity.dts.transaction-logs'),
+                    ],
+                    [
+                        'label' => 'Update Logs',
+                        'url' => route('admin.activity.dts.update-logs'),
+                        'active' => request()->routeIs('admin.activity.dts.update-logs'),
+                    ],
+                    [
+                        'label' => 'Flow Logs',
+                        'url' => route('admin.activity.dts.flow-logs'),
+                        'active' => request()->routeIs('admin.activity.dts.flow-logs'),
+                    ],
+                ];
+            }
+            // Sub-tabs for RDP
+            elseif (request()->routeIs('admin.activity.rdp.*')) {
+                $tabs = [
+                    [
+                        'label' => 'Records Logs',
+                        'url' => route('admin.activity.rdp.records-logs'),
+                        'active' => request()->routeIs('admin.activity.rdp.records-logs'),
+                    ],
+                    [
+                        'label' => 'Volume Conversion Logs',
+                        'url' => route('admin.activity.rdp.volume-conversion-logs'),
+                        'active' => request()->routeIs(['admin.activity.rdp.volume-conversion-logs', 'admin.activity.rdp.update-logs']),
+                    ],
+                    [
+                        'label' => 'Record Series Logs',
+                        'url' => route('admin.activity.rdp.record-series-logs'),
+                        'active' => request()->routeIs('admin.activity.rdp.record-series-logs'),
+                    ],
+                ];
+            }
+            // Sub-tabs for Chatify
+            elseif (request()->routeIs('admin.activity.chat-audit')) {
+                $tabs = [
+                    [
+                        'label' => 'Audit Trail',
+                        'url' => route('admin.activity.chat-audit'),
+                        'active' => request()->routeIs('admin.activity.chat-audit'),
+                    ],
+                ];
+            }
+        }
+        // 6. Subsystems Section
+        elseif (request()->routeIs('admin.subsystems.*')) {
+            $sectionTitle = 'Subsystems';
+            $tabs = [
+                [
+                    'label' => 'Add Subsystem',
+                    'url' => route('admin.subsystems.add'),
+                    'active' => request()->routeIs('admin.subsystems.add'),
+                ],
+                [
+                    'label' => 'Activate Subsystem',
+                    'url' => route('admin.subsystems.activate'),
+                    'active' => request()->routeIs('admin.subsystems.activate'),
+                ],
+                [
+                    'label' => 'Deactivate Subsystem',
+                    'url' => route('admin.subsystems.deactivate'),
+                    'active' => request()->routeIs('admin.subsystems.deactivate'),
+                ],
+                [
+                    'label' => 'Changes Logs',
+                    'url' => route('admin.subsystems.changes-logs'),
+                    'active' => request()->routeIs('admin.subsystems.changes-logs'),
+                ],
+            ];
+        }
+        // 7. Document Tracking Systems Section
+        elseif (request()->routeIs('admin.dts.*')) {
+            $sectionTitle = 'Document Tracking Systems';
+            $tabs = [
+                [
+                    'label' => 'Transaction Flows',
+                    'url' => route('admin.dts.transaction-flows'),
+                    'active' => request()->routeIs('admin.dts.transaction-flows'),
+                ],
+                [
+                    'label' => 'Action Options',
+                    'url' => route('admin.dts.action-options'),
+                    'active' => request()->routeIs('admin.dts.action-options'),
+                ],
+            ];
+        }
+        // 8. Records Disposition Program Section
+        elseif (request()->routeIs('admin.rdp.*')) {
+            $sectionTitle = 'Records Disposition Program';
+            $tabs = [
+                [
+                    'label' => 'Volume Conversions',
+                    'url' => route('admin.rdp.conversions'),
+                    'active' => request()->routeIs('admin.rdp.conversions'),
+                ],
+                [
+                    'label' => 'Record Series',
+                    'url' => route('admin.rdp.record-series'),
+                    'active' => request()->routeIs('admin.rdp.record-series'),
+                ],
+            ];
+        }
     }
 @endphp
 
-@if((auth()->user()?->enableTopTabs() ?? true) && !empty($tabs))
+@if((auth()->user()?->enableTopTabs() ?? true) && (!empty($tabs) || !empty($categoryTabs)))
 <div class="top-nav-tabs-wrapper" data-system="{{ $system }}">
     <div class="top-nav-tabs-container">
+        @if(!empty($categoryTabs))
+            <div class="top-nav-category-group">
+                @foreach($categoryTabs as $cat)
+                    <a href="{{ $cat['url'] }}" 
+                       class="top-nav-category-pill {{ $cat['active'] ? 'active' : '' }}"
+                       title="{{ $cat['label'] }} Activity Logs">
+                        @if(!empty($cat['icon']))
+                            <i class="{{ $cat['icon'] }}"></i>
+                        @endif
+                        <span>{{ $cat['label'] }}</span>
+                    </a>
+                @endforeach
+            </div>
+            <div class="top-nav-category-divider"></div>
+        @endif
+
         @foreach($tabs as $tab)
             <a href="{{ $tab['url'] }}" 
                class="top-nav-tab-item {{ $tab['active'] ? 'active' : '' }}"

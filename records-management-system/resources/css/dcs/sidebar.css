@@ -41,30 +41,34 @@ body:has(#dcs-nav-open:checked) .nav-backdrop {
     opacity: 1;
 }
 
-/* ─── Mobile hamburger button (injected via JS or placed in header) ─── */
+/* ─── Mobile hamburger (inside shared subsystem header) ─── */
 .mobile-nav-toggle {
     display: none;
     align-items: center;
     justify-content: center;
     width: 40px;
     height: 40px;
-    border: none;
-    background: transparent;
-    color: var(--text);
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    background: rgba(255, 255, 255, 0.08);
+    color: rgba(255, 255, 255, 0.9);
     cursor: pointer;
-    border-radius: var(--radius-sm);
-    transition: background var(--transition-fast);
-    -webkit-tap-highlight-color: transparent;
+    border-radius: 9px;
+    font-size: 1.15rem;
     flex-shrink: 0;
+    transition: background 0.2s ease, color 0.2s ease;
+    -webkit-tap-highlight-color: transparent;
 }
 
 .mobile-nav-toggle:hover {
-    background: var(--surface-hover);
+    background: rgba(255, 255, 255, 0.16);
+    color: #fff;
 }
 
-.mobile-nav-toggle svg {
+.mobile-nav-toggle svg,
+.mobile-nav-toggle i {
     width: 22px;
     height: 22px;
+    font-size: 1.1rem;
 }
 
 /* ─── Base ─── */
@@ -91,25 +95,10 @@ body:has(#dcs-sidebar-collapsed:checked) .side-nav {
     overflow: visible;
 }
 
-.side-nav::before {
-    content: '';
-    position: absolute;
-    top: 0;
-    bottom: 0;
-    left: 0;
-    width: 3px;
-    background: linear-gradient(180deg, var(--accent) 0%, var(--accent-light) 100%);
-    z-index: 2;
-}
-
+.side-nav::before,
 .side-nav::after {
-    content: '';
-    position: absolute;
-    top: 0;
-    right: 0;
-    height: 1px;
-    background: linear-gradient(90deg, var(--accent-glow), transparent 60%);
-    z-index: 1;
+    content: none !important;
+    display: none !important;
 }
 
 /* ─── Collapse Button ─── */
@@ -525,6 +514,7 @@ body:has(#dcs-sidebar-collapsed:checked) .st-container,
 body:has(#dcs-sidebar-collapsed:checked) .reg-container,
 body:has(#dcs-sidebar-collapsed:checked) .upd-container,
 body:has(#dcs-sidebar-collapsed:checked) .hst-container,
+body:has(#dcs-sidebar-collapsed:checked) .drr-container,
 body:has(#dcs-sidebar-collapsed:checked) .settings-main {
     left: var(--dcs-sidebar-collapsed);
 }
@@ -537,6 +527,7 @@ body:has(#dcs-sidebar-collapsed:checked) .settings-main {
     .reg-container,
     .upd-container,
     .hst-container,
+    .drr-container,
     .settings-main,
     body:has(#dcs-sidebar-collapsed:checked) .dashboard-main,
     body:has(#dcs-sidebar-collapsed:checked) .rpt-page,
@@ -545,8 +536,9 @@ body:has(#dcs-sidebar-collapsed:checked) .settings-main {
     body:has(#dcs-sidebar-collapsed:checked) .reg-container,
     body:has(#dcs-sidebar-collapsed:checked) .upd-container,
     body:has(#dcs-sidebar-collapsed:checked) .hst-container,
+    body:has(#dcs-sidebar-collapsed:checked) .drr-container,
     body:has(#dcs-sidebar-collapsed:checked) .settings-main {
-        left: 0;
+        left: 0 !important;
     }
 }
 
@@ -783,6 +775,10 @@ body:has(#dcs-sidebar-collapsed:checked) .side-nav .dropdown-float a:hover .sub-
    ═══════════════════════════════════════════ */
 /* ── Tablets and below: off-canvas drawer ── */
 @media (max-width: 900px) {
+    .mobile-nav-toggle {
+        display: inline-flex;
+    }
+
     .side-nav {
         top: 0;
         height: 100vh;
@@ -879,11 +875,6 @@ body:has(#dcs-sidebar-collapsed:checked) .side-nav .dropdown-float a:hover .sub-
         width: 100vw;
         box-shadow: none;
     }
-
-    /* Full-screen drawer */
-    .side-nav::before {
-        width: 0;
-    }
 }
 
 /* ── Tall / landscape phones ── */
@@ -942,10 +933,6 @@ body:has(#dcs-sidebar-collapsed:checked) .side-nav .dropdown-float a:hover .sub-
     .nav-item.active::before {
         forced-color-adjust: none;
         background: Highlight;
-    }
-
-    .side-nav::before {
-        forced-color-adjust: none;
     }
 }
 

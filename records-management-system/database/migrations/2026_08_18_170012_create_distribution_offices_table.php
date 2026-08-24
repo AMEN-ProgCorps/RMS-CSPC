@@ -17,6 +17,7 @@ return new class extends Migration
             $table->unsignedInteger('office_id');
             $table->foreign('office_id')->references('id')->on('office');
             $table->integer('copies')->nullable();
+            $table->date('distribution_date')->nullable();
         });
     }
 

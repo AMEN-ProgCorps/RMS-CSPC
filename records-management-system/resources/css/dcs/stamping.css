@@ -1372,8 +1372,8 @@ body {
    RESPONSIVE
    ═══════════════════════════════════════════ */
 
-@media (max-width: 860px) {
-    .st-container { left: 68px; padding: 20px 16px; }
+@media (max-width: 900px) {
+    .st-container { left: 0 !important; padding: 20px 16px; }
     .st-header { flex-direction: column; align-items: flex-start; gap: 12px; }
     .st-subtitle { display: none; }
     .st-modal { width: 96vw; height: 92vh; }

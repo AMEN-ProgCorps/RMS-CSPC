@@ -291,7 +291,7 @@ body {
 }
 .reg-cluster-chip {
     border: 1px solid var(--reg-border);
-    background: #fff;
+    background: var(--reg-surface, #fff);
     color: var(--reg-accent);
     font: inherit;
     font-size: 0.72rem;
@@ -303,6 +303,11 @@ body {
 .reg-cluster-chip:hover {
     background: var(--reg-accent);
     color: #fff;
+}
+.reg-cluster-chip.is-active {
+    background: var(--reg-accent);
+    color: #fff;
+    border-color: var(--reg-accent);
 }
 #distBody tr.reg-office-added {
     cursor: grab;
@@ -926,6 +931,8 @@ body {
     overflow: hidden;
     text-overflow: ellipsis;
     transition: all 0.2s ease;
+    flex: 1;
+    min-width: 0;
 }
 
 .reg-upload:hover {
@@ -938,6 +945,62 @@ body {
     border-style: solid !important;
     border-color: var(--reg-success-border) !important;
     background: var(--reg-success-bg) !important;
+}
+
+.reg-upload-has-file {
+    cursor: default;
+}
+
+.reg-upload-has-file input[type="file"] {
+    pointer-events: none;
+}
+
+.reg-upload-field-actions {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    margin-left: auto;
+    flex-shrink: 0;
+    position: relative;
+    z-index: 3;
+}
+
+.reg-upload-view-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 4px 10px;
+    background: #fff;
+    border: 1px solid var(--reg-border);
+    border-radius: 6px;
+    color: var(--reg-accent);
+    font-size: 0.78rem;
+    font-weight: 600;
+    cursor: pointer;
+    line-height: 1.2;
+}
+
+.reg-upload-view-btn:hover {
+    background: var(--reg-accent-subtle);
+    border-color: var(--reg-accent);
+}
+
+.reg-upload-clear {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 24px;
+    height: 24px;
+    padding: 0;
+    background: transparent;
+    border: 0;
+    color: var(--reg-accent);
+    font-size: 0.95rem;
+    cursor: pointer;
+}
+
+.reg-upload-clear:hover {
+    color: var(--reg-error);
 }
 
 /* Upload — error state */
@@ -955,7 +1018,7 @@ body {
     background: var(--reg-accent-subtle) !important;
 }
 
-/* Upload — remove file button */
+/* Upload — remove file button (legacy table cells) */
 .reg-file-remove {
     position: absolute;
     top: 50%;
@@ -1034,6 +1097,8 @@ body {
     overflow: hidden;
     text-overflow: ellipsis;
     transition: all 0.2s ease;
+    flex: 1;
+    min-width: 0;
 }
 
 .reg-upload-cell input[type="file"] {
@@ -1060,6 +1125,10 @@ body {
     border-style: solid !important;
     border-color: var(--reg-success-border) !important;
     background: var(--reg-success-bg) !important;
+}
+
+.reg-upload-cell.reg-upload-has-file input[type="file"] {
+    pointer-events: none;
 }
 
 .reg-upload-cell-error {
@@ -1261,6 +1330,34 @@ body {
     height: auto;
 }
 
+.reg-retrieval-status {
+    width: 100%;
+    max-width: 120px;
+    padding: 4px 8px;
+    border: 1px solid var(--reg-border);
+    border-radius: 6px;
+    font-size: 0.78rem;
+    background: #fff;
+    color: var(--reg-text);
+}
+
+.reg-field-hint {
+    margin: 4px 0 8px;
+    font-size: 0.76rem;
+    color: var(--reg-text-muted);
+}
+
+.reg-retrieval-status option[value="retrieved"] {
+    color: #15803d;
+}
+
+.reg-upload-preview-note {
+    display: block;
+    margin: 0;
+    font-size: 0.78rem;
+    color: var(--reg-text-muted);
+}
+
 .reg-revrow-locked {
     background: #f8fafc !important;
     cursor: not-allowed !important;
@@ -1280,10 +1377,11 @@ body {
     gap: 8px;
     padding: 8px 16px;
     border-radius: var(--reg-radius-sm);
-    background: #f1f5f9;
+    background: var(--reg-bg);
     color: var(--reg-text-muted);
     font-size: 0.82rem;
     font-weight: 600;
+    border: 1px solid var(--reg-border);
 }
 
 .reg-wizard-step span {
@@ -1314,7 +1412,13 @@ body {
 .reg-wizard-nav {
     display: flex;
     justify-content: space-between;
+    align-items: center;
     margin-top: 16px;
+}
+
+.reg-wizard-hint {
+    color: var(--reg-text-muted);
+    font-size: 13px;
 }
 
 /* Column visibility per active step — Course Name (.col-pinned) always shown */
@@ -1391,7 +1495,8 @@ body {
     border-radius: var(--reg-radius-sm);
     padding: 6px 8px;
     font-size: 0.82rem;
-    background: #fff;
+    color: var(--reg-text);
+    background: var(--reg-surface);
 }
 
 /* Appended to document.body — avoids clipping inside .reg-table-wrap */
@@ -1415,18 +1520,31 @@ body {
 }
 
 .syllabi-faculty-dropdown div:hover {
-    background: #f1f5f9;
+    background: var(--reg-bg);
 }
 
 .syllabi-faculty-dropdown .reg-reldocs-noresult {
     padding: 9px 14px;
     font-size: 0.78rem;
-    color: #64748b;
+    color: var(--reg-text-muted);
     cursor: default;
 }
 
-.syllabi-faculty-input:read-only {
-    background: #f8fafc;
+.syllabi-faculty-input:read-only,
+.syllabi-faculty-input:disabled {
+    background: var(--reg-bg);
+    cursor: default;
+    pointer-events: none;
+    color: var(--reg-text-muted);
+}
+
+input[name="syllabiDateReceived[]"].is-locked,
+input[name="syllabiTimeReceived[]"].is-locked,
+.syllabi-merged-copies.is-locked,
+.syllabi-merged-pages.is-locked {
+    pointer-events: none;
+    background: var(--reg-bg);
+    color: var(--reg-text-muted);
     cursor: default;
 }
 
@@ -1440,12 +1558,12 @@ body {
 #syllabiWizardTable[data-active-step="2"] td.col-pinned:first-child,
 #syllabiWizardTable[data-active-step="2"] td.col-pinned:has(.syllabi-merged-code),
 #syllabiWizardTable[data-active-step="2"] td.col-shared {
-    background: #f8fafc;
+    background: var(--reg-bg);
 }
 
 #syllabiWizardTable[data-active-step="2"] .syllabi-merged-course,
 #syllabiWizardTable[data-active-step="2"] .syllabi-merged-code {
-    color: #475569;
+    color: var(--reg-text-sec);
 }
 
 /* ═══ SYLLABI — Total Copies ═══ */
@@ -1471,8 +1589,8 @@ body {
 }
 
 select.reg-field-locked:disabled {
-    background: #f1f5f9;
-    color: #64748b;
+    background: var(--reg-bg);
+    color: var(--reg-text-muted);
     cursor: not-allowed;
     opacity: 1;
 }
@@ -1544,7 +1662,7 @@ select.reg-field-locked:disabled {
     font-size: 1.1rem;
     font-weight: 700;
     color: var(--reg-text);
-    background: #f8fafc;
+    background: var(--reg-bg, #f8fafc);
     border: 1.5px solid var(--reg-border);
     border-radius: var(--reg-radius-sm);
     cursor: default;
@@ -1709,7 +1827,7 @@ select.reg-field-locked:disabled {
 
 .reg-dist-table tfoot tr {
     border-top: 2px solid var(--reg-border);
-    background: #f8fafc;
+    background: var(--reg-bg, #f8fafc);
 }
 
 .reg-dist-table tfoot td {
@@ -1843,13 +1961,13 @@ select.reg-field-locked:disabled {
 .reg-btn i { font-size: 0.8rem; }
 
 .reg-btn-cancel {
-    background: #f1f5f9;
+    background: var(--reg-bg, #f1f5f9);
     color: var(--reg-text-muted);
     border: 1px solid var(--reg-border);
 }
 
 .reg-btn-cancel:hover {
-    background: #e2e8f0;
+    background: var(--reg-accent-subtle, #e2e8f0);
     color: var(--reg-text);
 }
 
@@ -1865,7 +1983,7 @@ select.reg-field-locked:disabled {
 }
 
 .reg-btn-generate {
-    background: #fff;
+    background: var(--reg-surface, #fff);
     color: var(--reg-accent);
     border: 1px solid var(--reg-accent);
 }
@@ -1926,6 +2044,122 @@ select.reg-field-locked:disabled {
 .reg-modal-overlay.is-open .reg-modal {
     opacity: 1;
     transform: translateY(0) scale(1);
+}
+
+.reg-modal--preview,
+.reg-modal--wide {
+    max-width: min(960px, 96vw);
+    max-height: 90vh;
+}
+
+.reg-modal--wide {
+    max-width: min(1200px, 98vw);
+}
+
+.reg-modal-body--preview {
+    padding: 0;
+    overflow: hidden;
+    flex: 1;
+    min-height: 0;
+}
+
+.reg-modal-body--preview iframe {
+    display: block;
+    width: 100%;
+    height: min(72vh, 720px);
+    border: 0;
+    background: #f8fafc;
+}
+
+.reg-modal-body--compare {
+    padding: 16px;
+    overflow: auto;
+}
+
+.reg-compare-legend {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-bottom: 12px;
+}
+
+.reg-compare-leg {
+    font-size: 0.72rem;
+    font-weight: 700;
+    padding: 4px 8px;
+    border-radius: 6px;
+}
+
+.reg-compare-leg-del {
+    background: #fee2e2;
+    color: #b91c1c;
+    text-decoration: line-through;
+}
+
+.reg-compare-leg-ins {
+    background: #dcfce7;
+    color: #15803d;
+}
+
+.reg-compare-leg-chg {
+    background: #fef3c7;
+    color: #b45309;
+}
+
+.reg-compare-panels {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px;
+    min-height: min(72vh, 720px);
+}
+
+.reg-compare-panel {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+    border: 1px solid var(--reg-border);
+    border-radius: var(--reg-radius-sm);
+    overflow: hidden;
+    background: #fff;
+}
+
+.reg-compare-label {
+    padding: 10px 12px;
+    font-size: 0.78rem;
+    font-weight: 700;
+    color: var(--reg-text-muted);
+    background: var(--reg-bg);
+    border-bottom: 1px solid var(--reg-border);
+}
+
+.reg-compare-pdf-stage {
+    width: 100%;
+    min-height: 180px;
+    max-height: min(60vh, 640px);
+    overflow: auto;
+    background: #e2e8f0;
+    flex: 1;
+}
+
+.reg-compare-pdf-canvas,
+.reg-compare-panel .drr-pdf-canvas {
+    display: block;
+    width: 100%;
+    height: auto;
+    border-bottom: 1px solid var(--reg-border);
+}
+
+.reg-compare-pdf-note {
+    margin: 0;
+    padding: 8px 12px;
+    font-size: 0.78rem;
+    color: var(--reg-text-muted);
+}
+
+@media (max-width: 900px) {
+    .reg-compare-panels {
+        grid-template-columns: 1fr;
+    }
 }
 
 .reg-modal-header {
@@ -2240,10 +2474,9 @@ select.reg-field-locked:disabled {
     .reg-split-left { border-right: none; border-bottom: 1px solid var(--reg-border); }
 }
 
-@media (max-width: 768px) {
+@media (max-width: 900px) {
     .reg-container {
-        left: 0;
-        top: 60px;
+        left: 0 !important;
         padding: 16px;
     }
 

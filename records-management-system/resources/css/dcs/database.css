@@ -428,6 +428,12 @@ td.col-bg-retrieval {
     background-clip: padding-box;
 }
 
+/* Full-row hover (Related Docs + left columns, not only col-groups) */
+.db-parent-row:hover > td,
+.db-child-row:hover > td {
+    background-color: #f1f5f9 !important;
+}
+
 /* ── GRAY GROUPS: hover ── */
 .db-parent-row:hover td.col-group-approval,
 .db-parent-row:hover td.col-group-masterlist,
@@ -603,6 +609,25 @@ td.sticky-col-4::after {
 .db-status { display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 10px; font-weight: 600; }
 .db-status-active { background: var(--db-green-light); color: var(--db-green); }
 .db-status-obsolete { background: var(--db-red-light); color: var(--db-red); }
+.db-status-deleted {
+    background: #fef2f2;
+    color: #dc2626;
+    border: 1px solid #fecaca;
+}
+
+.db-deleted-row > td {
+    background: #fff5f5 !important;
+    border-top: 1px solid #fecaca !important;
+    border-bottom: 1px solid #fecaca !important;
+}
+
+.db-deleted-row > td:first-child {
+    box-shadow: inset 4px 0 0 #dc2626;
+}
+
+.db-deleted-row:hover > td {
+    background: #fee2e2 !important;
+}
 .db-status-pending { background: var(--db-amber-light); color: var(--db-amber); }
 
 /* ── PDF link ── */
@@ -917,4 +942,24 @@ td.sticky-col-4::after {
         font-size: 10px;
         padding: 1px 8px;
     }
+}
+
+.db-status-deleted {
+    background: #fef2f2;
+    color: #dc2626;
+    border: 1px solid #fecaca;
+}
+
+.db-deleted-row > td {
+    background: #fff5f5 !important;
+    border-top: 1px solid #fecaca !important;
+    border-bottom: 1px solid #fecaca !important;
+}
+
+.db-deleted-row > td:first-child {
+    box-shadow: inset 4px 0 0 #dc2626;
+}
+
+.db-deleted-row:hover > td {
+    background: #fee2e2 !important;
 }

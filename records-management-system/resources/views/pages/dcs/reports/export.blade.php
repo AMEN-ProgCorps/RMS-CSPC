@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>{{ $title }} - CSPC DCS</title>
+    <title>{{ !empty($autoPrint) || !empty($embed) ? '' : ($title ?? 'Report') }}</title>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body {
@@ -28,6 +28,7 @@
 
         /* ── Container ── */
         .print-container { max-width: 1100px; margin: 0 auto; padding: 24px 36px 60px; }
+        body.is-opcr .print-container { max-width: 1400px; }
 
         /* ── Header ── */
         .hdr-table { width: 100%; border-collapse: collapse; }
@@ -40,14 +41,18 @@
 
         .hdr-line { position: relative; margin: 10px 0 16px; border-top: 2px solid #0d2a7a; height: 1px; }
         .hdr-line span { position: absolute; top: -12px; right: 0; background: #fff; padding: 0 0 0 10px; font-size: 11px; font-weight: 700; color: #0d2a7a; }
+        .hdr-line--plain span { display: none; }
 
         /* ── Title ── */
         .rpt-title { text-align: center; margin-bottom: 12px; }
         .rpt-title h2 { font-size: 11px; font-weight: 700; color: #1e293b; text-transform: uppercase; letter-spacing: 0.5px; }
+        .rpt-period { text-align: center; margin-bottom: 12px; font-size: 11px; color: #64748b; }
+        body.is-opcr .rpt-period { display: none !important; }
+        body.is-opcr .rpt-filters { display: none !important; }
 
         /* ── Checkboxes ── */
         .rpt-filters { text-align: center; margin-bottom: 16px; }
-        .rpt-fi { display: inline-block; margin: 0 10px; font-size: 11px; font-weight: 500; color: #1e293b; vertical-align: middle; }
+        .rpt-fi { display: inline-block; margin: 0 10px 6px; font-size: 11px; font-weight: 500; color: #1e293b; vertical-align: middle; }
         .rpt-cb {
             display: inline-block;
             width: 12px;
@@ -77,6 +82,12 @@
             padding: 8px 6px;
             border: 1px solid #000;
             text-align: center;
+            vertical-align: middle;
+        }
+        .data-table thead tr:nth-child(2) th {
+            font-size: 10px;
+            font-weight: 600;
+            padding: 5px 4px;
         }
         .data-table td {
             font-family: Arial, Helvetica, sans-serif;
@@ -108,14 +119,17 @@
         .ft-l { text-align: left; }
         .ft-c { text-align: center; }
         .ft-r { text-align: right; }
-        .letterhead-bg {
-            position: fixed;
-            inset: 0;
-            width: 100%;
-            height: 100%;
-            object-fit: fill;
-            z-index: 0;
-            pointer-events: none;
+
+        /* Letterhead as page background (works in print + Dompdf better than fixed img) */
+        body.has-letterhead {
+            @if(!empty($letterheadUrl))
+            background: #fff url('{{ $letterheadUrl }}') no-repeat center top;
+            background-size: 100% 100%;
+            @else
+            background: #fff;
+            @endif
+            -webkit-print-color-adjust: exact;
+            print-color-adjust: exact;
         }
         body.has-letterhead .print-container {
             position: relative;
@@ -124,27 +138,31 @@
         }
         body.has-letterhead .rpt-footer { display: none; }
 
-        /* ── DOMPDF ── */
-        @page { margin: 18mm 15mm 22mm 15mm; }
+        /* ── DOMPDF / PRINT ── */
+        @page { margin: 12mm 10mm 18mm 10mm; }
 
-        /* ── PRINT ── */
         @media print {
-            @page { size: A4 portrait; margin: 15mm 15mm 22mm 15mm; }
+            @page {
+                size: A4 portrait;
+                margin: 10mm 8mm 14mm 8mm;
+            }
             .print-toolbar { display: none !important; }
             body { padding: 0; }
             .print-container { padding: 0 0 10px 0; max-width: 100%; }
-            .data-table { font-size: 11px; }
-            .data-table th { font-size: 11px; padding: 6px 5px; }
-            .data-table td { font-size: 11px; padding: 5px; }
+            body.has-letterhead .print-container { padding: 200px 28px 100px; }
+            .data-table { font-size: 10px; }
+            .data-table th { font-size: 9px; padding: 5px 3px; }
+            .data-table thead tr:nth-child(2) th { font-size: 8px; padding: 3px 2px; }
+            .data-table td { font-size: 9px; padding: 4px 3px; }
             .rpt-footer { position: fixed; bottom: 0; left: 0; right: 0; background: #fff; }
+            .rpt-period { display: none !important; }
         }
     </style>
 </head>
-<body class="{{ !empty($letterheadUrl) ? 'has-letterhead' : '' }}">
-
-    @if(!empty($letterheadUrl))
-        <img src="{{ $letterheadUrl }}" alt="" class="letterhead-bg">
-    @endif
+<body class="{{ trim(implode(' ', array_filter([
+    !empty($letterheadUrl) ? 'has-letterhead' : null,
+    (($activeCategory ?? '') === 'opcr') ? 'is-opcr' : null,
+]))) }}">
 
     <div class="print-toolbar{{ empty($embed) ? '' : ' rpt-embed-hidden' }}" id="toolbar">
         <button class="btn-pdf" type="button" id="btnPdf"><i class="fa-solid fa-file-pdf"></i> Save as PDF</button>
@@ -169,14 +187,18 @@
             </td>
         </tr></table>
 
-        <div class="hdr-line"><span>{{ $letterNumber ?? 'CSPC-QA-F001' }}</span></div>
+        <div class="hdr-line @if(($activeCategory ?? '') === 'opcr') hdr-line--plain @endif">
+            @if(($activeCategory ?? '') !== 'opcr')
+                <span>{{ $letterNumber ?? 'CSPC-QA-F001' }}</span>
+            @endif
+        </div>
         @endif
 
         {{-- TITLE --}}
         <div class="rpt-title"><h2>{{ $title ?? 'Document Masterlist' }}</h2></div>
 
-        @if(!empty($dateFrom) || !empty($dateTo) || !empty($asOf))
-            <div class="rpt-period" style="text-align:center;margin-bottom:12px;font-size:11px;color:#64748b;">
+        @if(($activeCategory ?? '') !== 'opcr' && (!empty($dateFrom) || !empty($dateTo) || !empty($asOf)))
+            <div class="rpt-period">
                 @if(!empty($periodLabel) && ($period ?? '') !== 'custom')
                     <strong>{{ $periodLabel }}</strong> report
                     @if(!empty($asOf))
@@ -205,7 +227,7 @@
             $activeSub = $activeSub ?? null;
         @endphp
 
-        @if($activeCat && isset($checklists[$activeCat]))
+        @if(($activeCategory ?? '') !== 'opcr' && $activeCat && isset($checklists[$activeCat]))
             <div class="rpt-filters">
                 @foreach($checklists[$activeCat] as $key => $label)
                     <span class="rpt-fi">
@@ -216,7 +238,7 @@
             </div>
         @endif
 
-        @if(!empty($selectedSubTypeNames))
+        @if(($activeCategory ?? '') !== 'opcr' && !empty($selectedSubTypeNames))
             <div class="rpt-filters" style="margin-top:8px;">
                 @foreach($selectedSubTypeNames as $subName)
                     <span class="rpt-fi">
@@ -232,13 +254,50 @@
             $visCols = [];
             foreach ($columns as $k => $v) { if ($k !== 'pdf_path') $visCols[$k] = $v; }
             $colN = count($visCols);
+            $keys = array_keys($visCols);
+            $groups = $groupHeaders ?? ($group_headers ?? []);
+            $hasGroups = collect($groups)->contains(fn ($g) => $g !== null && $g !== '');
         @endphp
         <table class="data-table">
-            <thead><tr>@foreach($visCols as $h)<th>{{ $h }}</th>@endforeach</tr></thead>
+            <thead>
+                @if($hasGroups)
+                    <tr>
+                        @php $i = 0; @endphp
+                        @while($i < count($keys))
+                            @php
+                                $key = $keys[$i];
+                                $group = $groups[$key] ?? null;
+                            @endphp
+                            @if($group === null || $group === '')
+                                <th rowspan="2">{{ $visCols[$key] }}</th>
+                                @php $i++; @endphp
+                            @else
+                                @php
+                                    $span = 1;
+                                    while ($i + $span < count($keys) && ($groups[$keys[$i + $span]] ?? null) === $group) {
+                                        $span++;
+                                    }
+                                @endphp
+                                <th colspan="{{ $span }}">{{ $group }}</th>
+                                @php $i += $span; @endphp
+                            @endif
+                        @endwhile
+                    </tr>
+                    <tr>
+                        @foreach($keys as $key)
+                            @if(($groups[$key] ?? null) !== null && ($groups[$key] ?? null) !== '')
+                                <th>{{ $visCols[$key] }}</th>
+                            @endif
+                        @endforeach
+                    </tr>
+                @else
+                    <tr>@foreach($visCols as $h)<th>{{ $h }}</th>@endforeach</tr>
+                @endif
+            </thead>
             <tbody>
                 @forelse($rows as $row)
                     <tr>
-                        @foreach(array_keys($visCols) as $k)
+                        @foreach($keys as $k)
                             @php
                                 $v = is_array($row)
                                     ? ($row[$k] ?? null)
@@ -273,7 +332,16 @@
             var t = document.getElementById('toolbar');
             if (t && !t.classList.contains('rpt-embed-hidden')) t.classList.add('visible');
             var pc = document.getElementById('pageCounter');
-            if (pc) pc.textContent = 'Page 1 of 1';
+            if (pc) {
+                var isOpcr = document.body.classList.contains('is-opcr');
+                var rows = document.querySelectorAll('.data-table tbody tr').length;
+                var empty = document.querySelector('.data-table .empty-msg');
+                var total = 1;
+                if (isOpcr && !empty && rows > 0) {
+                    total = Math.max(1, Math.ceil(rows / 12));
+                }
+                pc.textContent = 'Page 1 of ' + total;
+            }
             var btnPdf = document.getElementById('btnPdf');
             if (btnPdf) btnPdf.addEventListener('click', function(e) {
                 e.preventDefault();
@@ -287,11 +355,25 @@
                 setTimeout(function() { if (ifr.parentNode) ifr.parentNode.removeChild(ifr); }, 5000);
             });
             var btnPrint = document.getElementById('btnPrint');
-            if (btnPrint) btnPrint.addEventListener('click', function() { window.print(); });
+            if (btnPrint) btnPrint.addEventListener('click', function(e) {
+                e.preventDefault();
+                // Route print through PDF so browser URL/timestamp headers are not injected
+                var p = new URLSearchParams(window.location.search);
+                p.set('format', 'pdf');
+                p.set('inline', '1');
+                p.set('autoPrint', '1');
+                window.location.href = window.location.pathname + '?' + p.toString();
+            });
             var btnClose = document.getElementById('btnClose');
             if (btnClose) btnClose.addEventListener('click', function() { window.close(); });
-            if (new URLSearchParams(window.location.search).has('autoPrint')) {
-                setTimeout(function() { window.print(); }, 500);
+            if (new URLSearchParams(window.location.search).has('autoPrint') && new URLSearchParams(window.location.search).get('format') !== 'pdf') {
+                setTimeout(function() {
+                    var p = new URLSearchParams(window.location.search);
+                    p.set('format', 'pdf');
+                    p.set('inline', '1');
+                    p.set('autoPrint', '1');
+                    window.location.replace(window.location.pathname + '?' + p.toString());
+                }, 50);
             }
         });
     </script>

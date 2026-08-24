@@ -20,6 +20,7 @@ return new class extends Migration
             $table->foreignId('doc_type_id')->nullable()
                   ->constrained('dcs_doc_types');
             $table->string('doc_no', 100)->nullable();
+            $table->string('revised_from_doc_no', 100)->nullable();
             $table->date('doc_receipt_date')->nullable();
             $table->time('doc_receipt_time')->nullable();
             $table->date('doc_registered_date')->nullable();
@@ -28,14 +29,18 @@ return new class extends Migration
             $table->string('doc_title')->nullable();
             $table->date('effectivity_date')->nullable();
             $table->integer('revise_no')->nullable();
+            $table->string('revision_status', 20)->default('latest');
             $table->integer('no_pages')->nullable();
             $table->string('originator_name')->nullable();
             $table->date('deadline')->nullable();
             $table->text('brief_purpose')->nullable();
+            $table->text('keywords')->nullable();
             $table->string('scanned_masterlist')->nullable();
             $table->unsignedInteger('created_by');
             $table->foreign('created_by')->references('id')->on('account');
             $table->timestamps();
+
+            $table->index(['doc_no', 'revision_status'], 'dcs_ml_doc_no_revision_status_idx');
         });
     }
 

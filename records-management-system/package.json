@@ -15,6 +15,7 @@
         "vite": "^7.0.7"
     },
     "dependencies": {
-        "livewire": "^0.6.1"
+        "livewire": "^0.6.1",
+        "pdfjs-dist": "^5.6.205"
     }
 }

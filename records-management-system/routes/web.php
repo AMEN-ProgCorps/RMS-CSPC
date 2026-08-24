@@ -409,9 +409,10 @@ Route::middleware(['auth'])
             Volt::route('/dashboard', 'pages.dcs.index')->name('dashboard');
 
             Route::get('/api/documents/search', fn (Request $request) => RegisterQueryHelper::searchDocuments($request));
+            Route::get('/api/documents/revisions', fn (Request $request) => RegisterQueryHelper::documentRevisions($request));
             Route::get('/api/documents/{id}/checklist/{type}', function (int $id, string $type) {
                 return response()->json(RegisterQueryHelper::documentChecklistPreview($id, $type));
-            })->whereIn('type', ['drf', 'dcn', 'masterlist', 'distribution', 'retrieval']);
+            })->whereIn('type', ['drf', 'dcn', 'masterlist', 'approval', 'distribution', 'retrieval']);
             Route::get('/api/calendar/categories', fn () => CalendarHelper::categories());
             Route::post('/api/calendar/categories', fn (Request $request) => CalendarHelper::storeCategory($request));
             Route::delete('/api/calendar/categories/{id}', fn (int $id) => CalendarHelper::destroyCategory($id));
@@ -431,6 +432,8 @@ Route::middleware(['auth'])
                 ->name('register.revised');
 
             Volt::route('/register/update', 'pages.dcs.register.update')->name('register.update');
+            Volt::route('/recycle-bin', 'pages.dcs.recycle-bin.index')->name('recycle-bin');
+            Volt::route('/review', 'pages.dcs.review.index')->name('review');
             Volt::route('/register/history/{docNo}', 'pages.dcs.register.history')->name('register.history');
             Volt::route('/register/{id}/edit', 'pages.dcs.register.edit')->name('register.edit');
             Route::put('/register/{id}', fn (Request $request, $id) => RegisterUpdateHelper::update($request, (int) $id))
@@ -440,6 +443,7 @@ Route::middleware(['auth'])
             Volt::route('/reports/monitoring', 'pages.dcs.reports.show')->name('reports.monitoring');
             Volt::route('/reports/opcr', 'pages.dcs.reports.show')->name('reports.opcr');
             Volt::route('/reports/others', 'pages.dcs.reports.show')->name('reports.others');
+            Volt::route('/reports/syllabi-tos', 'pages.dcs.reports.syllabi-tos')->name('reports.syllabiTos');
             Route::get('/reports/export', fn (Request $request) => app(ReportHelper::class)->export($request))->name('reports.export');
             Route::match(['get', 'post'], '/reports/distribution-template', fn (Request $request) => ReportTemplateHelper::render($request))
                 ->name('reports.distributionTemplate');

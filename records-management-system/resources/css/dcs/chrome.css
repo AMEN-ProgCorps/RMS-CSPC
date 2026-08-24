@@ -1,4 +1,6 @@
 @import './tokens.css';
-@import './header.css';
+@import './rms-shared-header.css';
 @import './sidebar.css';
 @import './toast.css';
+@import './top-tabs.css';
+@import './dark.css';

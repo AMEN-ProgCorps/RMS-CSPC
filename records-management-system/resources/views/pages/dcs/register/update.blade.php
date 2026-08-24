@@ -2,6 +2,7 @@
 
 use App\Helpers\RegisterQueryHelper;
 use App\Helpers\RegisterUpdateHelper;
+use Illuminate\Http\RedirectResponse;
 use Livewire\Attributes\Layout;
 use Livewire\Attributes\Title;
 use Livewire\Attributes\Url;
@@ -64,13 +65,16 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
         $this->deleteRev = 0;
     }
 
-    public function destroy()
+    public function destroy(): void
     {
         if (!$this->deleteId) {
             return;
         }
 
-        return RegisterUpdateHelper::destroy($this->deleteId);
+        $response = RegisterUpdateHelper::destroy($this->deleteId);
+        if ($response instanceof RedirectResponse) {
+            $this->redirect($response->getTargetUrl(), navigate: true);
+        }
     }
 }; ?>
 
@@ -102,32 +106,50 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
         </button>
     </div>
 
-    <div class="upd-table-card">
+    <div class="upd-table-card" x-data="{ expanded: {} }">
         <div class="upd-table-scroll" @if(count($list['rows']) === 0) style="display:none" @endif>
             <table class="upd-table">
                 <thead>
                     <tr>
-                        <th>ID</th>
+                        <th style="width:56px;">#</th>
                         <th>Doc Type</th>
                         <th>Title</th>
                         <th>Document No.</th>
                         <th>Rev</th>
-                        <th>Checklists</th>
+                        <th>Status</th>
                         <th style="width:130px;">Actions</th>
                     </tr>
                 </thead>
                 <tbody>
-                    @foreach($list['rows'] as $i => $doc)
-                        <tr>
-                            <td>{{ (($list['current_page'] - 1) * $list['per_page']) + $i + 1 }}</td>
-                            <td>{{ $doc['doc_type'] }}</td>
-                            <td>{{ $doc['title'] }}</td>
-                            <td>{{ $doc['doc_no'] }}</td>
-                            <td>{{ $doc['rev_no'] }}</td>
+                    @foreach($list['rows'] as $i => $group)
+                        @php
+                            $doc = $group['parent'];
+                            $itemNo = (($list['current_page'] - 1) * $list['per_page']) + $i + 1;
+                            $revKey = 'g-' . $doc['request_id'];
+                            $children = $group['children'] ?? [];
+                        @endphp
+                        <tr class="upd-parent-row">
                             <td>
-                                @foreach($doc['checklists'] as $cl)
-                                    <span class="upd-checklist-tag">{{ $cl }}</span>
-                                @endforeach
+                                @if(!empty($children))
+                                    <button type="button" class="upd-expand-btn"
+                                        :class="{ open: expanded['{{ $revKey }}'] }"
+                                        @click="expanded['{{ $revKey }}'] = !expanded['{{ $revKey }}']"
+                                        :aria-expanded="!!expanded['{{ $revKey }}']"
+                                        title="Show obsolete revisions">
+                                        <i class="fa-solid" :class="expanded['{{ $revKey }}'] ? 'fa-chevron-down' : 'fa-chevron-right'"></i>
+                                    </button>
+                                @endif
+                                <span class="upd-id">{{ $itemNo }}</span>
+                            </td>
+                            <td>{{ $doc['doc_type'] }}</td>
+                            <td class="upd-doc-title">{{ $doc['title'] }}</td>
+                            <td class="upd-doc-no">{{ $doc['doc_no'] }}</td>
+                            <td><span class="upd-rev-badge">{{ $doc['rev_no'] }}</span></td>
+                            <td>
+                                <span class="upd-status-badge is-latest">Latest</span>
+                                @if(!empty($children))
+                                    <span class="upd-rev-count">+{{ count($children) }} older</span>
+                                @endif
                             </td>
                             <td>
                                 <div class="upd-actions">
@@ -135,13 +157,35 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                                     @if($doc['history_url'])
                                         <a href="{{ $doc['history_url'] }}" class="upd-btn-icon" title="History"><i class="fa-solid fa-clock-rotate-left"></i></a>
                                     @endif
-                                    <button type="button" class="upd-btn-icon danger" title="Delete"
-                                        wire:click="confirmDelete({{ $doc['request_id'] }}, @js($doc['title']), {{ $doc['rev_no'] }})">
-                                        <i class="fa-solid fa-trash"></i>
-                                    </button>
+                                    @if(!empty($doc['can_delete']))
+                                        <button type="button" class="upd-btn-icon danger" title="Delete"
+                                            wire:click="confirmDelete({{ $doc['request_id'] }}, @js($doc['title']), {{ $doc['rev_no'] }})">
+                                            <i class="fa-solid fa-trash"></i>
+                                        </button>
+                                    @endif
                                 </div>
                             </td>
                         </tr>
+                        @foreach($children as $ci => $child)
+                            <tr class="upd-child-row" x-show="expanded['{{ $revKey }}']" x-cloak>
+                                <td class="upd-child-ind">
+                                    <span class="upd-child-dot"></span>{{ $itemNo }}.{{ $ci + 1 }}
+                                </td>
+                                <td>{{ $child['doc_type'] }}</td>
+                                <td class="upd-doc-title">{{ $child['title'] }}</td>
+                                <td class="upd-doc-no">{{ $child['doc_no'] }}</td>
+                                <td><span class="upd-rev-badge">{{ $child['rev_no'] }}</span></td>
+                                <td><span class="upd-status-badge is-obsolete">Obsolete</span></td>
+                                <td>
+                                    <div class="upd-actions">
+                                        <a href="{{ $child['edit_url'] }}" class="upd-btn-icon" title="Edit obsolete revision"><i class="fa-solid fa-pen"></i></a>
+                                        @if($child['history_url'])
+                                            <a href="{{ $child['history_url'] }}" class="upd-btn-icon" title="History"><i class="fa-solid fa-clock-rotate-left"></i></a>
+                                        @endif
+                                    </div>
+                                </td>
+                            </tr>
+                        @endforeach
                     @endforeach
                 </tbody>
             </table>
@@ -166,18 +210,24 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
     </div>
 
     @if($deleteId)
+    @teleport('body')
     <div id="deleteModal" class="upd-modal-overlay" style="display:flex;">
         <div class="upd-modal">
-            <div class="upd-modal-icon"><i class="fa-solid fa-triangle-exclamation"></i></div>
-            <h3>Delete Document?</h3>
-            <p>This will permanently remove "<strong>{{ $deleteTitle }}</strong>" (Rev {{ $deleteRev }}). This action cannot be undone.</p>
+            <div class="upd-modal-icon upd-modal-icon-recycle"><i class="fa-solid fa-recycle"></i></div>
+            <h3>Move to Recycle Bin?</h3>
+            <p>
+                This will move <strong>{{ $deleteTitle }}</strong> (Rev {{ $deleteRev }}) to the Recycle Bin.
+                The document will no longer appear in the Update list, but you can restore it later from
+                <a href="{{ route('dcs.recycle-bin', absolute: false) }}" class="upd-modal-link">Recycle Bin</a>.
+            </p>
             <div class="upd-modal-actions">
                 <button type="button" class="upd-modal-btn upd-modal-cancel" wire:click="closeDelete">Cancel</button>
                 <button type="button" class="upd-modal-btn upd-modal-confirm" wire:click="destroy" wire:loading.attr="disabled">
-                    <i class="fa-solid fa-trash-can"></i> Delete
+                    <i class="fa-solid fa-trash-can"></i> Move to Recycle Bin
                 </button>
             </div>
         </div>
     </div>
+    @endteleport
     @endif
 </div>

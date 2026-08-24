@@ -26,6 +26,30 @@ class RegisterQueryHelper
         return in_array(strtolower(trim((string) $val)), ['1', 't', 'true', 'yes', 'on'], true);
     }
 
+    public static function findDocumentRequest(int $id): ?object
+    {
+        $query = DB::table('dcs_document_requests')->where('id', $id);
+        if (Schema::hasColumn('dcs_document_requests', 'deleted_at')) {
+            $query->whereNull('deleted_at');
+        }
+
+        return $query->first();
+    }
+
+    public static function findTrashedDocumentRequest(int $id): ?object
+    {
+        if (!Schema::hasColumn('dcs_document_requests', 'deleted_at')) {
+            return null;
+        }
+
+        return DB::table('dcs_document_requests')->where('id', $id)->whereNotNull('deleted_at')->first();
+    }
+
+    public static function supportsSoftDelete(): bool
+    {
+        return Schema::hasColumn('dcs_document_requests', 'deleted_at');
+    }
+
     public static function isSyllabiLikeName(?string $name): bool
     {
         if ($name === null) {
@@ -111,14 +135,29 @@ class RegisterQueryHelper
         return collect($ids)->map(fn ($id) => (int) $id)->filter()->unique()->values()->all();
     }
 
+    /** Exclude soft-deleted document requests when the column exists. */
+    public static function applyNotDeleted($query, string $alias = 'dr')
+    {
+        if (Schema::hasColumn('dcs_document_requests', 'deleted_at')) {
+            $query->whereNull($alias . '.deleted_at');
+        }
+
+        return $query;
+    }
+
     /** Search/stamp/preview: latest (including null/empty status), numbered obsolete, and empty-doc-no rows. */
     public static function visibleRequestIds(): array
     {
-        $mlIds = DB::table('dcs_masterlist_registration')->pluck('request_id');
+        $mlIds = DB::table('dcs_masterlist_registration as ml')
+            ->join('dcs_document_requests as dr', 'dr.id', '=', 'ml.request_id');
+        self::applyNotDeleted($mlIds, 'dr');
+        $mlIds = $mlIds->pluck('ml.request_id');
+
         $noMlIds = DB::table('dcs_document_requests as dr')
             ->leftJoin('dcs_masterlist_registration as ml', 'ml.request_id', '=', 'dr.id')
-            ->whereNull('ml.id')
-            ->pluck('dr.id');
+            ->whereNull('ml.id');
+        self::applyNotDeleted($noMlIds, 'dr');
+        $noMlIds = $noMlIds->pluck('dr.id');
 
         return self::intIds($mlIds->merge($noMlIds));
     }
@@ -126,13 +165,15 @@ class RegisterQueryHelper
     /** Update list: only latest (null/empty treated as latest) plus incomplete registrations. */
     public static function latestEditableRequestIds(): array
     {
-        $latestIds = DB::table('dcs_masterlist_registration')
+        $latestIds = DB::table('dcs_masterlist_registration as ml')
+            ->join('dcs_document_requests as dr', 'dr.id', '=', 'ml.request_id')
             ->where(function ($q) {
-                $q->whereNull('revision_status')
-                    ->orWhere('revision_status', '')
-                    ->orWhere('revision_status', 'latest');
-            })
-            ->pluck('request_id');
+                $q->whereNull('ml.revision_status')
+                    ->orWhere('ml.revision_status', '')
+                    ->orWhere('ml.revision_status', 'latest');
+            });
+        self::applyNotDeleted($latestIds, 'dr');
+        $latestIds = $latestIds->pluck('ml.request_id');
 
         $noMlIds = DB::table('dcs_document_requests as dr')
             ->leftJoin('dcs_masterlist_registration as ml', 'ml.request_id', '=', 'dr.id')
@@ -140,8 +181,9 @@ class RegisterQueryHelper
                 $q->whereNull('ml.id')
                     ->orWhereNull('ml.doc_no')
                     ->orWhere('ml.doc_no', '');
-            })
-            ->pluck('dr.id');
+            });
+        self::applyNotDeleted($noMlIds, 'dr');
+        $noMlIds = $noMlIds->pluck('dr.id');
 
         return self::intIds($latestIds->merge($noMlIds));
     }
@@ -163,8 +205,237 @@ class RegisterQueryHelper
 
     public static function updateList(string $search, string $docTypeId, int $page, int $perPage = 15): array
     {
-        $visibleIds = self::latestEditableRequestIds();
+        $empty = [
+            'rows' => [],
+            'total' => 0,
+            'current_page' => 1,
+            'last_page' => 1,
+            'per_page' => $perPage,
+        ];
+
+        $visibleIds = self::visibleRequestIds();
         if ($visibleIds === []) {
+            return $empty;
+        }
+
+        $query = DB::table('dcs_document_requests as dr')
+            ->leftJoin('dcs_doc_types as dt', 'dt.id', '=', 'dr.doc_type_id')
+            ->leftJoin('dcs_masterlist_registration as ml', 'ml.request_id', '=', 'dr.id')
+            ->leftJoin('dcs_document_request_form as drf', 'drf.request_id', '=', 'dr.id')
+            ->leftJoin('dcs_document_change_notice as dcn', 'dcn.request_id', '=', 'dr.id')
+            ->leftJoin('dcs_document_retrieval as ret', 'ret.request_id', '=', 'dr.id')
+            ->leftJoin('dcs_document_distribution as dist', 'dist.request_id', '=', 'dr.id')
+            ->whereIn('dr.id', $visibleIds);
+        self::applyNotDeleted($query, 'dr');
+        $query->select([
+            'dr.id',
+            'dr.doc_type_id',
+            'dr.sub_type_id',
+            'dt.doc_type_name',
+            'ml.id as ml_id',
+            'ml.doc_no',
+            'ml.doc_title as ml_title',
+            'ml.revise_no',
+            'ml.revision_status',
+            'drf.doc_title as drf_title',
+            'drf.id as drf_id',
+            'dcn.id as dcn_id',
+            'ret.id as ret_id',
+            'dist.id as dist_id',
+        ]);
+
+        if ($docTypeId !== '' && $docTypeId !== 'all') {
+            $query->where('dr.doc_type_id', (int) $docTypeId);
+        }
+
+        $search = trim($search);
+        $matchedIds = null;
+        if ($search !== '') {
+            $like = '%' . $search . '%';
+            $matchQuery = (clone $query)->where(function ($q) use ($like) {
+                $q->whereRaw('dr.id::text ilike ?', [$like])
+                    ->orWhere('ml.doc_no', 'ilike', $like)
+                    ->orWhere('ml.doc_title', 'ilike', $like)
+                    ->orWhere('drf.drf_no', 'ilike', $like)
+                    ->orWhere('drf.doc_title', 'ilike', $like)
+                    ->orWhere('dcn.dcn_no', 'ilike', $like);
+            });
+            $matchedIds = $matchQuery->pluck('dr.id')->map(fn ($id) => (int) $id)->all();
+            if ($matchedIds === []) {
+                return $empty;
+            }
+        }
+
+        $documents = $query->orderByDesc('dr.id')->get();
+
+        $mapRow = function ($doc): array {
+            $docNo = trim((string) ($doc->doc_no ?? ''));
+            $title = $doc->ml_title ?: ($doc->drf_title ?: 'N/A');
+            $status = strtolower(trim((string) ($doc->revision_status ?? '')));
+            if ($status === '') {
+                $status = 'latest';
+            }
+
+            return [
+                'request_id' => (int) $doc->id,
+                'doc_type_id' => (int) ($doc->doc_type_id ?? 0),
+                'sub_type_id' => $doc->sub_type_id ? (int) $doc->sub_type_id : 0,
+                'doc_no' => $docNo !== '' ? $docNo : 'N/A',
+                'title' => $title,
+                'rev_no' => (int) ($doc->revise_no ?? 0),
+                'doc_type' => $doc->doc_type_name ?? 'N/A',
+                'revision_status' => $status,
+                'is_latest' => $status !== 'obsolete',
+                'edit_url' => route('dcs.register.edit', $doc->id),
+                'history_url' => $docNo !== '' ? route('dcs.register.history', $docNo) : null,
+                'can_delete' => $status !== 'obsolete',
+            ];
+        };
+
+        $rows = $documents->map($mapRow);
+
+        $grouped = $rows->groupBy(function ($row) {
+            if ($row['doc_no'] === 'N/A') {
+                return 'no_ml_' . $row['request_id'];
+            }
+
+            return strtolower($row['doc_no']) . '||' . $row['doc_type_id'] . '||' . $row['sub_type_id'];
+        });
+
+        $groups = collect();
+        foreach ($grouped as $family) {
+            $sorted = $family->sortByDesc('rev_no')->sortByDesc('request_id')->values();
+            $parent = $family->first(fn ($r) => $r['is_latest']) ?? $sorted->first();
+            $children = $family
+                ->filter(fn ($r) => $r['request_id'] !== $parent['request_id'])
+                ->sortByDesc('rev_no')
+                ->values()
+                ->all();
+
+            $groups->push([
+                'doc_no' => $parent['doc_no'],
+                'parent' => $parent,
+                'children' => $children,
+                'has_revisions' => $children !== [],
+                'revision_count' => $family->count(),
+                'sort_id' => $parent['request_id'],
+                'member_ids' => $family->pluck('request_id')->all(),
+            ]);
+        }
+
+        // Stack renumbered prior doc numbers under the tip (same as Database).
+        if (Schema::hasColumn('dcs_masterlist_registration', 'revised_from_doc_no')) {
+            $byKey = [];
+            foreach ($groups as $g) {
+                $p = $g['parent'];
+                if (($p['doc_no'] ?? 'N/A') === 'N/A') {
+                    continue;
+                }
+                $key = strtolower($p['doc_no']) . '||' . $p['doc_type_id'] . '||' . $p['sub_type_id'];
+                $byKey[$key] = $g;
+            }
+
+            $fromMap = DB::table('dcs_masterlist_registration as ml')
+                ->join('dcs_document_requests as dr', 'dr.id', '=', 'ml.request_id')
+                ->whereIn('ml.request_id', $visibleIds)
+                ->whereNotNull('ml.revised_from_doc_no')
+                ->where('ml.revised_from_doc_no', '!=', '')
+                ->select('ml.doc_no', 'ml.revised_from_doc_no', 'dr.doc_type_id', 'dr.sub_type_id')
+                ->get();
+
+            $absorb = [];
+            foreach ($fromMap as $link) {
+                $tipNo = trim((string) $link->doc_no);
+                $fromNo = trim((string) $link->revised_from_doc_no);
+                if ($tipNo === '' || $fromNo === '' || strcasecmp($tipNo, $fromNo) === 0) {
+                    continue;
+                }
+                $typeId = (int) $link->doc_type_id;
+                $subId = $link->sub_type_id ? (int) $link->sub_type_id : 0;
+                $tipKey = strtolower($tipNo) . '||' . $typeId . '||' . $subId;
+                $fromKey = strtolower($fromNo) . '||' . $typeId . '||' . $subId;
+                if (!isset($byKey[$tipKey], $byKey[$fromKey]) || $tipKey === $fromKey) {
+                    continue;
+                }
+                $absorb[$fromKey] = $tipKey;
+            }
+
+            if ($absorb !== []) {
+                $merged = collect();
+                $consumed = [];
+                foreach ($groups as $g) {
+                    $p = $g['parent'];
+                    if (($p['doc_no'] ?? 'N/A') === 'N/A') {
+                        $merged->push($g);
+                        continue;
+                    }
+                    $key = strtolower($p['doc_no']) . '||' . $p['doc_type_id'] . '||' . $p['sub_type_id'];
+                    if (isset($absorb[$key])) {
+                        $consumed[$key] = true;
+                        continue;
+                    }
+                    $children = $g['children'];
+                    $memberIds = $g['member_ids'];
+                    // Pull in absorbed prior families as obsolete children.
+                    foreach ($absorb as $fromKey => $tipKey) {
+                        if ($tipKey !== $key || !isset($byKey[$fromKey])) {
+                            continue;
+                        }
+                        $prior = $byKey[$fromKey];
+                        $priorParent = $prior['parent'];
+                        $priorParent['is_latest'] = false;
+                        $priorParent['revision_status'] = 'obsolete';
+                        $priorParent['can_delete'] = false;
+                        $children[] = $priorParent;
+                        foreach ($prior['children'] as $c) {
+                            $children[] = $c;
+                        }
+                        $memberIds = array_merge($memberIds, $prior['member_ids']);
+                        $consumed[$fromKey] = true;
+                    }
+                    usort($children, fn ($a, $b) => ($b['rev_no'] <=> $a['rev_no']) ?: ($b['request_id'] <=> $a['request_id']));
+                    $g['children'] = $children;
+                    $g['has_revisions'] = $children !== [];
+                    $g['revision_count'] = 1 + count($children);
+                    $g['member_ids'] = array_values(array_unique($memberIds));
+                    $merged->push($g);
+                }
+                $groups = $merged;
+            }
+        }
+
+        if ($matchedIds !== null) {
+            $matchSet = array_flip($matchedIds);
+            $groups = $groups->filter(function ($g) use ($matchSet) {
+                foreach ($g['member_ids'] as $id) {
+                    if (isset($matchSet[$id])) {
+                        return true;
+                    }
+                }
+
+                return false;
+            })->values();
+        }
+
+        $groups = $groups->sortByDesc('sort_id')->values();
+
+        $total = $groups->count();
+        $lastPage = max(1, (int) ceil($total / $perPage));
+        $page = min(max(1, $page), $lastPage);
+        $pageGroups = $groups->slice(($page - 1) * $perPage, $perPage)->values()->all();
+
+        return [
+            'rows' => $pageGroups,
+            'total' => $total,
+            'current_page' => $page,
+            'last_page' => $lastPage,
+            'per_page' => $perPage,
+        ];
+    }
+
+    public static function recycleBinList(string $search, int $page, int $perPage = 15): array
+    {
+        if (!Schema::hasColumn('dcs_document_requests', 'deleted_at')) {
             return [
                 'rows' => [],
                 'total' => 0,
@@ -178,28 +449,23 @@ class RegisterQueryHelper
             ->leftJoin('dcs_doc_types as dt', 'dt.id', '=', 'dr.doc_type_id')
             ->leftJoin('dcs_masterlist_registration as ml', 'ml.request_id', '=', 'dr.id')
             ->leftJoin('dcs_document_request_form as drf', 'drf.request_id', '=', 'dr.id')
-            ->leftJoin('dcs_document_change_notice as dcn', 'dcn.request_id', '=', 'dr.id')
-            ->leftJoin('dcs_document_retrieval as ret', 'ret.request_id', '=', 'dr.id')
-            ->leftJoin('dcs_document_distribution as dist', 'dist.request_id', '=', 'dr.id')
-            ->whereIn('dr.id', $visibleIds)
-            ->orderByDesc('dr.id')
-            ->select([
-                'dr.id',
-                'dt.doc_type_name',
-                'ml.id as ml_id',
-                'ml.doc_no',
-                'ml.doc_title as ml_title',
-                'ml.revise_no',
-                'drf.doc_title as drf_title',
-                'drf.id as drf_id',
-                'dcn.id as dcn_id',
-                'ret.id as ret_id',
-                'dist.id as dist_id',
-            ]);
+            ->whereNotNull('dr.deleted_at')
+            ->orderByDesc('dr.deleted_at');
 
-        if ($docTypeId !== '' && $docTypeId !== 'all') {
-            $query->where('dr.doc_type_id', (int) $docTypeId);
+        $select = [
+            'dr.id',
+            'dr.deleted_at',
+            'dt.doc_type_name',
+            'ml.doc_no',
+            'ml.doc_title as ml_title',
+            'ml.revise_no',
+            'drf.doc_title as drf_title',
+        ];
+        if (Schema::hasColumn('dcs_document_requests', 'deleted_by')) {
+            $select[] = 'dr.deleted_by';
         }
+
+        $query->select($select);
 
         $search = trim($search);
         if ($search !== '') {
@@ -208,9 +474,7 @@ class RegisterQueryHelper
                 $q->whereRaw('dr.id::text ilike ?', [$like])
                     ->orWhere('ml.doc_no', 'ilike', $like)
                     ->orWhere('ml.doc_title', 'ilike', $like)
-                    ->orWhere('drf.drf_no', 'ilike', $like)
-                    ->orWhere('drf.doc_title', 'ilike', $like)
-                    ->orWhere('dcn.dcn_no', 'ilike', $like);
+                    ->orWhere('drf.doc_title', 'ilike', $like);
             });
         }
 
@@ -220,46 +484,30 @@ class RegisterQueryHelper
 
         $documents = $query->skip(($page - 1) * $perPage)->take($perPage)->get();
 
-        $checklistNames = [
-            1 => 'Document Request Form',
-            2 => 'Document Change Notice',
-            3 => 'Masterlist',
-            4 => 'Retrieval',
-            5 => 'Distribution',
-        ];
-        foreach (DB::table('dcs_checklist_types')->get(['id', 'checklist_name']) as $row) {
-            $checklistNames[$row->id] = $row->checklist_name;
-        }
+        $deletedByIds = $documents->pluck('deleted_by')->filter()->unique()->all();
+        $deletedByNames = $deletedByIds && Schema::hasColumn('dcs_document_requests', 'deleted_by')
+            ? DB::table('account_details')
+                ->whereIn('account_id', $deletedByIds)
+                ->get()
+                ->mapWithKeys(fn ($d) => [(int) $d->account_id => trim($d->first_name . ' ' . $d->last_name)])
+            : collect();
 
-        $rows = $documents->map(function ($doc) use ($checklistNames) {
-            $docNo = $doc->doc_no;
+        $rows = $documents->map(function ($doc) use ($deletedByNames) {
             $title = $doc->ml_title ?: ($doc->drf_title ?: 'N/A');
-            $checklists = [];
-            if ($doc->drf_id) {
-                $checklists[] = $checklistNames[1] ?? 'DRF';
-            }
-            if ($doc->dcn_id) {
-                $checklists[] = $checklistNames[2] ?? 'DCN';
-            }
-            if ($doc->ml_id) {
-                $checklists[] = $checklistNames[3] ?? 'Masterlist';
-            }
-            if ($doc->ret_id) {
-                $checklists[] = $checklistNames[4] ?? 'Retrieval';
-            }
-            if ($doc->dist_id) {
-                $checklists[] = $checklistNames[5] ?? 'Distribution';
-            }
+            $deletedBy = isset($doc->deleted_by) && $doc->deleted_by
+                ? ($deletedByNames[(int) $doc->deleted_by] ?? null)
+                : null;
 
             return [
                 'request_id' => $doc->id,
-                'doc_no' => $docNo ?: 'N/A',
+                'doc_no' => $doc->doc_no ?: 'N/A',
                 'title' => $title,
                 'rev_no' => (int) ($doc->revise_no ?? 0),
                 'doc_type' => $doc->doc_type_name ?? 'N/A',
-                'checklists' => $checklists,
-                'edit_url' => route('dcs.register.edit', $doc->id),
-                'history_url' => $docNo ? route('dcs.register.history', $docNo) : null,
+                'deleted_at' => $doc->deleted_at
+                    ? \Carbon\Carbon::parse($doc->deleted_at)->format('M d, Y h:i A')
+                    : '—',
+                'deleted_by' => $deletedBy,
             ];
         })->all();
 
@@ -272,38 +520,1388 @@ class RegisterQueryHelper
         ];
     }
 
-    public static function history(string $docNo): array
+    public static function reviewList(string $search, string $docTypeId, int $page, int $perPage = 15): array
     {
-        $mls = DB::table('dcs_masterlist_registration as ml')
+        $empty = [
+            'rows' => [],
+            'total' => 0,
+            'current_page' => 1,
+            'last_page' => 1,
+            'per_page' => $perPage,
+            'filtered' => trim($search) !== '' || ($docTypeId !== '' && $docTypeId !== 'all'),
+        ];
+
+        $visibleIds = self::visibleRequestIds();
+        if ($visibleIds === []) {
+            return $empty;
+        }
+
+        // Prefer rows marked latest; fall back to highest revise_no / id per doc_no family.
+        $latestMl = DB::table('dcs_masterlist_registration as ml')
+            ->join('dcs_document_requests as dr', 'dr.id', '=', 'ml.request_id')
+            ->whereIn('ml.request_id', $visibleIds)
+            ->whereNotNull('ml.doc_no')
+            ->where('ml.doc_no', '!=', '');
+        self::applyNotDeleted($latestMl, 'dr');
+        $latestMl = $latestMl
+            ->where(function ($q) {
+                $q->whereNull('ml.revision_status')
+                    ->orWhere('ml.revision_status', '')
+                    ->orWhere('ml.revision_status', 'latest');
+            })
+            ->select('ml.doc_no', DB::raw('MAX(ml.id) as ml_id'))
+            ->groupBy('ml.doc_no');
+
+        $revCounts = DB::table('dcs_masterlist_registration as ml')
+            ->join('dcs_document_requests as dr', 'dr.id', '=', 'ml.request_id')
+            ->whereIn('ml.request_id', $visibleIds)
+            ->whereNotNull('ml.doc_no')
+            ->where('ml.doc_no', '!=', '');
+        self::applyNotDeleted($revCounts, 'dr');
+        $revCounts = $revCounts
+            ->select('ml.doc_no', DB::raw('COUNT(*) as rev_count'))
+            ->groupBy('ml.doc_no');
+
+        $query = DB::table('dcs_masterlist_registration as ml')
+            ->joinSub($latestMl, 'latest', function ($join) {
+                $join->on('ml.id', '=', 'latest.ml_id');
+            })
+            ->joinSub($revCounts, 'rc', function ($join) {
+                $join->on('rc.doc_no', '=', 'ml.doc_no');
+            })
             ->join('dcs_document_requests as dr', 'dr.id', '=', 'ml.request_id')
             ->leftJoin('dcs_doc_types as dt', 'dt.id', '=', 'dr.doc_type_id')
             ->leftJoin('dcs_document_request_form as drf', 'drf.request_id', '=', 'dr.id')
             ->leftJoin('dcs_document_change_notice as dcn', 'dcn.request_id', '=', 'dr.id')
-            ->where('ml.doc_no', $docNo)
-            ->orderByDesc('ml.revise_no')
-            ->get([
-                'dr.id',
-                'dr.created_at',
+            ->leftJoin('dcs_document_retrieval as ret', 'ret.request_id', '=', 'dr.id')
+            ->leftJoin('dcs_document_distribution as dist', 'dist.request_id', '=', 'dr.id')
+            ->whereIn('dr.id', $visibleIds);
+        self::applyNotDeleted($query, 'dr');
+        $query->orderByDesc('ml.revise_no')
+            ->orderByDesc('ml.id')
+            ->select([
+                'dr.id as request_id',
+                'ml.doc_no',
                 'ml.doc_title',
                 'ml.revise_no',
-                'ml.revision_status',
-                'ml.effectivity_date',
-                'ml.no_pages',
-                'ml.originator_name',
-                'ml.brief_purpose',
+                'dr.doc_type_id',
+                'dr.sub_type_id',
+                'dt.doc_type_name',
+                'rc.rev_count',
                 'drf.id as drf_id',
                 'dcn.id as dcn_id',
+                'ml.id as ml_id',
+                'ret.id as ret_id',
+                'dist.id as dist_id',
             ]);
+
+        if ($docTypeId !== '' && $docTypeId !== 'all') {
+            $query->where('dr.doc_type_id', (int) $docTypeId);
+        }
+
+        $search = trim($search);
+        if ($search !== '') {
+            $like = '%' . $search . '%';
+            $query->where(function ($q) use ($like) {
+                $q->where('ml.doc_no', 'ilike', $like)
+                    ->orWhere('ml.doc_title', 'ilike', $like);
+            });
+        }
+
+        // Resolve renumber lineage tips so prior numbers don't appear as separate review rows.
+        $candidates = $query->limit(120)->get();
+        $hasKeywords = Schema::hasColumn('dcs_masterlist_registration', 'keywords');
+        $tipRows = collect();
+        $seenTipKeys = [];
+        foreach ($candidates as $hit) {
+            $tip = self::resolveLineageTipMasterlist($hit, $visibleIds);
+            if (!$tip) {
+                continue;
+            }
+            $key = strtolower(trim((string) ($tip->doc_no ?? ''))) . '|'
+                . (int) ($tip->doc_type_id ?? 0) . '|'
+                . (int) ($tip->sub_type_id ?? 0);
+            if (isset($seenTipKeys[$key])) {
+                continue;
+            }
+            $seenTipKeys[$key] = true;
+            $enriched = self::loadSearchDocumentRow((int) $tip->id, $hasKeywords);
+            if ($enriched) {
+                $enriched->rev_count = (int) ($hit->rev_count ?? 0);
+                $enriched->drf_id = $hit->drf_id ?? null;
+                $enriched->dcn_id = $hit->dcn_id ?? null;
+                $enriched->ret_id = $hit->ret_id ?? null;
+                $enriched->dist_id = $hit->dist_id ?? null;
+                $tipRows->push($enriched);
+            }
+        }
+
+        // Recount revisions across the full renumber chain for each tip.
+        $tipRows = $tipRows->map(function ($doc) use ($visibleIds) {
+            $docTypeId = (int) ($doc->doc_type_id ?? 0);
+            $subTypeId = !empty($doc->sub_type_id) ? (int) $doc->sub_type_id : null;
+            $chain = self::buildRenumberChain((string) $doc->doc_no, $docTypeId, $subTypeId, $visibleIds);
+            $count = 0;
+            foreach ($chain as $chainDocNo) {
+                $count += count(self::masterlistRevisionsForDocNo($chainDocNo, $docTypeId, $subTypeId, $visibleIds));
+            }
+            $doc->rev_count = max($count, (int) ($doc->rev_count ?? 0));
+
+            return $doc;
+        })->values();
+
+        $total = $tipRows->count();
+        $lastPage = max(1, (int) ceil($total / $perPage));
+        $page = min(max(1, $page), $lastPage);
+        $documents = $tipRows->slice(($page - 1) * $perPage, $perPage)->values();
+
+        $requestIds = $documents->pluck('request_id')->all();
+        $drfIds = $requestIds ? DB::table('dcs_document_request_form')->whereIn('request_id', $requestIds)->pluck('request_id')->flip() : collect();
+        $dcnIds = $requestIds ? DB::table('dcs_document_change_notice')->whereIn('request_id', $requestIds)->pluck('request_id')->flip() : collect();
+        $distIds = $requestIds ? DB::table('dcs_document_distribution')->whereIn('request_id', $requestIds)->pluck('request_id')->flip() : collect();
+        $retIds = $requestIds ? DB::table('dcs_document_retrieval')->whereIn('request_id', $requestIds)->pluck('request_id')->flip() : collect();
+
+        $checklistNames = [
+            1 => 'Document Request Form',
+            2 => 'Document Change Notice',
+            3 => 'Masterlist',
+            4 => 'Retrieval',
+            5 => 'Distribution',
+        ];
+        foreach (DB::table('dcs_checklist_types')->get(['id', 'checklist_name']) as $row) {
+            $checklistNames[$row->id] = $row->checklist_name;
+        }
+
+        $rows = $documents->map(function ($doc) use ($checklistNames, $drfIds, $dcnIds, $distIds, $retIds) {
+            $revCount = (int) ($doc->rev_count ?? 0);
+            $canCompare = $revCount >= 2;
+            $checklists = [];
+            if (isset($drfIds[$doc->request_id])) {
+                $checklists[] = $checklistNames[1] ?? 'DRF';
+            }
+            if (isset($dcnIds[$doc->request_id])) {
+                $checklists[] = $checklistNames[2] ?? 'DCN';
+            }
+            $checklists[] = $checklistNames[3] ?? 'Masterlist';
+            if (isset($retIds[$doc->request_id])) {
+                $checklists[] = $checklistNames[4] ?? 'Retrieval';
+            }
+            if (isset($distIds[$doc->request_id])) {
+                $checklists[] = $checklistNames[5] ?? 'Distribution';
+            }
+
+            return [
+                'request_id' => (int) $doc->request_id,
+                'doc_no' => (string) $doc->doc_no,
+                'title' => $doc->doc_title ?: $doc->doc_no,
+                'rev_no' => (int) ($doc->revise_no ?? 0),
+                'rev_count' => $revCount,
+                'can_compare' => $canCompare,
+                'reason' => null,
+                'doc_type' => $doc->type_name ?? 'N/A',
+                'checklists' => $checklists,
+            ];
+        })->all();
+
+        return [
+            'rows' => $rows,
+            'total' => $total,
+            'current_page' => $page,
+            'last_page' => $lastPage,
+            'per_page' => $perPage,
+            'filtered' => $empty['filtered'],
+        ];
+    }
+
+    public static function history(string $docNo): array
+    {
+        $docNo = trim($docNo);
+        if ($docNo === '') {
+            abort(404, 'Document not found.');
+        }
+
+        $anchor = DB::table('dcs_masterlist_registration as ml')
+            ->join('dcs_document_requests as dr', 'dr.id', '=', 'ml.request_id')
+            ->where('ml.doc_no', $docNo)
+            ->orderByDesc('ml.revise_no')
+            ->orderByDesc('ml.id')
+            ->select('ml.doc_no', 'ml.doc_title', 'dr.doc_type_id', 'dr.sub_type_id')
+            ->first();
+
+        if (!$anchor) {
+            abort(404, 'Document not found.');
+        }
+
+        $visibleIds = self::visibleRequestIds();
+        $docTypeId = (int) $anchor->doc_type_id;
+        $subTypeId = $anchor->sub_type_id ? (int) $anchor->sub_type_id : null;
+        $chain = self::buildRenumberChain($docNo, $docTypeId, $subTypeId, $visibleIds);
+
+        $mls = collect();
+        foreach ($chain as $chainDocNo) {
+            $query = DB::table('dcs_masterlist_registration as ml')
+                ->join('dcs_document_requests as dr', 'dr.id', '=', 'ml.request_id')
+                ->whereIn('ml.request_id', $visibleIds)
+                ->where('ml.doc_no', $chainDocNo)
+                ->where('dr.doc_type_id', $docTypeId);
+
+            if ($subTypeId) {
+                $query->where('dr.sub_type_id', $subTypeId);
+            } else {
+                $query->whereNull('dr.sub_type_id');
+            }
+
+            self::applyNotDeleted($query, 'dr');
+
+            foreach ($query
+                ->orderByDesc('ml.revise_no')
+                ->orderByDesc('ml.id')
+                ->get([
+                    'ml.*',
+                    'dr.version_id as request_version_id',
+                    'dr.approval_status',
+                    'dr.created_at as request_created_at',
+                    'dr.created_by as request_created_by',
+                ]) as $row) {
+                $mls->push($row);
+            }
+        }
+
+        $mls = $mls
+            ->unique(fn ($row) => (int) $row->request_id)
+            ->sort(function ($a, $b) {
+                $aTime = strtotime((string) ($a->request_created_at ?? $a->created_at ?? ''));
+                $bTime = strtotime((string) ($b->request_created_at ?? $b->created_at ?? ''));
+                if ($aTime !== $bTime) {
+                    return $bTime <=> $aTime;
+                }
+
+                return ((int) ($b->id ?? 0)) <=> ((int) ($a->id ?? 0));
+            })
+            ->values();
 
         if ($mls->isEmpty()) {
             abort(404, 'Document not found.');
         }
 
+        $requestIds = self::intIds($mls->pluck('request_id'));
+        $docs = self::hydrateRequests(
+            DB::table('dcs_document_requests')->whereIn('id', $requestIds)->get()
+        )->keyBy(fn ($d) => (int) $d->id);
+
+        $drfIds = $docs->map(fn ($d) => $d->documentRequestForm->id ?? null)->filter()->values()->all();
+        $drfOffices = $drfIds
+            ? DB::table('dcs_drf_offices as d')
+                ->leftJoin('office as o', 'o.id', '=', 'd.office_id')
+                ->whereIn('d.document_request_form_id', $drfIds)
+                ->get(['d.document_request_form_id', 'o.office_name'])
+                ->groupBy('document_request_form_id')
+            : collect();
+
+        $dcnIds = $docs->map(fn ($d) => $d->documentChangeNotice->id ?? null)->filter()->values()->all();
+        $dcnOffices = $dcnIds
+            ? DB::table('dcs_dcn_offices as d')
+                ->leftJoin('office as o', 'o.id', '=', 'd.office_id')
+                ->whereIn('d.dcn_id', $dcnIds)
+                ->get(['d.dcn_id', 'o.office_name'])
+                ->groupBy('dcn_id')
+            : collect();
+
+        foreach ($docs as $doc) {
+            if ($doc->documentRequestForm) {
+                $doc->documentRequestForm->offices = $drfOffices->get($doc->documentRequestForm->id, collect());
+            }
+            if ($doc->documentChangeNotice) {
+                $doc->documentChangeNotice->offices = $dcnOffices->get($doc->documentChangeNotice->id, collect());
+            }
+        }
+
+        $lookups = [
+            'versions' => DB::table('dcs_version_type')->pluck('version_name', 'id'),
+            'approvals' => DB::table('dcs_approval_body')->pluck('approval_name', 'id'),
+            'colleges' => DB::table('dcs_colleges')->pluck('college_name', 'id'),
+            'programs' => DB::table('dcs_programs')->pluck('program_name', 'id'),
+            'semesters' => DB::table('dcs_semesters')->pluck('semester_name', 'id'),
+            'years' => DB::table('dcs_school_years')->pluck('school_year', 'id'),
+            'creators' => collect(),
+        ];
+
+        $creatorIds = $mls->pluck('request_created_by')->merge($mls->pluck('created_by'))->filter()->unique()->all();
+        if ($creatorIds) {
+            $lookups['creators'] = DB::table('account_details')
+                ->whereIn('account_id', $creatorIds)
+                ->get()
+                ->mapWithKeys(fn ($d) => [(int) $d->account_id => trim($d->first_name . ' ' . $d->last_name)]);
+        }
+
+        $revisions = [];
+        foreach ($mls as $i => $ml) {
+            $doc = $docs->get((int) $ml->request_id);
+            $revisions[] = self::buildHistoryRevision($ml, $doc, $lookups, $i === 0);
+        }
+
+        $lineageDocNos = $mls->pluck('doc_no')->filter()->unique()->values()->all();
+
+        $noiseKeys = ['revise_no', 'registered_at', 'registered_by'];
+        $summaryKeys = ['doc_type', 'sub_type', 'originator', 'effectivity', 'pages', 'purpose', 'deadline', 'drf_no', 'dcn_no'];
+
+        for ($i = 0; $i < count($revisions); $i++) {
+            $older = $revisions[$i + 1] ?? null;
+            $changes = [];
+            foreach ($revisions[$i]['sections'] as $s => $section) {
+                $olderRows = [];
+                if ($older) {
+                    foreach ($older['sections'] as $os) {
+                        if ($os['key'] === $section['key']) {
+                            foreach ($os['rows'] as $or) {
+                                $olderRows[$or['key']] = $or;
+                            }
+                        }
+                    }
+                }
+                $sectionChanged = false;
+                foreach ($section['rows'] as $r => $row) {
+                    $prev = $olderRows[$row['key']] ?? null;
+                    $isChanged = $older !== null
+                        && ($prev === null || ($prev['compare'] ?? '') !== ($row['compare'] ?? ''));
+                    $revisions[$i]['sections'][$s]['rows'][$r]['changed'] = $isChanged;
+                    $revisions[$i]['sections'][$s]['rows'][$r]['previous'] = $isChanged
+                        ? ($prev['value'] ?? '—')
+                        : null;
+                    if ($isChanged && !in_array($row['key'], $noiseKeys, true)) {
+                        $changes[] = $revisions[$i]['sections'][$s]['rows'][$r];
+                        $sectionChanged = true;
+                    }
+                }
+                $revisions[$i]['sections'][$s]['changed'] = $sectionChanged;
+                if (($section['key'] ?? '') === 'syllabi') {
+                    $revisions[$i]['sections'][$s]['table'] = self::hstSyllabiTableFromRows(
+                        $revisions[$i]['sections'][$s]['rows']
+                    );
+                }
+            }
+            $revisions[$i]['is_initial'] = $older === null;
+            $revisions[$i]['changes'] = $changes;
+            $revisions[$i]['changed_count'] = count($changes);
+            $revisions[$i]['summary'] = self::hstPickRows($revisions[$i]['sections'], $summaryKeys);
+        }
+
         return [
             'docNo' => $docNo,
             'docTitle' => $mls->first()->doc_title ?: $docNo,
-            'revisions' => $mls,
+            'lineageDocNos' => $lineageDocNos,
+            'revisions' => $revisions,
         ];
+    }
+
+    public static function reviewCompare(string $docNo, ?int $leftId = null, ?int $rightId = null, ?string $extractTab = null): array
+    {
+        $empty = [
+            'docNo' => trim($docNo),
+            'docTitle' => '',
+            'options' => [],
+            'prior_options' => [],
+            'left_id' => null,
+            'right_id' => null,
+            'latest_id' => null,
+            'latest_revise_no' => null,
+            'tabs' => [],
+            'pairs' => [],
+            'can_compare' => false,
+            'can_view' => false,
+            'error' => null,
+            'left_label' => 'Selected revision',
+            'right_label' => 'Latest',
+        ];
+
+        $docNo = trim($docNo);
+        if ($docNo === '' || strcasecmp($docNo, 'N/A') === 0) {
+            return array_merge($empty, ['error' => 'no_doc_no']);
+        }
+
+        if (!DB::table('dcs_masterlist_registration')->where('doc_no', $docNo)->exists()) {
+            return array_merge($empty, ['error' => 'not_found']);
+        }
+
+        $history = self::history($docNo);
+        $revs = $history['revisions'];
+        $byId = [];
+        foreach ($revs as $rev) {
+            $byId[(int) $rev['id']] = $rev;
+        }
+
+        $options = [];
+        foreach ($revs as $rev) {
+            $label = 'Rev ' . $rev['revise_no'];
+            if (!empty($rev['is_latest'])) {
+                $label .= ' · current';
+            }
+            if (!empty($rev['doc_no']) && $rev['doc_no'] !== $history['docNo']) {
+                $label .= ' · ' . $rev['doc_no'];
+            }
+            $options[] = [
+                'id' => (int) $rev['id'],
+                'revise_no' => (int) $rev['revise_no'],
+                'is_latest' => (bool) $rev['is_latest'],
+                'doc_no' => $rev['doc_no'] ?? null,
+                'created_label' => $rev['created_label'] ?? '',
+                'label' => $label,
+            ];
+        }
+
+        // Always lock the right/newer side to the latest revision in the lineage.
+        $latest = $revs[0] ?? null;
+        $latestId = $latest ? (int) $latest['id'] : null;
+        $rightId = $latestId;
+
+        $base = [
+            'docNo' => $history['docNo'],
+            'docTitle' => $history['docTitle'],
+            'options' => $options,
+            'prior_options' => array_values(array_filter($options, fn ($o) => (int) $o['id'] !== (int) $latestId)),
+            'left_id' => null,
+            'right_id' => $rightId,
+            'latest_id' => $latestId,
+            'latest_revise_no' => $latest ? (int) $latest['revise_no'] : null,
+            'tabs' => [],
+            'pairs' => [],
+            'can_compare' => false,
+            'can_view' => false,
+            'error' => null,
+            'left_label' => 'Selected revision',
+            'right_label' => 'Latest',
+        ];
+
+        if (!$latest) {
+            return array_merge($base, ['error' => 'not_found']);
+        }
+
+        $right = $byId[$rightId];
+        $rightLabel = 'Rev ' . $right['revise_no'] . ' · latest';
+
+        // Single revision: still show the latest scan (no compare).
+        if (count($revs) < 2) {
+            $pair = self::reviewPairSection(null, $right, 'masterlist');
+            $hasScan = !empty($pair['right_scan']['url']);
+
+            return array_merge($base, [
+                'tabs' => $hasScan ? [['key' => 'masterlist', 'label' => 'Masterlist']] : [],
+                'pairs' => $hasScan ? ['masterlist' => $pair] : [],
+                'can_view' => $hasScan,
+                'can_compare' => false,
+                'right_label' => $rightLabel,
+                'error' => $hasScan ? null : 'need_scan',
+            ]);
+        }
+
+        // Default left = previous revision; user may pick any older one.
+        if ($leftId && isset($byId[$leftId]) && (int) $leftId !== (int) $rightId) {
+            // keep requested left
+        } else {
+            $leftId = (int) $revs[1]['id'];
+        }
+
+        if ((int) $leftId === (int) $rightId) {
+            $leftId = (int) $revs[1]['id'];
+        }
+
+        $left = $byId[$leftId];
+        if (!self::reviewRevIsOlder($left, $right)) {
+            // If user somehow picked a newer-or-equal, fall back to previous revision.
+            $leftId = (int) $revs[1]['id'];
+            $left = $byId[$leftId];
+        }
+
+        $leftLabel = 'Rev ' . $left['revise_no']
+            . (!empty($left['doc_no']) && $left['doc_no'] !== $history['docNo'] ? ' · ' . $left['doc_no'] : '')
+            . ' · selected';
+
+        $pair = self::reviewPairSection($left, $right, 'masterlist');
+        $hasScan = !empty($pair['left_scan']['url']) || !empty($pair['right_scan']['url']);
+
+        return [
+            'docNo' => $history['docNo'],
+            'docTitle' => $history['docTitle'],
+            'options' => $options,
+            'prior_options' => array_values(array_filter($options, fn ($o) => (int) $o['id'] !== (int) $rightId)),
+            'left_id' => $leftId,
+            'right_id' => $rightId,
+            'latest_id' => $latestId,
+            'latest_revise_no' => (int) $right['revise_no'],
+            'tabs' => $hasScan ? [['key' => 'masterlist', 'label' => 'Masterlist']] : [],
+            'pairs' => $hasScan ? ['masterlist' => $pair] : [],
+            'can_compare' => true,
+            'can_view' => true,
+            'error' => $hasScan ? null : 'need_scan',
+            'left_label' => $leftLabel,
+            'right_label' => $rightLabel,
+        ];
+    }
+
+    private static function reviewRevIsOlder(array $left, array $right): bool
+    {
+        $leftRev = (int) ($left['revise_no'] ?? 0);
+        $rightRev = (int) ($right['revise_no'] ?? 0);
+        if ($leftRev !== $rightRev) {
+            return $leftRev < $rightRev;
+        }
+
+        return strcmp((string) ($left['created_at'] ?? ''), (string) ($right['created_at'] ?? '')) <= 0;
+    }
+
+    private static function reviewPairSection(?array $left, ?array $right, string $key): array
+    {
+        $leftSection = self::reviewSectionByKey($left, $key);
+        $rightSection = self::reviewSectionByKey($right, $key);
+        $skip = ['scanned_ml', 'drf_scan', 'dcn_scan', 'dist_scan', 'ret_scan'];
+
+        $rows = [];
+        if ($key !== 'syllabi') {
+            $leftMap = self::reviewRowMap($leftSection);
+            $rightMap = self::reviewRowMap($rightSection);
+            $order = [];
+            foreach (array_merge(array_keys($leftMap), array_keys($rightMap)) as $rowKey) {
+                if (in_array($rowKey, $skip, true) || isset($order[$rowKey])) {
+                    continue;
+                }
+                $order[$rowKey] = true;
+            }
+            foreach (array_keys($order) as $rowKey) {
+                $l = $leftMap[$rowKey] ?? null;
+                $r = $rightMap[$rowKey] ?? null;
+                if (($l['kind'] ?? $r['kind'] ?? '') === 'offices' || in_array($rowKey, ['sources', 'drf_offices', 'dcn_offices', 'dist_offices', 'ret_offices'], true)) {
+                    $rows[] = self::reviewOfficePair($l, $r);
+                    continue;
+                }
+                $leftVal = $l['value'] ?? '—';
+                $rightVal = $r['value'] ?? '—';
+                $rows[] = array_merge(self::reviewInlineDiff($leftVal, $rightVal), [
+                    'key' => $rowKey,
+                    'label' => $l['label'] ?? $r['label'] ?? $rowKey,
+                ]);
+            }
+        }
+
+        $syllabi = null;
+        if ($key === 'syllabi') {
+            $leftTable = $leftSection['table'] ?? self::hstSyllabiTableFromRows($leftSection['rows'] ?? []);
+            $rightTable = $rightSection['table'] ?? self::hstSyllabiTableFromRows($rightSection['rows'] ?? []);
+            $meta = [];
+            $leftMeta = self::reviewRowMap(['rows' => $leftTable['meta'] ?? []]);
+            $rightMeta = self::reviewRowMap(['rows' => $rightTable['meta'] ?? []]);
+            foreach (['syl_college', 'syl_program', 'syl_sem', 'syl_sy'] as $metaKey) {
+                if (!isset($leftMeta[$metaKey]) && !isset($rightMeta[$metaKey])) {
+                    continue;
+                }
+                $l = $leftMeta[$metaKey] ?? null;
+                $r = $rightMeta[$metaKey] ?? null;
+                $meta[] = array_merge(self::reviewInlineDiff($l['value'] ?? '—', $r['value'] ?? '—'), [
+                    'key' => $metaKey,
+                    'label' => $l['label'] ?? $r['label'] ?? $metaKey,
+                ]);
+            }
+
+            $fields = ['course', 'avail', 'copies', 'pages', 'received', 'faculty', 'drf'];
+            $leftCourses = [];
+            foreach ($leftTable['courses'] ?? [] as $course) {
+                $name = $course['course']['compare'] ?? mb_strtolower($course['course']['value'] ?? '');
+                $leftCourses[$name !== '' ? $name : uniqid('l.', true)] = $course;
+            }
+            $rightCourses = [];
+            foreach ($rightTable['courses'] ?? [] as $course) {
+                $name = $course['course']['compare'] ?? mb_strtolower($course['course']['value'] ?? '');
+                $rightCourses[$name !== '' ? $name : uniqid('r.', true)] = $course;
+            }
+            $names = array_unique(array_merge(array_keys($leftCourses), array_keys($rightCourses)));
+            $courses = [];
+            foreach ($names as $name) {
+                $lc = $leftCourses[$name] ?? null;
+                $rc = $rightCourses[$name] ?? null;
+                $cells = [];
+                $rowStatus = 'same';
+                foreach ($fields as $field) {
+                    $diff = self::reviewInlineDiff($lc[$field]['value'] ?? '—', $rc[$field]['value'] ?? '—');
+                    $cells[$field] = $diff;
+                    if ($diff['status'] !== 'same' && $rowStatus === 'same') {
+                        $rowStatus = $diff['status'];
+                    } elseif ($diff['status'] !== 'same' && $diff['status'] !== $rowStatus) {
+                        $rowStatus = 'changed';
+                    }
+                }
+                $courses[] = ['status' => $rowStatus, 'cells' => $cells];
+            }
+            $syllabi = ['meta' => $meta, 'courses' => $courses];
+        }
+
+        $leftScan = self::reviewScanPayload($leftSection);
+        $rightScan = self::reviewScanPayload($rightSection);
+        $textDiff = self::reviewScanDiff($leftScan, $rightScan);
+
+        return [
+            'title' => $leftSection['title'] ?? $rightSection['title'] ?? ucfirst($key),
+            'rows' => $rows,
+            'syllabi' => $syllabi,
+            'left_scan' => $leftScan,
+            'right_scan' => $rightScan,
+            'text_diff' => $textDiff,
+            'scan_status' => $textDiff['status'] ?? 'none',
+        ];
+    }
+
+    private static function reviewSectionByKey(?array $rev, string $key): ?array
+    {
+        if (!$rev) {
+            return null;
+        }
+        foreach ($rev['sections'] as $section) {
+            if (($section['key'] ?? '') === $key) {
+                return $section;
+            }
+        }
+
+        return null;
+    }
+
+    private static function reviewRowMap(?array $section): array
+    {
+        $map = [];
+        foreach ($section['rows'] ?? [] as $row) {
+            $map[$row['key']] = $row;
+        }
+
+        return $map;
+    }
+
+    private static function reviewOfficePair(?array $left, ?array $right): array
+    {
+        $leftMap = self::reviewOfficeItemMap($left);
+        $rightMap = self::reviewOfficeItemMap($right);
+        $withCopies = (bool) ($left['with_copies'] ?? $right['with_copies'] ?? false);
+        if (!$withCopies) {
+            foreach (array_merge($leftMap, $rightMap) as $item) {
+                if (($item['copies'] ?? null) !== null) {
+                    $withCopies = true;
+                    break;
+                }
+            }
+        }
+
+        $names = array_unique(array_merge(array_keys($leftMap), array_keys($rightMap)));
+        sort($names, SORT_NATURAL | SORT_FLAG_CASE);
+
+        $offices = [];
+        $status = 'same';
+        foreach ($names as $key) {
+            $l = $leftMap[$key] ?? null;
+            $r = $rightMap[$key] ?? null;
+            $name = $l['name'] ?? $r['name'] ?? $key;
+            $leftCopies = $l['copies'] ?? null;
+            $rightCopies = $r['copies'] ?? null;
+            $leftPresent = $l !== null;
+            $rightPresent = $r !== null;
+
+            if ($leftPresent && $rightPresent) {
+                if ($withCopies && (string) $leftCopies !== (string) $rightCopies) {
+                    $rowStatus = 'changed';
+                    $leftHtml = '<span class="drr-chg">' . e((string) $leftCopies) . '</span>';
+                    $rightHtml = '<span class="drr-chg">' . e((string) $rightCopies) . '</span>';
+                } else {
+                    $rowStatus = 'same';
+                    $leftHtml = $withCopies ? e((string) ($leftCopies ?? '1')) : 'Present';
+                    $rightHtml = $withCopies ? e((string) ($rightCopies ?? '1')) : 'Present';
+                }
+            } elseif ($leftPresent) {
+                $rowStatus = 'removed';
+                $leftHtml = $withCopies
+                    ? '<span class="drr-del">' . e((string) ($leftCopies ?? '1')) . '</span>'
+                    : '<span class="drr-del">Present</span>';
+                $rightHtml = '<span class="drr-del">Removed</span>';
+            } else {
+                $rowStatus = 'added';
+                $leftHtml = '—';
+                $rightHtml = $withCopies
+                    ? '<span class="drr-ins">' . e((string) ($rightCopies ?? '1')) . '</span>'
+                    : '<span class="drr-ins">Present</span>';
+            }
+
+            if ($rowStatus !== 'same' && $status === 'same') {
+                $status = $rowStatus;
+            } elseif ($rowStatus !== 'same' && $rowStatus !== $status) {
+                $status = 'changed';
+            }
+
+            $offices[] = [
+                'name' => $name,
+                'status' => $rowStatus,
+                'left_html' => $leftHtml,
+                'right_html' => $rightHtml,
+            ];
+        }
+
+        return [
+            'key' => $left['key'] ?? $right['key'] ?? 'offices',
+            'label' => $left['label'] ?? $right['label'] ?? 'Offices',
+            'kind' => 'offices',
+            'with_copies' => $withCopies,
+            'status' => $status,
+            'offices' => $offices,
+            'left_html' => '',
+            'right_html' => '',
+        ];
+    }
+
+    private static function reviewOfficeItemMap(?array $row): array
+    {
+        if (!$row) {
+            return [];
+        }
+
+        $map = [];
+        foreach ($row['items'] ?? [] as $item) {
+            $name = trim((string) ($item['name'] ?? ''));
+            if ($name === '') {
+                continue;
+            }
+            $map[mb_strtolower($name)] = [
+                'name' => $name,
+                'copies' => $item['copies'] ?? null,
+            ];
+        }
+        if ($map !== []) {
+            return $map;
+        }
+
+        $value = trim((string) ($row['value'] ?? ''));
+        if ($value === '' || $value === '—') {
+            return [];
+        }
+
+        foreach (preg_split('/\s*,\s*/', $value) as $part) {
+            $part = trim($part);
+            if ($part === '') {
+                continue;
+            }
+            $copies = null;
+            $name = $part;
+            if (preg_match('/^(.*)\s+\((\d+)\)\s*$/u', $part, $match)) {
+                $name = trim($match[1]);
+                $copies = $match[2];
+            }
+            if ($name === '') {
+                continue;
+            }
+            $map[mb_strtolower($name)] = [
+                'name' => $name,
+                'copies' => $copies,
+            ];
+        }
+
+        return $map;
+    }
+
+    private static function reviewScanPayload(?array $section): array
+    {
+        $path = $section['scan_path'] ?? null;
+        $url = $section['scan_url'] ?? null;
+        $ext = $path ? strtolower(pathinfo($path, PATHINFO_EXTENSION)) : '';
+
+        return [
+            'path' => $path,
+            'url' => $url,
+            'name' => $path ? basename($path) : null,
+            'is_pdf' => $ext === 'pdf',
+            'text' => '',
+            'has_text' => false,
+        ];
+    }
+
+    private static function reviewScanDiff(array $leftScan, array $rightScan): array
+    {
+        $leftHas = (bool) ($leftScan['url'] ?? null);
+        $rightHas = (bool) ($rightScan['url'] ?? null);
+        $leftText = (string) ($leftScan['text'] ?? '');
+        $rightText = (string) ($rightScan['text'] ?? '');
+
+        if (!$leftHas && !$rightHas) {
+            return [
+                'status' => 'none',
+                'left_html' => '',
+                'right_html' => '',
+                'has_text' => false,
+                'note' => null,
+            ];
+        }
+
+        if ($leftText !== '' || $rightText !== '') {
+            $diff = self::reviewLineDiff($leftText, $rightText);
+            $diff['has_text'] = true;
+            $diff['note'] = null;
+
+            return $diff;
+        }
+
+        $status = 'same';
+        if ($leftHas && !$rightHas) {
+            $status = 'removed';
+        } elseif (!$leftHas && $rightHas) {
+            $status = 'added';
+        } elseif (($leftScan['path'] ?? '') !== ($rightScan['path'] ?? '')) {
+            $status = 'changed';
+        }
+
+        return [
+            'status' => $status,
+            'left_html' => '',
+            'right_html' => '',
+            'has_text' => false,
+            'note' => 'No extractable text on these scans. Only file presence could be compared.',
+        ];
+    }
+
+    private static function reviewLineDiff(string $old, string $new): array
+    {
+        $oldLines = preg_split("/\r\n|\r|\n/", $old) ?: [];
+        $newLines = preg_split("/\r\n|\r|\n/", $new) ?: [];
+        $oldLines = array_slice($oldLines, 0, 250);
+        $newLines = array_slice($newLines, 0, 250);
+
+        if (implode("\n", $oldLines) === implode("\n", $newLines)) {
+            $html = e($old !== '' ? $old : '—');
+
+            return [
+                'status' => 'same',
+                'left_html' => $html,
+                'right_html' => $html,
+            ];
+        }
+
+        $ops = self::reviewLcsOps($oldLines, $newLines);
+        $left = '';
+        $right = '';
+        foreach ($ops as $op) {
+            $line = (string) $op['t'];
+            if ($op['k'] === 'eq') {
+                $left .= e($line) . "\n";
+                $right .= e($line) . "\n";
+            } elseif ($op['k'] === 'del') {
+                $left .= '<span class="drr-del">' . e($line) . "</span>\n";
+            } else {
+                $right .= '<span class="drr-ins">' . e($line) . "</span>\n";
+            }
+        }
+
+        $status = 'changed';
+        if (trim($old) === '') {
+            $status = 'added';
+        } elseif (trim($new) === '') {
+            $status = 'removed';
+        }
+
+        return [
+            'status' => $status,
+            'left_html' => rtrim($left),
+            'right_html' => rtrim($right),
+        ];
+    }
+
+    private static function reviewInlineDiff(string $old, string $new): array
+    {
+        $oldPlain = $old === '—' ? '' : $old;
+        $newPlain = $new === '—' ? '' : $new;
+
+        if ($oldPlain === $newPlain) {
+            $safe = e($old !== '' ? $old : '—');
+
+            return [
+                'status' => 'same',
+                'left_html' => $safe,
+                'right_html' => $safe,
+                'left' => $old !== '' ? $old : '—',
+                'right' => $new !== '' ? $new : '—',
+            ];
+        }
+
+        if ($oldPlain === '' && $newPlain !== '') {
+            return [
+                'status' => 'added',
+                'left_html' => '—',
+                'right_html' => '<span class="drr-ins">' . e($new) . '</span>',
+                'left' => '—',
+                'right' => $new,
+            ];
+        }
+
+        if ($newPlain === '' && $oldPlain !== '') {
+            return [
+                'status' => 'removed',
+                'left_html' => '<span class="drr-del">' . e($old) . '</span>',
+                'right_html' => '—',
+                'left' => $old,
+                'right' => '—',
+            ];
+        }
+
+        [$leftHtml, $rightHtml] = self::reviewTokenDiffHtml($oldPlain, $newPlain);
+
+        return [
+            'status' => 'changed',
+            'left_html' => $leftHtml,
+            'right_html' => $rightHtml,
+            'left' => $old,
+            'right' => $new,
+        ];
+    }
+
+    private static function reviewTokenDiffHtml(string $old, string $new): array
+    {
+        $a = self::reviewTokens($old);
+        $b = self::reviewTokens($new);
+        $a = array_slice($a, 0, 800);
+        $b = array_slice($b, 0, 800);
+        $ops = self::reviewLcsOps($a, $b);
+
+        $left = '';
+        $right = '';
+        foreach ($ops as $op) {
+            $token = e($op['t']);
+            if ($op['k'] === 'eq') {
+                $left .= $token;
+                $right .= $token;
+            } elseif ($op['k'] === 'del') {
+                $left .= '<span class="drr-del">' . $token . '</span>';
+            } else {
+                $right .= '<span class="drr-ins">' . $token . '</span>';
+            }
+        }
+
+        return [trim($left), trim($right)];
+    }
+
+    private static function reviewTokens(string $text): array
+    {
+        $parts = preg_split('/(\s+)/u', $text, -1, PREG_SPLIT_DELIM_CAPTURE);
+
+        return array_values(array_filter($parts === false ? [] : $parts, fn ($part) => $part !== ''));
+    }
+
+    private static function reviewLcsOps(array $a, array $b): array
+    {
+        $n = count($a);
+        $m = count($b);
+        $dp = array_fill(0, $n + 1, array_fill(0, $m + 1, 0));
+        for ($i = 1; $i <= $n; $i++) {
+            for ($j = 1; $j <= $m; $j++) {
+                $dp[$i][$j] = $a[$i - 1] === $b[$j - 1]
+                    ? $dp[$i - 1][$j - 1] + 1
+                    : max($dp[$i - 1][$j], $dp[$i][$j - 1]);
+            }
+        }
+
+        $ops = [];
+        $i = $n;
+        $j = $m;
+        while ($i > 0 || $j > 0) {
+            if ($i > 0 && $j > 0 && $a[$i - 1] === $b[$j - 1]) {
+                $ops[] = ['k' => 'eq', 't' => $a[$i - 1]];
+                $i--;
+                $j--;
+            } elseif ($j > 0 && ($i === 0 || $dp[$i][$j - 1] >= $dp[$i - 1][$j])) {
+                $ops[] = ['k' => 'ins', 't' => $b[$j - 1]];
+                $j--;
+            } else {
+                $ops[] = ['k' => 'del', 't' => $a[$i - 1]];
+                $i--;
+            }
+        }
+
+        return array_reverse($ops);
+    }
+
+    private static function hstRow(string $key, string $label, mixed $value, array $extra = []): array
+    {
+        $text = trim((string) ($value ?? ''));
+        if ($text === '') {
+            $text = '—';
+        }
+
+        return array_merge([
+            'key' => $key,
+            'label' => $label,
+            'value' => $text,
+            'compare' => mb_strtolower($text === '—' ? '' : $text),
+        ], $extra);
+    }
+
+    private static function hstDate(mixed $val): string
+    {
+        return $val ? Carbon::parse($val)->format('M d, Y') : '—';
+    }
+
+    private static function hstDateTime(mixed $val): string
+    {
+        return $val ? Carbon::parse($val)->format('M d, Y · h:i A') : '—';
+    }
+
+    private static function hstTime(mixed $val): string
+    {
+        return $val ? Carbon::parse($val)->format('h:i A') : '—';
+    }
+
+    private static function hstFile(mixed $path): string
+    {
+        return $path ? basename((string) $path) : '—';
+    }
+
+    private static function hstOfficeItems($rows, bool $withCopies = false): array
+    {
+        if (!$rows || (method_exists($rows, 'isEmpty') && $rows->isEmpty())) {
+            return [];
+        }
+
+        $items = [];
+        foreach (collect($rows) as $row) {
+            $name = trim((string) ($row->office->office_name ?? $row->office_name ?? ''));
+            if ($name === '') {
+                continue;
+            }
+            $key = mb_strtolower($name);
+            $items[$key] = [
+                'name' => $name,
+                'copies' => $withCopies ? (string) max(1, (int) ($row->copies ?? 1)) : null,
+            ];
+        }
+
+        return array_values($items);
+    }
+
+    private static function hstOfficeRow(string $key, string $label, $rows, bool $withCopies = false): array
+    {
+        $items = self::hstOfficeItems($rows, $withCopies);
+        $value = $items === []
+            ? '—'
+            : collect($items)->map(function ($item) {
+                return $item['copies'] !== null ? $item['name'] . ' (' . $item['copies'] . ')' : $item['name'];
+            })->implode(', ');
+
+        return self::hstRow($key, $label, $value, [
+            'kind' => 'offices',
+            'items' => $items,
+            'with_copies' => $withCopies,
+        ]);
+    }
+
+    private static function hstFilledRows(array $rows): array
+    {
+        return array_values(array_filter($rows, function ($row) {
+            $value = trim((string) ($row['value'] ?? ''));
+
+            return $value !== '' && $value !== '—';
+        }));
+    }
+
+    private static function hstScanMeta(?string $path): array
+    {
+        $path = $path ? trim($path) : '';
+        if ($path === '') {
+            return ['scan_path' => null, 'scan_url' => null];
+        }
+
+        return [
+            'scan_path' => $path,
+            'scan_url' => Storage::disk('public')->url($path),
+        ];
+    }
+
+    private static function hstPushSection(array &$sections, string $key, string $title, array $rows, array $extra = []): void
+    {
+        $rows = self::hstFilledRows($rows);
+        if ($rows === [] && empty($extra['scan_path'])) {
+            return;
+        }
+
+        $sections[] = array_merge([
+            'key' => $key,
+            'title' => $title,
+            'rows' => $rows,
+            'scan_path' => null,
+            'scan_url' => null,
+        ], $extra);
+    }
+
+    private static function buildHistoryRevision(object $ml, ?object $doc, array $lookups, bool $isLatestFlag): array
+    {
+        $isLatest = ($ml->revision_status ?? '') === 'latest'
+            || (($ml->revision_status ?? null) === null && $isLatestFlag);
+
+        $mlHydrated = $doc->masterlistRegistration ?? $ml;
+        $drf = $doc->documentRequestForm ?? null;
+        $dcn = $doc->documentChangeNotice ?? null;
+        $dist = $doc->documentDistribution ?? null;
+        $ret = $doc->documentRetrieval ?? null;
+        $approvals = $doc->approvalRecords ?? collect();
+        $syllabi = $doc->syllabi ?? collect();
+
+        $versionId = $ml->request_version_id ?? $doc->version_id ?? null;
+        $creatorId = $ml->request_created_by ?? $ml->created_by ?? null;
+
+        $sections = [];
+
+        self::hstPushSection($sections, 'masterlist', 'Masterlist', [
+            self::hstRow('title', 'Title', $ml->doc_title),
+            self::hstRow('doc_type', 'Document type', $doc->docType->doc_type_name ?? null),
+            self::hstRow('sub_type', 'Sub type', $doc->subType->doc_type_name ?? null),
+            self::hstRow('version', 'Version', $lookups['versions'][$versionId] ?? null),
+            self::hstRow('revise_no', 'Revision no.', $ml->revise_no === null ? null : (string) $ml->revise_no),
+            self::hstRow('registered_at', 'Registered', self::hstDateTime($ml->request_created_at ?? $ml->created_at)),
+            self::hstRow('registered_by', 'Registered by', $lookups['creators'][(int) $creatorId] ?? null),
+            self::hstRow('originator', 'Originator', $ml->originator_name),
+            self::hstOfficeRow('sources', 'Source offices', $mlHydrated->sourceOffices ?? collect()),
+            self::hstRow('effectivity', 'Effectivity', self::hstDate($ml->effectivity_date)),
+            self::hstRow('deadline', 'Deadline', self::hstDate($ml->deadline)),
+            self::hstRow('pages', 'Pages', $ml->no_pages === null ? null : (string) $ml->no_pages),
+            self::hstRow('purpose', 'Purpose', $ml->brief_purpose),
+            self::hstRow('receipt_date', 'Date received', self::hstDate($ml->doc_receipt_date)),
+            self::hstRow('receipt_time', 'Time received', self::hstTime($ml->doc_receipt_time)),
+            self::hstRow('reg_date', 'Date registered', self::hstDate($ml->doc_registered_date)),
+            self::hstRow('reg_time', 'Time registered', self::hstTime($ml->doc_registered_time)),
+            self::hstRow('time_spent', 'Time spent', $ml->time_spent === null ? null : (string) $ml->time_spent),
+            self::hstRow('related', 'Related documents', collect($mlHydrated->relatedList ?? [])
+                ->map(fn ($r) => trim(($r->doc_title ?? '') . ($r->doc_no ? ' (' . $r->doc_no . ')' : '')))
+                ->filter()
+                ->unique()
+                ->implode(', ')),
+            self::hstRow('scanned_ml', 'Scanned masterlist', self::hstFile($ml->scanned_masterlist)),
+        ], self::hstScanMeta($ml->scanned_masterlist));
+
+        if ($drf) {
+            self::hstPushSection($sections, 'drf', 'Document Request Form', [
+                self::hstRow('drf_no', 'DRF no.', $drf->drf_no ?? null),
+                self::hstRow('drf_date', 'DRF date', self::hstDate($drf->drf_date ?? null)),
+                self::hstRow('drf_receipt_date', 'DRF received date', self::hstDate($drf->drf_receipt_date ?? null)),
+                self::hstRow('drf_receipt_time', 'DRF received time', self::hstTime($drf->drf_receipt_time ?? null)),
+                self::hstOfficeRow('drf_offices', 'DRF offices', $drf->offices ?? collect()),
+                self::hstRow('drf_scan', 'Scanned DRF', self::hstFile($drf->scanned_drf ?? null)),
+            ], self::hstScanMeta($drf->scanned_drf ?? null));
+        }
+
+        if ($dcn) {
+            $dcnRevisionRows = collect($dcn->revisions ?? [])->map(function ($rev) {
+                return [
+                    'document_no' => $rev->document_no ?: '—',
+                    'title' => $rev->title ?: '—',
+                    'revision_no' => $rev->revision_no !== null ? (string) $rev->revision_no : '—',
+                    'effectivity_date' => self::hstDate($rev->effectivity_date) ?: '—',
+                    'brief_purpose' => $rev->brief_purpose ?: '—',
+                ];
+            })->all();
+
+            $dcnRevText = collect($dcn->revisions ?? [])->map(function ($rev) {
+                $bits = array_filter([
+                    $rev->title ?: null,
+                    $rev->document_no ? 'No. ' . $rev->document_no : null,
+                    $rev->revision_no !== null ? 'Rev ' . $rev->revision_no : null,
+                    $rev->effectivity_date ? self::hstDate($rev->effectivity_date) : null,
+                    $rev->brief_purpose ?: null,
+                ]);
+
+                return implode(' · ', $bits);
+            })->filter()->implode("\n");
+
+            self::hstPushSection($sections, 'dcn', 'Document Change Notice', [
+                self::hstRow('dcn_no', 'DCN no.', $dcn->dcn_no ?? null),
+                self::hstRow('dcn_date', 'DCN date', self::hstDate($dcn->dcn_date ?? null)),
+                self::hstRow('dcn_receipt_date', 'DCN received date', self::hstDate($dcn->dcn_receipt_date ?? null)),
+                self::hstRow('dcn_receipt_time', 'DCN received time', self::hstTime($dcn->dcn_receipt_time ?? null)),
+                self::hstOfficeRow('dcn_offices', 'DCN offices', $dcn->offices ?? collect()),
+                self::hstRow('dcn_scan', 'Scanned DCN', self::hstFile($dcn->scanned_dcn ?? null)),
+                self::hstRow('dcn_revs', 'Change items', $dcnRevText),
+            ], array_merge(self::hstScanMeta($dcn->scanned_dcn ?? null), [
+                'revisions' => $dcnRevisionRows,
+            ]));
+        }
+
+        if ($dist) {
+            self::hstPushSection($sections, 'distribution', 'Distribution', [
+                self::hstRow('dist_date_actual', 'Actual date', self::hstDate($dist->doc_distribution_date_actual ?? null)),
+                self::hstRow('dist_time_actual', 'Actual time', self::hstTime($dist->doc_distribution_time_actual ?? null)),
+                self::hstRow('dist_date_file', 'File date', self::hstDate($dist->doc_distribution_date_file ?? null)),
+                self::hstRow('dist_time_file', 'File time', self::hstTime($dist->doc_distribution_time_file ?? null)),
+                self::hstRow('dist_spent', 'Time spent', $dist->time_spent ?? null),
+                self::hstOfficeRow('dist_offices', 'Offices / copies', $dist->offices ?? collect(), true),
+                self::hstRow('dist_remarks', 'Remarks', $dist->remarks ?? null),
+                self::hstRow('dist_scan', 'Scanned copy', self::hstFile($dist->scanned_distribution ?? null)),
+            ], self::hstScanMeta($dist->scanned_distribution ?? null));
+        }
+
+        if ($ret) {
+            self::hstPushSection($sections, 'retrieval', 'Retrieval', [
+                self::hstRow('ret_date_actual', 'Actual date', self::hstDate($ret->doc_retrieval_date_actual ?? null)),
+                self::hstRow('ret_time_actual', 'Actual time', self::hstTime($ret->doc_retrieval_time_actual ?? null)),
+                self::hstRow('ret_date_file', 'File date', self::hstDate($ret->doc_retrieval_date_file ?? null)),
+                self::hstRow('ret_time_file', 'File time', self::hstTime($ret->doc_retrieval_time_file ?? null)),
+                self::hstRow('ret_spent', 'Time spent', $ret->time_spent ?? null),
+                self::hstOfficeRow('ret_offices', 'Offices / copies', $ret->offices ?? collect(), true),
+                self::hstRow('ret_remarks', 'Remarks', $ret->remarks ?? null),
+                self::hstRow('ret_scan', 'Scanned copy', self::hstFile($ret->scanned_retrieval ?? null)),
+            ], self::hstScanMeta($ret->scanned_retrieval ?? null));
+        }
+
+        $approvalText = collect($approvals)->map(function ($a) use ($lookups) {
+            $body = $lookups['approvals'][$a->approval_body_id] ?? null;
+            $bits = array_filter([
+                $body,
+                $a->approval_no ? 'No. ' . $a->approval_no : null,
+                $a->approval_date ? self::hstDate($a->approval_date) : null,
+            ]);
+
+            return implode(' · ', $bits);
+        })->filter()->implode('; ');
+
+        self::hstPushSection($sections, 'approval', 'Approval', [
+            self::hstRow('approval_status', 'Approval status', $ml->approval_status ?? $doc->approval_status ?? null),
+            self::hstRow('approval_records', 'Approval records', $approvalText),
+        ]);
+
+        if ($syllabi->isNotEmpty()) {
+            $first = $syllabi->first();
+            $metaRows = self::hstFilledRows([
+                self::hstRow('syl_college', 'College', $lookups['colleges'][$first->college_id] ?? null),
+                self::hstRow('syl_program', 'Program', $lookups['programs'][$first->program_id] ?? null),
+                self::hstRow('syl_sem', 'Semester', $lookups['semesters'][$first->semester_id] ?? null),
+                self::hstRow('syl_sy', 'School year', $lookups['years'][$first->school_year_id] ?? null),
+            ]);
+
+            $courseRows = [];
+            foreach ($syllabi as $idx => $syl) {
+                $code = $syl->course->course_code ?? $syl->course_code ?? '';
+                $name = $syl->course->course_name ?? $syl->course_name ?? '';
+                $label = trim($code . ' ' . $name) ?: ('Course ' . ($idx + 1));
+                $prefix = 'syl.' . ($syl->course_id ?? $syl->id);
+                $faculties = collect($syl->drfs ?? [])->pluck('faculty_name')->filter()->unique()->implode(', ');
+                $drfBits = collect($syl->drfs ?? [])->map(function ($d) {
+                    if (!self::pgBool($d->is_drf_available ?? false)) {
+                        return null;
+                    }
+
+                    return trim(($d->faculty_name ? $d->faculty_name . ': ' : '') . ($d->drf_no ?: 'DRF') .
+                        ($d->drf_date ? ' (' . self::hstDate($d->drf_date) . ')' : ''));
+                })->filter()->implode('; ');
+
+                $recv = [];
+                if ($syl->date_received) {
+                    $recv[] = self::hstDate($syl->date_received);
+                }
+                if ($syl->time_received) {
+                    $recv[] = self::hstTime($syl->time_received);
+                }
+
+                $courseRows[] = self::hstRow($prefix . '.course', 'Course', $label);
+                $courseRows[] = self::hstRow($prefix . '.avail', 'Available', self::pgBool($syl->is_available) ? 'Yes' : 'No');
+                $courseRows[] = self::hstRow($prefix . '.copies', 'Copies', (string) ($syl->no_copies ?? 1));
+                $courseRows[] = self::hstRow($prefix . '.pages', 'Pages', $syl->no_pages === null ? null : (string) $syl->no_pages);
+                $courseRows[] = self::hstRow($prefix . '.received', 'Received', implode(' ', $recv));
+                $courseRows[] = self::hstRow($prefix . '.faculty', 'Faculty', $faculties);
+                $courseRows[] = self::hstRow($prefix . '.drf', 'DRF', $drfBits);
+            }
+
+            $sections[] = [
+                'key' => 'syllabi',
+                'title' => 'Syllabi',
+                'rows' => array_merge($metaRows, $courseRows),
+                'table' => ['meta' => $metaRows, 'courses' => []],
+                'scan_path' => null,
+                'scan_url' => null,
+            ];
+        }
+
+        $tabLabels = [
+            'masterlist' => 'Masterlist',
+            'drf' => 'DRF',
+            'dcn' => 'DCN',
+            'distribution' => 'Distribution',
+            'retrieval' => 'Retrieval',
+            'approval' => 'Approval',
+            'syllabi' => 'Syllabi',
+        ];
+        $checklists = [];
+        foreach ($sections as $section) {
+            if (isset($tabLabels[$section['key']])) {
+                $checklists[] = [
+                    'key' => $section['key'],
+                    'label' => $tabLabels[$section['key']],
+                ];
+            }
+        }
+
+        return [
+            'id' => (int) $ml->request_id,
+            'doc_no' => $ml->doc_no ?: null,
+            'revise_no' => (int) ($ml->revise_no ?? 0),
+            'is_latest' => $isLatest,
+            'created_at' => $ml->request_created_at ?? $ml->created_at,
+            'created_label' => self::hstDateTime($ml->request_created_at ?? $ml->created_at),
+            'checklists' => $checklists,
+            'sections' => $sections,
+            'summary' => [],
+            'changes' => [],
+        ];
+    }
+
+    private static function hstSyllabiTableFromRows(array $rows): array
+    {
+        $byKey = [];
+        foreach ($rows as $row) {
+            $byKey[$row['key']] = $row;
+        }
+
+        $meta = [];
+        foreach (['syl_college', 'syl_program', 'syl_sem', 'syl_sy'] as $key) {
+            if (isset($byKey[$key])) {
+                $meta[] = $byKey[$key];
+            }
+        }
+
+        $prefixes = [];
+        foreach ($rows as $row) {
+            if (preg_match('/^(syl\.[^.]+)\./', $row['key'] ?? '', $match)) {
+                $prefixes[$match[1]] = true;
+            }
+        }
+
+        $fields = ['course', 'avail', 'copies', 'pages', 'received', 'faculty', 'drf'];
+        $empty = ['value' => '—', 'changed' => false, 'previous' => null];
+        $courses = [];
+        foreach (array_keys($prefixes) as $prefix) {
+            $course = [];
+            foreach ($fields as $field) {
+                $course[$field] = $byKey[$prefix . '.' . $field] ?? $empty;
+            }
+            $courses[] = $course;
+        }
+
+        return [
+            'meta' => $meta,
+            'courses' => $courses,
+        ];
+    }
+
+    private static function hstPickRows(array $sections, array $keys): array
+    {
+        $found = [];
+        foreach ($sections as $section) {
+            foreach ($section['rows'] as $row) {
+                $found[$row['key']] = $row;
+            }
+        }
+
+        $picked = [];
+        foreach ($keys as $key) {
+            if (isset($found[$key])) {
+                $picked[] = $found[$key];
+            }
+        }
+
+        return $picked;
     }
 
     public static function searchDocuments(Request $request)
@@ -317,12 +1915,25 @@ class RegisterQueryHelper
         $field = $request->input('field');
         $docTypeId = $request->input('doc_type_id');
         $subTypeId = $request->input('sub_type_id');
+        $allRevisions = $request->boolean('all_revisions');
+        $hasKeywords = Schema::hasColumn('dcs_masterlist_registration', 'keywords');
+        // Dashboard search (no field filter): also match keywords/title/doc_no on prior revisions,
+        // then resolve hits to the current lineage tip so the user opens the latest document.
+        $dashboardSearch = !$allRevisions && ($field === null || $field === '');
 
         $query = DB::table('dcs_masterlist_registration as ml')
             ->join('dcs_document_requests as dr', 'dr.id', '=', 'ml.request_id')
             ->leftJoin('dcs_doc_types as dt', 'dt.id', '=', 'dr.doc_type_id')
             ->leftJoin('dcs_doc_types as st', 'st.id', '=', 'dr.sub_type_id')
             ->whereIn('ml.request_id', $visibleIds);
+
+        if (!$allRevisions && !$dashboardSearch) {
+            $query->where(function ($qr) {
+                $qr->whereNull('ml.revision_status')
+                    ->orWhere('ml.revision_status', '')
+                    ->orWhere('ml.revision_status', 'latest');
+            });
+        }
 
         if ($docTypeId) {
             $query->where('dr.doc_type_id', $docTypeId);
@@ -331,7 +1942,7 @@ class RegisterQueryHelper
             }
         }
 
-        $query->where(function ($qr) use ($q, $field) {
+        $query->where(function ($qr) use ($q, $field, $hasKeywords) {
             if ($field === 'no') {
                 $qr->where('ml.doc_no', 'ilike', "%{$q}%");
             } elseif ($field === 'title') {
@@ -339,6 +1950,9 @@ class RegisterQueryHelper
             } else {
                 $qr->where('ml.doc_title', 'ilike', "%{$q}%")
                     ->orWhere('ml.doc_no', 'ilike', "%{$q}%");
+                if ($hasKeywords) {
+                    $qr->orWhere('ml.keywords', 'ilike', "%{$q}%");
+                }
             }
         });
 
@@ -346,33 +1960,69 @@ class RegisterQueryHelper
             $query->where('ml.request_id', '!=', $request->exclude_request_id);
         }
 
-        $rows = $query->orderBy('ml.doc_no')
+        $select = [
+            'ml.id',
+            'ml.request_id',
+            'ml.doc_no',
+            'ml.doc_title',
+            'ml.revise_no',
+            'ml.effectivity_date',
+            'ml.brief_purpose',
+            'ml.scanned_masterlist',
+            'ml.revision_status',
+            'dr.doc_type_id',
+            'dr.sub_type_id',
+            'dt.doc_type_name as type_name',
+            'st.doc_type_name as sub_type_name',
+        ];
+        if ($hasKeywords) {
+            $select[] = 'ml.keywords';
+        }
+        if (Schema::hasColumn('dcs_masterlist_registration', 'revised_from_doc_no')) {
+            $select[] = 'ml.revised_from_doc_no';
+        }
+
+        $rows = $query->orderByDesc('ml.revise_no')
+            ->orderBy('ml.doc_no')
             ->orderBy('ml.doc_title')
-            ->limit(15)
-            ->get([
-                'ml.id',
-                'ml.request_id',
-                'ml.doc_no',
-                'ml.doc_title',
-                'ml.revise_no',
-                'ml.effectivity_date',
-                'ml.brief_purpose',
-                'ml.scanned_masterlist',
-                'dt.doc_type_name as type_name',
-                'st.doc_type_name as sub_type_name',
-            ]);
+            ->limit($allRevisions ? 50 : ($dashboardSearch ? 60 : 30))
+            ->get($select);
 
         if ($rows->isEmpty()) {
             return [];
         }
+
+        if ($dashboardSearch) {
+            $rows = self::resolveSearchHitsToLineageTips($rows, $visibleIds, $hasKeywords);
+        } elseif (!$allRevisions) {
+            $seen = [];
+            $rows = $rows->filter(function ($m) use (&$seen) {
+                $key = strtolower(trim((string) ($m->doc_no ?? ''))) . '|'
+                    . (int) ($m->doc_type_id ?? 0) . '|'
+                    . (int) ($m->sub_type_id ?? 0);
+                if (isset($seen[$key])) {
+                    return false;
+                }
+                $seen[$key] = true;
+
+                return true;
+            })->values();
+        }
+
+        $rows = $rows->take(15);
 
         $requestIds = $rows->pluck('request_id')->all();
         $drfIds = DB::table('dcs_document_request_form')->whereIn('request_id', $requestIds)->pluck('request_id')->flip();
         $dcnIds = DB::table('dcs_document_change_notice')->whereIn('request_id', $requestIds)->pluck('request_id')->flip();
         $distIds = DB::table('dcs_document_distribution')->whereIn('request_id', $requestIds)->pluck('request_id')->flip();
         $retIds = DB::table('dcs_document_retrieval')->whereIn('request_id', $requestIds)->pluck('request_id')->flip();
+        $approvalIds = DB::table('dcs_document_requests')
+            ->whereIn('id', $requestIds)
+            ->where('approval_status', 'applicable')
+            ->pluck('id')
+            ->flip();
 
-        return $rows->map(function ($m) use ($drfIds, $dcnIds, $distIds, $retIds) {
+        return $rows->map(function ($m) use ($drfIds, $dcnIds, $distIds, $retIds, $approvalIds) {
             $docNo = $m->doc_no ?: 'No number';
             $title = $m->doc_title ?: 'Untitled';
 
@@ -386,6 +2036,7 @@ class RegisterQueryHelper
                 'revise_no' => $m->revise_no,
                 'effectivity_date' => $m->effectivity_date ? Carbon::parse($m->effectivity_date)->format('Y-m-d') : null,
                 'brief_purpose' => $m->brief_purpose,
+                'keywords' => $m->keywords ?? null,
                 'scanned_copy_url' => $m->scanned_masterlist ? Storage::disk('public')->url($m->scanned_masterlist) : null,
                 'scanned_copy_path' => $m->scanned_masterlist,
                 'label' => $docNo . ' — ' . $title . ' (Rev ' . (int) $m->revise_no . ')',
@@ -393,21 +2044,319 @@ class RegisterQueryHelper
                     'drf' => isset($drfIds[$m->request_id]),
                     'dcn' => isset($dcnIds[$m->request_id]),
                     'masterlist' => true,
+                    'approval' => isset($approvalIds[$m->request_id]),
                     'distribution' => isset($distIds[$m->request_id]),
                     'retrieval' => isset($retIds[$m->request_id]),
                 ],
                 'edit_url' => route('dcs.register.edit', $m->request_id, false),
                 'stamp_url' => route('dcs.stamping.index', self::documentSearchParams($m), false),
                 'inventory_url' => route('dcs.database.index', self::documentSearchParams($m), false),
+                'match_request_id' => isset($m->match_request_id) ? (int) $m->match_request_id : null,
+                'match_revise_no' => isset($m->match_revise_no) ? (int) $m->match_revise_no : null,
+                'match_masterlist_id' => isset($m->match_masterlist_id) ? (int) $m->match_masterlist_id : null,
             ];
         })
             ->values()
             ->all();
     }
 
+    /**
+     * Map search hits (including obsolete / prior-renumber rows) to the current lineage tip,
+     * so Dashboard keyword search still finds documents after revision/renumber.
+     */
+    private static function resolveSearchHitsToLineageTips(Collection $rows, array $visibleIds, bool $hasKeywords): Collection
+    {
+        $tips = collect();
+        $seenTipKeys = [];
+
+        foreach ($rows as $hit) {
+            $tip = self::resolveLineageTipMasterlist($hit, $visibleIds);
+            if (!$tip) {
+                continue;
+            }
+
+            $key = strtolower(trim((string) ($tip->doc_no ?? ''))) . '|'
+                . (int) ($tip->doc_type_id ?? 0) . '|'
+                . (int) ($tip->sub_type_id ?? 0);
+            if (isset($seenTipKeys[$key])) {
+                continue;
+            }
+            $seenTipKeys[$key] = true;
+
+            $enriched = self::loadSearchDocumentRow((int) $tip->id, $hasKeywords);
+            if ($enriched) {
+                // Preserve the revision that actually matched the search (may be an older renumber/revision).
+                $enriched->match_request_id = (int) $hit->request_id;
+                $enriched->match_revise_no = (int) ($hit->revise_no ?? 0);
+                $enriched->match_masterlist_id = (int) $hit->id;
+                $tips->push($enriched);
+            }
+        }
+
+        return $tips->values();
+    }
+
+    private static function resolveLineageTipMasterlist(object $hit, array $visibleIds): ?object
+    {
+        $docTypeId = (int) ($hit->doc_type_id ?? 0);
+        $subTypeId = !empty($hit->sub_type_id) ? (int) $hit->sub_type_id : null;
+        $docNo = trim((string) ($hit->doc_no ?? ''));
+        if ($docNo === '' || $docTypeId < 1) {
+            return null;
+        }
+
+        $currentNo = $docNo;
+        $seen = [];
+
+        // Walk forward along renumber links: prior → newer tip.
+        if (Schema::hasColumn('dcs_masterlist_registration', 'revised_from_doc_no')) {
+            while ($currentNo !== '' && !isset($seen[strtolower($currentNo)])) {
+                $seen[strtolower($currentNo)] = true;
+
+                $nextQuery = DB::table('dcs_masterlist_registration as ml')
+                    ->join('dcs_document_requests as dr', 'dr.id', '=', 'ml.request_id')
+                    ->whereIn('ml.request_id', $visibleIds)
+                    ->where('ml.revised_from_doc_no', $currentNo)
+                    ->where('dr.doc_type_id', $docTypeId);
+
+                if ($subTypeId) {
+                    $nextQuery->where('dr.sub_type_id', $subTypeId);
+                } else {
+                    $nextQuery->whereNull('dr.sub_type_id');
+                }
+
+                $next = $nextQuery
+                    ->orderByDesc('ml.revise_no')
+                    ->orderByDesc('ml.id')
+                    ->select('ml.doc_no', 'dr.doc_type_id', 'dr.sub_type_id')
+                    ->first();
+
+                if (!$next || !trim((string) $next->doc_no)) {
+                    break;
+                }
+                $currentNo = trim((string) $next->doc_no);
+            }
+        }
+
+        $latest = self::latestMasterlistForDocNo($currentNo, $docTypeId, $subTypeId, $visibleIds);
+        if ($latest) {
+            $latest->doc_type_id = $docTypeId;
+            $latest->sub_type_id = $subTypeId;
+        }
+
+        return $latest;
+    }
+
+    private static function loadSearchDocumentRow(int $masterlistId, bool $hasKeywords): ?object
+    {
+        $select = [
+            'ml.id',
+            'ml.request_id',
+            'ml.doc_no',
+            'ml.doc_title',
+            'ml.revise_no',
+            'ml.effectivity_date',
+            'ml.brief_purpose',
+            'ml.scanned_masterlist',
+            'ml.revision_status',
+            'dr.doc_type_id',
+            'dr.sub_type_id',
+            'dt.doc_type_name as type_name',
+            'st.doc_type_name as sub_type_name',
+        ];
+        if ($hasKeywords) {
+            $select[] = 'ml.keywords';
+        }
+
+        return DB::table('dcs_masterlist_registration as ml')
+            ->join('dcs_document_requests as dr', 'dr.id', '=', 'ml.request_id')
+            ->leftJoin('dcs_doc_types as dt', 'dt.id', '=', 'dr.doc_type_id')
+            ->leftJoin('dcs_doc_types as st', 'st.id', '=', 'dr.sub_type_id')
+            ->where('ml.id', $masterlistId)
+            ->select($select)
+            ->first();
+    }
+
+    public static function documentRevisions(Request $request): array
+    {
+        $requestId = (int) $request->input('request_id');
+        if ($requestId < 1) {
+            return [];
+        }
+
+        $visibleIds = self::visibleRequestIds();
+        if (!in_array($requestId, $visibleIds, true)) {
+            return [];
+        }
+
+        $anchor = DB::table('dcs_masterlist_registration as ml')
+            ->join('dcs_document_requests as dr', 'dr.id', '=', 'ml.request_id')
+            ->where('ml.request_id', $requestId)
+            ->select('ml.doc_no', 'dr.doc_type_id', 'dr.sub_type_id')
+            ->first();
+
+        if (!$anchor || !trim((string) ($anchor->doc_no ?? ''))) {
+            return [];
+        }
+
+        $docNo = trim((string) $request->input('doc_no', ''));
+        if ($docNo === '') {
+            $docNo = trim((string) $anchor->doc_no);
+        }
+
+        $docTypeId = (int) $anchor->doc_type_id;
+        $subTypeId = $anchor->sub_type_id ? (int) $anchor->sub_type_id : null;
+        $chain = self::buildRenumberChain($docNo, $docTypeId, $subTypeId, $visibleIds);
+
+        $merged = [];
+        foreach ($chain as $chainDocNo) {
+            foreach (self::masterlistRevisionsForDocNo($chainDocNo, $docTypeId, $subTypeId, $visibleIds) as $row) {
+                $merged[] = $row;
+            }
+        }
+
+        return $merged;
+    }
+
+    /** @return list<string> Current doc no first, then each prior renumbered doc no. */
+    private static function buildRenumberChain(string $docNo, int $docTypeId, ?int $subTypeId, array $visibleIds): array
+    {
+        $docNo = trim($docNo);
+        if ($docNo === '') {
+            return [];
+        }
+
+        $chain = [];
+        $seen = [];
+        $current = $docNo;
+
+        while ($current !== '' && !isset($seen[strtolower($current)])) {
+            $seen[strtolower($current)] = true;
+            $chain[] = $current;
+
+            $latest = self::latestMasterlistForDocNo($current, $docTypeId, $subTypeId, $visibleIds);
+            if (!$latest || !Schema::hasColumn('dcs_masterlist_registration', 'revised_from_doc_no')) {
+                break;
+            }
+
+            $from = trim((string) ($latest->revised_from_doc_no ?? ''));
+            if ($from === '' || strcasecmp($from, $current) === 0) {
+                break;
+            }
+
+            $current = $from;
+        }
+
+        return $chain;
+    }
+
+    private static function latestMasterlistForDocNo(
+        string $docNo,
+        int $docTypeId,
+        ?int $subTypeId,
+        array $visibleIds
+    ): ?object {
+        $query = DB::table('dcs_masterlist_registration as ml')
+            ->join('dcs_document_requests as dr', 'dr.id', '=', 'ml.request_id')
+            ->whereIn('ml.request_id', $visibleIds)
+            ->where('ml.doc_no', $docNo)
+            ->where('dr.doc_type_id', $docTypeId);
+
+        if ($subTypeId) {
+            $query->where('dr.sub_type_id', $subTypeId);
+        } else {
+            $query->whereNull('dr.sub_type_id');
+        }
+
+        return $query
+            ->orderByDesc('ml.revise_no')
+            ->orderByDesc('ml.id')
+            ->select('ml.*')
+            ->first();
+    }
+
+    /** @return list<array<string, mixed>> */
+    private static function masterlistRevisionsForDocNo(
+        string $docNo,
+        int $docTypeId,
+        ?int $subTypeId,
+        array $visibleIds
+    ): array {
+        $query = DB::table('dcs_masterlist_registration as ml')
+            ->join('dcs_document_requests as dr', 'dr.id', '=', 'ml.request_id')
+            ->whereIn('ml.request_id', $visibleIds)
+            ->where('ml.doc_no', $docNo)
+            ->where('dr.doc_type_id', $docTypeId);
+
+        if ($subTypeId) {
+            $query->where('dr.sub_type_id', $subTypeId);
+        } else {
+            $query->whereNull('dr.sub_type_id');
+        }
+
+        return $query
+            ->orderByDesc('ml.revise_no')
+            ->orderByDesc('ml.id')
+            ->get([
+                'ml.id as masterlist_id',
+                'ml.request_id',
+                'ml.doc_no',
+                'ml.doc_title',
+                'ml.revise_no',
+                'ml.revision_status',
+                'ml.effectivity_date',
+                'ml.brief_purpose',
+                'ml.scanned_masterlist',
+            ])
+            ->map(function ($row) {
+                // Prefer DCN Justification from that registration for Documents for Revision "Brief Purpose".
+                $dcnPurpose = DB::table('dcs_document_change_notice')
+                    ->where('request_id', $row->request_id)
+                    ->value('brief_purpose');
+                if ($dcnPurpose === null || trim((string) $dcnPurpose) === '') {
+                    $dcnPurpose = DB::table('dcs_doc_revision as rev')
+                        ->join('dcs_document_change_notice as dcn', 'dcn.id', '=', 'rev.dcn_id')
+                        ->where('dcn.request_id', $row->request_id)
+                        ->where('rev.document_no', $row->doc_no)
+                        ->orderByDesc('rev.id')
+                        ->value('rev.brief_purpose');
+                }
+                $row->brief_purpose = ($dcnPurpose !== null && trim((string) $dcnPurpose) !== '')
+                    ? trim((string) $dcnPurpose)
+                    : $row->brief_purpose;
+
+                return self::mapDocumentRevisionRow($row);
+            })
+            ->values()
+            ->all();
+    }
+
+    /** @return array<string, mixed> */
+    private static function mapDocumentRevisionRow(object $row): array
+    {
+        return [
+            'masterlist_id' => $row->masterlist_id,
+            'request_id' => $row->request_id,
+            'doc_no' => $row->doc_no,
+            'doc_title' => $row->doc_title,
+            'revise_no' => (int) $row->revise_no,
+            'revision_status' => $row->revision_status ?: 'latest',
+            'effectivity_date' => $row->effectivity_date
+                ? Carbon::parse($row->effectivity_date)->format('Y-m-d')
+                : null,
+            'brief_purpose' => $row->brief_purpose,
+            'scanned_copy_url' => $row->scanned_masterlist
+                ? Storage::disk('public')->url($row->scanned_masterlist)
+                : null,
+            'scanned_copy_path' => $row->scanned_masterlist,
+            'label' => ($row->doc_no ?: 'No number') . ' — Rev ' . (int) $row->revise_no
+                . (($row->revision_status ?? '') === 'obsolete' ? ' (Obsolete)' : ''),
+        ];
+    }
+
     public static function documentChecklistPreview(int $requestId, string $type): array
     {
-        $allowed = ['drf', 'dcn', 'masterlist', 'distribution', 'retrieval'];
+        $allowed = ['drf', 'dcn', 'masterlist', 'approval', 'distribution', 'retrieval'];
         if (!in_array($type, $allowed, true)) {
             abort(404);
         }
@@ -421,6 +2370,7 @@ class RegisterQueryHelper
             'drf' => self::previewDrf($requestId),
             'dcn' => self::previewDcn($requestId),
             'masterlist' => self::previewMasterlist($requestId),
+            'approval' => self::previewApproval($requestId),
             'distribution' => self::previewDistribution($requestId),
             'retrieval' => self::previewRetrieval($requestId),
         };
@@ -585,6 +2535,32 @@ class RegisterQueryHelper
         ];
     }
 
+    private static function previewApproval(int $requestId): array
+    {
+        $doc = DB::table('dcs_document_requests')->where('id', $requestId)->first();
+        if (!$doc || ($doc->approval_status ?? '') !== 'applicable') {
+            abort(404);
+        }
+
+        $approval = DB::table('dcs_approval_records as ar')
+            ->leftJoin('dcs_approval_body as ab', 'ab.id', '=', 'ar.approval_body_id')
+            ->where('ar.request_id', $requestId)
+            ->first(['ab.approval_name', 'ar.approval_date', 'ar.approval_no']);
+
+        return [
+            'title' => 'Approving Body',
+            'type' => 'approval',
+            'doc_no' => null,
+            'doc_title' => null,
+            'fields' => [
+                self::previewField('Approving Body', $approval?->approval_name),
+                self::previewField('Approval Date', self::formatDate($approval?->approval_date)),
+                self::previewField('Approval No.', $approval?->approval_no),
+            ],
+            'sections' => [],
+        ];
+    }
+
     private static function previewDistribution(int $requestId): array
     {
         $dist = DB::table('dcs_document_distribution')->where('request_id', $requestId)->first();
@@ -745,6 +2721,9 @@ class RegisterQueryHelper
                     'message' => 'Document found.',
                     'next_rev' => $latestRev + 1,
                     'latest_rev' => $latestRev,
+                    'latest_scanned_copy_url' => $latest->scanned_masterlist
+                        ? Storage::disk('public')->url($latest->scanned_masterlist)
+                        : null,
                     'latest_title' => $latest->doc_title,
                     'latest_originator' => $latest->originator_name,
                     'revision_count' => $registrations->count(),
@@ -800,16 +2779,11 @@ class RegisterQueryHelper
 
     public static function editPayload(int $id): array
     {
-        $docRequest = DB::table('dcs_document_requests')->where('id', $id)->first();
+        $docRequest = self::findDocumentRequest($id);
         abort_unless($docRequest, 404);
 
         $ml = DB::table('dcs_masterlist_registration')->where('request_id', $id)->first();
-        if ($ml && $ml->doc_no && ($ml->revision_status ?? 'latest') !== 'latest') {
-            return [
-                'blocked' => true,
-                'error' => 'Only the latest revision can be edited.',
-            ];
-        }
+        // Obsolete revisions are editable; Update list groups them under the latest tip.
 
         $drf = DB::table('dcs_document_request_form')->where('request_id', $id)->first();
         $drfOffices = $drf
@@ -835,21 +2809,32 @@ class RegisterQueryHelper
             : collect();
 
         $retrieval = DB::table('dcs_document_retrieval')->where('request_id', $id)->first();
+        $retrievalOfficeColumns = ['r.office_id', 'r.copies', 'o.office_name'];
+        if (Schema::hasColumn('dcs_retrieval_offices', 'retrieval_status')) {
+            $retrievalOfficeColumns[] = 'r.retrieval_status';
+        }
+        if (Schema::hasColumn('dcs_retrieval_offices', 'retrieval_date')) {
+            $retrievalOfficeColumns[] = 'r.retrieval_date';
+        }
         $retrievalOffices = $retrieval
             ? DB::table('dcs_retrieval_offices as r')
                 ->leftJoin('office as o', 'o.id', '=', 'r.office_id')
                 ->where('r.retrieval_id', $retrieval->id)
-                ->get(['r.office_id', 'r.copies', 'o.office_name'])
+                ->get($retrievalOfficeColumns)
             : collect();
 
         $distribution = DB::table('dcs_document_distribution')->where('request_id', $id)->first();
+        $distributionOfficeColumns = ['d.office_id', 'd.copies', 'o.office_name'];
+        if (Schema::hasColumn('dcs_distribution_offices', 'distribution_date')) {
+            $distributionOfficeColumns[] = 'd.distribution_date';
+        }
         $distributionOffices = $distribution
             ? DB::table('dcs_distribution_offices as d')
                 ->leftJoin('office as o', 'o.id', '=', 'd.office_id')
                 ->where('d.distribution_id', $distribution->id)
                 ->orderBy('d.sort_order')
                 ->orderBy('d.id')
-                ->get(['d.office_id', 'd.copies', 'o.office_name'])
+                ->get($distributionOfficeColumns)
             : collect();
 
         $approval = DB::table('dcs_approval_records')->where('request_id', $id)->first();
@@ -1035,7 +3020,7 @@ class RegisterQueryHelper
                 ->whereIn('dof.distribution_id', $distIds)
                 ->orderBy('dof.sort_order')
                 ->orderBy('dof.id')
-                ->get(['dof.distribution_id', 'dof.office_id', 'o.office_name'])
+                ->get(['dof.distribution_id', 'dof.office_id', 'dof.copies', 'o.office_name'])
                 ->groupBy('distribution_id')
                 ->map(fn ($rows) => $rows->map(function ($row) {
                     $row->office = (object) ['office_name' => $row->office_name];
@@ -1050,7 +3035,7 @@ class RegisterQueryHelper
             ? DB::table('dcs_retrieval_offices as rof')
                 ->leftJoin('office as o', 'o.id', '=', 'rof.office_id')
                 ->whereIn('rof.retrieval_id', $retIds)
-                ->get(['rof.retrieval_id', 'rof.office_id', 'o.office_name'])
+                ->get(['rof.retrieval_id', 'rof.office_id', 'rof.copies', 'o.office_name'])
                 ->groupBy('retrieval_id')
                 ->map(fn ($rows) => $rows->map(function ($row) {
                     $row->office = (object) ['office_name' => $row->office_name];

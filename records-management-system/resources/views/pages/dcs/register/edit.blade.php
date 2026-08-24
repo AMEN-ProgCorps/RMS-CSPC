@@ -229,7 +229,7 @@ window.__registerCatalog = @json($catalog);
                         <button type="button" class="reg-btn reg-btn-save" id="syllabiNextBtn" x-show="syllabiStep === 1" @click="setSyllabiStep(2)">
                             Next <i class="fa-solid fa-arrow-right"></i>
                         </button>
-                        <span id="syllabiStep2Hint" x-show="syllabiStep === 2" style="color:#64748b;font-size:13px;">
+                        <span id="syllabiStep2Hint" class="reg-wizard-hint" x-show="syllabiStep === 2">
                             Scroll down and click <strong>Update Document</strong> to submit.
                         </span>
                     </div>
@@ -241,55 +241,6 @@ window.__registerCatalog = @json($catalog);
                     <span>Document Change Notice</span>
                 </div>
                 <div class="reg-card-body">
-                    <div class="reg-grid-3">
-                        <div class="reg-field">
-                            <label>DCN No.</label>
-                            <input type="text" id="dcnNumber" name="dcnNumber" placeholder="DCN-001" value="{{ $dcn->dcn_no ?? '' }}">
-                        </div>
-                        <div class="reg-field">
-                            <label>DCN Date</label>
-                            <input type="date" id="noticeDate" name="noticeDate" value="{{ \App\Helpers\RegisterQueryHelper::formatDate($dcn->dcn_date ?? '') }}">
-                        </div>
-                        <div class="reg-field">
-                            <label>DCN Receipt</label>
-                            <div class="reg-dual">
-                                <input type="date" id="receiptDate" name="receiptDate" value="{{ \App\Helpers\RegisterQueryHelper::formatDate($dcn->dcn_receipt_date ?? '') }}">
-                                <input type="time" id="receiptTime" name="receiptTime" value="{{ \App\Helpers\RegisterQueryHelper::formatTime($dcn->dcn_receipt_time ?? '') }}">
-                            </div>
-                        </div>
-                    </div>
-                    <div class="reg-grid-2-1">
-                        <div class="reg-field">
-                            <label>Upload Scanned DCN</label>
-                            @if($dcn && $dcn->scanned_dcn)
-                                <div class="reg-current-file">
-                                    <i class="fa-solid fa-file-pdf"></i>
-                                    <span>{{ basename($dcn->scanned_dcn) }}</span>
-                                    <a href="{{ asset('storage/' . $dcn->scanned_dcn) }}" target="_blank">View</a>
-                                </div>
-                            @endif
-                            <label class="reg-upload">
-                                <input type="file" id="dcnFile" name="dcnFile" accept=".pdf">
-                                <i class="fa-solid fa-cloud-arrow-up"></i>
-                                <span>{{ $dcn && $dcn->scanned_dcn ? 'Replace file' : 'Choose scanned PDF' }}</span>
-                            </label>
-                        </div>
-                        <div class="reg-field">
-                            <label>Source Unit</label>
-                            <div class="reg-reldocs" id="dcnSourceUnitWidget">
-                                <div class="reg-reldocs-inputwrap">
-                                    <input type="text" id="dcnSourceUnitSearch" class="reg-reldocs-input"
-                                        placeholder="Type to search offices..." autocomplete="off">
-                                    <button type="button" class="reg-reldocs-arrow-btn" id="dcnSourceArrowBtn">
-                                        <i class="fa-solid fa-chevron-down"></i>
-                                    </button>
-                                </div>
-                                <div id="dcnSourceResults" class="reg-reldocs-dropdown" style="display:none;"></div>
-                                <div id="dcnSourceInlineChips" class="reg-reldocs-dropdown reg-reldocs-selected-panel" style="display:none;"></div>
-                            </div>
-                        </div>
-                    </div>
-
                     <div class="reg-field reg-revision-table">
                         <label>Document Revisions</label>
                         <div class="reg-table-wrap">
@@ -349,6 +300,60 @@ window.__registerCatalog = @json($catalog);
                         <button type="button" class="reg-add-row" onclick="addRevisionRow()">
                             <i class="fa-solid fa-plus"></i> Add Revision Row
                         </button>
+                    </div>
+
+                    <div class="reg-field">
+                        <label>Justification</label>
+                        <input type="text" id="dcnJustification" name="dcnJustification" placeholder="Enter justification for this change notice..." value="{{ $dcn->brief_purpose ?? '' }}">
+                    </div>
+
+                    <div class="reg-grid-3">
+                        <div class="reg-field">
+                            <label>DCN No.</label>
+                            <input type="text" id="dcnNumber" name="dcnNumber" placeholder="DCN-001" value="{{ $dcn->dcn_no ?? '' }}">
+                        </div>
+                        <div class="reg-field">
+                            <label>DCN Date</label>
+                            <input type="date" id="noticeDate" name="noticeDate" value="{{ \App\Helpers\RegisterQueryHelper::formatDate($dcn->dcn_date ?? '') }}">
+                        </div>
+                        <div class="reg-field">
+                            <label>DCN Receipt</label>
+                            <div class="reg-dual">
+                                <input type="date" id="receiptDate" name="receiptDate" value="{{ \App\Helpers\RegisterQueryHelper::formatDate($dcn->dcn_receipt_date ?? '') }}">
+                                <input type="time" id="receiptTime" name="receiptTime" value="{{ \App\Helpers\RegisterQueryHelper::formatTime($dcn->dcn_receipt_time ?? '') }}">
+                            </div>
+                        </div>
+                    </div>
+                    <div class="reg-grid-2-1">
+                        <div class="reg-field">
+                            <label>Upload Scanned DCN</label>
+                            @if($dcn && $dcn->scanned_dcn)
+                                <div class="reg-current-file">
+                                    <i class="fa-solid fa-file-pdf"></i>
+                                    <span>{{ basename($dcn->scanned_dcn) }}</span>
+                                    <a href="{{ asset('storage/' . $dcn->scanned_dcn) }}" target="_blank">View</a>
+                                </div>
+                            @endif
+                            <label class="reg-upload">
+                                <input type="file" id="dcnFile" name="dcnFile" accept=".pdf">
+                                <i class="fa-solid fa-cloud-arrow-up"></i>
+                                <span>{{ $dcn && $dcn->scanned_dcn ? 'Replace file' : 'Choose scanned PDF' }}</span>
+                            </label>
+                        </div>
+                        <div class="reg-field">
+                            <label>Source Unit</label>
+                            <div class="reg-reldocs" id="dcnSourceUnitWidget">
+                                <div class="reg-reldocs-inputwrap">
+                                    <input type="text" id="dcnSourceUnitSearch" class="reg-reldocs-input"
+                                        placeholder="Type to search offices..." autocomplete="off">
+                                    <button type="button" class="reg-reldocs-arrow-btn" id="dcnSourceArrowBtn">
+                                        <i class="fa-solid fa-chevron-down"></i>
+                                    </button>
+                                </div>
+                                <div id="dcnSourceResults" class="reg-reldocs-dropdown" style="display:none;"></div>
+                                <div id="dcnSourceInlineChips" class="reg-reldocs-dropdown reg-reldocs-selected-panel" style="display:none;"></div>
+                            </div>
+                        </div>
                     </div>
                 </div>
             </section>
@@ -412,7 +417,32 @@ window.__registerCatalog = @json($catalog);
                         </label>
                     </div>
                 </div>
-            </section>    
+            </section>
+
+            <!-- ═══ APPROVAL ═══ -->
+            <section class="reg-card" id="section-approval" style="display: {{ $approval ? 'block' : 'none' }};">
+                <div class="reg-card-header">
+                    <span>Approval Details</span>
+                </div>
+                <div class="reg-card-body">
+                    <div class="reg-grid-3">
+                        <div class="reg-field">
+                            <label>Approving Body</label>
+                            <select id="approvalBody" name="approvalBody" autocomplete="off">
+                                <option value="" selected disabled>Select approving body</option>
+                            </select>
+                        </div>
+                        <div class="reg-field">
+                            <label>Approval Date</label>
+                            <input type="date" id="approvalDate" name="approvalDate" value="{{ \App\Helpers\RegisterQueryHelper::formatDate($approval->approval_date ?? '') }}">
+                        </div>
+                        <div class="reg-field">
+                            <label>Approval No.</label>
+                            <input type="text" id="approvalNo" name="approvalNo" placeholder="Approval number" value="{{ $approval->approval_no ?? '' }}">
+                        </div>
+                    </div>
+                </div>
+            </section>
 
             <!-- ═══ SECTION 3 — MASTERLIST ═══ -->
             <section class="reg-card" id="section-3" style="display: {{ $masterlist ? 'block' : 'none' }};">
@@ -502,8 +532,8 @@ window.__registerCatalog = @json($catalog);
                     </div>
                     <div class="reg-grid-2">
                         <div class="reg-field">
-                            <label>Justification</label>
-                            <input type="text" id="briefPurpose" name="briefPurpose" placeholder="Type here..." value="{{ $masterlist->brief_purpose ?? '' }}">
+                            <label>Keywords</label>
+                            <input type="text" id="keywords" name="keywords" placeholder="Comma-separated keywords..." value="{{ $masterlist->keywords ?? $masterlist->brief_purpose ?? '' }}">
                         </div>
                         <div class="reg-field">
                             <label>Related Documents</label>
@@ -531,7 +561,7 @@ window.__registerCatalog = @json($catalog);
                             <div class="reg-current-file">
                                 <i class="fa-solid fa-file-pdf"></i>
                                 <span>{{ basename($masterlist->scanned_masterlist) }}</span>
-                                <a href="{{ asset('storage/' . $masterlist->scanned_masterlist) }}" target="_blank">View</a>
+                                <button type="button" class="reg-current-file-view" data-preview-url="{{ asset('storage/' . $masterlist->scanned_masterlist) }}" data-preview-title="{{ basename($masterlist->scanned_masterlist) }}">View</button>
                             </div>
                         @endif
                         <label class="reg-upload">
@@ -539,31 +569,6 @@ window.__registerCatalog = @json($catalog);
                             <i class="fa-solid fa-cloud-arrow-up"></i>
                             <span>{{ $masterlist && $masterlist->scanned_masterlist ? 'Replace file' : 'Choose scanned PDF' }}</span>
                         </label>
-                    </div>
-                </div>
-            </section>
-
-            <!-- ═══ APPROVAL ═══ -->
-            <section class="reg-card" id="section-approval" style="display: {{ $approval ? 'block' : 'none' }};">
-                <div class="reg-card-header">
-                    <span>Approval Details</span>
-                </div>
-                <div class="reg-card-body">
-                    <div class="reg-grid-3">
-                        <div class="reg-field">
-                            <label>Approval Body</label>
-                            <select id="approvalBody" name="approvalBody" autocomplete="off">
-                                <option value="" selected disabled>Select approval body</option>
-                            </select>
-                        </div>
-                        <div class="reg-field">
-                            <label>Approval Date</label>
-                            <input type="date" id="approvalDate" name="approvalDate" value="{{ \App\Helpers\RegisterQueryHelper::formatDate($approval->approval_date ?? '') }}">
-                        </div>
-                        <div class="reg-field">
-                            <label>Approval No.</label>
-                            <input type="text" id="approvalNo" name="approvalNo" placeholder="Approval number" value="{{ $approval->approval_no ?? '' }}">
-                        </div>
                     </div>
                 </div>
             </section>
@@ -620,7 +625,8 @@ window.__registerCatalog = @json($catalog);
                     </div>
                     <div class="reg-split-right">
                         <div class="reg-field">
-                            <label>Select office(s) for retrieval</label>
+                            <label>Office retrieval status</label>
+                            <p class="reg-field-hint">Mark offices as retrieved to include them in Distribution again.</p>
                             <div class="reg-search">
                                 <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                                     <circle cx="11" cy="11" r="8"/>
@@ -637,13 +643,14 @@ window.__registerCatalog = @json($catalog);
                                 <thead>
                                     <tr>
                                         <th>Receiving Office(s)</th>
+                                        <th style="width:130px;">Status</th>
                                         <th style="width:110px; text-align:center;">No. of Copies</th>
                                         <th style="width:40px;"></th>
                                     </tr>
                                 </thead>
                                 <tbody id="retrievalBody">
                                     @forelse($retrievalOffices as $retOff)
-                                    
+                                    @php $retStatus = ($retOff->retrieval_status ?? 'pending') === 'retrieved' ? 'retrieved' : 'pending'; @endphp
                                     <tr class="reg-office-added">
                                         <td>
                                             <input type="hidden" name="retrievalOffice[]" value="{{ $retOff->office_id }}">
@@ -651,6 +658,12 @@ window.__registerCatalog = @json($catalog);
                                                 <div class="reg-office-icon"><i class="fa-solid fa-building"></i></div>
                                                 <span class="reg-office-text">{{ $retOff->office_name ?? 'Unknown' }}</span>
                                             </div>
+                                        </td>
+                                        <td>
+                                            <select name="retrievalStatus[]" class="reg-retrieval-status" onchange="handleRetrievalStatusChange(this)">
+                                                <option value="pending" @selected($retStatus === 'pending')>Pending</option>
+                                                <option value="retrieved" @selected($retStatus === 'retrieved')>Retrieved</option>
+                                            </select>
                                         </td>
                                         <td style="text-align:center;">
                                             <input type="number" name="retrievalCopies[]" value="{{ $retOff->copies }}" min="1" oninput="updateTotal('retrievalTotal', 'retrievalBody')">
@@ -663,7 +676,7 @@ window.__registerCatalog = @json($catalog);
                                     </tr>
                                     @empty
                                     <tr class="reg-empty-row">
-                                        <td colspan="3">
+                                        <td colspan="4">
                                             <div class="reg-empty-state">
                                                 <i class="fa-solid fa-building-circle-xmark"></i>
                                                 <span>No offices added yet</span>
@@ -674,8 +687,9 @@ window.__registerCatalog = @json($catalog);
                                 </tbody>
                                 <tfoot>
                                     <tr>
-                                        <td colspan="2" style="text-align:right; font-weight:700;">Total No. of Copies:</td>
+                                        <td colspan="2">Total No. of Copies</td>
                                         <td id="retrievalTotal" style="text-align:center; font-weight:700;">{{ $retrievalOffices->sum('copies') }}</td>
+                                        <td></td>
                                     </tr>
                                 </tfoot>
                             </table>
@@ -791,8 +805,9 @@ window.__registerCatalog = @json($catalog);
                                 </tbody>
                                 <tfoot>
                                     <tr>
-                                        <td colspan="2" style="text-align:right; font-weight:700;">Total No. of Copies:</td>
+                                        <td>Total No. of Copies</td>
                                         <td id="distTotal" style="text-align:center; font-weight:700;">{{ $distributionOffices->sum('copies') }}</td>
+                                        <td></td>
                                     </tr>
                                 </tfoot>
                             </table>
@@ -839,6 +854,23 @@ window.__registerCatalog = @json($catalog);
                 <button type="button" class="reg-btn reg-btn-save" onclick="submitForm()">
                     <i class="fa-solid fa-check"></i> Confirm Update
                 </button>
+            </div>
+        </div>
+    </div>
+    </template>
+
+    <template x-teleport="body">
+    <div class="reg-modal-overlay" id="filePreviewModal" aria-hidden="true" onclick="if(event.target===this)closeFilePreviewModal()">
+        <div class="reg-modal reg-modal--preview">
+            <div class="reg-modal-header">
+                <i class="fa-solid fa-file-pdf"></i>
+                <h3 id="filePreviewModalTitle">File preview</h3>
+                <button type="button" class="reg-modal-close" onclick="closeFilePreviewModal()">
+                    <i class="fa-solid fa-xmark"></i>
+                </button>
+            </div>
+            <div class="reg-modal-body reg-modal-body--preview">
+                <iframe id="filePreviewModalFrame" title="Uploaded file preview"></iframe>
             </div>
         </div>
     </div>
@@ -973,8 +1005,90 @@ function filterOffices(query) {
     return allOffices.filter(o => officeMatchesQuery(o, q));
 }
 
-function emptyOfficeRowHTML() {
-    return '<tr class="reg-empty-row"><td colspan="3"><div class="reg-empty-state"><i class="fa-solid fa-building-circle-xmark"></i><span>No offices added yet</span></div></td></tr>';
+function emptyOfficeRowHTML(tbodyId) {
+    const isRetrieval = tbodyId === 'retrievalBody';
+    const cols = isRetrieval ? 4 : 3;
+    return '<tr class="reg-empty-row"><td colspan="' + cols + '"><div class="reg-empty-state"><i class="fa-solid fa-building-circle-xmark"></i><span>No offices added yet</span></div></td></tr>';
+}
+
+function retrievalStatusSelectHTML(status) {
+    const value = status === 'retrieved' ? 'retrieved' : 'pending';
+    return '<select name="retrievalStatus[]" class="reg-retrieval-status" onchange="handleRetrievalStatusChange(this)">' +
+        '<option value="pending"' + (value === 'pending' ? ' selected' : '') + '>Pending</option>' +
+        '<option value="retrieved"' + (value === 'retrieved' ? ' selected' : '') + '>Retrieved</option>' +
+    '</select>';
+}
+
+function distBodyHasOffice(officeId) {
+    const tbody = document.getElementById('distBody');
+    if (!tbody) return false;
+    return [...tbody.querySelectorAll('input[type="hidden"][name="distOffice[]"]')]
+        .some(inp => String(inp.value) === String(officeId));
+}
+
+function addRetrievedOfficeToDistribution(officeId, officeName, copies) {
+    if (distBodyHasOffice(officeId)) return;
+    seedOfficeRow('distBody', 'distTotal', officeId, officeName, copies);
+    const tbody = document.getElementById('distBody');
+    const inp = [...tbody.querySelectorAll('input[type="hidden"][name="distOffice[]"]')]
+        .find(i => String(i.value) === String(officeId));
+    if (inp?.closest('tr')) inp.closest('tr').dataset.fromRetrieval = '1';
+    updateTotal('distTotal', 'distBody');
+    if (typeof syncDistClusterChipState === 'function') syncDistClusterChipState();
+}
+
+function removeRetrievedOfficeFromDistribution(officeId) {
+    const tbody = document.getElementById('distBody');
+    if (!tbody) return;
+    for (const inp of tbody.querySelectorAll('input[type="hidden"][name="distOffice[]"]')) {
+        const tr = inp.closest('tr');
+        if (String(inp.value) === String(officeId) && tr?.dataset.fromRetrieval === '1') {
+            tr.remove();
+            break;
+        }
+    }
+    updateTotal('distTotal', 'distBody');
+    if (tbody.querySelectorAll('tr.reg-office-added').length === 0) {
+        tbody.innerHTML = emptyOfficeRowHTML('distBody');
+    }
+    if (typeof syncDistClusterChipState === 'function') syncDistClusterChipState();
+}
+
+window.handleRetrievalStatusChange = function (select) {
+    const tr = select?.closest('tr');
+    if (!tr) return;
+    const officeId = tr.querySelector('input[type="hidden"][name="retrievalOffice[]"]')?.value;
+    const officeName = tr.querySelector('.reg-office-text')?.textContent?.trim() || 'Office';
+    const copies = tr.querySelector('input[type="number"][name="retrievalCopies[]"]')?.value || 1;
+    if (select.value === 'retrieved') {
+        addRetrievedOfficeToDistribution(officeId, officeName, copies);
+    } else {
+        removeRetrievedOfficeFromDistribution(officeId);
+    }
+};
+
+function seedRetrievalOfficeRow(tbodyId, totalId, officeId, officeName, copies, status) {
+    const tbody = document.getElementById(tbodyId);
+    if (!tbody) return;
+    const emptyRow = tbody.querySelector('.reg-empty-row');
+    if (emptyRow) emptyRow.remove();
+    const existing = [...tbody.querySelectorAll('input[type="hidden"][name="retrievalOffice[]"]')]
+        .find(inp => String(inp.value) === String(officeId));
+    if (existing) return;
+    const tr = document.createElement('tr');
+    tr.className = 'reg-office-added';
+    tr.innerHTML = `
+        <td><input type="hidden" name="retrievalOffice[]" value="${officeId}"><div class="reg-office-name"><div class="reg-office-icon"><i class="fa-solid fa-building"></i></div><span class="reg-office-text">${escapeHtml(officeName)}</span></div></td>
+        <td>${retrievalStatusSelectHTML(status || 'pending')}</td>
+        <td style="text-align:center;"><input type="number" name="retrievalCopies[]" value="${copies}" min="1" oninput="updateTotal('${totalId}', '${tbodyId}')"></td>
+        <td><button type="button" class="btn-remove" onclick="removeOffice(this, '${totalId}', '${tbodyId}')"><i class="fa-solid fa-xmark"></i></button></td>
+    `;
+    tbody.appendChild(tr);
+    if ((status || 'pending') === 'retrieved') {
+        handleRetrievalStatusChange(tr.querySelector('.reg-retrieval-status'));
+    } else {
+        removeRetrievedOfficeFromDistribution(officeId);
+    }
 }
 
 function filterItems(list, labelKey, query) {
@@ -988,18 +1102,21 @@ function filterItems(list, labelKey, query) {
 }
 
 function seedOfficeRow(tbodyId, totalId, officeId, officeName, copies) {
+    if (tbodyId === 'retrievalBody') {
+        seedRetrievalOfficeRow(tbodyId, totalId, officeId, officeName, copies, 'pending');
+        return;
+    }
     const tbody = document.getElementById(tbodyId);
     if (!tbody) return;
-    const isRetrieval = tbodyId === "retrievalBody";
-    const officeNameAttr = isRetrieval ? "retrievalOffice[]" : "distOffice[]";
-    const copiesNameAttr = isRetrieval ? "retrievalCopies[]" : "distCopies[]";
+    const officeNameAttr = "distOffice[]";
+    const copiesNameAttr = "distCopies[]";
     const emptyRow = tbody.querySelector(".reg-empty-row");
     if (emptyRow) emptyRow.remove();
     const existing = [...tbody.querySelectorAll('input[type="hidden"]')].find(inp => inp.value == officeId);
     if (existing) return;
     const tr = document.createElement("tr");
     tr.className = "reg-office-added";
-    if (!isRetrieval) tr.draggable = true;
+    tr.draggable = true;
     tr.innerHTML = `
         <td><input type="hidden" name="${officeNameAttr}" value="${officeId}"><div class="reg-office-name"><div class="reg-office-icon"><i class="fa-solid fa-building"></i></div><span class="reg-office-text">${escapeHtml(officeName)}</span></div></td>
         <td style="text-align:center;"><input type="number" name="${copiesNameAttr}" value="${copies}" min="1" oninput="updateTotal('${totalId}', '${tbodyId}')"></td>
@@ -1086,6 +1203,24 @@ document.addEventListener("DOMContentLoaded", async function () {
         sel.setAttribute("autocomplete", "off");
         sel.setAttribute("autofill", "off");
     });
+    document.addEventListener('click', (e) => {
+        const btn = e.target.closest('.reg-current-file-view');
+        if (!btn) return;
+        e.preventDefault();
+        const url = btn.dataset.previewUrl;
+        const title = btn.dataset.previewTitle || 'File preview';
+        if (url) openFilePreviewModal(url, title);
+    });
+    document.querySelectorAll('#retrievalBody tr.reg-office-added').forEach(tr => {
+        const status = tr.querySelector('.reg-retrieval-status')?.value;
+        const officeId = tr.querySelector('input[name="retrievalOffice[]"]')?.value;
+        if (status !== 'retrieved' || !officeId) return;
+        const distInp = [...document.querySelectorAll('#distBody input[name="distOffice[]"]')]
+            .find(i => String(i.value) === String(officeId));
+        if (distInp?.closest('tr')) {
+            distInp.closest('tr').dataset.fromRetrieval = '1';
+        }
+    });
     const form = document.getElementById("masterForm");
     if (form) form.setAttribute("autocomplete", "off");
 
@@ -1156,6 +1291,7 @@ document.addEventListener("DOMContentLoaded", async function () {
         const revField = document.getElementById('masterlistRevisionNo');
         initDocNoLookup(revField);
         wireSyllabiMasterlistSync();
+        wireApprovalDeadlineSync();
 
         // ── Auto-copy DRF title to Masterlist title ──
         const drfTitle = document.getElementById('drfTitle');
@@ -1608,6 +1744,104 @@ async function runDocNoLookup(docNo, hintEl, revField) {
     }
 }
 
+function applyRevisedDocumentContext(data, options = {}) {
+    const { docNo, hintEl, revField } = options;
+    const revFieldEl = revField || document.getElementById('masterlistRevisionNo');
+    const hint = hintEl !== undefined ? hintEl : document.getElementById('docNoHint');
+
+    if (docNo !== undefined && docNo !== null) {
+        const docNoInput = document.getElementById('masterlistDocNo');
+        if (docNoInput) docNoInput.value = docNo;
+        window.__revisedFromDocNo = String(docNo).trim();
+    }
+
+    if (revFieldEl && !revFieldEl.disabled) {
+        if (!revFieldEl.value || revFieldEl.dataset.userEdited !== 'true') {
+            revFieldEl.value = data.next_rev;
+        }
+        revFieldEl.readOnly = false;
+        revFieldEl.style.background = '';
+        revFieldEl.style.cursor = '';
+        revFieldEl.removeAttribute('min');
+        revFieldEl.setAttribute('title', 'Suggested: Rev ' + data.next_rev + ' (latest is ' + data.latest_rev + '). Lower revision numbers are allowed.');
+    }
+
+    const titleField = document.getElementById('masterlistDocTitle');
+    if (titleField && data.latest_title) {
+        titleField.value = data.latest_title;
+        titleField.readOnly = false;
+    }
+
+    window.__syncingSourceUnits = true;
+    try {
+        if (window.__sourceWidgets.masterlist) {
+            window.__sourceWidgets.masterlist.reset();
+            if (data.latest_source_unit) {
+                window.__sourceWidgets.masterlist.seedFromString(data.latest_source_unit, true);
+            }
+        }
+
+        if (window.__sourceWidgets.masterlistOriginator) {
+            window.__sourceWidgets.masterlistOriginator.reset();
+            if (data.latest_originator) {
+                window.__sourceWidgets.masterlistOriginator.seedFromString(data.latest_originator, true);
+            }
+        }
+    } finally {
+        window.__syncingSourceUnits = false;
+    }
+
+    if (window.__sourceWidgets.masterlist) {
+        syncSourceUnitsAcrossSections([...window.__sourceWidgets.masterlist.selected], 'masterlist');
+    }
+
+    if (data.latest_related_documents && data.latest_related_documents.length > 0 && relatedDocsSelected.length === 0) {
+        relatedDocsSelected = data.latest_related_documents.slice();
+        renderRelatedDocsChips();
+    }
+
+    if (data.latest_distribution_offices && data.latest_distribution_offices.length > 0
+        && tableIsEmpty('retrievalBody')) {
+        data.latest_distribution_offices.forEach(o => {
+            seedRetrievalOfficeRow('retrievalBody', 'totalRetrievalCopies', o.office_id, o.office_name, o.copies, 'pending');
+        });
+        updateTotal('totalRetrievalCopies', 'retrievalBody');
+    }
+
+    if (hint) {
+        hint.innerHTML = '<i class="fa-solid fa-circle-check"></i> ' + escapeHtml(data.message || '') +
+            '<br><span style="font-weight:400;font-size:11px;">Document No., originator, and source unit are prefilled from the previous revision and remain editable.</span>';
+        hint.style.color = '#16a34a';
+        hint.dataset.valid = 'true';
+    }
+}
+
+function isDcnSectionVisible() {
+    const section = document.getElementById('section-2');
+    return section && section.style.display !== 'none';
+}
+
+async function bridgeDcnPickToMasterlist(docNo) {
+    const hintEl = document.getElementById('docNoHint');
+    const revField = document.getElementById('masterlistRevisionNo');
+    try {
+        const docTypeId = document.getElementById('docType').value;
+        const subTypeId = document.getElementById('subType').value;
+        const excludeRequestId = document.getElementById('requestId')?.value || '';
+        const url = '/dcs/register/check-docno?doc_no=' + encodeURIComponent(docNo) +
+                    (docTypeId ? '&doc_type_id=' + docTypeId : '') +
+                    (subTypeId ? '&sub_type_id=' + subTypeId : '') +
+                    (excludeRequestId ? '&exclude_request_id=' + excludeRequestId : '');
+        const res = await fetch(url);
+        const data = await res.json();
+        if (data.exists) {
+            applyRevisedDocumentContext(data, { docNo, hintEl, revField });
+        }
+    } catch (e) {
+        console.error('DCN pick check-docno failed:', e);
+    }
+}
+
 // ══════════════════════════════════════════════
 // REVISION MODE HELPERS
 // ══════════════════════════════════════════════
@@ -1727,13 +1961,8 @@ function handleRevisionSearchInput(input, key, field) {
     }, 300);
 }
 
-window.pickRevisionDocument = function (key, idx) {
-    const doc = (revSearchCache[key] || [])[idx];
-    if (!doc) return;
-    const uid = key.split('_')[0];
-    const row = document.querySelector(`#revisionTableBody tr[data-uid="${uid}"]`);
-    if (!row) return;
-
+function populateRevisionRowFromDoc(row, doc) {
+    if (!row || !doc) return;
     const titleInput   = row.querySelector('input[name="documentTitle[]"]');
     const noInput      = row.querySelector('input[name="documentNo[]"]');
     const effField     = row.querySelector('input[name="effectiveDate[]"]');
@@ -1750,7 +1979,81 @@ window.pickRevisionDocument = function (key, idx) {
 
     lockRevisionRowFields(row);
     lockRevisionScannedCopyCell(row, doc.scanned_copy_url);
+}
+
+function getRevisedFromDocNo() {
+    return (window.__revisedFromDocNo || '').trim();
+}
+
+function clearAllLinkedRevisionRows(tbody, exceptRow) {
+    if (!tbody) return;
+    [...tbody.querySelectorAll('tr')].forEach(tr => {
+        if (tr === exceptRow) return;
+        if (tr.dataset.linked === 'true') {
+            removeRevisionRowDropdowns(tr);
+            tr.remove();
+        }
+    });
+}
+
+async function fillRevisionTableWithDocumentHistory(anchorRow, docs, options = {}) {
+    const tbody = document.getElementById('revisionTableBody');
+    if (!tbody || !anchorRow || !docs.length) return;
+
+    const pickedDocNo = String((options.docNo || docs[0].doc_no) || '').trim().toLowerCase();
+
+    clearAllLinkedRevisionRows(tbody, anchorRow);
+
+    const rowsToFill = docs.slice();
+
+    populateRevisionRowFromDoc(anchorRow, rowsToFill[0]);
+    anchorRow.dataset.linked = 'true';
+    anchorRow.dataset.linkedDocNo = pickedDocNo;
+
+    let insertAfter = anchorRow;
+    for (let i = 1; i < rowsToFill.length; i++) {
+        const tr = document.createElement('tr');
+        tr.innerHTML = revisionRowCellsHTML();
+        insertAfter.after(tr);
+        bindRevisionRowSearch(tr);
+        populateRevisionRowFromDoc(tr, rowsToFill[i]);
+        tr.dataset.linkedDocNo = pickedDocNo;
+        insertAfter = tr;
+    }
+}
+
+window.pickRevisionDocument = async function (key, idx) {
+    const doc = (revSearchCache[key] || [])[idx];
+    if (!doc) return;
+    const uid = key.split('_')[0];
+    const row = document.querySelector(`#revisionTableBody tr[data-uid="${uid}"]`);
+    if (!row) return;
+
     closeRevSearchDropdown(key);
+
+    let revisions = [];
+    try {
+        if (doc.request_id) {
+            const params = new URLSearchParams({ request_id: String(doc.request_id) });
+            if (doc.doc_no) params.set('doc_no', doc.doc_no);
+            revisions = await fetch('/dcs/api/documents/revisions?' + params.toString())
+                .then(r => r.json());
+        }
+    } catch (e) {
+        console.error('Failed to load document revisions:', e);
+    }
+
+    if (!Array.isArray(revisions) || revisions.length === 0) {
+        revisions = [doc];
+    }
+
+    const pickedNo = String(doc.doc_no || '').trim().toLowerCase();
+
+    await fillRevisionTableWithDocumentHistory(row, revisions, { docNo: pickedNo });
+
+    if (isDcnSectionVisible() && doc.doc_no) {
+        await bridgeDcnPickToMasterlist(doc.doc_no);
+    }
 };
 
 function lockRevisionPopulatedField(el) {
@@ -1839,6 +2142,29 @@ document.addEventListener('click', function (e) {
 // SHARED SOURCE UNIT WIDGET FACTORY
 // ══════════════════════════════════════════════
 window.__sourceWidgets = {};
+window.__syncingSourceUnits = false;
+
+const SYNCED_SOURCE_UNIT_KEYS = ['drf', 'dcn', 'masterlist'];
+
+function isSyncedSourceUnitKey(key) {
+    return SYNCED_SOURCE_UNIT_KEYS.includes(key);
+}
+
+function syncSourceUnitsAcrossSections(selection, sourceKey) {
+    if (window.__syncingSourceUnits || !isSyncedSourceUnitKey(sourceKey)) return;
+
+    window.__syncingSourceUnits = true;
+    try {
+        const items = selection.map(i => ({ type: i.type, id: i.id, label: i.label }));
+        SYNCED_SOURCE_UNIT_KEYS.forEach(key => {
+            if (key === sourceKey) return;
+            const widget = window.__sourceWidgets[key];
+            if (widget?.setSelectedItems) widget.setSelectedItems(items);
+        });
+    } finally {
+        window.__syncingSourceUnits = false;
+    }
+}
 
 function createSourceUnitWidget(opts) {
     let selected = opts.initial || [];
@@ -1865,6 +2191,7 @@ function createSourceUnitWidget(opts) {
         else if (isOfficeSelected(itemId)) return;
         selected.push({ type: 'office', id: item[idKey], label: item[labelKey] });
         render();
+        maybeSyncSourceUnits();
     }
 
     function addFreeText(val) {
@@ -1874,11 +2201,19 @@ function createSourceUnitWidget(opts) {
         idCounter++;
         selected.push({ type: 'name', id: 'n' + idCounter, label: val });
         render();
+        maybeSyncSourceUnits();
     }
 
     function removeItem(type, id) {
         selected = selected.filter(i => !(i.type === type && String(i.id) === String(id)));
         render();
+        maybeSyncSourceUnits();
+    }
+
+    function maybeSyncSourceUnits() {
+        if (isSyncedSourceUnitKey(opts.key)) {
+            syncSourceUnitsAcrossSections(selected.slice(), opts.key);
+        }
     }
 
     function syncInputText() {
@@ -2042,6 +2377,7 @@ function createSourceUnitWidget(opts) {
         const inputEl = document.getElementById(opts.inputId);
         if (inputEl) inputEl.value = '';
         render();
+        maybeSyncSourceUnits();
     }
 
     function removeItemAndSync(type, id) {
@@ -2049,8 +2385,16 @@ function createSourceUnitWidget(opts) {
         syncInputText();
     }
 
-    function seedFromString(str) {
-        if (!str || selected.length > 0) return;
+    function setSelectedItems(items) {
+        selected = items.map(i => ({ type: i.type, id: i.id, label: i.label }));
+        render();
+        syncInputText();
+    }
+
+    function seedFromString(str, force) {
+        if (!str) return;
+        if (!force && selected.length > 0) return;
+        if (force) selected = [];
         str.split(',').map(s => s.trim()).filter(Boolean).forEach(part => {
             const office = findOfficeByLabelOrCode(part, getList())
                 || getList().find(o => o[labelKey].toLowerCase() === part.toLowerCase());
@@ -2063,6 +2407,7 @@ function createSourceUnitWidget(opts) {
         });
         render();
         syncInputText();
+        maybeSyncSourceUnits();
     }
 
     function jumpCaretToEnd() {
@@ -2090,7 +2435,10 @@ function createSourceUnitWidget(opts) {
 
     render();
 
-    const api = { pick, removeItem: removeItemAndSync, reset, seedFromString, openPanel: togglePanel, get selected() { return selected; } };
+    const api = {
+        pick, removeItem: removeItemAndSync, reset, seedFromString, setSelectedItems,
+        openPanel: togglePanel, get selected() { return selected; }
+    };
     window.__sourceWidgets[opts.key] = api;
     return api;
 }
@@ -2363,7 +2711,7 @@ function initFileInputs() {
 function processUploadAreaFile(input, container, icon, label, originalText) {
     container.classList.remove('reg-upload-success', 'reg-upload-error', 'reg-upload-drag');
     removeExistingError(container);
-    removeExistingRemoveBtn(container);
+    removeUploadFieldActions(container);
 
     if (!input.files || !input.files[0]) { resetUploadArea(container, icon, label, originalText); return; }
 
@@ -2379,14 +2727,11 @@ function processUploadAreaFile(input, container, icon, label, originalText) {
     }
 
     container.classList.add('reg-upload-success');
-    container.style.borderColor = 'var(--reg-success-border)';
-    container.style.background = 'var(--reg-success-bg)';
-    container.style.borderStyle = 'solid';
     setFileIcon(icon, check.ext);
     label.textContent = file.name;
     label.style.color = 'var(--reg-success)';
     label.style.fontWeight = '600';
-    addRemoveBtn(container, input, icon, label, originalText);
+    attachUploadFieldActions(container, input, file, icon, label, originalText);
 
     if (input.id === 'drfFile' && check.ext === 'pdf' && file.size <= OCR_MAX_FILE_SIZE) {
         triggerScanExtraction(input, file);
@@ -2468,23 +2813,92 @@ function showUploadFieldError(container, message) {
 }
 
 function resetUploadArea(container, icon, label, originalText) {
-    container.classList.remove('reg-upload-success', 'reg-upload-error', 'reg-upload-drag');
+    container.classList.remove('reg-upload-success', 'reg-upload-error', 'reg-upload-drag', 'reg-upload-has-file');
     container.style.borderColor = ''; container.style.background = ''; container.style.borderStyle = ''; container.style.animation = '';
     clearFileIcon(icon, label, originalText);
-    removeExistingRemoveBtn(container); removeExistingError(container);
+    removeUploadFieldActions(container);
+    removeExistingError(container);
 }
 
-function addRemoveBtn(container, input, icon, label, originalText) {
-    removeExistingRemoveBtn(container);
-    const btn = document.createElement('button');
-    btn.type = 'button'; btn.className = 'reg-file-remove'; btn.title = 'Remove file';
-    btn.innerHTML = '<i class="fa-solid fa-xmark"></i>';
-    btn.addEventListener('click', function (e) {
-        e.preventDefault(); e.stopPropagation();
+function removeUploadFieldActions(container) {
+    if (!container) return;
+    const actions = container.querySelector('.reg-upload-field-actions');
+    if (actions?.dataset.blobUrl) {
+        URL.revokeObjectURL(actions.dataset.blobUrl);
+    }
+    actions?.remove();
+    container.querySelectorAll('.reg-file-remove').forEach(el => el.remove());
+    container.classList.remove('reg-upload-has-file');
+}
+
+function removeExistingPreview(container) {
+    removeUploadFieldActions(container);
+}
+
+function attachUploadFieldActions(container, input, file, icon, label, originalText) {
+    removeUploadFieldActions(container);
+    if (!container || !file) return;
+
+    const check = checkFile(file);
+    if (!check.valid) return;
+
+    container.classList.add('reg-upload-has-file');
+
+    const actions = document.createElement('div');
+    actions.className = 'reg-upload-field-actions';
+
+    if (check.ext === 'pdf') {
+        const url = URL.createObjectURL(file);
+        actions.dataset.blobUrl = url;
+        actions.innerHTML =
+            '<button type="button" class="reg-upload-view-btn">' +
+                '<i class="fa-solid fa-eye"></i> View' +
+            '</button>' +
+            '<button type="button" class="reg-upload-clear" title="Remove file">' +
+                '<i class="fa-solid fa-xmark"></i>' +
+            '</button>';
+        actions.querySelector('.reg-upload-view-btn')?.addEventListener('click', (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            openFilePreviewModal(url, file.name);
+        });
+    } else {
+        actions.innerHTML =
+            '<button type="button" class="reg-upload-clear" title="Remove file">' +
+                '<i class="fa-solid fa-xmark"></i>' +
+            '</button>';
+    }
+
+    actions.querySelector('.reg-upload-clear')?.addEventListener('click', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
         input.value = '';
         resetUploadArea(container, icon, label, originalText);
     });
-    container.appendChild(btn);
+
+    container.appendChild(actions);
+}
+
+function openFilePreviewModal(url, title) {
+    const overlay = document.getElementById('filePreviewModal');
+    const frame = document.getElementById('filePreviewModalFrame');
+    const titleEl = document.getElementById('filePreviewModalTitle');
+    if (!overlay || !frame) return;
+    frame.src = url;
+    if (titleEl) titleEl.textContent = title || 'File preview';
+    overlay.classList.add('is-open');
+    overlay.setAttribute('aria-hidden', 'false');
+    document.body.style.overflow = 'hidden';
+}
+
+function closeFilePreviewModal() {
+    const overlay = document.getElementById('filePreviewModal');
+    const frame = document.getElementById('filePreviewModalFrame');
+    if (!overlay) return;
+    overlay.classList.remove('is-open');
+    overlay.setAttribute('aria-hidden', 'true');
+    if (frame) frame.src = 'about:blank';
+    document.body.style.overflow = '';
 }
 
 function removeExistingRemoveBtn(c) { const o = c.querySelector('.reg-file-remove'); if (o) o.remove(); }
@@ -2667,6 +3081,25 @@ window.handleApprovalToggle = function (applicable) {
     if (el) el.style.display = applicable ? "block" : "none";
 };
 
+function wireApprovalDeadlineSync() {
+    const approval = document.getElementById('approvalDate');
+    const deadline = document.getElementById('deadlineOfSubmission');
+    if (!approval || !deadline) return;
+    let syncing = false;
+    approval.addEventListener('change', () => {
+        if (syncing) return;
+        syncing = true;
+        deadline.value = approval.value;
+        syncing = false;
+    });
+    deadline.addEventListener('change', () => {
+        if (syncing) return;
+        syncing = true;
+        approval.value = deadline.value;
+        syncing = false;
+    });
+}
+
 function enableApproval() {
     document.querySelectorAll('input[name="approval_status"]').forEach(r => r.disabled = false);
 }
@@ -2734,7 +3167,7 @@ async function autoPopulateSyllabiCourses() {
         tbody.innerHTML = '';
         syllabiGroupCounter = 0;
 
-        courses.forEach(c => {
+        courses.forEach((c, courseIndex) => {
             syllabiGroupCounter++;
             const groupId = 'g' + syllabiGroupCounter;
             const newRow = buildSyllabiGroupFirstRow(groupId, 1);
@@ -2751,9 +3184,12 @@ async function autoPopulateSyllabiCourses() {
             if (codeInput) {
                 codeInput.value = c.course_code || '';
             }
-            applyCatalogFacultiesToRow(newRow, c.faculties || []);
+            const faculties = c.faculties || [];
+            const splitCopies = faculties.length >= 2 && (courseIndex % 2 === 1);
+            applyCatalogFacultiesToRow(newRow, faculties, { splitCopies });
             cascadeDrfToNewRow(newRow);
             syncSyllabiMergedFields(groupId);
+            syncSyllabiAvailability(groupId);
         });
         updateSyllabiTotals();
         applySyllabiSectionLabel();
@@ -2771,25 +3207,13 @@ function showSyllabiEmptyCatalogHint() {
     if (typeof updateSyllabiTotals === 'function') updateSyllabiTotals();
 }
 
-function applyCatalogFacultiesToRow(row, faculties) {
+function applyCatalogFacultiesToRow(row, faculties, options = {}) {
     if (!row || !Array.isArray(faculties) || faculties.length === 0) return;
     const names = faculties.map(f => f.faculty_name || f.name).filter(Boolean);
     if (!names.length) return;
-
-    if (names.length > 2) {
-        const copiesInput = row.querySelector('input[name="syllabiCopies[]"]');
-        if (copiesInput) {
-            copiesInput.value = String(names.length);
-            handleCopiesChange(copiesInput);
-        }
-        const rows = [...document.querySelectorAll('#syllabiTableBody tr[data-group="' + row.dataset.group + '"]')];
-        rows.forEach((r, i) => {
-            if (names[i]) addSyllabiFaculty(r.dataset.uid, names[i], false);
-        });
-        return;
-    }
-
-    names.forEach(name => addSyllabiFaculty(row.dataset.uid, name, false));
+    row.dataset.catalogFaculty = JSON.stringify(names);
+    row.dataset.catalogSplit = options.splitCopies ? '1' : '0';
+    restoreCatalogFaculties(row);
 }
 
 function clearSyllabiCourseRows() {
@@ -2957,18 +3381,20 @@ function buildSyllabiFacultyCellHTML(uid) {
     `;
 }
 
-function initSyllabiFacultyPicker(uid, mode) {
+function initSyllabiFacultyPicker(uid, mode, rootEl) {
     window.__syllabiFaculty[uid] = { mode, selected: [] };
-    bindSyllabiFacultyInput(uid);
+    bindSyllabiFacultyInput(uid, rootEl);
     renderSyllabiFacultyChips(uid);
 }
 
 function setSyllabiFacultyMode(uid, mode) {
-    if (!window.__syllabiFaculty[uid]) { initSyllabiFacultyPicker(uid, mode); return; }
+    const rootEl = document.querySelector(`#syllabiTableBody tr[data-uid="${uid}"]`);
+    if (!window.__syllabiFaculty[uid]) { initSyllabiFacultyPicker(uid, mode, rootEl); return; }
     window.__syllabiFaculty[uid].mode = mode;
     if (mode === 'single' && window.__syllabiFaculty[uid].selected.length > 1) {
         window.__syllabiFaculty[uid].selected = window.__syllabiFaculty[uid].selected.slice(0, 1);
     }
+    bindSyllabiFacultyInput(uid, rootEl);
     renderSyllabiFacultyChips(uid);
 }
 
@@ -3002,7 +3428,7 @@ function ensureFacultyState(uid) {
         const copies = parseInt(firstRow?.querySelector('.syllabi-merged-copies')?.value || '1', 10);
         mode = copies > 1 ? 'single' : 'multi';
     }
-    initSyllabiFacultyPicker(uid, mode);
+    initSyllabiFacultyPicker(uid, mode, row);
 }
 
 async function ensureFacultiesLoaded() {
@@ -3063,7 +3489,7 @@ function getSyllabiFacultySearchQuery(input, state) {
     return val.trim();
 }
 
-function syncSyllabiFacultyInputDisplay(uid, { focusForNext = false } = {}) {
+function syncSyllabiFacultyInputDisplay(uid, { focusForNext = false, force = false } = {}) {
     const state = window.__syllabiFaculty[uid];
     const hidden = document.getElementById('syllabiFacultyHidden_' + uid);
     const input = document.getElementById('syllabiFacultyInput_' + uid);
@@ -3082,7 +3508,7 @@ function syncSyllabiFacultyInputDisplay(uid, { focusForNext = false } = {}) {
         return;
     }
 
-    if (document.activeElement !== input) {
+    if (force || document.activeElement !== input) {
         input.value = display;
     }
 }
@@ -3106,8 +3532,9 @@ function pickSyllabiFacultyFromQuery(uid, query) {
     if (partial.length === 1) addSyllabiFaculty(uid, partial[0].faculty_name, true);
 }
 
-function bindSyllabiFacultyInput(uid) {
-    const input = document.getElementById('syllabiFacultyInput_' + uid);
+function bindSyllabiFacultyInput(uid, rootEl) {
+    const input = (rootEl && rootEl.querySelector('#syllabiFacultyInput_' + uid))
+        || document.getElementById('syllabiFacultyInput_' + uid);
     if (!input || input.dataset.bound) return;
     input.dataset.bound = 'true';
 
@@ -3239,6 +3666,7 @@ function closeSyllabiFacultyDropdown(uid) {
 window.addSyllabiFaculty = function (uid, name, focusNext) {
     const state = window.__syllabiFaculty[uid];
     if (!state || !name) return;
+    const row = document.querySelector(`#syllabiTableBody tr[data-uid="${uid}"]`);
 
     const match = getFacultyCandidates().find(f => f.faculty_name.toLowerCase() === name.toLowerCase());
     if (!match) return;
@@ -3255,7 +3683,8 @@ window.addSyllabiFaculty = function (uid, name, focusNext) {
     closeSyllabiFacultyDropdown(uid);
 
     const focusForNext = !!focusNext && state.mode === 'multi' && canAddMoreSyllabiFaculty(state);
-    syncSyllabiFacultyInputDisplay(uid, { focusForNext });
+    syncSyllabiFacultyInputDisplay(uid, { focusForNext, force: true });
+    if (row) fillReceivedFromGroup(row);
 };
 
 function renderSyllabiFacultyChips(uid) {
@@ -3412,6 +3841,8 @@ async function seedExistingSyllabiGroups() {
                 showExistingSyllabiScannedFile(tr, data.scanned_drf);
             }
         });
+
+        syncSyllabiAvailability(groupId);
     });
 
     setSyllabiStep(1);
@@ -3505,12 +3936,21 @@ window.syncSyllabiDrfRow = function (tr) {
             }
         }
     }
+
+    if (enabled) {
+        const peer = findFirstFilledDrf(tr);
+        if (peer) {
+            stampEmpty(tr.querySelector('input[name="syllabiDrfDate[]"]'), peer.drfDate);
+            stampEmpty(tr.querySelector('input[name="syllabiDrfReceived[]"]'), peer.drfReceived);
+            propagateDrfToEmptyRows();
+        }
+    }
 };
 
 function buildSyllabiPerRowCells(uid) {
     return `
-        <td class="col-step1"><input type="date" name="syllabiDateReceived[]"></td>
-        <td class="col-step1"><input type="time" name="syllabiTimeReceived[]"></td>
+        <td class="col-step1"><input type="date" name="syllabiDateReceived[]" oninput="cascadeSyllabiReceived(this, 'syllabiDateReceived[]')"></td>
+        <td class="col-step1"><input type="time" name="syllabiTimeReceived[]" oninput="cascadeSyllabiReceived(this, 'syllabiTimeReceived[]')"></td>
 
         <td class="col-step2 syllabi-check-cell">
             <input type="hidden" name="syllabiDrfAvailability[]" value="not available" class="syllabi-hidden-toggle">
@@ -3530,29 +3970,259 @@ function buildSyllabiPerRowCells(uid) {
     `;
 }
 
-window.cascadeSyllabiField = function (input, fieldName) {
+/** Set value only when the field is empty and editable. Never overwrites existing values. */
+function stampEmpty(el, value) {
+    if (!el || el.disabled || el.readOnly) return false;
+    if ((el.value || '').trim() !== '') return false;
+    if (value == null || String(value).trim() === '') return false;
+    el.value = value;
+    return true;
+}
+
+function findFirstFilledReceived(excludeRow) {
+    const tbody = document.getElementById('syllabiTableBody');
+    if (!tbody) return null;
+    for (const tr of tbody.querySelectorAll('tr[data-uid]')) {
+        if (excludeRow && tr === excludeRow) continue;
+        const date = (tr.querySelector('input[name="syllabiDateReceived[]"]')?.value || '').trim();
+        const time = (tr.querySelector('input[name="syllabiTimeReceived[]"]')?.value || '').trim();
+        if (date || time) return { date, time, row: tr };
+    }
+    return null;
+}
+
+function findFirstFilledDrf(excludeRow) {
+    const tbody = document.getElementById('syllabiTableBody');
+    if (!tbody) return null;
+    for (const tr of tbody.querySelectorAll('tr[data-uid]')) {
+        if (excludeRow && tr === excludeRow) continue;
+        const drfDate = (tr.querySelector('input[name="syllabiDrfDate[]"]')?.value || '').trim();
+        const drfReceived = (tr.querySelector('input[name="syllabiDrfReceived[]"]')?.value || '').trim();
+        if (drfDate || drfReceived) return { drfDate, drfReceived, row: tr };
+    }
+    return null;
+}
+
+function propagateReceivedToEmptyRows(source) {
+    const filled = source && (source.date || source.time)
+        ? source
+        : findFirstFilledReceived(source?.row || null);
+    if (!filled || (!filled.date && !filled.time)) return;
+
     const tbody = document.getElementById('syllabiTableBody');
     if (!tbody) return;
-    const firstRow = tbody.querySelector('tr');
-    if (!firstRow || input.closest('tr') !== firstRow) return;
-    const val = input.value;
-    tbody.querySelectorAll('tr').forEach((tr, idx) => {
-        if (idx === 0) return;
-        const target = tr.querySelector(`input[name="${fieldName}"]`);
-        if (target) target.value = val;
+
+    tbody.querySelectorAll('tr[data-uid]').forEach(tr => {
+        if (filled.row && tr === filled.row) return;
+        if (filled.date) stampEmpty(tr.querySelector('input[name="syllabiDateReceived[]"]'), filled.date);
+        if (filled.time) stampEmpty(tr.querySelector('input[name="syllabiTimeReceived[]"]'), filled.time);
+    });
+}
+
+function propagateDrfToEmptyRows(source) {
+    const filled = source && (source.drfDate || source.drfReceived)
+        ? source
+        : findFirstFilledDrf(source?.row || null);
+    if (!filled || (!filled.drfDate && !filled.drfReceived)) return;
+
+    const tbody = document.getElementById('syllabiTableBody');
+    if (!tbody) return;
+
+    tbody.querySelectorAll('tr[data-uid]').forEach(tr => {
+        if (filled.row && tr === filled.row) return;
+        const cb = tr.querySelector('.syllabi-drf-availability');
+        if (cb && !cb.checked) return;
+        if (filled.drfDate) stampEmpty(tr.querySelector('input[name="syllabiDrfDate[]"]'), filled.drfDate);
+        if (filled.drfReceived) stampEmpty(tr.querySelector('input[name="syllabiDrfReceived[]"]'), filled.drfReceived);
+    });
+}
+
+function stampGroupReceivedFromPeer(groupId) {
+    const peer = findFirstFilledReceived();
+    if (!peer || (!(peer.date || '').trim() && !(peer.time || '').trim())) return;
+
+    const date = (peer.date || '').trim();
+    const time = (peer.time || '').trim();
+
+    document.querySelectorAll(`#syllabiTableBody tr[data-group="${groupId}"]`).forEach(tr => {
+        if (date) stampEmpty(tr.querySelector('input[name="syllabiDateReceived[]"]'), date);
+        if (time) stampEmpty(tr.querySelector('input[name="syllabiTimeReceived[]"]'), time);
+    });
+
+    propagateReceivedToEmptyRows({ date, time, row: peer.row });
+}
+
+window.cascadeSyllabiField = function (input, fieldName) {
+    const sourceRow = input?.closest('tr');
+    if (!sourceRow) return;
+    const val = (input.value || '').trim();
+    if (!val) return;
+
+    const tbody = document.getElementById('syllabiTableBody');
+    if (!tbody) return;
+
+    tbody.querySelectorAll('tr[data-uid]').forEach(tr => {
+        if (tr === sourceRow) return;
+        const cb = tr.querySelector('.syllabi-drf-availability');
+        if (cb && !cb.checked) return;
+        stampEmpty(tr.querySelector(`input[name="${fieldName}"]`), val);
     });
 };
 
 function cascadeDrfToNewRow(newRow) {
-    const tbody = document.getElementById('syllabiTableBody');
-    if (!tbody) return;
-    const firstRow = tbody.querySelector('tr');
-    if (!firstRow || firstRow === newRow) return;
-    ['syllabiDrfDate[]', 'syllabiDrfReceived[]'].forEach(name => {
-        const source = firstRow.querySelector(`input[name="${name}"]`);
-        const target = newRow.querySelector(`input[name="${name}"]`);
-        if (source && target && source.value) target.value = source.value;
+    if (!newRow) return;
+    const peer = findFirstFilledDrf(newRow);
+    if (!peer) return;
+    stampEmpty(newRow.querySelector('input[name="syllabiDrfDate[]"]'), peer.drfDate);
+    stampEmpty(newRow.querySelector('input[name="syllabiDrfReceived[]"]'), peer.drfReceived);
+}
+
+function syllabiGroupIsAvailable(groupId) {
+    const firstRow = document.querySelector(`#syllabiTableBody tr[data-group="${groupId}"][data-is-first="true"]`);
+    return !!firstRow?.querySelector('.syllabi-merged-availability')?.checked;
+}
+
+function syllabiRowHasFaculty(tr) {
+    const uid = tr?.dataset?.uid;
+    const state = uid && window.__syllabiFaculty[uid];
+    return !!(state && state.selected && state.selected.length > 0);
+}
+
+function clearSyllabiFacultyRow(tr) {
+    const uid = tr.dataset.uid;
+    if (!window.__syllabiFaculty[uid]) return;
+    window.__syllabiFaculty[uid].selected = [];
+    syncSyllabiFacultyInputDisplay(uid, { force: true });
+}
+
+function setSyllabiFacultyRowEnabled(tr, enabled) {
+    const input = tr.querySelector('.syllabi-faculty-input');
+    if (input) {
+        input.readOnly = !enabled;
+        if (tr.dataset.uid) syncSyllabiFacultyInputDisplay(tr.dataset.uid, { force: true });
+    }
+    tr.querySelectorAll(
+        'input[name="syllabiDateReceived[]"], input[name="syllabiTimeReceived[]"], .syllabi-merged-copies, .syllabi-merged-pages'
+    ).forEach(el => {
+        el.readOnly = !enabled;
+        el.classList.toggle('is-locked', !enabled);
+        if (!enabled && (el.name === 'syllabiDateReceived[]' || el.name === 'syllabiTimeReceived[]')) {
+            el.value = '';
+        }
     });
+}
+
+function restoreCatalogFaculties(firstRow) {
+    if (!firstRow) return;
+    let names = [];
+    try { names = JSON.parse(firstRow.dataset.catalogFaculty || '[]'); } catch (e) { names = []; }
+    if (!names.length) return;
+
+    const copiesInput = firstRow.querySelector('input[name="syllabiCopies[]"]');
+    const copies = Math.max(1, parseInt(copiesInput?.value || '1', 10));
+    const group = firstRow.dataset.group;
+
+    const preferSplit = firstRow.dataset.catalogSplit === '1' || copies > 1;
+
+    if (preferSplit && names.length >= 2) {
+        const needed = Math.min(Math.max(copies, names.length > 2 ? names.length : 2), names.length);
+        if (copiesInput && (parseInt(copiesInput.value, 10) || 1) !== needed) {
+            copiesInput.value = String(needed);
+            handleCopiesChange(copiesInput);
+            return;
+        }
+        assignSyllabiFacultiesToGroup(group, names, needed);
+        return;
+    }
+
+    if (!syllabiRowHasFaculty(firstRow)) {
+        ensureFacultyState(firstRow.dataset.uid);
+        setSyllabiFacultyMode(firstRow.dataset.uid, 'multi');
+        names.slice(0, 2).forEach(name => addSyllabiFaculty(firstRow.dataset.uid, name, false));
+    }
+}
+
+function collectSyllabiGroupFacultyNames(groupId) {
+    const names = [];
+    const seen = new Set();
+    [...document.querySelectorAll(`#syllabiTableBody tr[data-group="${groupId}"]`)]
+        .sort((a, b) => parseInt(a.dataset.copyNo) - parseInt(b.dataset.copyNo))
+        .forEach(tr => {
+            const state = window.__syllabiFaculty[tr.dataset.uid];
+            (state?.selected || []).forEach(s => {
+                const label = (s.label || '').trim();
+                if (!label) return;
+                const key = label.toLowerCase();
+                if (seen.has(key)) return;
+                seen.add(key);
+                names.push(label);
+            });
+        });
+
+    if (names.length) return names;
+
+    const firstRow = document.querySelector(`#syllabiTableBody tr[data-group="${groupId}"][data-is-first="true"]`);
+    try {
+        return JSON.parse(firstRow?.dataset.catalogFaculty || '[]').filter(Boolean);
+    } catch (e) {
+        return [];
+    }
+}
+
+function assignSyllabiFacultiesToGroup(groupId, names, copies) {
+    const rows = [...document.querySelectorAll(`#syllabiTableBody tr[data-group="${groupId}"]`)]
+        .sort((a, b) => parseInt(a.dataset.copyNo) - parseInt(b.dataset.copyNo));
+    if (!rows.length) return;
+
+    const list = (names || []).map(n => String(n).trim()).filter(Boolean);
+    const mode = copies <= 1 ? 'multi' : 'single';
+
+    rows.forEach(tr => {
+        ensureFacultyState(tr.dataset.uid);
+        const state = window.__syllabiFaculty[tr.dataset.uid];
+        if (state) state.selected = [];
+        setSyllabiFacultyMode(tr.dataset.uid, mode);
+    });
+
+    if (mode === 'multi') {
+        list.slice(0, 2).forEach(name => addSyllabiFaculty(rows[0].dataset.uid, name, false));
+        return;
+    }
+
+    rows.forEach((tr, i) => {
+        if (list[i]) addSyllabiFaculty(tr.dataset.uid, list[i], false);
+    });
+}
+
+window.syncSyllabiAvailability = function (groupId) {
+    const firstRow = document.querySelector(`#syllabiTableBody tr[data-group="${groupId}"][data-is-first="true"]`);
+    if (!firstRow) return;
+    const enabled = syllabiGroupIsAvailable(groupId);
+    restoreCatalogFaculties(firstRow);
+    document.querySelectorAll(`#syllabiTableBody tr[data-group="${groupId}"]`).forEach(tr => {
+        setSyllabiFacultyRowEnabled(tr, enabled);
+    });
+    if (enabled) {
+        stampGroupReceivedFromPeer(groupId);
+    }
+};
+
+/** When any row's date/time changes, copy into other empty rows only (never overwrite). */
+window.cascadeSyllabiReceived = function (input, fieldName) {
+    const sourceRow = input?.closest('tr');
+    if (!sourceRow) return;
+    const date = (sourceRow.querySelector('input[name="syllabiDateReceived[]"]')?.value || '').trim();
+    const time = (sourceRow.querySelector('input[name="syllabiTimeReceived[]"]')?.value || '').trim();
+    if (!date && !time) return;
+    propagateReceivedToEmptyRows({ date, time, row: sourceRow });
+};
+
+function fillReceivedFromGroup(tr) {
+    if (!tr || !syllabiGroupIsAvailable(tr.dataset.group) || !syllabiRowHasFaculty(tr)) return;
+    const peer = findFirstFilledReceived(tr);
+    if (!peer) return;
+    if ((peer.date || '').trim()) stampEmpty(tr.querySelector('input[name="syllabiDateReceived[]"]'), peer.date);
+    if ((peer.time || '').trim()) stampEmpty(tr.querySelector('input[name="syllabiTimeReceived[]"]'), peer.time);
 }
 
 function autosizeSyllabiCourse(el) {
@@ -3583,7 +4253,7 @@ function buildSyllabiGroupFirstRow(groupId, rowspan) {
         <td class="col-step1" rowspan="${rowspan}">
             <input type="hidden" name="syllabiAvailability[]" value="not available" class="syllabi-merged-availability-hidden">
             <label class="reg-checkbox-wrap">
-                <input type="checkbox" class="syllabi-merged-availability" onchange="syncSyllabiMergedFields('${groupId}')">
+                <input type="checkbox" class="syllabi-merged-availability" onchange="syncSyllabiMergedFields('${groupId}'); syncSyllabiAvailability('${groupId}')">
             </label>
         </td>
         <td class="col-step1" rowspan="${rowspan}">
@@ -3604,7 +4274,8 @@ function buildSyllabiGroupFirstRow(groupId, rowspan) {
     `;
 
     bindSyllabiRowFileInputs(tr);
-    initSyllabiFacultyPicker(uid, 'multi');
+    initSyllabiFacultyPicker(uid, 'multi', tr);
+    setSyllabiFacultyRowEnabled(tr, false);
     return tr;
 }
 
@@ -3626,7 +4297,8 @@ function buildSyllabiContinuationRow(groupId, copyNo) {
 
     tr.innerHTML = buildSyllabiFacultyTd(uid, mirrors) + buildSyllabiPerRowCells(uid);
     bindSyllabiRowFileInputs(tr);
-    initSyllabiFacultyPicker(uid, 'single');
+    initSyllabiFacultyPicker(uid, 'single', tr);
+    setSyllabiFacultyRowEnabled(tr, false);
     return tr;
 }
 
@@ -3667,6 +4339,7 @@ window.addSyllabiRow = function () {
     const newRow = buildSyllabiGroupFirstRow("g" + syllabiGroupCounter, 1);
     tbody.appendChild(newRow);
     cascadeDrfToNewRow(newRow);
+    syncSyllabiAvailability(newRow.dataset.group);
     updateSyllabiTotals();
     applySyllabiSectionLabel();
 };
@@ -3684,6 +4357,8 @@ window.handleCopiesChange = function (input) {
     const group = firstRow.dataset.group;
     const desired = Math.max(1, parseInt(input.value) || 1);
     input.value = desired;
+
+    const preservedFaculty = collectSyllabiGroupFacultyNames(group);
 
     let groupRows = [...document.querySelectorAll(`#syllabiTableBody tr[data-group="${group}"]`)]
         .sort((a, b) => parseInt(a.dataset.copyNo) - parseInt(b.dataset.copyNo));
@@ -3705,12 +4380,11 @@ window.handleCopiesChange = function (input) {
 
     firstRow.querySelectorAll('[rowspan]').forEach(td => td.setAttribute('rowspan', desired));
 
-    // Update faculty mode based on final copy count
-    groupRows = [...document.querySelectorAll(`#syllabiTableBody tr[data-group="${group}"]`)];
-    const mode = desired === 1 ? 'multi' : 'single';
-    groupRows.forEach(row => setSyllabiFacultyMode(row.dataset.uid, mode));
+    firstRow.dataset.catalogSplit = desired > 1 ? '1' : '0';
+    assignSyllabiFacultiesToGroup(group, preservedFaculty, desired);
 
     syncSyllabiMergedFields(group);
+    syncSyllabiAvailability(group);
     updateSyllabiTotals();
 };
 
@@ -3816,13 +4490,67 @@ function renderDistClusterChips() {
         'Select all ' + escapeHtml(c.cluster_name) + '</button>'
     )).join('');
     wrap.querySelectorAll('.reg-cluster-chip').forEach((btn) => {
-        btn.addEventListener('click', () => addOfficesByCluster(btn.getAttribute('data-cluster')));
+        btn.addEventListener('click', () => toggleOfficesByCluster(btn.getAttribute('data-cluster')));
     });
+    syncDistClusterChipState();
+}
+
+function getSelectedOfficeIds(bodyId) {
+    const tbody = document.getElementById(bodyId);
+    if (!tbody) return [];
+    return [...tbody.querySelectorAll('input[type="hidden"][name="distOffice[]"], input[type="hidden"][name="retrievalOffice[]"]')]
+        .map((inp) => String(inp.value))
+        .filter(Boolean);
+}
+
+function clusterOffices(clusterCode) {
+    return allOffices.filter((o) => String(o.cluster) === String(clusterCode));
+}
+
+function isClusterFullySelected(clusterCode) {
+    const offices = clusterOffices(clusterCode);
+    if (!offices.length) return false;
+    const selected = new Set(getSelectedOfficeIds('distBody'));
+    return offices.every((o) => selected.has(String(o.office_id)));
 }
 
 function addOfficesByCluster(clusterCode) {
-    allOffices.filter((o) => String(o.cluster) === String(clusterCode)).forEach((o) => {
+    clusterOffices(clusterCode).forEach((o) => {
         addOffice(o.office_id, o.office_name, 'distBody', 'distTotal', 'distResults');
+    });
+    syncDistClusterChipState();
+}
+
+function removeOfficesByCluster(clusterCode) {
+    const tbody = document.getElementById('distBody');
+    if (!tbody) return;
+
+    const ids = new Set(clusterOffices(clusterCode).map((o) => String(o.office_id)));
+    tbody.querySelectorAll('tr.reg-office-added').forEach((tr) => {
+        const inp = tr.querySelector('input[type="hidden"][name="distOffice[]"]');
+        if (inp && ids.has(String(inp.value))) tr.remove();
+    });
+
+    updateTotal('distTotal', 'distBody');
+    if (tbody.querySelectorAll('tr.reg-office-added').length === 0) {
+        tbody.innerHTML = emptyOfficeRowHTML('distBody');
+    }
+    syncDistClusterChipState();
+}
+
+function toggleOfficesByCluster(clusterCode) {
+    if (isClusterFullySelected(clusterCode)) {
+        removeOfficesByCluster(clusterCode);
+    } else {
+        addOfficesByCluster(clusterCode);
+    }
+    syncDistClusterChipState();
+}
+
+function syncDistClusterChipState() {
+    document.querySelectorAll('#distClusterChips .reg-cluster-chip').forEach((btn) => {
+        const code = btn.getAttribute('data-cluster');
+        btn.classList.toggle('is-active', isClusterFullySelected(code));
     });
 }
 
@@ -4054,37 +4782,52 @@ function collectMissingFields() {
         }
 
         syllabiRows.forEach((row) => {
+            const groupId = row.dataset.group;
+            const syllabiOn = !!row.querySelector('.syllabi-merged-availability')?.checked;
+            const anyDrfOn = [...document.querySelectorAll(
+                `#syllabiTableBody tr[data-group="${groupId}"] .syllabi-hidden-toggle[name="syllabiDrfAvailability[]"]`
+            )].some((h) => h.value === 'available');
+
+            if (!syllabiOn && !anyDrfOn) return;
+
             const courseInput = row.querySelector('.syllabi-merged-course');
             const courseVal = courseInput ? courseInput.value.trim() : '';
-            const groupLabel = courseVal || ("Syllabi — Course " + (row.dataset.group || ''));
+            const groupLabel = courseVal || ("Syllabi — Course " + (groupId || ''));
 
-            if (!courseVal) missing.push("Syllabi: Course Name (" + (row.dataset.group || 'unnamed') + ")");
+            if (!courseVal) missing.push("Syllabi: Course Name (" + (groupId || 'unnamed') + ")");
 
-            const pages = row.querySelector('.syllabi-merged-pages');
-            if (!pages || !pages.value) missing.push(groupLabel + ": No. of Pages");
-
-            const availability = row.querySelector('.syllabi-merged-availability-hidden');
-            if (!availability || availability.value !== 'available') missing.push(groupLabel + ": Syllabi Availability");
+            if (syllabiOn) {
+                const pages = row.querySelector('.syllabi-merged-pages');
+                if (!pages || !pages.value) missing.push(groupLabel + ": No. of Pages");
+            }
         });
 
         document.querySelectorAll("#syllabiTableBody tr[data-uid]").forEach(row => {
             const group = row.dataset.group;
+            const firstRow = document.querySelector(
+                `#syllabiTableBody tr[data-group="${group}"][data-is-first="true"]`
+            );
+            const syllabiOn = !!firstRow?.querySelector('.syllabi-merged-availability')?.checked;
+            const drfAvail = row.querySelector('.syllabi-hidden-toggle[name="syllabiDrfAvailability[]"]');
+            const drfAvailable = drfAvail && drfAvail.value === 'available';
+
+            if (!syllabiOn && !drfAvailable) return;
+
             const copyNo = row.dataset.copyNo || "1";
-            const courseInput = document.querySelector(`#syllabiTableBody tr[data-group="${group}"][data-is-first="true"] .syllabi-merged-course`);
+            const courseInput = firstRow?.querySelector('.syllabi-merged-course');
             const courseVal = courseInput ? courseInput.value.trim() : '';
             if (!courseVal) return;
 
             const rowLabel = courseVal + " (Copy " + copyNo + ")";
 
-            const dateReceived = row.querySelector('input[name="syllabiDateReceived[]"]');
-            if (!dateReceived || !dateReceived.value) missing.push(rowLabel + ": Date Received");
-            const timeReceived = row.querySelector('input[name="syllabiTimeReceived[]"]');
-            if (!timeReceived || !timeReceived.value) missing.push(rowLabel + ": Time Received");
-            const facultyHidden = document.getElementById('syllabiFacultyHidden_' + row.dataset.uid);
-            if (!facultyHidden || !facultyHidden.value.trim()) missing.push(rowLabel + ": Faculty");
-
-            const drfAvail = row.querySelector('.syllabi-hidden-toggle[name="syllabiDrfAvailability[]"]');
-            const drfAvailable = drfAvail && drfAvail.value === 'available';
+            if (syllabiOn) {
+                const dateReceived = row.querySelector('input[name="syllabiDateReceived[]"]');
+                if (!dateReceived || !dateReceived.value) missing.push(rowLabel + ": Date Received");
+                const timeReceived = row.querySelector('input[name="syllabiTimeReceived[]"]');
+                if (!timeReceived || !timeReceived.value) missing.push(rowLabel + ": Time Received");
+                const facultyHidden = document.getElementById('syllabiFacultyHidden_' + row.dataset.uid);
+                if (!facultyHidden || !facultyHidden.value.trim()) missing.push(rowLabel + ": Faculty");
+            }
 
             if (drfAvailable) {
                 const drfNo = row.querySelector('input[name="syllabiDrfNo[]"]');
@@ -4124,7 +4867,7 @@ function collectMissingFields() {
             checkText("Masterlist", "masterlistEffectivityDate", "Effectivity Date");
         }
         checkText("Masterlist", "masterlistNoOfPages", "No. of Pages");
-        checkText("Masterlist", "briefPurpose", "Justification");
+        checkText("Masterlist", "keywords", "Keywords");
         if (!window.__sourceWidgets.masterlistOriginator || window.__sourceWidgets.masterlistOriginator.selected.length === 0) missing.push("Masterlist: Originator");
         if (!window.__sourceWidgets.masterlist || window.__sourceWidgets.masterlist.selected.length === 0) missing.push("Masterlist: Source Unit");
     }
@@ -4180,12 +4923,16 @@ function renderMissingFieldsWarning(container, missing) {
             </div>
         </div>
         <div class="review-missing-body">${groupsHtml}</div>
-        <label class="review-missing-confirm">
-            <input type="checkbox" id="confirmSaveAnyway" onchange="handleConfirmSaveAnywayToggle(this)">
-            <span>I understand some information is missing, and I still want to save.</span>
-        </label>
     `;
-    container.prepend(warn);
+    container.appendChild(warn);
+
+    const confirmWrap = document.createElement("label");
+    confirmWrap.className = "review-missing-confirm";
+    confirmWrap.innerHTML = `
+        <input type="checkbox" id="confirmSaveAnyway" onchange="handleConfirmSaveAnywayToggle(this)">
+        <span>I have reviewed the entries above. Some required information is still missing, and I want to proceed with saving anyway.</span>
+    `;
+    container.appendChild(confirmWrap);
 
     if (confirmBtn) {
         confirmBtn.disabled = true;
@@ -4404,7 +5151,7 @@ function buildMasterlistReview(reviewContent) {
         { label: "Pages", value: getInputVal("masterlistNoOfPages") },
         { label: "Originator", value: window.__sourceWidgets.masterlistOriginator?.selected.length > 0 ? window.__sourceWidgets.masterlistOriginator.selected.map(o => o.label).join(', ') : null },
         { label: "Source Unit", value: window.__sourceWidgets.masterlist?.selected.length > 0 ? window.__sourceWidgets.masterlist.selected.map(i => i.label).join(', ') : null },
-        { label: "Purpose", value: getInputVal("briefPurpose") },
+        { label: "Keywords", value: getInputVal("keywords") },
         { label: "Related Docs", value: relatedDocsSelected.length > 0 ? relatedDocsSelected.map(d => d.doc_title).join(', ') : null },
         { label: "File", value: f && f.length > 0 ? f[0].name : null, isFile: true },
     ]);
@@ -4500,7 +5247,8 @@ window.addRevisionRow = function () {
 // ══════════════════════════════════════════════
 window.handleSearch = function (input, resultsId, bodyId, totalId) {
     const dropdown = document.getElementById(resultsId); if (!dropdown) return;
-    const filtered = filterOffices(input.value);
+    const selected = new Set(getSelectedOfficeIds(bodyId));
+    const filtered = filterOffices(input.value).filter((o) => !selected.has(String(o.office_id)));
     if (input.value.trim().length < 1 || filtered.length === 0) { dropdown.style.display = "none"; return; }
     dropdown.innerHTML = filtered.map(o =>
         '<div onclick="addOffice(' + Number(o.office_id) + ", '" + escapeHtml(o.office_name).replace(/'/g, '&#39;') + "', '" + bodyId + "', '" + totalId + "', '" + resultsId + "')\">" + escapeHtml(o.office_name) + '</div>'
@@ -4511,39 +5259,64 @@ window.handleSearch = function (input, resultsId, bodyId, totalId) {
 window.addOffice = function (officeId, officeName, bodyId, totalId, resultsId) {
     const tbody = document.getElementById(bodyId); const dropdown = document.getElementById(resultsId); if (!tbody) return;
     const isRetrieval = bodyId === "retrievalBody";
-    const officeNameAttr = isRetrieval ? "retrievalOffice[]" : "distOffice[]";
-    const copiesNameAttr = isRetrieval ? "retrievalCopies[]" : "distCopies[]";
 
     const emptyRow = tbody.querySelector(".reg-empty-row"); if (emptyRow) emptyRow.remove();
     for (const inp of tbody.querySelectorAll('input[type="hidden"]')) {
         if (inp.value == officeId) {
-            dropdown.style.display = "none";
-            dropdown.parentElement.querySelector("input[type='text']").value = "";
+            if (dropdown) {
+                dropdown.style.display = "none";
+                dropdown.parentElement.querySelector("input[type='text']").value = "";
+            }
             const row = inp.closest("tr"); row.style.animation = "none"; row.offsetHeight; row.style.animation = "flashRow 0.6s ease";
             return;
         }
     }
 
+    if (isRetrieval) {
+        seedRetrievalOfficeRow(bodyId, totalId, officeId, officeName, 1, 'pending');
+        updateTotal(totalId, bodyId);
+        if (dropdown) {
+            dropdown.style.display = "none";
+            const searchInput = dropdown.parentElement?.querySelector("input[type='text']");
+            if (searchInput) searchInput.value = "";
+        }
+        return;
+    }
+
+    const officeNameAttr = "distOffice[]";
+    const copiesNameAttr = "distCopies[]";
     const safeDisplay = escapeHtml(officeName);
     const tr = document.createElement("tr");
     tr.className = "reg-office-added";
-    if (!isRetrieval) tr.draggable = true;
+    tr.draggable = true;
     tr.innerHTML = `<td><input type="hidden" name="${officeNameAttr}" value="${officeId}"><div class="reg-office-name"><div class="reg-office-icon"><i class="fa-solid fa-building"></i></div><span class="reg-office-text">${safeDisplay}</span></div></td><td style="text-align:center;"><input type="number" name="${copiesNameAttr}" value="1" min="1" oninput="updateTotal('${totalId}', '${bodyId}')"></td><td><button type="button" class="btn-remove" onclick="removeOffice(this, '${totalId}', '${bodyId}')"><i class="fa-solid fa-xmark"></i></button></td>`;
     tbody.appendChild(tr);
     updateTotal(totalId, bodyId);
-    dropdown.style.display = "none";
-    dropdown.parentElement.querySelector("input[type='text']").value = "";
+    if (dropdown) {
+        dropdown.style.display = "none";
+        const searchInput = dropdown.parentElement?.querySelector("input[type='text']");
+        if (searchInput) searchInput.value = "";
+    }
+    if (bodyId === 'distBody') syncDistClusterChipState();
 };
 
 window.removeOffice = function (btn, totalId, bodyId) {
     const tr = btn.closest("tr");
+    if (bodyId === 'retrievalBody') {
+        const officeId = tr.querySelector('input[type="hidden"][name="retrievalOffice[]"]')?.value;
+        const status = tr.querySelector('.reg-retrieval-status')?.value;
+        if (officeId && status === 'retrieved') {
+            removeRetrievedOfficeFromDistribution(officeId);
+        }
+    }
     tr.style.opacity = "0"; tr.style.transform = "translateX(20px)"; tr.style.transition = "all 0.2s ease";
     setTimeout(() => {
         tr.remove(); updateTotal(totalId, bodyId);
         const tbody = document.getElementById(bodyId);
         if (tbody && tbody.querySelectorAll("tr").length === 0) {
-            tbody.innerHTML = emptyOfficeRowHTML();
+            tbody.innerHTML = emptyOfficeRowHTML(bodyId);
         }
+        if (bodyId === 'distBody') syncDistClusterChipState();
     }, 200);
 };
 

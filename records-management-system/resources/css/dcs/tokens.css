@@ -261,6 +261,68 @@
     --set-shadow-hover: var(--dcs-shadow-hover);
 }
 
+/* Dark mode — align with shared RMS theme tokens (dashboard.css). */
+[data-theme="dark"] {
+    color-scheme: dark;
+
+    /* Keep brand navy accents; lighten for readability on dark surfaces */
+    --dcs-header: #003699;
+    --dcs-accent: #3b82f6;
+    --dcs-accent-hover: #60a5fa;
+    --dcs-accent-dark: #2563eb;
+    --dcs-accent-light: #60a5fa;
+    --dcs-accent-subtle: rgba(37, 99, 235, 0.22);
+    --dcs-accent-glow: rgba(59, 130, 246, 0.16);
+
+    --dcs-surface: #131c2e;
+    --dcs-surface-hover: #1e293b;
+    --dcs-surface-active: rgba(37, 99, 235, 0.22);
+    --dcs-bg: #0b0f19;
+    --dcs-border: #1e293b;
+    --dcs-border-light: #1e293b;
+    --dcs-border-strong: #334155;
+
+    --dcs-text: #f8fafc;
+    --dcs-text-secondary: #94a3b8;
+    --dcs-text-sec: #cbd5e1;
+    --dcs-text-muted: #94a3b8;
+    --dcs-text-subtle: #64748b;
+
+    --dcs-green: #34d399;
+    --dcs-green-bg: #052e1c;
+    --dcs-success: #4ade80;
+    --dcs-success-bg: #052e16;
+    --dcs-success-border: #166534;
+    --dcs-red: #f87171;
+    --dcs-red-bg: #450a0a;
+    --dcs-red-border: #7f1d1d;
+    --dcs-red-light: #f87171;
+    --dcs-amber: #fbbf24;
+    --dcs-amber-bg: #451a03;
+    --dcs-gold-bg: #422006;
+
+    --dcs-shadow: 0 1px 3px rgba(0, 0, 0, 0.35), 0 4px 12px rgba(0, 0, 0, 0.25);
+    --dcs-shadow-hover: 0 4px 16px rgba(0, 0, 0, 0.4), 0 1px 4px rgba(0, 0, 0, 0.3);
+    --dcs-shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.35);
+    --dcs-shadow-md: 0 4px 16px rgba(0, 0, 0, 0.35);
+    --dcs-shadow-lg: 0 8px 32px rgba(0, 0, 0, 0.4);
+
+    --db-white: var(--dcs-surface);
+
+    /* Chrome aliases used by sidebar */
+    --surface: #0f172a;
+    --surface-hover: #1e293b;
+    --surface-active: rgba(37, 99, 235, 0.22);
+    --border: #1e293b;
+    --border-light: #1e293b;
+    --text: #f8fafc;
+    --text-muted: #94a3b8;
+    --text-subtle: #64748b;
+    --accent: #3b82f6;
+    --accent-light: #60a5fa;
+    --accent-subtle: rgba(37, 99, 235, 0.22);
+}
+
 .reg-breadcrumb,
 .upd-breadcrumb,
 .settings-breadcrumb,
@@ -306,7 +368,8 @@
 .st-container,
 .rpt-page,
 .upd-container,
-.hst-container {
+.hst-container,
+.drr-container {
     animation: fadeInUp var(--dcs-page-in) both;
 }
 
@@ -318,7 +381,8 @@
     .st-container,
     .rpt-page,
     .upd-container,
-    .hst-container {
+    .hst-container,
+    .drr-container {
         animation: none;
     }
 }

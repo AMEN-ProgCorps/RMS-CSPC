@@ -97,7 +97,7 @@ new #[Layout('layouts.profile')] #[Title('Profile Manager - Preferences & Settin
             $setting->save();
             $this->enableTopTabs = (bool) $setting->enable_top_tabs;
             $this->feedbackMessage = 'Preference updated: Top Navigation Tabs ' . ($this->enableTopTabs ? 'enabled' : 'disabled') . '.';
-            $this->dispatch('rms-settings-changed', type: 'profile_preference', message: 'Top Navigation Tabs preference updated.');
+            $this->dispatch('rms-settings-changed', type: 'profile_preference', message: 'Admin, DTS, RDP & DCS Top Navigation Tabs preference updated.');
         }
     }
 
@@ -357,7 +357,7 @@ new #[Layout('layouts.profile')] #[Title('Profile Manager - Preferences & Settin
                         <br>
                         <span class="settings-clarification-badge">
                             <i class="fa-solid fa-circle-info" style="color: #2563eb; margin-right: 4px;"></i>
-                            <strong>Clarification:</strong> Top Navigation Tabs are currently supported across <strong>Admin Console</strong>, <strong>Document Tracking System (DTS)</strong>, and <strong>Records Disposition Program (RDP)</strong>.
+                            <strong>Clarification:</strong> Top Navigation Tabs are currently supported across <strong>Admin Console</strong>, <strong>Document Tracking System (DTS)</strong>, <strong>Records Disposition Program (RDP)</strong>, and <strong>Document Control System (DCS)</strong>.
                         </span>
                     </span>
                 </div>
@@ -381,7 +381,7 @@ new #[Layout('layouts.profile')] #[Title('Profile Manager - Preferences & Settin
                         <br>
                         <span class="settings-clarification-badge">
                             <i class="fa-solid fa-circle-info" style="color: #2563eb; margin-right: 4px;"></i>
-                            <strong>Clarification:</strong> Dark Mode is currently supported across <strong>Admin Console</strong>, <strong>Profile Manager</strong>, <strong>Document Tracking System (DTS)</strong>, and <strong>Records Disposition Program (RDP)</strong>.
+                            <strong>Clarification:</strong> Dark Mode is currently supported across <strong>Admin Console</strong>, <strong>Profile Manager</strong>, <strong>Document Tracking System (DTS)</strong>, <strong>Records Disposition Program (RDP)</strong>, and <strong>Document Control System (DCS)</strong>.
                         </span>
                     </span>
                 </div>

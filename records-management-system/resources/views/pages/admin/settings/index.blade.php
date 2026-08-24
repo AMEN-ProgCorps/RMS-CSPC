@@ -33,13 +33,18 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - System Settings')] class
     public string $driveFolderId = '';
     public bool $driveVerifySsl = true;
 
-    // Google SSO Credential Manager
+    // Google SSO Credential Manager (Internal Staff Login)
     public string $ssoTestResult = '';
     public string $ssoStatus = 'unknown';
     public bool $showSsoEditForm = false;
     public string $ssoClientId = '';
     public string $ssoClientSecret = '';
     public string $ssoRedirectUri = 'dynamic';
+
+    // Google SSO Credential Manager (Public Document Tracking)
+    public string $trackingSsoClientId = '';
+    public string $trackingSsoClientSecret = '';
+    public string $trackingSsoRedirectUri = 'dynamic';
 
     public function toggleDriveEditForm(): void
     {
@@ -144,15 +149,27 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - System Settings')] class
 
         $this->ssoRedirectUri = \DB::table('system_settings')->where('key', 'google_sso_redirect_uri')->value('value')
             ?: env('GOOGLE_REDIRECT_URI', 'dynamic');
+
+        $this->trackingSsoClientId = \DB::table('system_settings')->where('key', 'google_tracking_sso_client_id')->value('value')
+            ?: env('GOOGLE_TRACKING_CLIENT_ID', '');
+
+        $this->trackingSsoClientSecret = \DB::table('system_settings')->where('key', 'google_tracking_sso_client_secret')->value('value')
+            ?: env('GOOGLE_TRACKING_CLIENT_SECRET', '');
+
+        $this->trackingSsoRedirectUri = \DB::table('system_settings')->where('key', 'google_tracking_sso_redirect_uri')->value('value')
+            ?: env('GOOGLE_TRACKING_REDIRECT_URI', 'dynamic');
     }
 
     public function saveSsoCredentials(): void
     {
         try {
             $credentials = [
-                'google_sso_client_id'     => trim($this->ssoClientId),
-                'google_sso_client_secret' => trim($this->ssoClientSecret),
-                'google_sso_redirect_uri'  => trim($this->ssoRedirectUri),
+                'google_sso_client_id'              => trim($this->ssoClientId),
+                'google_sso_client_secret'          => trim($this->ssoClientSecret),
+                'google_sso_redirect_uri'           => trim($this->ssoRedirectUri),
+                'google_tracking_sso_client_id'     => trim($this->trackingSsoClientId),
+                'google_tracking_sso_client_secret' => trim($this->trackingSsoClientSecret),
+                'google_tracking_sso_redirect_uri'  => trim($this->trackingSsoRedirectUri),
             ];
 
             foreach ($credentials as $key => $value) {
@@ -163,19 +180,25 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - System Settings')] class
             }
 
             $this->updateEnvFile([
-                'GOOGLE_CLIENT_ID'     => trim($this->ssoClientId),
-                'GOOGLE_CLIENT_SECRET' => trim($this->ssoClientSecret),
-                'GOOGLE_REDIRECT_URI'  => trim($this->ssoRedirectUri),
+                'GOOGLE_CLIENT_ID'              => trim($this->ssoClientId),
+                'GOOGLE_CLIENT_SECRET'          => trim($this->ssoClientSecret),
+                'GOOGLE_REDIRECT_URI'           => trim($this->ssoRedirectUri),
+                'GOOGLE_TRACKING_CLIENT_ID'     => trim($this->trackingSsoClientId),
+                'GOOGLE_TRACKING_CLIENT_SECRET' => trim($this->trackingSsoClientSecret),
+                'GOOGLE_TRACKING_REDIRECT_URI'  => trim($this->trackingSsoRedirectUri),
             ]);
 
             config([
-                'services.google.client_id'     => trim($this->ssoClientId),
-                'services.google.client_secret' => trim($this->ssoClientSecret),
-                'services.google.redirect'      => trim($this->ssoRedirectUri),
+                'services.google.client_id'              => trim($this->ssoClientId),
+                'services.google.client_secret'          => trim($this->ssoClientSecret),
+                'services.google.redirect'               => trim($this->ssoRedirectUri),
+                'services.google_tracking.client_id'     => trim($this->trackingSsoClientId) ?: trim($this->ssoClientId),
+                'services.google_tracking.client_secret' => trim($this->trackingSsoClientSecret) ?: trim($this->ssoClientSecret),
+                'services.google_tracking.redirect'      => trim($this->trackingSsoRedirectUri),
             ]);
 
             \DB::table('admin_logs')->insert([
-                'changes' => 'Updated Google SSO (Sign-In) credentials via Admin Console',
+                'changes' => 'Updated Google SSO (Internal & Tracking) credentials via Admin Console',
                 'admin_id' => auth()->id(),
                 'what_system' => 3,
                 'when_changes' => now(),
@@ -1119,32 +1142,80 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - System Settings')] class
                 </div>
             </div>
 
-            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; background: #f8fafc; padding: 12px; border-radius: 8px; margin-bottom: 14px; border: 1px solid #e2e8f0;">
-                <div>
-                    <span style="font-size: 11px; color: #64748b; font-weight: 600; text-transform: uppercase;">Client ID</span>
-                    <div style="font-size: 12px; font-weight: 700; color: #0f172a; font-family: monospace; overflow: hidden; text-overflow: ellipsis;">
-                        @php
-                            $currentSsoId = \DB::table('system_settings')->where('key', 'google_sso_client_id')->value('value') ?: config('services.google.client_id') ?: env('GOOGLE_CLIENT_ID', '');
-                        @endphp
-                        {{ $currentSsoId ? \Illuminate\Support\Str::limit($currentSsoId, 30) : 'Not Set' }}
+            {{-- Dual SSO Configuration Overview: Internal Login vs Public Document Tracking --}}
+            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 14px; margin-bottom: 14px;">
+                {{-- Panel 1: Internal Staff Login SSO --}}
+                <div style="background: #f8fafc; padding: 14px; border-radius: 8px; border: 1px solid #e2e8f0; border-left: 4px solid #ea4335;">
+                    <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px;">
+                        <span style="font-size: 13px; font-weight: 800; color: #0f172a; display: flex; align-items: center; gap: 6px;">
+                            <i class="fa-solid fa-building-columns" style="color: #ea4335;"></i> 1. Internal Staff Login SSO
+                        </span>
+                        <span style="font-size: 10px; background: #fee2e2; color: #991b1b; padding: 2px 6px; border-radius: 4px; font-weight: 700;">
+                            @cspc.edu.ph only
+                        </span>
+                    </div>
+
+                    @php
+                        $currentSsoId = \DB::table('system_settings')->where('key', 'google_sso_client_id')->value('value') ?: config('services.google.client_id') ?: env('GOOGLE_CLIENT_ID', '');
+                        $currentRedirect = \DB::table('system_settings')->where('key', 'google_sso_redirect_uri')->value('value') ?: env('GOOGLE_REDIRECT_URI', 'dynamic');
+                        $fromDb = \DB::table('system_settings')->where('key', 'google_sso_client_id')->value('value');
+                    @endphp
+
+                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px; font-size: 11px;">
+                        <div>
+                            <span style="color: #64748b; font-weight: 600; text-transform: uppercase;">Client ID:</span>
+                            <div style="font-weight: 700; color: #0f172a; font-family: monospace; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                                {{ $currentSsoId ? \Illuminate\Support\Str::limit($currentSsoId, 22) : 'Not Set' }}
+                            </div>
+                        </div>
+                        <div>
+                            <span style="color: #64748b; font-weight: 600; text-transform: uppercase;">Callback Route:</span>
+                            <div style="font-weight: 700; color: #ea4335; font-family: monospace; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                                /auth/google/callback
+                            </div>
+                        </div>
+                    </div>
+                    <div style="margin-top: 6px; font-size: 10px; color: #059669; font-weight: 600;">
+                        Source: {{ $fromDb ? 'Database (Live Override)' : 'Environment (.env)' }}
                     </div>
                 </div>
-                <div>
-                    <span style="font-size: 11px; color: #64748b; font-weight: 600; text-transform: uppercase;">Redirect URI</span>
-                    <div style="font-size: 12px; font-weight: 700; color: #ea4335;">
-                        @php
-                            $currentRedirect = \DB::table('system_settings')->where('key', 'google_sso_redirect_uri')->value('value') ?: env('GOOGLE_REDIRECT_URI', 'dynamic');
-                        @endphp
-                        {{ $currentRedirect === 'dynamic' ? 'Dynamic (Auto-detect)' : $currentRedirect }}
+
+                {{-- Panel 2: Public Document Tracking SSO --}}
+                <div style="background: #f8fafc; padding: 14px; border-radius: 8px; border: 1px solid #e2e8f0; border-left: 4px solid #0284c7;">
+                    <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px;">
+                        <span style="font-size: 13px; font-weight: 800; color: #0f172a; display: flex; align-items: center; gap: 6px;">
+                            <i class="fa-solid fa-earth-americas" style="color: #0284c7;"></i> 2. Public Tracking SSO
+                        </span>
+                        <span style="font-size: 10px; background: #e0f2fe; color: #0369a1; padding: 2px 6px; border-radius: 4px; font-weight: 700;">
+                            Any Google Account
+                        </span>
                     </div>
-                </div>
-                <div>
-                    <span style="font-size: 11px; color: #64748b; font-weight: 600; text-transform: uppercase;">Source</span>
-                    <div style="font-size: 12px; font-weight: 700; color: #059669;">
-                        @php
-                            $fromDb = \DB::table('system_settings')->where('key', 'google_sso_client_id')->value('value');
-                        @endphp
-                        {{ $fromDb ? 'Database (Live Override)' : 'Environment (.env)' }}
+
+                    @php
+                        $customTrackId = \DB::table('system_settings')->where('key', 'google_tracking_sso_client_id')->value('value') ?: config('services.google_tracking.client_id') ?: env('GOOGLE_TRACKING_CLIENT_ID', '');
+                        $trackRedirect = \DB::table('system_settings')->where('key', 'google_tracking_sso_redirect_uri')->value('value') ?: env('GOOGLE_TRACKING_REDIRECT_URI', 'dynamic');
+                    @endphp
+
+                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px; font-size: 11px;">
+                        <div>
+                            <span style="color: #64748b; font-weight: 600; text-transform: uppercase;">Client ID:</span>
+                            <div style="font-weight: 700; color: #0f172a; font-family: monospace; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                                @if (!empty($customTrackId))
+                                    {{ \Illuminate\Support\Str::limit($customTrackId, 22) }}
+                                @else
+                                    <span style="color: #0284c7;">{{ $currentSsoId ? \Illuminate\Support\Str::limit($currentSsoId, 18) . ' (Inherited)' : 'Inheriting Primary' }}</span>
+                                @endif
+                            </div>
+                        </div>
+                        <div>
+                            <span style="color: #64748b; font-weight: 600; text-transform: uppercase;">Callback Route:</span>
+                            <div style="font-weight: 700; color: #0284c7; font-family: monospace; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                                /auth/google/track/callback
+                            </div>
+                        </div>
+                    </div>
+                    <div style="margin-top: 6px; font-size: 10px; color: #0284c7; font-weight: 600;">
+                        {{ !empty($customTrackId) ? 'Configured with custom tracking credentials' : 'Active (Using primary Google OAuth with public tracking callback)' }}
                     </div>
                 </div>
             </div>
@@ -1174,14 +1245,29 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - System Settings')] class
                         <i class="fa-solid fa-key" style="color: #ea4335;"></i> Update Google SSO Credentials
                     </h4>
 
-                    <div style="background: #eff6ff; border: 1px solid #bfdbfe; border-radius: 8px; padding: 10px 14px; margin-bottom: 14px; font-size: 12px; color: #1e40af; display: flex; align-items: flex-start; gap: 8px;">
-                        <i class="fa-solid fa-circle-info" style="margin-top: 2px;"></i>
-                        <span>These credentials are from your <strong>Google Cloud Console</strong> OAuth 2.0 Client ID (Web Application type). Changes take effect immediately — no app restart needed. The Authorized Redirect URI must be <code style="background: #dbeafe; padding: 1px 6px; border-radius: 4px;">{{ url('/auth/google/callback') }}</code></span>
+                    <div style="background: #eff6ff; border: 1px solid #bfdbfe; border-radius: 8px; padding: 12px 14px; margin-bottom: 14px; font-size: 12px; color: #1e40af; display: flex; flex-direction: column; gap: 6px;">
+                        <div style="display: flex; align-items: flex-start; gap: 8px;">
+                            <i class="fa-solid fa-circle-info" style="margin-top: 2px;"></i>
+                            <span>These credentials are from your <strong>Google Cloud Console</strong> OAuth 2.0 Client ID (Web Application type). In Google Cloud Console under <strong>"Authorized redirect URIs"</strong>, you must add:</span>
+                        </div>
+                        <div style="margin-left: 22px; display: flex; flex-direction: column; gap: 4px; font-family: monospace; font-size: 11px;">
+                            <div>
+                                <span style="color: #64748b; font-family: sans-serif; font-size: 11px; font-weight: 600;">Internal Staff Login:</span>
+                                <code style="background: #dbeafe; padding: 2px 6px; border-radius: 4px; color: #1d4ed8;">{{ url('/auth/google/callback') }}</code>
+                            </div>
+                            <div>
+                                <span style="color: #64748b; font-family: sans-serif; font-size: 11px; font-weight: 600;">Public Document Tracking:</span>
+                                <code style="background: #dbeafe; padding: 2px 6px; border-radius: 4px; color: #0369a1;">{{ url('/auth/google/track/callback') }}</code>
+                            </div>
+                        </div>
+                        <div style="margin-left: 22px; font-size: 11px; color: #3b82f6;">
+                            <em>Leaving the field below as <strong>"dynamic"</strong> tells RMS to automatically construct these URLs from your active domain/port.</em>
+                        </div>
                     </div>
 
                     <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 12px;">
                         <div>
-                            <label style="display: block; font-size: 11px; font-weight: 700; color: #334155; margin-bottom: 4px;">Client ID (GOOGLE_CLIENT_ID)</label>
+                            <label style="display: block; font-size: 11px; font-weight: 700; color: #334155; margin-bottom: 4px;">1. Internal Login Client ID (GOOGLE_CLIENT_ID)</label>
                             <input type="text" wire:model="ssoClientId" placeholder="e.g. 459768812355-xxx.apps.googleusercontent.com" style="width: 100%; padding: 8px 10px; border: 1px solid #cbd5e1; border-radius: 6px; font-size: 12px; font-family: monospace;">
                         </div>
 
@@ -1193,13 +1279,41 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - System Settings')] class
                         <div>
                             <label style="display: block; font-size: 11px; font-weight: 700; color: #334155; margin-bottom: 4px;">Redirect URI (GOOGLE_REDIRECT_URI)</label>
                             <input type="text" wire:model="ssoRedirectUri" placeholder="dynamic (auto-detects from APP_URL)" style="width: 100%; padding: 8px 10px; border: 1px solid #cbd5e1; border-radius: 6px; font-size: 12px; font-family: monospace;">
-                            <span style="font-size: 10px; color: #64748b; margin-top: 2px; display: block;">Set to "dynamic" to auto-detect, or enter a fixed URL like https://yourdomain.com/auth/google/callback</span>
+                            <span style="font-size: 10px; color: #64748b; margin-top: 2px; display: block;">Callback: <code style="background:#e2e8f0;padding:1px 4px;border-radius:3px;">{{ url('/auth/google/callback') }}</code></span>
                         </div>
                     </div>
 
-                    <div style="display: flex; gap: 8px; margin-top: 12px;">
+                    {{-- Public Document Tracking SSO Settings --}}
+                    <div style="margin-top: 16px; padding-top: 14px; border-top: 1px solid #cbd5e1;">
+                        <span style="font-size: 12px; font-weight: 700; color: #0284c7; display: block; margin-bottom: 8px;">
+                            <i class="fa-solid fa-earth-americas"></i> 2. Public Document Tracking SSO (Optional Separate Key)
+                        </span>
+                        <div style="font-size: 11px; color: #64748b; margin-bottom: 10px;">
+                            If you have a separate <strong>External</strong> Google OAuth Client ID for public guest tracking, enter it below. Leave blank to fallback to the primary Google SSO credentials.
+                        </div>
+
+                        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 12px;">
+                            <div>
+                                <label style="display: block; font-size: 11px; font-weight: 700; color: #334155; margin-bottom: 4px;">Tracking Client ID (GOOGLE_TRACKING_CLIENT_ID)</label>
+                                <input type="text" wire:model="trackingSsoClientId" placeholder="Leave empty to use main client ID" style="width: 100%; padding: 8px 10px; border: 1px solid #cbd5e1; border-radius: 6px; font-size: 12px; font-family: monospace;">
+                            </div>
+
+                            <div>
+                                <label style="display: block; font-size: 11px; font-weight: 700; color: #334155; margin-bottom: 4px;">Tracking Client Secret (GOOGLE_TRACKING_CLIENT_SECRET)</label>
+                                <input type="password" wire:model="trackingSsoClientSecret" placeholder="Leave empty to use main secret" style="width: 100%; padding: 8px 10px; border: 1px solid #cbd5e1; border-radius: 6px; font-size: 12px; font-family: monospace;">
+                            </div>
+
+                            <div>
+                                <label style="display: block; font-size: 11px; font-weight: 700; color: #334155; margin-bottom: 4px;">Tracking Redirect URI</label>
+                                <input type="text" wire:model="trackingSsoRedirectUri" placeholder="dynamic (auto-detects from APP_URL)" style="width: 100%; padding: 8px 10px; border: 1px solid #cbd5e1; border-radius: 6px; font-size: 12px; font-family: monospace;">
+                                <span style="font-size: 10px; color: #64748b; margin-top: 2px; display: block;">Callback: <code style="background:#e2e8f0;padding:1px 4px;border-radius:3px;">{{ url('/auth/google/track/callback') }}</code></span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div style="display: flex; gap: 8px; margin-top: 14px;">
                         <button type="button" wire:click="saveSsoCredentials" style="background: #16a34a; color: white; border: none; padding: 8px 16px; border-radius: 6px; font-weight: 700; font-size: 12px; cursor: pointer; display: inline-flex; align-items: center; gap: 6px;">
-                            <i class="fa-solid fa-floppy-disk"></i> Save SSO Credentials
+                            <i class="fa-solid fa-floppy-disk"></i> Save All SSO Credentials
                         </button>
                         <button type="button" wire:click="toggleSsoEditForm" style="background: #e2e8f0; color: #475569; border: none; padding: 8px 14px; border-radius: 6px; font-weight: 700; font-size: 12px; cursor: pointer;">
                             Cancel

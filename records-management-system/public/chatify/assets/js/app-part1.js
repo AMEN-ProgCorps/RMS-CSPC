@@ -439,10 +439,8 @@
           if (data.chat_type === 'global') {
             if (isGlobalChat) {
               if (data.has_upload) {
-                if (typeof globalChatPrefetchedData !== 'undefined') globalChatPrefetchedData = null;
-                if (typeof gcPrefetchPromise !== 'undefined') gcPrefetchPromise = null;
                 isLoadingGC = false;
-                loadGlobalChat(false, false, true);
+                loadGlobalChat(false);
               } else {
                 renderAndAppendWsMessage(data);
               }

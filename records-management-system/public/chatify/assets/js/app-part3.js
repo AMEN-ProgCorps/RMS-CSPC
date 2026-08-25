@@ -2262,7 +2262,6 @@
     // so the message could sit unrendered/unread-marked despite the chat
     // being open.
     function loadChatForced() {
-      if (typeof dmMessageCache !== 'undefined' && activeDM) dmMessageCache.delete(activeDM);
       loadChat(false, false, true);
     }
 
@@ -3972,10 +3971,8 @@
             // Force a fresh chat load so the grid/image renders immediately
             // for the SENDER's own view (independent of any WS broadcast).
             if (isGlobalChat) {
-              if (typeof globalChatPrefetchedData !== 'undefined') globalChatPrefetchedData = null;
-              if (typeof gcPrefetchPromise !== 'undefined') gcPrefetchPromise = null;
               isLoadingGC = false;
-              loadGlobalChat(false, false, true);
+              loadGlobalChat(false);
             } else if (activeDM) {
               loadChatForced();
             }

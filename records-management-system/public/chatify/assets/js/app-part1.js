@@ -2209,11 +2209,68 @@
       }
     }
 
+    function showTopLoadingSpinner() {
+      if (document.getElementById('topLoadingSpinner')) return;
+      const existingNotice = document.getElementById('noMoreOlderNotice');
+      if (existingNotice) existingNotice.remove();
+
+      const appContainer = document.querySelector('.app-container') || document.body;
+      const spinner = document.createElement('div');
+      spinner.id = 'topLoadingSpinner';
+      spinner.style.cssText = `
+        position: absolute;
+        top: 62px;
+        left: 50%;
+        transform: translateX(-50%);
+        z-index: 999;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        background: var(--bg-secondary, rgba(255, 255, 255, 0.95));
+        backdrop-filter: blur(8px);
+        -webkit-backdrop-filter: blur(8px);
+        border: 1px solid var(--border-color, rgba(0, 0, 0, 0.12));
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.12);
+        border-radius: 20px;
+        padding: 6px 14px;
+        color: var(--text-secondary, #65676b);
+        font-size: 12px;
+        font-weight: 600;
+        pointer-events: none;
+        animation: topLoaderFadeIn 0.2s ease-out;
+      `;
+      spinner.innerHTML = `
+        <div style="width:13px;height:13px;border:2px solid rgba(27,116,228,0.25);border-top-color:var(--primary-color,#1b74e4);border-radius:50%;animation:topLoadingSpin 0.6s linear infinite;"></div>
+        <span>Loading older messages...</span>
+      `;
+      
+      if (!document.getElementById('topLoadingSpinKeyframes')) {
+        const style = document.createElement('style');
+        style.id = 'topLoadingSpinKeyframes';
+        style.textContent = `
+          @keyframes topLoadingSpin { to { transform: rotate(360deg); } }
+          @keyframes topLoaderFadeIn { from { opacity: 0; transform: translate(-50%, -6px); } to { opacity: 1; transform: translate(-50%, 0); } }
+        `;
+        document.head.appendChild(style);
+      }
+
+      appContainer.appendChild(spinner);
+    }
+
+    function hideTopLoadingSpinner() {
+      const spinner = document.getElementById('topLoadingSpinner');
+      if (spinner) spinner.remove();
+    }
+
+    window.showTopLoadingSpinner = showTopLoadingSpinner;
+    window.hideTopLoadingSpinner = hideTopLoadingSpinner;
+
     function removePaginationBtn() {
       const existing = document.getElementById('loadOlderBtn');
       if (existing) existing.remove();
       const notice = document.getElementById('noMoreOlderNotice');
       if (notice) notice.remove();
+      hideTopLoadingSpinner();
     }
 
     function showNoMoreOlderNotice() {
@@ -2991,6 +3048,7 @@
         adminConvHasMore = data.hasMore || false;
         
         if (loadOlderMode) {
+          hideTopLoadingSpinner();
           adminConvCursor = data.nextCursor || '';
           adminConvViewingOlder = true;
           const prev = chatBox.scrollHeight;
@@ -3004,7 +3062,6 @@
             else chatBox.insertBefore(el, firstChild);
           });
           chatBox.scrollTop += chatBox.scrollHeight - prev;
-          trimWindowFromBottom(PAGE_SIZE);
           if (!adminConvHasMore) showNoMoreOlderNotice(); else if (!document.getElementById('loadOlderBtn')) insertLoadOlderBtn();
           applyAdminBadges();
           applyEmojiOnly();

@@ -1197,6 +1197,11 @@
     }
 
     chatBox.addEventListener('scroll', function() {
+      if (isAtBottom()) {
+        dmViewingOlder = false;
+        gcViewingOlder = false;
+        adminConvViewingOlder = false;
+      }
       if (autoLoadOlderTicking) return;
       autoLoadOlderTicking = true;
       requestAnimationFrame(function() {
@@ -1352,6 +1357,7 @@
       gcHasMore        = data.hasMore || false;
 
       if (loadOlderMode) {
+        if (typeof hideTopLoadingSpinner === 'function') hideTopLoadingSpinner();
         gcCursor = data.nextCursor || '';
         gcViewingOlder = true;
         // Prepend older messages
@@ -1367,9 +1373,6 @@
         });
         // Maintain scroll position
         chatBox.scrollTop += chatBox.scrollHeight - prev;
-        // Swap the window: drop the newest messages off the bottom so the
-        // total on screen stays capped at PAGE_SIZE instead of growing forever.
-        trimWindowFromBottom(PAGE_SIZE);
         if (!gcHasMore) showNoMoreOlderNotice(); else if (!document.getElementById('loadOlderBtn')) insertLoadOlderBtn();
         applyAdminBadges();
         applyEmojiOnly();
@@ -1446,8 +1449,8 @@
               }
             }
             if (revealedCount === toInsert.length) {
-              if (isFirstLoad) { isFirstLoad = false; handleFirstLoadScroll(); }
-              else if (wasAtBottom || shouldAutoScroll) requestAnimationFrame(() => requestAnimationFrame(() => scrollToBottom(true, false)));
+              if (isFirstLoad && !gcViewingOlder) { isFirstLoad = false; handleFirstLoadScroll(); }
+              else if (!gcViewingOlder && (wasAtBottom || shouldAutoScroll)) requestAnimationFrame(() => requestAnimationFrame(() => scrollToBottom(true, false)));
               else showScrollIndicator(toInsert.filter(el => el.classList.contains('message-container')).length);
               applyAdminBadges(); applyEmojiOnly(); attachImageLoadListeners();
               if (gcHasMore && !document.getElementById('loadOlderBtn') && !document.getElementById('noMoreOlderNotice')) insertLoadOlderBtn();
@@ -1480,8 +1483,8 @@
       
       document.querySelectorAll('[data-sending-uid]').forEach(el => el.remove());
       chatBox.scrollTop = Math.max(0, prevST + chatBox.scrollHeight - prevSH);
-      if (isFirstLoad) { isFirstLoad = false; handleFirstLoadScroll(); }
-      else if (wasAtBottom || shouldAutoScroll || isFirstLoad) requestAnimationFrame(() => requestAnimationFrame(() => scrollToBottom(true, false)));
+      if (isFirstLoad && !gcViewingOlder) { isFirstLoad = false; handleFirstLoadScroll(); }
+      else if (!gcViewingOlder && (wasAtBottom || shouldAutoScroll)) requestAnimationFrame(() => requestAnimationFrame(() => scrollToBottom(true, false)));
       else if (genuinelyNewCount > 0) showScrollIndicator(genuinelyNewCount);
       applyAdminBadges(); applyEmojiOnly(); attachImageLoadListeners();
       // Chat was rebuilt from scratch (e.g. cleared), so pagination state no longer applies
@@ -1577,12 +1580,21 @@
       xhr.open('GET', 'load.php?before_uuid=' + encodeURIComponent(cursor), true);
       xhr.onload = function() {
         isLoadingGC = false;
-        if (this.status !== 200) return;
+        if (this.status !== 200) {
+          if (typeof hideTopLoadingSpinner === 'function') hideTopLoadingSpinner();
+          return;
+        }
         let data;
-        try { data = JSON.parse(this.responseText); } catch(e) { return; }
+        try { data = JSON.parse(this.responseText); } catch(e) {
+          if (typeof hideTopLoadingSpinner === 'function') hideTopLoadingSpinner();
+          return;
+        }
         processGlobalChatData(data, loadOlderMode);
       };
-      xhr.onerror = function() { isLoadingGC = false; };
+      xhr.onerror = function() {
+        isLoadingGC = false;
+        if (typeof hideTopLoadingSpinner === 'function') hideTopLoadingSpinner();
+      };
       xhr.send();
     }
 
@@ -1596,6 +1608,7 @@
       if (typeof data.readUpTo !== 'undefined') dmReadUpTo = data.readUpTo;
 
       if (loadOlderMode) {
+        if (typeof hideTopLoadingSpinner === 'function') hideTopLoadingSpinner();
         dmCursor = data.nextCursor || '';
         dmViewingOlder = true;
         const prev = chatBox.scrollHeight;
@@ -1609,7 +1622,6 @@
           else chatBox.insertBefore(el, firstChild);
         });
         chatBox.scrollTop += chatBox.scrollHeight - prev;
-        trimWindowFromBottom(PAGE_SIZE);
         if (!dmHasMore) showNoMoreOlderNotice(); else if (!document.getElementById('loadOlderBtn')) insertLoadOlderBtn();
         applyAdminBadges(); applyEmojiOnly();
         attachImageLoadListeners();
@@ -1671,8 +1683,8 @@
         if (!dmViewingOlder) {
           if (trimWindowFromTop(PAGE_SIZE)) refreshCursorAfterTopTrim();
         }
-        if (isFirstLoad) { isFirstLoad = false; handleFirstLoadScroll(); }
-        else if (wasAtBottom || shouldAutoScroll) requestAnimationFrame(() => requestAnimationFrame(() => scrollToBottom(true, false)));
+        if (isFirstLoad && !dmViewingOlder) { isFirstLoad = false; handleFirstLoadScroll(); }
+        else if (!dmViewingOlder && (wasAtBottom || shouldAutoScroll)) requestAnimationFrame(() => requestAnimationFrame(() => scrollToBottom(true, false)));
         else showScrollIndicator(rec.items.filter(el => el.classList.contains('message-container')).length);
         applyAdminBadges(); applyEmojiOnly(); attachImageLoadListeners();
         if (!document.hidden && activeDM) markRead(activeDM);
@@ -1703,7 +1715,7 @@
       
       chatBox.scrollTop = Math.max(0, prevSTF + chatBox.scrollHeight - prevSHF);
       const mc = chatBox.querySelectorAll('.message-container').length;
-      if (mc > 0 && (wasAtBottom || shouldAutoScroll || isFirstLoad)) {
+      if (mc > 0 && !dmViewingOlder && (wasAtBottom || shouldAutoScroll || isFirstLoad)) {
         const doInstant = isFirstLoad;
         isFirstLoad = false;
         if (doInstant) handleFirstLoadScroll();
@@ -1760,17 +1772,33 @@
       xhr.onload = function () {
         isLoadingChat = false;
         if (chatXhr === xhr) chatXhr = null;
-        if (this.status !== 200) return;
+        if (this.status !== 200) {
+          if (typeof hideTopLoadingSpinner === 'function') hideTopLoadingSpinner();
+          return;
+        }
         if (requestedUser !== activeDM) return;
         let data;
-        try { data = JSON.parse(this.responseText); } catch(e) { return; }
+        try { data = JSON.parse(this.responseText); } catch(e) {
+          if (typeof hideTopLoadingSpinner === 'function') hideTopLoadingSpinner();
+          return;
+        }
         processChatData(data, requestedUser, loadOlderMode);
       };
-      xhr.onerror = function() { isLoadingChat = false; if (chatXhr === xhr) chatXhr = null; };
+      xhr.onerror = function() {
+        isLoadingChat = false;
+        if (chatXhr === xhr) chatXhr = null;
+        if (typeof hideTopLoadingSpinner === 'function') hideTopLoadingSpinner();
+      };
       xhr.send();
     }
 
     function loadOlderMessages() {
+      isFirstLoad = false;
+      if (activeAdminConv) adminConvViewingOlder = true;
+      else if (isGlobalChat) gcViewingOlder = true;
+      else if (activeDM) dmViewingOlder = true;
+
+      if (typeof showTopLoadingSpinner === 'function') showTopLoadingSpinner();
       if (activeAdminConv || isAdminAllChatsView) {
         if (activeAdminConv) loadAdminConv(activeAdminConv, false, true);
       } else if (isGlobalChat) {

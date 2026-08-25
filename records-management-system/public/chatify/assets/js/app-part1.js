@@ -169,6 +169,9 @@
       if (msgId && chatBox.querySelector(`.message-container[data-msg-id="${msgId}"]`)) {
         return; // Already rendered
       }
+      if (typeof dmMessageCache !== 'undefined' && activeDM) {
+        dmMessageCache.delete(activeDM);
+      }
 
       const emptyNotice = chatBox.querySelector('.empty-chat');
       if (emptyNotice) emptyNotice.remove();
@@ -270,6 +273,7 @@
       } else {
         showScrollIndicator(1);
       }
+      updateSeenIndicator();
     }
 
     // Admin spy-mode equivalent of renderAndAppendWsMessage() above. Text
@@ -433,7 +437,8 @@
         } else if (data.type === 'message') {
           console.log('Received WebSocket real-time update notice:', data);
           // Deduplication: if message is already rendered in chatBox, skip fetching!
-          if (data.msg_uuid && chatBox.querySelector(`.message-container[data-msg-id="${data.msg_uuid}"]`)) {
+          const targetMsgId = data.msg_uuid || data.id;
+          if (targetMsgId && chatBox.querySelector(`.message-container[data-msg-id="${targetMsgId}"]`)) {
             return;
           }
           if (data.chat_type === 'global') {
@@ -446,6 +451,14 @@
               }
             }
           } else if (data.chat_type === 'private') {
+            if (typeof dmMessageCache !== 'undefined') {
+              const sAccId = Number(data.sender_id);
+              const rAccId = Number(data.recipient_id);
+              const sUserObj = allUsersData.find(u => Number(u.account_id) === sAccId);
+              const rUserObj = allUsersData.find(u => Number(u.account_id) === rAccId);
+              if (sUserObj && sUserObj.username) dmMessageCache.delete(sUserObj.username);
+              if (rUserObj && rUserObj.username) dmMessageCache.delete(rUserObj.username);
+            }
             if (activeAdminConv) {
               const parts = activeAdminConv.split('_').map(Number);
               const s = Number(data.sender_id);
@@ -1943,6 +1956,8 @@
       }
     });
 
+    let markReadHttpDebounceTimer = null;
+
     function markRead(targetUsername) {
       if (!targetUsername) return;
       const u = allUsersData.find(x => x.username === targetUsername || (activeDMAccountId && Number(x.account_id) === activeDMAccountId));
@@ -1956,16 +1971,33 @@
       const targetId = activeDMAccountId || (u ? Number(u.account_id) : 0);
       if (!targetId) return;
 
-      // Real-time WebSocket relay: ALWAYS fire immediately
-      if (ws && ws.readyState === WebSocket.OPEN && targetId) {
-        ws.send(JSON.stringify({ type: 'mark_read', target_id: targetId }));
+      // Resolve newest message ID currently present in chatBox
+      let newestMsgId = null;
+      if (chatBox) {
+        chatBox.querySelectorAll('.message-container[data-msg-id]').forEach(el => {
+          const id = el.getAttribute('data-msg-id');
+          if (id && (!newestMsgId || id > newestMsgId)) newestMsgId = id;
+        });
       }
 
-      // Durable path: persist to Postgres via HTTP immediately
-      const xhr = new XMLHttpRequest();
-      xhr.open('POST', 'mark_read.php', true);
-      xhr.setRequestHeader('Content-type', 'application/x-www-form-urlencoded');
-      xhr.send('target_id=' + encodeURIComponent(targetId) + '&target_user=' + encodeURIComponent(targetUsername));
+      // Real-time WebSocket relay: ALWAYS fire immediately with last_msg_uuid
+      if (ws && ws.readyState === WebSocket.OPEN && targetId) {
+        ws.send(JSON.stringify({
+          type: 'mark_read',
+          target_id: targetId,
+          last_msg_uuid: newestMsgId || null
+        }));
+      }
+
+      // Durable path: persist to Postgres via HTTP (debounced to avoid HTTP floods)
+      if (markReadHttpDebounceTimer) clearTimeout(markReadHttpDebounceTimer);
+      markReadHttpDebounceTimer = setTimeout(() => {
+        markReadHttpDebounceTimer = null;
+        const xhr = new XMLHttpRequest();
+        xhr.open('POST', 'mark_read.php', true);
+        xhr.setRequestHeader('Content-type', 'application/x-www-form-urlencoded');
+        xhr.send('target_id=' + encodeURIComponent(targetId) + '&target_user=' + encodeURIComponent(targetUsername));
+      }, 150);
     }
 
     // Messenger-style "Seen" indicator: shown under the newest message WE sent

@@ -1558,18 +1558,14 @@
       if (!loadOlderMode && !isAutoPoll) {
         if (globalChatPrefetchedData) {
           const data = globalChatPrefetchedData;
+          globalChatPrefetchedData = null;
           processGlobalChatData(data, false);
-          return;
-        }
-        if (gcPrefetchPromise) {
-          isLoadingGC = true;
+        } else if (gcPrefetchPromise) {
           gcPrefetchPromise.then(function(data) {
-            isLoadingGC = false;
             if (data && isGlobalChat) {
               processGlobalChatData(data, false);
             }
           });
-          return;
         }
       }
 
@@ -1729,25 +1725,21 @@
       if (!activeDM) return;
       if (isAutoPoll && !loadOlderMode && dmViewingOlder) return;
 
-      // Consume preloaded snapshot from hover cache if available on initial open
+      // Consume preloaded snapshot from hover cache if available on initial open for instant paint,
+      // but do NOT return early so we still perform background fetch from load_dm.php to reconcile new messages.
       if (!loadOlderMode && !isAutoPoll) {
         if (dmMessageCache.has(activeDM)) {
           const cachedData = dmMessageCache.get(activeDM);
           if (cachedData && cachedData._raw) {
             processChatData(cachedData._raw, activeDM, false);
-            return;
           }
-        }
-        if (window.dmPrefetchPromises && window.dmPrefetchPromises.has(activeDM)) {
+        } else if (window.dmPrefetchPromises && window.dmPrefetchPromises.has(activeDM)) {
           const requestedUser = activeDM;
-          isLoadingChat = true;
           window.dmPrefetchPromises.get(activeDM).then(function() {
-            isLoadingChat = false;
             if (requestedUser === activeDM && dmMessageCache.has(activeDM)) {
               processChatData(dmMessageCache.get(activeDM)._raw, activeDM, false);
             }
           });
-          return;
         }
       }
 
@@ -2434,6 +2426,11 @@
       // Fire the XHR immediately — no artificial delay. The "Sending..." bubble
       // animation above already gives instant visual feedback that the send
       // was registered, so re-enable send controls right after dispatching.
+      // Invalidate cache for active DM when sending a message so next load is fresh
+      if (typeof dmMessageCache !== 'undefined' && activeDM) {
+        dmMessageCache.delete(activeDM);
+      }
+
       try { xhr.send(payload); } catch (e) { /* ignore send errors here */ }
       isSending = false;
       sendButton.classList.remove('sending');
@@ -2564,6 +2561,7 @@
                   // above the optimistic-bubble scroll for why isAtBottom() is
                   // unreliable while the virtual keyboard is open.
                   scrollToBottom(true, true);
+                  updateSeenIndicator();
                 }
               }
             }
@@ -4234,6 +4232,7 @@
           loadGlobalChat(false);
         } else if (activeDM) {
           loadChat(false);
+          markRead(activeDM);
         } else if (activeAdminConv) {
           loadAdminConv(activeAdminConv, false);
         }
@@ -4266,6 +4265,29 @@
         // We do nothing here so the interval handle stays valid for when we return.
       }
     });
+
+    // Window focus and interaction listeners to ensure instant markRead when reading
+    window.addEventListener('focus', function() {
+      if (!document.hidden && activeDM) {
+        markRead(activeDM);
+      }
+    });
+
+    if (typeof messageInput !== 'undefined' && messageInput) {
+      messageInput.addEventListener('focus', function() {
+        if (!document.hidden && activeDM) {
+          markRead(activeDM);
+        }
+      });
+    }
+
+    if (typeof chatBox !== 'undefined' && chatBox) {
+      chatBox.addEventListener('click', function() {
+        if (!document.hidden && activeDM) {
+          markRead(activeDM);
+        }
+      });
+    }
 
     // Clean up WebSocket on page unload.
     // NOTE: 'pagehide' is used instead of 'beforeunload' — an unload/beforeunload

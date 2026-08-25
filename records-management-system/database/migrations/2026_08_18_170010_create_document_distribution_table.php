@@ -11,14 +11,8 @@ return new class extends Migration
     {
         Schema::create('dcs_document_distribution', function (Blueprint $table) {
             $table->id();
-            $table->foreignId('checklist_id')->nullable()
-                  ->constrained('dcs_checklist_types');
-            $table->foreignId('version_id')->nullable()
-                  ->constrained('dcs_version_type');
             $table->foreignId('request_id')->nullable()
                   ->constrained('dcs_document_requests');
-            $table->foreignId('doc_type_id')->nullable()
-                  ->constrained('dcs_doc_types');
             $table->date('doc_distribution_date_actual')->nullable();
             $table->time('doc_distribution_time_actual')->nullable();
             $table->date('doc_distribution_date_file')->nullable();

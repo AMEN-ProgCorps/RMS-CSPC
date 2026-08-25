@@ -158,9 +158,9 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                                         <a href="{{ $doc['history_url'] }}" class="upd-btn-icon" title="History"><i class="fa-solid fa-clock-rotate-left"></i></a>
                                     @endif
                                     @if(!empty($doc['can_delete']))
-                                        <button type="button" class="upd-btn-icon danger" title="Delete"
+                                        <button type="button" class="upd-btn-icon danger" title="Archive"
                                             wire:click="confirmDelete({{ $doc['request_id'] }}, @js($doc['title']), {{ $doc['rev_no'] }})">
-                                            <i class="fa-solid fa-trash"></i>
+                                            <i class="fa-solid fa-box-archive"></i>
                                         </button>
                                     @endif
                                 </div>
@@ -213,17 +213,18 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
     @teleport('body')
     <div id="deleteModal" class="upd-modal-overlay" style="display:flex;">
         <div class="upd-modal">
-            <div class="upd-modal-icon upd-modal-icon-recycle"><i class="fa-solid fa-recycle"></i></div>
-            <h3>Move to Recycle Bin?</h3>
+            <div class="upd-modal-icon upd-modal-icon-recycle"><i class="fa-solid fa-box-archive"></i></div>
+            <h3>Archive Document?</h3>
             <p>
-                This will move <strong>{{ $deleteTitle }}</strong> (Rev {{ $deleteRev }}) to the Recycle Bin.
-                The document will no longer appear in the Update list, but you can restore it later from
-                <a href="{{ route('dcs.recycle-bin', absolute: false) }}" class="upd-modal-link">Recycle Bin</a>.
+                This will archive <strong>{{ $deleteTitle }}</strong> (Rev {{ $deleteRev }}).
+                The document will no longer appear in the Update list, but it is not deleted —
+                you can restore it later from
+                <a href="{{ route('dcs.recycle-bin', absolute: false) }}" class="upd-modal-link">Archive</a>.
             </p>
             <div class="upd-modal-actions">
                 <button type="button" class="upd-modal-btn upd-modal-cancel" wire:click="closeDelete">Cancel</button>
                 <button type="button" class="upd-modal-btn upd-modal-confirm" wire:click="destroy" wire:loading.attr="disabled">
-                    <i class="fa-solid fa-trash-can"></i> Move to Recycle Bin
+                    <i class="fa-solid fa-box-archive"></i> Archive
                 </button>
             </div>
         </div>

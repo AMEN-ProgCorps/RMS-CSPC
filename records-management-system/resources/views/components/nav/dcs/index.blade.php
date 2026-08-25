@@ -122,9 +122,9 @@
         </li>
         <li class="nav-item {{ request()->routeIs('dcs.recycle-bin') ? 'active' : '' }}">
             <a href="{{ route('dcs.recycle-bin', absolute: false) }}">
-                <i class="fa-solid fa-recycle"></i>
-                <span>Recycle Bin</span>
-                <span class="tooltip">Recycle Bin</span>
+                <i class="fa-solid fa-box-archive"></i>
+                <span>Archive</span>
+                <span class="tooltip">Archive</span>
             </a>
         </li>
     </ul>

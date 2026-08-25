@@ -18,6 +18,8 @@ return new class extends Migration
             $table->string('program_code', 50);
             $table->string('program_name');
             $table->timestamps();
+
+            $table->unique(['college_id', 'program_code'], 'dcs_programs_college_code_unique');
         });
 
         DB::table('dcs_programs')->insert([

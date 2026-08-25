@@ -17,6 +17,8 @@ return new class extends Migration
             $table->unsignedInteger('office_id');
             $table->foreign('office_id')->references('id')->on('office')->cascadeOnDelete();
             $table->timestamps();
+
+            $table->unique(['document_request_form_id', 'office_id'], 'dcs_drf_offices_unique');
         });
     }
 

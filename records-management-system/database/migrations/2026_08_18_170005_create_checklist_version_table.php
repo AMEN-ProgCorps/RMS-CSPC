@@ -18,6 +18,8 @@ return new class extends Migration
             $table->foreignId('version_id')
                   ->constrained('dcs_version_type')
                   ->cascadeOnDelete();
+
+            $table->unique(['checklist_id', 'version_id'], 'dcs_checklist_version_unique');
         });
 
         DB::table('dcs_checklist_version')->insert([

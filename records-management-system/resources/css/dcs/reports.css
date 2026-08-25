@@ -239,24 +239,59 @@ body {
 
 /* ── Sub Tabs ── */
 .rpt-subs {
-    display: none; gap: 0; margin-bottom: var(--rpt-gap-lg);
+    display: none;
+    gap: 8px;
+    margin-bottom: var(--rpt-gap-lg);
     background: var(--rpt-surface);
     border: 1px solid var(--rpt-border-light);
     border-radius: var(--rpt-radius-lg);
     box-shadow: var(--rpt-shadow);
-    padding: 4px; overflow-x: auto;
+    padding: 10px 12px;
+    overflow-x: auto;
     -webkit-overflow-scrolling: touch;
 }
 .rpt-subs.visible { display: flex; animation: rptSlideDown 0.2s ease; }
 .rpt-sub {
-    padding: 8px 18px; border: none; border-radius: var(--rpt-radius);
-    font-family: inherit; font-size: 0.76rem; font-weight: 600;
-    color: var(--rpt-text-secondary); background: transparent;
-    cursor: pointer; transition: background 0.12s, color 0.12s; white-space: nowrap;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 36px;
+    padding: 8px 16px;
+    border: 1.5px solid var(--rpt-border);
+    border-radius: var(--rpt-radius);
+    font-family: inherit;
+    font-size: 0.78rem;
+    font-weight: 600;
+    color: var(--rpt-text);
+    background: var(--rpt-bg);
+    cursor: pointer;
+    white-space: nowrap;
     flex-shrink: 0;
+    box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
+    transition: background 0.15s, color 0.15s, border-color 0.15s, box-shadow 0.15s, transform 0.15s;
 }
-.rpt-sub:hover { background: var(--rpt-border-light); color: var(--rpt-text); }
-.rpt-sub.active { background: var(--rpt-accent); color: #fff; }
+.rpt-sub:hover {
+    background: var(--rpt-border-light);
+    border-color: #cbd5e1;
+    color: var(--rpt-text);
+    transform: translateY(-1px);
+    box-shadow: 0 2px 6px rgba(15, 23, 42, 0.08);
+}
+.rpt-sub:focus-visible {
+    outline: 2px solid var(--rpt-accent);
+    outline-offset: 2px;
+}
+.rpt-sub.active {
+    background: var(--rpt-accent);
+    border-color: var(--rpt-accent);
+    color: #fff;
+    box-shadow: 0 2px 8px rgba(13, 42, 122, 0.22);
+}
+.rpt-sub.active:hover {
+    background: var(--rpt-accent-hover);
+    border-color: var(--rpt-accent-hover);
+    color: #fff;
+}
 
 /* ── Date Presets ── */
 .rpt-presets {
@@ -865,11 +900,12 @@ body {
 
     /* Sub tabs — horizontal scroll */
     .rpt-subs {
-        gap: 0;
+        gap: 6px;
         margin-bottom: 14px;
-        padding: 3px;
+        padding: 8px 10px;
     }
     .rpt-sub {
+        min-height: 34px;
         padding: 7px 14px;
         font-size: 0.72rem;
     }
@@ -1185,8 +1221,11 @@ body {
     }
     .rpt-subs {
         margin-bottom: 10px;
+        gap: 6px;
+        padding: 6px 8px;
     }
     .rpt-sub {
+        min-height: 30px;
         padding: 5px 12px;
     }
     .rpt-table-scroll {

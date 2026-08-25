@@ -42,6 +42,8 @@ class SyllabiMonitoringHelper
             'rows' => [],
             'totals' => self::emptyTotals(),
             'meta' => [],
+            'deadlines' => [],
+            'remarks_enabled' => false,
         ];
 
         if (! $collegeId || ! $schoolYearId || ! $semesterId) {
@@ -53,6 +55,12 @@ class SyllabiMonitoringHelper
         $semester = DB::table('dcs_semesters')->where('id', $semesterId)->first();
         if (! $college || ! $schoolYear || ! $semester) {
             return $empty;
+        }
+
+        $deadlines = self::availableDeadlines($collegeId, $schoolYearId, $semesterId);
+        // Only accept a deadline that exists on syllabi masterlist rows for this filter set.
+        if ($deadline && ! in_array($deadline, $deadlines, true)) {
+            $deadline = null;
         }
 
         $programs = DB::table('dcs_programs')
@@ -79,6 +87,7 @@ class SyllabiMonitoringHelper
 
         $rows = [];
         $totals = self::emptyTotals();
+        $remarksEnabled = $deadline !== null && $deadline !== '';
 
         foreach ($programs as $program) {
             $catalog = $coursesByProgram->get($program->id, collect());
@@ -143,7 +152,9 @@ class SyllabiMonitoringHelper
                 ->values()
                 ->all();
 
-            $saved = self::savedStatuses($collegeId, $schoolYearId, $semesterId, (int) $program->id, $deadline);
+            $saved = $remarksEnabled
+                ? self::savedStatuses($collegeId, $schoolYearId, $semesterId, (int) $program->id, $deadline)
+                : [];
             $syllabiStatus = $saved['syllabi'] ?? self::suggestStatus($syllabiActual, $target, $syllabiSubs, $deadline);
             $tosStatus = $saved['tos'] ?? self::suggestStatus($tosActual, $tosTarget, $tosSubs, $deadline);
 
@@ -201,6 +212,8 @@ class SyllabiMonitoringHelper
             'ready' => true,
             'rows' => $rows,
             'totals' => $totals,
+            'deadlines' => $deadlines,
+            'remarks_enabled' => $remarksEnabled,
             'meta' => [
                 'college' => $college->college_name,
                 'college_code' => $college->college_code,
@@ -209,6 +222,39 @@ class SyllabiMonitoringHelper
                 'deadline' => $deadline ? self::formatDate($deadline) : null,
             ],
         ];
+    }
+
+    /**
+     * Distinct masterlist deadlines from syllabi registrations for this college/year/semester.
+     *
+     * @return list<string> Y-m-d dates
+     */
+    public static function availableDeadlines(int $collegeId, int $schoolYearId, int $semesterId): array
+    {
+        $query = DB::table('dcs_syllabi as s')
+            ->join('dcs_masterlist_registration as ml', 'ml.request_id', '=', 's.request_id')
+            ->where('s.college_id', $collegeId)
+            ->where('s.school_year_id', $schoolYearId)
+            ->where('s.semester_id', $semesterId)
+            ->whereNotNull('ml.deadline');
+
+        if (Schema::hasColumn('dcs_document_requests', 'deleted_at')) {
+            $query->join('dcs_document_requests as dr', 'dr.id', '=', 's.request_id')
+                ->whereNull('dr.deleted_at');
+        }
+
+        if (Schema::hasColumn('dcs_masterlist_registration', 'revision_status')) {
+            $query->where('ml.revision_status', '!=', 'obsolete');
+        }
+
+        return $query
+            ->orderBy('ml.deadline')
+            ->distinct()
+            ->pluck('ml.deadline')
+            ->map(fn ($d) => Carbon::parse($d)->format('Y-m-d'))
+            ->unique()
+            ->values()
+            ->all();
     }
 
     private static function loadSubmissions(int $collegeId, int $schoolYearId, int $semesterId, ?string $deadline)
@@ -282,13 +328,23 @@ class SyllabiMonitoringHelper
             return;
         }
 
+        // Remarks are always scoped to a real syllabi masterlist deadline.
+        $deadline = $deadline ? Carbon::parse($deadline)->format('Y-m-d') : null;
+        if (! $deadline) {
+            return;
+        }
+        $allowed = self::availableDeadlines($collegeId, $schoolYearId, $semesterId);
+        if (! in_array($deadline, $allowed, true)) {
+            return;
+        }
+
         $keys = [
             'college_id' => $collegeId,
             'school_year_id' => $schoolYearId,
             'semester_id' => $semesterId,
             'program_id' => $programId,
             'section' => $section === 'tos' ? 'tos' : 'syllabi',
-            'deadline' => $deadline ?: null,
+            'deadline' => $deadline,
         ];
 
         $existing = DB::table('dcs_syllabi_monitoring_status')->where($keys)->first();
@@ -315,25 +371,20 @@ class SyllabiMonitoringHelper
         ]);
     }
 
-    private static function savedStatuses(int $collegeId, int $schoolYearId, int $semesterId, int $programId, ?string $deadline): array
+    private static function savedStatuses(int $collegeId, int $schoolYearId, int $semesterId, int $programId, string $deadline): array
     {
         if (! Schema::hasTable('dcs_syllabi_monitoring_status')) {
             return [];
         }
 
-        $query = DB::table('dcs_syllabi_monitoring_status')
+        return DB::table('dcs_syllabi_monitoring_status')
             ->where('college_id', $collegeId)
             ->where('school_year_id', $schoolYearId)
             ->where('semester_id', $semesterId)
-            ->where('program_id', $programId);
-
-        if ($deadline) {
-            $query->whereDate('deadline', $deadline);
-        } else {
-            $query->whereNull('deadline');
-        }
-
-        return $query->pluck('status', 'section')->all();
+            ->where('program_id', $programId)
+            ->whereDate('deadline', $deadline)
+            ->pluck('status', 'section')
+            ->all();
     }
 
     private static function suggestStatus(int $actual, int $target, $subs, ?string $deadline): string

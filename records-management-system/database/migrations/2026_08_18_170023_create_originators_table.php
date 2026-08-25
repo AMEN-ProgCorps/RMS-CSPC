@@ -28,10 +28,19 @@ return new class extends Migration
             ['originator_name' => 'Rain Gerarnd',      'created_at' => now(), 'updated_at' => now()],
             ['originator_name' => 'Troy Husley',       'created_at' => now(), 'updated_at' => now()],
         ]);
+
+        Schema::table('dcs_masterlist_registration', function (Blueprint $table) {
+            $table->foreignId('originator_id')->nullable()->after('originator_name')
+                  ->constrained('dcs_originators')->nullOnDelete();
+        });
     }
 
     public function down(): void
     {
+        Schema::table('dcs_masterlist_registration', function (Blueprint $table) {
+            $table->dropConstrainedForeignId('originator_id');
+        });
+
         Schema::dropIfExists('dcs_originators');
     }
 };

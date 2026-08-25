@@ -279,6 +279,11 @@ new #[Layout('layouts.dcs')] class extends Component {
 
         if ($this->editingId) {
             DB::table('dcs_originators')->where('id', $this->editingId)->update(['originator_name' => $this->originatorName]);
+            if (Schema::hasColumn('dcs_masterlist_registration', 'originator_id')) {
+                DB::table('dcs_masterlist_registration')
+                    ->where('originator_id', $this->editingId)
+                    ->update(['originator_name' => $this->originatorName]);
+            }
             $this->done('Originator updated.');
             return;
         }
@@ -309,6 +314,11 @@ new #[Layout('layouts.dcs')] class extends Component {
         $payload = ['faculty_name' => $this->facultyName, 'college_id' => $collegeId];
         if ($this->editingId) {
             DB::table('dcs_faculties')->where('id', $this->editingId)->update($payload);
+            if (Schema::hasTable('dcs_syllabi_drf') && Schema::hasColumn('dcs_syllabi_drf', 'faculty_id')) {
+                DB::table('dcs_syllabi_drf')
+                    ->where('faculty_id', $this->editingId)
+                    ->update(['faculty_name' => $this->facultyName]);
+            }
             $this->done('Faculty updated.');
             return;
         }
@@ -380,13 +390,18 @@ new #[Layout('layouts.dcs')] class extends Component {
         $this->validate([
             'collegeId' => 'required|integer|exists:dcs_colleges,id',
             'programName' => 'required|string|max:255',
-            'programCode' => 'nullable|string|max:20',
+            'programCode' => [
+                'required', 'string', 'max:50',
+                Rule::unique('dcs_programs', 'program_code')
+                    ->where(fn ($q) => $q->where('college_id', (int) $this->collegeId))
+                    ->ignore($this->editingId, 'id'),
+            ],
         ]);
 
         $payload = [
             'college_id' => (int) $this->collegeId,
             'program_name' => $this->programName,
-            'program_code' => $this->programCode !== '' ? $this->programCode : null,
+            'program_code' => $this->programCode,
         ];
 
         if ($this->editingId) {

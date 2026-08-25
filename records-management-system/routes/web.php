@@ -423,6 +423,8 @@ Route::middleware(['auth'])
 
             Route::get('/register/check-docno', fn (Request $request) => response()->json(RegisterQueryHelper::checkDocNo($request)))
                 ->name('register.checkDocNo');
+            Route::get('/register/check-revno', fn (Request $request) => response()->json(RegisterQueryHelper::checkRevNo($request)))
+                ->name('register.checkRevNo');
             Route::post('/register/extract-scan', fn (Request $request) => response()->json(RegisterScanService::extract($request)))
                 ->name('register.extractScan');
 

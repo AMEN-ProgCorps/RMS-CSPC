@@ -63,6 +63,9 @@ body {
     margin-bottom: clamp(20px, 2vw, 28px);
     flex-wrap: wrap;
     gap: 12px;
+    position: relative;
+    z-index: 70;
+    overflow: visible;
 }
 
 .header-greeting {
@@ -212,7 +215,7 @@ body {
     overflow-y: auto;
     flex: 1;
     min-height: 0;
-    background: #fafbfc;
+    background: var(--dash-bg);
 }
 
 .dash-search-item {
@@ -223,7 +226,7 @@ body {
 }
 
 .dash-search-item:nth-child(even) {
-    background: #fbfcfe;
+    background: var(--dash-surface-hover, #fbfcfe);
 }
 
 .dash-search-item:last-child {
@@ -270,11 +273,17 @@ body {
     animation: modalSlideUp 0.22s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
+.dash-detail-modal > .dash-cl-modal-head,
+.dash-detail-modal > .dash-cl-modal-foot {
+    flex-shrink: 0;
+}
+
 .dash-detail-body {
     display: grid;
     grid-template-columns: 1fr 200px;
-    min-height: 280px;
-    max-height: min(60vh, 520px);
+    flex: 1 1 auto;
+    min-height: 0;
+    max-height: none;
     overflow: hidden;
 }
 
@@ -282,6 +291,8 @@ body {
     display: flex;
     flex-direction: column;
     min-width: 0;
+    min-height: 0;
+    overflow: hidden;
     border-right: 1px solid var(--dash-border-light);
 }
 
@@ -292,17 +303,20 @@ body {
     padding: 12px 16px;
     border-bottom: 1px solid var(--dash-border-light);
     background: #fafbfc;
+    flex-shrink: 0;
 }
 
 .dash-detail-preview {
     overflow-y: auto;
     flex: 1;
+    min-height: 0;
 }
 
 .dash-detail-revisions {
     padding: 14px 12px;
     overflow-y: auto;
     background: #fafbfc;
+    min-height: 0;
 }
 
 .dash-detail-revisions h4 {
@@ -327,18 +341,20 @@ body {
     gap: 2px;
     width: 100%;
     padding: 8px 10px;
-    border: 1px solid var(--dash-border);
+    border: 1.5px solid var(--dash-border);
     border-radius: 6px;
     background: var(--dash-surface);
     cursor: pointer;
     text-align: left;
-    transition: border-color 0.15s ease, background 0.15s ease;
+    box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
+    transition: border-color 0.15s ease, background 0.15s ease, box-shadow 0.15s ease;
 }
 
 .dash-detail-rev-btn:hover,
 .dash-detail-rev-btn.is-active {
     border-color: var(--dash-accent);
     background: var(--dash-accent-subtle);
+    box-shadow: 0 2px 6px rgba(13, 42, 122, 0.12);
 }
 
 .dash-detail-rev-no {
@@ -450,7 +466,7 @@ body {
     text-transform: uppercase;
     color: var(--dash-accent);
     background: var(--dash-accent-subtle);
-    border: 1px solid #dbe4ff;
+    border: 1px solid var(--dash-border);
     padding: 3px 8px;
     border-radius: 4px;
     margin-bottom: 6px;
@@ -489,7 +505,7 @@ body {
 }
 
 .dash-search-rev {
-    background: #f1f5f9;
+    background: var(--dash-surface-hover, #f1f5f9);
     color: var(--dash-text-muted);
     border: 1px solid var(--dash-border);
     padding: 4px 10px;
@@ -526,25 +542,36 @@ body {
 }
 
 .dash-cl-btn {
-    border: 1px solid var(--dash-border);
-    background: var(--dash-surface);
-    color: var(--dash-text-muted);
+    border: 1.5px solid var(--dash-border);
+    background: var(--dash-bg, #f1f5f9);
+    color: var(--dash-text);
     font-size: 0.68rem;
     font-weight: 700;
     letter-spacing: 0.05em;
     text-transform: uppercase;
-    padding: 7px 12px;
-    border-radius: 4px;
+    padding: 8px 14px;
+    min-height: 34px;
+    border-radius: 6px;
     cursor: pointer;
-    transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease, box-shadow 0.15s ease;
+    box-shadow: 0 1px 2px rgba(15, 23, 42, 0.05);
+    transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease, box-shadow 0.15s ease, transform 0.15s ease;
 }
 
-.dash-cl-btn:hover,
-.dash-cl-btn.is-active {
+.dash-cl-btn:hover {
+    background: var(--dash-border-light, #e2e8f0);
+    border-color: #cbd5e1;
+    color: var(--dash-text);
+    transform: translateY(-1px);
+    box-shadow: 0 2px 6px rgba(15, 23, 42, 0.08);
+}
+
+.dash-cl-btn.is-active,
+.dash-cl-btn.is-active:hover {
     background: var(--dash-accent);
     border-color: var(--dash-accent);
     color: #fff;
-    box-shadow: 0 1px 2px rgba(13, 42, 122, 0.18);
+    box-shadow: 0 2px 8px rgba(13, 42, 122, 0.22);
+    transform: none;
 }
 
 body.dash-cl-open {
@@ -557,6 +584,7 @@ body.dash-cl-open {
     z-index: 2000;
     background: rgba(15, 23, 42, 0.55);
     backdrop-filter: blur(2px);
+    -webkit-backdrop-filter: blur(2px);
     display: flex;
     align-items: center;
     justify-content: center;
@@ -684,7 +712,7 @@ body.dash-cl-open {
 }
 
 .dash-cl-section {
-    padding: 16px 20px 0;
+    padding: 16px 20px 20px;
     border-top: 1px solid var(--dash-border-light);
 }
 
@@ -706,6 +734,66 @@ body.dash-cl-open {
 
 .dash-cl-list li + li {
     margin-top: 4px;
+}
+
+.dash-cl-office-wrap {
+    margin: 0;
+    max-height: min(280px, 40vh);
+    overflow: auto;
+    border: 1px solid var(--dash-border-light);
+    border-radius: 8px;
+    background: var(--dash-surface);
+    -webkit-overflow-scrolling: touch;
+}
+
+.dash-cl-office-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.82rem;
+}
+
+.dash-cl-office-table thead th {
+    position: sticky;
+    top: 0;
+    z-index: 1;
+    background: #f1f5f9;
+    color: var(--dash-text-subtle);
+    font-size: 0.68rem;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    text-align: left;
+    padding: 8px 12px;
+    border-bottom: 1px solid var(--dash-border-light);
+}
+
+.dash-cl-office-table td {
+    padding: 8px 12px;
+    color: var(--dash-text);
+    border-bottom: 1px solid var(--dash-border-light);
+    vertical-align: top;
+}
+
+.dash-cl-office-table tbody tr:last-child td {
+    border-bottom: none;
+}
+
+.dash-cl-office-col-name {
+    width: auto;
+    word-break: break-word;
+}
+
+.dash-cl-office-col-copies {
+    width: 88px;
+    min-width: 72px;
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+    font-weight: 600;
+    white-space: nowrap;
+}
+
+.dash-cl-office-table thead .dash-cl-office-col-copies {
+    text-align: right;
 }
 
 .dash-cl-revisions {
@@ -789,6 +877,9 @@ body.dash-cl-open {
     padding: 14px 20px;
     border-top: 1px solid var(--dash-border-light);
     background: #fafbfc;
+    flex-shrink: 0;
+    position: relative;
+    z-index: 2;
 }
 
 .dash-cl-close-btn {
@@ -819,6 +910,8 @@ body.dash-cl-open {
     display: block;
     width: 100%;
     max-width: none;
+    min-width: 0;
+    transition: none;
 }
 
 .dashboard-content-wrapper--full .main-column {
@@ -828,6 +921,12 @@ body.dash-cl-open {
 
 .main-column {
     min-width: 0;
+    width: 100%;
+}
+
+.dash-calendar-shell {
+    position: relative;
+    z-index: 70;
     width: 100%;
 }
 
@@ -853,11 +952,85 @@ body.dash-cl-open {
 
 .dash-calendar-chevron {
     font-size: 11px;
-    transition: transform 0.2s ease;
+    transition: transform 0.28s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 .dash-calendar-chevron.is-open {
     transform: rotate(180deg);
+}
+
+/* Content left + calendar right; content shrinks when open */
+.dash-body {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 0fr;
+    column-gap: 0;
+    align-items: start;
+    width: 100%;
+}
+
+.dash-body.is-ready {
+    transition:
+        grid-template-columns 0.48s cubic-bezier(0.22, 1, 0.36, 1),
+        column-gap 0.48s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.dash-body.is-calendar-open {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 340px);
+    column-gap: clamp(12px, 1.5vw, 18px);
+}
+
+.dash-calendar-panel {
+    overflow: hidden;
+    min-width: 0;
+    position: sticky;
+    top: 0;
+    align-self: start;
+}
+
+.dash-calendar-panel-inner {
+    width: 340px;
+    max-width: 100%;
+    display: grid;
+    grid-template-rows: 0fr;
+}
+
+.dash-body.is-ready .dash-calendar-panel-inner {
+    transition: grid-template-rows 0.48s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.dash-body.is-calendar-open .dash-calendar-panel-inner {
+    grid-template-rows: 1fr;
+}
+
+.dash-calendar-dropdown {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    width: 100%;
+    min-height: 0;
+    overflow: hidden;
+    padding: 2px 2px 8px;
+    opacity: 0;
+    transform: translateY(-18px);
+    transform-origin: top center;
+    pointer-events: none;
+}
+
+.dash-body.is-ready .dash-calendar-dropdown {
+    transition:
+        opacity 0.36s cubic-bezier(0.22, 1, 0.36, 1),
+        transform 0.48s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.dash-body.is-calendar-open .dash-calendar-dropdown {
+    opacity: 1;
+    transform: translateY(0);
+    pointer-events: auto;
+    transition-delay: 0.06s;
+}
+
+.dash-body.is-ready:not(.is-calendar-open) .dash-calendar-dropdown {
+    transition-delay: 0s;
 }
 
 .dash-calendar-portal {
@@ -869,21 +1042,9 @@ body.dash-cl-open {
 .dash-calendar-backdrop {
     position: absolute;
     inset: 0;
-    background: rgba(15, 23, 42, 0.35);
-}
-
-.dash-calendar-dropdown {
-    position: absolute;
-    top: 72px;
-    right: clamp(16px, 3vw, 32px);
-    width: min(420px, calc(100vw - 32px));
-    max-height: calc(100vh - 96px);
-    overflow-y: auto;
-    z-index: 1;
-    display: flex;
-    flex-direction: column;
-    gap: 14px;
-    padding: 4px;
+    background: rgba(15, 23, 42, 0.55);
+    backdrop-filter: blur(2px);
+    -webkit-backdrop-filter: blur(2px);
 }
 
 .dash-event-layer {
@@ -901,7 +1062,8 @@ body.dash-cl-open {
     position: relative;
     width: min(440px, 100%);
     max-height: min(86vh, calc(100vh - 120px));
-    overflow: auto;
+    overflow-x: visible;
+    overflow-y: auto;
     pointer-events: auto;
     padding: 0;
     background: var(--dash-surface);
@@ -1942,6 +2104,20 @@ body.dash-cl-open {
         grid-template-columns: 1fr;
     }
 
+    .dash-body.is-calendar-open {
+        grid-template-columns: 1fr;
+        column-gap: 14px;
+    }
+
+    .dash-calendar-panel-inner {
+        width: 100%;
+    }
+
+    .dash-body.is-calendar-open .dash-calendar-dropdown {
+        display: grid;
+        grid-template-columns: minmax(240px, 1fr) minmax(220px, 1fr);
+    }
+
     .side-column {
         display: grid;
         grid-template-columns: repeat(2, 1fr);
@@ -1978,6 +2154,16 @@ body.dash-cl-open {
 
 /* ── Large phones ── */
 @media (max-width: 640px) {
+    .dash-body.is-calendar-open {
+        grid-template-columns: 1fr;
+    }
+
+    .dash-body.is-calendar-open .dash-calendar-dropdown {
+        grid-template-columns: 1fr;
+        display: flex;
+        flex-direction: column;
+    }
+
     .dash-detail-body {
         grid-template-columns: 1fr;
     }

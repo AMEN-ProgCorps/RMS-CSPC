@@ -14,10 +14,6 @@ return new class extends Migration
             $table->foreignId('request_id')
                   ->constrained('dcs_document_requests')
                   ->cascadeOnDelete();
-            $table->foreignId('doc_type_id')
-                  ->nullable()
-                  ->constrained('dcs_doc_types')
-                  ->nullOnDelete();
             $table->foreignId('college_id')->nullable()
                   ->constrained('dcs_colleges')
                   ->nullOnDelete();

@@ -445,7 +445,7 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
 
         $isDeleted = ! empty($doc->deleted_at);
         $status = $isDeleted
-            ? 'Deleted'
+            ? 'Archived'
             : $this->revisionStatusLabel($ml?->revision_status ?? null);
 
         return [
@@ -509,8 +509,10 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
     }
 
     /**
-     * Fold prior doc-no families into the current number's group via revised_from_doc_no.
-     * Walks the full chain (e.g. 10234 → 1023 → 102) so every prior number appears as an obsolete child.
+     * Fold prior doc-no families into the current tip via revised_from_doc_no.
+     * Uses any family member's link (not only the Latest tip) so unlimited
+     * same-number revises after a renumber still keep one document group.
+     * Walks the full chain (e.g. 10234 → 1023 → 102).
      */
     private function mergeRenumberLineageGroups(\Illuminate\Support\Collection $groups): \Illuminate\Support\Collection
     {
@@ -525,38 +527,30 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
             $byKey[$key] = $i;
         }
 
-        // Doc keys that are the "previous" side of a renumber link — they belong under a newer tip.
+        // Prior doc keys absorbed under a newer tip (from any member's revised_from).
         $targetKeys = [];
         foreach ($indexed as $g) {
-            $from = trim((string) ($g['parent']['revised_from_doc_no'] ?? ''));
-            if ($from === '') {
-                continue;
+            foreach ($this->lineageFromNosForGroup($g) as $from) {
+                $targetKeys[$this->renumberGroupKey($from, $g['doc_type_id'] ?? 0, $g['sub_type_id'] ?? 0)] = true;
             }
-            $targetKeys[$this->renumberGroupKey($from, $g['doc_type_id'] ?? 0, $g['sub_type_id'] ?? 0)] = true;
         }
 
         $merged = collect();
         foreach ($indexed as $i => $g) {
             $key = $this->renumberGroupKey($g['doc_no'] ?? '', $g['doc_type_id'] ?? 0, $g['sub_type_id'] ?? 0);
             if (isset($targetKeys[$key])) {
-                // Absorbed into a newer renumber tip; skip as top-level.
                 continue;
             }
 
             $children = collect($g['children'] ?? [])->all();
             $seen = [$key => true];
-            $cursor = $g;
+            $queue = $this->lineageFromNosForGroup($g);
 
-            // Walk revised_from_doc_no backward: 10234 → 1023 → 102 → …
-            while (true) {
-                $from = trim((string) ($cursor['parent']['revised_from_doc_no'] ?? ''));
-                if ($from === '') {
-                    break;
-                }
-
+            while ($queue !== []) {
+                $from = array_shift($queue);
                 $priorKey = $this->renumberGroupKey($from, $g['doc_type_id'] ?? 0, $g['sub_type_id'] ?? 0);
-                if (isset($seen[$priorKey]) || !isset($byKey[$priorKey])) {
-                    break;
+                if (isset($seen[$priorKey]) || ! isset($byKey[$priorKey])) {
+                    continue;
                 }
                 $seen[$priorKey] = true;
 
@@ -570,19 +564,41 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                     $children[] = $child;
                 }
 
-                $cursor = $prior;
+                foreach ($this->lineageFromNosForGroup($prior) as $nextFrom) {
+                    $queue[] = $nextFrom;
+                }
             }
 
             usort($children, fn ($a, $b) => ((int) ($b['rev_no'] ?? 0)) <=> ((int) ($a['rev_no'] ?? 0)));
 
             $g['children'] = $children;
-            $g['has_revisions'] = !empty($children);
+            $g['has_revisions'] = ! empty($children);
             $g['revision_count'] = 1 + count($children);
             $g['obsolete_count'] = count($children);
             $merged->push($g);
         }
 
         return $merged->values();
+    }
+
+    /** @return list<string> Distinct prior doc nos linked from any row in this group. */
+    private function lineageFromNosForGroup(array $g): array
+    {
+        $fromNos = [];
+        $ownNo = strtolower(trim((string) ($g['doc_no'] ?? '')));
+        $members = array_merge([$g['parent'] ?? []], $g['children'] ?? []);
+        foreach ($members as $row) {
+            $from = trim((string) ($row['revised_from_doc_no'] ?? ''));
+            if ($from === '') {
+                continue;
+            }
+            if ($ownNo !== '' && strcasecmp($from, (string) ($g['doc_no'] ?? '')) === 0) {
+                continue;
+            }
+            $fromNos[strtolower($from)] = $from;
+        }
+
+        return array_values($fromNos);
     }
 
     private function renumberGroupKey(mixed $docNo, mixed $docTypeId, mixed $subTypeId): string
@@ -955,7 +971,7 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                             @php $lastCategory = $catName; @endphp
                         @endif
 
-                        <tr class="db-parent-row @if(!empty($r['is_deleted'])) db-deleted-row @endif" x-show="categories['{{ $catSlug }}']" @if(!empty($r['is_deleted'])) title="Moved to Recycle Bin{{ !empty($r['deleted_at']) ? ' on ' . $r['deleted_at'] : '' }}" @endif>
+                        <tr class="db-parent-row @if(!empty($r['is_deleted'])) db-deleted-row @endif" x-show="categories['{{ $catSlug }}']" @if(!empty($r['is_deleted'])) title="Moved to Archive{{ !empty($r['deleted_at']) ? ' on ' . $r['deleted_at'] : '' }}" @endif>
                             <td>
                                 @if(!empty($group['children']))
                                     <span class="db-expand-btn" :class="{ expanded: expandedRevs['{{ $revKey }}'] }" x-on:click.stop="toggleRev('{{ $revKey }}')" title="Show older revisions" x-text="expandedRevs['{{ $revKey }}'] ? '▼' : '▶'"></span>
@@ -995,7 +1011,7 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                                 $showChildNumber = $revisionStatus === 'obsolete' || $flatView
                                     || strcasecmp((string) ($child['doc_no'] ?? ''), (string) ($group['doc_no'] ?? '')) !== 0;
                             @endphp
-                            <tr class="db-child-row @if(!empty($child['is_deleted'])) db-deleted-row @endif" x-show="categories['{{ $catSlug }}'] && expandedRevs['{{ $revKey }}']" @if(!empty($child['is_deleted'])) title="Moved to Recycle Bin{{ !empty($child['deleted_at']) ? ' on ' . $child['deleted_at'] : '' }}" @endif>
+                            <tr class="db-child-row @if(!empty($child['is_deleted'])) db-deleted-row @endif" x-show="categories['{{ $catSlug }}'] && expandedRevs['{{ $revKey }}']" @if(!empty($child['is_deleted'])) title="Moved to Archive{{ !empty($child['deleted_at']) ? ' on ' . $child['deleted_at'] : '' }}" @endif>
                                 <td class="db-child-ind">
                                     <span class="db-child-dot"></span>@if($showChildNumber){{ $itemNo }}.{{ $ci + 1 }}@endif
                                 </td>

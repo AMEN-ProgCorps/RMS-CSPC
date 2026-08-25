@@ -101,6 +101,7 @@
     --dash-accent-light: var(--dcs-accent-light);
     --dash-accent-subtle: var(--dcs-accent-subtle);
     --dash-surface: var(--dcs-surface);
+    --dash-surface-hover: var(--dcs-surface-hover);
     --dash-bg: var(--dcs-bg);
     --dash-border: var(--dcs-border);
     --dash-border-light: var(--dcs-border-light);
@@ -259,6 +260,24 @@
     --set-radius-sm: var(--dcs-radius-sm);
     --set-shadow: var(--dcs-shadow);
     --set-shadow-hover: var(--dcs-shadow-hover);
+
+    /* Archive (recycle bin) */
+    --rb-accent: var(--dcs-accent);
+    --rb-accent-hover: var(--dcs-accent-hover);
+    --rb-accent-subtle: var(--dcs-accent-subtle);
+    --rb-bg: var(--dcs-bg);
+    --rb-surface: var(--dcs-surface);
+    --rb-surface-hover: var(--dcs-surface-hover);
+    --rb-border: var(--dcs-border);
+    --rb-border-strong: var(--dcs-border-strong);
+    --rb-text: var(--dcs-text);
+    --rb-text-muted: var(--dcs-text-muted);
+    --rb-text-subtle: var(--dcs-text-subtle);
+    --rb-green: var(--dcs-green);
+    --rb-green-bg: var(--dcs-green-bg);
+    --rb-red: var(--dcs-red);
+    --rb-red-bg: var(--dcs-red-bg);
+    --rb-shadow: var(--dcs-shadow);
 }
 
 /* Dark mode — align with shared RMS theme tokens (dashboard.css). */
@@ -328,7 +347,8 @@
 .settings-breadcrumb,
 .db-breadcrumb,
 .st-breadcrumb,
-.rpt-crumb {
+.rpt-crumb,
+.rb-container .upd-breadcrumb {
     font-size: var(--dcs-crumb-size);
     color: var(--dcs-text-subtle);
     font-weight: 400;
@@ -340,7 +360,8 @@
 .settings-breadcrumb span,
 .db-breadcrumb span,
 .st-breadcrumb span,
-.rpt-crumb span {
+.rpt-crumb span,
+.rb-container .upd-breadcrumb span {
     font-weight: 600;
     color: var(--dcs-text-secondary);
 }
@@ -369,7 +390,8 @@
 .rpt-page,
 .upd-container,
 .hst-container,
-.drr-container {
+.drr-container,
+.rb-container {
     animation: fadeInUp var(--dcs-page-in) both;
 }
 
@@ -382,7 +404,8 @@
     .rpt-page,
     .upd-container,
     .hst-container,
-    .drr-container {
+    .drr-container,
+    .rb-container {
         animation: none;
     }
 }

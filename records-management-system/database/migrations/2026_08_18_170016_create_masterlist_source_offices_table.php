@@ -18,6 +18,7 @@ return new class extends Migration
             $table->foreign('office_id')->references('id')->on('office')->nullOnDelete();
             $table->timestamps();
             $table->index('masterlist_id');
+            $table->unique(['masterlist_id', 'office_id'], 'dcs_ml_source_offices_unique');
         });
     }
 

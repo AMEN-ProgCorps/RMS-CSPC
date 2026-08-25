@@ -36,10 +36,20 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
         $semesterId = $this->semesterId !== '' ? (int) $this->semesterId : null;
         $deadline = $this->deadline !== '' ? $this->deadline : null;
 
+        $deadlines = ($collegeId && $schoolYearId && $semesterId)
+            ? SyllabiMonitoringHelper::availableDeadlines($collegeId, $schoolYearId, $semesterId)
+            : [];
+
+        if ($deadline && ! in_array($deadline, $deadlines, true)) {
+            $this->deadline = '';
+            $deadline = null;
+        }
+
         return [
             'colleges' => DB::table('dcs_colleges')->orderBy('college_name')->get(['id', 'college_code', 'college_name']),
             'schoolYears' => DB::table('dcs_school_years')->orderBy('school_year', 'desc')->get(['id', 'school_year']),
             'semesters' => DB::table('dcs_semesters')->orderBy('id')->get(['id', 'semester_name']),
+            'deadlines' => $deadlines,
             'report' => SyllabiMonitoringHelper::build($collegeId, $schoolYearId, $semesterId, $deadline),
         ];
     }
@@ -83,15 +93,20 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                 </select>
             </div>
             <div class="rpt-filter-group">
-                <label>Deadline</label>
-                <input type="date" wire:model.live="deadline">
+                <label>Deadline (from syllabi)</label>
+                <select wire:model.live="deadline" @disabled(count($deadlines) === 0)>
+                    <option value="">All deadlines</option>
+                    @foreach($deadlines as $d)
+                        <option value="{{ $d }}">{{ \Carbon\Carbon::parse($d)->format('M d, Y') }}</option>
+                    @endforeach
+                </select>
             </div>
         </div>
     </section>
 
     @if(! $report['ready'])
         <section class="rpt-state-pick">
-            <p class="rpt-template-status">Select a college, academic year, and semester to load the monitoring table. Deadline is optional and filters submissions to that deadline date.</p>
+            <p class="rpt-template-status">Select a college, academic year, and semester to load the monitoring table. Pick a syllabus deadline to filter that cohort and save remarks.</p>
         </section>
     @else
         <section class="rpt-results">
@@ -102,6 +117,10 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                         {{ count($report['rows']) }} programs
                         @if($report['meta']['deadline'])
                             · Deadline {{ $report['meta']['deadline'] }}
+                        @elseif(count($deadlines) === 0)
+                            · No syllabus deadlines registered yet
+                        @else
+                            · Select a deadline to save remarks
                         @endif
                     </span>
                 </div>
@@ -183,6 +202,7 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                                 <td x-show="openDetail">{{ $row['drf_received'] !== '' ? $row['drf_received'] : '—' }}</td>
                                 <td x-show="openDetail">
                                     <select class="mon-remark mon-remark-{{ $row['syllabi_status'] ?: 'empty' }}"
+                                        @disabled(! $report['remarks_enabled'])
                                         wire:change="saveRemark({{ $row['program_id'] }}, 'syllabi', $event.target.value)">
                                         <option value="">Select</option>
                                         @foreach(\App\Helpers\SyllabiMonitoringHelper::REMARKS as $value => $label)
@@ -194,6 +214,7 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                                 <td class="mon-ratio">{{ $row['tos_drf_label'] }}</td>
                                 <td>
                                     <select class="mon-remark mon-remark-{{ $row['tos_status'] ?: 'empty' }}"
+                                        @disabled(! $report['remarks_enabled'])
                                         wire:change="saveRemark({{ $row['program_id'] }}, 'tos', $event.target.value)">
                                         <option value="">Select</option>
                                         @foreach(\App\Helpers\SyllabiMonitoringHelper::REMARKS as $value => $label)

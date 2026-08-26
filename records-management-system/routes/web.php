@@ -153,6 +153,88 @@ Route::get('/auth/google/callback', function () use ($resolveGoogleSsoCredential
     }
 })->name('auth.google.callback');
 
+// ── Google OAuth SSO for Public Document Tracking ───────────────────────────
+$resolveGoogleTrackingSsoCredentials = function () {
+    $clientId = \Illuminate\Support\Facades\DB::table('system_settings')->where('key', 'google_tracking_sso_client_id')->value('value')
+        ?: config('services.google_tracking.client_id')
+        ?: env('GOOGLE_TRACKING_CLIENT_ID')
+        ?: \Illuminate\Support\Facades\DB::table('system_settings')->where('key', 'google_sso_client_id')->value('value')
+        ?: config('services.google.client_id')
+        ?: env('GOOGLE_CLIENT_ID');
+
+    $clientSecret = \Illuminate\Support\Facades\DB::table('system_settings')->where('key', 'google_tracking_sso_client_secret')->value('value')
+        ?: config('services.google_tracking.client_secret')
+        ?: env('GOOGLE_TRACKING_CLIENT_SECRET')
+        ?: \Illuminate\Support\Facades\DB::table('system_settings')->where('key', 'google_sso_client_secret')->value('value')
+        ?: config('services.google.client_secret')
+        ?: env('GOOGLE_CLIENT_SECRET');
+
+    $dbRedirect = \Illuminate\Support\Facades\DB::table('system_settings')->where('key', 'google_tracking_sso_redirect_uri')->value('value');
+    $envRedirect = $dbRedirect ?: env('GOOGLE_TRACKING_REDIRECT_URI');
+    $redirectUrl = (!empty($envRedirect) && $envRedirect !== 'dynamic')
+        ? $envRedirect
+        : url('/auth/google/track/callback');
+
+    return compact('clientId', 'clientSecret', 'redirectUrl');
+};
+
+Route::get('/auth/google/track', function (Request $request) use ($resolveGoogleTrackingSsoCredentials) {
+    ['clientId' => $clientId, 'clientSecret' => $clientSecret, 'redirectUrl' => $redirectUrl] = $resolveGoogleTrackingSsoCredentials();
+
+    if (empty($clientId) || empty($clientSecret)) {
+        return redirect()->route('track-document')->with('error', 'Google Auth credentials for document tracking are not configured.');
+    }
+
+    if ($request->filled('number')) {
+        session(['tracking_target_number' => trim($request->query('number'))]);
+    }
+
+    return \Laravel\Socialite\Facades\Socialite::buildProvider(
+        \Laravel\Socialite\Two\GoogleProvider::class,
+        [
+            'client_id'     => $clientId,
+            'client_secret' => $clientSecret,
+            'redirect'      => $redirectUrl,
+        ]
+    )->stateless()->redirect();
+})->name('auth.google.track');
+
+Route::get('/auth/google/track/callback', function () use ($resolveGoogleTrackingSsoCredentials) {
+    try {
+        ['clientId' => $clientId, 'clientSecret' => $clientSecret, 'redirectUrl' => $redirectUrl] = $resolveGoogleTrackingSsoCredentials();
+
+        $googleUser = \Laravel\Socialite\Facades\Socialite::buildProvider(
+            \Laravel\Socialite\Two\GoogleProvider::class,
+            [
+                'client_id'     => $clientId,
+                'client_secret' => $clientSecret,
+                'redirect'      => $redirectUrl,
+            ]
+        )->stateless()->user();
+
+        $email = strtolower(trim($googleUser->getEmail()));
+        $trackingNumber = session('tracking_target_number');
+
+        // Store verified email in session for tracking verification
+        session([
+            'verified_tracker_email'     => $email,
+            'verified_tracker_name'      => $googleUser->getName() ?? '',
+            'verified_tracker_avatar'    => $googleUser->getAvatar() ?? '',
+            'verified_tracker_auth_type' => 'google',
+        ]);
+
+        if (!empty($trackingNumber)) {
+            return redirect()->route('tracked', ['number' => $trackingNumber]);
+        }
+
+        return redirect()->route('track-document');
+    } catch (\Throwable $e) {
+        $msg = $e->getMessage() ?: get_class($e);
+        \Illuminate\Support\Facades\Log::error('Google Tracking Auth Error: ' . $msg . "\n" . $e->getTraceAsString());
+        return redirect()->route('track-document')->with('error', 'Google verification failed: ' . $msg);
+    }
+})->name('auth.google.track.callback');
+
 // Public document tracking
 Volt::route('/track-document', 'pages.portal.track-document')
     ->name('track-document');

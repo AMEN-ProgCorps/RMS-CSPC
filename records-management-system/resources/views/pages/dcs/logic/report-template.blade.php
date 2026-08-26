@@ -107,21 +107,55 @@ class ReportTemplateHelper
 
     public static function render(Request $request)
     {
-        $offices = collect($request->input('offices', []))
-            ->map(fn ($name) => trim((string) $name))
-            ->filter()
-            ->values()
-            ->all();
+        $rawOffices = $request->input('offices', []);
+        $copiesInput = $request->input('copies', []);
+
+        $offices = [];
+        if (is_array($rawOffices)) {
+            foreach (array_values($rawOffices) as $i => $row) {
+                if (is_array($row)) {
+                    $name = trim((string) ($row['name'] ?? $row['office'] ?? ''));
+                    $copies = $row['copies'] ?? '';
+                } else {
+                    $name = trim((string) $row);
+                    $copies = is_array($copiesInput) ? ($copiesInput[$i] ?? '') : '';
+                }
+                if ($name === '') {
+                    continue;
+                }
+                $copiesStr = is_numeric($copies) ? (string) (int) $copies : trim((string) $copies);
+                $offices[] = [
+                    'name' => $name,
+                    'copies' => $copiesStr,
+                ];
+            }
+        }
 
         if ($offices === []) {
             $offices = DB::table('office')
                 ->where('is_active', true)
                 ->orderBy('office_name')
                 ->pluck('office_name')
+                ->map(fn ($name) => ['name' => $name, 'copies' => ''])
                 ->all();
         }
 
         $date = $request->input('date') ?: now('Asia/Manila')->toDateString();
+        $documentTitle = trim((string) $request->input('document_title', $request->input('title', '')));
+        $effectivityRaw = trim((string) $request->input('effectivity_date', ''));
+        $revisionRaw = trim((string) $request->input('revision_no', $request->input('revise_no', '')));
+
+        $footerEffectivity = '';
+        if ($effectivityRaw !== '') {
+            try {
+                $footerEffectivity = \Carbon\Carbon::parse($effectivityRaw)->format('F Y');
+            } catch (\Throwable $e) {
+                $footerEffectivity = $effectivityRaw;
+            }
+        }
+
+        $footerRev = preg_match('/^-?\d+$/', $revisionRaw) ? (string) (int) $revisionRaw : $revisionRaw;
+
         $templateId = (int) $request->input('template_id', 0);
         $letterheadUrl = null;
         $templateName = 'Built-in DCS';
@@ -140,16 +174,19 @@ class ReportTemplateHelper
         return view('pages.dcs.reports.distribution-template', [
             'offices' => $offices,
             'date' => $date,
+            'documentTitle' => $documentTitle,
             'letterheadUrl' => $letterheadUrl,
             'templateName' => $templateName,
             'logoSrc' => $logoSrc,
             'republic' => 'Republic of the Philippines',
             'institutionName' => 'Camarines Sur Polytechnic Colleges',
             'institutionAddress' => 'Nabua, Camarines Sur',
-            'letterNumber' => 'CSPC-QA-F001',
+            'letterNumber' => 'CSPC-F-DCC-05',
             'footerLeft' => 'Effectivity Date:',
             'footerCenter' => 'Rev.',
-            'title' => 'Document Distribution',
+            'footerEffectivity' => $footerEffectivity,
+            'footerRev' => $footerRev,
+            'title' => 'DISTRIBUTION AND RETRIEVAL',
         ]);
     }
 }

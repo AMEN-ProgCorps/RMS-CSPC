@@ -1,5 +1,6 @@
 <?php
 
+use App\Helpers\OfficeIntakeHelper;
 use App\Helpers\RegisterQueryHelper;
 use Illuminate\Support\Facades\DB;
 use Livewire\Attributes\Layout;
@@ -9,25 +10,45 @@ use Livewire\Volt\Component;
 new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class extends Component {
     public function with(): array
     {
+        if (RegisterQueryHelper::isLimitedDcsUser()) {
+            return [
+                'isLimitedDcs' => true,
+                'officeDrfCount' => OfficeIntakeHelper::listMyDrf()->count(),
+                'officeDcnCount' => OfficeIntakeHelper::listMyDcn()->count(),
+                'headerDate' => now('Asia/Manila')->format('l, F j, Y'),
+                'stats' => [],
+                'typeIds' => [],
+                'holidays' => [],
+            ];
+        }
+
         $typeIds = RegisterQueryHelper::parentTypeIdMap();
         $queue = DB::table('dcs_document_requests as dr')
             ->leftJoin('dcs_masterlist_registration as ml', 'ml.request_id', '=', 'dr.id')
-            ->whereIn('dr.approval_status', ['applicable', 'not_applicable'])
+            ->whereIn('dr.approval_status', ['applicable', 'not_applicable']);
+        RegisterQueryHelper::applyNotDeleted($queue, 'dr');
+        RegisterQueryHelper::applyOfficeScope($queue, 'dr');
+        $queue = $queue
             ->selectRaw('COUNT(dr.id)::int as total')
             ->selectRaw("COUNT(dr.id) FILTER (WHERE COALESCE(NULLIF(TRIM(ml.revision_status), ''), 'latest') <> 'obsolete')::int as latest")
             ->selectRaw("COUNT(dr.id) FILTER (WHERE ml.revision_status = 'obsolete')::int as obsolete")
             ->first();
 
-        $byType = fn (int $typeId) => DB::table('dcs_document_requests as dr')
-            ->leftJoin('dcs_masterlist_registration as ml', 'ml.request_id', '=', 'dr.id')
-            ->whereIn('dr.approval_status', ['applicable', 'not_applicable'])
-            ->where('dr.doc_type_id', $typeId)
-            ->where(function ($q) {
-                $q->whereNull('ml.revision_status')
-                    ->orWhere('ml.revision_status', '')
-                    ->orWhere('ml.revision_status', 'latest');
-            })
-            ->count();
+        $byType = function (int $typeId) {
+            $q = DB::table('dcs_document_requests as dr')
+                ->leftJoin('dcs_masterlist_registration as ml', 'ml.request_id', '=', 'dr.id')
+                ->whereIn('dr.approval_status', ['applicable', 'not_applicable'])
+                ->where('dr.doc_type_id', $typeId)
+                ->where(function ($q) {
+                    $q->whereNull('ml.revision_status')
+                        ->orWhere('ml.revision_status', '')
+                        ->orWhere('ml.revision_status', 'latest');
+                });
+            RegisterQueryHelper::applyNotDeleted($q, 'dr');
+            RegisterQueryHelper::applyOfficeScope($q, 'dr');
+
+            return $q->count();
+        };
 
         $stats = [
             'totalDocuments' => (int) ($queue->total ?? 0),
@@ -63,6 +84,9 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
         }
 
         return [
+            'isLimitedDcs' => false,
+            'officeDrfCount' => 0,
+            'officeDcnCount' => 0,
             'stats' => $stats,
             'typeIds' => $typeIds,
             'headerDate' => now('Asia/Manila')->format('l, F j, Y'),
@@ -71,6 +95,37 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
     }
 }; ?>
 
+@if(!empty($isLimitedDcs))
+<div class="ofi-page">
+    <div class="ofi-inner">
+        <div class="ofi-header">
+            <div>
+                <h1>Document Control System</h1>
+                <p>{{ $headerDate }} — Create and print your Document Request Forms and Document Change Notices, then submit the printed copies to RFIO.</p>
+            </div>
+        </div>
+        @if(session('error'))
+            <div class="ofi-alert err">{{ session('error') }}</div>
+        @endif
+        <div class="ofi-stat-grid">
+            <a href="{{ route('dcs.office.drf.index', absolute: false) }}" class="ofi-card ofi-stat-card">
+                <div class="ofi-stat-label">My DRF</div>
+                <div class="ofi-stat-value is-drf">{{ (int) $officeDrfCount }}</div>
+                <div class="ofi-stat-hint">Document Request Forms you created</div>
+            </a>
+            <a href="{{ route('dcs.office.dcn.index', absolute: false) }}" class="ofi-card ofi-stat-card">
+                <div class="ofi-stat-label">My DCN</div>
+                <div class="ofi-stat-value is-dcn">{{ (int) $officeDcnCount }}</div>
+                <div class="ofi-stat-hint">Document Change Notices you created</div>
+            </a>
+        </div>
+        <div class="ofi-header-actions">
+            <a href="{{ route('dcs.office.drf.create', absolute: false) }}" class="ofi-btn primary"><i class="fa-solid fa-plus"></i> New DRF</a>
+            <a href="{{ route('dcs.office.dcn.create', absolute: false) }}" class="ofi-btn primary"><i class="fa-solid fa-plus"></i> New DCN</a>
+        </div>
+    </div>
+</div>
+@else
 <main class="dashboard-main" wire:ignore x-data="dcsDashboardCalendar()">
     <div
         class="dash-calendar-shell"
@@ -1045,3 +1100,4 @@ document.addEventListener('alpine:init', () => {
     }));
 });
 </script>
+@endif

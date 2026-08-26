@@ -16,6 +16,39 @@ class RegisterPersistHelper
 {
     public const SCAN_MAX_KB = 204800;
 
+    /**
+     * Shared admin_logs entry with Document Control System as what_system reference.
+     * Same pattern as RDP/Admin Console activity logging.
+     */
+    public static function logAdminChange(string $changes): void
+    {
+        try {
+            $adminId = auth()->id();
+            if (!$adminId) {
+                return;
+            }
+
+            $systemId = once(static function () {
+                return (int) DB::table('subsystems')
+                    ->where('subsystem_name', 'Document Control System')
+                    ->value('subsystem_id');
+            });
+
+            if ($systemId < 1) {
+                return;
+            }
+
+            DB::table('admin_logs')->insert([
+                'changes' => $changes,
+                'admin_id' => $adminId,
+                'what_system' => $systemId,
+                'when_changes' => now(),
+            ]);
+        } catch (\Throwable $e) {
+            // Non-fatal — never break the primary operation
+        }
+    }
+
     public static function scanFileRules(): array
     {
         $rule = 'nullable|file|mimes:pdf|max:' . self::SCAN_MAX_KB;
@@ -29,6 +62,31 @@ class RegisterPersistHelper
             'scannedCopy.*' => $rule,
             'syllabiScannedDrf.*' => $rule,
         ];
+    }
+
+    /** Original client filename for the masterlist scan (when column exists). */
+    public static function masterlistOriginalNameFromRequest(Request $request): ?string
+    {
+        if (!$request->hasFile('uploadScannedCopy')) {
+            return null;
+        }
+        $name = trim((string) $request->file('uploadScannedCopy')->getClientOriginalName());
+
+        return $name !== '' ? $name : null;
+    }
+
+    public static function applyMasterlistOriginalName(array &$row, Request $request, bool $onlyIfUploaded = true): void
+    {
+        if (!Schema::hasColumn('dcs_masterlist_registration', 'scanned_masterlist_original_name')) {
+            return;
+        }
+        if ($onlyIfUploaded && !$request->hasFile('uploadScannedCopy')) {
+            return;
+        }
+        $original = self::masterlistOriginalNameFromRequest($request);
+        if ($original !== null) {
+            $row['scanned_masterlist_original_name'] = $original;
+        }
     }
 
     public static function rejectInactiveOfficeIds(Request $request): ?RedirectResponse
@@ -273,6 +331,24 @@ class RegisterPersistHelper
             $docTypeId = $request->input('doc_type_id');
             $subTypeId = $request->input('sub_type_id');
 
+            // Non-syllabi revised docs must be based on a DCN "Documents for Revision" pick.
+            if (!$isSyllabi) {
+                $hasRevisionDoc = false;
+                $titles = $request->input('documentTitle', []);
+                $numbers = $request->input('documentNo', []);
+                $rowCount = max(is_array($titles) ? count($titles) : 0, is_array($numbers) ? count($numbers) : 0);
+                for ($i = 0; $i < $rowCount; $i++) {
+                    if (trim((string) ($titles[$i] ?? '')) !== '' || trim((string) ($numbers[$i] ?? '')) !== '') {
+                        $hasRevisionDoc = true;
+                        break;
+                    }
+                }
+                if (!$hasRevisionDoc || $fromDocNo === '') {
+                    return back()->withInput()
+                        ->with('error', 'Select the document being revised under Documents for Revision (DCN) before saving. That selection is required for revised registrations.');
+                }
+            }
+
             if ($lookupDocNo === '') {
                 return back()->withInput()
                     ->with('error', 'You must enter a registered document number before revising it. Register it as a New Document first if it is not yet registered.');
@@ -296,9 +372,27 @@ class RegisterPersistHelper
             }
 
             $requestedRev = self::resolveReviseNo($request);
-            // Duplicate check is against the NEW document number (may differ when renumbering).
+            // Family-wide: Rev 2 on an older renumbered doc_no still occupies Rev 2 for the tip.
+            $visibleIds = RegisterQueryHelper::visibleRequestIds();
+            $takenFamilyRevs = RegisterQueryHelper::familyReviseNumbers(
+                $docNo,
+                (int) $docTypeId,
+                $subTypeId ? (int) $subTypeId : null,
+                $visibleIds
+            );
+            if (in_array($requestedRev, $takenFamilyRevs, true)) {
+                $suggested = $takenFamilyRevs !== [] ? (max($takenFamilyRevs) + 1) : ($requestedRev + 1);
+
+                return back()->withInput()
+                    ->with(
+                        'error',
+                        'Revision ' . $requestedRev . ' is taken. Use Rev ' . $suggested . '.'
+                    );
+            }
+
+            // Exact (doc_no, revise_no) safety net when family walk is empty.
             $newFamily = self::findMatchingRegistrationRows($docNo, (int) $docTypeId, $subTypeId ? (int) $subTypeId : null);
-            if ($newFamily['found']) {
+            if ($newFamily['found'] && $takenFamilyRevs === []) {
                 $matchingIds = $newFamily['matches']->pluck('id');
                 $dupQuery = DB::table('dcs_masterlist_registration')
                     ->whereIn('request_id', $matchingIds)
@@ -500,6 +594,7 @@ class RegisterPersistHelper
                     'created_at' => $now,
                     'updated_at' => $now,
                 ];
+                self::applyMasterlistOriginalName($masterlistRow, $request);
                 if (Schema::hasColumn('dcs_masterlist_registration', 'originator_id')) {
                     $masterlistRow['originator_id'] = $originator['originator_id'];
                 }
@@ -570,6 +665,7 @@ class RegisterPersistHelper
                     'scanned_masterlist' => $masterlistFile,
                     'updated_at' => $now,
                 ];
+                self::applyMasterlistOriginalName($masterlistData, $request);
                 if (Schema::hasColumn('dcs_masterlist_registration', 'originator_id')) {
                     $masterlistData['originator_id'] = $originator['originator_id'];
                 }
@@ -720,6 +816,13 @@ class RegisterPersistHelper
                             ->update(['revision_status' => 'obsolete', 'updated_at' => now()]);
                     }
                 }
+
+                // Re-assert tip = max revise_no across the whole renumber family.
+                self::promoteLatestForDoc(
+                    trim((string) $savedMl->doc_no),
+                    (int) $docTypeId,
+                    $request->sub_type_id ? (int) $request->sub_type_id : null
+                );
             }
 
             DB::commit();
@@ -729,6 +832,13 @@ class RegisterPersistHelper
                     Storage::disk('public')->delete($file);
                 }
             }
+
+            RegisterPersistHelper::logAdminChange(
+                'Registered document #' . $requestId
+                . (!empty($savedMl->doc_no) ? ' — ' . $savedMl->doc_no : '')
+                . (isset($savedMl->revise_no) ? ' (Rev ' . $savedMl->revise_no . ')' : '')
+                . (!empty($savedMl->doc_title) ? ': ' . $savedMl->doc_title : '')
+            );
 
             return redirect()->route('dcs.register.edit', $requestId)
                 ->with('success', 'Document registered successfully!');
@@ -1223,56 +1333,70 @@ class RegisterPersistHelper
             return;
         }
 
-        self::markLatestMasterlist(
-            $ml->doc_no,
+        // Tip = highest revise_no in the renumber family (not "row just saved").
+        // Gap-fill Rev 5 while Rev 7 exists → 7 stays Latest; new Rev 10 → 10 becomes Latest.
+        self::promoteLatestForDoc(
+            trim((string) $ml->doc_no),
             (int) $dr->doc_type_id,
-            $dr->sub_type_id ? (int) $dr->sub_type_id : null,
-            $masterlistId
+            $dr->sub_type_id ? (int) $dr->sub_type_id : null
         );
     }
 
     public static function markLatestMasterlist(string $docNo, int $docTypeId, ?int $subTypeId, int $latestMasterlistId): void
     {
-        $requestIds = RegisterQueryHelper::requestIdsWithSameDocType((object) [
-            'doc_type_id' => $docTypeId,
-            'sub_type_id' => $subTypeId,
-        ]);
-
-        $family = DB::table('dcs_masterlist_registration')
-            ->where('doc_no', $docNo)
-            ->whereIn('request_id', $requestIds)
-            ->whereIn('revision_status', ['latest', 'obsolete']);
-
-        $family->where('id', '!=', $latestMasterlistId)
-            ->update(['revision_status' => 'obsolete', 'updated_at' => now()]);
-
-        DB::table('dcs_masterlist_registration')
-            ->where('id', $latestMasterlistId)
-            ->update(['revision_status' => 'latest', 'updated_at' => now()]);
+        // Tip is always max revise_no in the renumber family (explicit id is ignored).
+        self::promoteLatestForDoc($docNo, $docTypeId, $subTypeId);
     }
 
     public static function promoteLatestForDoc(string $docNo, int $docTypeId, ?int $subTypeId): void
     {
+        $docNo = trim($docNo);
+        if ($docNo === '') {
+            return;
+        }
+
         $requestIds = RegisterQueryHelper::requestIdsWithSameDocType((object) [
             'doc_type_id' => $docTypeId,
             'sub_type_id' => $subTypeId,
         ]);
+        if ($requestIds === []) {
+            return;
+        }
 
-        $nextQuery = DB::table('dcs_masterlist_registration as ml')
+        $visibleIds = RegisterQueryHelper::visibleRequestIds();
+        $familyNos = RegisterQueryHelper::expandRenumberFamily($docNo, $docTypeId, $subTypeId, $visibleIds);
+        if ($familyNos === []) {
+            $familyNos = [$docNo];
+        }
+
+        $tipQuery = DB::table('dcs_masterlist_registration as ml')
             ->join('dcs_document_requests as dr', 'dr.id', '=', 'ml.request_id')
-            ->where('ml.doc_no', $docNo)
             ->whereIn('ml.request_id', $requestIds)
+            ->whereIn('ml.doc_no', $familyNos)
             ->whereIn('ml.revision_status', ['latest', 'obsolete']);
-        RegisterQueryHelper::applyNotDeleted($nextQuery, 'dr');
+        RegisterQueryHelper::applyNotDeleted($tipQuery, 'dr');
 
-        $next = $nextQuery
+        $tip = $tipQuery
             ->orderByDesc('ml.revise_no')
             ->orderByDesc('ml.id')
-            ->select('ml.*')
+            ->select('ml.id')
             ->first();
 
-        if ($next) {
-            self::markLatestMasterlist($docNo, $docTypeId, $subTypeId, (int) $next->id);
+        if (!$tip) {
+            return;
         }
+
+        $tipId = (int) $tip->id;
+
+        DB::table('dcs_masterlist_registration')
+            ->whereIn('doc_no', $familyNos)
+            ->whereIn('request_id', $requestIds)
+            ->whereIn('revision_status', ['latest', 'obsolete'])
+            ->where('id', '!=', $tipId)
+            ->update(['revision_status' => 'obsolete', 'updated_at' => now()]);
+
+        DB::table('dcs_masterlist_registration')
+            ->where('id', $tipId)
+            ->update(['revision_status' => 'latest', 'updated_at' => now()]);
     }
 }

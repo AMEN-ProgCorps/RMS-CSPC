@@ -34,6 +34,7 @@ return new class extends Migration
             $table->text('brief_purpose')->nullable();
             $table->text('keywords')->nullable();
             $table->string('scanned_masterlist')->nullable();
+            $table->string('scanned_masterlist_original_name')->nullable();
             $table->unsignedInteger('created_by');
             $table->foreign('created_by')->references('id')->on('account');
             $table->timestamps();

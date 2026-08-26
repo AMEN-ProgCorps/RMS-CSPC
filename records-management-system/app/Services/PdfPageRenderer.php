@@ -7,17 +7,18 @@ use Spatie\PdfToImage\Pdf;
 
 class PdfPageRenderer
 {
-    public static function savePage(string $pdfPath, string $imagePath, int $page = 1): void
+    public static function savePage(string $pdfPath, string $imagePath, int $page = 1, int $dpi = 150): void
     {
         $directory = dirname($imagePath);
         if (! is_dir($directory)) {
             mkdir($directory, 0755, true);
         }
 
+        $dpi = max(72, min(200, $dpi));
         $errors = [];
 
         try {
-            self::withGhostscript($pdfPath, $imagePath, $page);
+            self::withGhostscript($pdfPath, $imagePath, $page, $dpi);
             if (self::isValidImage($imagePath)) {
                 return;
             }
@@ -45,7 +46,7 @@ class PdfPageRenderer
         throw new \RuntimeException('Could not render PDF page ' . $page . '. ' . implode(' ', $errors));
     }
 
-    private static function withGhostscript(string $pdfPath, string $imagePath, int $page): void
+    private static function withGhostscript(string $pdfPath, string $imagePath, int $page, int $dpi = 100): void
     {
         $gs = self::ghostscriptBinary();
         if ($gs === null) {
@@ -57,10 +58,11 @@ class PdfPageRenderer
         }
 
         $cmd = sprintf(
-            '%s -dSAFER -dBATCH -dNOPAUSE -dQUIET -sDEVICE=jpeg -dJPEGQ=85 -dFirstPage=%d -dLastPage=%d -r150 -sOutputFile=%s %s 2>&1',
+            '%s -dSAFER -dBATCH -dNOPAUSE -dQUIET -sDEVICE=jpeg -dJPEGQ=70 -dFirstPage=%d -dLastPage=%d -r%d -sOutputFile=%s %s 2>&1',
             escapeshellarg($gs),
             $page,
             $page,
+            $dpi,
             escapeshellarg($imagePath),
             escapeshellarg($pdfPath)
         );

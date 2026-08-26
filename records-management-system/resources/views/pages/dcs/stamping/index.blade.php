@@ -42,33 +42,12 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
         $visibleIds = RegisterQueryHelper::visibleRequestIds();
         $query = DB::table('dcs_document_requests as dr')
             ->whereIn('dr.id', $visibleIds ?: [0])
-            ->where(function ($q) {
-                $q->whereExists(fn ($q2) =>
-                    $q2->select(DB::raw(1))->from('dcs_masterlist_registration as ml')
-                        ->whereColumn('ml.request_id', 'dr.id')
-                        ->whereNotNull('ml.scanned_masterlist')->where('ml.scanned_masterlist', '!=', ''))
-                  ->orWhereExists(fn ($q2) =>
-                    $q2->select(DB::raw(1))->from('dcs_document_request_form as drf')
-                        ->whereColumn('drf.request_id', 'dr.id')
-                        ->whereNotNull('drf.scanned_drf')->where('drf.scanned_drf', '!=', ''))
-                  ->orWhereExists(fn ($q2) =>
-                    $q2->select(DB::raw(1))->from('dcs_document_change_notice as dcn')
-                        ->whereColumn('dcn.request_id', 'dr.id')
-                        ->whereNotNull('dcn.scanned_dcn')->where('dcn.scanned_dcn', '!=', ''))
-                  ->orWhereExists(fn ($q2) =>
-                    $q2->select(DB::raw(1))->from('dcs_document_distribution as dist')
-                        ->whereColumn('dist.request_id', 'dr.id')
-                        ->whereNotNull('dist.scanned_distribution')->where('dist.scanned_distribution', '!=', ''))
-                  ->orWhereExists(fn ($q2) =>
-                    $q2->select(DB::raw(1))->from('dcs_document_retrieval as ret')
-                        ->whereColumn('ret.request_id', 'dr.id')
-                        ->whereNotNull('ret.scanned_retrieval')->where('ret.scanned_retrieval', '!=', ''))
-                  ->orWhereExists(fn ($q2) =>
-                    $q2->select(DB::raw(1))->from('dcs_syllabi as s')
-                        ->join('dcs_syllabi_drf as sd', 'sd.syllabi_id', '=', 's.id')
-                        ->whereColumn('s.request_id', 'dr.id')
-                        ->whereNotNull('sd.scanned_drf')->where('sd.scanned_drf', '!=', ''));
-            })
+            ->whereExists(fn ($q2) =>
+                $q2->select(DB::raw(1))->from('dcs_masterlist_registration as ml')
+                    ->whereColumn('ml.request_id', 'dr.id')
+                    ->whereNotNull('ml.scanned_masterlist')
+                    ->where('ml.scanned_masterlist', '!=', '')
+            )
             ->orderByDesc('dr.id');
 
         if ($this->typeId !== 'all' && $this->typeId !== '') {
@@ -86,11 +65,6 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                             $q3->where('ml.doc_no', 'ilike', $like)
                                 ->orWhere('ml.doc_title', 'ilike', $like);
                         });
-                })->orWhereExists(function ($q2) use ($like) {
-                    $q2->select(DB::raw(1))
-                        ->from('dcs_document_request_form as drf')
-                        ->whereColumn('drf.request_id', 'dr.id')
-                        ->where('drf.doc_title', 'ilike', $like);
                 })->orWhereExists(function ($q2) use ($like) {
                     $q2->select(DB::raw(1))
                         ->from('dcs_doc_types as dt')
@@ -172,7 +146,7 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                             <th class="col-docno">Document No.</th>
                             <th class="col-title">Document Title</th>
                             <th class="col-rev">Rev</th>
-                            <th class="col-files"><i class="fa-solid fa-paperclip"></i>&nbsp; Files</th>
+                            <th class="col-files"><i class="fa-solid fa-paperclip"></i>&nbsp; Scanned File</th>
                             <th class="col-action">Action</th>
                         </tr>
                     </thead>
@@ -181,9 +155,6 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                             @php
                                 $ml   = $doc->masterlistRegistration;
                                 $drf  = $doc->documentRequestForm;
-                                $dcn  = $doc->documentChangeNotice;
-                                $dist = $doc->documentDistribution;
-                                $retr = $doc->documentRetrieval;
 
                                 $docNo   = $ml->doc_no ?? 'N/A';
                                 $title   = $ml->doc_title ?? $drf->doc_title ?? 'Untitled';
@@ -196,111 +167,23 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                                     $stampMap[$stamp->file_key] = $stamp;
                                 }
 
+                                // Only the masterlist scanned PDF can be stamped.
                                 $files = [];
-
-                                // Masterlist
                                 if ($ml && !empty($ml->scanned_masterlist)) {
                                     $s = $stampMap['masterlist'] ?? null;
+                                    $fileName = trim((string) ($ml->scanned_masterlist_original_name ?? ''));
+                                    if ($fileName === '') {
+                                        $fileName = basename((string) $ml->scanned_masterlist);
+                                    }
                                     $files[] = [
                                         'key'        => 'masterlist',
-                                        'label'      => 'Masterlist',
-                                        'abbr'       => 'ML',
+                                        'label'      => $fileName,
+                                        'abbr'       => $fileName,
                                         'cls'        => 'ml',
                                         'path'       => $ml->scanned_masterlist,
                                         'stamped'    => !!$s,
                                         'stamp_type' => $s?->stamp_type,
                                     ];
-                                }
-
-                                // DRF
-                                if ($drf && !empty($drf->scanned_drf)) {
-                                    $s = $stampMap['drf'] ?? null;
-                                    $files[] = [
-                                        'key'        => 'drf',
-                                        'label'      => 'Document Request Form',
-                                        'abbr'       => 'DRF',
-                                        'cls'        => 'drf',
-                                        'path'       => $drf->scanned_drf,
-                                        'stamped'    => !!$s,
-                                        'stamp_type' => $s?->stamp_type,
-                                    ];
-                                }
-
-                                // DCN
-                                if ($dcn && !empty($dcn->scanned_dcn)) {
-                                    $s = $stampMap['dcn'] ?? null;
-                                    $files[] = [
-                                        'key'        => 'dcn',
-                                        'label'      => 'Document Change Notice',
-                                        'abbr'       => 'DCN',
-                                        'cls'        => 'dcn',
-                                        'path'       => $dcn->scanned_dcn,
-                                        'stamped'    => !!$s,
-                                        'stamp_type' => $s?->stamp_type,
-                                    ];
-                                }
-
-                                // Distribution
-                                if ($dist && !empty($dist->scanned_distribution)) {
-                                    $s = $stampMap['distribution'] ?? null;
-                                    $files[] = [
-                                        'key'        => 'distribution',
-                                        'label'      => 'Distribution',
-                                        'abbr'       => 'DIST',
-                                        'cls'        => 'dist',
-                                        'path'       => $dist->scanned_distribution,
-                                        'stamped'    => !!$s,
-                                        'stamp_type' => $s?->stamp_type,
-                                    ];
-                                }
-
-                                // Retrieval
-                                if ($retr && !empty($retr->scanned_retrieval)) {
-                                    $s = $stampMap['retrieval'] ?? null;
-                                    $files[] = [
-                                        'key'        => 'retrieval',
-                                        'label'      => 'Retrieval',
-                                        'abbr'       => 'RETR',
-                                        'cls'        => 'retr',
-                                        'path'       => $retr->scanned_retrieval,
-                                        'stamped'    => !!$s,
-                                        'stamp_type' => $s?->stamp_type,
-                                    ];
-                                }
-
-                                $seenSyllabiPaths = [];
-                                foreach ($doc->syllabi as $syl) {
-                                    $courseName = $syl->course->course_name ?? 'Syllabi';
-                                    foreach ($syl->drfs as $sd) {
-                                        if (empty($sd->scanned_drf)) continue;
-                                        $path = $sd->scanned_drf;
-                                        if (isset($seenSyllabiPaths[$path])) continue;
-                                        $seenSyllabiPaths[$path] = true;
-
-                                        $siblingIds = $syl->drfs
-                                            ->where('scanned_drf', $path)
-                                            ->pluck('id');
-                                        $key = 'syllabi_drf_' . $sd->id;
-                                        $s = $stampMap[$key] ?? null;
-                                        foreach ($siblingIds as $sid) {
-                                            $alt = $stampMap['syllabi_drf_' . $sid] ?? null;
-                                            if ($alt) {
-                                                $s = $alt;
-                                                $key = 'syllabi_drf_' . $sid;
-                                                break;
-                                            }
-                                        }
-
-                                        $files[] = [
-                                            'key'        => $key,
-                                            'label'      => 'Syllabi DRF — ' . $courseName,
-                                            'abbr'       => 'SDR',
-                                            'cls'        => 'drf',
-                                            'path'       => $path,
-                                            'stamped'    => !!$s,
-                                            'stamp_type' => $s?->stamp_type,
-                                        ];
-                                    }
                                 }
 
                                 $anyStamped = collect($files)->contains(fn($f) => $f['stamped']);
@@ -365,7 +248,7 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                                             <i class="fa-solid fa-stamp"></i>
                                         </div>
                                         <h3>No documents found</h3>
-                                        <p>There are no documents with stampable files matching your criteria.</p>
+                                        <p>There are no documents with a scanned masterlist matching your criteria.</p>
                                     </div>
                                 </td>
                             </tr>
@@ -440,9 +323,10 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                         <iframe id="pdfPreview" src="" title="PDF Preview"></iframe>
 
                         <div class="st-stamp-overlay pos-bottom-right" id="stampOverlay" style="display:none;">
-                            <div class="st-stamp-box" id="stampBox">
-                                <div class="st-stamp-inner">
-                                    <div class="st-stamp-title" id="overlayTitle"></div>
+                            <div class="st-stamp-box st-stamp-box-image" id="stampBox">
+                                <img src="{{ asset('images/stamps/reference.png') }}" alt="REFERENCE" class="st-stamp-art" id="overlayStampArt">
+                                <div class="st-stamp-inner" id="overlayStampFallback" style="display:none;">
+                                    <div class="st-stamp-title" id="overlayTitle">REFERENCE</div>
                                     <div class="st-stamp-divider" id="overlayDivider" style="display:none;"></div>
                                     <div class="st-stamp-fields" id="overlayFields" style="display:none;">
                                         <div class="st-stamp-field">
@@ -454,8 +338,8 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                                             <span class="st-sf-value" id="overlayDesig">...</span>
                                         </div>
                                     </div>
-                                    <div class="st-stamp-date" id="overlayDate"></div>
-                                    <div class="st-stamp-sub" id="overlaySub"></div>
+                                    <div class="st-stamp-date" id="overlayDate" style="display:none;"></div>
+                                    <div class="st-stamp-sub" id="overlaySub" style="display:none;"></div>
                                 </div>
                             </div>
                             <span class="st-stamp-pages" id="overlayPages">All pages</span>
@@ -486,25 +370,13 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                     <div class="st-section">
                         <label class="st-label">Stamp Type</label>
                         <div class="st-type-pills" id="typePills">
-                            <button class="st-type-pill" data-type="controlled" type="button">
-                                <span class="st-pill-color" style="background:#003399"></span> Controlled
-                            </button>
-                            <button class="st-type-pill" data-type="obsolete" type="button">
-                                <span class="st-pill-color" style="background:#b40000"></span> Obsolete
-                            </button>
-                            <button class="st-type-pill" data-type="master_copy" type="button">
-                                <span class="st-pill-color" style="background:#006400"></span> Master Copy
-                            </button>
-                            <button class="st-type-pill" data-type="reference" type="button">
-                                <span class="st-pill-color" style="background:#646464"></span> Reference
-                            </button>
-                            <button class="st-type-pill" data-type="certified_true_copy" type="button">
-                                <span class="st-pill-color" style="background:#003399"></span> Certified True Copy
+                            <button class="st-type-pill selected" data-type="reference" type="button">
+                                <span class="st-pill-color" style="background:#b03030"></span> Reference
                             </button>
                         </div>
                     </div>
 
-                    <div class="st-section" id="certifiedFields" style="display:none;">
+                    <div class="st-section" id="certifiedFields" style="display:none;" hidden>
                         <div class="st-form-group">
                             <label class="st-label-sm">Certified By</label>
                             <input type="text" id="certifiedBy" class="st-input" placeholder="Full name">

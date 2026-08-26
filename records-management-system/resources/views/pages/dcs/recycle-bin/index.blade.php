@@ -8,7 +8,7 @@ use Livewire\Attributes\Title;
 use Livewire\Attributes\Url;
 use Livewire\Volt\Component;
 
-new #[Layout('layouts.dcs')] #[Title('Archive — CSPC DCS')] class extends Component {
+new #[Layout('layouts.dcs')] #[Title('Recycle Bin — CSPC DCS')] class extends Component {
     #[Url]
     public string $search = '';
 
@@ -65,19 +65,19 @@ new #[Layout('layouts.dcs')] #[Title('Archive — CSPC DCS')] class extends Comp
 <div class="rb-container main-content">
     <div class="rb-header">
         <div>
-            <div class="upd-breadcrumb">Document Control System / <span>Archive</span></div>
+            <div class="upd-breadcrumb">Document Control System / <span>Recycle Bin</span></div>
             <div class="rb-title-wrap">
-                <div class="rb-title-icon"><i class="fa-solid fa-box-archive"></i></div>
+                <div class="rb-title-icon"><i class="fa-solid fa-trash-can"></i></div>
                 <div>
-                    <div class="rb-title">Archive</div>
-                    <p class="rb-subtitle">Archived documents are kept here safely until restored.</p>
+                    <div class="rb-title">Recycle Bin</div>
+                    <p class="rb-subtitle">Deleted documents are kept here until restored.</p>
                 </div>
             </div>
         </div>
         <div class="rb-header-actions">
             <span class="rb-count-badge">
-                <i class="fa-solid fa-box-archive"></i>
-                {{ $list['total'] }} archived document{{ $list['total'] === 1 ? '' : 's' }}
+                <i class="fa-solid fa-trash-can"></i>
+                {{ $list['total'] }} deleted document{{ $list['total'] === 1 ? '' : 's' }}
             </span>
             <a href="{{ route('dcs.register.update', absolute: false) }}" class="rb-back-link">
                 <i class="fa-solid fa-arrow-left"></i> Back to Update
@@ -88,10 +88,11 @@ new #[Layout('layouts.dcs')] #[Title('Archive — CSPC DCS')] class extends Comp
     <div class="rb-callout">
         <div class="rb-callout-icon"><i class="fa-solid fa-circle-info"></i></div>
         <div class="rb-callout-text">
-            <strong>Documents are never deleted</strong>
+            <strong>Soft delete only</strong>
             <p>
-                Documents archived from the Update page are moved here and remain in the system.
+                Documents deleted from the Update page are moved here and stay in the system.
                 Use <strong>Restore</strong> to return a document to the active Update list.
+                There is no permanent delete.
             </p>
         </div>
     </div>
@@ -100,7 +101,7 @@ new #[Layout('layouts.dcs')] #[Title('Archive — CSPC DCS')] class extends Comp
         <div class="rb-search-wrapper">
             <i class="fa-solid fa-magnifying-glass"></i>
             <input type="text" class="rb-search-input" wire:model.live.debounce.400ms="search"
-                placeholder="Search archived documents by title or document no..." autocomplete="off">
+                placeholder="Search deleted documents by title or document no..." autocomplete="off">
         </div>
     </div>
 
@@ -113,7 +114,7 @@ new #[Layout('layouts.dcs')] #[Title('Archive — CSPC DCS')] class extends Comp
                         <th>Document No.</th>
                         <th>Type</th>
                         <th>Rev</th>
-                        <th>Archived</th>
+                        <th>Deleted</th>
                         <th style="width:160px;">Actions</th>
                     </tr>
                 </thead>
@@ -132,7 +133,7 @@ new #[Layout('layouts.dcs')] #[Title('Archive — CSPC DCS')] class extends Comp
                             <td data-label="Rev">
                                 <span class="rb-rev-badge">Rev {{ $doc['rev_no'] }}</span>
                             </td>
-                            <td data-label="Archived">
+                            <td data-label="Deleted">
                                 <span class="rb-deleted-at">{{ $doc['deleted_at'] }}</span>
                                 @if(!empty($doc['deleted_by']))
                                     <span class="rb-deleted-by">by {{ $doc['deleted_by'] }}</span>
@@ -153,9 +154,9 @@ new #[Layout('layouts.dcs')] #[Title('Archive — CSPC DCS')] class extends Comp
         </div>
 
         <div class="rb-empty" @if(count($list['rows']) > 0) style="display:none" @endif>
-            <div class="rb-empty-icon"><i class="fa-solid fa-box-archive"></i></div>
-            <h3>Archive is empty</h3>
-            <p>Archived documents will appear here. You can restore them anytime.</p>
+            <div class="rb-empty-icon"><i class="fa-solid fa-trash-can"></i></div>
+            <h3>Recycle Bin is empty</h3>
+            <p>Deleted documents will appear here. You can restore them anytime.</p>
         </div>
 
         <div class="rb-pagination">

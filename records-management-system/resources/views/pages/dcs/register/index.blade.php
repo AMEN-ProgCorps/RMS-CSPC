@@ -100,7 +100,10 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                                     <td><input type="date" name="effectiveDate[]" readonly class="reg-revrow-locked" tabindex="-1"></td>
                                     <td><input type="number" name="revisionNo[]" placeholder="—" readonly class="reg-revrow-locked" tabindex="-1"></td>
                                     <td class="reg-rev-scan-cell" style="text-align:center;color:#94a3b8;">—</td>
-                                    <td><input type="text" name="revisionPurpose[]" placeholder="—" readonly class="reg-revrow-locked" tabindex="-1"></td>
+                                    <td class="reg-rev-purpose-cell">
+                                        <input type="hidden" name="revisionPurpose[]" value="">
+                                        <span class="reg-rev-purpose-text">—</span>
+                                    </td>
                                     <td>
                                         <button type="button" class="reg-row-del" onclick="removeRevisionRow(this)">
                                             <i class="fa-solid fa-trash-can"></i>
@@ -1342,6 +1345,8 @@ function initDocNoLookup(revField) {
 function handleEmptyDocNo(hintEl, revField) {
     window.__revisedComparePreviousUrl = null;
     window.__revisedComparePreviousRev = null;
+    window.__revisedFamilyScans = [];
+    refreshCompareRevisionButton();
 
     const preservedFrom = getRevisedFromDocNo();
     if (preservedFrom) {
@@ -1392,14 +1397,39 @@ async function runRenumberedDocNoCheck(docNo, fromNo, hintEl) {
         const subTypeId = document.getElementById('subType').value;
         const url = '/dcs/register/check-docno?doc_no=' + encodeURIComponent(docNo) +
                     (docTypeId ? '&doc_type_id=' + docTypeId : '') +
-                    (subTypeId ? '&sub_type_id=' + subTypeId : '');
+                    (subTypeId ? '&sub_type_id=' + subTypeId : '') +
+                    '&related_from=' + encodeURIComponent(fromNo);
         const res = await fetch(url);
         const data = await res.json();
+        const revField = document.getElementById('masterlistRevisionNo');
 
         if (data.exists) {
+            // Same lineage (e.g. return to original 2024-323 while linked from 2024-323-2):
+            // allowed — uniqueness is per (doc_no, revise_no), not doc_no alone.
+            if (data.same_family !== false) {
+                applyRevisedDocumentContext(data, { hintEl, revField, forceNextRev: true });
+                const docNoInput = document.getElementById('masterlistDocNo');
+                if (docNoInput) docNoInput.value = docNo;
+                window.__revisedFromDocNo = fromNo;
+                const fromInput = document.getElementById('revisedFromDocNo');
+                if (fromInput) fromInput.value = fromNo;
+
+                if (hintEl) {
+                    hintEl.innerHTML = '<i class="fa-solid fa-circle-check"></i> Using existing number <strong>' +
+                        escapeHtml(docNo) + '</strong> (linked from <strong>' +
+                        escapeHtml(fromNo) + '</strong>). Suggested Rev ' +
+                        escapeHtml(String(data.next_rev ?? '')) + '.';
+                    hintEl.style.color = '#16a34a';
+                    hintEl.dataset.valid = 'renumbered';
+                }
+                setSaveEnabled(true);
+                scheduleRevNoCheck();
+                return;
+            }
+
             if (hintEl) {
                 hintEl.innerHTML = '<i class="fa-solid fa-circle-exclamation"></i> Document number <strong>' +
-                    escapeHtml(docNo) + '</strong> is already registered. Choose a different number for this revision.';
+                    escapeHtml(docNo) + '</strong> is already registered under a different document family. Choose a different number for this revision.';
                 hintEl.style.color = '#dc2626';
                 hintEl.dataset.valid = 'duplicate';
             }
@@ -1408,9 +1438,9 @@ async function runRenumberedDocNoCheck(docNo, fromNo, hintEl) {
         }
 
         if (hintEl) {
-            hintEl.innerHTML = '<i class="fa-solid fa-circle-check"></i> Document number changed from <strong>' +
+            hintEl.innerHTML = '<i class="fa-solid fa-circle-check"></i> Changed from <strong>' +
                 escapeHtml(fromNo) + '</strong> to <strong>' + escapeHtml(docNo) + '</strong>.' +
-                '<br><span style="font-weight:400;font-size:11px;">Previous-revision details are kept. The original number remains linked for this revision.</span>';
+                '<br><span style="font-weight:400;font-size:11px;">Previous details kept; original number stays linked.</span>';
             hintEl.style.color = '#16a34a';
             hintEl.dataset.valid = 'renumbered';
         }
@@ -1466,14 +1496,16 @@ function applyRevisedDocumentContext(data, options = {}) {
     const effectiveDocNo = (docNo ?? document.getElementById('masterlistDocNo')?.value ?? '').trim();
 
     if (revFieldEl) {
-        if (!revFieldEl.value || revFieldEl.dataset.userEdited !== 'true') {
+        // Fresh doc-no context from DCN/lookup always suggests family next rev.
+        if (options.forceNextRev || !revFieldEl.value || revFieldEl.dataset.userEdited !== 'true') {
             revFieldEl.value = data.next_rev;
+            revFieldEl.dataset.userEdited = '';
         }
         revFieldEl.readOnly = false;
         revFieldEl.style.background = '';
         revFieldEl.style.cursor = '';
         revFieldEl.removeAttribute('min');
-        revFieldEl.setAttribute('title', 'Suggested: Rev ' + data.next_rev + ' (latest is ' + data.latest_rev + '). Lower revision numbers are allowed.');
+        revFieldEl.setAttribute('title', 'Suggested: Rev ' + data.next_rev + ' (family latest is ' + data.latest_rev + '). Gap fills are allowed only if that Rev is unused in the family.');
         scheduleRevNoCheck();
     }
 
@@ -1520,8 +1552,8 @@ function applyRevisedDocumentContext(data, options = {}) {
         renderRelatedDocsChips();
     }
 
-    window.__revisedComparePreviousUrl = data.latest_scanned_copy_url || null;
-    window.__revisedComparePreviousRev = data.latest_rev || null;
+    window.__revisedFamilyScans = Array.isArray(data.revision_scans) ? data.revision_scans : [];
+    resolveRevisedComparePrevious();
 
     if (data.latest_distribution_offices && data.latest_distribution_offices.length > 0
         && tableIsEmpty('retrievalBody')) {
@@ -1541,16 +1573,30 @@ function applyRevisedDocumentContext(data, options = {}) {
             );
         });
         updateTotal('totalRetrievalCopies', 'retrievalBody');
-        const retSection = document.getElementById('section-4');
-        if (retSection) retSection.style.display = 'block';
+    }
+
+    // Prefill only applies in revised mode — open Retrieval when offices were seeded.
+    if (isRevisedMode() && !tableIsEmpty('retrievalBody')) {
+        const retCb = document.querySelector('#dynamicCheckboxes input[name="checklists[]"][value="4"]');
+        if (retCb) {
+            retCb.checked = true;
+            retCb.dataset.lastChecked = 'true';
+            if (!retCb.disabled) toggleSection(4, true);
+            else {
+                const retSection = document.getElementById('section-4');
+                if (retSection) retSection.style.display = 'block';
+            }
+        } else {
+            const retSection = document.getElementById('section-4');
+            if (retSection) retSection.style.display = 'block';
+        }
     }
 
     applyRevisedApprovalFromPrevious(data);
 
     if (hint) {
-        hint.innerHTML = '<i class="fa-solid fa-circle-check"></i> ' + escapeHtml(data.message || 'Document linked for revision.') +
-            '<br><span style="font-weight:400;font-size:11px;">Keep document no. <strong>' + escapeHtml(effectiveDocNo) +
-            '</strong> or change it (e.g. renumber). Previous details are prefilled (dates stay blank) and remain editable.</span>';
+        hint.innerHTML = '<i class="fa-solid fa-circle-check"></i> Document found. Keep <strong>' +
+            escapeHtml(effectiveDocNo) + '</strong> or renumber — details prefilled (dates blank).';
         hint.style.color = '#16a34a';
         hint.dataset.valid = 'true';
     }
@@ -1627,11 +1673,13 @@ function applyRevisedModeLookupResult(data, hintEl, revField) {
     if (data.exists) {
         setSaveEnabled(true);
         const lookedUpNo = (document.getElementById('masterlistDocNo')?.value || '').trim();
-        applyRevisedDocumentContext(data, { docNo: lookedUpNo, hintEl, revField });
+        applyRevisedDocumentContext(data, { docNo: lookedUpNo, hintEl, revField, forceNextRev: true });
     } else {
         setSaveEnabled(false);
         window.__revisedComparePreviousUrl = null;
         window.__revisedComparePreviousRev = null;
+        window.__revisedFamilyScans = [];
+        refreshCompareRevisionButton();
         window.__revisedFromDocNo = null;
         clearRevisedApprovalContext();
         const fromInput = document.getElementById('revisedFromDocNo');
@@ -1709,6 +1757,70 @@ function isRevisedMode() {
     return hidden && hidden.value === 'revised';
 }
 
+/** Checklist 4 = Document Retrieval — only for revised documents. */
+function filterChecklistsForMode(checklists) {
+    const list = Array.isArray(checklists) ? checklists : [];
+    if (isRevisedMode()) return list;
+    return list.filter(c => parseInt(c.checklist_id, 10) !== 4);
+}
+
+function clearRetrievalSection() {
+    const section = document.getElementById('section-4');
+    if (section) section.style.display = 'none';
+
+    ['retrievalFormDate', 'retrievalFormTime', 'retrievalDate', 'retrievalTime',
+        'retrievalTimeSpentDisplay', 'retrievalTimeSpent', 'retrievalRemarks', 'scannedRet'].forEach(id => {
+        const el = document.getElementById(id);
+        if (!el) return;
+        if (el.type === 'file') {
+            el.value = '';
+            return;
+        }
+        el.value = '';
+    });
+
+    const body = document.getElementById('retrievalBody');
+    if (body) body.innerHTML = emptyOfficeRowHTML('retrievalBody');
+    const hidden = document.getElementById('retrievalRetrievedHidden');
+    if (hidden) hidden.innerHTML = '';
+    const total = document.getElementById('totalRetrievalCopies');
+    if (total) total.textContent = '0';
+}
+
+function syncRetrievalForMode() {
+    if (!isRevisedMode()) {
+        clearRetrievalSection();
+        // Drop retrieval checkbox if it was rendered for a prior version selection.
+        document.querySelectorAll('#dynamicCheckboxes input[name="checklists[]"][value="4"]').forEach(cb => {
+            cb.checked = false;
+            cb.dataset.lastChecked = 'false';
+            const label = cb.closest('label');
+            if (label) label.remove();
+        });
+        return;
+    }
+
+    // Re-include retrieval checklist when switching into revised mode.
+    if (window.__lastVersionChecklists && window.__lastVersionChecklists.length) {
+        const container = document.getElementById('dynamicCheckboxes');
+        const hasRetrieval = container?.querySelector('input[name="checklists[]"][value="4"]');
+        if (!hasRetrieval) {
+            const wasEnabled = !!container?.querySelector('input[type="checkbox"]:not([disabled])');
+            const checkedIds = [...(container?.querySelectorAll('input[name="checklists[]"]:checked') || [])]
+                .map(cb => parseInt(cb.value, 10));
+            renderChecklists(window.__lastVersionChecklists, !wasEnabled);
+            container?.querySelectorAll('input[name="checklists[]"]').forEach(cb => {
+                const id = parseInt(cb.value, 10);
+                const on = checkedIds.includes(id);
+                cb.checked = on;
+                cb.dataset.lastChecked = on ? 'true' : 'false';
+                if (wasEnabled) cb.disabled = false;
+                toggleSection(id, on);
+            });
+        }
+    }
+}
+
 function applyRevisionMode() {
     const revField = document.getElementById('masterlistRevisionNo');
     const hintEl = document.getElementById('docNoHint');
@@ -1724,7 +1836,7 @@ function applyRevisionMode() {
             revField.removeAttribute('title');
         }
         if (hintEl) {
-            hintEl.innerHTML = '<span style="color:#94a3b8"><i class="fa-solid fa-circle-info"></i> Pick a document in Documents for Revision (DCN) or enter its number here. You may keep the same number or assign a new one for this revision.</span>';
+            hintEl.innerHTML = '<span style="color:#94a3b8"><i class="fa-solid fa-circle-info"></i> Required: pick the document being revised under Documents for Revision (DCN). Then enter/confirm the document number for this new revision.</span>';
             hintEl.style.color = '';
             hintEl.dataset.valid = '';
         }
@@ -1755,6 +1867,8 @@ function applyRevisionMode() {
         }
         setSaveEnabled(true);
     }
+
+    syncRetrievalForMode();
 }
 
 function updateRegistrationMode() {
@@ -1875,18 +1989,15 @@ async function runRevNoCheck() {
         if (data.taken) {
             revNoDuplicate = true;
             if (hint) {
-                let msg = '<i class="fa-solid fa-circle-exclamation"></i> ' + escapeHtml(data.message || 'This revision already exists.');
-                if (Array.isArray(data.taken_revs) && data.taken_revs.length) {
-                    msg += '<br><span style="font-weight:400;font-size:11px;">Taken: Rev ' +
-                        data.taken_revs.map(String).join(', Rev ') + '</span>';
-                }
-                hint.innerHTML = msg;
+                hint.innerHTML = '<i class="fa-solid fa-circle-exclamation"></i> ' +
+                    escapeHtml(data.message || 'This revision already exists.');
                 hint.style.color = '#dc2626';
                 hint.dataset.valid = 'duplicate';
             }
             revField.style.borderColor = '#dc2626';
             revField.classList.add('reg-input-invalid');
             setSaveEnabled(false);
+            resolveRevisedComparePrevious();
             return;
         }
 
@@ -1904,6 +2015,7 @@ async function runRevNoCheck() {
         }
         revField.style.borderColor = '';
         revField.classList.remove('reg-input-invalid');
+        resolveRevisedComparePrevious();
         // Re-enable save only if doc-no side is also OK
         if (!docNoDuplicate) {
             const docHint = document.getElementById('docNoHint');
@@ -1917,6 +2029,7 @@ async function runRevNoCheck() {
     } catch (e) {
         console.error('RevNo check failed:', e);
         clearRevNoHint();
+        resolveRevisedComparePrevious();
     }
 }
 
@@ -2005,6 +2118,7 @@ function populateRevisionRowFromDoc(row, doc) {
     const revField     = row.querySelector('input[name="revisionNo[]"]');
     const pathInput    = row.querySelector('input[name="revisionScannedPath[]"]');
     const purposeField = row.querySelector('input[name="revisionPurpose[]"]');
+    const purposeText  = row.querySelector('.reg-rev-purpose-text');
 
     if (titleInput) titleInput.value = doc.doc_title || '';
     if (noInput) noInput.value = doc.doc_no || '';
@@ -2012,6 +2126,18 @@ function populateRevisionRowFromDoc(row, doc) {
     if (revField) revField.value = (doc.revise_no !== null && doc.revise_no !== undefined) ? doc.revise_no : '';
     if (pathInput) pathInput.value = doc.scanned_copy_path || '';
     if (purposeField) purposeField.value = doc.brief_purpose || '';
+    if (purposeText) {
+        const purpose = String(doc.brief_purpose || '').trim();
+        purposeText.textContent = purpose || '—';
+        purposeText.classList.toggle('is-wrap', purpose.length > 42);
+    }
+    // If title was already converted to wrap display, refresh the visible text.
+    const titleText = row.querySelector('.reg-rev-title-text');
+    if (titleText) {
+        const title = String(doc.doc_title || '').trim();
+        titleText.textContent = title || '—';
+        titleText.classList.toggle('is-wrap', title.length > 28);
+    }
 
     lockRevisionRowFields(row);
     lockRevisionScannedCopyCell(row, doc.scanned_copy_url);
@@ -2090,7 +2216,7 @@ window.pickRevisionDocument = async function (key, idx) {
     }
 };
 
-async function bridgeDcnPickToMasterlist(docNo) {
+async function bridgeDcnPickToMasterlist(docNo, options = {}) {
     const hintEl = document.getElementById('docNoHint');
     const revField = document.getElementById('masterlistRevisionNo');
     try {
@@ -2103,7 +2229,7 @@ async function bridgeDcnPickToMasterlist(docNo) {
         const data = await res.json();
         if (data.exists) {
             setSaveEnabled(true);
-            applyRevisedDocumentContext(data, { docNo, hintEl, revField });
+            applyRevisedDocumentContext(data, { docNo, hintEl, revField, forceNextRev: true });
         }
     } catch (e) {
         console.error('DCN pick check-docno failed:', e);
@@ -2119,12 +2245,39 @@ function lockRevisionPopulatedField(el) {
     el.style.color = '#475569';
 }
 
+/** Show full title as wrapping text (no horizontal scroll) while keeping form value. */
+function lockRevisionTitleAsWrap(row) {
+    const input = row.querySelector('input[name="documentTitle[]"]');
+    if (!input || input.type === 'hidden') return;
+    const cell = input.closest('td');
+    if (!cell) return;
+
+    const title = String(input.value || '').trim();
+    input.type = 'hidden';
+    input.value = title;
+    input.classList.remove('reg-revrow-locked');
+    input.removeAttribute('style');
+
+    cell.classList.add('reg-rev-title-cell');
+    let span = cell.querySelector('.reg-rev-title-text');
+    if (!span) {
+        span = document.createElement('span');
+        span.className = 'reg-rev-title-text';
+        cell.appendChild(span);
+    }
+    span.textContent = title || '—';
+    span.classList.toggle('is-wrap', title.length > 28);
+}
+
 /** Locks auto-filled revision fields after a document is picked. */
 function lockRevisionRowFields(row) {
     row.dataset.linked = "true";
+    lockRevisionTitleAsWrap(row);
     row.querySelectorAll(
-        'input[name="documentTitle[]"], input[name="documentNo[]"], input[name="effectiveDate[]"], input[name="revisionNo[]"], input[name="revisionPurpose[]"]'
-    ).forEach(lockRevisionPopulatedField);
+        'input[name="documentNo[]"], input[name="effectiveDate[]"], input[name="revisionNo[]"], input[name="revisionPurpose[]"]'
+    ).forEach((el) => {
+        if (el.type !== 'hidden') lockRevisionPopulatedField(el);
+    });
 }
 
 function lockRevisionScannedCopyCell(row, scannedCopyUrl) {
@@ -3119,6 +3272,7 @@ function closeFilePreviewModal() {
 }
 
 function openCompareRevisionModal() {
+    resolveRevisedComparePrevious();
     const upload = document.getElementById('uploadScannedCopy');
     const prevUrl = window.__revisedComparePreviousUrl;
     const prevRev = window.__revisedComparePreviousRev;
@@ -3131,7 +3285,8 @@ function openCompareRevisionModal() {
         return;
     }
     if (!prevUrl) {
-        alert('The previous revision has no scanned copy to compare.');
+        const nextRev = document.getElementById('masterlistRevisionNo')?.value?.trim() || '?';
+        alert('No scanned copy found for the previous revision before Rev ' + nextRev + '.');
         return;
     }
     if (!overlay) return;
@@ -3152,7 +3307,9 @@ function openCompareRevisionModal() {
     document.body.style.overflow = 'hidden';
 
     if (typeof window.runRegisterPdfCompare === 'function') {
-        window.runRegisterPdfCompare(prevUrl, window.__compareRevisionNewBlobUrl).catch(() => {});
+        window.runRegisterPdfCompare(prevUrl, window.__compareRevisionNewBlobUrl, {
+            rightFile: upload.files[0],
+        }).catch(() => {});
     }
 }
 
@@ -3163,12 +3320,8 @@ function closeCompareRevisionModal() {
 
     overlay.classList.remove('is-open');
     overlay.setAttribute('aria-hidden', 'true');
-    if (root) {
-        root.dataset.leftUrl = '';
-        root.dataset.rightUrl = '';
-        root.querySelectorAll('[data-review-side]').forEach(el => { el.innerHTML = ''; });
-        root.querySelectorAll('[data-review-note]').forEach(el => { el.textContent = ''; });
-    }
+    // Keep rendered compare DOM when possible; only clear volatile blob URL.
+    // Re-open restores from local/session cache using file hash (not blob URL).
     if (window.__compareRevisionNewBlobUrl) {
         URL.revokeObjectURL(window.__compareRevisionNewBlobUrl);
         window.__compareRevisionNewBlobUrl = null;
@@ -3307,6 +3460,10 @@ async function handleVersionChange() {
     subTypeSelect.setAttribute("disabled", "disabled");
     disableApproval();
 
+    // Set new/revised mode before rendering so Document Retrieval (checklist 4)
+    // is only included when registering a revision.
+    updateRegistrationMode();
+
     if (!versionId) {
         renderChecklists([
             { checklist_id: 1, checklist_name: "Document Request Form" },
@@ -3315,7 +3472,6 @@ async function handleVersionChange() {
             { checklist_id: 4, checklist_name: "Document Retrieval" },
             { checklist_id: 5, checklist_name: "Document Distribution" },
         ], true);
-        applyRevisionMode();
         return;
     }
 
@@ -3326,8 +3482,6 @@ async function handleVersionChange() {
     } catch (err) {
         console.error("Failed to load checklists:", err);
     }
-
-    updateRegistrationMode();
 }
 
 // ══════════════════════════════════════════════
@@ -3585,7 +3739,10 @@ function renderChecklists(checklists, disabled) {
     const container = document.getElementById("dynamicCheckboxes");
     container.innerHTML = "";
 
-    checklists.forEach(c => {
+    window.__lastVersionChecklists = Array.isArray(checklists) ? checklists.slice() : [];
+    const visible = filterChecklistsForMode(window.__lastVersionChecklists);
+
+    visible.forEach(c => {
         const label = document.createElement("label");
         label.className = "reg-check-item";
 
@@ -3626,6 +3783,10 @@ function renderChecklists(checklists, disabled) {
 
         container.appendChild(label);
     });
+
+    if (!isRevisedMode()) {
+        clearRetrievalSection();
+    }
 }
 
 function lockChecklist() {
@@ -3669,6 +3830,12 @@ window.toggleSection = function (checklistId, show) {
 
     // In syllabi mode, only DRF stays hidden — Masterlist now shows in full
     if (checklistId === 1 && window.__isSyllabiMode) return;
+
+    // Retrieval (checklist 4) is only for revised documents
+    if (checklistId === 4 && !isRevisedMode()) {
+        clearRetrievalSection();
+        return;
+    }
 
     const el = document.getElementById(sectionId);
     if (!el) return;
@@ -3742,18 +3909,34 @@ window.generateDistributionTemplate = function () {
         return;
     }
     const offices = [];
-    document.querySelectorAll('#distBody .reg-office-text').forEach((el) => {
-        const name = el.textContent.trim();
-        if (name) offices.push(name);
+    const copies = [];
+    document.querySelectorAll('#distBody tr.reg-office-added').forEach((tr) => {
+        const name = tr.querySelector('.reg-office-text')?.textContent.trim() || '';
+        if (!name) return;
+        const copyVal = tr.querySelector('input[name="distCopies[]"]')?.value || '';
+        offices.push(name);
+        copies.push(copyVal);
     });
     if (offices.length === 0) {
         alert('Add at least one receiving office before generating the distribution template.');
         return;
     }
+    // Always use Masterlist Registration fields for the printed form header/footer.
+    const docTitle = (document.getElementById('masterlistDocTitle')?.value || '').trim()
+        || (document.getElementById('syllabiDocTitle')?.value || '').trim();
+    const effectivityDate = (document.getElementById('masterlistEffectivityDate')?.value || '').trim()
+        || (document.getElementById('syllabiEffectivityDate')?.value || '').trim();
+    const revisionNo = (document.getElementById('masterlistRevisionNo')?.value || '').trim()
+        || (document.querySelector('input[name="masterlistRevisionNo"]')?.value || '').trim();
+
     const params = new URLSearchParams();
     params.set('date', document.getElementById('distributionDate')?.value || '');
     params.set('template_id', '0');
+    params.set('document_title', docTitle);
+    params.set('effectivity_date', effectivityDate);
+    params.set('revision_no', revisionNo);
     offices.forEach((name) => params.append('offices[]', name));
+    copies.forEach((n) => params.append('copies[]', n));
     window.open('{{ route('dcs.reports.distributionTemplate') }}?' + params.toString(), '_blank', 'noopener');
 };
 
@@ -3982,6 +4165,9 @@ function validateForm() {
                     : "Pick a document in Documents for Revision (DCN) or enter a registered document number before revising.",
             });
         }
+        if (!window.__isSyllabiMode) {
+            validateRevisedRequiresDocumentsForRevision(errors);
+        }
     }
 
     const checkedBoxes = document.querySelectorAll("#dynamicCheckboxes input[type='checkbox']:checked");
@@ -4061,6 +4247,32 @@ function validateRevisionRowsLinked(errors) {
             row.querySelectorAll('input[name="documentTitle[]"], input[name="documentNo[]"]')
                 .forEach(el => el.classList.add("reg-input-error"));
         }
+    });
+}
+
+/** Revised registrations must pick the document being revised in DCN. */
+function validateRevisedRequiresDocumentsForRevision(errors) {
+    if (!sectionVisible("section-2")) {
+        errors.push({
+            field: "dynamicCheckboxes",
+            message: "DCN is required for revised documents. Check Document Change Notice and select the document being revised under Documents for Revision.",
+            type: "checklist",
+        });
+        return;
+    }
+
+    const hasLinked = [...document.querySelectorAll("#revisionTableBody tr")]
+        .some(row => row.dataset.linked === "true");
+    if (hasLinked) return;
+
+    errors.push({
+        field: "revisionTableBody",
+        message: "Select the document being revised under Documents for Revision (DCN). This is required before saving a revised document.",
+        type: "table",
+    });
+    document.querySelectorAll("#revisionTableBody tr").forEach(row => {
+        row.querySelectorAll('input[name="documentTitle[]"], input[name="documentNo[]"]')
+            .forEach(el => el.classList.add("reg-input-error"));
     });
 }
 
@@ -4714,26 +4926,71 @@ function wireApprovalDeadlineSync() {
     });
 }
 
+/**
+ * DRR left side = scanned copy of the highest family rev strictly below the new Rev No.
+ * e.g. entering Rev 5 with family 1–4,7 → compare against Rev 4 (not Latest 7).
+ */
+function resolveRevisedComparePrevious() {
+    const scans = Array.isArray(window.__revisedFamilyScans) ? window.__revisedFamilyScans : [];
+    const revRaw = document.getElementById('masterlistRevisionNo')?.value;
+    const newRev = revRaw === '' || revRaw === null || revRaw === undefined
+        ? null
+        : Number(revRaw);
+
+    window.__revisedComparePreviousUrl = null;
+    window.__revisedComparePreviousRev = null;
+
+    if (newRev === null || Number.isNaN(newRev) || scans.length === 0) {
+        refreshCompareRevisionButton();
+        return;
+    }
+
+    let best = null;
+    for (const row of scans) {
+        const r = Number(row?.revise_no);
+        if (Number.isNaN(r) || r >= newRev) continue;
+        if (!row?.scanned_copy_url) continue;
+        if (!best || r > Number(best.revise_no)) {
+            best = row;
+        }
+    }
+
+    if (best) {
+        window.__revisedComparePreviousUrl = best.scanned_copy_url;
+        window.__revisedComparePreviousRev = Number(best.revise_no);
+    }
+
+    refreshCompareRevisionButton();
+}
+
+function refreshCompareRevisionButton() {
+    const upload = document.getElementById('uploadScannedCopy');
+    const wrap = document.getElementById('compareRevisionWrap');
+    if (!wrap) return;
+    const show = isRevisedMode()
+        && (upload?.files?.length > 0)
+        && !!window.__revisedComparePreviousUrl;
+    wrap.style.display = show ? 'block' : 'none';
+}
+
 function wireCompareRevisionButton() {
     const upload = document.getElementById('uploadScannedCopy');
     const wrap = document.getElementById('compareRevisionWrap');
     const btn = document.getElementById('btnCompareRevision');
     if (!upload || !wrap || !btn) return;
 
-    const refresh = () => {
-        const show = isRevisedMode()
-            && (upload.files?.length > 0)
-            && !!window.__revisedComparePreviousUrl;
-        wrap.style.display = show ? 'block' : 'none';
-    };
-
     btn.addEventListener('click', (e) => {
         e.preventDefault();
+        resolveRevisedComparePrevious();
         openCompareRevisionModal();
     });
-    upload.addEventListener('change', refresh);
-    document.getElementById('masterlistDocNo')?.addEventListener('input', refresh);
-    refresh();
+    upload.addEventListener('change', () => {
+        resolveRevisedComparePrevious();
+    });
+    document.getElementById('masterlistDocNo')?.addEventListener('input', refreshCompareRevisionButton);
+    document.getElementById('masterlistRevisionNo')?.addEventListener('input', resolveRevisedComparePrevious);
+    document.getElementById('masterlistRevisionNo')?.addEventListener('change', resolveRevisedComparePrevious);
+    refreshCompareRevisionButton();
 }
 
 function enableApproval() {
@@ -4766,7 +5023,10 @@ function revisionRowCellsHTML() {
         <td><input type="date" name="effectiveDate[]" readonly class="reg-revrow-locked" tabindex="-1"></td>
         <td><input type="number" name="revisionNo[]" placeholder="—" readonly class="reg-revrow-locked" tabindex="-1"></td>
         <td class="reg-rev-scan-cell" style="text-align:center;color:#94a3b8;">—</td>
-        <td><input type="text" name="revisionPurpose[]" placeholder="—" readonly class="reg-revrow-locked" tabindex="-1"></td>
+        <td class="reg-rev-purpose-cell">
+            <input type="hidden" name="revisionPurpose[]" value="">
+            <span class="reg-rev-purpose-text">—</span>
+        </td>
         <td><button type="button" class="reg-row-del" onclick="removeRevisionRow(this)"><i class="fa-solid fa-trash-can"></i></button></td>
     `;
 }

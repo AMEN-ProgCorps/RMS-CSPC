@@ -106,7 +106,15 @@
             <div class="function-button {{ request()->routeIs('admin.activity.rdp.record-series-logs') ? 'force-active' : '' }}" onclick="proccedto('{{ route('admin.activity.rdp.record-series-logs') }}')">Record Series Logs</div>
         </div>
 
-        {{-- Group D: Chatify --}}
+        {{-- Group D: DCS --}}
+        <div class="nav-tree-group" data-group-name="DCS">
+            <div class="nav-tree-title">
+                <i class="fa-solid fa-stamp"></i> DCS
+            </div>
+            <div class="function-button {{ request()->routeIs('admin.activity.dcs.activity-logs') ? 'force-active' : '' }}" onclick="proccedto('{{ route('admin.activity.dcs.activity-logs') }}')">Activity Logs</div>
+        </div>
+
+        {{-- Group E: Chatify --}}
         <div class="nav-tree-group" data-group-name="Chatify">
             <div class="nav-tree-title">
                 <i class="fa-solid fa-comments"></i> Chatify

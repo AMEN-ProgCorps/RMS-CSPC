@@ -1479,3 +1479,13 @@
     background: #0f172a !important;
     color: #94a3b8 !important;
 }
+
+[data-theme="dark"] .reg-table tbody td.reg-rev-purpose-cell,
+[data-theme="dark"] .reg-table tbody td.reg-rev-title-cell {
+    background: #0f172a;
+}
+
+[data-theme="dark"] .reg-table tbody .reg-rev-purpose-text,
+[data-theme="dark"] .reg-table tbody .reg-rev-title-text {
+    color: #94a3b8;
+}

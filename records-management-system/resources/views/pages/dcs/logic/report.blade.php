@@ -431,6 +431,7 @@ class ReportHelper
             $q->select(DB::raw(1))->from('dcs_document_requests as dr')
                 ->whereColumn('dr.id', 'ml.request_id');
             RegisterQueryHelper::applyNotDeleted($q, 'dr');
+            RegisterQueryHelper::applyOfficeScope($q, 'dr');
         });
 
         $query = $this->applyMasterlistCategoryFilter($query, $sub);
@@ -510,6 +511,7 @@ class ReportHelper
 
         $query = DB::table('dcs_document_requests as dr');
         RegisterQueryHelper::applyNotDeleted($query, 'dr');
+        RegisterQueryHelper::applyOfficeScope($query, 'dr');
         $query->whereExists(function ($q) use ($docTypeName) {
             $q->select(DB::raw(1))->from('dcs_doc_types as dt')
                 ->whereColumn('dt.id', 'dr.doc_type_id')
@@ -695,6 +697,7 @@ class ReportHelper
     {
         $query = DB::table('dcs_document_requests as dr');
         RegisterQueryHelper::applyNotDeleted($query, 'dr');
+        RegisterQueryHelper::applyOfficeScope($query, 'dr');
         $query->whereExists(function ($q) use ($docTypeName) {
             $q->select(DB::raw(1))->from('dcs_doc_types as dt')
                 ->whereColumn('dt.id', 'dr.doc_type_id')
@@ -864,6 +867,7 @@ class ReportHelper
             ->leftJoin('dcs_doc_types as dt', 'dt.id', '=', 'dr.doc_type_id')
             ->select('drf.*', 'dt.doc_type_name');
         RegisterQueryHelper::applyNotDeleted($query, 'dr');
+        RegisterQueryHelper::applyOfficeScope($query, 'dr');
 
         if ($dateFrom) {
             $query->where('drf.drf_date', '>=', $dateFrom);
@@ -917,6 +921,7 @@ class ReportHelper
             ->leftJoin('dcs_doc_types as dt', 'dt.id', '=', 'dr.doc_type_id')
             ->select('dcn.*', 'dt.doc_type_name');
         RegisterQueryHelper::applyNotDeleted($query, 'dr');
+        RegisterQueryHelper::applyOfficeScope($query, 'dr');
 
         if ($dateFrom) {
             $query->where('dcn.dcn_date', '>=', $dateFrom);
@@ -1241,6 +1246,7 @@ class ReportHelper
                 }
             });
         RegisterQueryHelper::applyNotDeleted($query, 'dr');
+        RegisterQueryHelper::applyOfficeScope($query, 'dr');
 
         if ($docTypeNames) {
             $query->whereExists(function ($q) use ($docTypeNames) {
@@ -1358,6 +1364,7 @@ class ReportHelper
     {
         $query = DB::table('dcs_document_requests as dr');
         RegisterQueryHelper::applyNotDeleted($query, 'dr');
+        RegisterQueryHelper::applyOfficeScope($query, 'dr');
 
         if ($dateFrom || $dateTo) {
             $query->whereExists(function ($q) use ($dateFrom, $dateTo) {

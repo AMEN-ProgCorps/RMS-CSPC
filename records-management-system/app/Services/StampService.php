@@ -13,54 +13,30 @@ class StampService
     /** @var array<string, array{x: float, y: float}> */
     private array $autoPlacementCache = [];
 
+    /** @var list<string> */
+    private array $tempFiles = [];
+
+    /** Labels for historical stamp records (UI display only). */
+    private const STAMP_LABELS = [
+        'controlled'          => 'Controlled',
+        'obsolete'            => 'Obsolete',
+        'master_copy'         => 'Master Copy',
+        'reference'           => 'Reference',
+        'certified_true_copy' => 'Certified True Copy',
+    ];
+
+    /** Only Reference may be applied going forward. */
     private const STAMPS = [
-        'controlled' => [
-            'label'     => 'Controlled',
-            'title'     => 'CONTROLLED',
-            'subtitle'  => 'Controlled Copy',
-            'color'     => [0, 51, 153],
-            'width'     => 55,
-            'height'    => 22,
-            'titleSize' => 12,
-            'subSize'   => 7,
-        ],
-        'obsolete' => [
-            'label'     => 'Obsolete',
-            'title'     => 'OBSOLETE',
-            'subtitle'  => 'Superseded Document',
-            'color'     => [180, 0, 0],
-            'width'     => 55,
-            'height'    => 22,
-            'titleSize' => 12,
-            'subSize'   => 7,
-        ],
-        'master_copy' => [
-            'label'     => 'Master Copy',
-            'title'     => 'MASTER COPY',
-            'subtitle'  => 'Official Master Copy',
-            'color'     => [0, 100, 0],
-            'width'     => 55,
-            'height'    => 22,
-            'titleSize' => 12,
-            'subSize'   => 7,
-        ],
         'reference' => [
             'label'     => 'Reference',
-            'title'     => 'REFERENCE COPY',
-            'subtitle'  => 'For Reference Only',
-            'color'     => [100, 100, 100],
-            'width'     => 55,
-            'height'    => 22,
-            'titleSize' => 11,
-            'subSize'   => 7,
-        ],
-        'certified_true_copy' => [
-            'label'     => 'Certified True Copy',
-            'title'     => 'CERTIFIED TRUE COPY',
-            'color'     => [0, 51, 153],
-            'width'     => 65,
-            'height'    => 30,
-            'titleSize' => 10,
+            'title'     => 'REFERENCE',
+            'subtitle'  => '',
+            'color'     => [176, 48, 48],
+            'width'     => 52,
+            'height'    => 24,
+            'titleSize' => 14,
+            'subSize'   => 6,
+            'image'     => 'images/stamps/reference.png',
         ],
     ];
 
@@ -71,31 +47,23 @@ class StampService
     private function validateStampPayload(Request $request): array
     {
         $validated = $request->validate([
-            'file_key'     => ['required', 'string', 'max:50', 'regex:/^(masterlist|drf|dcn|distribution|retrieval|syllabi_drf_\d+)$/'],
+            'file_key'     => ['required', 'string', 'max:50', 'in:masterlist'],
             'request_id'   => 'required|integer|exists:dcs_document_requests,id',
             'doc_no'       => 'nullable|string|max:100',
             'doc_title'    => 'nullable|string|max:500',
             'rev'          => 'nullable|string|max:20',
-            'stamp_type'   => 'required|string|in:' . implode(',', array_keys(self::STAMPS)),
+            'stamp_type'   => 'required|string|in:reference',
             'position'     => 'required|string|in:top-left,top-right,bottom-left,bottom-right,center,auto',
             'all_pages'    => 'required|boolean',
             'certified_by' => 'nullable|string|max:255',
             'designation'  => 'nullable|string|max:255',
         ]);
 
-        if ($validated['stamp_type'] === 'certified_true_copy') {
-            if (empty(trim($validated['certified_by'] ?? ''))) {
-                abort(422, 'Certified By is required for Certified True Copy.');
-            }
-            if (empty(trim($validated['designation'] ?? ''))) {
-                abort(422, 'Designation is required for Certified True Copy.');
-            }
-        }
-
         $relative = $this->storedScanRelativePath((int) $validated['request_id'], $validated['file_key']);
         if (!$relative) {
             abort(422, 'No scanned file is stored for this document.');
         }
+        \App\Helpers\RegisterQueryHelper::assertCanAccessRequest((int) $validated['request_id']);
         $validated['file_path'] = $relative;
 
         return $validated;
@@ -458,6 +426,7 @@ class StampService
 
     private function getPdfPageSize(string $pdfPath, int $pageNum = 1): array
     {
+        $pdfPath = $this->preparePdfForFpdi($pdfPath);
         $pdf = new Fpdi();
         $pageCount = $pdf->setSourceFile($pdfPath);
         $pageNum   = max(1, min($pageNum, $pageCount));
@@ -543,6 +512,8 @@ class StampService
                 'success' => false,
                 'message' => 'Could not detect stamp placement.',
             ], 500);
+        } finally {
+            $this->cleanupTempFiles();
         }
     }
 
@@ -658,7 +629,7 @@ class StampService
                 $action = 'applied';
             }
 
-            $stampLabel = self::STAMPS[$validated['stamp_type']]['label'];
+            $stampLabel = self::STAMPS[$validated['stamp_type']]['label'] ?? self::STAMP_LABELS[$validated['stamp_type']] ?? $validated['stamp_type'];
 
             Log::debug("Stamp {$action}", [
                 'doc'  => $validated['doc_no'] ?? 'N/A',
@@ -669,6 +640,14 @@ class StampService
 
             StampBackupService::pruneOrphans();
 
+            \App\Helpers\RegisterPersistHelper::logAdminChange(
+                'Applied stamp on request #' . $validated['request_id']
+                . (!empty($validated['doc_no']) ? ' — ' . $validated['doc_no'] : '')
+                . ' (' . ($validated['stamp_type'] ?? 'stamp')
+                . (!empty($validated['file_key']) ? ', ' . $validated['file_key'] : '')
+                . ')'
+            );
+
             return response()->json([
                 'success' => true,
                 'message' => "Stamp {$action} — {$stampLabel}",
@@ -676,8 +655,8 @@ class StampService
 
         } catch (\Throwable $e) {
             Log::error('Stamp apply error', [
-                'file'    => $validated['file_path'],
-                'type'    => $validated['stamp_type'],
+                'file'    => $validated['file_path'] ?? null,
+                'type'    => $validated['stamp_type'] ?? null,
                 'message' => $e->getMessage(),
                 'trace'   => $e->getTraceAsString(),
             ]);
@@ -686,6 +665,8 @@ class StampService
                 'success' => false,
                 'message' => 'Stamping failed: ' . $e->getMessage(),
             ], 500);
+        } finally {
+            $this->cleanupTempFiles();
         }
     }
 
@@ -697,11 +678,12 @@ class StampService
     {
         $request->validate([
             'request_id' => 'required|integer|exists:dcs_document_requests,id',
-            'file_key'   => ['required', 'string', 'max:50', 'regex:/^(masterlist|drf|dcn|distribution|retrieval|syllabi_drf_\d+)$/'],
+            'file_key'   => ['required', 'string', 'max:50', 'in:masterlist'],
         ]);
 
         $requestId = (int) $request->request_id;
         $fileKey = (string) $request->file_key;
+        \App\Helpers\RegisterQueryHelper::assertCanAccessRequest($requestId);
 
         $stamp = DB::table('dcs_document_stamps')
             ->where('document_request_id', $requestId)
@@ -739,6 +721,11 @@ class StampService
             'file_key'   => $fileKey,
             'user'       => Auth::id(),
         ]);
+
+        \App\Helpers\RegisterPersistHelper::logAdminChange(
+            'Removed stamp on request #' . $requestId
+            . (!empty($fileKey) ? ' — ' . $fileKey : '')
+        );
 
         return response()->json([
             'success' => true,
@@ -801,6 +788,8 @@ class StampService
                 'success' => false,
                 'message' => 'Download failed: ' . $e->getMessage(),
             ], 500);
+        } finally {
+            $this->cleanupTempFiles();
         }
     }
 
@@ -812,7 +801,7 @@ class StampService
     {
         $request->validate([
             'request_id' => 'required|integer',
-            'file_key'   => 'required|string',
+            'file_key'   => ['required', 'string', 'in:masterlist'],
         ]);
 
         $stamp = DB::table('dcs_document_stamps')
@@ -835,7 +824,7 @@ class StampService
         return response()->json([
             'stamped'    => true,
             'stamp_type' => $stamp->stamp_type,
-            'label'      => self::STAMPS[$stamp->stamp_type]['label'] ?? $stamp->stamp_type,
+            'label'      => self::STAMP_LABELS[$stamp->stamp_type] ?? self::STAMPS[$stamp->stamp_type]['label'] ?? $stamp->stamp_type,
             'stamped_at' => \Carbon\Carbon::parse($stamp->stamped_at)->format('M d, Y h:i A'),
             'stamped_by' => $stampedBy ?: 'Unknown',
         ]);
@@ -924,6 +913,8 @@ class StampService
             throw new \RuntimeException("Source PDF is empty: {$inputPath}");
         }
 
+        $inputPath = $this->preparePdfForFpdi($inputPath);
+
         Log::debug('Stamp: engine starting', [
             'input'  => $inputPath,
             'size'   => filesize($inputPath),
@@ -985,17 +976,166 @@ class StampService
         return $outputPath;
     }
 
+    /**
+     * FPDI's free parser rejects many modern/scanned PDFs (compressed xref / objects).
+     * Rewrite to PDF 1.4 via Ghostscript when needed so stamping can proceed.
+     */
+    private function preparePdfForFpdi(string $inputPath): string
+    {
+        try {
+            $probe = new Fpdi();
+            $probe->setSourceFile($inputPath);
+
+            return $inputPath;
+        } catch (\Throwable $e) {
+            Log::warning('Stamp: FPDI cannot read source PDF — flattening with Ghostscript', [
+                'file'  => $inputPath,
+                'error' => $e->getMessage(),
+            ]);
+        }
+
+        return $this->flattenPdfForFpdi($inputPath);
+    }
+
+    private function flattenPdfForFpdi(string $inputPath): string
+    {
+        $gs = $this->ghostscriptBinary();
+        if ($gs === null) {
+            throw new \RuntimeException(
+                'This PDF uses compression FPDI cannot read, and Ghostscript is not installed to convert it.'
+            );
+        }
+
+        $hash = @md5_file($inputPath) ?: sha1($inputPath . '|' . filesize($inputPath));
+        $cacheDir = $this->writableStampCacheDir();
+        $outputPath = $cacheDir . DIRECTORY_SEPARATOR . $hash . '.pdf';
+
+        if (is_file($outputPath) && filesize($outputPath) > 0) {
+            try {
+                $probe = new Fpdi();
+                $probe->setSourceFile($outputPath);
+
+                return $outputPath;
+            } catch (\Throwable $e) {
+                @unlink($outputPath);
+            }
+        }
+
+        // Write via a temp file first so a partial Ghostscript failure never leaves a bad cache entry.
+        $tempOut = tempnam(sys_get_temp_dir(), 'stamp_gs_');
+        if ($tempOut === false) {
+            throw new \RuntimeException('Could not create a temporary file for PDF conversion.');
+        }
+        @unlink($tempOut);
+        $tempOut .= '.pdf';
+        $this->tempFiles[] = $tempOut;
+
+        $cmd = sprintf(
+            '%s -dSAFER -dBATCH -dNOPAUSE -dQUIET -sDEVICE=pdfwrite -dCompatibilityLevel=1.4 -dDetectDuplicateImages=true -dCompressFonts=true -sOutputFile=%s %s 2>&1',
+            escapeshellarg($gs),
+            escapeshellarg($tempOut),
+            escapeshellarg($inputPath)
+        );
+
+        $out = [];
+        $code = 0;
+        exec($cmd, $out, $code);
+
+        if ($code !== 0 || !is_file($tempOut) || filesize($tempOut) === 0) {
+            @unlink($tempOut);
+            throw new \RuntimeException(
+                'Could not convert PDF for stamping. ' . trim(implode("\n", $out))
+            );
+        }
+
+        try {
+            $probe = new Fpdi();
+            $probe->setSourceFile($tempOut);
+        } catch (\Throwable $e) {
+            @unlink($tempOut);
+            throw new \RuntimeException(
+                'Converted PDF is still unreadable by the stamp engine: ' . $e->getMessage()
+            );
+        }
+
+        // Best-effort cache for reuse (preview → apply). Fall back to the temp path if move fails.
+        if (@rename($tempOut, $outputPath) || @copy($tempOut, $outputPath)) {
+            @unlink($tempOut);
+            $this->tempFiles = array_values(array_filter(
+                $this->tempFiles,
+                static fn ($p) => $p !== $tempOut
+            ));
+            $finalPath = $outputPath;
+        } else {
+            $finalPath = $tempOut;
+        }
+
+        Log::debug('Stamp: Ghostscript flatten ready for FPDI', [
+            'from' => $inputPath,
+            'to'   => $finalPath,
+            'size' => filesize($finalPath),
+        ]);
+
+        return $finalPath;
+    }
+
+    private function writableStampCacheDir(): string
+    {
+        $candidates = [
+            storage_path('app/private/stamp_fpdi_cache'),
+            storage_path('app/private/temp/stamp_fpdi_cache'),
+            sys_get_temp_dir() . '/rms_stamp_fpdi_cache',
+        ];
+
+        foreach ($candidates as $dir) {
+            if (!is_dir($dir)) {
+                @mkdir($dir, 0775, true);
+            }
+            if (is_dir($dir) && is_writable($dir)) {
+                return $dir;
+            }
+        }
+
+        throw new \RuntimeException('No writable directory available for stamp PDF conversion cache.');
+    }
+
+    private function ghostscriptBinary(): ?string
+    {
+        foreach (['gs', '/usr/bin/gs', '/usr/local/bin/gs'] as $candidate) {
+            if ($candidate === 'gs') {
+                $path = trim((string) shell_exec('command -v gs 2>/dev/null'));
+                if ($path !== '' && is_executable($path)) {
+                    return $path;
+                }
+                continue;
+            }
+            if (is_executable($candidate)) {
+                return $candidate;
+            }
+        }
+
+        return null;
+    }
+
+    private function cleanupTempFiles(): void
+    {
+        foreach ($this->tempFiles as $path) {
+            if (is_string($path) && $path !== '' && is_file($path)) {
+                @unlink($path);
+            }
+        }
+        $this->tempFiles = [];
+    }
+
     private function renderStamp($pdf, string $type, string $position, float $pageW, float $pageH, array $options, string $pdfPath, int $pageNum): void
     {
-        $config = self::STAMPS[$type];
+        $config = self::STAMPS[$type] ?? null;
+        if (!$config) {
+            throw new \RuntimeException('Unsupported stamp type: ' . $type);
+        }
 
         $pos = $this->resolveStampPosition($pdfPath, $pageNum, $position, $pageW, $pageH, $config['width'], $config['height']);
-
-        if ($type === 'certified_true_copy') {
-            $this->drawCertified($pdf, $pos['x'], $pos['y'], $config, $options);
-        } else {
-            $this->drawStandard($pdf, $pos['x'], $pos['y'], $config);
-        }
+        $this->drawStandard($pdf, $pos['x'], $pos['y'], $config);
     }
 
     private function calcPosition(string $position, float $pageW, float $pageH, float $stampW, float $stampH): array
@@ -1027,31 +1167,26 @@ class StampService
     {
         $w = $cfg['width'];
         $h = $cfg['height'];
+
+        // Prefer clean stamp artwork (REFERENCE box only — no signature).
+        $imageRel = (string) ($cfg['image'] ?? '');
+        if ($imageRel !== '') {
+            $imagePath = public_path($imageRel);
+            if (is_file($imagePath) && is_readable($imagePath)) {
+                $pdf->Image($imagePath, $x, $y, $w, $h, 'PNG');
+                return;
+            }
+        }
+
+        // Fallback: red rectangle + REFERENCE text only.
         [$r, $g, $b] = $cfg['color'];
-        $date = now()->format('M d, Y');
-
-        $pdf->SetFillColor(255, 255, 255);
-        $pdf->Rect($x, $y, $w, $h, 'F');
-
         $pdf->SetDrawColor($r, $g, $b);
-        $pdf->SetLineWidth(0.6);
+        $pdf->SetLineWidth(0.7);
         $pdf->Rect($x, $y, $w, $h);
-
-        $pdf->SetLineWidth(0.25);
-        $pdf->Rect($x + 1.5, $y + 1.5, $w - 3, $h - 3);
-
         $pdf->SetFont('Helvetica', 'B', $cfg['titleSize']);
         $pdf->SetTextColor($r, $g, $b);
-        $pdf->SetXY($x, $y + 3);
-        $pdf->Cell($w, 6, $cfg['title'], 0, 0, 'C');
-
-        $pdf->SetFont('Helvetica', '', $cfg['subSize']);
-        $pdf->SetXY($x, $y + 10);
-        $pdf->Cell($w, 5, 'Date: ' . $date, 0, 0, 'C');
-
-        $pdf->SetFont('Helvetica', 'I', 6);
-        $pdf->SetXY($x, $y + 15.5);
-        $pdf->Cell($w, 4, $cfg['subtitle'], 0, 0, 'C');
+        $pdf->SetXY($x, $y + ($h / 2) - 3.5);
+        $pdf->Cell($w, 7, $cfg['title'], 0, 0, 'C');
     }
 
     private function drawCertified($pdf, float $x, float $y, array $cfg, array $options): void

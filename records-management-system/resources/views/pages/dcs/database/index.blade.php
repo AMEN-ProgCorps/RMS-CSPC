@@ -174,6 +174,7 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
         try {
             $query = DB::table('dcs_document_requests as dr');
             // Include soft-deleted rows so the inventory can show them with deleted styling.
+            RegisterQueryHelper::applyOfficeScope($query, 'dr');
 
             if ($this->docTypeId !== 'all' && $this->docTypeId !== '') {
                 $query->where('dr.doc_type_id', $this->docTypeId);
@@ -412,9 +413,19 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
         $ret = $doc->documentRetrieval;
         $dist = $doc->documentDistribution;
 
+        // Purpose of Revision = DCN Justification for this registration.
+        // Fall back to the first non-empty Documents-for-Revision brief purpose.
         $dcnPurpose = null;
-        if ($dcn && $dcn->revisions->isNotEmpty()) {
-            $dcnPurpose = $dcn->revisions->sortBy('id')->first()->brief_purpose;
+        if ($dcn) {
+            $justification = trim((string) ($dcn->brief_purpose ?? ''));
+            if ($justification !== '') {
+                $dcnPurpose = $justification;
+            } elseif ($dcn->revisions->isNotEmpty()) {
+                $dcnPurpose = $dcn->revisions
+                    ->sortBy('id')
+                    ->map(fn ($rev) => trim((string) ($rev->brief_purpose ?? '')))
+                    ->first(fn ($purpose) => $purpose !== '') ?: null;
+            }
         }
 
         $retOffices = null;
@@ -445,7 +456,7 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
 
         $isDeleted = ! empty($doc->deleted_at);
         $status = $isDeleted
-            ? 'Archived'
+            ? 'Deleted'
             : $this->revisionStatusLabel($ml?->revision_status ?? null);
 
         return [
@@ -971,7 +982,7 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                             @php $lastCategory = $catName; @endphp
                         @endif
 
-                        <tr class="db-parent-row @if(!empty($r['is_deleted'])) db-deleted-row @endif" x-show="categories['{{ $catSlug }}']" @if(!empty($r['is_deleted'])) title="Moved to Archive{{ !empty($r['deleted_at']) ? ' on ' . $r['deleted_at'] : '' }}" @endif>
+                        <tr class="db-parent-row @if(!empty($r['is_deleted'])) db-deleted-row @endif" x-show="categories['{{ $catSlug }}']" @if(!empty($r['is_deleted'])) title="Moved to Recycle Bin{{ !empty($r['deleted_at']) ? ' on ' . $r['deleted_at'] : '' }}" @endif>
                             <td>
                                 @if(!empty($group['children']))
                                     <span class="db-expand-btn" :class="{ expanded: expandedRevs['{{ $revKey }}'] }" x-on:click.stop="toggleRev('{{ $revKey }}')" title="Show older revisions" x-text="expandedRevs['{{ $revKey }}'] ? '▼' : '▶'"></span>
@@ -998,23 +1009,8 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                         @endif
 
                         @foreach($group['children'] ?? [] as $ci => $child)
-                            @php
-                                $flatView = $revisionStatus !== 'all'
-                                    || trim($search) !== ''
-                                    || $subTypeId !== 'all'
-                                    || $originator !== ''
-                                    || $sourceUnit !== ''
-                                    || $status !== ''
-                                    || $dateFrom !== ''
-                                    || $dateTo !== ''
-                                    || $revNo !== '';
-                                $showChildNumber = $revisionStatus === 'obsolete' || $flatView
-                                    || strcasecmp((string) ($child['doc_no'] ?? ''), (string) ($group['doc_no'] ?? '')) !== 0;
-                            @endphp
-                            <tr class="db-child-row @if(!empty($child['is_deleted'])) db-deleted-row @endif" x-show="categories['{{ $catSlug }}'] && expandedRevs['{{ $revKey }}']" @if(!empty($child['is_deleted'])) title="Moved to Archive{{ !empty($child['deleted_at']) ? ' on ' . $child['deleted_at'] : '' }}" @endif>
-                                <td class="db-child-ind">
-                                    <span class="db-child-dot"></span>@if($showChildNumber){{ $itemNo }}.{{ $ci + 1 }}@endif
-                                </td>
+                            <tr class="db-child-row @if(!empty($child['is_deleted'])) db-deleted-row @endif" x-show="categories['{{ $catSlug }}'] && expandedRevs['{{ $revKey }}']" @if(!empty($child['is_deleted'])) title="Moved to Recycle Bin{{ !empty($child['deleted_at']) ? ' on ' . $child['deleted_at'] : '' }}" @endif>
+                                <td class="db-child-ind"></td>
                                 @include('pages.dcs.database._row', ['r' => $child])
                             </tr>
                             @if(!empty($child['syllabi_courses']) && count($child['syllabi_courses']))

@@ -11,6 +11,9 @@
         (function() {
             var theme = localStorage.getItem('rms-theme') || '{{ auth()->user()?->theme() ?? "light" }}';
             document.documentElement.setAttribute('data-theme', theme);
+            if (localStorage.getItem('dcs-sidebar-collapsed') === '1') {
+                document.documentElement.setAttribute('data-dcs-sidebar-collapsed', '1');
+            }
         })();
         window.assetPaths = {
             toggleNavSection: "{{ asset('icons/toggle-nav-section.svg') }}",
@@ -20,6 +23,26 @@
             window.location.href = url;
         };
     </script>
+    <style>
+        /* Avoid FOUC before the collapse checkbox is synced from localStorage. */
+        html[data-dcs-sidebar-collapsed="1"] .side-nav {
+            width: var(--dcs-sidebar-collapsed, 68px) !important;
+        }
+        html[data-dcs-sidebar-collapsed="1"] .dashboard-main,
+        html[data-dcs-sidebar-collapsed="1"] .rpt-page,
+        html[data-dcs-sidebar-collapsed="1"] .db-page,
+        html[data-dcs-sidebar-collapsed="1"] .st-container,
+        html[data-dcs-sidebar-collapsed="1"] .reg-container,
+        html[data-dcs-sidebar-collapsed="1"] .upd-container,
+        html[data-dcs-sidebar-collapsed="1"] .hst-container,
+        html[data-dcs-sidebar-collapsed="1"] .drr-container,
+        html[data-dcs-sidebar-collapsed="1"] .rb-container,
+        html[data-dcs-sidebar-collapsed="1"] .ofi-page,
+        html[data-dcs-sidebar-collapsed="1"] .settings-main,
+        html[data-dcs-sidebar-collapsed="1"] .dcs-top-tabs-host {
+            left: var(--dcs-sidebar-collapsed, 68px) !important;
+        }
+    </style>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
@@ -36,6 +59,12 @@
     ])
     @if(request()->routeIs('dcs', 'dcs.dashboard'))
         @vite(['resources/css/dcs/dashboard.css'])
+        @if(\App\Helpers\RegisterQueryHelper::isLimitedDcsUser())
+            <link rel="stylesheet" href="{{ asset('css/dcs/office-intake.css') }}">
+        @endif
+    @elseif(request()->routeIs('dcs.office.*'))
+        @vite(['resources/css/dcs/register.css'])
+        <link rel="stylesheet" href="{{ asset('css/dcs/office-intake.css') }}">
     @elseif(request()->routeIs('dcs.settings.index'))
         @vite(['resources/css/dcs/settings.css'])
     @elseif(request()->routeIs('dcs.register.create') || request()->routeIs('dcs.register.revised'))
@@ -63,6 +92,32 @@
 <body>
     <input type="checkbox" id="dcs-nav-open" class="dcs-chrome-toggle">
     <input type="checkbox" id="dcs-sidebar-collapsed" class="dcs-chrome-toggle">
+    <script>
+        (function () {
+            var KEY = 'dcs-sidebar-collapsed';
+            function syncSidebarCollapse() {
+                var el = document.getElementById('dcs-sidebar-collapsed');
+                if (!el) return;
+                var collapsed = localStorage.getItem(KEY) === '1';
+                el.checked = collapsed;
+                if (collapsed) {
+                    document.documentElement.setAttribute('data-dcs-sidebar-collapsed', '1');
+                } else {
+                    document.documentElement.removeAttribute('data-dcs-sidebar-collapsed');
+                }
+            }
+            syncSidebarCollapse();
+            document.getElementById('dcs-sidebar-collapsed')?.addEventListener('change', function () {
+                localStorage.setItem(KEY, this.checked ? '1' : '0');
+                if (this.checked) {
+                    document.documentElement.setAttribute('data-dcs-sidebar-collapsed', '1');
+                } else {
+                    document.documentElement.removeAttribute('data-dcs-sidebar-collapsed');
+                }
+            });
+            document.addEventListener('livewire:navigated', syncSidebarCollapse);
+        })();
+    </script>
 
     <header class="rms-app-header">
         <label class="mobile-nav-toggle" for="dcs-nav-open" aria-label="Open navigation">

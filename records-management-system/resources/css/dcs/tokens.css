@@ -42,7 +42,9 @@
     --dcs-shadow-sm: 0 1px 3px rgba(15, 23, 42, 0.04);
     --dcs-shadow-md: 0 4px 16px rgba(15, 23, 42, 0.06);
     --dcs-shadow-lg: 0 8px 32px rgba(15, 23, 42, 0.08);
-    --dcs-page-pad: 28px 32px;
+    --dcs-page-pad-y: 28px;
+    --dcs-page-pad-x: 32px;
+    --dcs-page-pad: var(--dcs-page-pad-y) var(--dcs-page-pad-x);
     --dcs-header-height: 70px;
     --dcs-sidebar: 300px;
     --dcs-sidebar-collapsed: 68px;
@@ -348,6 +350,7 @@
 .db-breadcrumb,
 .st-breadcrumb,
 .rpt-crumb,
+.drr-breadcrumb,
 .rb-container .upd-breadcrumb {
     font-size: var(--dcs-crumb-size);
     color: var(--dcs-text-subtle);
@@ -361,6 +364,7 @@
 .db-breadcrumb span,
 .st-breadcrumb span,
 .rpt-crumb span,
+.drr-breadcrumb span,
 .rb-container .upd-breadcrumb span {
     font-weight: 600;
     color: var(--dcs-text-secondary);

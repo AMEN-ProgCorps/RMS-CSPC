@@ -38,6 +38,7 @@ class RegisterUpdateHelper
 
         $docRequest = RegisterQueryHelper::findDocumentRequest($id);
         abort_unless($docRequest, 404);
+        RegisterQueryHelper::assertCanAccessRequest($id);
 
         $ml = DB::table('dcs_masterlist_registration')->where('request_id', $id)->first();
         $editingObsolete = $ml && $ml->doc_no
@@ -281,6 +282,7 @@ class RegisterUpdateHelper
                     'scanned_masterlist' => $masterlistFile,
                     'updated_at' => $now,
                 ];
+                RegisterPersistHelper::applyMasterlistOriginalName($masterlistData, $request);
                 if (Schema::hasColumn('dcs_masterlist_registration', 'originator_id')) {
                     $masterlistData['originator_id'] = $originator['originator_id'];
                 }
@@ -367,6 +369,7 @@ class RegisterUpdateHelper
                     'scanned_masterlist' => $masterlistFile,
                     'updated_at' => $now,
                 ];
+                RegisterPersistHelper::applyMasterlistOriginalName($masterlistData, $request);
                 if (Schema::hasColumn('dcs_masterlist_registration', 'originator_id')) {
                     $masterlistData['originator_id'] = $originator['originator_id'];
                 }
@@ -542,6 +545,12 @@ class RegisterUpdateHelper
                 Storage::disk('public')->delete($file);
             }
 
+            RegisterPersistHelper::logAdminChange(
+                'Updated document #' . $id
+                . (!empty($ml->doc_no ?? $docNo) ? ' — ' . ($ml->doc_no ?? $docNo) : '')
+                . (!empty($ml->doc_title) ? ': ' . $ml->doc_title : '')
+            );
+
             return redirect()->route('dcs.register.edit', $id)
                 ->with('success', 'Document updated successfully!');
         } catch (\Throwable $e) {
@@ -563,19 +572,20 @@ class RegisterUpdateHelper
             return self::flashRedirect(
                 'dcs.register.update',
                 'error',
-                'Archive requires a pending database migration. Run php artisan migrate.'
+                'Delete requires a pending database migration. Run php artisan migrate.'
             );
         }
 
         $docRequest = RegisterQueryHelper::findDocumentRequest($id);
         abort_unless($docRequest, 404);
+        RegisterQueryHelper::assertCanAccessRequest($id);
 
         $ml = DB::table('dcs_masterlist_registration')->where('request_id', $id)->first();
         if ($ml && $ml->doc_no && ($ml->revision_status ?? 'latest') !== 'latest') {
             return self::flashRedirect(
                 'dcs.register.update',
                 'error',
-                'Only the latest revision can be archived.'
+                'Only the latest revision can be deleted.'
             );
         }
 
@@ -604,20 +614,26 @@ class RegisterUpdateHelper
 
             DB::commit();
 
+            RegisterPersistHelper::logAdminChange(
+                'Deleted document #' . $id
+                . (!empty($ml->doc_no) ? ' — ' . $ml->doc_no : '')
+                . (!empty($ml->doc_title) ? ': ' . $ml->doc_title : '')
+            );
+
             return self::flashRedirect(
                 'dcs.register.update',
                 'success',
-                'Document archived successfully.'
+                'Document moved to Recycle Bin.'
             );
         } catch (\Throwable $e) {
             DB::rollBack();
             $refId = uniqid('err_');
-            Log::error("Document archive failed [{$refId}]: " . $e->getMessage());
+            Log::error("Document delete failed [{$refId}]: " . $e->getMessage());
 
             return self::flashRedirect(
                 'dcs.register.update',
                 'error',
-                'Failed to archive document. Please try again. (ref: ' . $refId . ')'
+                'Failed to delete document. Please try again. (ref: ' . $refId . ')'
             );
         }
     }
@@ -626,6 +642,7 @@ class RegisterUpdateHelper
     {
         $docRequest = RegisterQueryHelper::findTrashedDocumentRequest($id);
         abort_unless($docRequest, 404);
+        RegisterQueryHelper::assertCanAccessRequest($id);
 
         $ml = DB::table('dcs_masterlist_registration')->where('request_id', $id)->first();
 
@@ -644,7 +661,7 @@ class RegisterUpdateHelper
                     'dcs.recycle-bin',
                     'error',
                     'Cannot restore: document number "' . $ml->doc_no . '" Rev ' . (int) $ml->revise_no
-                        . ' is already in use by an active document. Archive or renumber the active one first.'
+                        . ' is already in use by an active document. Delete or renumber the active one first.'
                 );
             }
         }
@@ -660,107 +677,17 @@ class RegisterUpdateHelper
             RegisterPersistHelper::syncRevisionStatusForMasterlist((int) $ml->id);
         }
 
+        RegisterPersistHelper::logAdminChange(
+            'Restored document #' . $id
+            . (!empty($ml->doc_no) ? ' — ' . $ml->doc_no : '')
+            . (!empty($ml->doc_title) ? ': ' . $ml->doc_title : '')
+        );
+
         return self::flashRedirect(
             'dcs.recycle-bin',
             'success',
-            'Document restored from archive successfully.'
+            'Document restored from Recycle Bin successfully.'
         );
-    }
-
-    public static function permanentDestroy(int $id): RedirectResponse
-    {
-        $docRequest = RegisterQueryHelper::findTrashedDocumentRequest($id);
-        abort_unless($docRequest, 404);
-
-        DB::beginTransaction();
-        $filesToDelete = [];
-        try {
-            $drf = DB::table('dcs_document_request_form')->where('request_id', $id)->first();
-            if ($drf) {
-                if ($drf->scanned_drf) {
-                    $filesToDelete[] = $drf->scanned_drf;
-                }
-                DB::table('dcs_drf_offices')->where('document_request_form_id', $drf->id)->delete();
-                DB::table('dcs_document_request_form')->where('id', $drf->id)->delete();
-            }
-
-            $dcn = DB::table('dcs_document_change_notice')->where('request_id', $id)->first();
-            if ($dcn) {
-                if ($dcn->scanned_dcn) {
-                    $filesToDelete[] = $dcn->scanned_dcn;
-                }
-                foreach (DB::table('dcs_doc_revision')->where('dcn_id', $dcn->id)->get() as $rev) {
-                    if ($rev->scanned_copy) {
-                        $filesToDelete[] = $rev->scanned_copy;
-                    }
-                }
-                DB::table('dcs_doc_revision')->where('dcn_id', $dcn->id)->delete();
-                DB::table('dcs_document_change_notice')->where('id', $dcn->id)->delete();
-            }
-
-            $masterlist = DB::table('dcs_masterlist_registration')->where('request_id', $id)->first();
-            if ($masterlist) {
-                if ($masterlist->scanned_masterlist) {
-                    $filesToDelete[] = $masterlist->scanned_masterlist;
-                }
-                DB::table('dcs_masterlist_source_offices')->where('masterlist_id', $masterlist->id)->delete();
-                DB::table('dcs_masterlist_related_docs')
-                    ->where(function ($q) use ($masterlist) {
-                        $q->where('masterlist_id', $masterlist->id)
-                            ->orWhere('related_doc_id', $masterlist->id);
-                    })
-                    ->delete();
-                DB::table('dcs_masterlist_registration')->where('id', $masterlist->id)->delete();
-            }
-
-            self::queueSyllabiFiles($id, $filesToDelete);
-            DB::table('dcs_syllabi')->where('request_id', $id)->delete();
-
-            $retrieval = DB::table('dcs_document_retrieval')->where('request_id', $id)->first();
-            if ($retrieval) {
-                if ($retrieval->scanned_retrieval) {
-                    $filesToDelete[] = $retrieval->scanned_retrieval;
-                }
-                DB::table('dcs_retrieval_offices')->where('retrieval_id', $retrieval->id)->delete();
-                DB::table('dcs_document_retrieval')->where('id', $retrieval->id)->delete();
-            }
-
-            $distribution = DB::table('dcs_document_distribution')->where('request_id', $id)->first();
-            if ($distribution) {
-                if ($distribution->scanned_distribution) {
-                    $filesToDelete[] = $distribution->scanned_distribution;
-                }
-                DB::table('dcs_distribution_offices')->where('distribution_id', $distribution->id)->delete();
-                DB::table('dcs_document_distribution')->where('id', $distribution->id)->delete();
-            }
-
-            DB::table('dcs_approval_records')->where('request_id', $id)->delete();
-            DB::table('dcs_opcr_ratings')->where('request_id', $id)->delete();
-            DB::table('dcs_document_requests')->where('id', $id)->delete();
-
-            DB::commit();
-            StampBackupService::pruneOrphans();
-
-            foreach ($filesToDelete as $file) {
-                Storage::disk('public')->delete($file);
-            }
-
-            return self::flashRedirect(
-                'dcs.recycle-bin',
-                'success',
-                'Document permanently deleted.'
-            );
-        } catch (\Throwable $e) {
-            DB::rollBack();
-            $refId = uniqid('err_');
-            Log::error("Document permanent deletion failed [{$refId}]: " . $e->getMessage());
-
-            return self::flashRedirect(
-                'dcs.recycle-bin',
-                'error',
-                'Failed to permanently delete document. Please try again. (ref: ' . $refId . ')'
-            );
-        }
     }
 
     private static function queueSyllabiFiles(int $requestId, array &$filesToDelete, array $keepPaths = []): void

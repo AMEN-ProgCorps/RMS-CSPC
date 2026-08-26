@@ -268,6 +268,36 @@
                 ],
             ];
         }
+        elseif (request()->routeIs('dcs.office.drf.*')) {
+            $sectionTitle = 'My DRF';
+            $tabs = [
+                [
+                    'label' => 'My DRF',
+                    'url' => route('dcs.office.drf.index'),
+                    'active' => request()->routeIs('dcs.office.drf.index') || request()->routeIs('dcs.office.drf.show'),
+                ],
+                [
+                    'label' => 'New DRF',
+                    'url' => route('dcs.office.drf.create'),
+                    'active' => request()->routeIs('dcs.office.drf.create'),
+                ],
+            ];
+        }
+        elseif (request()->routeIs('dcs.office.dcn.*')) {
+            $sectionTitle = 'My DCN';
+            $tabs = [
+                [
+                    'label' => 'My DCN',
+                    'url' => route('dcs.office.dcn.index'),
+                    'active' => request()->routeIs('dcs.office.dcn.index') || request()->routeIs('dcs.office.dcn.show'),
+                ],
+                [
+                    'label' => 'New DCN',
+                    'url' => route('dcs.office.dcn.create'),
+                    'active' => request()->routeIs('dcs.office.dcn.create'),
+                ],
+            ];
+        }
         // 2. Document Registration
         elseif (request()->routeIs('dcs.register.*')) {
             $sectionTitle = 'Document Registration';
@@ -386,7 +416,7 @@
                 ],
             ];
         }
-        // 2. Activity Logs Group (with Category Switcher Pills: Systems | DTS | RDP | Chatify)
+        // 2. Activity Logs Group (with Category Switcher Pills: Systems | DTS | RDP | DCS | Chatify)
         elseif (request()->routeIs('admin.activity.*')) {
             $sectionTitle = 'Activity Logs';
             
@@ -408,6 +438,12 @@
                     'icon' => 'fa-solid fa-box-archive',
                     'url' => route('admin.activity.rdp.records-logs'),
                     'active' => request()->routeIs('admin.activity.rdp.*'),
+                ],
+                [
+                    'label' => 'DCS',
+                    'icon' => 'fa-solid fa-stamp',
+                    'url' => route('admin.activity.dcs.activity-logs'),
+                    'active' => request()->routeIs('admin.activity.dcs.*'),
                 ],
                 [
                     'label' => 'Chatify',
@@ -479,6 +515,16 @@
                         'label' => 'Record Series Logs',
                         'url' => route('admin.activity.rdp.record-series-logs'),
                         'active' => request()->routeIs('admin.activity.rdp.record-series-logs'),
+                    ],
+                ];
+            }
+            // Sub-tabs for DCS
+            elseif (request()->routeIs('admin.activity.dcs.*')) {
+                $tabs = [
+                    [
+                        'label' => 'Activity Logs',
+                        'url' => route('admin.activity.dcs.activity-logs'),
+                        'active' => request()->routeIs('admin.activity.dcs.activity-logs'),
                     ],
                 ];
             }

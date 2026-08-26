@@ -129,17 +129,12 @@ document.addEventListener('DOMContentLoaded', function () {
         state.pageCount   = 1;
         state.placement   = null;
         state.position    = 'auto';
+        // Only Reference stamp is allowed.
+        state.stampType   = 'reference';
 
         // Find the first file — prefer unstamped, fallback to first stamped
         let defaultFile = files.find(f => !f.stamped) || files[0];
         state.selectedFile = defaultFile;
-
-        // If file is already stamped, pre-select that stamp type
-        if (defaultFile.stamped && defaultFile.stamp_type) {
-            state.stampType = defaultFile.stamp_type;
-        } else {
-            state.stampType = null;
-        }
 
         // Header info
         modalDocInfo.textContent = state.docNo + ' — ' + state.docTitle + ' (Rev ' + state.rev + ')';
@@ -147,26 +142,19 @@ document.addEventListener('DOMContentLoaded', function () {
         // Build file selector
         buildFileSelector();
 
-        // Reset config UI (but preserve stamp type if pre-selected)
+        // Reset config UI then lock Reference
         resetConfigUI();
-
-        // If stamp was pre-selected, apply it
-        if (state.stampType) {
-            const pill = document.querySelector('.st-type-pill[data-type="' + state.stampType + '"]');
-            if (pill) {
-                pill.classList.add('selected');
-                if (state.stampType === 'certified_true_copy') {
-                    certifiedFields.style.display = 'block';
-                }
-            }
-            updateOverlay();
-            checkReady();
-        }
+        document.querySelectorAll('.st-type-pill').forEach(p => p.classList.remove('selected'));
+        const refPill = document.querySelector('.st-type-pill[data-type="reference"]');
+        if (refPill) refPill.classList.add('selected');
+        state.stampType = 'reference';
+        if (certifiedFields) certifiedFields.style.display = 'none';
+        updateOverlay();
+        checkReady();
 
         // Update modal title
-        const hasPreSelected = state.stampType;
         const headerH3 = document.querySelector('.st-modal-header h3');
-        headerH3.textContent = hasPreSelected ? 'Change Stamp' : 'Apply Stamp';
+        headerH3.textContent = defaultFile.stamped ? 'Change Stamp' : 'Apply Stamp';
 
         // Load first preview
         loadPreview();
@@ -224,18 +212,8 @@ document.addEventListener('DOMContentLoaded', function () {
                 if (this.checked) {
                     state.selectedFile = state.files[idx];
                     resetConfigUI();
-                    state.stampType = null;
-
-                    if (file.stamped && file.stamp_type) {
-                        state.stampType = file.stamp_type;
-                        document.querySelectorAll('.st-type-pill').forEach(p => p.classList.remove('selected'));
-                        const pill = document.querySelector('.st-type-pill[data-type="' + file.stamp_type + '"]');
-                        if (pill) pill.classList.add('selected');
-                        certifiedFields.style.display = file.stamp_type === 'certified_true_copy' ? 'block' : 'none';
-                        updateOverlay();
-                        checkReady();
-                    }
-
+                    updateOverlay();
+                    checkReady();
                     loadPreview();
                 }
             });
@@ -248,9 +226,11 @@ document.addEventListener('DOMContentLoaded', function () {
 
     function resetConfigUI() {
         document.querySelectorAll('.st-type-pill').forEach(p => p.classList.remove('selected'));
-        certifiedFields.style.display = 'none';
-        certifiedByInp.value = '';
-        designationInp.value = '';
+        const refPill = document.querySelector('.st-type-pill[data-type="reference"]');
+        if (refPill) refPill.classList.add('selected');
+        if (certifiedFields) certifiedFields.style.display = 'none';
+        if (certifiedByInp) certifiedByInp.value = '';
+        if (designationInp) designationInp.value = '';
         autoPlace.checked = true;
         manualWrap.style.display = 'none';
         state.position = 'auto';
@@ -265,7 +245,7 @@ document.addEventListener('DOMContentLoaded', function () {
         state.currentPage = 1;
         state.pageCount = 1;
         state.placement = null;
-        state.stampType = null;
+        state.stampType = 'reference';
         updatePageNav();
 
         downloadBtn.disabled = true;
@@ -468,11 +448,7 @@ document.addEventListener('DOMContentLoaded', function () {
     // ═══════════════════════════════════════════
 
     var STAMP_STYLES = {
-        controlled:           { title: 'CONTROLLED',          color: '#003399', sub: 'Controlled document — do not copy' },
-        obsolete:             { title: 'OBSOLETE',            color: '#b40000', sub: 'Superseded — do not use' },
-        master_copy:          { title: 'MASTER COPY',         color: '#006400', sub: '' },
-        reference:            { title: 'REFERENCE COPY',      color: '#646464', sub: '' },
-        certified_true_copy:  { title: 'CERTIFIED TRUE COPY', color: '#003399', sub: '' },
+        reference: { title: 'REFERENCE', color: '#b03030', sub: '', image: true },
     };
 
     function updateOverlay() {
@@ -503,38 +479,27 @@ document.addEventListener('DOMContentLoaded', function () {
     function renderOverlayContent() {
         if (!state.stampType) return;
 
-        var cfg = STAMP_STYLES[state.stampType] || STAMP_STYLES.controlled;
+        var cfg = STAMP_STYLES[state.stampType] || STAMP_STYLES.reference;
+        var art = document.getElementById('overlayStampArt');
+        var fallback = document.getElementById('overlayStampFallback');
 
-        overlayTitle.textContent = cfg.title;
-        overlayTitle.style.color = cfg.color;
-
-        if (state.stampType === 'certified_true_copy') {
-            overlayDivider.style.display = 'block';
-            overlayDivider.style.color   = cfg.color;
-            overlayFields.style.display  = 'block';
-            overlayCertBy.textContent    = state.certBy || '...';
-            overlayDesig.textContent     = state.desig  || '...';
-        } else {
-            overlayDivider.style.display = 'none';
-            overlayFields.style.display  = 'none';
+        if (art) {
+            art.style.display = 'block';
+        }
+        if (fallback) {
+            fallback.style.display = 'none';
         }
 
-        overlayDate.textContent = new Date().toLocaleDateString('en-US', {
-            year: 'numeric', month: 'short', day: 'numeric'
-        });
-        overlayDate.style.color = cfg.color;
-
-        if (cfg.sub) {
-            overlaySub.textContent    = cfg.sub;
-            overlaySub.style.display  = 'block';
-        } else {
-            overlaySub.style.display  = 'none';
+        if (overlayTitle) {
+            overlayTitle.textContent = cfg.title;
+            overlayTitle.style.color = cfg.color;
         }
+        if (overlayDivider) overlayDivider.style.display = 'none';
+        if (overlayFields) overlayFields.style.display = 'none';
+        if (overlayDate) overlayDate.style.display = 'none';
+        if (overlaySub) overlaySub.style.display = 'none';
 
         overlayPages.textContent = state.allPages ? 'All pages' : 'First page only';
-
-        stampBox.style.borderColor = cfg.color;
-        stampBox.querySelector('.st-stamp-inner').style.borderColor = cfg.color;
 
         if (state.position === 'auto' && state.placement) {
             applyAutoPlacement(state.placement);

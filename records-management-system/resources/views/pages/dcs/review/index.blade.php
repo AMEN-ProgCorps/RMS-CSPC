@@ -29,12 +29,13 @@ new #[Layout('layouts.dcs')] #[Title('Document Review — CSPC DCS')] class exte
             ? RegisterQueryHelper::reviewCompare(
                 $this->selectedDocNo,
                 $this->leftId !== '' ? (int) $this->leftId : null,
-                null
+                $this->rightId !== '' ? (int) $this->rightId : null
             )
             : [
                 'docNo' => '',
                 'docTitle' => '',
                 'options' => [],
+                'pair_options' => [],
                 'prior_options' => [],
                 'left_id' => null,
                 'right_id' => null,
@@ -45,8 +46,8 @@ new #[Layout('layouts.dcs')] #[Title('Document Review — CSPC DCS')] class exte
                 'can_compare' => false,
                 'can_view' => false,
                 'error' => null,
-                'left_label' => 'Selected revision',
-                'right_label' => 'Latest',
+                'left_label' => 'Older revision',
+                'right_label' => 'Newer revision',
             ];
 
         if (($compare['right_id'] ?? null) && (string) $compare['right_id'] !== $this->rightId) {
@@ -66,6 +67,7 @@ new #[Layout('layouts.dcs')] #[Title('Document Review — CSPC DCS')] class exte
             'compare' => $compare,
             'pair' => $pair,
             'activeTab' => $activeTab,
+            'pairOptions' => $compare['pair_options'] ?? [],
         ];
     }
 
@@ -104,7 +106,7 @@ new #[Layout('layouts.dcs')] #[Title('Document Review — CSPC DCS')] class exte
 
         $this->selectedDocNo = $docNo;
         $preview = RegisterQueryHelper::reviewCompare($docNo, null, null);
-        // Right side is always the latest; left is the selected prior revision (if any).
+        // Default to the tip consecutive pair (previous → latest).
         $this->rightId = (string) ($preview['right_id'] ?? $preview['latest_id'] ?? '');
         $this->leftId = (string) ($preview['left_id'] ?? '');
         $this->tab = $preview['tabs'][0]['key'] ?? 'masterlist';
@@ -120,27 +122,41 @@ new #[Layout('layouts.dcs')] #[Title('Document Review — CSPC DCS')] class exte
 
     public function updatedLeftId(): void
     {
-        $this->normalizeRevisionOrder();
+        $this->snapToConsecutivePair('left');
     }
 
     public function updatedRightId(): void
     {
-        // Newer side is always locked to the latest revision.
-        $this->normalizeRevisionOrder();
+        $this->snapToConsecutivePair('right');
     }
 
-    private function normalizeRevisionOrder(): void
+    public function selectPair(string $key): void
+    {
+        if ($this->selectedDocNo === '' || $key === '') {
+            return;
+        }
+        [$left, $right] = array_pad(explode(':', $key, 2), 2, '');
+        $this->leftId = $left;
+        $this->rightId = $right;
+        $this->snapToConsecutivePair('right');
+    }
+
+    private function snapToConsecutivePair(string $prefer): void
     {
         if ($this->selectedDocNo === '') {
             return;
         }
 
-        $preview = RegisterQueryHelper::reviewCompare(
-            $this->selectedDocNo,
-            $this->leftId !== '' ? (int) $this->leftId : null,
-            null
-        );
-        $this->rightId = (string) ($preview['right_id'] ?? $preview['latest_id'] ?? '');
+        $left = $this->leftId !== '' ? (int) $this->leftId : null;
+        $right = $this->rightId !== '' ? (int) $this->rightId : null;
+
+        if ($prefer === 'left') {
+            $preview = RegisterQueryHelper::reviewCompare($this->selectedDocNo, $left, null);
+        } else {
+            $preview = RegisterQueryHelper::reviewCompare($this->selectedDocNo, null, $right);
+        }
+
+        $this->rightId = (string) ($preview['right_id'] ?? '');
         $this->leftId = (string) ($preview['left_id'] ?? '');
     }
 
@@ -180,7 +196,7 @@ new #[Layout('layouts.dcs')] #[Title('Document Review — CSPC DCS')] class exte
                 <i class="fa-solid fa-xmark"></i> Clear
             </button>
         </div>
-        <p class="drr-hint">Each row shows the latest revision. Open a document to review it, then pick an older revision to compare against the latest.</p>
+        <p class="drr-hint">Each row shows the latest revision. Open a document, then pick a consecutive pair (Rev 0→1, 1→2, 3→5 when 4 is missing, …).</p>
 
         <div class="drr-table-card">
             <div class="drr-table-scroll" @if(count($list['rows']) === 0) style="display:none" @endif>
@@ -244,9 +260,10 @@ new #[Layout('layouts.dcs')] #[Title('Document Review — CSPC DCS')] class exte
                 'same_revision' => 'Pick a different older revision to compare against the latest.',
             ];
             $reviewError = $reviewErrors[$compare['error'] ?? ''] ?? null;
-            $olderLabel = $compare['left_label'] ?? 'Selected revision';
-            $newerLabel = $compare['right_label'] ?? 'Latest';
+            $olderLabel = $compare['left_label'] ?? 'Older revision';
+            $newerLabel = $compare['right_label'] ?? 'Newer revision';
             $priorOptions = $compare['prior_options'] ?? [];
+            $pairOptions = $compare['pair_options'] ?? ($pairOptions ?? []);
             $canCompare = !empty($compare['can_compare']);
             $canView = !empty($compare['can_view']) || $canCompare;
         @endphp
@@ -265,30 +282,41 @@ new #[Layout('layouts.dcs')] #[Title('Document Review — CSPC DCS')] class exte
                     <i class="fa-solid fa-triangle-exclamation"></i>
                     <div>
                         <p>{{ $reviewError }}</p>
-                        <span>The latest revision is always shown on the right. Use the selector to pick an older revision when available.</span>
+                        <span>Compare only consecutive revisions in the lineage (by Rev No order), e.g. 5→6 or 3→5 if 4 was never registered.</span>
                     </div>
                 </div>
             @endif
 
             <div class="drr-rev-bar">
-                <div class="drr-latest-lock">
-                    <span class="drr-info-label">Latest (right)</span>
-                    <div class="drr-latest-value">
-                        <i class="fa-solid fa-lock"></i>
-                        Rev {{ $compare['latest_revise_no'] ?? '—' }} · current
-                    </div>
-                </div>
-
                 <label class="drr-rev-select">
-                    Compare with (left)
-                    <select wire:model.live="leftId" @disabled(count($priorOptions) < 1)>
-                        @forelse($priorOptions as $opt)
-                            <option value="{{ $opt['id'] }}">{{ $opt['label'] }} — {{ $opt['created_label'] }}</option>
+                    Compare pair
+                    <select
+                        wire:model.live="rightId"
+                        @disabled(count($pairOptions) < 1)
+                    >
+                        @forelse($pairOptions as $po)
+                            <option value="{{ $po['right_id'] }}">{{ $po['label'] }}</option>
                         @empty
-                            <option value="">No earlier revision</option>
+                            <option value="">No consecutive pairs</option>
                         @endforelse
                     </select>
                 </label>
+
+                <div class="drr-latest-lock">
+                    <span class="drr-info-label">Older (left)</span>
+                    <div class="drr-latest-value">
+                        <i class="fa-solid fa-file-lines"></i>
+                        {{ $compare['left_label'] ?? '—' }}
+                    </div>
+                </div>
+
+                <div class="drr-latest-lock">
+                    <span class="drr-info-label">Newer (right)</span>
+                    <div class="drr-latest-value">
+                        <i class="fa-solid fa-file-lines"></i>
+                        {{ $compare['right_label'] ?? '—' }}
+                    </div>
+                </div>
 
                 @if($canCompare)
                     <div class="drr-legend">
@@ -325,10 +353,10 @@ new #[Layout('layouts.dcs')] #[Title('Document Review — CSPC DCS')] class exte
                         <div
                             class="drr-scans @if(!$canCompare) drr-scans-single @endif"
                             id="drr-pdf-compare"
-                            data-left-url="{{ $canCompare && $pair['left_scan']['is_pdf'] ? ($pair['left_scan']['url'] ?? '') : '' }}"
-                            data-right-url="{{ $pair['right_scan']['is_pdf'] ? ($pair['right_scan']['url'] ?? '') : '' }}"
-                            data-left-img="{{ $canCompare && !$pair['left_scan']['is_pdf'] ? ($pair['left_scan']['url'] ?? '') : '' }}"
-                            data-right-img="{{ !$pair['right_scan']['is_pdf'] ? ($pair['right_scan']['url'] ?? '') : '' }}"
+                            data-left-url="{{ $canCompare && !empty($pair['left_scan']['is_pdf']) ? ($pair['left_scan']['url'] ?? '') : '' }}"
+                            data-right-url="{{ $canCompare && !empty($pair['right_scan']['is_pdf']) ? ($pair['right_scan']['url'] ?? '') : '' }}"
+                            data-left-img=""
+                            data-right-img="{{ !$canCompare && !empty($pair['right_scan']['url']) && empty($pair['right_scan']['is_pdf']) ? ($pair['right_scan']['url'] ?? '') : '' }}"
                             wire:key="scans-{{ $tab }}-{{ $leftId }}-{{ $rightId }}"
                         >
                             @if($canCompare)
@@ -345,20 +373,45 @@ new #[Layout('layouts.dcs')] #[Title('Document Review — CSPC DCS')] class exte
                                         <div class="drr-scan-empty">No masterlist scan on this revision</div>
                                     @endif
                                 </div>
-                            @endif
 
-                            <div class="drr-scan is-{{ $canCompare ? ($pair['scan_status'] ?? 'none') : 'same' }}">
-                                <div class="drr-scan-label">{{ $newerLabel }}{{ $pair['right_scan']['name'] ? ' · ' . $pair['right_scan']['name'] : '' }}</div>
-                                @if($pair['right_scan']['url'] && $pair['right_scan']['is_pdf'])
-                                    <div class="drr-pdf-stage" data-review-side="right" wire:ignore></div>
-                                    <p class="drr-pdf-note" data-review-note="right"></p>
-                                @elseif($pair['right_scan']['url'])
-                                    <img class="drr-scan-img" src="{{ $pair['right_scan']['url'] }}" alt="{{ $newerLabel }} scan">
-                                    <p class="drr-muted">This file is not a PDF, so words cannot be highlighted on the page.</p>
-                                @else
-                                    <div class="drr-scan-empty">No masterlist scan on this revision</div>
-                                @endif
-                            </div>
+                                <div class="drr-scan is-{{ $scanStatus }}">
+                                    <div class="drr-scan-label">{{ $newerLabel }}{{ $pair['right_scan']['name'] ? ' · ' . $pair['right_scan']['name'] : '' }}</div>
+                                    @if($pair['right_scan']['url'] && $pair['right_scan']['is_pdf'])
+                                        <div class="drr-pdf-stage" data-review-side="right" wire:ignore></div>
+                                        <p class="drr-pdf-note" data-review-note="right"></p>
+                                    @elseif($pair['right_scan']['url'])
+                                        <img class="drr-scan-img" src="{{ $pair['right_scan']['url'] }}" alt="{{ $newerLabel }} scan">
+                                        <p class="drr-muted">This file is not a PDF, so words cannot be highlighted on the page.</p>
+                                    @else
+                                        <div class="drr-scan-empty">No masterlist scan on this revision</div>
+                                    @endif
+                                </div>
+                            @else
+                                {{-- View-only: show whichever scan exists; compare needs both PDFs --}}
+                                @php
+                                    $viewScan = !empty($pair['right_scan']['url']) ? $pair['right_scan'] : $pair['left_scan'];
+                                    $viewLabel = !empty($pair['right_scan']['url']) ? $newerLabel : $olderLabel;
+                                @endphp
+                                <div class="drr-scan is-same">
+                                    <div class="drr-scan-label">{{ $viewLabel }}{{ ($viewScan['name'] ?? null) ? ' · ' . $viewScan['name'] : '' }}</div>
+                                    @if(!empty($viewScan['url']) && !empty($viewScan['is_pdf']))
+                                        <div class="drr-pdf-stage" data-review-side="right" wire:ignore></div>
+                                        <p class="drr-pdf-note" data-review-note="right"></p>
+                                    @elseif(!empty($viewScan['url']))
+                                        <img class="drr-scan-img" src="{{ $viewScan['url'] }}" alt="scan">
+                                    @else
+                                        <div class="drr-scan-empty">No masterlist scan on this revision</div>
+                                    @endif
+                                    @if(empty($pair['left_scan']['url']) || empty($pair['right_scan']['url']))
+                                        <p class="drr-muted" style="padding:8px 12px;">
+                                            Comparison needs a masterlist PDF on <strong>both</strong> the older revision and the latest.
+                                            @if(empty($pair['right_scan']['url']))
+                                                Latest (Rev {{ $compare['latest_revise_no'] ?? '—' }}) has no scanned masterlist yet.
+                                            @endif
+                                        </p>
+                                    @endif
+                                </div>
+                            @endif
                         </div>
                     </div>
                 @endif

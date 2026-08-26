@@ -145,18 +145,188 @@ class RegisterQueryHelper
         return $query;
     }
 
+    /** Super admin, RFIO custodian, or explicit DCS “view all offices” clearance (mirrors DTS/RDP). */
+    public static function canViewAllDocuments(): bool
+    {
+        $perms = auth()->user()?->permissions;
+        if (!$perms) {
+            return false;
+        }
+        if (!empty($perms->is_sadm)) {
+            return true;
+        }
+        // RFIO runs Document Control for the whole college — not office-scoped inventory.
+        if (self::isRfioOffice()) {
+            return true;
+        }
+
+        return Schema::hasColumn('condition_details', 'dcs_view_all_documents')
+            && !empty($perms->dcs_view_all_documents);
+    }
+
+    public static function currentOfficeCode(): ?string
+    {
+        $code = auth()->user()?->details?->office?->office_code ?? null;
+
+        return $code !== null && $code !== '' ? strtoupper(trim((string) $code)) : null;
+    }
+
+    public static function isRfioOffice(): bool
+    {
+        return self::currentOfficeCode() === 'RFIO';
+    }
+
+    /** Full DCS (Register, Database, Stamp, etc.): RFIO, sadm, or view-all clearance. */
+    public static function isFullDcsUser(): bool
+    {
+        $perms = auth()->user()?->permissions;
+        if (!$perms) {
+            return false;
+        }
+        if (!empty($perms->is_sadm)) {
+            return true;
+        }
+        if (self::isRfioOffice()) {
+            return true;
+        }
+
+        return self::canViewAllDocuments();
+    }
+
+    /** Non-RFIO office user with DCS access: DRF/DCN intake only. */
+    public static function isLimitedDcsUser(): bool
+    {
+        $perms = auth()->user()?->permissions;
+        if (!$perms) {
+            return false;
+        }
+        if (!empty($perms->is_sadm)) {
+            return false;
+        }
+        if (empty($perms->can_access_dcs)) {
+            return false;
+        }
+
+        return !self::isFullDcsUser();
+    }
+
+    public static function assertFullDcsUser(): void
+    {
+        abort_unless(self::isFullDcsUser(), 403, 'Full Document Control System access is required.');
+    }
+
+    public static function currentUserDisplayName(): string
+    {
+        $d = auth()->user()?->details;
+        if (!$d) {
+            return auth()->user()?->username ?? 'User';
+        }
+        $parts = array_filter([
+            trim((string) ($d->first_name ?? '')),
+            trim((string) ($d->middle_name ?? '')),
+            trim((string) ($d->last_name ?? '')),
+        ]);
+
+        return $parts !== [] ? implode(' ', $parts) : (auth()->user()?->username ?? 'User');
+    }
+
+    public static function currentOfficeName(): string
+    {
+        return trim((string) (auth()->user()?->details?->office?->office_name ?? '')) ?: '—';
+    }
+
+    public static function currentOfficeId(): ?int
+    {
+        $id = auth()->user()?->details?->office_id ?? auth()->user()?->details?->office?->id ?? null;
+
+        return $id ? (int) $id : null;
+    }
+
+    /**
+     * Limit a query on dcs_document_requests (alias) to docs linked to the user’s office
+     * unless they can view all. Linkage = source / DRF / distribution / retrieval office,
+     * or the creator’s office.
+     */
+    public static function applyOfficeScope($query, string $drAlias = 'dr')
+    {
+        if (self::canViewAllDocuments()) {
+            return $query;
+        }
+
+        $officeId = self::currentOfficeId();
+        if (!$officeId) {
+            $query->whereRaw('1 = 0');
+
+            return $query;
+        }
+
+        $query->where(function ($q) use ($drAlias, $officeId) {
+            $q->whereExists(function ($sub) use ($drAlias, $officeId) {
+                $sub->select(DB::raw(1))
+                    ->from('dcs_masterlist_registration as ml_os')
+                    ->join('dcs_masterlist_source_offices as so_os', 'so_os.masterlist_id', '=', 'ml_os.id')
+                    ->whereColumn('ml_os.request_id', $drAlias . '.id')
+                    ->where('so_os.office_id', $officeId);
+            })->orWhereExists(function ($sub) use ($drAlias, $officeId) {
+                $sub->select(DB::raw(1))
+                    ->from('dcs_document_request_form as drf_os')
+                    ->join('dcs_drf_offices as drfo_os', 'drfo_os.document_request_form_id', '=', 'drf_os.id')
+                    ->whereColumn('drf_os.request_id', $drAlias . '.id')
+                    ->where('drfo_os.office_id', $officeId);
+            })->orWhereExists(function ($sub) use ($drAlias, $officeId) {
+                $sub->select(DB::raw(1))
+                    ->from('dcs_document_distribution as dist_os')
+                    ->join('dcs_distribution_offices as disto_os', 'disto_os.distribution_id', '=', 'dist_os.id')
+                    ->whereColumn('dist_os.request_id', $drAlias . '.id')
+                    ->where('disto_os.office_id', $officeId);
+            })->orWhereExists(function ($sub) use ($drAlias, $officeId) {
+                $sub->select(DB::raw(1))
+                    ->from('dcs_document_retrieval as ret_os')
+                    ->join('dcs_retrieval_offices as reto_os', 'reto_os.retrieval_id', '=', 'ret_os.id')
+                    ->whereColumn('ret_os.request_id', $drAlias . '.id')
+                    ->where('reto_os.office_id', $officeId);
+            })->orWhereExists(function ($sub) use ($drAlias, $officeId) {
+                $sub->select(DB::raw(1))
+                    ->from('account_details as ad_os')
+                    ->whereColumn('ad_os.account_id', $drAlias . '.created_by')
+                    ->where('ad_os.office_id', $officeId);
+            });
+        });
+
+        return $query;
+    }
+
+    public static function userCanAccessRequest(int $requestId): bool
+    {
+        if (self::canViewAllDocuments()) {
+            return true;
+        }
+
+        $q = DB::table('dcs_document_requests as dr')->where('dr.id', $requestId);
+        self::applyOfficeScope($q, 'dr');
+
+        return $q->exists();
+    }
+
+    public static function assertCanAccessRequest(int $requestId): void
+    {
+        abort_unless(self::userCanAccessRequest($requestId), 403, 'You do not have access to this document.');
+    }
+
     /** Search/stamp/preview: latest (including null/empty status), numbered obsolete, and empty-doc-no rows. */
     public static function visibleRequestIds(): array
     {
         $mlIds = DB::table('dcs_masterlist_registration as ml')
             ->join('dcs_document_requests as dr', 'dr.id', '=', 'ml.request_id');
         self::applyNotDeleted($mlIds, 'dr');
+        self::applyOfficeScope($mlIds, 'dr');
         $mlIds = $mlIds->pluck('ml.request_id');
 
         $noMlIds = DB::table('dcs_document_requests as dr')
             ->leftJoin('dcs_masterlist_registration as ml', 'ml.request_id', '=', 'dr.id')
             ->whereNull('ml.id');
         self::applyNotDeleted($noMlIds, 'dr');
+        self::applyOfficeScope($noMlIds, 'dr');
         $noMlIds = $noMlIds->pluck('dr.id');
 
         return self::intIds($mlIds->merge($noMlIds));
@@ -173,6 +343,7 @@ class RegisterQueryHelper
                     ->orWhere('ml.revision_status', 'latest');
             });
         self::applyNotDeleted($latestIds, 'dr');
+        self::applyOfficeScope($latestIds, 'dr');
         $latestIds = $latestIds->pluck('ml.request_id');
 
         $noMlIds = DB::table('dcs_document_requests as dr')
@@ -183,6 +354,7 @@ class RegisterQueryHelper
                     ->orWhere('ml.doc_no', '');
             });
         self::applyNotDeleted($noMlIds, 'dr');
+        self::applyOfficeScope($noMlIds, 'dr');
         $noMlIds = $noMlIds->pluck('dr.id');
 
         return self::intIds($latestIds->merge($noMlIds));
@@ -305,7 +477,35 @@ class RegisterQueryHelper
         $groups = collect();
         foreach ($grouped as $family) {
             $sorted = $family->sortByDesc('rev_no')->sortByDesc('request_id')->values();
-            $parent = $family->first(fn ($r) => $r['is_latest']) ?? $sorted->first();
+
+            // Heal: tip must be the highest revise_no (e.g. Rev 10 beats Rev 7).
+            $tipRow = $sorted->first();
+            if ($tipRow && ($tipRow['doc_no'] ?? 'N/A') !== 'N/A') {
+                $latestRows = $family->filter(fn ($r) => !empty($r['is_latest']));
+                $tipIsLatest = !empty($tipRow['is_latest']);
+                $needsHeal = !$tipIsLatest
+                    || $latestRows->count() !== 1
+                    || (int) ($latestRows->first()['request_id'] ?? 0) !== (int) $tipRow['request_id'];
+
+                if ($needsHeal) {
+                    RegisterPersistHelper::promoteLatestForDoc(
+                        (string) $tipRow['doc_no'],
+                        (int) $tipRow['doc_type_id'],
+                        !empty($tipRow['sub_type_id']) ? (int) $tipRow['sub_type_id'] : null
+                    );
+                    $family = $family->map(function ($r) use ($tipRow) {
+                        $isTip = (int) $r['request_id'] === (int) $tipRow['request_id'];
+                        $r['revision_status'] = $isTip ? 'latest' : 'obsolete';
+                        $r['is_latest'] = $isTip;
+                        $r['can_delete'] = $isTip;
+
+                        return $r;
+                    });
+                    $sorted = $family->sortByDesc('rev_no')->sortByDesc('request_id')->values();
+                }
+            }
+
+            $parent = $sorted->first(fn ($r) => !empty($r['is_latest'])) ?? $sorted->first();
             $children = $family
                 ->filter(fn ($r) => $r['request_id'] !== $parent['request_id'])
                 ->sortByDesc('rev_no')
@@ -411,10 +611,27 @@ class RegisterQueryHelper
                     }
 
                     usort($children, fn ($a, $b) => ($b['rev_no'] <=> $a['rev_no']) ?: ($b['request_id'] <=> $a['request_id']));
-                    $g['children'] = $children;
-                    $g['has_revisions'] = $children !== [];
-                    $g['revision_count'] = 1 + count($children);
+
+                    // After absorbing prior doc nos, tip parent = highest revise_no in the stack.
+                    $stack = array_merge([$g['parent']], $children);
+                    usort($stack, fn ($a, $b) => ($b['rev_no'] <=> $a['rev_no']) ?: ($b['request_id'] <=> $a['request_id']));
+                    $tip = $stack[0];
+                    foreach ($stack as &$member) {
+                        $isTip = (int) $member['request_id'] === (int) $tip['request_id'];
+                        $member['is_latest'] = $isTip;
+                        $member['revision_status'] = $isTip ? 'latest' : 'obsolete';
+                        $member['can_delete'] = $isTip;
+                    }
+                    unset($member);
+                    $g['parent'] = $tip;
+                    $g['children'] = array_values(array_filter(
+                        $stack,
+                        fn ($r) => (int) $r['request_id'] !== (int) $tip['request_id']
+                    ));
+                    $g['has_revisions'] = $g['children'] !== [];
+                    $g['revision_count'] = 1 + count($g['children']);
                     $g['member_ids'] = array_values(array_unique($memberIds));
+                    $g['sort_id'] = $tip['request_id'];
                     $merged->push($g);
                 }
                 $groups = $merged;
@@ -468,6 +685,7 @@ class RegisterQueryHelper
             ->leftJoin('dcs_document_request_form as drf', 'drf.request_id', '=', 'dr.id')
             ->whereNotNull('dr.deleted_at')
             ->orderByDesc('dr.deleted_at');
+        self::applyOfficeScope($query, 'dr');
 
         $select = [
             'dr.id',
@@ -739,7 +957,10 @@ class RegisterQueryHelper
 
         $anchor = DB::table('dcs_masterlist_registration as ml')
             ->join('dcs_document_requests as dr', 'dr.id', '=', 'ml.request_id')
-            ->where('ml.doc_no', $docNo)
+            ->where('ml.doc_no', $docNo);
+        self::applyNotDeleted($anchor, 'dr');
+        self::applyOfficeScope($anchor, 'dr');
+        $anchor = $anchor
             ->orderByDesc('ml.revise_no')
             ->orderByDesc('ml.id')
             ->select('ml.doc_no', 'ml.doc_title', 'dr.doc_type_id', 'dr.sub_type_id')
@@ -752,10 +973,19 @@ class RegisterQueryHelper
         $visibleIds = self::visibleRequestIds();
         $docTypeId = (int) $anchor->doc_type_id;
         $subTypeId = $anchor->sub_type_id ? (int) $anchor->sub_type_id : null;
-        $chain = self::buildRenumberChain($docNo, $docTypeId, $subTypeId, $visibleIds);
+        $familyNos = self::expandRenumberFamily($docNo, $docTypeId, $subTypeId, $visibleIds);
+        if ($familyNos === []) {
+            $familyNos = self::buildRenumberChain($docNo, $docTypeId, $subTypeId, $visibleIds);
+        }
+        if ($familyNos === []) {
+            $familyNos = [$docNo];
+        }
+
+        // Keep tip status aligned: highest revise_no in the family is Latest.
+        RegisterPersistHelper::promoteLatestForDoc($docNo, $docTypeId, $subTypeId);
 
         $mls = collect();
-        foreach ($chain as $chainDocNo) {
+        foreach ($familyNos as $chainDocNo) {
             $query = DB::table('dcs_masterlist_registration as ml')
                 ->join('dcs_document_requests as dr', 'dr.id', '=', 'ml.request_id')
                 ->whereIn('ml.request_id', $visibleIds)
@@ -787,10 +1017,9 @@ class RegisterQueryHelper
         $mls = $mls
             ->unique(fn ($row) => (int) $row->request_id)
             ->sort(function ($a, $b) {
-                $aTime = strtotime((string) ($a->request_created_at ?? $a->created_at ?? ''));
-                $bTime = strtotime((string) ($b->request_created_at ?? $b->created_at ?? ''));
-                if ($aTime !== $bTime) {
-                    return $bTime <=> $aTime;
+                $revCmp = ((int) ($b->revise_no ?? 0)) <=> ((int) ($a->revise_no ?? 0));
+                if ($revCmp !== 0) {
+                    return $revCmp;
                 }
 
                 return ((int) ($b->id ?? 0)) <=> ((int) ($a->id ?? 0));
@@ -800,6 +1029,8 @@ class RegisterQueryHelper
         if ($mls->isEmpty()) {
             abort(404, 'Document not found.');
         }
+
+        $tipRequestId = (int) $mls->first()->request_id;
 
         $requestIds = self::intIds($mls->pluck('request_id'));
         $docs = self::hydrateRequests(
@@ -852,9 +1083,12 @@ class RegisterQueryHelper
         }
 
         $revisions = [];
-        foreach ($mls as $i => $ml) {
+        foreach ($mls as $ml) {
             $doc = $docs->get((int) $ml->request_id);
-            $revisions[] = self::buildHistoryRevision($ml, $doc, $lookups, $i === 0);
+            $isTip = (int) $ml->request_id === $tipRequestId;
+            $rev = self::buildHistoryRevision($ml, $doc, $lookups, $isTip);
+            $rev['is_latest'] = $isTip;
+            $revisions[] = $rev;
         }
 
         $lineageDocNos = $mls->pluck('doc_no')->filter()->unique()->values()->all();
@@ -917,6 +1151,7 @@ class RegisterQueryHelper
             'docNo' => trim($docNo),
             'docTitle' => '',
             'options' => [],
+            'pair_options' => [],
             'prior_options' => [],
             'left_id' => null,
             'right_id' => null,
@@ -927,8 +1162,8 @@ class RegisterQueryHelper
             'can_compare' => false,
             'can_view' => false,
             'error' => null,
-            'left_label' => 'Selected revision',
-            'right_label' => 'Latest',
+            'left_label' => 'Older revision',
+            'right_label' => 'Newer revision',
         ];
 
         $docNo = trim($docNo);
@@ -941,7 +1176,7 @@ class RegisterQueryHelper
         }
 
         $history = self::history($docNo);
-        $revs = $history['revisions'];
+        $revs = $history['revisions']; // highest revise_no first
         $byId = [];
         foreach ($revs as $rev) {
             $byId[(int) $rev['id']] = $rev;
@@ -966,18 +1201,33 @@ class RegisterQueryHelper
             ];
         }
 
-        // Always lock the right/newer side to the latest revision in the lineage.
         $latest = $revs[0] ?? null;
         $latestId = $latest ? (int) $latest['id'] : null;
-        $rightId = $latestId;
+
+        // Ascending by revise_no → consecutive neighbors (0→1, 3→5 when 4 missing, …).
+        $asc = array_values(array_reverse($revs));
+        $pairOptions = [];
+        for ($i = 0; $i < count($asc) - 1; $i++) {
+            $older = $asc[$i];
+            $newer = $asc[$i + 1];
+            $pairOptions[] = [
+                'left_id' => (int) $older['id'],
+                'right_id' => (int) $newer['id'],
+                'left_rev' => (int) $older['revise_no'],
+                'right_rev' => (int) $newer['revise_no'],
+                'label' => 'Rev ' . (int) $older['revise_no'] . ' → Rev ' . (int) $newer['revise_no'],
+                'key' => (int) $older['id'] . ':' . (int) $newer['id'],
+            ];
+        }
 
         $base = [
             'docNo' => $history['docNo'],
             'docTitle' => $history['docTitle'],
             'options' => $options,
-            'prior_options' => array_values(array_filter($options, fn ($o) => (int) $o['id'] !== (int) $latestId)),
+            'pair_options' => $pairOptions,
+            'prior_options' => [],
             'left_id' => null,
-            'right_id' => $rightId,
+            'right_id' => null,
             'latest_id' => $latestId,
             'latest_revise_no' => $latest ? (int) $latest['revise_no'] : null,
             'tabs' => [],
@@ -985,74 +1235,114 @@ class RegisterQueryHelper
             'can_compare' => false,
             'can_view' => false,
             'error' => null,
-            'left_label' => 'Selected revision',
-            'right_label' => 'Latest',
+            'left_label' => 'Older revision',
+            'right_label' => 'Newer revision',
         ];
 
         if (!$latest) {
             return array_merge($base, ['error' => 'not_found']);
         }
 
-        $right = $byId[$rightId];
-        $rightLabel = 'Rev ' . $right['revise_no'] . ' · latest';
-
-        // Single revision: still show the latest scan (no compare).
-        if (count($revs) < 2) {
-            $pair = self::reviewPairSection(null, $right, 'masterlist');
+        if (count($revs) < 2 || $pairOptions === []) {
+            $pair = self::reviewPairSection(null, $byId[$latestId], 'masterlist');
             $hasScan = !empty($pair['right_scan']['url']);
 
             return array_merge($base, [
+                'right_id' => $latestId,
                 'tabs' => $hasScan ? [['key' => 'masterlist', 'label' => 'Masterlist']] : [],
                 'pairs' => $hasScan ? ['masterlist' => $pair] : [],
                 'can_view' => $hasScan,
                 'can_compare' => false,
-                'right_label' => $rightLabel,
+                'right_label' => 'Rev ' . (int) $latest['revise_no'] . ( !empty($latest['is_latest']) ? ' · current' : ''),
                 'error' => $hasScan ? null : 'need_scan',
             ]);
         }
 
-        // Default left = previous revision; user may pick any older one.
-        if ($leftId && isset($byId[$leftId]) && (int) $leftId !== (int) $rightId) {
-            // keep requested left
-        } else {
-            $leftId = (int) $revs[1]['id'];
-        }
+        $chosen = self::resolveConsecutivePair($pairOptions, $leftId, $rightId);
+        $left = $byId[$chosen['left_id']];
+        $right = $byId[$chosen['right_id']];
 
-        if ((int) $leftId === (int) $rightId) {
-            $leftId = (int) $revs[1]['id'];
-        }
-
-        $left = $byId[$leftId];
-        if (!self::reviewRevIsOlder($left, $right)) {
-            // If user somehow picked a newer-or-equal, fall back to previous revision.
-            $leftId = (int) $revs[1]['id'];
-            $left = $byId[$leftId];
-        }
-
-        $leftLabel = 'Rev ' . $left['revise_no']
+        $leftLabel = 'Rev ' . (int) $left['revise_no']
             . (!empty($left['doc_no']) && $left['doc_no'] !== $history['docNo'] ? ' · ' . $left['doc_no'] : '')
-            . ' · selected';
+            . ' · older';
+        $rightLabel = 'Rev ' . (int) $right['revise_no']
+            . (!empty($right['is_latest']) ? ' · current' : '')
+            . ' · newer';
 
         $pair = self::reviewPairSection($left, $right, 'masterlist');
-        $hasScan = !empty($pair['left_scan']['url']) || !empty($pair['right_scan']['url']);
+        $leftHasScan = !empty($pair['left_scan']['url']);
+        $rightHasScan = !empty($pair['right_scan']['url']);
+        $hasScan = $leftHasScan || $rightHasScan;
+        $bothPdf = !empty($pair['left_scan']['is_pdf']) && !empty($pair['right_scan']['is_pdf'])
+            && $leftHasScan && $rightHasScan;
+
+        $newerOptions = [];
+        foreach ($pairOptions as $po) {
+            $newerOptions[] = [
+                'id' => $po['right_id'],
+                'left_id' => $po['left_id'],
+                'revise_no' => $po['right_rev'],
+                'label' => 'Rev ' . $po['right_rev'] . ($po['right_id'] === $latestId ? ' · current' : ''),
+                'pair_label' => $po['label'],
+            ];
+        }
 
         return [
             'docNo' => $history['docNo'],
             'docTitle' => $history['docTitle'],
             'options' => $options,
-            'prior_options' => array_values(array_filter($options, fn ($o) => (int) $o['id'] !== (int) $rightId)),
-            'left_id' => $leftId,
-            'right_id' => $rightId,
+            'pair_options' => $pairOptions,
+            'prior_options' => $newerOptions,
+            'left_id' => $chosen['left_id'],
+            'right_id' => $chosen['right_id'],
             'latest_id' => $latestId,
-            'latest_revise_no' => (int) $right['revise_no'],
+            'latest_revise_no' => (int) $latest['revise_no'],
             'tabs' => $hasScan ? [['key' => 'masterlist', 'label' => 'Masterlist']] : [],
             'pairs' => $hasScan ? ['masterlist' => $pair] : [],
-            'can_compare' => true,
-            'can_view' => true,
+            'can_compare' => $bothPdf,
+            'can_view' => $hasScan,
             'error' => $hasScan ? null : 'need_scan',
             'left_label' => $leftLabel,
             'right_label' => $rightLabel,
         ];
+    }
+
+    /**
+     * Pick a consecutive revise_no pair. Defaults to the tip pair (… → latest).
+     *
+     * @param  list<array{left_id:int,right_id:int,left_rev:int,right_rev:int,label:string,key:string}>  $pairOptions
+     * @return array{left_id:int,right_id:int,left_rev:int,right_rev:int,label:string,key:string}
+     */
+    private static function resolveConsecutivePair(array $pairOptions, ?int $leftId, ?int $rightId): array
+    {
+        $fallback = $pairOptions[count($pairOptions) - 1];
+
+        if ($leftId && $rightId) {
+            foreach ($pairOptions as $po) {
+                if ((int) $po['left_id'] === $leftId && (int) $po['right_id'] === $rightId) {
+                    return $po;
+                }
+            }
+        }
+
+        // Prefer matching the newer side, then snap older to its predecessor.
+        if ($rightId) {
+            foreach ($pairOptions as $po) {
+                if ((int) $po['right_id'] === $rightId) {
+                    return $po;
+                }
+            }
+        }
+
+        if ($leftId) {
+            foreach ($pairOptions as $po) {
+                if ((int) $po['left_id'] === $leftId) {
+                    return $po;
+                }
+            }
+        }
+
+        return $fallback;
     }
 
     private static function reviewRevIsOlder(array $left, array $right): bool
@@ -1944,6 +2234,14 @@ class RegisterQueryHelper
             ->leftJoin('dcs_doc_types as st', 'st.id', '=', 'dr.sub_type_id')
             ->whereIn('ml.request_id', $visibleIds);
 
+        if ($request->boolean('originator_self')) {
+            $selfName = mb_strtolower(trim(self::currentUserDisplayName()));
+            if ($selfName === '' || $selfName === '—') {
+                return [];
+            }
+            $query->whereRaw('LOWER(TRIM(COALESCE(ml.originator_name, \'\'))) = ?', [$selfName]);
+        }
+
         if (!$allRevisions && !$dashboardSearch) {
             $query->where(function ($qr) {
                 $qr->whereNull('ml.revision_status')
@@ -1987,6 +2285,7 @@ class RegisterQueryHelper
             'ml.brief_purpose',
             'ml.scanned_masterlist',
             'ml.revision_status',
+            'ml.originator_name',
             'dr.doc_type_id',
             'dr.sub_type_id',
             'dt.doc_type_name as type_name',
@@ -2055,6 +2354,7 @@ class RegisterQueryHelper
                 'revision_status' => $m->revision_status ?? null,
                 'effectivity_date' => $m->effectivity_date ? Carbon::parse($m->effectivity_date)->format('Y-m-d') : null,
                 'brief_purpose' => $m->brief_purpose,
+                'originator_name' => $m->originator_name ?? null,
                 'keywords' => $m->keywords ?? null,
                 'scanned_copy_url' => $m->scanned_masterlist ? Storage::disk('public')->url($m->scanned_masterlist) : null,
                 'scanned_copy_path' => $m->scanned_masterlist,
@@ -2256,7 +2556,7 @@ class RegisterQueryHelper
         $anchor = DB::table('dcs_masterlist_registration as ml')
             ->join('dcs_document_requests as dr', 'dr.id', '=', 'ml.request_id')
             ->where('ml.request_id', $requestId)
-            ->select('ml.doc_no', 'dr.doc_type_id', 'dr.sub_type_id')
+            ->select('ml.doc_no', 'ml.revise_no', 'dr.doc_type_id', 'dr.sub_type_id')
             ->first();
 
         if (!$anchor || !trim((string) ($anchor->doc_no ?? ''))) {
@@ -2270,11 +2570,17 @@ class RegisterQueryHelper
 
         $docTypeId = (int) $anchor->doc_type_id;
         $subTypeId = $anchor->sub_type_id ? (int) $anchor->sub_type_id : null;
+        $maxReviseNo = (int) ($anchor->revise_no ?? 0);
         $chain = self::buildRenumberChain($docNo, $docTypeId, $subTypeId, $visibleIds);
 
         $merged = [];
         foreach ($chain as $chainDocNo) {
             foreach (self::masterlistRevisionsForDocNo($chainDocNo, $docTypeId, $subTypeId, $visibleIds) as $row) {
+                // When picking an older/obsolete tip (e.g. Rev 3) to insert a gap
+                // (Rev 4) below a newer Latest (Rev 5), only show that tip and older.
+                if ((int) ($row['revise_no'] ?? 0) > $maxReviseNo) {
+                    continue;
+                }
                 $merged[] = $row;
             }
         }
@@ -2408,6 +2714,179 @@ class RegisterQueryHelper
         }
 
         return $chain;
+    }
+
+    /** Whether two document numbers belong to the same renumber / revised_from family. */
+    private static function docNosShareLineage(string $docNoA, string $docNoB, int $docTypeId, ?int $subTypeId): bool
+    {
+        $a = trim($docNoA);
+        $b = trim($docNoB);
+        if ($a === '' || $b === '') {
+            return false;
+        }
+        if (strcasecmp($a, $b) === 0) {
+            return true;
+        }
+
+        $visibleIds = self::visibleRequestIds();
+        $family = array_map('strtolower', self::expandRenumberFamily($a, $docTypeId, $subTypeId, $visibleIds));
+
+        return in_array(strtolower($b), $family, true);
+    }
+
+    /**
+     * All doc nos in a renumber family (walk revised_from backward and forward).
+     *
+     * @return list<string>
+     */
+    public static function expandRenumberFamily(string $docNo, int $docTypeId, ?int $subTypeId, array $visibleIds): array
+    {
+        $docNo = trim($docNo);
+        if ($docNo === '') {
+            return [];
+        }
+
+        $family = [];
+        $seen = [];
+        $queue = [$docNo];
+
+        while ($queue !== []) {
+            $current = trim((string) array_shift($queue));
+            $key = strtolower($current);
+            if ($current === '' || isset($seen[$key])) {
+                continue;
+            }
+            $seen[$key] = true;
+            $family[] = $current;
+
+            foreach (self::buildRenumberChain($current, $docTypeId, $subTypeId, $visibleIds) as $prior) {
+                if (!isset($seen[strtolower($prior)])) {
+                    $queue[] = $prior;
+                }
+            }
+
+            if (!Schema::hasColumn('dcs_masterlist_registration', 'revised_from_doc_no')) {
+                continue;
+            }
+
+            $childQuery = DB::table('dcs_masterlist_registration as ml')
+                ->join('dcs_document_requests as dr', 'dr.id', '=', 'ml.request_id')
+                ->whereIn('ml.request_id', $visibleIds)
+                ->where('ml.revised_from_doc_no', $current)
+                ->where('dr.doc_type_id', $docTypeId);
+
+            if ($subTypeId) {
+                $childQuery->where('dr.sub_type_id', $subTypeId);
+            } else {
+                $childQuery->whereNull('dr.sub_type_id');
+            }
+
+            foreach ($childQuery->distinct()->pluck('ml.doc_no') as $childNo) {
+                $child = trim((string) $childNo);
+                if ($child !== '' && !isset($seen[strtolower($child)])) {
+                    $queue[] = $child;
+                }
+            }
+        }
+
+        return $family;
+    }
+
+    /**
+     * Active revise_no values across the whole renumber family for a doc no.
+     *
+     * @return list<int>
+     */
+    public static function familyReviseNumbers(
+        string $docNo,
+        int $docTypeId,
+        ?int $subTypeId,
+        array $visibleIds,
+        int $excludeRequestId = 0
+    ): array {
+        $family = self::expandRenumberFamily($docNo, $docTypeId, $subTypeId, $visibleIds);
+        if ($family === []) {
+            $family = [trim($docNo)];
+        }
+
+        $query = DB::table('dcs_masterlist_registration as ml')
+            ->join('dcs_document_requests as dr', 'dr.id', '=', 'ml.request_id')
+            ->whereIn('ml.request_id', $visibleIds)
+            ->whereIn('ml.doc_no', $family)
+            ->where('dr.doc_type_id', $docTypeId);
+
+        if ($subTypeId) {
+            $query->where('dr.sub_type_id', $subTypeId);
+        } else {
+            $query->whereNull('dr.sub_type_id');
+        }
+
+        if (Schema::hasColumn('dcs_masterlist_registration', 'revision_status')) {
+            $query->whereIn('ml.revision_status', ['latest', 'obsolete']);
+        }
+        if ($excludeRequestId > 0) {
+            $query->where('ml.request_id', '!=', $excludeRequestId);
+        }
+
+        return $query
+            ->orderBy('ml.revise_no')
+            ->pluck('ml.revise_no')
+            ->map(fn ($n) => (int) $n)
+            ->unique()
+            ->values()
+            ->all();
+    }
+
+    /**
+     * Family revisions with scanned masterlist URLs (for DRR: previous vs new upload).
+     *
+     * @return list<array{revise_no:int,doc_no:string,scanned_copy_url:?string}>
+     */
+    public static function familyRevisionScans(
+        string $docNo,
+        int $docTypeId,
+        ?int $subTypeId,
+        array $visibleIds,
+        int $excludeRequestId = 0
+    ): array {
+        $family = self::expandRenumberFamily($docNo, $docTypeId, $subTypeId, $visibleIds);
+        if ($family === []) {
+            $family = [trim($docNo)];
+        }
+
+        $query = DB::table('dcs_masterlist_registration as ml')
+            ->join('dcs_document_requests as dr', 'dr.id', '=', 'ml.request_id')
+            ->whereIn('ml.request_id', $visibleIds)
+            ->whereIn('ml.doc_no', $family)
+            ->where('dr.doc_type_id', $docTypeId);
+
+        if ($subTypeId) {
+            $query->where('dr.sub_type_id', $subTypeId);
+        } else {
+            $query->whereNull('dr.sub_type_id');
+        }
+
+        if (Schema::hasColumn('dcs_masterlist_registration', 'revision_status')) {
+            $query->whereIn('ml.revision_status', ['latest', 'obsolete']);
+        }
+        if ($excludeRequestId > 0) {
+            $query->where('ml.request_id', '!=', $excludeRequestId);
+        }
+
+        return $query
+            ->orderBy('ml.revise_no')
+            ->orderByDesc('ml.id')
+            ->get(['ml.revise_no', 'ml.doc_no', 'ml.scanned_masterlist'])
+            ->unique(fn ($row) => (int) $row->revise_no)
+            ->values()
+            ->map(fn ($row) => [
+                'revise_no' => (int) $row->revise_no,
+                'doc_no' => (string) $row->doc_no,
+                'scanned_copy_url' => $row->scanned_masterlist
+                    ? Storage::disk('public')->url($row->scanned_masterlist)
+                    : null,
+            ])
+            ->all();
     }
 
     private static function latestMasterlistForDocNo(
@@ -2830,6 +3309,7 @@ class RegisterQueryHelper
         $docTypeId = (int) $request->input('doc_type_id');
         $subTypeId = $request->input('sub_type_id');
         $excludeRequestId = (int) $request->input('exclude_request_id', 0);
+        $relatedFrom = trim((string) $request->input('related_from', ''));
 
         if (!$docNo) {
             return ['exists' => false, 'message' => 'No document number provided.'];
@@ -2862,7 +3342,25 @@ class RegisterQueryHelper
                 ->first();
             $result['latest'] = $latest;
             if ($latest) {
-                $latestRev = (int) $latest->revise_no;
+                $visibleIds = self::visibleRequestIds();
+                $familyRevs = self::familyReviseNumbers(
+                    $docNo,
+                    $docTypeId,
+                    $subTypeId ? (int) $subTypeId : null,
+                    $visibleIds,
+                    $excludeRequestId
+                );
+                $revisionScans = self::familyRevisionScans(
+                    $docNo,
+                    $docTypeId,
+                    $subTypeId ? (int) $subTypeId : null,
+                    $visibleIds,
+                    $excludeRequestId
+                );
+                // Tip of the whole renumber family (e.g. 2024-323 → … → 2024-323-223 Rev 6).
+                $latestRev = $familyRevs !== []
+                    ? max($familyRevs)
+                    : (int) $latest->revise_no;
                 $registrations = DB::table('dcs_masterlist_registration')
                     ->whereIn('request_id', $result['matches']->pluck('id'))
                     ->where('doc_no', $docNo)
@@ -2933,11 +3431,23 @@ class RegisterQueryHelper
                     null
                 );
 
+                $sameFamily = $relatedFrom === ''
+                    ? true
+                    : self::docNosShareLineage(
+                        $docNo,
+                        $relatedFrom,
+                        $docTypeId,
+                        $subTypeId ? (int) $subTypeId : null
+                    );
+
                 return [
                     'exists' => true,
+                    'same_family' => $sameFamily,
                     'message' => 'Document found.',
                     'next_rev' => $latestRev + 1,
                     'latest_rev' => $latestRev,
+                    'taken_revs' => $familyRevs,
+                    'revision_scans' => $revisionScans,
                     'latest_scanned_copy_url' => $latest->scanned_masterlist
                         ? Storage::disk('public')->url($latest->scanned_masterlist)
                         : null,
@@ -3047,39 +3557,60 @@ class RegisterQueryHelper
                 'taken' => false,
                 'revise_no' => $reviseNo,
                 'taken_revs' => [],
+                'next_rev' => $reviseNo,
                 'message' => 'Revision ' . $reviseNo . ' is available for this document number.',
             ];
         }
 
-        $matchIds = $result['matches']->pluck('id');
-        $revQuery = DB::table('dcs_masterlist_registration')
-            ->whereIn('request_id', $matchIds)
-            ->where('doc_no', $docNo);
+        $visibleIds = self::visibleRequestIds();
+        $takenRevs = self::familyReviseNumbers(
+            $docNo,
+            $docTypeId,
+            $subTypeId ? (int) $subTypeId : null,
+            $visibleIds,
+            $excludeRequestId
+        );
 
-        if (Schema::hasColumn('dcs_masterlist_registration', 'revision_status')) {
-            $revQuery->whereIn('revision_status', ['latest', 'obsolete']);
-        }
-        if ($excludeRequestId > 0) {
-            $revQuery->where('request_id', '!=', $excludeRequestId);
-        }
+        // Fallback: exact doc no only if family walk found nothing.
+        if ($takenRevs === []) {
+            $matchIds = $result['matches']->pluck('id');
+            $revQuery = DB::table('dcs_masterlist_registration')
+                ->whereIn('request_id', $matchIds)
+                ->where('doc_no', $docNo);
 
-        $takenRevs = $revQuery
-            ->orderBy('revise_no')
-            ->pluck('revise_no')
-            ->map(fn ($n) => (int) $n)
-            ->unique()
-            ->values()
-            ->all();
+            if (Schema::hasColumn('dcs_masterlist_registration', 'revision_status')) {
+                $revQuery->whereIn('revision_status', ['latest', 'obsolete']);
+            }
+            if ($excludeRequestId > 0) {
+                $revQuery->where('request_id', '!=', $excludeRequestId);
+            }
+
+            $takenRevs = $revQuery
+                ->orderBy('revise_no')
+                ->pluck('revise_no')
+                ->map(fn ($n) => (int) $n)
+                ->unique()
+                ->values()
+                ->all();
+        }
 
         $taken = in_array($reviseNo, $takenRevs, true);
+        $familyLatest = $takenRevs !== [] ? max($takenRevs) : null;
+        $suggestedNext = $familyLatest === null ? $reviseNo : ($familyLatest + 1);
 
         return [
             'taken' => $taken,
             'revise_no' => $reviseNo,
             'taken_revs' => $takenRevs,
+            'latest_rev' => $familyLatest,
+            'next_rev' => $suggestedNext,
             'message' => $taken
-                ? 'Revision ' . $reviseNo . ' for document "' . $docNo . '" already exists. Use a different revision number.'
-                : 'Revision ' . $reviseNo . ' is available.',
+                ? 'Revision ' . $reviseNo . ' is taken. Use Rev ' . $suggestedNext . '.'
+                : (
+                    $familyLatest !== null && $reviseNo <= $familyLatest
+                        ? 'Revision ' . $reviseNo . ' is available (gap). Latest is Rev ' . $familyLatest . '.'
+                        : 'Revision ' . $reviseNo . ' is available.'
+                ),
         ];
     }
 
@@ -3087,6 +3618,7 @@ class RegisterQueryHelper
     {
         $docRequest = self::findDocumentRequest($id);
         abort_unless($docRequest, 404);
+        self::assertCanAccessRequest($id);
 
         $ml = DB::table('dcs_masterlist_registration')->where('request_id', $id)->first();
         // Obsolete revisions are editable; Update list groups them under the latest tip.

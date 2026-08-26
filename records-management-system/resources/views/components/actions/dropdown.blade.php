@@ -29,7 +29,7 @@
         @endif
         @if((auth()->user()?->permissions?->is_sadm || auth()->user()?->permissions?->can_access_dts) && !request()->is('dts*') && $dtsActive)
         <button class="subSystem" onclick="window.location.href='/dts'">
-            <img src="{{ asset('icons/dts.svg') }}" alt="Document Control Icon">
+            <img src="{{ asset('icons/dts.svg') }}" alt="Document Tracking Icon">
             <span>Document Tracking</span>
         </button>
         @endif
@@ -41,7 +41,7 @@
         @endif
         @if((auth()->user()?->permissions?->is_sadm || auth()->user()?->permissions?->can_access_dcs) && !request()->is('dcs*') && $dcsActive)
         <button class="subSystem" onclick="window.location.href='/dcs'">
-            <img src="{{ asset('icons/dts.svg') }}" alt="Document Control Icon">
+            <img src="{{ asset('icons/dcs.svg') }}" alt="Document Control Icon">
             <span>Document Control</span>
         </button>
         @endif

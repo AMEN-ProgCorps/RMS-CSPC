@@ -78,9 +78,6 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create Issuance
     public function selectAllCfOffices(): void
     {
         $this->cf_selected_offices = ['ALL'];
-        if ($this->hasHub) {
-            $this->free_flow_receiving_offices = ['ALL'];
-        }
         $this->copy_furnished = 'Yes';
         $this->cf_search = '';
     }
@@ -146,7 +143,9 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create Issuance
             abort(403, 'Unauthorized access to Issuance transactions.');
         }
 
-        $this->userOfficeCode = auth()->user()?->details?->office?->office_code ?? 'RFIO';
+        $this->userOfficeCode = auth()->user()?->details?->office?->office_code 
+            ?? \App\Services\DocumentStorageService::resolveOfficeCode(auth()->user()) 
+            ?? (DB::table('office')->where('is_active', true)->whereNotIn('office_code', ['ORIGIN', '[H]', '[HUB]'])->value('office_code') ?: 'RFOIU');
         $this->offices = DB::table('office')
             ->where('is_active', true)
             ->whereNotIn('office_code', ['ORIGIN', '[H]'])
@@ -364,21 +363,10 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create Issuance
     {
         if ($officeCode === 'ALL') {
             $this->cf_selected_offices = ['ALL'];
-            if ($this->hasHub) {
-                $this->free_flow_receiving_offices = ['ALL'];
-            }
         } else {
             $this->cf_selected_offices = array_values(array_filter($this->cf_selected_offices, fn($code) => $code !== 'ALL'));
             if (!in_array($officeCode, $this->cf_selected_offices)) {
                 $this->cf_selected_offices[] = $officeCode;
-            }
-
-            // In [HUB] mode, auto-add to Receiving Offices as well
-            if ($this->hasHub) {
-                $this->free_flow_receiving_offices = array_values(array_filter($this->free_flow_receiving_offices, fn($code) => $code !== 'ALL'));
-                if (!in_array($officeCode, $this->free_flow_receiving_offices)) {
-                    $this->free_flow_receiving_offices[] = $officeCode;
-                }
             }
         }
         $this->copy_furnished = 'Yes';

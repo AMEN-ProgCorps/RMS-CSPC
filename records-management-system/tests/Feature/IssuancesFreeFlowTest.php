@@ -21,7 +21,18 @@ class IssuancesFreeFlowTest extends TestCase
             Auth::login($this->user);
         }
 
-        // Ensure test offices exist
+        DB::table('office')->updateOrInsert(
+            ['office_code' => 'GENERAL'],
+            ['office_name' => 'General Administration Office', 'is_active' => true]
+        );
+        DB::table('office')->updateOrInsert(
+            ['office_code' => 'RFOIU'],
+            ['office_name' => 'Records and Freedom of Information Unit', 'is_active' => true]
+        );
+        DB::table('office')->updateOrInsert(
+            ['office_code' => 'RFIO'],
+            ['office_name' => 'Records and Freedom of Information Office', 'is_active' => true]
+        );
         DB::table('office')->updateOrInsert(
             ['office_code' => 'ICTU'],
             ['office_name' => 'Information and Communications Technology Unit', 'is_active' => true]
@@ -88,6 +99,39 @@ class IssuancesFreeFlowTest extends TestCase
             ->call('removeFreeFlowOffice', 1)
             ->assertSet('free_flow_receiving_offices', ['ICTU'])
             ->assertSet('cf_selected_offices', ['VP']);
+    }
+
+    public function test_adding_cf_office_does_not_alter_hub_receiving_offices()
+    {
+        Volt::test('pages.dts.create.issuances')
+            ->set('transaction_flow', 'FLOW-TEST-HUB')
+            ->call('selectFreeFlowOffice', 'ICTU')
+            ->assertSet('free_flow_receiving_offices', ['ICTU'])
+            ->assertSet('cf_selected_offices', ['ICTU'])
+            // Adding CAS to Copy Furnished must NOT add CAS to HUB
+            ->call('selectCfOffice', 'CAS')
+            ->assertSet('cf_selected_offices', ['ICTU', 'CAS'])
+            ->assertSet('free_flow_receiving_offices', ['ICTU']);
+    }
+
+    public function test_all_offices_on_hub_syncs_to_cf_but_all_offices_on_cf_does_not_alter_hub()
+    {
+        // 1. All offices on Hub syncs to Copy Furnished
+        Volt::test('pages.dts.create.issuances')
+            ->set('transaction_flow', 'FLOW-TEST-HUB')
+            ->call('selectAllReceivingOffices')
+            ->assertSet('free_flow_receiving_offices', ['ALL'])
+            ->assertSet('cf_selected_offices', ['ALL']);
+
+        // 2. All offices on Copy Furnished does NOT alter Hub
+        Volt::test('pages.dts.create.issuances')
+            ->set('transaction_flow', 'FLOW-TEST-HUB')
+            ->call('selectFreeFlowOffice', 'ICTU')
+            ->assertSet('free_flow_receiving_offices', ['ICTU'])
+            ->assertSet('cf_selected_offices', ['ICTU'])
+            ->call('selectAllCfOffices')
+            ->assertSet('cf_selected_offices', ['ALL'])
+            ->assertSet('free_flow_receiving_offices', ['ICTU']);
     }
 
     public function test_hub_issuance_creates_multi_office_broadcast_and_logs()
@@ -194,7 +238,8 @@ class IssuancesFreeFlowTest extends TestCase
         $this->assertNotNull($transDetail);
 
         // Test receiving the incoming document
-        $userOfficeCode = auth()->user()?->details?->office?->office_code ?? 'ICTU';
+        $userOfficeCode = auth()->user()?->details?->office?->office_code 
+            ?? \App\Services\DocumentStorageService::resolveOfficeCode(auth()->user());
         
         // Ensure user office has a pending log
         DB::table('sub_document_tracking_system_logs')->updateOrInsert(

@@ -316,5 +316,62 @@ class IssuancesFreeFlowTest extends TestCase
 
         $this->assertNotNull($fwdNotif);
     }
+
+    public function test_predefined_hub_offices_saved_and_autoloaded_in_create_issuances()
+    {
+        $flowCode = strtoupper('FLOW-PREDEF-HUB-' . uniqid());
+        $flowName = 'Predefined Hub Test Flow ' . uniqid();
+
+        // 1. Admin creates predefined flow with [HUB] and hubOffices
+        Volt::test('pages.admin.dts.transaction-flows')
+            ->set('selectedPredefined', 'new')
+            ->set('flowName', $flowName)
+            ->set('flowCode', $flowCode)
+            ->set('flowUse', 'issuances')
+            ->set('flowOffices', ['ORIGIN', '[HUB]', 'ORIGIN'])
+            ->set('hubOffices', ['ICTU', 'CAS'])
+            ->call('savePredefinedFlow')
+            ->assertHasNoErrors();
+
+        // Verify flow and hub_flow_datas exist in DB
+        $flow = DB::table('dts_transaction_flow')->where('flow_code', $flowCode)->first();
+        $this->assertNotNull($flow);
+
+        $savedHubOffices = DB::table('hub_flow_datas')
+            ->where('flow_owner', $flow->id)
+            ->pluck('offices_hub')
+            ->toArray();
+        $this->assertEqualsCanonicalizing(['ICTU', 'CAS'], $savedHubOffices);
+
+        // 2. User selects this flow in create/issuances
+        Volt::test('pages.dts.create.issuances')
+            ->set('transaction_flow', $flowCode)
+            ->assertSet('free_flow_receiving_offices', ['ICTU', 'CAS'])
+            ->assertSet('cf_selected_offices', ['ICTU', 'CAS']);
+    }
+
+    public function test_custom_flow_with_hub_saves_to_hub_flow_datas()
+    {
+        $customDocType = 'Custom Hub Memo ' . uniqid();
+
+        // User creates custom flow in create/issuances
+        Volt::test('pages.dts.create.issuances')
+            ->call('openCustomFlowCreator')
+            ->set('customFlowDocType', $customDocType)
+            ->set('customFlowSequence', ['ORIGIN', '[HUB]', 'ORIGIN'])
+            ->set('customFlowHubOffices', ['VP', 'CAS'])
+            ->call('saveCustomFlow')
+            ->assertHasNoErrors();
+
+        $flow = DB::table('dts_transaction_flow')->where('flow_name', $customDocType)->first();
+        $this->assertNotNull($flow);
+
+        $savedHubOffices = DB::table('hub_flow_datas')
+            ->where('flow_owner', $flow->id)
+            ->pluck('offices_hub')
+            ->toArray();
+        $this->assertEqualsCanonicalizing(['VP', 'CAS'], $savedHubOffices);
+    }
 }
+
 

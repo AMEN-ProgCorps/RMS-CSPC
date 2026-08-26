@@ -50,6 +50,11 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - DTS Transaction Flows')]
     public string $cfSearch = ''; // text query for searching copy furnished offices to add
     public string $selectedCfOffice = ''; // selected office from dropdown for copy furnished
 
+    // ---- HUB PREDEFINED OFFICES PROPERTIES ----
+    public array $hubOffices = []; // list of office codes for predefined hub recipients
+    public string $hubSearch = ''; // text query for searching hub offices to add
+    public string $selectedHubOffice = ''; // selected office from dropdown for hub
+
     // ---- CUSTOM FLOW EDITOR PROPERTIES ----
     public string $selectedCustom = '';
     public string $customViewMode = 'table';
@@ -64,6 +69,9 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - DTS Transaction Flows')]
     public array $customCfOffices = [];
     public string $customCfSearch = '';
     public string $customSelectedCfOffice = '';
+    public array $customHubOffices = [];
+    public string $customHubSearch = '';
+    public string $customSelectedHubOffice = '';
     public array $selectedCustomFlowIds = [];
     public string $customPurposeFilter = 'all';
 
@@ -122,6 +130,9 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - DTS Transaction Flows')]
         $this->cfOffices = [];
         $this->cfSearch = '';
         $this->selectedCfOffice = '';
+        $this->hubOffices = [];
+        $this->hubSearch = '';
+        $this->selectedHubOffice = '';
         $this->flowFile = null;
         $this->selectedFlowIds = [];
         $this->clearMessages();
@@ -179,6 +190,48 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - DTS Transaction Flows')]
         }
     }
 
+    public function selectHubOfficeForAppend(string $code, string $name): void
+    {
+        $this->selectedHubOffice = $code;
+        $this->hubSearch = "$name ($code)";
+    }
+
+    public function addHubOfficeToPath(): void
+    {
+        if ($this->selectedHubOffice === '') return;
+
+        if (!in_array($this->selectedHubOffice, $this->hubOffices)) {
+            $this->hubOffices[] = $this->selectedHubOffice;
+        }
+
+        $this->selectedHubOffice = '';
+        $this->hubSearch = '';
+    }
+
+    public function removeHubOffice(int $index): void
+    {
+        if (isset($this->hubOffices[$index])) {
+            array_splice($this->hubOffices, $index, 1);
+        }
+    }
+
+    public function selectAllHubOffices(): void
+    {
+        $allActive = \DB::table('office')
+            ->where('is_active', true)
+            ->whereNotIn('office_code', ['ORIGIN', '[H]', '[HUB]'])
+            ->orderBy('office_name')
+            ->pluck('office_code')
+            ->toArray();
+
+        $this->hubOffices = $allActive;
+    }
+
+    public function clearHubOffices(): void
+    {
+        $this->hubOffices = [];
+    }
+
     // ---- CUSTOM FLOW MANAGER METHODS ----
     public function selectCustomFlow($id): void
     {
@@ -209,6 +262,9 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - DTS Transaction Flows')]
             $this->customCfOffices = [];
             $this->customCfSearch = '';
             $this->customSelectedCfOffice = '';
+            $this->customHubOffices = [];
+            $this->customHubSearch = '';
+            $this->customSelectedHubOffice = '';
             return;
         }
 
@@ -246,6 +302,14 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - DTS Transaction Flows')]
             }
             $this->customCfSearch = '';
             $this->customSelectedCfOffice = '';
+
+            // Load custom predefined HUB offices
+            $this->customHubOffices = \DB::table('hub_flow_datas')
+                ->where('flow_owner', $flow->id)
+                ->pluck('offices_hub')
+                ->toArray();
+            $this->customHubSearch = '';
+            $this->customSelectedHubOffice = '';
         }
     }
 
@@ -319,6 +383,46 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - DTS Transaction Flows')]
         if (isset($this->customCfOffices[$index])) {
             array_splice($this->customCfOffices, $index, 1);
         }
+    }
+
+    public function selectCustomHubOfficeForAppend(string $code, string $name): void
+    {
+        $this->customSelectedHubOffice = $code;
+        $this->customHubSearch = "$name ($code)";
+    }
+
+    public function addCustomHubOfficeToPath(): void
+    {
+        if ($this->customSelectedHubOffice === '') return;
+        if (!in_array($this->customSelectedHubOffice, $this->customHubOffices)) {
+            $this->customHubOffices[] = $this->customSelectedHubOffice;
+        }
+        $this->customSelectedHubOffice = '';
+        $this->customHubSearch = '';
+    }
+
+    public function removeCustomHubOffice(int $index): void
+    {
+        if (isset($this->customHubOffices[$index])) {
+            array_splice($this->customHubOffices, $index, 1);
+        }
+    }
+
+    public function selectAllCustomHubOffices(): void
+    {
+        $allActive = \DB::table('office')
+            ->where('is_active', true)
+            ->whereNotIn('office_code', ['ORIGIN', '[H]', '[HUB]'])
+            ->orderBy('office_name')
+            ->pluck('office_code')
+            ->toArray();
+
+        $this->customHubOffices = $allActive;
+    }
+
+    public function clearCustomHubOffices(): void
+    {
+        $this->customHubOffices = [];
     }
 
     public function saveCustomFlow(): void
@@ -412,6 +516,19 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - DTS Transaction Flows')]
                         \DB::table('dts_copy_filled_to_office')->insert([
                             'control_id' => $assignOfficesId,
                             'office_code' => $cfOffice,
+                        ]);
+                    }
+                }
+
+                // Sync Custom HUB Receiving Offices
+                \DB::table('hub_flow_datas')->where('flow_owner', $flowId)->delete();
+                if (in_array('[HUB]', $this->customFlowOffices) && count($this->customHubOffices) > 0) {
+                    foreach ($this->customHubOffices as $hubOffice) {
+                        \DB::table('hub_flow_datas')->insert([
+                            'flow_owner' => $flowId,
+                            'offices_hub' => $hubOffice,
+                            'created_at' => now(),
+                            'updated_at' => now(),
                         ]);
                     }
                 }
@@ -521,6 +638,9 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - DTS Transaction Flows')]
             $this->cfOffices = [];
             $this->cfSearch = '';
             $this->selectedCfOffice = '';
+            $this->hubOffices = [];
+            $this->hubSearch = '';
+            $this->selectedHubOffice = '';
             return;
         }
 
@@ -560,6 +680,14 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - DTS Transaction Flows')]
             }
             $this->cfSearch = '';
             $this->selectedCfOffice = '';
+
+            // Load predefined HUB offices
+            $this->hubOffices = \DB::table('hub_flow_datas')
+                ->where('flow_owner', $flow->id)
+                ->pluck('offices_hub')
+                ->toArray();
+            $this->hubSearch = '';
+            $this->selectedHubOffice = '';
         }
     }
 
@@ -792,6 +920,19 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - DTS Transaction Flows')]
                         \DB::table('dts_copy_filled_to_office')->insert([
                             'control_id' => $assignOfficesId,
                             'office_code' => $cfOffice,
+                        ]);
+                    }
+                }
+
+                // Update Predefined HUB Receiving Offices list
+                \DB::table('hub_flow_datas')->where('flow_owner', $flowId)->delete();
+                if (in_array('[HUB]', $this->flowOffices) && count($this->hubOffices) > 0) {
+                    foreach ($this->hubOffices as $hubOffice) {
+                        \DB::table('hub_flow_datas')->insert([
+                            'flow_owner' => $flowId,
+                            'offices_hub' => $hubOffice,
+                            'created_at' => now(),
+                            'updated_at' => now(),
                         ]);
                     }
                 }
@@ -2019,6 +2160,83 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - DTS Transaction Flows')]
                                         @endforelse
                                     </div>
                                 </div>
+
+                                @if(in_array('[HUB]', $flowOffices))
+                                    <!-- Predefined HUB Receiving Offices Configuration -->
+                                    <div class="form-group" style="border-top: 1.5px dashed #f59e0b; padding-top: 20px; margin-top: 10px; background: rgba(245, 158, 11, 0.04); border-radius: 8px; padding: 16px; border: 1px solid rgba(245, 158, 11, 0.25);">
+                                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+                                            <span class="form-label" style="font-size: 13.5px; font-weight: 700; color: #b45309; display: flex; align-items: center; gap: 6px; margin: 0;">
+                                                <i class="fa-solid fa-layer-group"></i> Predefined HUB Receiving Offices
+                                            </span>
+                                            <div style="display: flex; gap: 6px;">
+                                                <button type="button" class="btn-cancel" style="padding: 4px 10px; font-size: 11px; background: #fef3c7; color: #92400e; border: 1px solid #fde68a; cursor: pointer;" wire:click="selectAllHubOffices">
+                                                    <i class="fa-solid fa-check-double"></i> Select All
+                                                </button>
+                                                @if(count($hubOffices) > 0)
+                                                    <button type="button" class="btn-cancel" style="padding: 4px 10px; font-size: 11px; color: #ef4444; border: 1px solid #fecaca; cursor: pointer;" wire:click="clearHubOffices">
+                                                        <i class="fa-solid fa-xmark"></i> Clear
+                                                    </button>
+                                                @endif
+                                            </div>
+                                        </div>
+                                        <span style="font-size: 11.5px; color: #64748b; margin-bottom: 12px; display: block; line-height: 1.4;">
+                                            Specify default receiving offices that will automatically receive copies simultaneously when this HUB flow is selected in Issuances.
+                                        </span>
+                                        
+                                        <div style="display: flex; gap: 8px; align-items: center; position: relative;">
+                                            <div x-data="{ open: false }" @click.outside="open = false" style="position: relative; flex: 1;">
+                                                <input type="text" 
+                                                       class="form-input" 
+                                                       placeholder="Search and select hub recipient office..." 
+                                                       wire:model.live="hubSearch"
+                                                       @focus="open = true"
+                                                       style="margin: 0; width: 100%; padding: 9px 14px;">
+                                                
+                                                <div x-show="open" class="suggestions-dropdown" style="bottom: 100%; top: auto; margin-bottom: 4px; margin-top: 0;">
+                                                    @php
+                                                        $filteredHub = $activeOffices->filter(function($off) {
+                                                            if ($off->office_code === 'ORIGIN' || $off->office_code === '[H]' || $off->office_code === '[HUB]') return false;
+                                                            if (empty($this->hubSearch)) return true;
+                                                            return stripos($off->office_name, $this->hubSearch) !== false 
+                                                                || stripos($off->office_code, $this->hubSearch) !== false;
+                                                        });
+                                                    @endphp
+                                                    
+                                                    @forelse($filteredHub as $off)
+                                                        <div class="suggestion-item" 
+                                                             @click="open = false"
+                                                             wire:click="selectHubOfficeForAppend('{{ $off->office_code }}', '{{ $off->office_name }}')">
+                                                            <span style="font-weight: 500; color: #1e293b;">{{ $off->office_name }}</span>
+                                                            <span style="color: #64748b; font-weight: 600;">{{ $off->office_code }}</span>
+                                                        </div>
+                                                    @empty
+                                                        <div style="padding: 10px 14px; color: #94a3b8; font-size: 13px; font-style: italic; text-align: center;">No offices found</div>
+                                                    @endforelse
+                                                </div>
+                                            </div>
+                                            <button type="button" class="btn-save" style="padding: 10px 18px; display: inline-flex; align-items: center; gap: 5px; flex-shrink: 0; background-color: #f59e0b; border-color: #d97706;" wire:click="addHubOfficeToPath">
+                                                <i class="fa-solid fa-plus"></i> Add
+                                            </button>
+                                        </div>
+
+                                        <div style="display: flex; flex-wrap: wrap; gap: 8px; margin-top: 14px; padding: 12px; background: #fff; border: 1px solid #fde68a; border-radius: 8px; min-height: 48px; box-sizing: border-box;">
+                                            @forelse($hubOffices as $index => $officeCode)
+                                                @php
+                                                    $officeObj = $activeOffices->firstWhere('office_code', $officeCode);
+                                                    $displayName = $officeObj ? $officeObj->office_name : $officeCode;
+                                                @endphp
+                                                <div style="display: inline-flex; align-items: center; gap: 6px; background: #fef3c7; color: #92400e; padding: 5px 12px; border-radius: 20px; font-size: 12px; font-weight: 600; border: 1px solid #fcd34d; box-shadow: 0 1px 2px rgba(0,0,0,0.05);">
+                                                    <span>{{ $displayName }} ({{ $officeCode }})</span>
+                                                    <button type="button" wire:click="removeHubOffice({{ $index }})" style="background: none; border: none; color: #ef4444; cursor: pointer; font-size: 14px; font-weight: bold; line-height: 1; padding: 0; display: inline-flex; align-items: center; margin-left: 2px;">&times;</button>
+                                                </div>
+                                            @empty
+                                                <div style="display: flex; align-items: center; justify-content: center; width: 100%; color: #94a3b8; font-style: italic; font-size: 12.5px; height: 24px;">
+                                                    No hub receiving offices predefined yet.
+                                                </div>
+                                            @endforelse
+                                        </div>
+                                    </div>
+                                @endif
                             </form>
                         </div>
 
@@ -2388,6 +2606,83 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - DTS Transaction Flows')]
                                         </div>
                                     @endforeach
                                 </div>
+
+                                @if(in_array('[HUB]', $customFlowOffices))
+                                    <!-- Custom Predefined HUB Receiving Offices Configuration -->
+                                    <div class="form-group" style="border-top: 1.5px dashed #f59e0b; padding-top: 20px; margin-top: 10px; background: rgba(245, 158, 11, 0.04); border-radius: 8px; padding: 16px; border: 1px solid rgba(245, 158, 11, 0.25);">
+                                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+                                            <span class="form-label" style="font-size: 13.5px; font-weight: 700; color: #b45309; display: flex; align-items: center; gap: 6px; margin: 0;">
+                                                <i class="fa-solid fa-layer-group"></i> Predefined HUB Receiving Offices
+                                            </span>
+                                            <div style="display: flex; gap: 6px;">
+                                                <button type="button" class="btn-cancel" style="padding: 4px 10px; font-size: 11px; background: #fef3c7; color: #92400e; border: 1px solid #fde68a; cursor: pointer;" wire:click="selectAllCustomHubOffices">
+                                                    <i class="fa-solid fa-check-double"></i> Select All
+                                                </button>
+                                                @if(count($customHubOffices) > 0)
+                                                    <button type="button" class="btn-cancel" style="padding: 4px 10px; font-size: 11px; color: #ef4444; border: 1px solid #fecaca; cursor: pointer;" wire:click="clearCustomHubOffices">
+                                                        <i class="fa-solid fa-xmark"></i> Clear
+                                                    </button>
+                                                @endif
+                                            </div>
+                                        </div>
+                                        <span style="font-size: 11.5px; color: #64748b; margin-bottom: 12px; display: block; line-height: 1.4;">
+                                            Specify default receiving offices that will automatically receive copies simultaneously when this HUB flow is selected in Issuances.
+                                        </span>
+                                        
+                                        <div style="display: flex; gap: 8px; align-items: center; position: relative;">
+                                            <div x-data="{ open: false }" @click.outside="open = false" style="position: relative; flex: 1;">
+                                                <input type="text" 
+                                                       class="form-input" 
+                                                       placeholder="Search and select hub recipient office..." 
+                                                       wire:model.live="customHubSearch"
+                                                       @focus="open = true"
+                                                       style="margin: 0; width: 100%; padding: 9px 14px;">
+                                                
+                                                <div x-show="open" class="suggestions-dropdown" style="bottom: 100%; top: auto; margin-bottom: 4px; margin-top: 0;">
+                                                    @php
+                                                        $filteredCustomHub = $activeOffices->filter(function($off) {
+                                                            if ($off->office_code === 'ORIGIN' || $off->office_code === '[H]' || $off->office_code === '[HUB]') return false;
+                                                            if (empty($this->customHubSearch)) return true;
+                                                            return stripos($off->office_name, $this->customHubSearch) !== false 
+                                                                || stripos($off->office_code, $this->customHubSearch) !== false;
+                                                        });
+                                                    @endphp
+                                                    
+                                                    @forelse($filteredCustomHub as $off)
+                                                        <div class="suggestion-item" 
+                                                             @click="open = false"
+                                                             wire:click="selectCustomHubOfficeForAppend('{{ $off->office_code }}', '{{ $off->office_name }}')">
+                                                            <span style="font-weight: 500; color: #1e293b;">{{ $off->office_name }}</span>
+                                                            <span style="color: #64748b; font-weight: 600;">{{ $off->office_code }}</span>
+                                                        </div>
+                                                    @empty
+                                                        <div style="padding: 10px 14px; color: #94a3b8; font-size: 13px; font-style: italic; text-align: center;">No offices found</div>
+                                                    @endforelse
+                                                </div>
+                                            </div>
+                                            <button type="button" class="btn-save" style="padding: 10px 18px; display: inline-flex; align-items: center; gap: 5px; flex-shrink: 0; background-color: #f59e0b; border-color: #d97706;" wire:click="addCustomHubOfficeToPath">
+                                                <i class="fa-solid fa-plus"></i> Add
+                                            </button>
+                                        </div>
+
+                                        <div style="display: flex; flex-wrap: wrap; gap: 8px; margin-top: 14px; padding: 12px; background: #fff; border: 1px solid #fde68a; border-radius: 8px; min-height: 48px; box-sizing: border-box;">
+                                            @forelse($customHubOffices as $index => $officeCode)
+                                                @php
+                                                    $officeObj = $activeOffices->firstWhere('office_code', $officeCode);
+                                                    $displayName = $officeObj ? $officeObj->office_name : $officeCode;
+                                                @endphp
+                                                <div style="display: inline-flex; align-items: center; gap: 6px; background: #fef3c7; color: #92400e; padding: 5px 12px; border-radius: 20px; font-size: 12px; font-weight: 600; border: 1px solid #fcd34d; box-shadow: 0 1px 2px rgba(0,0,0,0.05);">
+                                                    <span>{{ $displayName }} ({{ $officeCode }})</span>
+                                                    <button type="button" wire:click="removeCustomHubOffice({{ $index }})" style="background: none; border: none; color: #ef4444; cursor: pointer; font-size: 14px; font-weight: bold; line-height: 1; padding: 0; display: inline-flex; align-items: center; margin-left: 2px;">&times;</button>
+                                                </div>
+                                            @empty
+                                                <div style="display: flex; align-items: center; justify-content: center; width: 100%; color: #94a3b8; font-style: italic; font-size: 12.5px; height: 24px;">
+                                                    No hub receiving offices predefined yet.
+                                                </div>
+                                            @endforelse
+                                        </div>
+                                    </div>
+                                @endif
                             </div>
                         </form>
                     </div>

@@ -186,10 +186,10 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Backup & Recovery Manage
             ],
             'flows' => [
                 'name' => 'Transaction Flows',
-                'description' => 'DTS routing flows, sequence rankings, action options & email access configs',
+                'description' => 'DTS routing flows, sequence rankings, hub predefined data, action options & email access configs',
                 'icon' => 'fa-solid fa-route',
                 'color' => '#d97706',
-                'tables' => ['dts_transaction_flow', 'dts_sequence_list', 'dts_action_options', 'dts_email_access'],
+                'tables' => ['dts_transaction_flow', 'dts_sequence_list', 'hub_flow_datas', 'dts_action_options', 'dts_email_access'],
             ],
             'dts' => [
                 'name' => 'Document Tracking System (DTS)',
@@ -469,7 +469,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Backup & Recovery Manage
                             $q->whereNull('flow_name')
                               ->orWhere('flow_name', 'not like', 'Flow for %');
                         });
-                    } elseif ($table === 'dts_sequence_list' && !$isDtsIncluded) {
+                    } elseif (($table === 'dts_sequence_list' || $table === 'hub_flow_datas') && !$isDtsIncluded) {
                         $masterFlowIds = \DB::table('dts_transaction_flow')
                             ->where(function ($q) {
                                 $q->whereNull('flow_code')
@@ -485,7 +485,8 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Backup & Recovery Manage
                             })
                             ->pluck('id');
 
-                        $query->whereIn('control_id', $masterFlowIds);
+                        $colName = ($table === 'hub_flow_datas') ? 'flow_owner' : 'control_id';
+                        $query->whereIn($colName, $masterFlowIds);
                     }
 
                     $rows = $query->get()->map(function ($item) {
@@ -681,8 +682,9 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Backup & Recovery Manage
             // Priority Tier 3: Workflow, Options & Transaction Settings (Depends on account, office)
             'dts_transaction_flow' => 40,
             'dts_sequence_list' => 41,
-            'dts_action_options' => 42,
-            'dts_email_access' => 43,
+            'hub_flow_datas' => 42,
+            'dts_action_options' => 43,
+            'dts_email_access' => 44,
 
             // Priority Tier 4: Transactions, Documents, Chat & Messages
             'dts_transactions' => 50,

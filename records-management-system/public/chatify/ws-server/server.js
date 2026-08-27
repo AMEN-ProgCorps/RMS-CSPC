@@ -162,6 +162,43 @@ const clients = new Map();
 // lookups into O(1) (or O(sessions-for-that-account), which is tiny).
 const accountSockets = new Map();
 
+// In-memory "last seen" tracker — accountId -> unix seconds, set the moment
+// an account's very last connected socket closes. This exists so the
+// active-status indicator can be driven ENTIRELY by the WS server: without
+// it, presence_snapshot could only tell a freshly-connecting client who is
+// online *right now*, with no way to say "so-and-so was last seen 4 minutes
+// ago" for someone who had already gone offline before that client
+// connected — forcing a fallback to account_details.last_online_time in the
+// database. Kept in memory only (same pattern as accountSockets/clients
+// below); it resets on server restart, which just means "last seen" briefly
+// shows nothing for anyone who went offline before the last restart instead
+// of a wrong/stale value — an acceptable tradeoff for no longer depending on
+// a separate DB read.
+const lastSeenTimestamps = new Map();
+
+// Hard cap on lastSeenTimestamps so it can't grow forever on a long-running
+// server. Without this, the map would keep one entry per distinct account
+// that has EVER gone offline since the process started, converging toward
+// "the entire user base" over weeks/months of uptime — and the whole map
+// gets shipped in full on every single presence_snapshot (i.e. every fresh
+// connection), so an unbounded map means unbounded bandwidth/memory too.
+// When we go over the cap we trim back down, keeping the most-recently-
+// disconnected accounts (the ones actually likely to still be sitting in
+// someone's sidebar) and dropping the oldest.
+const LAST_SEEN_MAX_ENTRIES = 5000;
+const LAST_SEEN_TRIM_TARGET = 4000; // trim below the cap, not right up to it, so this doesn't re-trigger on every single new entry
+
+function recordLastSeen(accountId, timestamp) {
+  lastSeenTimestamps.set(accountId, timestamp);
+  if (lastSeenTimestamps.size > LAST_SEEN_MAX_ENTRIES) {
+    const oldestFirst = Array.from(lastSeenTimestamps.entries()).sort((a, b) => a[1] - b[1]);
+    const removeCount = oldestFirst.length - LAST_SEEN_TRIM_TARGET;
+    for (let i = 0; i < removeCount; i++) {
+      lastSeenTimestamps.delete(oldestFirst[i][0]);
+    }
+  }
+}
+
 function indexSocket(ws, accountId) {
   let set = accountSockets.get(accountId);
   if (!set) {
@@ -537,11 +574,21 @@ wss.on('connection', (ws) => {
         log(`Client authenticated: account_id=${account_id}, name="${name}"`);
         ws.send(JSON.stringify({ type: 'auth_success' }));
 
-        // Send initial presence snapshot (list of all online accountIds)
+        // Send initial presence snapshot (list of all online accountIds, plus
+        // last-seen timestamps for currently-offline accounts this server
+        // has seen disconnect since it started — see lastSeenTimestamps
+        // above). This is what lets the frontend render "Active X ago" for
+        // someone who was already offline before this client connected,
+        // without needing a separate database fetch.
         safeSend(ws, JSON.stringify({
           type: 'presence_snapshot',
-          online_accounts: Array.from(accountSockets.keys())
+          online_accounts: Array.from(accountSockets.keys()),
+          last_seen: Object.fromEntries(lastSeenTimestamps)
         }));
+
+        // This account is live again — any last-seen timestamp we had for
+        // it is now moot (superseded by "currently online").
+        lastSeenTimestamps.delete(accountId);
 
         // If this is the account's first connected socket, broadcast online presence to all clients
         if (!wasAlreadyOnline) {
@@ -952,12 +999,34 @@ wss.on('connection', (ws) => {
 
       // If user now has 0 remaining connected sockets, broadcast offline presence to all
       if (!accountSockets.has(state.accountId)) {
+        const offlineTimestamp = Math.floor(Date.now() / 1000);
+
+        // Record this in memory so any client that connects/refreshes AFTER
+        // this moment still gets an accurate "Active X ago" via the next
+        // presence_snapshot's last_seen map — no DB read required for the
+        // active-status indicator anymore.
+        recordLastSeen(state.accountId, offlineTimestamp);
+
         broadcastToAll(JSON.stringify({
           type: 'presence',
           account_id: state.accountId,
           status: 'offline',
-          timestamp: Math.floor(Date.now() / 1000)
+          timestamp: offlineTimestamp
         }));
+
+        // Also persist this to the DB — NOT for the chat frontend's active-
+        // status indicator anymore (that's fully WS-driven now via
+        // lastSeenTimestamps/presence_snapshot above), but is_currently_online
+        // is a shared column: the wider RMS/Laravel side reads it too (see
+        // check_session.php's comment on the Laravel "mark stale users
+        // offline" middleware). Keeping it accurate here is still worthwhile
+        // for that system, it's just no longer something our own frontend
+        // depends on.
+        internalFetchPhp('/mark_offline.php', {}, state.accountId, (err) => {
+          if (err) {
+            logError(`mark_offline.php push failed for account ${state.accountId}:`, err.message);
+          }
+        });
       }
 
       // Clean up active typing previews sent by this disconnected user

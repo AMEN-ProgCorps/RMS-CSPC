@@ -265,17 +265,21 @@ new #[Layout('layouts.dts')] #[Title('DTS - Application Letters')] class extends
             $t->released_by = ($firstLog && $firstLog->first_name) ? ($firstLog->first_name . ' ' . $firstLog->last_name) : '-';
 
             // Received info (Destination / Current)
-            $receiveLog = $logs->where('type', 'received')->where('id', '!=', $firstLog?->id)->last()
-                ?? $logs->where('id', '!=', $firstLog?->id)->first();
+            $receiveLog = $logs->where('type', 'received')
+                ->where('id', '!=', $firstLog?->id)
+                ->whereNotNull('date_in')
+                ->last();
 
-            if (!$receiveLog && $firstLog && $firstLog->date_in) {
-                $receiveLog = $firstLog;
+            if ($receiveLog && !empty($receiveLog->date_in)) {
+                $receivedAt = $receiveLog->date_in;
+                $t->received_date = \Carbon\Carbon::parse($receivedAt)->format('Y-m-d');
+                $t->received_time = \Carbon\Carbon::parse($receivedAt)->format('h:i A');
+                $t->received_by = $receiveLog->first_name ? ($receiveLog->first_name . ' ' . $receiveLog->last_name) : '-';
+            } else {
+                $t->received_date = '-';
+                $t->received_time = '-';
+                $t->received_by = '-';
             }
-
-            $receivedAt = $receiveLog?->date_in;
-            $t->received_date = $receivedAt ? \Carbon\Carbon::parse($receivedAt)->format('Y-m-d') : '-';
-            $t->received_time = $receivedAt ? \Carbon\Carbon::parse($receivedAt)->format('h:i A') : '-';
-            $t->received_by = ($receiveLog && $receiveLog->first_name) ? ($receiveLog->first_name . ' ' . $receiveLog->last_name) : '-';
 
             // Elapsed Days
             $createdDateRaw = $firstLog?->date_in ?? $t->date_created;
@@ -604,6 +608,35 @@ new #[Layout('layouts.dts')] #[Title('DTS - Application Letters')] class extends
                 }
             }
 
+            // Upsert / resolve requestor in dts_requestor_history
+            $requestorId = null;
+            if (!empty(trim($this->requestorName ?? ''))) {
+                $tDetail = DB::table('dts_transaction_details')->where('id', $this->selectedTransactionId)->first();
+                $originOffice = $tDetail?->originated_from ?? (auth()->user()?->details?->office?->office_code ?? 'RFIO');
+                $existingReq = DB::table('dts_requestor_history')
+                    ->where('requestor_name', trim($this->requestorName))
+                    ->where('office', $originOffice)
+                    ->first();
+
+                if ($existingReq) {
+                    $requestorId = $existingReq->id;
+                    if (!empty($this->requestorPosition) && $existingReq->requestor_position !== $this->requestorPosition) {
+                        DB::table('dts_requestor_history')
+                            ->where('id', $existingReq->id)
+                            ->update(['requestor_position' => $this->requestorPosition]);
+                    }
+                } else {
+                    $requestorId = DB::table('dts_requestor_history')->insertGetId([
+                        'requestor_name' => trim($this->requestorName),
+                        'requestor_position' => $this->requestorPosition ?: null,
+                        'office' => $originOffice,
+                        'is_active' => true,
+                        'created_at' => now(),
+                        'updated_at' => now(),
+                    ]);
+                }
+            }
+
             DB::table('dts_transaction_details')
                 ->where('id', $this->selectedTransactionId)
                 ->update([
@@ -612,8 +645,7 @@ new #[Layout('layouts.dts')] #[Title('DTS - Application Letters')] class extends
                     'subject' => $this->particulars,
                     'classification' => $this->classification ?: null,
                     'action_needed' => $this->actionNeeded ?: null,
-                    'requestor_name' => $this->requestorName ?: null,
-                    'requestor_label' => $this->requestorPosition ?: null,
+                    'requestor_id' => $requestorId,
                     'email_access' => $emailAccessId,
                     'document_password' => $this->docPassword ?: null,
                     'transaction_flow' => $this->transactionFlow,

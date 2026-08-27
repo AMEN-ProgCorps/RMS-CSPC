@@ -296,6 +296,22 @@ new class extends Component {
                         }
                     }
 
+                    $userFirstName = auth()->user()?->details?->first_name 
+                        ?: DB::table('account_details')->where('account_id', auth()->id())->value('first_name')
+                        ?: auth()->user()?->username 
+                        ?: 'User';
+
+                    $controlNumber = $this->activeTransaction['control_number'] ?? '';
+
+                    if ($userOfficeCode) {
+                        \App\Services\DtsNotificationService::notifyReceived($userOfficeCode, $userFirstName, $controlNumber, $transId);
+                    }
+
+                    $originatedFrom = $this->activeTransaction['originated_office_code'] ?? null;
+                    if ($originatedFrom && $originatedFrom !== $userOfficeCode) {
+                        \App\Services\DtsNotificationService::notifyHubOfficeReceived($originatedFrom, $userOfficeCode, $controlNumber, $transId);
+                    }
+
                     $this->successMessage = "Transaction '{$this->activeTransaction['control_number']}' received successfully at {$this->activeTransaction['current_office']}!";
                 } 
                 // Case 2: Forward received transaction
@@ -380,6 +396,13 @@ new class extends Component {
                             'notes' => 'Returned for revision from ' . $userOfficeCode . ': ' . ($this->notes ?: 'Please revise document'),
                             'performed_by' => auth()->id(),
                         ]);
+
+                        $controlNumber = $this->activeTransaction['control_number'] ?? '';
+                        \App\Services\DtsNotificationService::createNotification(
+                            $originatedFrom,
+                            "Transaction {$controlNumber} has been returned for revision by {$userOfficeCode}.",
+                            '/dts?open=' . urlencode($transId)
+                        );
 
                         $originatedOfficeName = DB::table('office')->where('office_code', $originatedFrom)->value('office_name') ?: $originatedFrom;
                         $this->successMessage = "Transaction '{$this->activeTransaction['control_number']}' returned for revision to {$originatedOfficeName}!";
@@ -521,6 +544,26 @@ new class extends Component {
 
                             $destOfficeName = DB::table('office')->where('office_code', $nextOfficeCode)->value('office_name') ?: $nextOfficeCode;
                             $this->successMessage = "Transaction '{$this->activeTransaction['control_number']}' forwarded successfully to {$destOfficeName}!";
+
+                            $userFirstName = auth()->user()?->details?->first_name 
+                                ?: DB::table('account_details')->where('account_id', auth()->id())->value('first_name')
+                                ?: auth()->user()?->username 
+                                ?: 'User';
+
+                            $controlNumber = $this->activeTransaction['control_number'] ?? '';
+
+                            if ($userOfficeCode) {
+                                \App\Services\DtsNotificationService::notifyForwarded($userOfficeCode, $userFirstName, $controlNumber, $transId);
+                            }
+
+                            if (!empty($nextOfficeCode)) {
+                                \App\Services\DtsNotificationService::notifyWaitingToBeReceived($nextOfficeCode, $controlNumber, $transId);
+                            }
+
+                            $originatedFrom = $this->activeTransaction['originated_office_code'] ?? null;
+                            if ($originatedFrom && $originatedFrom !== $userOfficeCode) {
+                                \App\Services\DtsNotificationService::notifyHubOfficeForwarded($originatedFrom, $userOfficeCode, $controlNumber, $transId, $userFirstName);
+                            }
                         } else {
                             // End of flow -> Complete
                             DB::table('dts_transactions')
@@ -528,6 +571,11 @@ new class extends Component {
                                 ->update([
                                     'status' => 'completed',
                                 ]);
+
+                            $controlNumber = $this->activeTransaction['control_number'] ?? '';
+                            if ($userOfficeCode) {
+                                \App\Services\DtsNotificationService::notifyCompleted($userOfficeCode, $controlNumber, $transId);
+                            }
 
                             $this->successMessage = "Transaction '{$this->activeTransaction['control_number']}' marked as COMPLETED!";
                         }

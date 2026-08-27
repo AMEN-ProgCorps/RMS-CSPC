@@ -727,10 +727,22 @@
     border-color: rgba(37, 99, 235, 0.3) !important;
 }
 
-[data-theme="dark"] .badge-forwarded {
+[data-theme="dark"] .badge-in-transit {
     background-color: rgba(245, 158, 11, 0.15) !important;
     color: #fbbf24 !important;
     border-color: rgba(245, 158, 11, 0.3) !important;
+}
+
+[data-theme="dark"] .badge-holding {
+    background-color: rgba(14, 165, 233, 0.15) !important;
+    color: #38bdf8 !important;
+    border-color: rgba(14, 165, 233, 0.3) !important;
+}
+
+[data-theme="dark"] .badge-forwarded {
+    background-color: rgba(16, 185, 129, 0.15) !important;
+    color: #34d399 !important;
+    border-color: rgba(16, 185, 129, 0.3) !important;
 }
 
 [data-theme="dark"] .badge-received {

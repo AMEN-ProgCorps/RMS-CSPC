@@ -342,24 +342,27 @@
     }
     .status-dot.online { background-color: #31a24c; }
     .status-dot.offline { background-color: #8a8d91; }
+    .status-dot { transition: background-color 0.3s ease; }
     
     .user-info {
       flex: 1;
       min-width: 0;
+      display: flex;
+      flex-direction: column;
+      justify-content: flex-start;
+      padding-top: 1px;
+      height: 48px;
     }
     
     .user-name {
       font-weight: 600;
       color: var(--text-primary);
-      font-size: 15px;
-      margin-bottom: 4px;
+      font-size: 14px;
+      line-height: 1.2;
+      margin-bottom: 1px;
       white-space: nowrap;
       overflow: hidden;
       text-overflow: ellipsis;
-      /* Sized to content but free to shrink inside .user-name-row (a flex
-         row) so it truncates on its own instead of growing to fill the row
-         and clipping the verified-badge sibling that sits after it. Has no
-         effect where .user-name isn't inside a flex parent. */
       flex: 0 1 auto;
       min-width: 0;
     }
@@ -368,20 +371,23 @@
       font-size: 11px;
       color: #1b74e4;
       font-weight: 500;
-      margin-bottom: 2px;
+      line-height: 1.2;
+      margin-bottom: 1px;
       white-space: nowrap;
       overflow: hidden;
       text-overflow: ellipsis;
     }
     
     .user-last-msg {
-      font-size: 13px;
+      font-size: 12px;
       color: var(--text-secondary);
       white-space: nowrap;
       overflow: hidden;
       text-overflow: ellipsis;
-      min-height: 18px;
-      line-height: 18px;
+      min-height: 15px;
+      line-height: 15px;
+      height: 15px;
+      display: block !important;
     }
 
     /* Unread message badge in sidebar */
@@ -951,17 +957,45 @@
       display: inline-block;
     }
 
+    /* Single-line Header Title Alignment (Global Chat & Admin Spy Mode): Perfectly level/kapantay with back arrow horizontally & vertically */
+    .header.is-single-title .header-user-info,
+    .header.is-global-chat .header-user-info {
+      height: 20px;
+      padding-top: 0;
+      justify-content: center;
+      align-items: flex-start;
+    }
+
+    .header.is-single-title .header-title-row,
+    .header.is-global-chat .header-title-row {
+      height: 20px;
+      display: flex;
+      align-items: center;
+      justify-content: flex-start;
+      width: auto;
+    }
+
+    .header.is-single-title h1#chatHeaderTitle,
+    .header.is-global-chat h1#chatHeaderTitle {
+      line-height: 20px;
+      text-align: left;
+      display: flex;
+      align-items: center;
+    }
+
     .header-title-row .verified-badge {
       display: inline-flex;
       align-items: center;
       flex-shrink: 0;
     }
 
-    /* Live typing text preview — reserved fixed slot below the name */
+    /* Active Status below header name (e.g. "Active now", "Active 21 minutes ago") */
+    .header-active-status,
     .header-typing-preview {
       font-size: 12px;
-      font-style: italic;
-      color: #000000;
+      font-weight: 400;
+      font-style: normal;
+      color: var(--text-secondary, #65676b);
       white-space: nowrap;
       overflow: hidden;
       text-overflow: ellipsis;
@@ -969,16 +1003,10 @@
       line-height: 16px;
       height: 16px;
       margin-top: 1px;
-      visibility: hidden;
-      opacity: 0;
-      transition: opacity 0.15s ease-in-out;
     }
+    [data-theme="dark"] .header-active-status,
     [data-theme="dark"] .header-typing-preview {
-      color: #ffffff;
-    }
-    .header-typing-preview.active {
-      visibility: visible;
-      opacity: 1;
+      color: #b0b3b8;
     }
 
     /* Small profile picture shown in the header, to the left of the DM

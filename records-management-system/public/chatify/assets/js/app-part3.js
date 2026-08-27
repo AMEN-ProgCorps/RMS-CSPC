@@ -2882,6 +2882,36 @@
       }
     }
 
+    function updateSidebarPreviewState(senderId, previewText) {
+      const user = allUsersData.find(u => Number(u.account_id) === Number(senderId));
+      if (!user) return;
+      const username = user.username;
+      const rowItem = sidebarUserItems.get(username);
+      if (!rowItem) return;
+
+      const infoEl = rowItem.querySelector('.user-info');
+      if (infoEl) {
+        let lastMsgEl = infoEl.querySelector('.user-last-msg');
+        if (!lastMsgEl) {
+          lastMsgEl = document.createElement('div');
+          lastMsgEl.className = 'user-last-msg';
+          infoEl.appendChild(lastMsgEl);
+        }
+
+        if (previewText !== null && previewText !== '') {
+          lastMsgEl.textContent = previewText;
+          lastMsgEl.style.display = 'block';
+          lastMsgEl.style.fontStyle = 'italic';
+          lastMsgEl.style.color = 'var(--primary-color, #1b74e4)';
+        } else {
+          lastMsgEl.textContent = '';
+          lastMsgEl.style.fontStyle = '';
+          lastMsgEl.style.color = '';
+          lastMsgEl.style.display = 'block';
+        }
+      }
+    }
+
     function handleIncomingTypingPreview(data) {
       const senderId = Number(data.sender_id);
       if (!senderId || senderId === wsConfig.accountId) return;
@@ -2891,7 +2921,7 @@
         : true;
       if (!allowSeePreview) {
         clientActivePreviews.delete(senderId);
-        updateHeaderTypingPreview(senderId, null);
+        updateSidebarPreviewState(senderId, null);
         return;
       }
 
@@ -2899,10 +2929,10 @@
 
       if (!previewText) {
         clientActivePreviews.delete(senderId);
-        updateHeaderTypingPreview(senderId, null);
+        updateSidebarPreviewState(senderId, null);
       } else {
         clientActivePreviews.set(senderId, { preview: previewText, isSent: false });
-        updateHeaderTypingPreview(senderId, previewText);
+        updateSidebarPreviewState(senderId, previewText);
       }
     }
 
@@ -2910,18 +2940,14 @@
       const senderId = Number(data.sender_id);
       if (!senderId) return;
       clientActivePreviews.delete(senderId);
-      updateHeaderTypingPreview(senderId, null);
+      updateSidebarPreviewState(senderId, null);
     }
 
     function handleIncomingTypingPreviewSent(data) {
       const senderId = Number(data.sender_id);
       if (!senderId) return;
       clientActivePreviews.set(senderId, { preview: '', isSent: true });
-      updateHeaderTypingPreview(senderId, null);
-    }
-
-    function updateSidebarPreviewState(senderId, previewText) {
-      // Typing preview is shown in the header (under the user name), not the sidebar.
+      updateSidebarPreviewState(senderId, null);
     }
 
     // Immediately apply a comm setting change: update memory, broadcast via WS,

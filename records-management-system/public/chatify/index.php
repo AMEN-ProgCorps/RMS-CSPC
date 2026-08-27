@@ -277,7 +277,7 @@ try {
             <div class="header-title-row" id="chatHeaderTitleRow">
               <h1 id="chatHeaderTitle"></h1>
             </div>
-            <div id="headerTypingPreview" class="header-typing-preview"></div>
+            <div id="headerActiveStatus" class="header-active-status"></div>
           </div>
         </div>
       

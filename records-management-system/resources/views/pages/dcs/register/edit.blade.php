@@ -655,7 +655,7 @@ window.__registerCatalog = @json($catalog);
                     <div class="reg-split-right">
                         <div class="reg-field">
                             <label>Office retrieval status</label>
-                            <p class="reg-field-hint">Mark as Retrieved to move an office into Distribution on this form. On the next revision, those offices start again as Pending in Retrieval.</p>
+                            <p class="reg-field-hint">Mark as Retrieved to move an office into Distribution on this form. Remove it from Distribution to put it back as Pending in Retrieval. On the next revision, retrieved offices start again as Pending in Retrieval.</p>
                             <div class="reg-search">
                                 <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                                     <circle cx="11" cy="11" r="8"/>
@@ -1093,6 +1093,70 @@ function removeRetrievedOfficeFromDistribution(officeId) {
         tbody.innerHTML = emptyOfficeRowHTML('distBody');
     }
     if (typeof syncDistClusterChipState === 'function') syncDistClusterChipState();
+}
+
+function isOfficeInRetrievedHidden(officeId) {
+    const hidden = document.getElementById('retrievalRetrievedHidden');
+    if (!hidden) return false;
+    return [...hidden.querySelectorAll('input[name="retrievalOffice[]"]')]
+        .some(inp => String(inp.value) === String(officeId));
+}
+
+function removeOfficeFromRetrievedHidden(officeId) {
+    const hidden = document.getElementById('retrievalRetrievedHidden');
+    if (!hidden) return 1;
+    let copies = 1;
+    for (const inp of hidden.querySelectorAll('input[name="retrievalOffice[]"]')) {
+        if (String(inp.value) !== String(officeId)) continue;
+        const row = inp.closest('tr');
+        const copiesInp = row?.querySelector('input[name="retrievalCopies[]"]');
+        copies = parseInt(copiesInp?.value, 10) || 1;
+        row?.remove();
+        break;
+    }
+    return copies;
+}
+
+/** Undo Mark-as-Retrieved: drop hidden retrieved row and show office as Pending again. */
+function restoreOfficeToRetrievalPending(officeId, officeName, copies) {
+    if (!officeId) return;
+    const hiddenCopies = removeOfficeFromRetrievedHidden(officeId);
+    const useCopies = parseInt(copies, 10) || hiddenCopies || 1;
+    const tbody = document.getElementById('retrievalBody');
+    if (!tbody) return;
+
+    const already = [...tbody.querySelectorAll('input[type="hidden"][name="retrievalOffice[]"]')]
+        .some(inp => String(inp.value) === String(officeId));
+    if (!already) {
+        const emptyRow = tbody.querySelector('.reg-empty-row');
+        if (emptyRow) emptyRow.remove();
+        const tr = document.createElement('tr');
+        tr.className = 'reg-office-added';
+        tr.innerHTML =
+            '<td><input type="hidden" name="retrievalOffice[]" value="' + String(officeId).replace(/"/g, '') + '">' +
+            '<div class="reg-office-name"><div class="reg-office-icon"><i class="fa-solid fa-building"></i></div>' +
+            '<span class="reg-office-text">' + escapeHtml(officeName || 'Office') + '</span></div></td>' +
+            '<td>' + retrievalStatusSelectHTML('pending') + '</td>' +
+            '<td style="text-align:center;"><input type="number" name="retrievalCopies[]" value="' + useCopies +
+            '" min="1" oninput="updateTotal(\'retrievalTotal\', \'retrievalBody\')"></td>' +
+            '<td><button type="button" class="btn-remove" onclick="removeOffice(this, \'retrievalTotal\', \'retrievalBody\')">' +
+            '<i class="fa-solid fa-xmark"></i></button></td>';
+        tbody.appendChild(tr);
+    }
+    updateTotal('retrievalTotal', 'retrievalBody');
+    const retSection = document.getElementById('section-4');
+    if (retSection) retSection.style.display = 'block';
+}
+
+function maybeRestoreDistOfficeToRetrieval(tr) {
+    if (!tr) return;
+    const officeId = tr.querySelector('input[type="hidden"][name="distOffice[]"]')?.value;
+    if (!officeId) return;
+    const fromRetrieval = tr.dataset.fromRetrieval === '1' || isOfficeInRetrievedHidden(officeId);
+    if (!fromRetrieval) return;
+    const officeName = tr.querySelector('.reg-office-text')?.textContent?.trim() || 'Office';
+    const copies = tr.querySelector('input[type="number"][name="distCopies[]"]')?.value || 1;
+    restoreOfficeToRetrievalPending(officeId, officeName, copies);
 }
 
 window.handleRetrievalStatusChange = function (select) {
@@ -4906,7 +4970,10 @@ function removeOfficesByCluster(clusterCode) {
     const ids = new Set(clusterOffices(clusterCode).map((o) => String(o.office_id)));
     tbody.querySelectorAll('tr.reg-office-added').forEach((tr) => {
         const inp = tr.querySelector('input[type="hidden"][name="distOffice[]"]');
-        if (inp && ids.has(String(inp.value))) tr.remove();
+        if (inp && ids.has(String(inp.value))) {
+            maybeRestoreDistOfficeToRetrieval(tr);
+            tr.remove();
+        }
     });
 
     updateTotal('distTotal', 'distBody');
@@ -5708,6 +5775,9 @@ window.removeOffice = function (btn, totalId, bodyId) {
         if (officeId && status === 'retrieved') {
             removeRetrievedOfficeFromDistribution(officeId);
         }
+    }
+    if (bodyId === 'distBody') {
+        maybeRestoreDistOfficeToRetrieval(tr);
     }
     tr.style.opacity = "0"; tr.style.transform = "translateX(20px)"; tr.style.transition = "all 0.2s ease";
     setTimeout(() => {

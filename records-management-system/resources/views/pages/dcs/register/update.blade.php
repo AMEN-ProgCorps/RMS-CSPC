@@ -216,7 +216,7 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
             <p>
                 This will move <strong>{{ $deleteTitle }}</strong> (Rev {{ $deleteRev }}) to the
                 <a href="{{ route('dcs.recycle-bin', absolute: false) }}" class="upd-modal-link">Recycle Bin</a>.
-                You can restore it later — documents are not permanently deleted.
+                You can restore it within <strong>1 year</strong>; after that it is permanently deleted.
             </p>
             <div class="upd-modal-actions">
                 <button type="button" class="upd-modal-btn upd-modal-cancel" wire:click="closeDelete">Cancel</button>

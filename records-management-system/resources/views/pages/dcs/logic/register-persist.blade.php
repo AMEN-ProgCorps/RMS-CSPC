@@ -1363,35 +1363,107 @@ class RegisterPersistHelper
             return;
         }
 
-        $visibleIds = RegisterQueryHelper::visibleRequestIds();
-        $familyNos = RegisterQueryHelper::expandRenumberFamily($docNo, $docTypeId, $subTypeId, $visibleIds);
-        if ($familyNos === []) {
-            $familyNos = [$docNo];
+        $familySeed = RegisterQueryHelper::revisionFamilyDocNos(
+            $docNo,
+            $docTypeId,
+            $subTypeId,
+            $requestIds,
+            true
+        );
+        if ($familySeed === []) {
+            $familySeed = [$docNo];
         }
 
-        $tipQuery = DB::table('dcs_masterlist_registration as ml')
+        // Active tip = highest revise_no among live rows in this revision family.
+        $activeTipQuery = DB::table('dcs_masterlist_registration as ml')
             ->join('dcs_document_requests as dr', 'dr.id', '=', 'ml.request_id')
             ->whereIn('ml.request_id', $requestIds)
-            ->whereIn('ml.doc_no', $familyNos)
-            ->whereIn('ml.revision_status', ['latest', 'obsolete']);
-        RegisterQueryHelper::applyNotDeleted($tipQuery, 'dr');
+            ->whereIn('ml.doc_no', $familySeed)
+            ->where(function ($q) {
+                $q->whereIn('ml.revision_status', ['latest', 'obsolete'])
+                    ->orWhereNull('ml.revision_status')
+                    ->orWhere('ml.revision_status', '');
+            });
+        RegisterQueryHelper::applyNotDeleted($activeTipQuery, 'dr');
+        if ($subTypeId) {
+            $activeTipQuery->where('dr.sub_type_id', $subTypeId);
+        } else {
+            $activeTipQuery->whereNull('dr.sub_type_id');
+        }
 
-        $tip = $tipQuery
+        $activeTip = $activeTipQuery
             ->orderByDesc('ml.revise_no')
             ->orderByDesc('ml.id')
-            ->select('ml.id')
+            ->select('ml.id', 'ml.doc_no')
             ->first();
 
-        if (!$tip) {
+        if (!$activeTip || !trim((string) ($activeTip->doc_no ?? ''))) {
             return;
         }
 
-        $tipId = (int) $tip->id;
+        $anchorDocNo = trim((string) $activeTip->doc_no);
+        $familyNos = RegisterQueryHelper::revisionFamilyDocNos(
+            $anchorDocNo,
+            $docTypeId,
+            $subTypeId,
+            $requestIds,
+            true
+        );
+        if ($familyNos === []) {
+            $familyNos = [$anchorDocNo];
+        }
+
+        if (strcasecmp($docNo, $anchorDocNo) !== 0) {
+            $extraFamily = RegisterQueryHelper::revisionFamilyDocNos(
+                $docNo,
+                $docTypeId,
+                $subTypeId,
+                $requestIds,
+                true
+            );
+            if ($extraFamily !== []) {
+                $merged = [];
+                foreach (array_merge($familyNos, $extraFamily) as $no) {
+                    $merged[strtolower($no)] = $no;
+                }
+                $familyNos = array_values($merged);
+            }
+        }
+
+        // Heal legacy "archived" → obsolete (status model is latest | obsolete only).
+        // Skip rows that would violate the active unique (doc_no + revise_no + type).
+        $legacyArchived = DB::table('dcs_masterlist_registration as m')
+            ->whereIn('m.request_id', $requestIds)
+            ->whereIn('m.doc_no', $familyNos)
+            ->where('m.revision_status', 'archived')
+            ->select('m.id', 'm.doc_no', 'm.revise_no', 'm.doc_type_id')
+            ->get();
+
+        foreach ($legacyArchived as $row) {
+            $conflict = DB::table('dcs_masterlist_registration')
+                ->where('id', '!=', $row->id)
+                ->where('doc_no', $row->doc_no)
+                ->where('doc_type_id', $row->doc_type_id)
+                ->where('revise_no', $row->revise_no)
+                ->whereIn('revision_status', ['latest', 'obsolete'])
+                ->exists();
+            if (!$conflict) {
+                DB::table('dcs_masterlist_registration')
+                    ->where('id', $row->id)
+                    ->update(['revision_status' => 'obsolete', 'updated_at' => now()]);
+            }
+        }
+
+        $tipId = (int) $activeTip->id;
 
         DB::table('dcs_masterlist_registration')
             ->whereIn('doc_no', $familyNos)
             ->whereIn('request_id', $requestIds)
-            ->whereIn('revision_status', ['latest', 'obsolete'])
+            ->where(function ($q) {
+                $q->whereIn('revision_status', ['latest', 'obsolete'])
+                    ->orWhereNull('revision_status')
+                    ->orWhere('revision_status', '');
+            })
             ->where('id', '!=', $tipId)
             ->update(['revision_status' => 'obsolete', 'updated_at' => now()]);
 

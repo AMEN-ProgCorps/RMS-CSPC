@@ -70,7 +70,7 @@ new #[Layout('layouts.dcs')] #[Title('Recycle Bin — CSPC DCS')] class extends 
                 <div class="rb-title-icon"><i class="fa-solid fa-trash-can"></i></div>
                 <div>
                     <div class="rb-title">Recycle Bin</div>
-                    <p class="rb-subtitle">Deleted documents are kept here until restored.</p>
+                    <p class="rb-subtitle">Deleted documents are kept for {{ $list['retention_years'] ?? 1 }} year, then permanently removed.</p>
                 </div>
             </div>
         </div>
@@ -88,11 +88,12 @@ new #[Layout('layouts.dcs')] #[Title('Recycle Bin — CSPC DCS')] class extends 
     <div class="rb-callout">
         <div class="rb-callout-icon"><i class="fa-solid fa-circle-info"></i></div>
         <div class="rb-callout-text">
-            <strong>Soft delete only</strong>
+            <strong>{{ $list['retention_years'] ?? 1 }}-year retention</strong>
             <p>
-                Documents deleted from the Update page are moved here and stay in the system.
-                Use <strong>Restore</strong> to return a document to the active Update list.
-                There is no permanent delete.
+                Documents deleted from the Update page stay here for
+                <strong>{{ $list['retention_years'] ?? 1 }} year</strong>
+                (same duration as the Admin Console Recycle Bin).
+                Use <strong>Restore</strong> before the expiry date. After that, they are permanently deleted with their files.
             </p>
         </div>
     </div>
@@ -115,6 +116,7 @@ new #[Layout('layouts.dcs')] #[Title('Recycle Bin — CSPC DCS')] class extends 
                         <th>Type</th>
                         <th>Rev</th>
                         <th>Deleted</th>
+                        <th>Expires</th>
                         <th style="width:160px;">Actions</th>
                     </tr>
                 </thead>
@@ -139,6 +141,16 @@ new #[Layout('layouts.dcs')] #[Title('Recycle Bin — CSPC DCS')] class extends 
                                     <span class="rb-deleted-by">by {{ $doc['deleted_by'] }}</span>
                                 @endif
                             </td>
+                            <td data-label="Expires">
+                                <span class="rb-expires-at">{{ $doc['expires_at'] }}</span>
+                                @if(isset($doc['days_left']))
+                                    @if($doc['days_left'] <= 30)
+                                        <span class="rb-expires-soon">{{ max(0, $doc['days_left']) }} day{{ $doc['days_left'] === 1 ? '' : 's' }} left</span>
+                                    @else
+                                        <span class="rb-expires-left">{{ $doc['days_left'] }} days left</span>
+                                    @endif
+                                @endif
+                            </td>
                             <td data-label="Actions">
                                 <div class="rb-actions">
                                     <button type="button" class="rb-btn rb-btn-restore" title="Restore document"
@@ -156,7 +168,7 @@ new #[Layout('layouts.dcs')] #[Title('Recycle Bin — CSPC DCS')] class extends 
         <div class="rb-empty" @if(count($list['rows']) > 0) style="display:none" @endif>
             <div class="rb-empty-icon"><i class="fa-solid fa-trash-can"></i></div>
             <h3>Recycle Bin is empty</h3>
-            <p>Deleted documents will appear here. You can restore them anytime.</p>
+            <p>Deleted documents will appear here for 1 year and can be restored before they expire.</p>
         </div>
 
         <div class="rb-pagination">

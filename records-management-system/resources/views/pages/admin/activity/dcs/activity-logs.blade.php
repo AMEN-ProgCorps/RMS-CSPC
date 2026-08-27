@@ -312,8 +312,8 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - DCS Activity Logs')] cla
             </div>
 
             @if($logs->hasPages())
-                <div style="padding: 16px 20px; border-top: 1px solid #e2e8f0;">
-                    {{ $logs->links() }}
+                <div style="padding: 16px 20px; border-top: 1px solid #e2e8f0; display: flex; justify-content: center;">
+                    {{ $logs->links('components.pagination') }}
                 </div>
             @endif
         </div>

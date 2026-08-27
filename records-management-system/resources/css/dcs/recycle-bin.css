@@ -286,6 +286,28 @@ body {
     color: var(--rb-text-subtle);
 }
 
+.rb-expires-at {
+    font-size: 0.78rem;
+    font-weight: 600;
+    color: var(--rb-text);
+    white-space: nowrap;
+}
+
+.rb-expires-left {
+    display: block;
+    margin-top: 2px;
+    font-size: 0.68rem;
+    color: var(--rb-text-subtle);
+}
+
+.rb-expires-soon {
+    display: block;
+    margin-top: 2px;
+    font-size: 0.68rem;
+    font-weight: 600;
+    color: #b45309;
+}
+
 .rb-actions {
     display: flex;
     gap: 8px;

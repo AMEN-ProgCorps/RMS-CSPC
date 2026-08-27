@@ -300,6 +300,24 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
             // Stack renumbered families: CSPC-F-102 under CSPC-F-1023 when revised_from_doc_no links them.
             $groups = $this->mergeRenumberLineageGroups($groups);
 
+            $inventoryScopeIds = [];
+            foreach ($groups as $g) {
+                $rid = (int) ($g['parent']['request_id'] ?? 0);
+                if ($rid > 0) {
+                    $inventoryScopeIds[$rid] = $rid;
+                }
+                foreach ($g['children'] ?? [] as $child) {
+                    $cid = (int) ($child['request_id'] ?? 0);
+                    if ($cid > 0) {
+                        $inventoryScopeIds[$cid] = $cid;
+                    }
+                }
+            }
+            RegisterQueryHelper::promoteLatestForLineageGroups(
+                $groups,
+                $inventoryScopeIds !== [] ? array_values($inventoryScopeIds) : RegisterQueryHelper::visibleRequestIds()
+            );
+
             if ($this->revisionStatus === 'latest') {
                 $groups = $groups
                     ->filter(fn ($g) => strtolower((string) ($g['parent']['status'] ?? '')) === 'latest')
@@ -521,9 +539,7 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
 
     /**
      * Fold prior doc-no families into the current tip via revised_from_doc_no.
-     * Uses any family member's link (not only the Latest tip) so unlimited
-     * same-number revises after a renumber still keep one document group.
-     * Walks the full chain (e.g. 10234 → 1023 → 102).
+     * Each prior family attaches to at most one successor (highest rev wins).
      */
     private function mergeRenumberLineageGroups(\Illuminate\Support\Collection $groups): \Illuminate\Support\Collection
     {
@@ -533,37 +549,73 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
 
         $indexed = $groups->values();
         $byKey = [];
+        $groupTips = [];
+        $mergeScopeIds = [];
         foreach ($indexed as $i => $g) {
             $key = $this->renumberGroupKey($g['doc_no'] ?? '', $g['doc_type_id'] ?? 0, $g['sub_type_id'] ?? 0);
             $byKey[$key] = $i;
+            $parent = $g['parent'] ?? [];
+            $rev = (int) ($parent['rev_no'] ?? 0);
+            $rid = (int) ($parent['request_id'] ?? 0);
+            if ($rid > 0) {
+                $mergeScopeIds[$rid] = $rid;
+            }
+            foreach ($g['children'] ?? [] as $child) {
+                $cid = (int) ($child['request_id'] ?? 0);
+                if ($cid > 0) {
+                    $mergeScopeIds[$cid] = $cid;
+                }
+            }
+            $groupTips[$key] = [
+                'doc_no' => (string) ($g['doc_no'] ?? ''),
+                'doc_type_id' => (int) ($g['doc_type_id'] ?? 0),
+                'sub_type_id' => (int) ($g['sub_type_id'] ?? 0),
+                'rev_no' => $rev,
+                'request_id' => $rid,
+                'revised_from' => trim((string) ($parent['revised_from_doc_no'] ?? '')),
+                'score' => ($rev * 1_000_000_000) + $rid,
+                'is_active' => empty($parent['is_deleted']),
+            ];
         }
 
-        // Prior doc keys absorbed under a newer tip (from any member's revised_from).
-        $targetKeys = [];
-        foreach ($indexed as $g) {
-            foreach ($this->lineageFromNosForGroup($g) as $from) {
-                $targetKeys[$this->renumberGroupKey($from, $g['doc_type_id'] ?? 0, $g['sub_type_id'] ?? 0)] = true;
+        $mergeScopeIds = array_values($mergeScopeIds);
+        $visibleIds = $mergeScopeIds !== []
+            ? $mergeScopeIds
+            : RegisterQueryHelper::visibleRequestIds();
+        $edges = RegisterQueryHelper::buildLineageMergeEdges($groupTips, $visibleIds);
+        if ($edges === []) {
+            return $groups;
+        }
+
+        $absorbedAsTopLevel = [];
+        foreach ($edges as $absorbedKeys) {
+            foreach (array_keys($absorbedKeys) as $absorbedKey) {
+                $absorbedAsTopLevel[$absorbedKey] = true;
             }
         }
 
+        $globallyMergedFrom = [];
         $merged = collect();
         foreach ($indexed as $i => $g) {
             $key = $this->renumberGroupKey($g['doc_no'] ?? '', $g['doc_type_id'] ?? 0, $g['sub_type_id'] ?? 0);
-            if (isset($targetKeys[$key])) {
+            if (isset($absorbedAsTopLevel[$key])) {
                 continue;
             }
 
             $children = collect($g['children'] ?? [])->all();
             $seen = [$key => true];
-            $queue = $this->lineageFromNosForGroup($g);
+            $queue = array_keys($edges[$key] ?? []);
 
             while ($queue !== []) {
-                $from = array_shift($queue);
-                $priorKey = $this->renumberGroupKey($from, $g['doc_type_id'] ?? 0, $g['sub_type_id'] ?? 0);
+                $priorKey = array_shift($queue);
                 if (isset($seen[$priorKey]) || ! isset($byKey[$priorKey])) {
                     continue;
                 }
+                if (isset($globallyMergedFrom[$priorKey])) {
+                    continue;
+                }
                 $seen[$priorKey] = true;
+                $globallyMergedFrom[$priorKey] = $key;
 
                 $prior = $indexed[$byKey[$priorKey]];
                 $priorParent = $prior['parent'];
@@ -575,41 +627,40 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                     $children[] = $child;
                 }
 
-                foreach ($this->lineageFromNosForGroup($prior) as $nextFrom) {
-                    $queue[] = $nextFrom;
+                foreach (array_keys($edges[$priorKey] ?? []) as $nextKey) {
+                    $queue[] = $nextKey;
                 }
             }
 
             usort($children, fn ($a, $b) => ((int) ($b['rev_no'] ?? 0)) <=> ((int) ($a['rev_no'] ?? 0)));
 
-            $g['children'] = $children;
-            $g['has_revisions'] = ! empty($children);
-            $g['revision_count'] = 1 + count($children);
-            $g['obsolete_count'] = count($children);
+            $stack = array_merge([$g['parent']], $children);
+            usort($stack, fn ($a, $b) => ((int) ($b['rev_no'] ?? 0)) <=> ((int) ($a['rev_no'] ?? 0))
+                ?: ((int) ($b['request_id'] ?? 0)) <=> ((int) ($a['request_id'] ?? 0)));
+            $tip = $stack[0];
+            foreach ($stack as &$member) {
+                $isTip = (int) ($member['request_id'] ?? 0) === (int) ($tip['request_id'] ?? 0);
+                if ($isTip && empty($member['is_deleted'])) {
+                    $member['status'] = 'Latest';
+                } elseif (!$isTip && empty($member['is_deleted'])) {
+                    $member['status'] = 'Obsolete';
+                }
+            }
+            unset($member);
+
+            $g['parent'] = $tip;
+            $g['doc_no'] = $tip['doc_no'] ?? ($g['doc_no'] ?? 'N/A');
+            $g['children'] = array_values(array_filter(
+                $stack,
+                fn ($r) => (int) ($r['request_id'] ?? 0) !== (int) ($tip['request_id'] ?? 0)
+            ));
+            $g['has_revisions'] = ! empty($g['children']);
+            $g['revision_count'] = 1 + count($g['children']);
+            $g['obsolete_count'] = count($g['children']);
             $merged->push($g);
         }
 
         return $merged->values();
-    }
-
-    /** @return list<string> Distinct prior doc nos linked from any row in this group. */
-    private function lineageFromNosForGroup(array $g): array
-    {
-        $fromNos = [];
-        $ownNo = strtolower(trim((string) ($g['doc_no'] ?? '')));
-        $members = array_merge([$g['parent'] ?? []], $g['children'] ?? []);
-        foreach ($members as $row) {
-            $from = trim((string) ($row['revised_from_doc_no'] ?? ''));
-            if ($from === '') {
-                continue;
-            }
-            if ($ownNo !== '' && strcasecmp($from, (string) ($g['doc_no'] ?? '')) === 0) {
-                continue;
-            }
-            $fromNos[strtolower($from)] = $from;
-        }
-
-        return array_values($fromNos);
     }
 
     private function renumberGroupKey(mixed $docNo, mixed $docTypeId, mixed $subTypeId): string

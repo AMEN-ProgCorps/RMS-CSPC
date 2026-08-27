@@ -181,6 +181,9 @@
       if (msgId && chatBox.querySelector(`.message-container[data-msg-id="${msgId}"]`)) {
         return; // Already rendered
       }
+      if (typeof dmMessageCache !== 'undefined' && activeDM) {
+        dmMessageCache.delete(activeDM);
+      }
 
       const emptyNotice = chatBox.querySelector('.empty-chat');
       if (emptyNotice) emptyNotice.remove();
@@ -264,15 +267,15 @@
 
       const atBottomNow = isAtBottom();
 
-      // Cap the DOM at PAGE_SIZE (50) visible messages so real-time
+      // Cap the DOM at MAX_WINDOW visible messages so real-time
       // WebSocket pushes never grow the chat window without bound.
       // Only trim while actively viewing the live/latest window —
       // never while the user has paged back into older history.
       const viewingOlderNow = isGlobalChat ? gcViewingOlder : dmViewingOlder;
       if (!viewingOlderNow) {
-        const trimmed = trimChatMessages(PAGE_SIZE);
+        const trimmed = trimChatMessages(MAX_WINDOW);
         // If we just removed messages from the top, update the pagination
-        // cursor so "Load Older" can re-fetch the trimmed messages.
+        // cursor so the auto-backread can re-fetch the trimmed messages.
         if (trimmed) refreshCursorAfterTopTrim();
       }
 
@@ -282,6 +285,7 @@
       } else {
         showScrollIndicator(1);
       }
+      updateSeenIndicator();
     }
 
     // Admin spy-mode equivalent of renderAndAppendWsMessage() above. Text
@@ -374,10 +378,10 @@
 
       const atBottomNow = isAtBottom();
 
-      // Same PAGE_SIZE cap as DM/Global Chat — only trim while looking at the
+      // Same MAX_WINDOW cap as DM/Global Chat — only trim while looking at the
       // live/latest window, never while paged back into older history.
       if (!adminConvViewingOlder) {
-        const trimmed = trimChatMessages(PAGE_SIZE);
+        const trimmed = trimChatMessages(MAX_WINDOW);
         if (trimmed) refreshCursorAfterTopTrim();
       }
 
@@ -445,7 +449,8 @@
         } else if (data.type === 'message') {
           console.log('Received WebSocket real-time update notice:', data);
           // Deduplication: if message is already rendered in chatBox, skip fetching!
-          if (data.msg_uuid && chatBox.querySelector(`.message-container[data-msg-id="${data.msg_uuid}"]`)) {
+          const targetMsgId = data.msg_uuid || data.id;
+          if (targetMsgId && chatBox.querySelector(`.message-container[data-msg-id="${targetMsgId}"]`)) {
             return;
           }
           if (data.chat_type === 'global') {
@@ -458,6 +463,14 @@
               }
             }
           } else if (data.chat_type === 'private') {
+            if (typeof dmMessageCache !== 'undefined') {
+              const sAccId = Number(data.sender_id);
+              const rAccId = Number(data.recipient_id);
+              const sUserObj = allUsersData.find(u => Number(u.account_id) === sAccId);
+              const rUserObj = allUsersData.find(u => Number(u.account_id) === rAccId);
+              if (sUserObj && sUserObj.username) dmMessageCache.delete(sUserObj.username);
+              if (rUserObj && rUserObj.username) dmMessageCache.delete(rUserObj.username);
+            }
             if (activeAdminConv) {
               const parts = activeAdminConv.split('_').map(Number);
               const s = Number(data.sender_id);
@@ -484,14 +497,7 @@
                 if (sender !== wsConfig.accountId) {
                   // Incoming message from the other person — render it via WS
                   if (data.has_upload) {
-                    // loadChatForced() is an async network round-trip — the
-                    // image/file HTML isn't actually in the DOM yet when we
-                    // get here. loadChat()'s own completion handler (processChatData)
-                    // calls markRead(activeDM) once the fetched HTML (with the real
-                    // attachment) has been rendered, AND — same as the text path
-                    // below — only does so if `!document.hidden`, so the attachment
-                    // is never flagged "Seen" unless the recipient is genuinely
-                    // looking at the chat. Skip calling markRead again here.
+                    if (typeof dmMessageCache !== 'undefined' && activeDM) dmMessageCache.delete(activeDM);
                     loadChatForced();
                   } else {
                     renderAndAppendWsMessage(data);
@@ -926,6 +932,10 @@
         userSearchHasMore = !!data.hasMore;
         serverIsAdmin = !!(data.currentUser && data.currentUser.is_admin);
       }
+      if (activeDM) {
+        const activeUser = (allUsersData || []).find(u => u.username === activeDM);
+        if (activeUser) activeUser.unreadCount = 0;
+      }
       renderSidebarUsers();
 
       // Note: we no longer warm dmMessageCache here. selectDM/performSelectDM
@@ -1020,8 +1030,11 @@
     // purely a "paint something correct immediately" optimization, not a
     // replacement for the real fetch. Capped and LRU-evicted (Map preserves
     // insertion order) so a long session doesn't grow this unbounded.
-    const dmMessageCache = new Map(); // username -> {html, hasMore, nextCursor, readUpTo}
+    const dmMessageCache = new Map(); // username -> {html, hasMore, nextCursor, readUpTo, _raw}
     const DM_CACHE_LIMIT = 30;
+    const dmPrefetchInFlight = new Set(); // username set for active prefetch requests
+    const dmPrefetchPromises = new Map(); // username -> Promise
+    window.dmPrefetchPromises = dmPrefetchPromises;
 
     function cacheDmSnapshot(username, data) {
       if (!username) return;
@@ -1031,10 +1044,47 @@
         hasMore: data.hasMore || false,
         nextCursor: data.nextCursor || '',
         readUpTo: (typeof data.readUpTo !== 'undefined') ? data.readUpTo : null,
+        _raw: data
       });
       if (dmMessageCache.size > DM_CACHE_LIMIT) {
         const oldestKey = dmMessageCache.keys().next().value;
         dmMessageCache.delete(oldestKey);
+      }
+    }
+
+    function speculateConversationCard(user, cardElement) {
+      if (!user || !user.username) return;
+      if (cardElement && cardElement.dataset.preloaded === 'true') return;
+      if (dmMessageCache.has(user.username) || dmPrefetchInFlight.has(user.username) || dmPrefetchPromises.has(user.username)) {
+        if (cardElement) cardElement.dataset.preloaded = 'true';
+        return;
+      }
+      if (cardElement) cardElement.dataset.preloaded = 'true';
+
+      prefetchDmSnapshot(user);
+
+      // Register Speculation Rules API rule dynamically for Chrome's speculative engine
+      if (typeof HTMLScriptElement !== 'undefined' && HTMLScriptElement.supports && HTMLScriptElement.supports('speculationrules')) {
+        const url = 'load_dm.php?target_id=' + encodeURIComponent(user.account_id || 0) +
+                    '&target_user=' + encodeURIComponent(user.username) + '&before_uuid=&limit=' + INITIAL_LOAD;
+        const ruleId = 'speculation-rule-conv-' + String(user.username).replace(/[^a-zA-Z0-9_-]/g, '');
+        if (!document.getElementById(ruleId)) {
+          try {
+            const ruleScript = document.createElement('script');
+            ruleScript.id = ruleId;
+            ruleScript.type = 'speculationrules';
+            ruleScript.textContent = JSON.stringify({
+              "prefetch": [
+                {
+                  "source": "list",
+                  "urls": [url],
+                  "eagerness": "immediate"
+                }
+              ]
+            });
+            document.head.appendChild(ruleScript);
+          } catch (e) {}
+        }
       }
     }
 
@@ -1044,22 +1094,35 @@
     // itself (selectDM) can paint from cache immediately instead of only
     // benefiting revisits.
     function prefetchDmSnapshot(user) {
-      return new Promise(function(resolve) {
-        if (!user || !user.username || dmMessageCache.has(user.username)) { resolve(); return; }
+      if (!user || !user.username) return Promise.resolve(null);
+      if (dmMessageCache.has(user.username)) return Promise.resolve(dmMessageCache.get(user.username));
+      if (dmPrefetchPromises.has(user.username)) return dmPrefetchPromises.get(user.username);
+
+      dmPrefetchInFlight.add(user.username);
+      const promise = new Promise(function(resolve) {
         const xhr = new XMLHttpRequest();
         const url = 'load_dm.php?target_id=' + encodeURIComponent(user.account_id || 0) +
-                    '&target_user=' + encodeURIComponent(user.username) + '&before_uuid=';
+                    '&target_user=' + encodeURIComponent(user.username) + '&before_uuid=&limit=' + INITIAL_LOAD;
         xhr.open('GET', url, true);
         xhr.onload = function() {
+          dmPrefetchInFlight.delete(user.username);
+          dmPrefetchPromises.delete(user.username);
           if (this.status === 200) {
             try { cacheDmSnapshot(user.username, JSON.parse(this.responseText)); }
             catch (e) { /* ignore malformed response */ }
           }
-          resolve();
+          resolve(dmMessageCache.get(user.username) || null);
         };
-        xhr.onerror = function() { resolve(); };
+        xhr.onerror = function() {
+          dmPrefetchInFlight.delete(user.username);
+          dmPrefetchPromises.delete(user.username);
+          resolve(null);
+        };
         xhr.send();
       });
+
+      dmPrefetchPromises.set(user.username, promise);
+      return promise;
     }
 
     // Warms the cache for the most recent conversations right after the
@@ -1067,20 +1130,11 @@
     // doesn't compete with the live WS connection or an in-flight send).
     // This is what makes even a FIRST click on a recent conversation feel
     // instant, not just revisits within the session.
-    const PREFETCH_LIMIT = 8;
-    let prefetchInFlight = false;
+    // Preloading is strictly demand-driven: triggered ONLY when hovering (mouseenter)
+    // or touching (pointerdown) a sidebar conversation card.
     function prefetchTopConversations() {
-      if (prefetchInFlight) return;
-      const candidates = (allUsersData || [])
-        .filter(function(u) { return u.username !== activeDM && !dmMessageCache.has(u.username); })
-        .slice(0, PREFETCH_LIMIT);
-      if (candidates.length === 0) return;
-      prefetchInFlight = true;
-      let i = 0;
-      (function next() {
-        if (i >= candidates.length) { prefetchInFlight = false; return; }
-        prefetchDmSnapshot(candidates[i++]).then(next);
-      })();
+      // Intentionally no-op: preloading happens on card hover
+      return;
     }
 
     // Patches one sidebar row in-place (unread badge, move-to-top ordering)
@@ -1094,7 +1148,9 @@
       if (idx === -1) return false;
 
       const u = allUsersData[idx];
-      if (opts.incrementUnread && activeDM !== username) {
+      if (username === activeDM) {
+        u.unreadCount = 0;
+      } else if (opts.incrementUnread) {
         u.unreadCount = (u.unreadCount || 0) + 1;
       }
       if (idx > 0) {
@@ -1108,8 +1164,19 @@
     function renderSidebarUsers() {
       const query = searchInput ? searchInput.value.toLowerCase().trim() : '';
 
+      if (activeDM || activeDMAccountId) {
+        const activeUser = (allUsersData || []).find(u =>
+          (activeDMAccountId && Number(u.account_id) === Number(activeDMAccountId)) ||
+          (activeDM && u.username === activeDM)
+        );
+        if (activeUser) activeUser.unreadCount = 0;
+      }
+
       if (query === '') {
-        latestTotalUnread = (allUsersData || []).reduce((sum, u) => sum + (u.unreadCount || 0), 0);
+        latestTotalUnread = (allUsersData || []).reduce((sum, u) => {
+          const isAct = (activeDMAccountId && Number(u.account_id) === Number(activeDMAccountId)) || (activeDM && u.username === activeDM);
+          return sum + (isAct ? 0 : (u.unreadCount || 0));
+        }, 0);
         updateTabTitle(latestTotalUnread);
 
         if (!allUsersData || allUsersData.length === 0) {
@@ -1134,7 +1201,9 @@
       const seen = new Set();
 
       allUsersData.forEach((u, index) => {
-        const hasUnread = u.unreadCount > 0 && activeDM !== u.username;
+        const isThisActive = (activeDMAccountId && Number(u.account_id) === Number(activeDMAccountId)) || (activeDM && u.username === activeDM);
+        if (isThisActive) u.unreadCount = 0;
+        const hasUnread = u.unreadCount > 0 && !isThisActive;
         seen.add(u.username);
 
         let item = sidebarUserItems.get(u.username);
@@ -1172,6 +1241,8 @@
           item.appendChild(actionsRight);
 
           item.onclick = () => selectDM(u);
+          item.onmouseenter = () => speculateConversationCard(u, item);
+          item.onpointerdown = () => speculateConversationCard(u, item);
           item._avatar = avatar;
           item._dot = dot;
           item._info = info;
@@ -1190,6 +1261,8 @@
           officeEl = item._officeEl || item.querySelector('.user-office');
           actionsRight = item._actionsRight || item.querySelector('.user-actions-right');
           item.onclick = () => selectDM(u);
+          item.onmouseenter = () => speculateConversationCard(u, item);
+          item.onpointerdown = () => speculateConversationCard(u, item);
         }
 
         const newClassName = 'user-item' + (activeDM === u.username ? ' active' : '') + (hasUnread ? ' has-unread' : '');
@@ -1905,37 +1978,48 @@
       }
     });
 
+    let markReadHttpDebounceTimer = null;
+
     function markRead(targetUsername) {
-      // Immediately zero out in local data so badge disappears instantly
-      const u = allUsersData.find(u => u.username === targetUsername);
+      if (!targetUsername) return;
+      const u = allUsersData.find(x => x.username === targetUsername || (activeDMAccountId && Number(x.account_id) === activeDMAccountId));
       if (u) u.unreadCount = 0;
+      if (activeDM === targetUsername || (activeDMAccountId && u && Number(u.account_id) === activeDMAccountId)) {
+        const activeU = allUsersData.find(x => x.username === activeDM || (activeDMAccountId && Number(x.account_id) === activeDMAccountId));
+        if (activeU) activeU.unreadCount = 0;
+      }
       renderSidebarUsers();
 
-      const targetId = activeDMAccountId || 0;
+      const targetId = activeDMAccountId || (u ? Number(u.account_id) : 0);
+      if (!targetId) return;
 
-      // Fast path: relay over the already-open WebSocket, same as typing
-      // indicators — no new HTTP connection, no debounce, delivered to the
-      // other participant's live socket the instant this fires. Deliberately
-      // sends no last_msg_uuid: trying to compute one here from our own
-      // chatBox is unreliable (e.g. right when a new message just arrived
-      // via WS it hasn't been rendered into the DOM yet, and right after
-      // selectDM() the previous conversation's messages are still on
-      // screen). The receiving side fills in the correct id from its own
-      // chatBox instead — see the 'message_read' handler below.
-      if (ws && ws.readyState === WebSocket.OPEN && targetId) {
-        ws.send(JSON.stringify({ type: 'mark_read', target_id: targetId }));
+      // Resolve newest message ID currently present in chatBox
+      let newestMsgId = null;
+      if (chatBox) {
+        chatBox.querySelectorAll('.message-container[data-msg-id]').forEach(el => {
+          const id = el.getAttribute('data-msg-id');
+          if (id && (!newestMsgId || id > newestMsgId)) newestMsgId = id;
+        });
       }
 
-      // Durable path: persist to Postgres via HTTP so the correct read
-      // marker survives reloads / other tabs / the WS relay above being
-      // missed during a brief reconnect gap. This also re-broadcasts
-      // 'message_read' with the DB-confirmed last_msg_uuid shortly after,
-      // which harmlessly reconciles the indicator if the optimistic
-      // WS-only value above ever guessed wrong.
-      const xhr = new XMLHttpRequest();
-      xhr.open('POST', 'mark_read.php', true);
-      xhr.setRequestHeader('Content-type', 'application/x-www-form-urlencoded');
-      xhr.send('target_id=' + encodeURIComponent(targetId) + '&target_user=' + encodeURIComponent(targetUsername));
+      // Real-time WebSocket relay: ALWAYS fire immediately with last_msg_uuid
+      if (ws && ws.readyState === WebSocket.OPEN && targetId) {
+        ws.send(JSON.stringify({
+          type: 'mark_read',
+          target_id: targetId,
+          last_msg_uuid: newestMsgId || null
+        }));
+      }
+
+      // Durable path: persist to Postgres via HTTP (debounced to avoid HTTP floods)
+      if (markReadHttpDebounceTimer) clearTimeout(markReadHttpDebounceTimer);
+      markReadHttpDebounceTimer = setTimeout(() => {
+        markReadHttpDebounceTimer = null;
+        const xhr = new XMLHttpRequest();
+        xhr.open('POST', 'mark_read.php', true);
+        xhr.setRequestHeader('Content-type', 'application/x-www-form-urlencoded');
+        xhr.send('target_id=' + encodeURIComponent(targetId) + '&target_user=' + encodeURIComponent(targetUsername));
+      }, 150);
     }
 
     // Messenger-style "Seen" indicator: shown under the newest message WE sent
@@ -1970,11 +2054,21 @@
 
     // State for global chat
     let isGlobalChat = false;
-    // How many messages are fetched per page AND how many are kept on screen at
-    // once. Loading an older page swaps the window rather than growing it
-    // indefinitely — the newest messages get trimmed off the bottom to make
-    // room, and clicking "Go to bottom" snaps back to the latest PAGE_SIZE.
-    const PAGE_SIZE = 50;
+    // ── Infinite-scroll window constants ─────────────────────────────────────
+    // INITIAL_LOAD  — messages fetched when first opening a conversation.
+    // BACKREAD_BATCH — messages fetched per auto-triggered scroll-up fetch.
+    // MAX_WINDOW    — maximum messages kept in the DOM at once. When the user
+    //                 keeps scrolling up, older pages are prepended and the
+    //                 same count is trimmed from the bottom so the DOM never
+    //                 grows past this cap.  "Go to bottom" always snaps back
+    //                 to a fresh INITIAL_LOAD-sized window.
+    const INITIAL_LOAD   = 100;
+    const BACKREAD_BATCH = 50;
+    const MAX_WINDOW     = 300;  // ~100 initial + 4 backreads; safe for mid-range Android
+    // Legacy alias — kept so every existing trimWindowFromTop/Bottom call site
+    // that still references PAGE_SIZE continues to compile without changes.
+    // New code should prefer the explicit constants above.
+    const PAGE_SIZE = BACKREAD_BATCH;
     let gcCursor = '';
     let gcHasMore = false;
     let gcViewingOlder = false; // true once the user has loaded an older window
@@ -2007,6 +2101,7 @@
       activeDM = u.username;
       activeDMAccountId = Number(u.account_id);
       activeAdminConv = null;
+      u.unreadCount = 0;
       if (!allUsersData.find(function(x) { return Number(x.account_id) === Number(u.account_id); })) {
         allUsersData.unshift(u);
       }
@@ -2028,6 +2123,7 @@
       activeDM = u.username;
       activeDMAccountId = Number(u.account_id);
       activeAdminConv = null;
+      u.unreadCount = 0;
 
       // Ensure the selected user is in allUsersData so avatar lookups work
       // immediately on new chats where this person hasn't been loaded yet.
@@ -2065,6 +2161,7 @@
       // visibly jump when switching conversations quickly.
       chatBox.innerHTML = '';
       removePaginationBtn();
+      hideScrollIndicator();
 
       dmCursor = '';
       dmHasMore = false;
@@ -2106,6 +2203,7 @@
       hideEditBanner();
       isFirstLoad = true;
       chatFullyLoaded = false; // suppress scroll buttons until global chat finishes loading
+      hideScrollIndicator();
       // Reset local typing indicator state
       if (localTypingTimeout) {
         clearTimeout(localTypingTimeout);
@@ -2225,20 +2323,18 @@
       }
     }
 
-    // Keeps the chat window capped at maxCount messages by trimming the
-    // trailing (newest/bottom) ones — used right after prepending an older
-    // page so loading history swaps the window instead of growing it forever.
-    // Stops watching every <img> inside `el` for scroll-anchor resize
-    // compensation (see attachImageLoadListeners() in app-part3.js) before
-    // it's removed from the DOM — otherwise the ResizeObserver keeps a
-    // strong reference to detached image nodes forever, a slow memory leak
-    // over a long session of repeated backreads.
     function unobserveImagesIn(el) {
       if (typeof scrollAnchorObserver === 'undefined' || !scrollAnchorObserver || !el || !el.querySelectorAll) return;
       el.querySelectorAll('img').forEach(img => scrollAnchorObserver.unobserve(img));
     }
 
+    // Keeps the chat window capped at maxCount messages by trimming the
+    // trailing (newest/bottom) ones — used right after prepending an older
+    // page so loading history swaps the window instead of growing it forever.
     function trimWindowFromBottom(maxCount) {
+      if (!chatBox) return;
+      // Fast-path: childElementCount is O(1) — skip expensive querySelectorAll
+      if (chatBox.childElementCount <= maxCount) return;
       const items = Array.from(chatBox.querySelectorAll('.message-container, .empty-chat'));
       if (items.length <= maxCount) return;
       const excess = items.length - maxCount;
@@ -2251,9 +2347,11 @@
     // Keeps the chat window capped at maxCount messages by trimming the
     // leading (oldest/top) ones — used during normal poll / initial load
     // so the message list doesn't grow forever.
-    // Returns true if any messages were actually removed (so callers can
-    // decide whether to refresh the pagination cursor).
+    // Returns true if any messages were actually removed.
     function trimWindowFromTop(maxCount) {
+      if (!chatBox) return false;
+      // Fast-path: childElementCount is O(1).
+      if (chatBox.childElementCount <= maxCount) return false;
       const items = Array.from(chatBox.querySelectorAll('.message-container, .empty-chat'));
       if (items.length <= maxCount) return false;
       const excess = items.length - maxCount;
@@ -2268,22 +2366,10 @@
     // `.message-container` nodes in chatBox at `maxMessages`, always
     // dropping the OLDEST ones from the top first so the newest message
     // (the one that was just appended) stays visible.
-    //
-    // Call this right after appending a message that arrived via:
-    //   • auto-poll (since_uuid) updates
-    //   • WebSocket real-time pushes
-    //   • locally sent ("optimistic") messages
-    //
-    // Do NOT call this for "Load Older" / prepending historical messages
-    // or the initial conversation load — those flows intentionally grow
-    // the window from the opposite end (see trimWindowFromBottom).
-    //
-    // Scroll position is preserved: removing nodes from the top shrinks
-    // scrollHeight, so scrollTop is shifted by the exact delta, keeping
-    // whatever the user was looking at visually stable (no jump).
-    // Returns true if any messages were actually removed.
-    function trimChatMessages(maxMessages = 50) {
+    function trimChatMessages(maxMessages = MAX_WINDOW) {
       if (!chatBox) return false;
+      // Fast-path: childElementCount is O(1).
+      if (chatBox.childElementCount <= maxMessages) return false;
       const items = Array.from(chatBox.querySelectorAll('.message-container'));
       const excess = items.length - maxMessages;
       if (excess <= 0) return false;
@@ -2715,7 +2801,9 @@
 
             const avatar = document.createElement('div');
             avatar.className = 'user-avatar';
-            avatar.style.background = 'linear-gradient(135deg, #1b74e4, #00c3ff)';
+            if (!u.avatar_url) {
+              avatar.style.background = 'linear-gradient(135deg, #1b74e4, #00c3ff)';
+            }
             avatar.innerHTML = avatarInnerHtml(u.avatar_url, getInitialsFromFullName(u.full_name));
 
             const info = document.createElement('div');
@@ -2743,6 +2831,8 @@
           }
 
           item.onclick = () => selectAdminSpyTargetUser(u);
+          item.onmouseenter = () => speculateConversationCard(u, item);
+          item.onpointerdown = () => speculateConversationCard(u, item);
 
           if (nameEl.textContent !== u.full_name) nameEl.textContent = u.full_name;
 
@@ -2902,8 +2992,11 @@
 
       const wasAtBottom = isAtBottom();
       const requestedConv = activeAdminConv;
-      const cursor = loadOlderMode ? adminConvCursor : '';
-      const url = 'load_dm_admin.php?conv_id=' + encodeURIComponent(convId) + '&before_uuid=' + encodeURIComponent(cursor);
+      const cursor     = loadOlderMode ? adminConvCursor : '';
+      const limitParam = loadOlderMode ? BACKREAD_BATCH : INITIAL_LOAD;
+      const url = 'load_dm_admin.php?conv_id=' + encodeURIComponent(convId)
+                + '&before_uuid=' + encodeURIComponent(cursor)
+                + '&limit=' + limitParam;
 
       const xhr = new XMLHttpRequest();
       adminConvXhr = xhr;
@@ -2925,6 +3018,8 @@
         adminConvHasMore = data.hasMore || false;
         
         if (loadOlderMode) {
+          shouldAutoScroll = false;
+          userScrolledUp = true;
           adminConvCursor = data.nextCursor || '';
           adminConvViewingOlder = true;
           const prev = chatBox.scrollHeight;
@@ -2938,7 +3033,7 @@
             else chatBox.insertBefore(el, firstChild);
           });
           chatBox.scrollTop += chatBox.scrollHeight - prev;
-          trimWindowFromBottom(PAGE_SIZE);
+          trimWindowFromBottom(MAX_WINDOW);
           if (!adminConvHasMore) showNoMoreOlderNotice(); else if (!document.getElementById('loadOlderBtn')) insertLoadOlderBtn();
           applyAdminBadges();
           applyEmojiOnly();
@@ -2986,10 +3081,10 @@
           const newScrollHeight = chatBox.scrollHeight;
           chatBox.scrollTop = Math.max(0, prevScrollTop + newScrollHeight - prevScrollHeight);
           if (!adminConvViewingOlder) {
-            if (trimWindowFromTop(PAGE_SIZE)) refreshCursorAfterTopTrim();
+            if (trimWindowFromTop(MAX_WINDOW)) refreshCursorAfterTopTrim();
           }
           if (isFirstLoad) { isFirstLoad = false; handleFirstLoadScroll(); }
-          else if (wasAtBottom || shouldAutoScroll) requestAnimationFrame(() => requestAnimationFrame(() => scrollToBottom(true, false)));
+          else if (!adminConvViewingOlder && wasAtBottom) requestAnimationFrame(() => requestAnimationFrame(() => scrollToBottom(true, false)));
           else showScrollIndicator(rec.items.filter(el => el.classList.contains('message-container')).length);
           applyAdminBadges();
           applyEmojiOnly();
@@ -3021,7 +3116,7 @@
 
         chatBox.scrollTop = Math.max(0, prevSTF + chatBox.scrollHeight - prevSHF);
         const mc = chatBox.querySelectorAll('.message-container').length;
-        if (mc > 0 && (wasAtBottom || shouldAutoScroll || isFirstLoad)) {
+        if (mc > 0 && !adminConvViewingOlder && (wasAtBottom || isFirstLoad)) {
           const doInstant = isFirstLoad;
           isFirstLoad = false;
           if (doInstant) handleFirstLoadScroll();
@@ -3109,6 +3204,23 @@
     });
 
     function resetToHome() {
+      if (activeDM) {
+        const currentActive = activeDM;
+        const currentActiveId = activeDMAccountId;
+        const u = allUsersData.find(x => x.username === currentActive || (currentActiveId && Number(x.account_id) === currentActiveId));
+        if (u) u.unreadCount = 0;
+
+        if (currentActiveId) {
+          if (ws && ws.readyState === WebSocket.OPEN) {
+            ws.send(JSON.stringify({ type: 'mark_read', target_id: currentActiveId }));
+          }
+          const xhr = new XMLHttpRequest();
+          xhr.open('POST', 'mark_read.php', true);
+          xhr.setRequestHeader('Content-type', 'application/x-www-form-urlencoded');
+          xhr.send('target_id=' + encodeURIComponent(currentActiveId) + '&target_user=' + encodeURIComponent(currentActive));
+        }
+      }
+
       activeDM = null;
       activeDMAccountId = null;
       activeAdminConv = null;

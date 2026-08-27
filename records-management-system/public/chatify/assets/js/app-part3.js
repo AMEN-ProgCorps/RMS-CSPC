@@ -425,6 +425,8 @@
     function handleFirstLoadScroll() {
       const activeKey = isGlobalChat ? '__global__' : (activeDM || (activeAdminConv ? '__admin__' + activeAdminConv : null));
       let restored = false;
+      let wasRestoredAtBottom = false;
+
       if (activeKey) {
         const savedScrollTop = sessionStorage.getItem('chatScroll_' + activeKey);
         const savedScrollHeight = sessionStorage.getItem('chatScrollHeight_' + activeKey);
@@ -433,6 +435,7 @@
         if (savedAtBottom === 'true') {
           scrollToBottom(true, true);
           restored = true;
+          wasRestoredAtBottom = true;
         } else if (savedScrollTop !== null && savedScrollHeight !== null) {
           const scrollTop = parseFloat(savedScrollTop);
           const scrollHeight = parseFloat(savedScrollHeight);
@@ -443,15 +446,18 @@
       }
       if (!restored) {
         scrollToBottom(true, true);
+        wasRestoredAtBottom = true;
       }
-      // Mark chat as fully loaded so scroll buttons are now allowed to show.
+
+      hideScrollIndicator();
       chatFullyLoaded = true;
-      if (!isAtBottom()) {
-        showScrollIndicator(0);
+
+      if (!wasRestoredAtBottom) {
+        const distance = chatBox.scrollHeight - chatBox.scrollTop - chatBox.clientHeight;
+        if (distance > 250) {
+          showScrollIndicator(0);
+        }
       }
-      // If the restored scroll position (or a very short chat) already
-      // lands the user near the top, kick off the auto-load check right
-      // away instead of waiting for a scroll event that may never fire.
       maybeAutoLoadOlderMessages();
     }
 
@@ -473,7 +479,7 @@
       // showScrollIndicator() is only ever called by callers that already
       // know the user isn't at the bottom (new message arrived while
       // scrolled up, or the main scroll listener detected !atBottom —
-      // which covers scrolling up past the loaded PAGE_SIZE window into
+      // which covers scrolling up past the loaded INITIAL_LOAD window into
       // older history too). So as long as the chat has finished its
       // initial load, the button should show — it used to be gated on
       // "scrollTop <= 5" (literally the very top) which meant scrolling
@@ -911,12 +917,16 @@
       } else {
         shouldAutoScroll = false;
         userScrolledUp = true;
-        // Only show scroll buttons after the initial load is done so they
-        // don't flash up while messages are still being fetched/rendered.
+        // Only show scroll button when initial load is done AND user has scrolled up > 250px away from bottom
         if (chatFullyLoaded) {
-          const hasMessages = chatBox.querySelectorAll('.message-container').length > 0;
-          if (hasMessages) {
-            showScrollIndicator(0);
+          const distance = chatBox.scrollHeight - chatBox.scrollTop - chatBox.clientHeight;
+          if (distance > 250) {
+            const hasMessages = chatBox.querySelectorAll('.message-container').length > 0;
+            if (hasMessages) {
+              showScrollIndicator(0);
+            }
+          } else if (distance <= 100) {
+            hideScrollIndicator();
           }
         }
       }
@@ -1113,7 +1123,7 @@
       userScrolledUp = false;
 
       // If the user has loaded an older window, "Go to bottom" snaps back to
-      // the latest PAGE_SIZE messages instead of just scrolling within the
+      // the latest INITIAL_LOAD messages instead of just scrolling within the
       // (now stale) older batch that's on screen.
       if (isGlobalChat && gcViewingOlder) {
         gcViewingOlder = false;
@@ -1155,7 +1165,7 @@
     // ── Auto-load older messages on backread (replaces the old floating
     // "Load Older Messages" button) ─────────────────────────────────────
     // Once the user scrolls up near the top of the currently loaded window,
-    // the next PAGE_SIZE (or whatever's left) is fetched and prepended
+    // the next BACKREAD_BATCH (or whatever's left) is fetched and prepended
     // automatically — no button, no tap required.
     //
     // Perf notes:
@@ -1170,7 +1180,7 @@
     //     fetch for this chat is already in flight, or there's nothing left
     //     to load — so the common case (scrolling anywhere but the very top)
     //     costs almost nothing.
-    const AUTO_LOAD_OLDER_THRESHOLD_PX = 120;
+    const AUTO_LOAD_OLDER_THRESHOLD_PX = 200;
     let autoLoadOlderTicking = false;
 
     function currentChatHasOlderMessages() {
@@ -1352,6 +1362,8 @@
       gcHasMore        = data.hasMore || false;
 
       if (loadOlderMode) {
+        shouldAutoScroll = false;
+        userScrolledUp = true;
         gcCursor = data.nextCursor || '';
         gcViewingOlder = true;
         // Prepend older messages
@@ -1368,8 +1380,8 @@
         // Maintain scroll position
         chatBox.scrollTop += chatBox.scrollHeight - prev;
         // Swap the window: drop the newest messages off the bottom so the
-        // total on screen stays capped at PAGE_SIZE instead of growing forever.
-        trimWindowFromBottom(PAGE_SIZE);
+        // total on screen stays capped at MAX_WINDOW instead of growing forever.
+        trimWindowFromBottom(MAX_WINDOW);
         if (!gcHasMore) showNoMoreOlderNotice(); else if (!document.getElementById('loadOlderBtn')) insertLoadOlderBtn();
         applyAdminBadges();
         applyEmojiOnly();
@@ -1410,7 +1422,7 @@
         if (toInsert.length === 0) {
           document.querySelectorAll('[data-sending-uid]').forEach(el => el.remove());
           if (!gcViewingOlder) {
-            if (trimWindowFromTop(PAGE_SIZE)) refreshCursorAfterTopTrim();
+            if (trimWindowFromTop(MAX_WINDOW)) refreshCursorAfterTopTrim();
           }
           applyAdminBadges(); applyEmojiOnly();
           if (gcHasMore && !document.getElementById('loadOlderBtn') && !document.getElementById('noMoreOlderNotice')) insertLoadOlderBtn();
@@ -1429,7 +1441,7 @@
         });
         document.querySelectorAll('[data-sending-uid]').forEach(el => el.remove());
         if (!gcViewingOlder) {
-          if (trimWindowFromTop(PAGE_SIZE)) refreshCursorAfterTopTrim();
+          if (trimWindowFromTop(MAX_WINDOW)) refreshCursorAfterTopTrim();
         }
 
         let revealedCount = 0;
@@ -1447,7 +1459,7 @@
             }
             if (revealedCount === toInsert.length) {
               if (isFirstLoad) { isFirstLoad = false; handleFirstLoadScroll(); }
-              else if (wasAtBottom || shouldAutoScroll) requestAnimationFrame(() => requestAnimationFrame(() => scrollToBottom(true, false)));
+              else if (!gcViewingOlder && wasAtBottom) requestAnimationFrame(() => requestAnimationFrame(() => scrollToBottom(true, false)));
               else showScrollIndicator(toInsert.filter(el => el.classList.contains('message-container')).length);
               applyAdminBadges(); applyEmojiOnly(); attachImageLoadListeners();
               if (gcHasMore && !document.getElementById('loadOlderBtn') && !document.getElementById('noMoreOlderNotice')) insertLoadOlderBtn();
@@ -1481,7 +1493,7 @@
       document.querySelectorAll('[data-sending-uid]').forEach(el => el.remove());
       chatBox.scrollTop = Math.max(0, prevST + chatBox.scrollHeight - prevSH);
       if (isFirstLoad) { isFirstLoad = false; handleFirstLoadScroll(); }
-      else if (wasAtBottom || shouldAutoScroll || isFirstLoad) requestAnimationFrame(() => requestAnimationFrame(() => scrollToBottom(true, false)));
+      else if (!gcViewingOlder && (wasAtBottom || isFirstLoad)) requestAnimationFrame(() => requestAnimationFrame(() => scrollToBottom(true, false)));
       else if (genuinelyNewCount > 0) showScrollIndicator(genuinelyNewCount);
       applyAdminBadges(); applyEmojiOnly(); attachImageLoadListeners();
       // Chat was rebuilt from scratch (e.g. cleared), so pagination state no longer applies
@@ -1490,16 +1502,93 @@
       if (gcHasMore && !document.getElementById('loadOlderBtn') && !document.getElementById('noMoreOlderNotice')) insertLoadOlderBtn();
     }
 
-    function loadGlobalChat(isAutoPoll = false, loadOlderMode = false) {
+    let globalChatPrefetchedData = null;
+    let gcPrefetchPromise = null;
+
+    function prefetchGlobalChatSnapshot() {
+      if (globalChatPrefetchedData) return Promise.resolve(globalChatPrefetchedData);
+      if (gcPrefetchPromise) return gcPrefetchPromise;
+
+      gcPrefetchPromise = new Promise(function(resolve) {
+        const xhr = new XMLHttpRequest();
+        xhr.open('GET', 'load.php?before_uuid=&limit=' + INITIAL_LOAD, true);
+        xhr.onload = function() {
+          if (this.status === 200) {
+            try { globalChatPrefetchedData = JSON.parse(this.responseText); } catch(e) {}
+          }
+          resolve(globalChatPrefetchedData);
+        };
+        xhr.onerror = function() {
+          resolve(null);
+        };
+        xhr.send();
+      });
+      return gcPrefetchPromise;
+    }
+
+    function speculateGlobalChatCard(cardElement) {
+      const el = cardElement || document.getElementById('globalChatItem');
+      if (el && el.dataset.preloaded === 'true') return;
+      if (globalChatPrefetchedData || gcPrefetchPromise) {
+        if (el) el.dataset.preloaded = 'true';
+        return;
+      }
+      if (el) el.dataset.preloaded = 'true';
+
+      prefetchGlobalChatSnapshot();
+
+      // Register Speculation Rules API rule dynamically for load.php
+      if (typeof HTMLScriptElement !== 'undefined' && HTMLScriptElement.supports && HTMLScriptElement.supports('speculationrules')) {
+        const url = 'load.php?before_uuid=';
+        const ruleId = 'speculation-rule-global-chat';
+        if (!document.getElementById(ruleId)) {
+          try {
+            const ruleScript = document.createElement('script');
+            ruleScript.id = ruleId;
+            ruleScript.type = 'speculationrules';
+            ruleScript.textContent = JSON.stringify({
+              "prefetch": [
+                {
+                  "source": "list",
+                  "urls": [url],
+                  "eagerness": "immediate"
+                }
+              ]
+            });
+            document.head.appendChild(ruleScript);
+          } catch (e) {}
+        }
+      }
+    }
+    window.speculateGlobalChatCard = speculateGlobalChatCard;
+
+    function loadGlobalChat(isAutoPoll = false, loadOlderMode = false, force = false) {
       if (!isGlobalChat) return;
-      if (isLoadingGC) return;
+      if (isLoadingGC && !force) return;
       if (isAutoPoll && !loadOlderMode && gcViewingOlder) return;
+
+      if (!loadOlderMode && !isAutoPoll) {
+        if (globalChatPrefetchedData) {
+          const data = globalChatPrefetchedData;
+          globalChatPrefetchedData = null;
+          processGlobalChatData(data, false);
+        } else if (gcPrefetchPromise) {
+          gcPrefetchPromise.then(function(data) {
+            if (data && isGlobalChat) {
+              processGlobalChatData(data, false);
+            }
+          });
+        }
+      }
+
       isLoadingGC = true;
 
-      const cursor = loadOlderMode ? gcCursor : '';
+      const cursor     = loadOlderMode ? gcCursor : '';
+      const limitParam = loadOlderMode ? BACKREAD_BATCH : INITIAL_LOAD;
 
       const xhr = new XMLHttpRequest();
-      xhr.open('GET', 'load.php?before_uuid=' + encodeURIComponent(cursor), true);
+      xhr.open('GET', 'load.php?before_uuid=' + encodeURIComponent(cursor)
+                    + '&limit=' + limitParam, true);
       xhr.onload = function() {
         isLoadingGC = false;
         if (this.status !== 200) return;
@@ -1521,8 +1610,14 @@
       if (typeof data.readUpTo !== 'undefined') dmReadUpTo = data.readUpTo;
 
       if (loadOlderMode) {
+        shouldAutoScroll = false;
+        userScrolledUp = true;
         dmCursor = data.nextCursor || '';
         dmViewingOlder = true;
+        // Remove the seen indicator before DOM mutations — it will be
+        // re-placed correctly when the next normal poll lands.
+        const existingSeen = chatBox.querySelector('.seen-indicator');
+        if (existingSeen) existingSeen.remove();
         const prev = chatBox.scrollHeight;
         const temp = document.createElement('div');
         temp.innerHTML = newHtml;
@@ -1534,11 +1629,16 @@
           else chatBox.insertBefore(el, firstChild);
         });
         chatBox.scrollTop += chatBox.scrollHeight - prev;
-        trimWindowFromBottom(PAGE_SIZE);
+        trimWindowFromBottom(MAX_WINDOW);
         if (!dmHasMore) showNoMoreOlderNotice(); else if (!document.getElementById('loadOlderBtn')) insertLoadOlderBtn();
         applyAdminBadges(); applyEmojiOnly();
         attachImageLoadListeners();
-        updateSeenIndicator();
+        // NOTE: updateSeenIndicator() intentionally NOT called here.
+        // In loadOlderMode the seen state (dmReadUpTo) is unchanged — the
+        // user is just scrolling back through history. Calling it after
+        // trimWindowFromBottom() would make the indicator jump to a
+        // mid-history sent message because the newest sent messages were
+        // just trimmed off the bottom of the DOM.
         return;
       }
 
@@ -1594,10 +1694,10 @@
         const newScrollHeight = chatBox.scrollHeight;
         chatBox.scrollTop = Math.max(0, prevScrollTop + newScrollHeight - prevScrollHeight);
         if (!dmViewingOlder) {
-          if (trimWindowFromTop(PAGE_SIZE)) refreshCursorAfterTopTrim();
+          if (trimWindowFromTop(MAX_WINDOW)) refreshCursorAfterTopTrim();
         }
         if (isFirstLoad) { isFirstLoad = false; handleFirstLoadScroll(); }
-        else if (wasAtBottom || shouldAutoScroll) requestAnimationFrame(() => requestAnimationFrame(() => scrollToBottom(true, false)));
+        else if (!dmViewingOlder && wasAtBottom) requestAnimationFrame(() => requestAnimationFrame(() => scrollToBottom(true, false)));
         else showScrollIndicator(rec.items.filter(el => el.classList.contains('message-container')).length);
         applyAdminBadges(); applyEmojiOnly(); attachImageLoadListeners();
         if (!document.hidden && activeDM) markRead(activeDM);
@@ -1628,7 +1728,7 @@
       
       chatBox.scrollTop = Math.max(0, prevSTF + chatBox.scrollHeight - prevSHF);
       const mc = chatBox.querySelectorAll('.message-container').length;
-      if (mc > 0 && (wasAtBottom || shouldAutoScroll || isFirstLoad)) {
+      if (mc > 0 && !dmViewingOlder && (wasAtBottom || isFirstLoad)) {
         const doInstant = isFirstLoad;
         isFirstLoad = false;
         if (doInstant) handleFirstLoadScroll();
@@ -1649,6 +1749,25 @@
       if (isAdminAllChatsView || activeAdminConv) return;
       if (!activeDM) return;
       if (isAutoPoll && !loadOlderMode && dmViewingOlder) return;
+
+      // Consume preloaded snapshot from hover cache if available on initial open for instant paint,
+      // but do NOT return early so we still perform background fetch from load_dm.php to reconcile new messages.
+      if (!loadOlderMode && !isAutoPoll) {
+        if (dmMessageCache.has(activeDM)) {
+          const cachedData = dmMessageCache.get(activeDM);
+          if (cachedData && cachedData._raw) {
+            processChatData(cachedData._raw, activeDM, false);
+          }
+        } else if (window.dmPrefetchPromises && window.dmPrefetchPromises.has(activeDM)) {
+          const requestedUser = activeDM;
+          window.dmPrefetchPromises.get(activeDM).then(function() {
+            if (requestedUser === activeDM && dmMessageCache.has(activeDM)) {
+              processChatData(dmMessageCache.get(activeDM)._raw, activeDM, false);
+            }
+          });
+        }
+      }
+
       if (isLoadingChat) {
         if (!force) return;
         if (chatXhr) chatXhr.abort();
@@ -1657,8 +1776,12 @@
       isLoadingChat = true;
 
       const requestedUser = activeDM;
-      const cursor = loadOlderMode ? dmCursor : '';
-      const url = 'load_dm.php?target_id=' + encodeURIComponent(activeDMAccountId || 0) + '&target_user=' + encodeURIComponent(activeDM) + '&before_uuid=' + encodeURIComponent(cursor);
+      const cursor     = loadOlderMode ? dmCursor : '';
+      const limitParam = loadOlderMode ? BACKREAD_BATCH : INITIAL_LOAD;
+      const url = 'load_dm.php?target_id=' + encodeURIComponent(activeDMAccountId || 0)
+                + '&target_user=' + encodeURIComponent(activeDM)
+                + '&before_uuid=' + encodeURIComponent(cursor)
+                + '&limit=' + limitParam;
 
       const xhr = new XMLHttpRequest();
       chatXhr = xhr;
@@ -1677,6 +1800,8 @@
     }
 
     function loadOlderMessages() {
+      shouldAutoScroll = false;
+      userScrolledUp = true;
       if (activeAdminConv || isAdminAllChatsView) {
         if (activeAdminConv) loadAdminConv(activeAdminConv, false, true);
       } else if (isGlobalChat) {
@@ -2332,6 +2457,11 @@
       // Fire the XHR immediately — no artificial delay. The "Sending..." bubble
       // animation above already gives instant visual feedback that the send
       // was registered, so re-enable send controls right after dispatching.
+      // Invalidate cache for active DM when sending a message so next load is fresh
+      if (typeof dmMessageCache !== 'undefined' && activeDM) {
+        dmMessageCache.delete(activeDM);
+      }
+
       try { xhr.send(payload); } catch (e) { /* ignore send errors here */ }
       isSending = false;
       sendButton.classList.remove('sending');
@@ -2453,15 +2583,16 @@
                   applyAdminBadges();
                   // The optimistic bubble just became a real, permanent
                   // .message-container inside chatBox — cap the window at
-                  // PAGE_SIZE just like any other real-time append.
+                  // MAX_WINDOW just like any other real-time append.
                   if (!gcViewingOlder && !dmViewingOlder) {
-                    const trimmed = trimChatMessages(PAGE_SIZE);
+                    const trimmed = trimChatMessages(MAX_WINDOW);
                     if (trimmed) refreshCursorAfterTopTrim();
                   }
                   // Always scroll for the user's own confirmed message — see note
                   // above the optimistic-bubble scroll for why isAtBottom() is
                   // unreliable while the virtual keyboard is open.
                   scrollToBottom(true, true);
+                  updateSeenIndicator();
                 }
               }
             }
@@ -3710,12 +3841,13 @@
 
     function attachImageLoadListeners() {
       if (!chatBox) return;
+      const viewingOlder = isGlobalChat ? gcViewingOlder : (activeAdminConv ? adminConvViewingOlder : dmViewingOlder);
       chatBox.querySelectorAll('img:not(.avatar-img)').forEach(img => {
         if (img.dataset.scrollListener) return;
         img.dataset.scrollListener = '1';
         if (scrollAnchorObserver) scrollAnchorObserver.observe(img);
         img.addEventListener('load', () => {
-          if (isAtBottom() || shouldAutoScroll) {
+          if (!viewingOlder && isAtBottom() && shouldAutoScroll) {
             scrollToBottom(true, false);
           }
         });
@@ -4132,10 +4264,6 @@
           loadGlobalChat(false);
         } else if (activeDM) {
           loadChat(false);
-          // Don't wait on that fetch to resolve before syncing the read
-          // marker — the chat is visibly open again right now, so mark it
-          // read immediately (loadChat's own markRead calls further down
-          // will simply no-op/repeat harmlessly once it resolves).
           markRead(activeDM);
         } else if (activeAdminConv) {
           loadAdminConv(activeAdminConv, false);
@@ -4169,6 +4297,29 @@
         // We do nothing here so the interval handle stays valid for when we return.
       }
     });
+
+    // Window focus and interaction listeners to ensure instant markRead when reading
+    window.addEventListener('focus', function() {
+      if (!document.hidden && activeDM) {
+        markRead(activeDM);
+      }
+    });
+
+    if (typeof messageInput !== 'undefined' && messageInput) {
+      messageInput.addEventListener('focus', function() {
+        if (!document.hidden && activeDM) {
+          markRead(activeDM);
+        }
+      });
+    }
+
+    if (typeof chatBox !== 'undefined' && chatBox) {
+      chatBox.addEventListener('click', function() {
+        if (!document.hidden && activeDM) {
+          markRead(activeDM);
+        }
+      });
+    }
 
     // Clean up WebSocket on page unload.
     // NOTE: 'pagehide' is used instead of 'beforeunload' — an unload/beforeunload

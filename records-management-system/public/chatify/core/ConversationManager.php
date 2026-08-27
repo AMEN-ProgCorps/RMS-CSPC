@@ -671,9 +671,9 @@ class ConversationManager
                          updated_at    = NOW()
                      WHERE conv_id = :conv_id'
                 )->execute([
-                    ':acc1'    => $accountId,
-                    ':acc2'    => $accountId,
-                    ':conv_id' => $convId,
+                    ':acc1'    => (int) $accountId,
+                    ':acc2'    => (int) $accountId,
+                    ':conv_id' => (string) $convId,
                 ]);
             } catch (Throwable $t) {}
 

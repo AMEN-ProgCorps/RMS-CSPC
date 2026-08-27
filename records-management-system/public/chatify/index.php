@@ -180,6 +180,29 @@ try {
       }
     })();
   </script>
+  <script type="speculationrules">
+  {
+    "prerender": [
+      {
+        "where": {
+          "and": [
+            { "href_matches": "/*" },
+            { "not": { "selector_matches": ".do-not-prerender, [target='_blank'], [download]" } }
+          ]
+        },
+        "eagerness": "moderate"
+      }
+    ]
+  }
+  </script>
+  <script>
+    if (document.prerendering) {
+      document.addEventListener('prerenderingchange', function() {
+        var activationStart = Math.round(performance.getEntriesByType('navigation')[0]?.activationStart || 0);
+        console.log('Chatify activated from speculative prerender at:', activationStart, 'ms');
+      });
+    }
+  </script>
   <link rel="stylesheet" href="assets/css/style.css?v=<?php echo filemtime(__DIR__ . '/assets/css/style.css'); ?>">
 
 </head>
@@ -216,9 +239,9 @@ try {
         <input type="text" id="searchInput" name="csp_srch_own_2k9" placeholder="Search" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" data-lpignore="true" data-1p-ignore="true" data-form-type="other" role="combobox" aria-autocomplete="list">
       </div>
       <!-- Pinned Global Chat entry -->
-      <div class="user-item" id="globalChatItem" onclick="selectGlobalChat()" style="border-bottom:1px solid var(--border-color);">
-        <div class="user-avatar" style="background:none !important;background-color:transparent !important;">
-          <img src="cspc.webp" width="40" height="40" alt="CSPC logo" style="width:40px;height:40px;object-fit:contain;background:transparent;" draggable="false" ondragstart="return false;" oncontextmenu="return false;">
+      <div class="user-item" id="globalChatItem" onclick="selectGlobalChat()" onmouseenter="typeof speculateGlobalChatCard === 'function' && speculateGlobalChatCard(this)" onpointerdown="typeof speculateGlobalChatCard === 'function' && speculateGlobalChatCard(this)" style="border-bottom:1px solid var(--border-color);">
+        <div class="user-avatar">
+          <img src="cspc.webp" width="48" height="48" alt="CSPC logo" class="avatar-img" style="width:48px;height:48px;object-fit:cover;background:transparent;" draggable="false" ondragstart="return false;" oncontextmenu="return false;">
         </div>
         <div class="user-info">
           <div class="user-name">Global Chat</div>

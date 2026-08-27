@@ -33,7 +33,11 @@ if ($internalSecret !== '' && hash_equals(INTERNAL_PUSH_SECRET, $internalSecret)
 }
 
 // ── Pagination params ─────────────────────────────────────────────────────────
-$limit      = 50;
+// INITIAL_LOAD = 100 (first open), BACKREAD_BATCH = 50 (scroll-up fetches).
+// The client sends ?limit=100 on the first request and ?limit=50 thereafter.
+// Hard-cap at 100 server-side so a rogue client can't blast huge pages.
+$requestedLimit = isset($_GET['limit']) ? (int) $_GET['limit'] : 50;
+$limit          = min(max(1, $requestedLimit), 100);
 $beforeUuid = isset($_GET['before_uuid']) && $_GET['before_uuid'] !== '' ? (string) $_GET['before_uuid'] : null;
 
 // ── Load data ────────────────────────────────────────────────────────────────

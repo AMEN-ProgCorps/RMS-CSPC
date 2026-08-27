@@ -216,7 +216,8 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Backup & Recovery Manage
                     'dcs_checklist_types', 'dcs_checklist_version', 'dcs_approval_body',
                     'dcs_document_requests', 'dcs_approval_records', 'dcs_document_change_notice', 'dcs_doc_revision',
                     'dcs_document_request_form', 'dcs_document_distribution', 'dcs_document_retrieval',
-                    'dcs_masterlist_registration', 'dcs_syllabi', 'dcs_syllabi_drf', 'dcs_document_stamps',
+                    'dcs_masterlist_registration', 'dcs_syllabi', 'dcs_syllabi_drf', 'dcs_syllabi_monitoring_status',
+                    'dcs_document_stamps',
                     'dcs_opcr_ratings', 'dcs_calendar_categories', 'dcs_calendar_events', 'dcs_report_templates',
                     'dcs_drf_offices', 'dcs_distribution_offices', 'dcs_retrieval_offices', 'dcs_dcn_offices',
                     'dcs_masterlist_source_offices', 'dcs_masterlist_related_docs',
@@ -752,6 +753,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Backup & Recovery Manage
             'dcs_dcn_offices' => 133,
             'dcs_masterlist_source_offices' => 134,
             'dcs_masterlist_related_docs' => 135,
+            'dcs_syllabi_monitoring_status' => 136,
         ];
     }
 

@@ -2299,20 +2299,18 @@
       }
     }
 
-    // Keeps the chat window capped at maxCount messages by trimming the
-    // trailing (newest/bottom) ones — used right after prepending an older
-    // page so loading history swaps the window instead of growing it forever.
-    // Stops watching every <img> inside `el` for scroll-anchor resize
-    // compensation (see attachImageLoadListeners() in app-part3.js) before
-    // it's removed from the DOM — otherwise the ResizeObserver keeps a
-    // strong reference to detached image nodes forever, a slow memory leak
-    // over a long session of repeated backreads.
     function unobserveImagesIn(el) {
       if (typeof scrollAnchorObserver === 'undefined' || !scrollAnchorObserver || !el || !el.querySelectorAll) return;
       el.querySelectorAll('img').forEach(img => scrollAnchorObserver.unobserve(img));
     }
 
+    // Keeps the chat window capped at maxCount messages by trimming the
+    // trailing (newest/bottom) ones — used right after prepending an older
+    // page so loading history swaps the window instead of growing it forever.
     function trimWindowFromBottom(maxCount) {
+      if (!chatBox) return;
+      // Fast-path: childElementCount is O(1) — skip expensive querySelectorAll
+      if (chatBox.childElementCount <= maxCount) return;
       const items = Array.from(chatBox.querySelectorAll('.message-container, .empty-chat'));
       if (items.length <= maxCount) return;
       const excess = items.length - maxCount;
@@ -2325,9 +2323,11 @@
     // Keeps the chat window capped at maxCount messages by trimming the
     // leading (oldest/top) ones — used during normal poll / initial load
     // so the message list doesn't grow forever.
-    // Returns true if any messages were actually removed (so callers can
-    // decide whether to refresh the pagination cursor).
+    // Returns true if any messages were actually removed.
     function trimWindowFromTop(maxCount) {
+      if (!chatBox) return false;
+      // Fast-path: childElementCount is O(1).
+      if (chatBox.childElementCount <= maxCount) return false;
       const items = Array.from(chatBox.querySelectorAll('.message-container, .empty-chat'));
       if (items.length <= maxCount) return false;
       const excess = items.length - maxCount;
@@ -2342,22 +2342,10 @@
     // `.message-container` nodes in chatBox at `maxMessages`, always
     // dropping the OLDEST ones from the top first so the newest message
     // (the one that was just appended) stays visible.
-    //
-    // Call this right after appending a message that arrived via:
-    //   • auto-poll (since_uuid) updates
-    //   • WebSocket real-time pushes
-    //   • locally sent ("optimistic") messages
-    //
-    // Do NOT call this for "Load Older" / prepending historical messages
-    // or the initial conversation load — those flows intentionally grow
-    // the window from the opposite end (see trimWindowFromBottom).
-    //
-    // Scroll position is preserved: removing nodes from the top shrinks
-    // scrollHeight, so scrollTop is shifted by the exact delta, keeping
-    // whatever the user was looking at visually stable (no jump).
-    // Returns true if any messages were actually removed.
     function trimChatMessages(maxMessages = MAX_WINDOW) {
       if (!chatBox) return false;
+      // Fast-path: childElementCount is O(1).
+      if (chatBox.childElementCount <= maxMessages) return false;
       const items = Array.from(chatBox.querySelectorAll('.message-container'));
       const excess = items.length - maxMessages;
       if (excess <= 0) return false;
@@ -3004,6 +2992,8 @@
         adminConvHasMore = data.hasMore || false;
         
         if (loadOlderMode) {
+          shouldAutoScroll = false;
+          userScrolledUp = true;
           adminConvCursor = data.nextCursor || '';
           adminConvViewingOlder = true;
           const prev = chatBox.scrollHeight;
@@ -3068,7 +3058,7 @@
             if (trimWindowFromTop(MAX_WINDOW)) refreshCursorAfterTopTrim();
           }
           if (isFirstLoad) { isFirstLoad = false; handleFirstLoadScroll(); }
-          else if (wasAtBottom || shouldAutoScroll) requestAnimationFrame(() => requestAnimationFrame(() => scrollToBottom(true, false)));
+          else if (!adminConvViewingOlder && wasAtBottom) requestAnimationFrame(() => requestAnimationFrame(() => scrollToBottom(true, false)));
           else showScrollIndicator(rec.items.filter(el => el.classList.contains('message-container')).length);
           applyAdminBadges();
           applyEmojiOnly();
@@ -3100,7 +3090,7 @@
 
         chatBox.scrollTop = Math.max(0, prevSTF + chatBox.scrollHeight - prevSHF);
         const mc = chatBox.querySelectorAll('.message-container').length;
-        if (mc > 0 && (wasAtBottom || shouldAutoScroll || isFirstLoad)) {
+        if (mc > 0 && !adminConvViewingOlder && (wasAtBottom || isFirstLoad)) {
           const doInstant = isFirstLoad;
           isFirstLoad = false;
           if (doInstant) handleFirstLoadScroll();

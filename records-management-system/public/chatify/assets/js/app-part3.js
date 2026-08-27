@@ -1352,6 +1352,8 @@
       gcHasMore        = data.hasMore || false;
 
       if (loadOlderMode) {
+        shouldAutoScroll = false;
+        userScrolledUp = true;
         gcCursor = data.nextCursor || '';
         gcViewingOlder = true;
         // Prepend older messages
@@ -1447,7 +1449,7 @@
             }
             if (revealedCount === toInsert.length) {
               if (isFirstLoad) { isFirstLoad = false; handleFirstLoadScroll(); }
-              else if (wasAtBottom || shouldAutoScroll) requestAnimationFrame(() => requestAnimationFrame(() => scrollToBottom(true, false)));
+              else if (!gcViewingOlder && wasAtBottom) requestAnimationFrame(() => requestAnimationFrame(() => scrollToBottom(true, false)));
               else showScrollIndicator(toInsert.filter(el => el.classList.contains('message-container')).length);
               applyAdminBadges(); applyEmojiOnly(); attachImageLoadListeners();
               if (gcHasMore && !document.getElementById('loadOlderBtn') && !document.getElementById('noMoreOlderNotice')) insertLoadOlderBtn();
@@ -1481,7 +1483,7 @@
       document.querySelectorAll('[data-sending-uid]').forEach(el => el.remove());
       chatBox.scrollTop = Math.max(0, prevST + chatBox.scrollHeight - prevSH);
       if (isFirstLoad) { isFirstLoad = false; handleFirstLoadScroll(); }
-      else if (wasAtBottom || shouldAutoScroll || isFirstLoad) requestAnimationFrame(() => requestAnimationFrame(() => scrollToBottom(true, false)));
+      else if (!gcViewingOlder && (wasAtBottom || isFirstLoad)) requestAnimationFrame(() => requestAnimationFrame(() => scrollToBottom(true, false)));
       else if (genuinelyNewCount > 0) showScrollIndicator(genuinelyNewCount);
       applyAdminBadges(); applyEmojiOnly(); attachImageLoadListeners();
       // Chat was rebuilt from scratch (e.g. cleared), so pagination state no longer applies
@@ -1598,6 +1600,8 @@
       if (typeof data.readUpTo !== 'undefined') dmReadUpTo = data.readUpTo;
 
       if (loadOlderMode) {
+        shouldAutoScroll = false;
+        userScrolledUp = true;
         dmCursor = data.nextCursor || '';
         dmViewingOlder = true;
         // Remove the seen indicator before DOM mutations — it will be
@@ -1683,7 +1687,7 @@
           if (trimWindowFromTop(MAX_WINDOW)) refreshCursorAfterTopTrim();
         }
         if (isFirstLoad) { isFirstLoad = false; handleFirstLoadScroll(); }
-        else if (wasAtBottom || shouldAutoScroll) requestAnimationFrame(() => requestAnimationFrame(() => scrollToBottom(true, false)));
+        else if (!dmViewingOlder && wasAtBottom) requestAnimationFrame(() => requestAnimationFrame(() => scrollToBottom(true, false)));
         else showScrollIndicator(rec.items.filter(el => el.classList.contains('message-container')).length);
         applyAdminBadges(); applyEmojiOnly(); attachImageLoadListeners();
         if (!document.hidden && activeDM) markRead(activeDM);
@@ -1714,7 +1718,7 @@
       
       chatBox.scrollTop = Math.max(0, prevSTF + chatBox.scrollHeight - prevSHF);
       const mc = chatBox.querySelectorAll('.message-container').length;
-      if (mc > 0 && (wasAtBottom || shouldAutoScroll || isFirstLoad)) {
+      if (mc > 0 && !dmViewingOlder && (wasAtBottom || isFirstLoad)) {
         const doInstant = isFirstLoad;
         isFirstLoad = false;
         if (doInstant) handleFirstLoadScroll();
@@ -1786,6 +1790,8 @@
     }
 
     function loadOlderMessages() {
+      shouldAutoScroll = false;
+      userScrolledUp = true;
       if (activeAdminConv || isAdminAllChatsView) {
         if (activeAdminConv) loadAdminConv(activeAdminConv, false, true);
       } else if (isGlobalChat) {
@@ -3825,12 +3831,13 @@
 
     function attachImageLoadListeners() {
       if (!chatBox) return;
+      const viewingOlder = isGlobalChat ? gcViewingOlder : (activeAdminConv ? adminConvViewingOlder : dmViewingOlder);
       chatBox.querySelectorAll('img:not(.avatar-img)').forEach(img => {
         if (img.dataset.scrollListener) return;
         img.dataset.scrollListener = '1';
         if (scrollAnchorObserver) scrollAnchorObserver.observe(img);
         img.addEventListener('load', () => {
-          if (isAtBottom() || shouldAutoScroll) {
+          if (!viewingOlder && isAtBottom() && shouldAutoScroll) {
             scrollToBottom(true, false);
           }
         });

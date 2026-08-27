@@ -4048,7 +4048,7 @@ class RegisterQueryHelper
             'doc_no' => $row->doc_no,
             'doc_title' => $row->doc_title,
             'revise_no' => (int) $row->revise_no,
-            'revision_status' => $row->revision_status ?: 'latest',
+            'revision_status' => ($row->revision_status ?? null) ?: 'latest',
             'effectivity_date' => $row->effectivity_date
                 ? Carbon::parse($row->effectivity_date)->format('Y-m-d')
                 : null,
@@ -4529,8 +4529,8 @@ class RegisterQueryHelper
                     'latest_effectivity_date' => $latest->effectivity_date ? Carbon::parse($latest->effectivity_date)->format('Y-m-d') : null,
                     'latest_no_pages' => $latest->no_pages,
                     'latest_deadline' => $latest->deadline ? Carbon::parse($latest->deadline)->format('Y-m-d') : null,
-                    'latest_brief_purpose' => $latest->brief_purpose,
-                    'latest_keywords' => $latest->keywords,
+                    'latest_brief_purpose' => $latest->brief_purpose ?? null,
+                    'latest_keywords' => $latest->keywords ?? null,
                     'latest_related_documents' => $latestRelatedDocs,
                     // Carry previous approval into revised: show Approval Details only if applicable
                     'latest_approval_status' => $prevApprovalStatus,
@@ -4813,15 +4813,19 @@ class RegisterQueryHelper
                 ->get(['s.office_id', 'o.office_name']);
         }
 
+        $syllabiSelect = [
+            's.*',
+            'pc.course_name',
+        ];
+        if (Schema::hasColumn('dcs_program_courses', 'course_code')) {
+            $syllabiSelect[] = 'pc.course_code';
+        }
+
         $syllabi = DB::table('dcs_syllabi as s')
             ->leftJoin('dcs_program_courses as pc', 'pc.id', '=', 's.course_id')
             ->where('s.request_id', $id)
             ->orderBy('s.id')
-            ->get([
-                's.*',
-                'pc.course_name',
-                'pc.course_code',
-            ]);
+            ->get($syllabiSelect);
 
         $syllabiGroupsSeed = $syllabi->map(function ($syl) {
             $drfs = DB::table('dcs_syllabi_drf')->where('syllabi_id', $syl->id)->orderBy('id')->get();
@@ -4916,8 +4920,8 @@ class RegisterQueryHelper
             ])->filter(fn ($o) => $o['id'])->values(),
             'masterlistOriginatorSeed' => ($ml && $ml->originator_name)
                 ? [[
-                    'type' => !empty($ml->originator_id) ? 'office' : 'name',
-                    'id' => $ml->originator_id ?: ('n' . $ml->id),
+                    'type' => !empty($ml->originator_id ?? null) ? 'office' : 'name',
+                    'id' => ($ml->originator_id ?? null) ?: ('n' . $ml->id),
                     'label' => $ml->originator_name,
                 ]]
                 : [],
@@ -5131,10 +5135,15 @@ class RegisterQueryHelper
         $approvals = DB::table('dcs_approval_records')->whereIn('request_id', $ids)->get()->groupBy('request_id');
         $stamps = DB::table('dcs_document_stamps')->whereIn('document_request_id', $ids)->get()->groupBy('document_request_id');
 
+        $historySyllabiSelect = ['s.*', 'c.course_name'];
+        if (Schema::hasColumn('dcs_program_courses', 'course_code')) {
+            $historySyllabiSelect[] = 'c.course_code';
+        }
+
         $syllabi = DB::table('dcs_syllabi as s')
             ->leftJoin('dcs_program_courses as c', 'c.id', '=', 's.course_id')
             ->whereIn('s.request_id', $ids)
-            ->get(['s.*', 'c.course_name', 'c.course_code']);
+            ->get($historySyllabiSelect);
         $sylIds = $syllabi->pluck('id')->all();
         $drfsBySyl = $sylIds
             ? DB::table('dcs_syllabi_drf')->whereIn('syllabi_id', $sylIds)->get()->groupBy('syllabi_id')
@@ -5334,15 +5343,17 @@ class RegisterQueryHelper
                 ])
                 ->values()
                 ->all(),
-            'originators' => DB::table('dcs_originators')
-                ->orderBy('originator_name')
-                ->get(['id', 'originator_name'])
-                ->map(fn ($o) => [
-                    'originator_id' => $o->id,
-                    'originator_name' => $o->originator_name,
-                ])
-                ->values()
-                ->all(),
+            'originators' => Schema::hasTable('dcs_originators')
+                ? DB::table('dcs_originators')
+                    ->orderBy('originator_name')
+                    ->get(['id', 'originator_name'])
+                    ->map(fn ($o) => [
+                        'originator_id' => $o->id,
+                        'originator_name' => $o->originator_name,
+                    ])
+                    ->values()
+                    ->all()
+                : [],
             'checklistsByVersion' => $checklistsByVersion,
             'colleges' => DB::table('dcs_colleges')
                 ->orderBy('college_name')

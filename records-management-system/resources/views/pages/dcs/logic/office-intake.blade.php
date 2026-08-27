@@ -59,6 +59,10 @@ class OfficeIntakeHelper
     /** @return \Illuminate\Support\Collection<int, object> */
     public static function listMyDrf()
     {
+        if (! Schema::hasColumn('dcs_document_request_form', 'is_office_intake')) {
+            return collect();
+        }
+
         $q = DB::table('dcs_document_request_form as drf')
             ->where('drf.is_office_intake', true)
             ->orderByDesc('drf.id');
@@ -81,6 +85,10 @@ class OfficeIntakeHelper
     /** @return \Illuminate\Support\Collection<int, object> */
     public static function listMyDcn()
     {
+        if (! Schema::hasColumn('dcs_document_change_notice', 'is_office_intake')) {
+            return collect();
+        }
+
         $q = DB::table('dcs_document_change_notice as dcn')
             ->where('dcn.is_office_intake', true)
             ->orderByDesc('dcn.id');
@@ -101,6 +109,10 @@ class OfficeIntakeHelper
 
     public static function findOfficeDrf(int $id): ?object
     {
+        if (! Schema::hasColumn('dcs_document_request_form', 'is_office_intake')) {
+            return null;
+        }
+
         return DB::table('dcs_document_request_form')
             ->where('id', $id)
             ->where('is_office_intake', true)
@@ -109,6 +121,10 @@ class OfficeIntakeHelper
 
     public static function findOfficeDcn(int $id): ?object
     {
+        if (! Schema::hasColumn('dcs_document_change_notice', 'is_office_intake')) {
+            return null;
+        }
+
         return DB::table('dcs_document_change_notice')
             ->where('id', $id)
             ->where('is_office_intake', true)

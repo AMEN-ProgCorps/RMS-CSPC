@@ -81,6 +81,7 @@ new #[Layout('layouts.dcs')] class extends Component {
 
     public function openOriginator(?int $id = null): void
     {
+        abort_unless(Schema::hasTable('dcs_originators'), 404);
         $this->resetFormFor('originator', $id);
         if ($id) {
             $row = DB::table('dcs_originators')->where('id', $id)->first();
@@ -270,6 +271,11 @@ new #[Layout('layouts.dcs')] class extends Component {
 
     private function saveOriginator(): void
     {
+        if (! Schema::hasTable('dcs_originators')) {
+            $this->fail('Originators table is not available. Run pending migrations.');
+            return;
+        }
+
         $this->validate([
             'originatorName' => [
                 'required', 'string', 'max:255',
@@ -454,12 +460,17 @@ new #[Layout('layouts.dcs')] class extends Component {
 
     private function saveProgramCourse(): void
     {
-        $this->validate([
+        $hasCourseCode = Schema::hasColumn('dcs_program_courses', 'course_code');
+
+        $rules = [
             'programId' => 'required|integer|exists:dcs_programs,id',
             'semesterId' => 'required|integer|exists:dcs_semesters,id',
             'courseName' => 'required|string|max:255',
-            'courseCode' => 'required|string|max:50',
-        ]);
+        ];
+        if ($hasCourseCode) {
+            $rules['courseCode'] = 'required|string|max:50';
+        }
+        $this->validate($rules);
 
         $exists = DB::table('dcs_program_courses')
             ->where('program_id', (int) $this->programId)
@@ -473,24 +484,28 @@ new #[Layout('layouts.dcs')] class extends Component {
             return;
         }
 
-        $codeExists = DB::table('dcs_program_courses')
-            ->where('program_id', (int) $this->programId)
-            ->where('semester_id', (int) $this->semesterId)
-            ->where('course_code', $this->courseCode)
-            ->when($this->editingId, fn ($q) => $q->where('id', '!=', $this->editingId))
-            ->exists();
+        if ($hasCourseCode) {
+            $codeExists = DB::table('dcs_program_courses')
+                ->where('program_id', (int) $this->programId)
+                ->where('semester_id', (int) $this->semesterId)
+                ->where('course_code', $this->courseCode)
+                ->when($this->editingId, fn ($q) => $q->where('id', '!=', $this->editingId))
+                ->exists();
 
-        if ($codeExists) {
-            $this->fail('This course code is already used for the selected program and semester.');
-            return;
+            if ($codeExists) {
+                $this->fail('This course code is already used for the selected program and semester.');
+                return;
+            }
         }
 
         $payload = [
             'program_id' => (int) $this->programId,
             'semester_id' => (int) $this->semesterId,
             'course_name' => $this->courseName,
-            'course_code' => $this->courseCode,
         ];
+        if ($hasCourseCode) {
+            $payload['course_code'] = $this->courseCode;
+        }
 
         $facultyIds = collect($this->courseFacultyIds)
             ->map(fn ($fid) => (int) $fid)
@@ -560,6 +575,10 @@ new #[Layout('layouts.dcs')] class extends Component {
 
     private function destroyOriginator(int $id): void
     {
+        if (! Schema::hasTable('dcs_originators')) {
+            $this->fail('Originators table is not available. Run pending migrations.');
+            return;
+        }
         DB::table('dcs_originators')->where('id', $id)->delete();
         $this->done('Originator deleted.');
     }
@@ -686,12 +705,18 @@ new #[Layout('layouts.dcs')] class extends Component {
             ->orderBy('c.college_name')->orderBy('p.program_name')
             ->get(['p.id', 'p.college_id', 'p.program_name', 'p.program_code', 'c.college_name']);
 
+        $hasCourseCode = Schema::hasColumn('dcs_program_courses', 'course_code');
+        $courseCols = ['pc.id', 'pc.program_id', 'pc.semester_id', 'pc.course_name', 'p.program_name', 'c.college_name', 's.semester_name'];
+        if ($hasCourseCode) {
+            $courseCols[] = 'pc.course_code';
+        }
+
         $programCourses = DB::table('dcs_program_courses as pc')
             ->leftJoin('dcs_programs as p', 'p.id', '=', 'pc.program_id')
             ->leftJoin('dcs_colleges as c', 'c.id', '=', 'p.college_id')
             ->leftJoin('dcs_semesters as s', 's.id', '=', 'pc.semester_id')
             ->orderBy('pc.program_id')->orderBy('pc.semester_id')->orderBy('pc.course_name')
-            ->get(['pc.id', 'pc.program_id', 'pc.semester_id', 'pc.course_name', 'pc.course_code', 'p.program_name', 'c.college_name', 's.semester_name']);
+            ->get($courseCols);
 
         $facultyNamesByCourse = collect();
         if (Schema::hasTable('dcs_program_course_faculties')) {
@@ -713,7 +738,9 @@ new #[Layout('layouts.dcs')] class extends Component {
             'docTypeParents' => $docTypeParents,
             'docTypeSubs' => $docTypeSubs,
             'versionTypes' => DB::table('dcs_version_type')->orderBy('version_name')->get(['id', 'version_name']),
-            'originators' => DB::table('dcs_originators')->orderBy('originator_name')->get(['id', 'originator_name']),
+            'originators' => Schema::hasTable('dcs_originators')
+                ? DB::table('dcs_originators')->orderBy('originator_name')->get(['id', 'originator_name'])
+                : collect(),
             'faculties' => DB::table('dcs_faculties as f')->leftJoin('dcs_colleges as c', 'c.id', '=', 'f.college_id')->orderBy('f.faculty_name')->get(['f.id', 'f.faculty_name', 'f.college_id', 'c.college_name']),
             'colleges' => $colleges,
             'collegeOffices' => $collegeOffices,

@@ -520,18 +520,21 @@ class RegisterPersistHelper
 
                 $dcnOfficeIds = array_values(array_filter($request->input('dcnSourceUnit', [])));
 
-                $dcnId = DB::table('dcs_document_change_notice')->insertGetId([
+                $dcnRow = [
                     'request_id' => $requestId,
                     'dcn_no' => $request->dcnNumber,
                     'dcn_date' => $request->noticeDate,
                     'dcn_receipt_date' => $request->receiptDate,
                     'dcn_receipt_time' => $request->receiptTime,
                     'scanned_dcn' => $dcnFile,
-                    'brief_purpose' => $request->dcnJustification,
                     'created_by' => $userId,
                     'created_at' => $now,
                     'updated_at' => $now,
-                ]);
+                ];
+                if (Schema::hasColumn('dcs_document_change_notice', 'brief_purpose')) {
+                    $dcnRow['brief_purpose'] = $request->dcnJustification;
+                }
+                $dcnId = DB::table('dcs_document_change_notice')->insertGetId($dcnRow);
                 self::saveDcnOfficesById($dcnId, $dcnOfficeIds);
 
                 if ($request->has('documentTitle') || $request->has('documentNo')) {
@@ -546,16 +549,19 @@ class RegisterPersistHelper
                             continue;
                         }
 
-                        DB::table('dcs_doc_revision')->insert([
+                        $revRow = [
                             'dcn_id' => $dcnId,
                             'title' => $title,
                             'document_no' => $docNo,
                             'effectivity_date' => $request->effectiveDate[$i] ?? null,
                             'revision_no' => $request->revisionNo[$i] ?? null,
                             'scanned_copy' => self::resolveRevisionScannedCopyPath($request, $i, $uploadedFiles),
-                            'brief_purpose' => $request->revisionPurpose[$i] ?? null,
                             'created_at' => $now,
-                        ]);
+                        ];
+                        if (Schema::hasColumn('dcs_doc_revision', 'brief_purpose')) {
+                            $revRow['brief_purpose'] = $request->revisionPurpose[$i] ?? null;
+                        }
+                        DB::table('dcs_doc_revision')->insert($revRow);
                     }
                 }
             }
@@ -585,7 +591,6 @@ class RegisterPersistHelper
                     'doc_title' => self::syncedDocTitle($request) ?: $request->masterlistDocTitle,
                     'effectivity_date' => $request->masterlistEffectivityDate,
                     'revise_no' => self::resolveReviseNo($request),
-                    'revision_status' => 'latest',
                     'no_pages' => $request->masterlistNoOfPages,
                     'originator_name' => $originator['originator_name'],
                     'deadline' => $request->deadlineOfSubmission,
@@ -595,13 +600,16 @@ class RegisterPersistHelper
                     'updated_at' => $now,
                 ];
                 self::applyMasterlistOriginalName($masterlistRow, $request);
+                if (RegisterQueryHelper::supportsRevisionStatus()) {
+                    $masterlistRow['revision_status'] = 'latest';
+                }
                 if (Schema::hasColumn('dcs_masterlist_registration', 'originator_id')) {
                     $masterlistRow['originator_id'] = $originator['originator_id'];
                 }
                 $keywordVal = $request->keywords ?? $request->briefPurpose;
                 if (Schema::hasColumn('dcs_masterlist_registration', 'keywords')) {
                     $masterlistRow['keywords'] = $keywordVal;
-                } else {
+                } elseif (Schema::hasColumn('dcs_masterlist_registration', 'brief_purpose')) {
                     $masterlistRow['brief_purpose'] = $keywordVal;
                 }
                 if ($mode === 'revised' && Schema::hasColumn('dcs_masterlist_registration', 'revised_from_doc_no')) {
@@ -659,20 +667,22 @@ class RegisterPersistHelper
                     'effectivity_date' => $request->syllabiEffectivityDate,
                     'deadline' => $request->syllabiDeadline,
                     'revise_no' => self::resolveReviseNo($request),
-                    'revision_status' => 'latest',
                     'no_pages' => $totalPages,
                     'originator_name' => $originator['originator_name'],
                     'scanned_masterlist' => $masterlistFile,
                     'updated_at' => $now,
                 ];
                 self::applyMasterlistOriginalName($masterlistData, $request);
+                if (RegisterQueryHelper::supportsRevisionStatus()) {
+                    $masterlistData['revision_status'] = 'latest';
+                }
                 if (Schema::hasColumn('dcs_masterlist_registration', 'originator_id')) {
                     $masterlistData['originator_id'] = $originator['originator_id'];
                 }
                 $keywordVal = $request->keywords ?? $request->briefPurpose;
                 if (Schema::hasColumn('dcs_masterlist_registration', 'keywords')) {
                     $masterlistData['keywords'] = $keywordVal;
-                } else {
+                } elseif (Schema::hasColumn('dcs_masterlist_registration', 'brief_purpose')) {
                     $masterlistData['brief_purpose'] = $keywordVal;
                 }
                 if ($mode === 'revised' && Schema::hasColumn('dcs_masterlist_registration', 'revised_from_doc_no')) {
@@ -804,7 +814,8 @@ class RegisterPersistHelper
                     $fromDocNo = trim((string) ($savedMl->revised_from_doc_no
                         ?? $request->input('revised_from_doc_no', '')));
                     $newDocNo = trim((string) ($savedMl->doc_no ?? ''));
-                    if ($fromDocNo !== '' && $newDocNo !== '' && strcasecmp($fromDocNo, $newDocNo) !== 0) {
+                    if ($fromDocNo !== '' && $newDocNo !== '' && strcasecmp($fromDocNo, $newDocNo) !== 0
+                        && RegisterQueryHelper::supportsRevisionStatus()) {
                         $requestIds = RegisterQueryHelper::requestIdsWithSameDocType((object) [
                             'doc_type_id' => $docTypeId,
                             'sub_type_id' => $request->sub_type_id ? (int) $request->sub_type_id : null,
@@ -908,12 +919,13 @@ class RegisterPersistHelper
 
         if ($matching->isNotEmpty()) {
             $matchingIds = $matching->pluck('id');
-            $latest = DB::table('dcs_masterlist_registration')
+            $latestQuery = DB::table('dcs_masterlist_registration')
                 ->whereIn('request_id', $matchingIds)
-                ->where('doc_no', $docNo)
-                ->where('revision_status', 'latest')
-                ->orderByDesc('id')
-                ->first();
+                ->where('doc_no', $docNo);
+            if (RegisterQueryHelper::supportsRevisionStatus()) {
+                $latestQuery->where('revision_status', 'latest');
+            }
+            $latest = $latestQuery->orderByDesc('id')->first();
             if (!$latest) {
                 $latest = DB::table('dcs_masterlist_registration')
                     ->whereIn('request_id', $matchingIds)
@@ -1317,6 +1329,10 @@ class RegisterPersistHelper
 
     public static function syncRevisionStatusForMasterlist(int $masterlistId): void
     {
+        if (! RegisterQueryHelper::supportsRevisionStatus()) {
+            return;
+        }
+
         $ml = DB::table('dcs_masterlist_registration')->where('id', $masterlistId)->first();
         if (!$ml || !trim((string) $ml->doc_no)) {
             if ($ml) {
@@ -1350,6 +1366,10 @@ class RegisterPersistHelper
 
     public static function promoteLatestForDoc(string $docNo, int $docTypeId, ?int $subTypeId): void
     {
+        if (! RegisterQueryHelper::supportsRevisionStatus()) {
+            return;
+        }
+
         $docNo = trim($docNo);
         if ($docNo === '') {
             return;

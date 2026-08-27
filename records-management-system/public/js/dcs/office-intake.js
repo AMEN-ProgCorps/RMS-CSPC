@@ -362,9 +362,12 @@
         if (revField) revField.value = doc.revise_no != null ? doc.revise_no : '';
         if (pathInput) pathInput.value = doc.scanned_copy_path || '';
         if (mlInput) mlInput.value = doc.masterlist_id || '';
-        if (purposeField) purposeField.value = doc.brief_purpose || '';
+
+        // Rev 0 has no DCN → no Brief Purpose. Later revs use DCN justification only.
+        const reviseNo = Number(doc.revise_no ?? 0);
+        const purpose = reviseNo > 0 ? String(doc.brief_purpose || '').trim() : '';
+        if (purposeField) purposeField.value = purpose;
         if (purposeText) {
-            const purpose = String(doc.brief_purpose || '').trim();
             purposeText.textContent = purpose || '—';
             purposeText.classList.toggle('is-wrap', purpose.length > 42);
         }

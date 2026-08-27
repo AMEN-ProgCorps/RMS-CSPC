@@ -15,6 +15,9 @@ class SyllabiMonitoringHelper
         'late_submission' => 'Late submission',
     ];
 
+    /** Sentinel date for remarks when no syllabus deadline filter is selected. */
+    public const OVERALL_DEADLINE = '1900-01-01';
+
     public static function subtypeId(string $needle): ?int
     {
         $needle = strtolower($needle);
@@ -87,7 +90,10 @@ class SyllabiMonitoringHelper
 
         $rows = [];
         $totals = self::emptyTotals();
-        $remarksEnabled = $deadline !== null && $deadline !== '';
+        // Remarks work for the loaded college/year/semester; scoped to the
+        // selected deadline, or to OVERALL_DEADLINE when viewing all.
+        $remarksEnabled = true;
+        $statusDeadline = $deadline ?: self::OVERALL_DEADLINE;
 
         foreach ($programs as $program) {
             $catalog = $coursesByProgram->get($program->id, collect());
@@ -146,15 +152,19 @@ class SyllabiMonitoringHelper
             if ($tosTarget === 0) {
                 $tosDrfActual = $tosDrfCourseIds->count();
             }
+            $tosLacking = max(0, $tosTarget - $tosActual);
             $tosLackingNames = $catalog
                 ->reject(fn ($c) => $tosActualIds->contains($c->id))
                 ->map(fn ($c) => self::courseLabel($c))
                 ->values()
                 ->all();
+            $tosDrfLackingNames = $catalog
+                ->reject(fn ($c) => $tosDrfCourseIds->contains($c->id))
+                ->map(fn ($c) => self::courseLabel($c))
+                ->values()
+                ->all();
 
-            $saved = $remarksEnabled
-                ? self::savedStatuses($collegeId, $schoolYearId, $semesterId, (int) $program->id, $deadline)
-                : [];
+            $saved = self::savedStatuses($collegeId, $schoolYearId, $semesterId, (int) $program->id, $statusDeadline);
             $syllabiStatus = $saved['syllabi'] ?? self::suggestStatus($syllabiActual, $target, $syllabiSubs, $deadline);
             $tosStatus = $saved['tos'] ?? self::suggestStatus($tosActual, $tosTarget, $tosSubs, $deadline);
 
@@ -188,8 +198,18 @@ class SyllabiMonitoringHelper
                 'tos_actual' => $tosActual,
                 'tos_pct' => self::pct($tosActual, $tosTarget),
                 'tos_label' => $tosActual . ' / ' . $tosTarget,
+                'tos_lacking' => $tosLacking,
                 'tos_lacking_names' => $tosLackingNames,
+                'tos_submission_dates' => self::uniqueDates($tosSubs, 'date_received'),
+                'tos_effectivity_date' => self::uniqueDates($tosSubs, 'effectivity_date'),
+                'tos_released_date' => self::uniqueDates($tosSubs, 'released_date'),
                 'tos_drf_label' => $tosDrfActual . ' / ' . $tosTarget,
+                'tos_drf_target' => $tosTarget,
+                'tos_drf_actual' => $tosDrfActual,
+                'tos_drf_pct' => self::pct($tosDrfActual, $tosTarget),
+                'tos_drf_lacking' => count($tosDrfLackingNames),
+                'tos_drf_lacking_names' => $tosDrfLackingNames,
+                'tos_drf_received' => self::uniqueDates($tosSubs, 'drf_received_date'),
                 'tos_status' => $tosStatus,
             ];
 
@@ -202,11 +222,16 @@ class SyllabiMonitoringHelper
             $totals['drf_lacking'] += count($drfLackingNames);
             $totals['tos_target'] += $tosTarget;
             $totals['tos_actual'] += $tosActual;
+            $totals['tos_lacking'] += $tosLacking;
+            $totals['tos_drf_target'] += $tosTarget;
+            $totals['tos_drf_actual'] += $tosDrfActual;
+            $totals['tos_drf_lacking'] += count($tosDrfLackingNames);
         }
 
         $totals['syllabi_pct'] = self::pct($totals['syllabi_actual'], $totals['syllabi_target']);
         $totals['drf_pct'] = self::pct($totals['drf_actual'], $totals['drf_target']);
         $totals['tos_pct'] = self::pct($totals['tos_actual'], $totals['tos_target']);
+        $totals['tos_drf_pct'] = self::pct($totals['tos_drf_actual'], $totals['tos_drf_target']);
 
         return [
             'ready' => true,
@@ -328,14 +353,13 @@ class SyllabiMonitoringHelper
             return;
         }
 
-        // Remarks are always scoped to a real syllabi masterlist deadline.
-        $deadline = $deadline ? Carbon::parse($deadline)->format('Y-m-d') : null;
-        if (! $deadline) {
-            return;
-        }
-        $allowed = self::availableDeadlines($collegeId, $schoolYearId, $semesterId);
-        if (! in_array($deadline, $allowed, true)) {
-            return;
+        // Scope remarks to the selected deadline, or overall when none picked.
+        $deadline = $deadline ? Carbon::parse($deadline)->format('Y-m-d') : self::OVERALL_DEADLINE;
+        if ($deadline !== self::OVERALL_DEADLINE) {
+            $allowed = self::availableDeadlines($collegeId, $schoolYearId, $semesterId);
+            if (! in_array($deadline, $allowed, true)) {
+                return;
+            }
         }
 
         $keys = [
@@ -494,6 +518,11 @@ class SyllabiMonitoringHelper
             'tos_target' => 0,
             'tos_actual' => 0,
             'tos_pct' => null,
+            'tos_lacking' => 0,
+            'tos_drf_target' => 0,
+            'tos_drf_actual' => 0,
+            'tos_drf_pct' => null,
+            'tos_drf_lacking' => 0,
         ];
     }
 }

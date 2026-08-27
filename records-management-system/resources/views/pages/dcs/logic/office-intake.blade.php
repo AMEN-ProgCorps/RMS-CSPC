@@ -97,14 +97,14 @@ class OfficeIntakeHelper
             $q->where('dcn.created_by', auth()->id());
         }
 
-        return $q->get([
+        return $q->get(array_values(array_filter([
             'dcn.id',
             'dcn.dcn_no',
             'dcn.dcn_date',
-            'dcn.brief_purpose',
+            Schema::hasColumn('dcs_document_change_notice', 'brief_purpose') ? 'dcn.brief_purpose' : null,
             'dcn.created_at',
             'dcn.created_by',
-        ]);
+        ])));
     }
 
     public static function findOfficeDrf(int $id): ?object
@@ -372,11 +372,13 @@ class OfficeIntakeHelper
                     'dcn_receipt_date' => $data['receiptDate'] ?? null,
                     'dcn_receipt_time' => self::normalizeTime($data['receiptTime'] ?? null),
                     'scanned_dcn' => $dcnFile,
-                    'brief_purpose' => $data['dcnJustification'],
                     'created_by' => $userId,
                     'created_at' => $now,
                     'updated_at' => $now,
                 ];
+                if (Schema::hasColumn('dcs_document_change_notice', 'brief_purpose')) {
+                    $row['brief_purpose'] = $data['dcnJustification'];
+                }
 
                 if (Schema::hasColumn('dcs_document_change_notice', 'is_office_intake')) {
                     $row['is_office_intake'] = true;
@@ -393,16 +395,19 @@ class OfficeIntakeHelper
                 foreach ($rows as $i) {
                     $title = trim((string) ($request->input('documentTitle')[$i] ?? ''));
                     $docNo = trim((string) ($request->input('documentNo')[$i] ?? ''));
-                    DB::table('dcs_doc_revision')->insert([
+                    $revRow = [
                         'dcn_id' => $dcnId,
                         'title' => $title !== '' ? $title : null,
                         'document_no' => $docNo !== '' ? $docNo : null,
                         'effectivity_date' => $request->input('effectiveDate')[$i] ?? null,
                         'revision_no' => $request->input('revisionNo')[$i] ?? null,
                         'scanned_copy' => RegisterPersistHelper::resolveRevisionScannedCopyPath($request, $i, $uploadedFiles),
-                        'brief_purpose' => $request->input('revisionPurpose')[$i] ?? null,
                         'created_at' => $now,
-                    ]);
+                    ];
+                    if (Schema::hasColumn('dcs_doc_revision', 'brief_purpose')) {
+                        $revRow['brief_purpose'] = $request->input('revisionPurpose')[$i] ?? null;
+                    }
+                    DB::table('dcs_doc_revision')->insert($revRow);
                 }
 
                 return $dcnId;
@@ -428,13 +433,9 @@ class OfficeIntakeHelper
         if ($masterlistId > 0) {
             $q->where('ml.id', $masterlistId);
         } else {
-            $q->where('ml.doc_no', $docNo)
-                ->where(function ($qr) {
-                    $qr->whereNull('ml.revision_status')
-                        ->orWhere('ml.revision_status', '')
-                        ->orWhere('ml.revision_status', 'latest');
-                })
-                ->orderByDesc('ml.revise_no');
+            $q->where('ml.doc_no', $docNo);
+            RegisterQueryHelper::applyLatestRevisionStatus($q, 'ml');
+            $q->orderByDesc('ml.revise_no');
         }
 
         $ml = $q->first(['ml.id', 'ml.doc_no', 'ml.originator_name', 'ml.request_id']);

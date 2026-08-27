@@ -58,6 +58,43 @@ class RegisterQueryHelper
         return Schema::hasColumn('dcs_document_requests', 'deleted_at');
     }
 
+    public static function supportsRevisionStatus(): bool
+    {
+        return Schema::hasColumn('dcs_masterlist_registration', 'revision_status');
+    }
+
+    public static function supportsRevisedFromDocNo(): bool
+    {
+        return Schema::hasColumn('dcs_masterlist_registration', 'revised_from_doc_no');
+    }
+
+    /**
+     * Prefer non-obsolete masterlist rows (latest / null / empty).
+     * No-op when revision_status column is missing (treat all as latest).
+     */
+    public static function applyLatestRevisionStatus($query, string $alias = 'ml')
+    {
+        if (! self::supportsRevisionStatus()) {
+            return $query;
+        }
+
+        return $query->where(function ($q) use ($alias) {
+            $q->whereNull("{$alias}.revision_status")
+                ->orWhere("{$alias}.revision_status", '')
+                ->orWhere("{$alias}.revision_status", 'latest');
+        });
+    }
+
+    /** Keep latest + obsolete (exclude soft-deleted docs via applyNotDeleted separately). */
+    public static function applyLiveRevisionStatuses($query, string $alias = 'ml')
+    {
+        if (! self::supportsRevisionStatus()) {
+            return $query;
+        }
+
+        return $query->whereIn("{$alias}.revision_status", ['latest', 'obsolete']);
+    }
+
     public static function isSyllabiLikeName(?string $name): bool
     {
         if ($name === null) {
@@ -344,12 +381,8 @@ class RegisterQueryHelper
     public static function latestEditableRequestIds(): array
     {
         $latestIds = DB::table('dcs_masterlist_registration as ml')
-            ->join('dcs_document_requests as dr', 'dr.id', '=', 'ml.request_id')
-            ->where(function ($q) {
-                $q->whereNull('ml.revision_status')
-                    ->orWhere('ml.revision_status', '')
-                    ->orWhere('ml.revision_status', 'latest');
-            });
+            ->join('dcs_document_requests as dr', 'dr.id', '=', 'ml.request_id');
+        self::applyLatestRevisionStatus($latestIds, 'ml');
         self::applyNotDeleted($latestIds, 'dr');
         self::applyOfficeScope($latestIds, 'dr');
         $latestIds = $latestIds->pluck('ml.request_id');
@@ -842,14 +875,16 @@ class RegisterQueryHelper
         }
 
         $linked = [];
-        foreach ($candidates as $docNo) {
-            $from = trim((string) (DB::table('dcs_masterlist_registration')
-                ->where('doc_no', $docNo)
-                ->whereNotNull('revised_from_doc_no')
-                ->orderByDesc('revise_no')
-                ->value('revised_from_doc_no') ?? ''));
-            if ($from !== '' && isset($familyLookup[strtolower($from)])) {
-                $linked[] = $docNo;
+        if (self::supportsRevisedFromDocNo()) {
+            foreach ($candidates as $docNo) {
+                $from = trim((string) (DB::table('dcs_masterlist_registration')
+                    ->where('doc_no', $docNo)
+                    ->whereNotNull('revised_from_doc_no')
+                    ->orderByDesc('revise_no')
+                    ->value('revised_from_doc_no') ?? ''));
+                if ($from !== '' && isset($familyLookup[strtolower($from)])) {
+                    $linked[] = $docNo;
+                }
             }
         }
 
@@ -858,22 +893,24 @@ class RegisterQueryHelper
         }
 
         $predecessors = [];
-        foreach ($candidates as $docNo) {
-            $predQuery = DB::table('dcs_masterlist_registration as ml')
-                ->join('dcs_document_requests as dr', 'dr.id', '=', 'ml.request_id')
-                ->whereIn('ml.request_id', $requestIds)
-                ->where('dr.doc_type_id', $docTypeId)
-                ->whereRaw('LOWER(TRIM(ml.revised_from_doc_no)) = ?', [strtolower(trim($docNo))]);
-            if ($subTypeId) {
-                $predQuery->where('dr.sub_type_id', $subTypeId);
-            } else {
-                $predQuery->whereNull('dr.sub_type_id');
-            }
-            if (!$includeTrashed) {
-                self::applyNotDeleted($predQuery, 'dr');
-            }
-            if ($predQuery->exists()) {
-                $predecessors[] = $docNo;
+        if (self::supportsRevisedFromDocNo()) {
+            foreach ($candidates as $docNo) {
+                $predQuery = DB::table('dcs_masterlist_registration as ml')
+                    ->join('dcs_document_requests as dr', 'dr.id', '=', 'ml.request_id')
+                    ->whereIn('ml.request_id', $requestIds)
+                    ->where('dr.doc_type_id', $docTypeId)
+                    ->whereRaw('LOWER(TRIM(ml.revised_from_doc_no)) = ?', [strtolower(trim($docNo))]);
+                if ($subTypeId) {
+                    $predQuery->where('dr.sub_type_id', $subTypeId);
+                } else {
+                    $predQuery->whereNull('dr.sub_type_id');
+                }
+                if (!$includeTrashed) {
+                    self::applyNotDeleted($predQuery, 'dr');
+                }
+                if ($predQuery->exists()) {
+                    $predecessors[] = $docNo;
+                }
             }
         }
 
@@ -1167,7 +1204,7 @@ class RegisterQueryHelper
             ->leftJoin('dcs_document_distribution as dist', 'dist.request_id', '=', 'dr.id')
             ->whereIn('dr.id', $visibleIds);
         self::applyNotDeleted($query, 'dr');
-        $query->select([
+        $select = [
             'dr.id',
             'dr.doc_type_id',
             'dr.sub_type_id',
@@ -1176,13 +1213,16 @@ class RegisterQueryHelper
             'ml.doc_no',
             'ml.doc_title as ml_title',
             'ml.revise_no',
-            'ml.revision_status',
             'drf.doc_title as drf_title',
             'drf.id as drf_id',
             'dcn.id as dcn_id',
             'ret.id as ret_id',
             'dist.id as dist_id',
-        ]);
+        ];
+        if (self::supportsRevisionStatus()) {
+            $select[] = 'ml.revision_status';
+        }
+        $query->select($select);
 
         if ($docTypeId !== '' && $docTypeId !== 'all') {
             $query->where('dr.doc_type_id', (int) $docTypeId);
@@ -1441,12 +1481,8 @@ class RegisterQueryHelper
             ->whereNotNull('ml.doc_no')
             ->where('ml.doc_no', '!=', '');
         self::applyNotDeleted($latestMl, 'dr');
+        self::applyLatestRevisionStatus($latestMl, 'ml');
         $latestMl = $latestMl
-            ->where(function ($q) {
-                $q->whereNull('ml.revision_status')
-                    ->orWhere('ml.revision_status', '')
-                    ->orWhere('ml.revision_status', 'latest');
-            })
             ->select('ml.doc_no', DB::raw('MAX(ml.id) as ml_id'))
             ->groupBy('ml.doc_no');
 
@@ -2634,7 +2670,6 @@ class RegisterQueryHelper
             self::hstRow('effectivity', 'Effectivity', self::hstDate($ml->effectivity_date)),
             self::hstRow('deadline', 'Deadline', self::hstDate($ml->deadline)),
             self::hstRow('pages', 'Pages', $ml->no_pages === null ? null : (string) $ml->no_pages),
-            self::hstRow('purpose', 'Purpose', $ml->brief_purpose),
             self::hstRow('receipt_date', 'Date received', self::hstDate($ml->doc_receipt_date)),
             self::hstRow('receipt_time', 'Time received', self::hstTime($ml->doc_receipt_time)),
             self::hstRow('reg_date', 'Date registered', self::hstDate($ml->doc_registered_date)),
@@ -2911,11 +2946,7 @@ class RegisterQueryHelper
         }
 
         if (!$allRevisions && !$dashboardSearch) {
-            $query->where(function ($qr) {
-                $qr->whereNull('ml.revision_status')
-                    ->orWhere('ml.revision_status', '')
-                    ->orWhere('ml.revision_status', 'latest');
-            });
+            self::applyLatestRevisionStatus($query, 'ml');
         }
 
         if ($docTypeId) {
@@ -2950,19 +2981,20 @@ class RegisterQueryHelper
             'ml.doc_title',
             'ml.revise_no',
             'ml.effectivity_date',
-            'ml.brief_purpose',
             'ml.scanned_masterlist',
-            'ml.revision_status',
             'ml.originator_name',
             'dr.doc_type_id',
             'dr.sub_type_id',
             'dt.doc_type_name as type_name',
             'st.doc_type_name as sub_type_name',
         ];
+        if (self::supportsRevisionStatus()) {
+            $select[] = 'ml.revision_status';
+        }
         if ($hasKeywords) {
             $select[] = 'ml.keywords';
         }
-        if (Schema::hasColumn('dcs_masterlist_registration', 'revised_from_doc_no')) {
+        if (self::supportsRevisedFromDocNo()) {
             $select[] = 'ml.revised_from_doc_no';
         }
 
@@ -3021,7 +3053,8 @@ class RegisterQueryHelper
                 'revise_no' => $m->revise_no,
                 'revision_status' => $m->revision_status ?? null,
                 'effectivity_date' => $m->effectivity_date ? Carbon::parse($m->effectivity_date)->format('Y-m-d') : null,
-                'brief_purpose' => $m->brief_purpose,
+                // Brief Purpose is DCN justification only — never masterlist keywords.
+                'brief_purpose' => null,
                 'originator_name' => $m->originator_name ?? null,
                 'keywords' => $m->keywords ?? null,
                 'scanned_copy_url' => $m->scanned_masterlist ? Storage::disk('public')->url($m->scanned_masterlist) : null,
@@ -3173,14 +3206,15 @@ class RegisterQueryHelper
             'ml.doc_title',
             'ml.revise_no',
             'ml.effectivity_date',
-            'ml.brief_purpose',
             'ml.scanned_masterlist',
-            'ml.revision_status',
             'dr.doc_type_id',
             'dr.sub_type_id',
             'dt.doc_type_name as type_name',
             'st.doc_type_name as sub_type_name',
         ];
+        if (self::supportsRevisionStatus()) {
+            $select[] = 'ml.revision_status';
+        }
         if ($hasKeywords) {
             $select[] = 'ml.keywords';
         }
@@ -4002,36 +4036,38 @@ class RegisterQueryHelper
             $query->whereNull('dr.sub_type_id');
         }
 
+        $cols = [
+            'ml.id as masterlist_id',
+            'ml.request_id',
+            'ml.doc_no',
+            'ml.doc_title',
+            'ml.revise_no',
+            'ml.effectivity_date',
+            'ml.scanned_masterlist',
+        ];
+        if (self::supportsRevisionStatus()) {
+            $cols[] = 'ml.revision_status';
+        }
+
         return $query
             ->orderByDesc('ml.revise_no')
             ->orderByDesc('ml.id')
-            ->get([
-                'ml.id as masterlist_id',
-                'ml.request_id',
-                'ml.doc_no',
-                'ml.doc_title',
-                'ml.revise_no',
-                'ml.revision_status',
-                'ml.effectivity_date',
-                'ml.brief_purpose',
-                'ml.scanned_masterlist',
-            ])
+            ->get($cols)
             ->map(function ($row) {
-                // Prefer DCN Justification from that registration for Documents for Revision "Brief Purpose".
-                $dcnPurpose = DB::table('dcs_document_change_notice')
-                    ->where('request_id', $row->request_id)
-                    ->value('brief_purpose');
-                if ($dcnPurpose === null || trim((string) $dcnPurpose) === '') {
-                    $dcnPurpose = DB::table('dcs_doc_revision as rev')
-                        ->join('dcs_document_change_notice as dcn', 'dcn.id', '=', 'rev.dcn_id')
-                        ->where('dcn.request_id', $row->request_id)
-                        ->where('rev.document_no', $row->doc_no)
-                        ->orderByDesc('rev.id')
-                        ->value('rev.brief_purpose');
+                // Rev 0 = original registration: no DCN, so no Brief Purpose.
+                // Later revs: Brief Purpose = that registration's DCN justification only
+                // (never masterlist keywords / brief_purpose).
+                $purpose = null;
+                $reviseNo = (int) ($row->revise_no ?? 0);
+                if ($reviseNo > 0 && Schema::hasColumn('dcs_document_change_notice', 'brief_purpose')) {
+                    $dcnPurpose = DB::table('dcs_document_change_notice')
+                        ->where('request_id', $row->request_id)
+                        ->value('brief_purpose');
+                    if ($dcnPurpose !== null && trim((string) $dcnPurpose) !== '') {
+                        $purpose = trim((string) $dcnPurpose);
+                    }
                 }
-                $row->brief_purpose = ($dcnPurpose !== null && trim((string) $dcnPurpose) !== '')
-                    ? trim((string) $dcnPurpose)
-                    : $row->brief_purpose;
+                $row->brief_purpose = $purpose;
 
                 return self::mapDocumentRevisionRow($row);
             })
@@ -4052,7 +4088,7 @@ class RegisterQueryHelper
             'effectivity_date' => $row->effectivity_date
                 ? Carbon::parse($row->effectivity_date)->format('Y-m-d')
                 : null,
-            'brief_purpose' => $row->brief_purpose,
+            'brief_purpose' => $row->brief_purpose ?? null,
             'scanned_copy_url' => $row->scanned_masterlist
                 ? Storage::disk('public')->url($row->scanned_masterlist)
                 : null,
@@ -4268,7 +4304,6 @@ class RegisterQueryHelper
                 self::previewField('Originator', $ml->originator_name),
                 self::previewField('Deadline', self::formatDate($ml->deadline)),
                 self::previewField('Time Spent (mins)', $ml->time_spent),
-                self::previewField('Brief Purpose', $ml->brief_purpose),
             ],
             'sections' => array_values(array_filter([
                 self::previewOfficesSection('Source Offices', $offices),
@@ -4529,7 +4564,7 @@ class RegisterQueryHelper
                     'latest_effectivity_date' => $latest->effectivity_date ? Carbon::parse($latest->effectivity_date)->format('Y-m-d') : null,
                     'latest_no_pages' => $latest->no_pages,
                     'latest_deadline' => $latest->deadline ? Carbon::parse($latest->deadline)->format('Y-m-d') : null,
-                    'latest_brief_purpose' => $latest->brief_purpose ?? null,
+                    'latest_brief_purpose' => null,
                     'latest_keywords' => $latest->keywords ?? null,
                     'latest_related_documents' => $latestRelatedDocs,
                     // Carry previous approval into revised: show Approval Details only if applicable
@@ -4726,6 +4761,12 @@ class RegisterQueryHelper
                 ->get($retrievalOfficeColumns)
             : collect();
 
+        // Retrieved offices stay visible in Retrieval (status = Retrieved) and are
+        // also merged into Distribution on this form.
+        $ownRetrieved = $retrievalOffices
+            ->filter(fn ($o) => strtolower((string) ($o->retrieval_status ?? 'pending')) === 'retrieved')
+            ->values();
+
         $priorRetrieved = ($ml && !empty($ml->doc_no))
             ? self::priorRetrievedOfficesForDocNo(
                 (string) $ml->doc_no,
@@ -4735,14 +4776,6 @@ class RegisterQueryHelper
                 (int) $id
             )
             : [];
-
-        // Retrieved on THIS form → leave visible Retrieval (go to Distribution).
-        $ownRetrieved = $retrievalOffices
-            ->filter(fn ($o) => strtolower((string) ($o->retrieval_status ?? 'pending')) === 'retrieved')
-            ->values();
-        $retrievalOffices = $retrievalOffices
-            ->filter(fn ($o) => strtolower((string) ($o->retrieval_status ?? 'pending')) !== 'retrieved')
-            ->values();
 
         $distribution = DB::table('dcs_document_distribution')->where('request_id', $id)->first();
         $distributionOfficeColumns = ['d.office_id', 'd.copies', 'o.office_name'];
@@ -4904,7 +4937,7 @@ class RegisterQueryHelper
             'masterlist' => $ml,
             'retrieval' => $retrieval,
             'retrievalOffices' => $retrievalOffices,
-            'retrievedOfficesHidden' => $ownRetrieved,
+            'retrievedOfficesHidden' => collect(),
             'distribution' => $distribution,
             'distributionOffices' => $distributionOffices,
             'approval' => $approval,

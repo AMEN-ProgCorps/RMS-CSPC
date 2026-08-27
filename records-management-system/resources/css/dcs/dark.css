@@ -691,6 +691,75 @@
     color: #fff !important;
 }
 
+[data-theme="dark"] .mon-table--simple thead th,
+[data-theme="dark"] .mon-table--simple thead tr.mon-head-primary th,
+[data-theme="dark"] .mon-table--simple thead tr.mon-head-secondary th,
+[data-theme="dark"] .mon-table--simple thead tr.mon-leaf th,
+[data-theme="dark"] .mon-table--simple thead .mon-sticky,
+[data-theme="dark"] .mon-table--simple .mon-sticky,
+[data-theme="dark"] .mon-table--simple tbody .mon-sticky,
+[data-theme="dark"] .mon-table--simple tfoot .mon-sticky {
+    background: #1e293b !important;
+    color: #e2e8f0 !important;
+    border-color: #334155 !important;
+}
+
+[data-theme="dark"] .mon-table--simple thead tr.mon-head-secondary th,
+[data-theme="dark"] .mon-table--simple tfoot td {
+    background: #0f172a !important;
+}
+
+[data-theme="dark"] .mon-table--simple thead tr.mon-leaf th,
+[data-theme="dark"] .mon-table--simple td,
+[data-theme="dark"] .mon-table--simple tbody td {
+    background: #131c2e !important;
+}
+
+[data-theme="dark"] .mon-table--simple tbody tr:hover td,
+[data-theme="dark"] .mon-table--simple tbody tr:hover .mon-sticky {
+    background: #1a2438 !important;
+    color: #f8fafc !important;
+}
+
+[data-theme="dark"] .mon-table--simple tfoot td,
+[data-theme="dark"] .mon-table--simple tfoot .mon-sticky {
+    background: #1e293b !important;
+    color: #f8fafc !important;
+    border-color: #334155 !important;
+}
+
+[data-theme="dark"] .mon-group-toggle,
+[data-theme="dark"] .mon-group-toggle--inverse {
+    color: #e2e8f0 !important;
+}
+
+[data-theme="dark"] .mon-group-toggle:hover,
+[data-theme="dark"] .mon-group-toggle--inverse:hover {
+    color: #93c5fd !important;
+}
+
+[data-theme="dark"] .mon-table--simple .mon-section-gap,
+[data-theme="dark"] .mon-table--simple thead .mon-section-gap,
+[data-theme="dark"] .mon-table--simple tbody .mon-section-gap,
+[data-theme="dark"] .mon-table--simple tfoot .mon-section-gap {
+    background: transparent !important;
+    border: none !important;
+}
+
+[data-theme="dark"] .mon-check {
+    border-color: #94a3b8 !important;
+    background: #0f172a !important;
+}
+
+[data-theme="dark"] .mon-check.is-checked {
+    background: #334155 !important;
+    border-color: #cbd5e1 !important;
+}
+
+[data-theme="dark"] .mon-check.is-checked::after {
+    border-color: #e2e8f0 !important;
+}
+
 [data-theme="dark"] .mon-muted {
     color: #94a3b8 !important;
 }

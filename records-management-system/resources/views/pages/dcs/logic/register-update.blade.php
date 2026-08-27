@@ -198,9 +198,11 @@ class RegisterUpdateHelper
                     'dcn_receipt_date' => $request->receiptDate,
                     'dcn_receipt_time' => $request->receiptTime,
                     'scanned_dcn' => $dcnFile,
-                    'brief_purpose' => $request->dcnJustification,
                     'updated_at' => $now,
                 ];
+                if (Schema::hasColumn('dcs_document_change_notice', 'brief_purpose')) {
+                    $dcnData['brief_purpose'] = $request->dcnJustification;
+                }
                 if ($dcn) {
                     DB::table('dcs_document_change_notice')->where('id', $dcn->id)->update($dcnData);
                     $dcnId = $dcn->id;
@@ -232,16 +234,19 @@ class RegisterUpdateHelper
                         if (empty($title) && empty($docNo)) {
                             continue;
                         }
-                        DB::table('dcs_doc_revision')->insert([
+                        $revRow = [
                             'dcn_id' => $dcnId,
                             'title' => $title,
                             'document_no' => $docNo,
                             'effectivity_date' => $request->effectiveDate[$i] ?? null,
                             'revision_no' => $request->revisionNo[$i] ?? null,
                             'scanned_copy' => RegisterPersistHelper::resolveRevisionScannedCopyPath($request, $i, $uploadedFiles, $allowedRevPaths),
-                            'brief_purpose' => $request->revisionPurpose[$i] ?? null,
                             'created_at' => $now,
-                        ]);
+                        ];
+                        if (Schema::hasColumn('dcs_doc_revision', 'brief_purpose')) {
+                            $revRow['brief_purpose'] = $request->revisionPurpose[$i] ?? null;
+                        }
+                        DB::table('dcs_doc_revision')->insert($revRow);
                     }
                 }
             }
@@ -289,7 +294,7 @@ class RegisterUpdateHelper
                 $keywordVal = $request->keywords ?? $request->briefPurpose;
                 if (Schema::hasColumn('dcs_masterlist_registration', 'keywords')) {
                     $masterlistData['keywords'] = $keywordVal;
-                } else {
+                } elseif (Schema::hasColumn('dcs_masterlist_registration', 'brief_purpose')) {
                     $masterlistData['brief_purpose'] = $keywordVal;
                 }
                 if (Schema::hasColumn('dcs_masterlist_registration', 'revised_from_doc_no')) {
@@ -390,7 +395,7 @@ class RegisterUpdateHelper
                 $syllabiKeywordVal = $request->keywords ?? $request->briefPurpose;
                 if (Schema::hasColumn('dcs_masterlist_registration', 'keywords')) {
                     $masterlistData['keywords'] = $syllabiKeywordVal;
-                } else {
+                } elseif (Schema::hasColumn('dcs_masterlist_registration', 'brief_purpose')) {
                     $masterlistData['brief_purpose'] = $syllabiKeywordVal;
                 }
                 if ($masterlist) {
@@ -588,7 +593,8 @@ class RegisterUpdateHelper
         RegisterQueryHelper::assertCanAccessRequest($id);
 
         $ml = DB::table('dcs_masterlist_registration')->where('request_id', $id)->first();
-        if ($ml && $ml->doc_no && ($ml->revision_status ?? 'latest') !== 'latest') {
+        $mlStatus = strtolower(trim((string) ($ml->revision_status ?? 'latest')));
+        if ($ml && $ml->doc_no && RegisterQueryHelper::supportsRevisionStatus() && $mlStatus !== 'latest') {
             return self::flashRedirect(
                 'dcs.register.update',
                 'error',
@@ -611,7 +617,7 @@ class RegisterUpdateHelper
 
             // Soft-delete is deleted_at only; tip becomes obsolete, then promote
             // the previous live revision to latest (statuses: latest | obsolete).
-            if ($ml) {
+            if ($ml && RegisterQueryHelper::supportsRevisionStatus()) {
                 DB::table('dcs_masterlist_registration')
                     ->where('id', $ml->id)
                     ->update(['revision_status' => 'obsolete', 'updated_at' => $now]);
@@ -666,8 +672,8 @@ class RegisterUpdateHelper
                 ->where('ml.doc_no', $ml->doc_no)
                 ->where('ml.revise_no', $ml->revise_no)
                 ->where('ml.doc_type_id', $ml->doc_type_id)
-                ->where('ml.id', '!=', $ml->id)
-                ->whereIn('ml.revision_status', ['latest', 'obsolete']);
+                ->where('ml.id', '!=', $ml->id);
+            RegisterQueryHelper::applyLiveRevisionStatuses($conflict, 'ml');
             RegisterQueryHelper::applyNotDeleted($conflict, 'dr');
 
             if ($conflict->exists()) {
@@ -687,7 +693,7 @@ class RegisterUpdateHelper
         }
         DB::table('dcs_document_requests')->where('id', $id)->update($update);
 
-        if ($ml) {
+        if ($ml && RegisterQueryHelper::supportsRevisionStatus()) {
             // Heal any legacy "archived" rows, then recompute latest/obsolete.
             $status = strtolower(trim((string) ($ml->revision_status ?? '')));
             if ($status === 'archived' || $status === '') {
@@ -695,6 +701,8 @@ class RegisterUpdateHelper
                     ->where('id', $ml->id)
                     ->update(['revision_status' => 'obsolete', 'updated_at' => $now]);
             }
+        }
+        if ($ml) {
             RegisterPersistHelper::syncRevisionStatusForMasterlist((int) $ml->id);
         }
 

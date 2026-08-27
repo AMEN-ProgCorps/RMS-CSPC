@@ -178,6 +178,20 @@ body {
     border-left: 1px solid var(--reg-border);
 }
 
+.reg-approval-toggle.is-locked {
+    opacity: 0.72;
+    pointer-events: none;
+}
+
+.reg-approval-toggle.is-locked .reg-toggle-label::after {
+    content: ' (locked)';
+    font-weight: 600;
+    text-transform: none;
+    letter-spacing: 0;
+    color: var(--reg-text-muted, #94a3b8);
+    font-size: 0.72rem;
+}
+
 .reg-toggle-label {
     font-size: 0.78rem;
     font-weight: 700;

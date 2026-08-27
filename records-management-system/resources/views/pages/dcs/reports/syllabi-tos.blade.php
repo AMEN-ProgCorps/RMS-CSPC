@@ -24,7 +24,7 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
             (int) $this->semesterId,
             $programId,
             $section,
-            $this->deadline !== '' ? $this->deadline : null,
+            $this->deadline !== '' ? $this->deadline : SyllabiMonitoringHelper::OVERALL_DEADLINE,
             $status
         );
     }
@@ -55,7 +55,18 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
     }
 }; ?>
 
-<main class="rpt-page" id="rptPage" x-data="{ openDetail: true }">
+<main class="rpt-page" id="rptPage" x-data="{
+    openSyllabi: false,
+    openSyllabiDrf: false,
+    openTos: false,
+    openTosDrf: false,
+    cols(open, full) { return open ? full : 1; },
+    hasLeaf() { return this.openSyllabi || this.openSyllabiDrf || this.openTos || this.openTosDrf; },
+    groupRowspan(open) { return open ? 1 : (this.hasLeaf() ? 2 : 1); },
+    remarkRowspan() { return this.hasLeaf() ? 2 : 1; },
+    syllabiSpan() { return this.cols(this.openSyllabi, 8) + this.cols(this.openSyllabiDrf, 6) + 1; },
+    tosSpan() { return this.cols(this.openTos, 8) + this.cols(this.openTosDrf, 6) + 1; },
+}">
     <header class="rpt-hdr">
         <div>
             <div class="rpt-crumb">Document Control System / Generate Report /<span> Syllabi &amp; TOS/Rubrics</span></div>
@@ -120,7 +131,7 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                         @elseif(count($deadlines) === 0)
                             · No syllabus deadlines registered yet
                         @else
-                            · Select a deadline to save remarks
+                            · All deadlines
                         @endif
                     </span>
                 </div>
@@ -131,91 +142,214 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                 </div>
             </div>
 
-            <div class="rpt-table-scroll mon-table-wrap mon-table-wrap--simple">
+            <div class="rpt-table-scroll mon-table-wrap mon-table-wrap--simple" :class="{ 'is-all-collapsed': !hasLeaf() }">
                 <table class="rpt-table mon-table mon-table--simple">
                     <thead>
                         <tr class="mon-head-primary">
-                            <th class="mon-sticky" rowspan="3">Programs</th>
-                            <th colspan="15">
-                                <button type="button" class="mon-group-toggle mon-group-toggle--inverse" @click="openDetail = !openDetail">
-                                    <span x-text="openDetail ? '▼' : '▶'"></span> SYLLABI
-                                </button>
+                            <th class="mon-sticky" :rowspan="hasLeaf() ? 3 : 2">Programs</th>
+                            <th :colspan="syllabiSpan()">SYLLABI</th>
+                            <th class="mon-section-gap" :rowspan="hasLeaf() ? 3 : 2" aria-hidden="true"></th>
+                            <th :colspan="tosSpan()">TOS/RUBRICS</th>
+                        </tr>
+                        <tr class="mon-head-secondary">
+                            <th
+                                class="mon-group-cell"
+                                :class="{ 'is-collapsed': !openSyllabi }"
+                                :colspan="cols(openSyllabi, 8)"
+                                :rowspan="groupRowspan(openSyllabi)"
+                                @click="openSyllabi = !openSyllabi"
+                            >
+                                <span class="mon-group-toggle">
+                                    <span x-text="openSyllabi ? '▼' : '▶'"></span>
+                                    <span>Syllabi</span>
+                                </span>
                             </th>
-                            <th colspan="3">TOS/RUBRICS</th>
+                            <th
+                                class="mon-group-cell"
+                                :class="{ 'is-collapsed': !openSyllabiDrf }"
+                                :colspan="cols(openSyllabiDrf, 6)"
+                                :rowspan="groupRowspan(openSyllabiDrf)"
+                                @click="openSyllabiDrf = !openSyllabiDrf"
+                            >
+                                <span class="mon-group-toggle">
+                                    <span x-text="openSyllabiDrf ? '▼' : '▶'"></span>
+                                    <span>DRF</span>
+                                </span>
+                            </th>
+                            <th class="mon-remark-head" :rowspan="remarkRowspan()">Remarks</th>
+                            <th
+                                class="mon-group-cell"
+                                :class="{ 'is-collapsed': !openTos }"
+                                :colspan="cols(openTos, 8)"
+                                :rowspan="groupRowspan(openTos)"
+                                @click="openTos = !openTos"
+                            >
+                                <span class="mon-group-toggle">
+                                    <span x-text="openTos ? '▼' : '▶'"></span>
+                                    <span>TOS</span>
+                                </span>
+                            </th>
+                            <th
+                                class="mon-group-cell"
+                                :class="{ 'is-collapsed': !openTosDrf }"
+                                :colspan="cols(openTosDrf, 6)"
+                                :rowspan="groupRowspan(openTosDrf)"
+                                @click="openTosDrf = !openTosDrf"
+                            >
+                                <span class="mon-group-toggle">
+                                    <span x-text="openTosDrf ? '▼' : '▶'"></span>
+                                    <span>DRF</span>
+                                </span>
+                            </th>
+                            <th class="mon-remark-head" :rowspan="remarkRowspan()">Remarks</th>
                         </tr>
-                        <tr class="mon-head-secondary" x-show="openDetail" x-cloak>
-                            <th colspan="8">SYLLABI</th>
-                            <th colspan="7">DOCUMENT REQUEST FORM</th>
-                            <th colspan="3"></th>
-                        </tr>
-                        <tr class="mon-leaf" x-show="openDetail" x-cloak>
-                            <th>Syllabi</th>
-                            <th>Target</th>
-                            <th>Actual</th>
-                            <th>Percentage</th>
-                            <th>Lacking</th>
-                            <th>Submission Dates</th>
-                            <th>Effectivity Date</th>
-                            <th>Released Date</th>
-                            <th>DRF</th>
-                            <th>Target</th>
-                            <th>Actual</th>
-                            <th>Percentage</th>
-                            <th>Lacking</th>
-                            <th>Received Date</th>
-                            <th>Remarks</th>
-                            <th>TOS</th>
-                            <th>DRF</th>
-                            <th>Remarks</th>
+                        <tr class="mon-leaf" x-show="hasLeaf()" x-cloak>
+                            <th x-show="openSyllabi">Syllabi</th>
+                            <th x-show="openSyllabi">Target</th>
+                            <th x-show="openSyllabi">Actual</th>
+                            <th x-show="openSyllabi">Percentage</th>
+                            <th x-show="openSyllabi">Lacking</th>
+                            <th x-show="openSyllabi">Submission Dates</th>
+                            <th x-show="openSyllabi">Effectivity Date</th>
+                            <th x-show="openSyllabi">Released Date</th>
+                            <th x-show="openSyllabiDrf">DRF</th>
+                            <th x-show="openSyllabiDrf">Target</th>
+                            <th x-show="openSyllabiDrf">Actual</th>
+                            <th x-show="openSyllabiDrf">Percentage</th>
+                            <th x-show="openSyllabiDrf">Lacking</th>
+                            <th x-show="openSyllabiDrf">Received Date</th>
+                            <th x-show="openTos">TOS</th>
+                            <th x-show="openTos">Target</th>
+                            <th x-show="openTos">Actual</th>
+                            <th x-show="openTos">Percentage</th>
+                            <th x-show="openTos">Lacking</th>
+                            <th x-show="openTos">Submission Dates</th>
+                            <th x-show="openTos">Effectivity Date</th>
+                            <th x-show="openTos">Released Date</th>
+                            <th x-show="openTosDrf">DRF</th>
+                            <th x-show="openTosDrf">Target</th>
+                            <th x-show="openTosDrf">Actual</th>
+                            <th x-show="openTosDrf">Percentage</th>
+                            <th x-show="openTosDrf">Lacking</th>
+                            <th x-show="openTosDrf">Received Date</th>
                         </tr>
                     </thead>
                     <tbody>
                         @forelse($report['rows'] as $row)
+                            @php
+                                $syllabiDone = $row['syllabi_target'] > 0 && $row['syllabi_actual'] * 2 >= $row['syllabi_target'];
+                                $drfDone = $row['drf_target'] > 0 && $row['drf_actual'] * 2 >= $row['drf_target'];
+                                $tosDone = $row['tos_target'] > 0 && $row['tos_actual'] * 2 >= $row['tos_target'];
+                                $tosDrfDone = $row['tos_drf_target'] > 0 && $row['tos_drf_actual'] * 2 >= $row['tos_drf_target'];
+                            @endphp
                             <tr>
                                 <td class="mon-sticky mon-program" title="{{ $row['program_name'] }}">{{ $row['program_code'] }}</td>
-                                <td class="mon-ratio">{{ $row['syllabi_label'] }}</td>
-                                <td class="mon-ratio" x-show="!openDetail" x-cloak>{{ $row['drf_label'] }}</td>
-                                <td x-show="openDetail">{{ $row['syllabi_target'] }}</td>
-                                <td x-show="openDetail">{{ $row['syllabi_actual'] }}</td>
-                                <td x-show="openDetail">@include('pages.dcs.reports._pct', ['pct' => $row['syllabi_pct']])</td>
-                                <td x-show="openDetail" class="mon-list">
+
+                                {{-- Syllabi --}}
+                                <td class="mon-summary-col" x-show="!openSyllabi" x-cloak>
+                                    <div class="mon-summary-cell">
+                                        <span class="mon-check {{ $syllabiDone ? 'is-checked' : '' }}" aria-hidden="true"></span>
+                                        <span class="mon-ratio">{{ $row['syllabi_label'] }}</span>
+                                    </div>
+                                </td>
+                                <td class="mon-ratio" x-show="openSyllabi" x-cloak>{{ $row['syllabi_label'] }}</td>
+                                <td x-show="openSyllabi" x-cloak>{{ $row['syllabi_target'] }}</td>
+                                <td x-show="openSyllabi" x-cloak>{{ $row['syllabi_actual'] }}</td>
+                                <td x-show="openSyllabi" x-cloak>@include('pages.dcs.reports._pct', ['pct' => $row['syllabi_pct']])</td>
+                                <td x-show="openSyllabi" x-cloak class="mon-list">
                                     @forelse($row['syllabi_lacking_names'] as $course)
                                         <div>{{ $course }}</div>
                                     @empty
                                         <span class="rpt-na">—</span>
                                     @endforelse
                                 </td>
-                                <td x-show="openDetail">{{ $row['submission_dates'] !== '' ? $row['submission_dates'] : '—' }}</td>
-                                <td x-show="openDetail">{{ $row['effectivity_date'] !== '' ? $row['effectivity_date'] : '—' }}</td>
-                                <td x-show="openDetail">{{ $row['released_date'] !== '' ? $row['released_date'] : '—' }}</td>
-                                <td x-show="openDetail" class="mon-ratio">{{ $row['drf_label'] }}</td>
-                                <td x-show="openDetail">{{ $row['drf_target'] }}</td>
-                                <td x-show="openDetail">{{ $row['drf_actual'] }}</td>
-                                <td x-show="openDetail">@include('pages.dcs.reports._pct', ['pct' => $row['drf_pct']])</td>
-                                <td x-show="openDetail" class="mon-list">
+                                <td x-show="openSyllabi" x-cloak>{{ $row['submission_dates'] !== '' ? $row['submission_dates'] : '—' }}</td>
+                                <td x-show="openSyllabi" x-cloak>{{ $row['effectivity_date'] !== '' ? $row['effectivity_date'] : '—' }}</td>
+                                <td x-show="openSyllabi" x-cloak>{{ $row['released_date'] !== '' ? $row['released_date'] : '—' }}</td>
+
+                                {{-- Syllabi DRF --}}
+                                <td class="mon-summary-col" x-show="!openSyllabiDrf" x-cloak>
+                                    <div class="mon-summary-cell">
+                                        <span class="mon-check {{ $drfDone ? 'is-checked' : '' }}" aria-hidden="true"></span>
+                                        <span class="mon-ratio">{{ $row['drf_label'] }}</span>
+                                    </div>
+                                </td>
+                                <td class="mon-ratio" x-show="openSyllabiDrf" x-cloak>{{ $row['drf_label'] }}</td>
+                                <td x-show="openSyllabiDrf" x-cloak>{{ $row['drf_target'] }}</td>
+                                <td x-show="openSyllabiDrf" x-cloak>{{ $row['drf_actual'] }}</td>
+                                <td x-show="openSyllabiDrf" x-cloak>@include('pages.dcs.reports._pct', ['pct' => $row['drf_pct']])</td>
+                                <td x-show="openSyllabiDrf" x-cloak class="mon-list">
                                     @forelse($row['drf_lacking_names'] as $course)
                                         <div>{{ $course }}</div>
                                     @empty
                                         <span class="rpt-na">—</span>
                                     @endforelse
                                 </td>
-                                <td x-show="openDetail">{{ $row['drf_received'] !== '' ? $row['drf_received'] : '—' }}</td>
-                                <td x-show="openDetail">
-                                    <select class="mon-remark mon-remark-{{ $row['syllabi_status'] ?: 'empty' }}"
-                                        @disabled(! $report['remarks_enabled'])
-                                        wire:change="saveRemark({{ $row['program_id'] }}, 'syllabi', $event.target.value)">
+                                <td x-show="openSyllabiDrf" x-cloak>{{ $row['drf_received'] !== '' ? $row['drf_received'] : '—' }}</td>
+
+                                {{-- Syllabi Remarks (always visible) --}}
+                                <td class="mon-remark-cell" wire:key="remark-syllabi-{{ $row['program_id'] }}-{{ $deadline ?: 'overall' }}">
+                                    <select
+                                        class="mon-remark mon-remark-{{ $row['syllabi_status'] ?: 'empty' }}"
+                                        wire:change="saveRemark({{ $row['program_id'] }}, 'syllabi', $event.target.value)"
+                                    >
                                         <option value="">Select</option>
                                         @foreach(\App\Helpers\SyllabiMonitoringHelper::REMARKS as $value => $label)
                                             <option value="{{ $value }}" @selected($row['syllabi_status'] === $value)>{{ $label }}</option>
                                         @endforeach
                                     </select>
                                 </td>
-                                <td class="mon-ratio">{{ $row['tos_label'] }}</td>
-                                <td class="mon-ratio">{{ $row['tos_drf_label'] }}</td>
-                                <td>
-                                    <select class="mon-remark mon-remark-{{ $row['tos_status'] ?: 'empty' }}"
-                                        @disabled(! $report['remarks_enabled'])
-                                        wire:change="saveRemark({{ $row['program_id'] }}, 'tos', $event.target.value)">
+
+                                <td class="mon-section-gap" aria-hidden="true"></td>
+
+                                {{-- TOS --}}
+                                <td class="mon-summary-col" x-show="!openTos" x-cloak>
+                                    <div class="mon-summary-cell">
+                                        <span class="mon-check {{ $tosDone ? 'is-checked' : '' }}" aria-hidden="true"></span>
+                                        <span class="mon-ratio">{{ $row['tos_label'] }}</span>
+                                    </div>
+                                </td>
+                                <td class="mon-ratio" x-show="openTos" x-cloak>{{ $row['tos_label'] }}</td>
+                                <td x-show="openTos" x-cloak>{{ $row['tos_target'] }}</td>
+                                <td x-show="openTos" x-cloak>{{ $row['tos_actual'] }}</td>
+                                <td x-show="openTos" x-cloak>@include('pages.dcs.reports._pct', ['pct' => $row['tos_pct']])</td>
+                                <td x-show="openTos" x-cloak class="mon-list">
+                                    @forelse($row['tos_lacking_names'] as $course)
+                                        <div>{{ $course }}</div>
+                                    @empty
+                                        <span class="rpt-na">—</span>
+                                    @endforelse
+                                </td>
+                                <td x-show="openTos" x-cloak>{{ $row['tos_submission_dates'] !== '' ? $row['tos_submission_dates'] : '—' }}</td>
+                                <td x-show="openTos" x-cloak>{{ $row['tos_effectivity_date'] !== '' ? $row['tos_effectivity_date'] : '—' }}</td>
+                                <td x-show="openTos" x-cloak>{{ $row['tos_released_date'] !== '' ? $row['tos_released_date'] : '—' }}</td>
+
+                                {{-- TOS DRF --}}
+                                <td class="mon-summary-col" x-show="!openTosDrf" x-cloak>
+                                    <div class="mon-summary-cell">
+                                        <span class="mon-check {{ $tosDrfDone ? 'is-checked' : '' }}" aria-hidden="true"></span>
+                                        <span class="mon-ratio">{{ $row['tos_drf_label'] }}</span>
+                                    </div>
+                                </td>
+                                <td class="mon-ratio" x-show="openTosDrf" x-cloak>{{ $row['tos_drf_label'] }}</td>
+                                <td x-show="openTosDrf" x-cloak>{{ $row['tos_drf_target'] }}</td>
+                                <td x-show="openTosDrf" x-cloak>{{ $row['tos_drf_actual'] }}</td>
+                                <td x-show="openTosDrf" x-cloak>@include('pages.dcs.reports._pct', ['pct' => $row['tos_drf_pct']])</td>
+                                <td x-show="openTosDrf" x-cloak class="mon-list">
+                                    @forelse($row['tos_drf_lacking_names'] as $course)
+                                        <div>{{ $course }}</div>
+                                    @empty
+                                        <span class="rpt-na">—</span>
+                                    @endforelse
+                                </td>
+                                <td x-show="openTosDrf" x-cloak>{{ $row['tos_drf_received'] !== '' ? $row['tos_drf_received'] : '—' }}</td>
+
+                                {{-- TOS Remarks (always visible) --}}
+                                <td class="mon-remark-cell" wire:key="remark-tos-{{ $row['program_id'] }}-{{ $deadline ?: 'overall' }}">
+                                    <select
+                                        class="mon-remark mon-remark-{{ $row['tos_status'] ?: 'empty' }}"
+                                        wire:change="saveRemark({{ $row['program_id'] }}, 'tos', $event.target.value)"
+                                    >
                                         <option value="">Select</option>
                                         @foreach(\App\Helpers\SyllabiMonitoringHelper::REMARKS as $value => $label)
                                             <option value="{{ $value }}" @selected($row['tos_status'] === $value)>{{ $label }}</option>
@@ -225,7 +359,7 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                             </tr>
                         @empty
                             <tr>
-                                <td colspan="19" class="rpt-na">No programs found for this college.</td>
+                                <td colspan="7" class="rpt-na">No programs found for this college.</td>
                             </tr>
                         @endforelse
                     </tbody>
@@ -233,22 +367,45 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                         <tfoot>
                             <tr>
                                 <td class="mon-sticky">Total</td>
-                                <td class="mon-ratio">{{ $report['totals']['syllabi_actual'] }} / {{ $report['totals']['syllabi_target'] }}</td>
-                                <td class="mon-ratio" x-show="!openDetail" x-cloak>{{ $report['totals']['drf_actual'] }} / {{ $report['totals']['drf_target'] }}</td>
-                                <td x-show="openDetail">{{ $report['totals']['syllabi_target'] }}</td>
-                                <td x-show="openDetail">{{ $report['totals']['syllabi_actual'] }}</td>
-                                <td x-show="openDetail">@include('pages.dcs.reports._pct', ['pct' => $report['totals']['syllabi_pct']])</td>
-                                <td x-show="openDetail">{{ $report['totals']['syllabi_lacking'] }}</td>
-                                <td x-show="openDetail" colspan="3"></td>
-                                <td x-show="openDetail" class="mon-ratio">{{ $report['totals']['drf_actual'] }} / {{ $report['totals']['drf_target'] }}</td>
-                                <td x-show="openDetail">{{ $report['totals']['drf_target'] }}</td>
-                                <td x-show="openDetail">{{ $report['totals']['drf_actual'] }}</td>
-                                <td x-show="openDetail">@include('pages.dcs.reports._pct', ['pct' => $report['totals']['drf_pct']])</td>
-                                <td x-show="openDetail">{{ $report['totals']['drf_lacking'] }}</td>
-                                <td x-show="openDetail" colspan="2"></td>
-                                <td class="mon-ratio">{{ $report['totals']['tos_actual'] }} / {{ $report['totals']['tos_target'] }}</td>
-                                <td></td>
-                                <td></td>
+                                <td class="mon-summary-col" x-show="!openSyllabi" x-cloak>
+                                    <span class="mon-ratio">{{ $report['totals']['syllabi_actual'] }} / {{ $report['totals']['syllabi_target'] }}</span>
+                                </td>
+                                <td class="mon-ratio" x-show="openSyllabi" x-cloak>{{ $report['totals']['syllabi_actual'] }} / {{ $report['totals']['syllabi_target'] }}</td>
+                                <td x-show="openSyllabi" x-cloak>{{ $report['totals']['syllabi_target'] }}</td>
+                                <td x-show="openSyllabi" x-cloak>{{ $report['totals']['syllabi_actual'] }}</td>
+                                <td x-show="openSyllabi" x-cloak>@include('pages.dcs.reports._pct', ['pct' => $report['totals']['syllabi_pct']])</td>
+                                <td x-show="openSyllabi" x-cloak>{{ $report['totals']['syllabi_lacking'] }}</td>
+                                <td x-show="openSyllabi" x-cloak colspan="3"></td>
+                                <td class="mon-summary-col" x-show="!openSyllabiDrf" x-cloak>
+                                    <span class="mon-ratio">{{ $report['totals']['drf_actual'] }} / {{ $report['totals']['drf_target'] }}</span>
+                                </td>
+                                <td class="mon-ratio" x-show="openSyllabiDrf" x-cloak>{{ $report['totals']['drf_actual'] }} / {{ $report['totals']['drf_target'] }}</td>
+                                <td x-show="openSyllabiDrf" x-cloak>{{ $report['totals']['drf_target'] }}</td>
+                                <td x-show="openSyllabiDrf" x-cloak>{{ $report['totals']['drf_actual'] }}</td>
+                                <td x-show="openSyllabiDrf" x-cloak>@include('pages.dcs.reports._pct', ['pct' => $report['totals']['drf_pct']])</td>
+                                <td x-show="openSyllabiDrf" x-cloak>{{ $report['totals']['drf_lacking'] }}</td>
+                                <td x-show="openSyllabiDrf" x-cloak></td>
+                                <td class="mon-remark-cell"></td>
+                                <td class="mon-section-gap" aria-hidden="true"></td>
+                                <td class="mon-summary-col" x-show="!openTos" x-cloak>
+                                    <span class="mon-ratio">{{ $report['totals']['tos_actual'] }} / {{ $report['totals']['tos_target'] }}</span>
+                                </td>
+                                <td class="mon-ratio" x-show="openTos" x-cloak>{{ $report['totals']['tos_actual'] }} / {{ $report['totals']['tos_target'] }}</td>
+                                <td x-show="openTos" x-cloak>{{ $report['totals']['tos_target'] }}</td>
+                                <td x-show="openTos" x-cloak>{{ $report['totals']['tos_actual'] }}</td>
+                                <td x-show="openTos" x-cloak>@include('pages.dcs.reports._pct', ['pct' => $report['totals']['tos_pct']])</td>
+                                <td x-show="openTos" x-cloak>{{ $report['totals']['tos_lacking'] }}</td>
+                                <td x-show="openTos" x-cloak colspan="3"></td>
+                                <td class="mon-summary-col" x-show="!openTosDrf" x-cloak>
+                                    <span class="mon-ratio">{{ $report['totals']['tos_drf_actual'] }} / {{ $report['totals']['tos_drf_target'] }}</span>
+                                </td>
+                                <td class="mon-ratio" x-show="openTosDrf" x-cloak>{{ $report['totals']['tos_drf_actual'] }} / {{ $report['totals']['tos_drf_target'] }}</td>
+                                <td x-show="openTosDrf" x-cloak>{{ $report['totals']['tos_drf_target'] }}</td>
+                                <td x-show="openTosDrf" x-cloak>{{ $report['totals']['tos_drf_actual'] }}</td>
+                                <td x-show="openTosDrf" x-cloak>@include('pages.dcs.reports._pct', ['pct' => $report['totals']['tos_drf_pct']])</td>
+                                <td x-show="openTosDrf" x-cloak>{{ $report['totals']['tos_drf_lacking'] }}</td>
+                                <td x-show="openTosDrf" x-cloak></td>
+                                <td class="mon-remark-cell"></td>
                             </tr>
                         </tfoot>
                     @endif

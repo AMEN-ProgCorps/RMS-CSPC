@@ -4,6 +4,7 @@ use App\Helpers\RegisterQueryHelper;
 use App\Helpers\ReportHelper;
 use App\Helpers\ReportTemplateHelper;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schema;
 use Livewire\Attributes\Layout;
 use Livewire\Attributes\Title;
 use Livewire\Volt\Component;
@@ -57,7 +58,9 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
             : collect();
 
         return [
-            'originators' => DB::table('dcs_originators')->orderBy('originator_name')->get(),
+            'originators' => Schema::hasTable('dcs_originators')
+                ? DB::table('dcs_originators')->orderBy('originator_name')->get()
+                : collect(),
             'offices' => DB::table('office')->where('is_active', true)->orderBy('office_name')->get(),
             'revisionNos' => DB::table('dcs_masterlist_registration')
                 ->whereNotNull('revise_no')

@@ -284,12 +284,13 @@ class ReportHelper
         }
 
         if (!empty($filters['revision_status']) && $filters['revision_status'] !== 'all') {
-            if ($filters['revision_status'] === 'latest') {
-                $query->where(function ($q) {
-                    $q->whereNull('ml.revision_status')
-                        ->orWhere('ml.revision_status', '')
-                        ->orWhere('ml.revision_status', 'latest');
-                });
+            if (! RegisterQueryHelper::supportsRevisionStatus()) {
+                // Column missing: treat everything as latest; ignore obsolete filter.
+                if ($filters['revision_status'] !== 'latest') {
+                    $query->whereRaw('1 = 0');
+                }
+            } elseif ($filters['revision_status'] === 'latest') {
+                RegisterQueryHelper::applyLatestRevisionStatus($query, 'ml');
             } else {
                 $query->where('ml.revision_status', $filters['revision_status']);
             }
@@ -935,7 +936,7 @@ class ReportHelper
 
         $rows = $dcns->map(function ($dcn, $index) use ($revsByDcn) {
             $revisions = $revsByDcn->get($dcn->id, collect());
-            $purpose = $revisions->first()?->brief_purpose;
+            $purpose = trim((string) ($dcn->brief_purpose ?? '')) ?: null;
 
             return [
                 'item_no'          => $index + 1,

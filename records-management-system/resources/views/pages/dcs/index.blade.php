@@ -28,22 +28,27 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
             ->whereIn('dr.approval_status', ['applicable', 'not_applicable']);
         RegisterQueryHelper::applyNotDeleted($queue, 'dr');
         RegisterQueryHelper::applyOfficeScope($queue, 'dr');
-        $queue = $queue
-            ->selectRaw('COUNT(dr.id)::int as total')
-            ->selectRaw("COUNT(dr.id) FILTER (WHERE COALESCE(NULLIF(TRIM(ml.revision_status), ''), 'latest') <> 'obsolete')::int as latest")
-            ->selectRaw("COUNT(dr.id) FILTER (WHERE ml.revision_status = 'obsolete')::int as obsolete")
-            ->first();
+        $hasRevStatus = RegisterQueryHelper::supportsRevisionStatus();
+        $queue = $queue->selectRaw('COUNT(dr.id)::int as total');
+        if ($hasRevStatus) {
+            $queue = $queue
+                ->selectRaw("COUNT(dr.id) FILTER (WHERE COALESCE(NULLIF(TRIM(ml.revision_status), ''), 'latest') <> 'obsolete')::int as latest")
+                ->selectRaw("COUNT(dr.id) FILTER (WHERE ml.revision_status = 'obsolete')::int as obsolete");
+        } else {
+            $queue = $queue
+                ->selectRaw('COUNT(dr.id)::int as latest')
+                ->selectRaw('0::int as obsolete');
+        }
+        $queue = $queue->first();
 
-        $byType = function (int $typeId) {
+        $byType = function (int $typeId) use ($hasRevStatus) {
             $q = DB::table('dcs_document_requests as dr')
                 ->leftJoin('dcs_masterlist_registration as ml', 'ml.request_id', '=', 'dr.id')
                 ->whereIn('dr.approval_status', ['applicable', 'not_applicable'])
-                ->where('dr.doc_type_id', $typeId)
-                ->where(function ($q) {
-                    $q->whereNull('ml.revision_status')
-                        ->orWhere('ml.revision_status', '')
-                        ->orWhere('ml.revision_status', 'latest');
-                });
+                ->where('dr.doc_type_id', $typeId);
+            if ($hasRevStatus) {
+                RegisterQueryHelper::applyLatestRevisionStatus($q, 'ml');
+            }
             RegisterQueryHelper::applyNotDeleted($q, 'dr');
             RegisterQueryHelper::applyOfficeScope($q, 'dr');
 

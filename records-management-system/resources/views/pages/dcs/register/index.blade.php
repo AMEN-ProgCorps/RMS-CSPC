@@ -554,7 +554,7 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                 <div class="reg-split-right">
                     <div class="reg-field">
                         <label>Office retrieval status</label>
-                        <p class="reg-field-hint">Mark as Retrieved to move an office into Distribution on this form. Remove it from Distribution to put it back as Pending in Retrieval. On the next revision, retrieved offices start again as Pending in Retrieval.</p>
+                        <p class="reg-field-hint">Mark as Retrieved to also add that office to Distribution. The office stays listed here as Retrieved. Set status back to Pending (or remove it from Distribution) to undo. On the next revision, retrieved offices start again as Pending in Retrieval.</p>
                         <div class="reg-search">
                             <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                                 <circle cx="11" cy="11" r="8"/>
@@ -1032,6 +1032,18 @@ function maybeRestoreDistOfficeToRetrieval(tr) {
     if (!fromRetrieval) return;
     const officeName = tr.querySelector('.reg-office-text')?.textContent?.trim() || 'Office';
     const copies = tr.querySelector('input[type="number"][name="distCopies[]"]')?.value || 1;
+
+    // Prefer flipping the visible Retrieval row back to Pending (office stays listed).
+    const retTbody = document.getElementById('retrievalBody');
+    const existingInp = [...(retTbody?.querySelectorAll('input[type="hidden"][name="retrievalOffice[]"]') || [])]
+        .find(inp => String(inp.value) === String(officeId));
+    if (existingInp) {
+        const row = existingInp.closest('tr');
+        const select = row?.querySelector('.reg-retrieval-status');
+        if (select) select.value = 'pending';
+        removeOfficeFromRetrievedHidden(officeId);
+        return;
+    }
     restoreOfficeToRetrievalPending(officeId, officeName, copies);
 }
 
@@ -1043,7 +1055,7 @@ window.handleRetrievalStatusChange = function (select) {
     const copies = tr.querySelector('input[type="number"][name="retrievalCopies[]"]')?.value || 1;
     if (select.value === 'retrieved') {
         addRetrievedOfficeToDistribution(officeId, officeName, copies);
-        moveRetrievalRowToHidden(tr, officeId, copies);
+        // Keep the office visible in Retrieval with status Retrieved.
         const distSection = document.getElementById('section-5');
         if (distSection) distSection.style.display = 'block';
     } else {
@@ -1126,9 +1138,7 @@ function seedRetrievalOfficeRow(tbodyId, totalId, officeId, officeName, copies, 
     tbody.appendChild(tr);
     if ((status || 'pending') === 'retrieved') {
         addRetrievedOfficeToDistribution(officeId, officeName, copies);
-        if (!keepInRetrieval) {
-            moveRetrievalRowToHidden(tr, officeId, copies);
-        }
+        // Retrieved offices stay visible in Retrieval.
     } else {
         removeRetrievedOfficeFromDistribution(officeId);
     }
@@ -2189,9 +2199,12 @@ function populateRevisionRowFromDoc(row, doc) {
     if (effField) effField.value = doc.effectivity_date || '';
     if (revField) revField.value = (doc.revise_no !== null && doc.revise_no !== undefined) ? doc.revise_no : '';
     if (pathInput) pathInput.value = doc.scanned_copy_path || '';
-    if (purposeField) purposeField.value = doc.brief_purpose || '';
+
+    // Rev 0 has no DCN → no Brief Purpose. Later revs use DCN justification only.
+    const reviseNo = Number(doc.revise_no ?? 0);
+    const purpose = reviseNo > 0 ? String(doc.brief_purpose || '').trim() : '';
+    if (purposeField) purposeField.value = purpose;
     if (purposeText) {
-        const purpose = String(doc.brief_purpose || '').trim();
         purposeText.textContent = purpose || '—';
         purposeText.classList.toggle('is-wrap', purpose.length > 42);
     }

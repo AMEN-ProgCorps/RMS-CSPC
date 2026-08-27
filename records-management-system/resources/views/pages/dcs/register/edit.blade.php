@@ -108,12 +108,14 @@ window.__registerCatalog = @json($catalog);
                             <label class="reg-radio">
                                 <input type="radio" name="approval_status" value="applicable"
                                     {{ $docRequest->approval_status === 'applicable' ? 'checked' : '' }}
+                                    disabled
                                     onchange="handleApprovalToggle(true)">
                                 Applicable
                             </label>
                             <label class="reg-radio">
                                 <input type="radio" name="approval_status" value="not_applicable"
                                     {{ $docRequest->approval_status !== 'applicable' ? 'checked' : '' }}
+                                    disabled
                                     onchange="handleApprovalToggle(false)">
                                 Not Applicable
                             </label>
@@ -442,17 +444,17 @@ window.__registerCatalog = @json($catalog);
                     <div class="reg-grid-3">
                         <div class="reg-field">
                             <label>Approving Body</label>
-                            <select id="approvalBody" name="approvalBody" autocomplete="off">
+                            <select id="approvalBody" name="approvalBody" autocomplete="off" disabled>
                                 <option value="" selected disabled>Select approving body</option>
                             </select>
                         </div>
                         <div class="reg-field">
                             <label>Approval Date</label>
-                            <input type="date" id="approvalDate" name="approvalDate" value="{{ \App\Helpers\RegisterQueryHelper::formatDate($approval->approval_date ?? '') }}">
+                            <input type="date" id="approvalDate" name="approvalDate" value="{{ \App\Helpers\RegisterQueryHelper::formatDate($approval->approval_date ?? '') }}" disabled>
                         </div>
                         <div class="reg-field">
                             <label>Approval No.</label>
-                            <input type="text" id="approvalNo" name="approvalNo" placeholder="Approval number" value="{{ $approval->approval_no ?? '' }}">
+                            <input type="text" id="approvalNo" name="approvalNo" placeholder="Approval number" value="{{ $approval->approval_no ?? '' }}" disabled>
                         </div>
                     </div>
                 </div>
@@ -655,7 +657,7 @@ window.__registerCatalog = @json($catalog);
                     <div class="reg-split-right">
                         <div class="reg-field">
                             <label>Office retrieval status</label>
-                            <p class="reg-field-hint">Mark as Retrieved to move an office into Distribution on this form. Remove it from Distribution to put it back as Pending in Retrieval. On the next revision, retrieved offices start again as Pending in Retrieval.</p>
+                            <p class="reg-field-hint">Mark as Retrieved to also add that office to Distribution. The office stays listed here as Retrieved. Set status back to Pending (or remove it from Distribution) to undo. On the next revision, retrieved offices start again as Pending in Retrieval.</p>
                             <div class="reg-search">
                                 <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                                     <circle cx="11" cy="11" r="8"/>
@@ -1156,6 +1158,18 @@ function maybeRestoreDistOfficeToRetrieval(tr) {
     if (!fromRetrieval) return;
     const officeName = tr.querySelector('.reg-office-text')?.textContent?.trim() || 'Office';
     const copies = tr.querySelector('input[type="number"][name="distCopies[]"]')?.value || 1;
+
+    // Prefer flipping the visible Retrieval row back to Pending (office stays listed).
+    const retTbody = document.getElementById('retrievalBody');
+    const existingInp = [...(retTbody?.querySelectorAll('input[type="hidden"][name="retrievalOffice[]"]') || [])]
+        .find(inp => String(inp.value) === String(officeId));
+    if (existingInp) {
+        const row = existingInp.closest('tr');
+        const select = row?.querySelector('.reg-retrieval-status');
+        if (select) select.value = 'pending';
+        removeOfficeFromRetrievedHidden(officeId);
+        return;
+    }
     restoreOfficeToRetrievalPending(officeId, officeName, copies);
 }
 
@@ -1167,7 +1181,7 @@ window.handleRetrievalStatusChange = function (select) {
     const copies = tr.querySelector('input[type="number"][name="retrievalCopies[]"]')?.value || 1;
     if (select.value === 'retrieved') {
         addRetrievedOfficeToDistribution(officeId, officeName, copies);
-        moveRetrievalRowToHidden(tr, officeId, copies);
+        // Keep the office visible in Retrieval with status Retrieved.
         const distSection = document.getElementById('section-5');
         if (distSection) distSection.style.display = 'block';
     } else {
@@ -1236,9 +1250,7 @@ function seedRetrievalOfficeRow(tbodyId, totalId, officeId, officeName, copies, 
     tbody.appendChild(tr);
     if ((status || 'pending') === 'retrieved') {
         addRetrievedOfficeToDistribution(officeId, officeName, copies);
-        if (!keepInRetrieval) {
-            moveRetrievalRowToHidden(tr, officeId, copies);
-        }
+        // Retrieved offices stay visible in Retrieval.
     } else {
         removeRetrievedOfficeFromDistribution(officeId);
     }
@@ -1368,10 +1380,12 @@ document.addEventListener("DOMContentLoaded", async function () {
         if (!allowsDocumentRetrieval()) return;
         const status = tr.querySelector('.reg-retrieval-status')?.value;
         if (status !== 'retrieved') return;
-        // Own mark-as-retrieved on this form: move out of visible Retrieval into Distribution.
-        const select = tr.querySelector('.reg-retrieval-status');
-        if (select && typeof handleRetrievalStatusChange === 'function') {
-            handleRetrievalStatusChange(select);
+        // Keep retrieved offices visible in Retrieval; also ensure they appear in Distribution.
+        const officeId = tr.querySelector('input[type="hidden"][name="retrievalOffice[]"]')?.value;
+        const officeName = tr.querySelector('.reg-office-text')?.textContent?.trim() || 'Office';
+        const copies = tr.querySelector('input[type="number"][name="retrievalCopies[]"]')?.value || 1;
+        if (officeId && typeof addRetrievedOfficeToDistribution === 'function') {
+            addRetrievedOfficeToDistribution(officeId, officeName, copies);
         }
     });
     document.querySelectorAll('#retrievalRetrievedHidden input[name="retrievalOffice[]"]').forEach(inp => {
@@ -1462,6 +1476,7 @@ document.addEventListener("DOMContentLoaded", async function () {
         initDocNoLookup(revField);
         wireSyllabiMasterlistSync();
         wireApprovalDeadlineSync();
+        lockApprovalForEdit();
 
         // ── Auto-copy DRF title to Masterlist title ──
         const drfTitle = document.getElementById('drfTitle');
@@ -2255,9 +2270,12 @@ function populateRevisionRowFromDoc(row, doc) {
     if (effField) effField.value = doc.effectivity_date || '';
     if (revField) revField.value = (doc.revise_no !== null && doc.revise_no !== undefined) ? doc.revise_no : '';
     if (pathInput) pathInput.value = doc.scanned_copy_path || '';
-    if (purposeField) purposeField.value = doc.brief_purpose || '';
+
+    // Rev 0 has no DCN → no Brief Purpose. Later revs use DCN justification only.
+    const reviseNo = Number(doc.revise_no ?? 0);
+    const purpose = reviseNo > 0 ? String(doc.brief_purpose || '').trim() : '';
+    if (purposeField) purposeField.value = purpose;
     if (purposeText) {
-        const purpose = String(doc.brief_purpose || '').trim();
         purposeText.textContent = purpose || '—';
         purposeText.classList.toggle('is-wrap', purpose.length > 42);
     }
@@ -3524,18 +3542,26 @@ function wireApprovalDeadlineSync() {
 }
 
 function enableApproval() {
-    document.querySelectorAll('input[name="approval_status"]').forEach(r => r.disabled = false);
-    if (isRevisedMode() && window.__revisedApprovalContext) {
-        applyRevisedApprovalFromPrevious(window.__revisedApprovalContext);
-    }
+    // Edit page: approval is always locked (view-only).
+    lockApprovalForEdit();
 }
 
 function disableApproval() {
+    // Keep current Applicable / Not Applicable — do not force Not Applicable on edit.
+    lockApprovalForEdit();
+}
+
+/** Lock approval radios + details on edit; preserve saved values. */
+function lockApprovalForEdit() {
     document.querySelectorAll('input[name="approval_status"]').forEach(r => {
-        r.disabled = true; r.checked = r.value === "not_applicable";
+        r.disabled = true;
     });
-    const approval = document.getElementById("section-approval");
-    if (approval) approval.style.display = "none";
+    ['approvalBody', 'approvalDate', 'approvalNo'].forEach(id => {
+        const el = document.getElementById(id);
+        if (el) el.disabled = true;
+    });
+    const toggle = document.querySelector('.reg-approval-toggle');
+    if (toggle) toggle.classList.add('is-locked');
 }
 
 // ══════════════════════════════════════════════

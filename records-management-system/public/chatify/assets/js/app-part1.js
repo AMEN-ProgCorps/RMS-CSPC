@@ -2777,7 +2777,9 @@
 
             const avatar = document.createElement('div');
             avatar.className = 'user-avatar';
-            avatar.style.background = 'linear-gradient(135deg, #1b74e4, #00c3ff)';
+            if (!u.avatar_url) {
+              avatar.style.background = 'linear-gradient(135deg, #1b74e4, #00c3ff)';
+            }
             avatar.innerHTML = avatarInnerHtml(u.avatar_url, getInitialsFromFullName(u.full_name));
 
             const info = document.createElement('div');

@@ -240,8 +240,8 @@ try {
       </div>
       <!-- Pinned Global Chat entry -->
       <div class="user-item" id="globalChatItem" onclick="selectGlobalChat()" onmouseenter="typeof speculateGlobalChatCard === 'function' && speculateGlobalChatCard(this)" onpointerdown="typeof speculateGlobalChatCard === 'function' && speculateGlobalChatCard(this)" style="border-bottom:1px solid var(--border-color);">
-        <div class="user-avatar" style="background:none !important;background-color:transparent !important;">
-          <img src="cspc.webp" width="40" height="40" alt="CSPC logo" style="width:40px;height:40px;object-fit:contain;background:transparent;" draggable="false" ondragstart="return false;" oncontextmenu="return false;">
+        <div class="user-avatar">
+          <img src="cspc.webp" width="48" height="48" alt="CSPC logo" class="avatar-img" style="width:48px;height:48px;object-fit:cover;background:transparent;" draggable="false" ondragstart="return false;" oncontextmenu="return false;">
         </div>
         <div class="user-info">
           <div class="user-name">Global Chat</div>

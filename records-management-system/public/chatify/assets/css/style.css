@@ -315,12 +315,30 @@
     }
 
     .user-avatar img.avatar-img,
-    .message-avatar img.avatar-img {
+    .message-avatar img.avatar-img,
+    .header-avatar img.avatar-img,
+    .mention-user-avatar img.avatar-img,
+    img.avatar-img {
       width: 100%;
       height: 100%;
       border-radius: 50%;
       object-fit: cover;
       display: block;
+      background: transparent !important;
+      background-color: transparent !important;
+    }
+
+    /* Remove blue/gray background circle fill when an avatar container has an <img> (profile image)
+       so transparent PNG/WebP profile pictures display cleanly without a blue background circle underneath.
+       Circle dimensions, border-radius, and position stay identical. */
+    .user-avatar:has(img),
+    .message-avatar:has(img),
+    .header-avatar:has(img),
+    .mention-user-avatar:has(img),
+    .received .message-avatar:has(img),
+    .sent .message-avatar:has(img) {
+      background: transparent !important;
+      background-color: transparent !important;
     }
     .status-dot.online { background-color: #31a24c; }
     .status-dot.offline { background-color: #8a8d91; }

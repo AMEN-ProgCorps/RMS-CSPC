@@ -425,6 +425,8 @@
     function handleFirstLoadScroll() {
       const activeKey = isGlobalChat ? '__global__' : (activeDM || (activeAdminConv ? '__admin__' + activeAdminConv : null));
       let restored = false;
+      let wasRestoredAtBottom = false;
+
       if (activeKey) {
         const savedScrollTop = sessionStorage.getItem('chatScroll_' + activeKey);
         const savedScrollHeight = sessionStorage.getItem('chatScrollHeight_' + activeKey);
@@ -433,6 +435,7 @@
         if (savedAtBottom === 'true') {
           scrollToBottom(true, true);
           restored = true;
+          wasRestoredAtBottom = true;
         } else if (savedScrollTop !== null && savedScrollHeight !== null) {
           const scrollTop = parseFloat(savedScrollTop);
           const scrollHeight = parseFloat(savedScrollHeight);
@@ -443,15 +446,18 @@
       }
       if (!restored) {
         scrollToBottom(true, true);
+        wasRestoredAtBottom = true;
       }
-      // Mark chat as fully loaded so scroll buttons are now allowed to show.
+
+      hideScrollIndicator();
       chatFullyLoaded = true;
-      if (!isAtBottom()) {
-        showScrollIndicator(0);
+
+      if (!wasRestoredAtBottom) {
+        const distance = chatBox.scrollHeight - chatBox.scrollTop - chatBox.clientHeight;
+        if (distance > 250) {
+          showScrollIndicator(0);
+        }
       }
-      // If the restored scroll position (or a very short chat) already
-      // lands the user near the top, kick off the auto-load check right
-      // away instead of waiting for a scroll event that may never fire.
       maybeAutoLoadOlderMessages();
     }
 
@@ -911,12 +917,16 @@
       } else {
         shouldAutoScroll = false;
         userScrolledUp = true;
-        // Only show scroll buttons after the initial load is done so they
-        // don't flash up while messages are still being fetched/rendered.
+        // Only show scroll button when initial load is done AND user has scrolled up > 250px away from bottom
         if (chatFullyLoaded) {
-          const hasMessages = chatBox.querySelectorAll('.message-container').length > 0;
-          if (hasMessages) {
-            showScrollIndicator(0);
+          const distance = chatBox.scrollHeight - chatBox.scrollTop - chatBox.clientHeight;
+          if (distance > 250) {
+            const hasMessages = chatBox.querySelectorAll('.message-container').length > 0;
+            if (hasMessages) {
+              showScrollIndicator(0);
+            }
+          } else if (distance <= 100) {
+            hideScrollIndicator();
           }
         }
       }

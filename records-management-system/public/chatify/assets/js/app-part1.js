@@ -2161,6 +2161,7 @@
       // visibly jump when switching conversations quickly.
       chatBox.innerHTML = '';
       removePaginationBtn();
+      hideScrollIndicator();
 
       dmCursor = '';
       dmHasMore = false;
@@ -2202,6 +2203,7 @@
       hideEditBanner();
       isFirstLoad = true;
       chatFullyLoaded = false; // suppress scroll buttons until global chat finishes loading
+      hideScrollIndicator();
       // Reset local typing indicator state
       if (localTypingTimeout) {
         clearTimeout(localTypingTimeout);

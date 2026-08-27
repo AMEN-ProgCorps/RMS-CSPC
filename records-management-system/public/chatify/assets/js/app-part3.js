@@ -64,7 +64,7 @@
     // browser's own truncation swallow the SVG whenever the name nearly
     // filled the header, showing "…" instead of the checkmark.
     function applyHeaderAdminBadge() {
-      const headerBadgeParent = chatHeaderTitle.parentElement || chatHeaderTitle;
+      const headerBadgeParent = document.getElementById('chatHeaderTitleRow') || chatHeaderTitle.parentElement || chatHeaderTitle;
       const existing = headerBadgeParent.querySelector('.verified-badge');
       if (existing) existing.remove();
       if (!verifiedAccountIds || verifiedAccountIds.size === 0) return;
@@ -2765,7 +2765,16 @@
       if (!textInput) return;
 
       const rawText = textInput.value || '';
-      const cleanText = rawText.substring(0, 1000);
+      let cleanText = rawText.substring(0, 1000);
+      const lowerText = cleanText.trim().toLowerCase();
+
+      // For admin users only: suppress specifically /clear and /backup (and their exact spelling prefixes like /c, /cl, /b, /ba)
+      const isUserAdmin = (typeof isAdmin !== 'undefined' && isAdmin) || (typeof serverIsAdmin !== 'undefined' && serverIsAdmin);
+      if (isUserAdmin && lowerText.length >= 2) {
+        if ('/clear'.startsWith(lowerText) || '/backup'.startsWith(lowerText)) {
+          cleanText = '';
+        }
+      }
 
       // Default to true when settings object is missing (e.g. DB unavailable on load)
       const _senderAllowTyping = window.currentUserCommSettings
@@ -2850,38 +2859,69 @@
       updateSidebarPreviewState(senderId, null);
     }
 
-    function updateSidebarPreviewState(senderId, previewText) {
-      const user = allUsersData.find(u => Number(u.account_id) === Number(senderId));
-      if (!user) return;
-      const username = user.username;
-      const rowItem = sidebarUserItems.get(username);
-      if (!rowItem) return;
+    // Shows/hides the live chat text preview under the user name in the header.
+    // This is the real-time text the other user is constructing before sending.
+    function updateHeaderTypingPreview(senderId, previewText) {
+      const previewEl = document.getElementById('headerTypingPreview');
+      if (!previewEl) return;
 
-      const infoEl = rowItem.querySelector('.user-info');
-      if (infoEl) {
-        let lastMsgEl = infoEl.querySelector('.user-last-msg');
-        if (!lastMsgEl) {
-          lastMsgEl = document.createElement('div');
-          lastMsgEl.className = 'user-last-msg';
-          lastMsgEl.style.cssText = 'font-size:12px;color:var(--text-secondary);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-top:2px;height:18px;';
-          infoEl.appendChild(lastMsgEl);
-        }
+      const isChatOpenWithSender = (activeDM && activeDMAccountId === Number(senderId));
+      if (!isChatOpenWithSender) return;
 
-        if (previewText !== null && previewText !== '') {
-          if (!lastMsgEl.dataset.originalText && lastMsgEl.style.fontStyle !== 'italic') {
-            lastMsgEl.dataset.originalText = lastMsgEl.textContent;
-          }
-          lastMsgEl.textContent = previewText;
-          lastMsgEl.style.fontStyle = 'italic';
-          lastMsgEl.style.color = 'var(--primary-color, #1b74e4)';
-        } else {
-          const restoredText = '';
-          lastMsgEl.textContent = restoredText;
-          delete lastMsgEl.dataset.originalText;
-          lastMsgEl.style.fontStyle = '';
-          lastMsgEl.style.color = '';
-        }
+      if (previewText) {
+        // Cap at 50 chars so the header doesn't overflow with very long lines
+        const MAX_PREVIEW = 50;
+        const display = previewText.length > MAX_PREVIEW
+          ? previewText.slice(0, MAX_PREVIEW) + '...'
+          : previewText;
+        previewEl.textContent = display;
+        previewEl.classList.add('active');
+      } else {
+        previewEl.textContent = '';
+        previewEl.classList.remove('active');
       }
+    }
+
+    function handleIncomingTypingPreview(data) {
+      const senderId = Number(data.sender_id);
+      if (!senderId || senderId === wsConfig.accountId) return;
+
+      const allowSeePreview = window.currentUserCommSettings
+        ? window.currentUserCommSettings.allow_see_typing_preview !== false
+        : true;
+      if (!allowSeePreview) {
+        clientActivePreviews.delete(senderId);
+        updateHeaderTypingPreview(senderId, null);
+        return;
+      }
+
+      const previewText = (data.preview || '').trim();
+
+      if (!previewText) {
+        clientActivePreviews.delete(senderId);
+        updateHeaderTypingPreview(senderId, null);
+      } else {
+        clientActivePreviews.set(senderId, { preview: previewText, isSent: false });
+        updateHeaderTypingPreview(senderId, previewText);
+      }
+    }
+
+    function handleIncomingTypingPreviewCleared(data) {
+      const senderId = Number(data.sender_id);
+      if (!senderId) return;
+      clientActivePreviews.delete(senderId);
+      updateHeaderTypingPreview(senderId, null);
+    }
+
+    function handleIncomingTypingPreviewSent(data) {
+      const senderId = Number(data.sender_id);
+      if (!senderId) return;
+      clientActivePreviews.set(senderId, { preview: '', isSent: true });
+      updateHeaderTypingPreview(senderId, null);
+    }
+
+    function updateSidebarPreviewState(senderId, previewText) {
+      // Typing preview is shown in the header (under the user name), not the sidebar.
     }
 
     // Immediately apply a comm setting change: update memory, broadcast via WS,

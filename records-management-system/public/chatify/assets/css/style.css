@@ -914,6 +914,73 @@
       overflow: hidden;
     }
 
+    /* Name + live typing preview stacked vertically in the header,
+       top-aligned at a fixed position so the name never shifts */
+    .header-user-info {
+      display: flex;
+      flex-direction: column;
+      justify-content: flex-start;
+      padding-top: 2px;
+      min-width: 0;
+      flex: 1 1 auto;
+      overflow: hidden;
+      height: 38px;
+    }
+
+    .header-title-row {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      min-width: 0;
+      max-width: 100%;
+      height: 20px;
+    }
+
+    .header-user-info h1#chatHeaderTitle,
+    .header h1 {
+      font-size: 18px;
+      font-weight: 400;
+      line-height: 20px;
+      margin: 0;
+      padding: 0;
+      color: var(--text-header);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      max-width: 100%;
+      display: inline-block;
+    }
+
+    .header-title-row .verified-badge {
+      display: inline-flex;
+      align-items: center;
+      flex-shrink: 0;
+    }
+
+    /* Live typing text preview — reserved fixed slot below the name */
+    .header-typing-preview {
+      font-size: 12px;
+      font-style: italic;
+      color: #000000;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      max-width: 100%;
+      line-height: 16px;
+      height: 16px;
+      margin-top: 1px;
+      visibility: hidden;
+      opacity: 0;
+      transition: opacity 0.15s ease-in-out;
+    }
+    [data-theme="dark"] .header-typing-preview {
+      color: #ffffff;
+    }
+    .header-typing-preview.active {
+      visibility: visible;
+      opacity: 1;
+    }
+
     /* Small profile picture shown in the header, to the left of the DM
        partner's name — reuses .avatar-img sizing rules for the <img> case,
        falls back to initials text like .user-avatar does. Sized to match

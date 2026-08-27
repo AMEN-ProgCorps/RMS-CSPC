@@ -1320,25 +1320,11 @@
           officeEl.style.display = 'block';
         }
 
-        // Preview line: only shows real-time typing preview, never past messages
         if (info) {
           let lastMsgEl = info.querySelector('.user-last-msg');
-          if (!lastMsgEl) {
-            lastMsgEl = document.createElement('div');
-            lastMsgEl.className = 'user-last-msg';
-            info.appendChild(lastMsgEl);
-          }
-
-          const activeDraft = (typeof clientActivePreviews !== 'undefined') ? clientActivePreviews.get(Number(u.account_id)) : null;
-          const canSeeTyping = window.currentUserCommSettings && window.currentUserCommSettings.allow_see_typing_preview;
-          if (canSeeTyping && activeDraft && activeDraft.preview) {
-            lastMsgEl.textContent = activeDraft.preview;
-            lastMsgEl.style.fontStyle = 'italic';
-            lastMsgEl.style.color = 'var(--primary-color, #1b74e4)';
-          } else {
+          if (lastMsgEl) {
             lastMsgEl.textContent = '';
-            lastMsgEl.style.fontStyle = '';
-            lastMsgEl.style.color = '';
+            lastMsgEl.style.display = 'none';
           }
         }
 
@@ -2162,6 +2148,8 @@
       chatBox.innerHTML = '';
       removePaginationBtn();
       hideScrollIndicator();
+      const _htp = document.getElementById('headerTypingPreview');
+      if (_htp) { _htp.textContent = ''; _htp.classList.remove('active'); }
 
       dmCursor = '';
       dmHasMore = false;
@@ -2204,6 +2192,8 @@
       isFirstLoad = true;
       chatFullyLoaded = false; // suppress scroll buttons until global chat finishes loading
       hideScrollIndicator();
+      const _htpGc = document.getElementById('headerTypingPreview');
+      if (_htpGc) { _htpGc.textContent = ''; _htpGc.classList.remove('active'); }
       // Reset local typing indicator state
       if (localTypingTimeout) {
         clearTimeout(localTypingTimeout);
@@ -2504,6 +2494,15 @@
       messageInput.style.color = '';
       activeMentions = [];
       if (messageInputHighlight) messageInputHighlight.innerHTML = '';
+
+      const headerPreview = document.getElementById('headerTypingPreview');
+      if (headerPreview) {
+        headerPreview.textContent = '';
+        headerPreview.classList.remove('active');
+      }
+      if (typeof sendTypingPreview === 'function') {
+        sendTypingPreview();
+      }
     }
     window.resetMessageInputVisualState = resetMessageInputVisualState;
 

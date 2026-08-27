@@ -3,6 +3,7 @@
 
 use Illuminate\Database\Migrations\Migration;
 use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 
 return new class extends Migration
@@ -11,10 +12,6 @@ return new class extends Migration
     {
         Schema::create('dcs_masterlist_registration', function (Blueprint $table) {
             $table->id();
-            $table->foreignId('checklist_id')->nullable()
-                  ->constrained('dcs_checklist_types');
-            $table->foreignId('version_id')->nullable()
-                  ->constrained('dcs_version_type');
             $table->foreignId('request_id')->nullable()
                   ->constrained('dcs_document_requests');
             $table->foreignId('doc_type_id')->nullable()
@@ -28,20 +25,31 @@ return new class extends Migration
             $table->integer('time_spent')->nullable();
             $table->string('doc_title')->nullable();
             $table->date('effectivity_date')->nullable();
-            $table->integer('revise_no')->nullable();
-            $table->string('revision_status', 20)->default('latest');
+            $table->integer('revise_no')->default(0);
+            // latest = current tip, obsolete = prior revision (or soft-deleted tip).
+            // Soft-delete uses dcs_document_requests.deleted_at — not a third status.
+            $table->enum('revision_status', ['latest', 'obsolete'])->default('latest');
             $table->integer('no_pages')->nullable();
             $table->string('originator_name')->nullable();
             $table->date('deadline')->nullable();
             $table->text('brief_purpose')->nullable();
             $table->text('keywords')->nullable();
             $table->string('scanned_masterlist')->nullable();
+            $table->string('scanned_masterlist_original_name')->nullable();
             $table->unsignedInteger('created_by');
             $table->foreign('created_by')->references('id')->on('account');
             $table->timestamps();
 
             $table->index(['doc_no', 'revision_status'], 'dcs_ml_doc_no_revision_status_idx');
         });
+
+        // Unique among latest/obsolete. Soft-deleted tips stay obsolete and keep
+        // the key occupied until permanently removed.
+        DB::statement("
+            CREATE UNIQUE INDEX dcs_ml_doc_no_revise_type_active_unique
+            ON dcs_masterlist_registration (doc_no, revise_no, doc_type_id)
+            WHERE revision_status IN ('latest', 'obsolete')
+        ");
     }
 
     public function down(): void

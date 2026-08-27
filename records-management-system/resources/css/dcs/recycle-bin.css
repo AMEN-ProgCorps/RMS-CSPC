@@ -10,7 +10,8 @@ body {
     display: flex;
     flex-direction: column;
     height: 100vh;
-    background: var(--rb-bg, #f1f5f9);
+    background: var(--rb-bg);
+    color: var(--rb-text);
 }
 
 .rb-container {
@@ -21,6 +22,8 @@ body {
     bottom: 0;
     padding: var(--dcs-page-pad, 24px);
     overflow-y: auto;
+    background: var(--rb-bg);
+    color: var(--rb-text);
     transition: left 0.3s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
@@ -45,23 +48,23 @@ body {
     display: flex;
     align-items: center;
     justify-content: center;
-    background: linear-gradient(135deg, #ecfdf5 0%, #d1fae5 100%);
-    color: #047857;
+    background: var(--rb-green-bg);
+    color: var(--rb-green);
     font-size: 1.2rem;
-    border: 1px solid #a7f3d0;
+    border: 1px solid var(--dcs-success-border);
 }
 
 .rb-title {
     font-size: var(--dcs-title-size, 1.5rem);
     font-weight: 800;
-    color: var(--rb-text, #0f172a);
+    color: var(--rb-text);
     letter-spacing: -0.02em;
 }
 
 .rb-subtitle {
     margin-top: 2px;
     font-size: 0.82rem;
-    color: var(--rb-text-muted, #64748b);
+    color: var(--rb-text-muted);
 }
 
 .rb-header-actions {
@@ -84,18 +87,22 @@ body {
 }
 
 .rb-count-badge {
-    background: #fff;
-    border: 1px solid var(--rb-border, #e2e8f0);
-    color: var(--rb-text-muted, #64748b);
+    background: var(--rb-surface);
+    border: 1.5px solid var(--rb-border);
+    color: var(--rb-text-muted);
+    box-shadow: var(--rb-shadow);
 }
 
 .rb-back-link {
-    background: var(--rb-accent, #0d2a7a);
+    background: var(--rb-accent);
     color: #fff;
+    border: 1.5px solid var(--rb-accent);
+    box-shadow: var(--rb-shadow);
 }
 
 .rb-back-link:hover {
-    background: #0a2163;
+    background: var(--rb-accent-hover);
+    border-color: var(--rb-accent-hover);
 }
 
 .rb-callout {
@@ -105,8 +112,8 @@ body {
     padding: 14px 16px;
     margin-bottom: 18px;
     border-radius: 12px;
-    border: 1px solid #bfdbfe;
-    background: linear-gradient(180deg, #eff6ff 0%, #f8fafc 100%);
+    border: 1px solid var(--rb-border-strong);
+    background: var(--rb-accent-subtle);
 }
 
 .rb-callout-icon {
@@ -116,22 +123,23 @@ body {
     display: flex;
     align-items: center;
     justify-content: center;
-    background: #dbeafe;
-    color: #1d4ed8;
+    background: var(--rb-surface);
+    color: var(--rb-accent);
+    border: 1px solid var(--rb-border);
     flex-shrink: 0;
 }
 
 .rb-callout-text strong {
     display: block;
     font-size: 0.84rem;
-    color: #1e3a8a;
+    color: var(--rb-text);
     margin-bottom: 4px;
 }
 
 .rb-callout-text p {
     font-size: 0.78rem;
     line-height: 1.5;
-    color: #475569;
+    color: var(--rb-text-muted);
 }
 
 .rb-search-bar {
@@ -150,7 +158,7 @@ body {
     left: 14px;
     top: 50%;
     transform: translateY(-50%);
-    color: #94a3b8;
+    color: var(--rb-text-subtle);
     font-size: 0.85rem;
     pointer-events: none;
 }
@@ -158,26 +166,30 @@ body {
 .rb-search-input {
     width: 100%;
     height: 42px;
-    border: 1.5px solid var(--rb-border, #e2e8f0);
+    border: 1.5px solid var(--rb-border);
     border-radius: 10px;
     padding: 0 14px 0 38px;
     font-size: 0.85rem;
-    color: var(--rb-text, #0f172a);
-    background: #fff;
+    color: var(--rb-text);
+    background: var(--rb-surface);
     outline: none;
-    transition: all 0.2s ease;
+    transition: border-color 0.2s ease, box-shadow 0.2s ease, background 0.2s ease;
 }
 
 .rb-search-input:focus {
-    border-color: var(--rb-accent, #0d2a7a);
-    box-shadow: 0 0 0 3px rgba(13, 42, 122, 0.08);
+    border-color: var(--rb-accent);
+    box-shadow: 0 0 0 3px var(--rb-accent-subtle);
+}
+
+.rb-search-input::placeholder {
+    color: var(--rb-text-subtle);
 }
 
 .rb-table-card {
-    background: #fff;
-    border: 1px solid var(--rb-border, #e2e8f0);
+    background: var(--rb-surface);
+    border: 1px solid var(--rb-border);
     border-radius: 14px;
-    box-shadow: 0 10px 30px rgba(15, 23, 42, 0.05);
+    box-shadow: var(--rb-shadow);
     overflow: hidden;
 }
 
@@ -187,7 +199,7 @@ body {
 }
 
 .rb-table thead {
-    background: linear-gradient(180deg, #0d2a7a 0%, #12358f 100%);
+    background: var(--rb-accent);
 }
 
 .rb-table thead th {
@@ -202,12 +214,12 @@ body {
 }
 
 .rb-table tbody tr {
-    border-bottom: 1px solid var(--rb-border, #e2e8f0);
+    border-bottom: 1px solid var(--rb-border);
     transition: background 0.15s ease;
 }
 
 .rb-table tbody tr:hover {
-    background: #f8fafc;
+    background: var(--rb-surface-hover);
 }
 
 .rb-table tbody tr:last-child {
@@ -217,7 +229,7 @@ body {
 .rb-table tbody td {
     padding: 14px 18px;
     font-size: 0.84rem;
-    color: var(--rb-text, #0f172a);
+    color: var(--rb-text);
     vertical-align: middle;
 }
 
@@ -232,7 +244,7 @@ body {
 .rb-doc-no {
     font-size: 0.78rem;
     font-weight: 600;
-    color: var(--rb-text-muted, #64748b);
+    color: var(--rb-text-muted);
     font-variant-numeric: tabular-nums;
 }
 
@@ -243,8 +255,8 @@ body {
     border-radius: 999px;
     font-size: 0.72rem;
     font-weight: 650;
-    background: #eff6ff;
-    color: #1d4ed8;
+    background: var(--rb-accent-subtle);
+    color: var(--rb-accent);
     white-space: nowrap;
 }
 
@@ -257,13 +269,13 @@ body {
     border-radius: 6px;
     font-size: 0.78rem;
     font-weight: 700;
-    background: #f0fdf4;
-    color: #166534;
+    background: var(--rb-green-bg);
+    color: var(--rb-green);
 }
 
 .rb-deleted-at {
     font-size: 0.78rem;
-    color: var(--rb-text-muted, #64748b);
+    color: var(--rb-text-muted);
     white-space: nowrap;
 }
 
@@ -271,7 +283,29 @@ body {
     display: block;
     margin-top: 2px;
     font-size: 0.68rem;
-    color: #94a3b8;
+    color: var(--rb-text-subtle);
+}
+
+.rb-expires-at {
+    font-size: 0.78rem;
+    font-weight: 600;
+    color: var(--rb-text);
+    white-space: nowrap;
+}
+
+.rb-expires-left {
+    display: block;
+    margin-top: 2px;
+    font-size: 0.68rem;
+    color: var(--rb-text-subtle);
+}
+
+.rb-expires-soon {
+    display: block;
+    margin-top: 2px;
+    font-size: 0.68rem;
+    font-weight: 600;
+    color: #b45309;
 }
 
 .rb-actions {
@@ -284,48 +318,53 @@ body {
     height: 34px;
     padding: 0 12px;
     border-radius: 8px;
-    border: 1px solid var(--rb-border, #e2e8f0);
-    background: #fff;
-    color: var(--rb-text-muted, #64748b);
+    border: 1.5px solid var(--rb-border);
+    background: var(--rb-surface);
+    color: var(--rb-text-muted);
     font-size: 0.76rem;
     font-weight: 650;
     cursor: pointer;
     display: inline-flex;
     align-items: center;
     gap: 6px;
-    transition: all 0.2s ease;
+    transition: background 0.2s ease, border-color 0.2s ease, color 0.2s ease, transform 0.2s ease;
 }
 
 .rb-btn:hover {
     transform: translateY(-1px);
+    background: var(--rb-surface-hover);
+    border-color: var(--rb-border-strong);
+    color: var(--rb-text);
 }
 
 .rb-btn-restore {
-    color: #047857;
-    border-color: #a7f3d0;
-    background: #ecfdf5;
+    color: var(--rb-green);
+    border-color: var(--dcs-success-border);
+    background: var(--rb-green-bg);
 }
 
 .rb-btn-restore:hover {
-    background: #d1fae5;
-    border-color: #6ee7b7;
+    background: var(--rb-green-bg);
+    border-color: var(--rb-green);
+    color: var(--rb-green);
 }
 
 .rb-btn-delete {
-    color: #b91c1c;
-    border-color: #fecaca;
-    background: #fef2f2;
+    color: var(--rb-red);
+    border-color: var(--dcs-red-border);
+    background: var(--rb-red-bg);
 }
 
 .rb-btn-delete:hover {
-    background: #fee2e2;
-    border-color: #fca5a5;
+    background: var(--rb-red-bg);
+    border-color: var(--rb-red);
+    color: var(--rb-red);
 }
 
 .rb-empty {
     text-align: center;
     padding: 72px 20px;
-    color: var(--rb-text-muted, #64748b);
+    color: var(--rb-text-muted);
 }
 
 .rb-empty-icon {
@@ -336,21 +375,23 @@ body {
     display: flex;
     align-items: center;
     justify-content: center;
-    background: #ecfdf5;
-    color: #059669;
+    background: var(--rb-green-bg);
+    color: var(--rb-green);
     font-size: 1.8rem;
+    border: 1px solid var(--dcs-success-border);
 }
 
 .rb-empty h3 {
     font-size: 1rem;
     font-weight: 700;
-    color: var(--rb-text, #0f172a);
+    color: var(--rb-text);
     margin-bottom: 6px;
 }
 
 .rb-empty p {
     font-size: 0.82rem;
     line-height: 1.5;
+    color: var(--rb-text-muted);
 }
 
 .rb-pagination {
@@ -358,13 +399,13 @@ body {
     justify-content: space-between;
     align-items: center;
     padding: 14px 18px;
-    border-top: 1px solid var(--rb-border, #e2e8f0);
-    background: #f8fafc;
+    border-top: 1px solid var(--rb-border);
+    background: var(--rb-surface-hover);
 }
 
 .rb-pagination-info {
     font-size: 0.82rem;
-    color: var(--rb-text-muted, #64748b);
+    color: var(--rb-text-muted);
 }
 
 .rb-pagination-links {
@@ -379,26 +420,26 @@ body {
     min-width: 34px;
     height: 34px;
     padding: 0 12px;
-    border: 1px solid var(--rb-border, #e2e8f0);
+    border: 1.5px solid var(--rb-border);
     border-radius: 8px;
     font-size: 0.82rem;
     font-weight: 650;
-    color: var(--rb-text, #0f172a);
-    background: #fff;
+    color: var(--rb-text);
+    background: var(--rb-surface);
     cursor: pointer;
-    transition: all 0.15s ease;
+    transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
 }
 
 .rb-pg:hover {
-    border-color: var(--rb-accent, #0d2a7a);
-    color: var(--rb-accent, #0d2a7a);
-    background: #eff6ff;
+    border-color: var(--rb-accent);
+    color: var(--rb-accent);
+    background: var(--rb-accent-subtle);
 }
 
 .rb-modal-overlay {
     position: fixed;
     inset: 0;
-    background: rgba(15, 23, 42, 0.45);
+    background: rgba(15, 23, 42, 0.55);
     display: flex;
     align-items: center;
     justify-content: center;
@@ -407,13 +448,14 @@ body {
 }
 
 .rb-modal {
-    background: #fff;
+    background: var(--rb-surface);
     border-radius: 16px;
     padding: 28px 32px;
     width: min(440px, 92vw);
     text-align: center;
-    box-shadow: 0 24px 48px rgba(15, 23, 42, 0.18);
-    border: 1px solid var(--rb-border, #e2e8f0);
+    box-shadow: var(--dcs-shadow-lg);
+    border: 1px solid var(--rb-border);
+    color: var(--rb-text);
     animation: rbModalIn 0.2s ease;
 }
 
@@ -434,25 +476,25 @@ body {
 }
 
 .rb-modal-icon.is-restore {
-    background: #ecfdf5;
-    color: #047857;
+    background: var(--rb-green-bg);
+    color: var(--rb-green);
 }
 
 .rb-modal-icon.is-danger {
-    background: #fef2f2;
-    color: #dc2626;
+    background: var(--rb-red-bg);
+    color: var(--rb-red);
 }
 
 .rb-modal h3 {
     font-size: 1.1rem;
     font-weight: 700;
-    color: var(--rb-text, #0f172a);
+    color: var(--rb-text);
     margin-bottom: 8px;
 }
 
 .rb-modal p {
     font-size: 0.82rem;
-    color: var(--rb-text-muted, #64748b);
+    color: var(--rb-text-muted);
     line-height: 1.55;
     margin-bottom: 24px;
 }
@@ -469,7 +511,7 @@ body {
     font-size: 0.82rem;
     font-weight: 650;
     cursor: pointer;
-    transition: all 0.2s ease;
+    transition: background 0.2s ease, border-color 0.2s ease, color 0.2s ease;
     display: flex;
     align-items: center;
     justify-content: center;
@@ -478,31 +520,32 @@ body {
 }
 
 .rb-modal-cancel {
-    background: #fff;
-    color: var(--rb-text-muted, #64748b);
-    border: 1.5px solid var(--rb-border, #e2e8f0);
+    background: var(--rb-surface);
+    color: var(--rb-text-muted);
+    border: 1.5px solid var(--rb-border);
 }
 
 .rb-modal-cancel:hover {
-    background: #f8fafc;
+    background: var(--rb-surface-hover);
+    color: var(--rb-text);
 }
 
 .rb-modal-restore {
-    background: #059669;
+    background: var(--rb-green);
     color: #fff;
 }
 
 .rb-modal-restore:hover {
-    background: #047857;
+    filter: brightness(1.08);
 }
 
 .rb-modal-danger {
-    background: #dc2626;
+    background: var(--rb-red);
     color: #fff;
 }
 
 .rb-modal-danger:hover {
-    background: #b91c1c;
+    filter: brightness(1.08);
 }
 
 @media (max-width: 900px) {

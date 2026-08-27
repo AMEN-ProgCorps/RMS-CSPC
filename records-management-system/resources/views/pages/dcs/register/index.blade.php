@@ -100,7 +100,10 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                                     <td><input type="date" name="effectiveDate[]" readonly class="reg-revrow-locked" tabindex="-1"></td>
                                     <td><input type="number" name="revisionNo[]" placeholder="—" readonly class="reg-revrow-locked" tabindex="-1"></td>
                                     <td class="reg-rev-scan-cell" style="text-align:center;color:#94a3b8;">—</td>
-                                    <td><input type="text" name="revisionPurpose[]" placeholder="—" readonly class="reg-revrow-locked" tabindex="-1"></td>
+                                    <td class="reg-rev-purpose-cell">
+                                        <input type="hidden" name="revisionPurpose[]" value="">
+                                        <span class="reg-rev-purpose-text">—</span>
+                                    </td>
                                     <td>
                                         <button type="button" class="reg-row-del" onclick="removeRevisionRow(this)">
                                             <i class="fa-solid fa-trash-can"></i>
@@ -410,6 +413,7 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                     <div class="reg-field">
                         <label>Revision No.</label>
                         <input type="number" id="masterlistRevisionNo" name="masterlistRevisionNo" min="0" placeholder="0">
+                        <span id="revNoHint" style="display:block;margin-top:4px;font-size:12px;"></span>
                     </div>
                     <div class="reg-field">
                         <label>No. of Pages</label>
@@ -451,7 +455,16 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                 <div class="reg-grid-2">
                     <div class="reg-field">
                         <label>Keywords</label>
-                        <input type="text" id="keywords" name="keywords" placeholder="Comma-separated keywords...">
+                        <div class="reg-keywords" id="keywordsWidget" data-keywords-widget>
+                            <div class="reg-keywords-box" data-keywords-box>
+                                <div class="reg-keywords-chips" data-keywords-chips></div>
+                                <input type="text" class="reg-keywords-entry" data-keywords-entry
+                                    placeholder="Type a keyword and press Enter..."
+                                    autocomplete="off">
+                            </div>
+                            <input type="hidden" id="keywords" name="keywords" value="">
+                            <p class="reg-keywords-hint">Press Enter or comma to add. Click × to remove.</p>
+                        </div>
                     </div>
                     <div class="reg-field">
                         <label>Related Documents</label>
@@ -541,7 +554,7 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                 <div class="reg-split-right">
                     <div class="reg-field">
                         <label>Office retrieval status</label>
-                        <p class="reg-field-hint">Mark offices as retrieved to include them in Distribution again.</p>
+                        <p class="reg-field-hint">Mark as Retrieved to move an office into Distribution on this form. Remove it from Distribution to put it back as Pending in Retrieval. On the next revision, retrieved offices start again as Pending in Retrieval.</p>
                         <div class="reg-search">
                             <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                                 <circle cx="11" cy="11" r="8"/>
@@ -572,6 +585,7 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                                     </td>
                                 </tr>
                             </tbody>
+                            <tbody id="retrievalRetrievedHidden" style="display:none;" aria-hidden="true"></tbody>
                             <tfoot>
                                 <tr>
                                     <td colspan="2">Total No. of Copies</td>
@@ -801,6 +815,7 @@ let relatedDocsCache = [];
 let relatedDocsSelected = window.__existingRelatedDocs || [];
 let relatedDocsSelectedPanelOpen = false;
 let docNoDuplicate = false;
+let revNoDuplicate = false;
 let revisionRowUidCounter = 0;
 let revSearchCache = {};
 let revSearchTimers = {};
@@ -956,6 +971,70 @@ function removeRetrievedOfficeFromDistribution(officeId) {
     if (typeof syncDistClusterChipState === 'function') syncDistClusterChipState();
 }
 
+function isOfficeInRetrievedHidden(officeId) {
+    const hidden = document.getElementById('retrievalRetrievedHidden');
+    if (!hidden) return false;
+    return [...hidden.querySelectorAll('input[name="retrievalOffice[]"]')]
+        .some(inp => String(inp.value) === String(officeId));
+}
+
+function removeOfficeFromRetrievedHidden(officeId) {
+    const hidden = document.getElementById('retrievalRetrievedHidden');
+    if (!hidden) return 1;
+    let copies = 1;
+    for (const inp of hidden.querySelectorAll('input[name="retrievalOffice[]"]')) {
+        if (String(inp.value) !== String(officeId)) continue;
+        const row = inp.closest('tr');
+        const copiesInp = row?.querySelector('input[name="retrievalCopies[]"]');
+        copies = parseInt(copiesInp?.value, 10) || 1;
+        row?.remove();
+        break;
+    }
+    return copies;
+}
+
+/** Undo Mark-as-Retrieved: drop hidden retrieved row and show office as Pending again. */
+function restoreOfficeToRetrievalPending(officeId, officeName, copies) {
+    if (!officeId) return;
+    const hiddenCopies = removeOfficeFromRetrievedHidden(officeId);
+    const useCopies = parseInt(copies, 10) || hiddenCopies || 1;
+    const tbody = document.getElementById('retrievalBody');
+    if (!tbody) return;
+
+    const already = [...tbody.querySelectorAll('input[type="hidden"][name="retrievalOffice[]"]')]
+        .some(inp => String(inp.value) === String(officeId));
+    if (!already) {
+        const emptyRow = tbody.querySelector('.reg-empty-row');
+        if (emptyRow) emptyRow.remove();
+        const tr = document.createElement('tr');
+        tr.className = 'reg-office-added';
+        tr.innerHTML =
+            '<td><input type="hidden" name="retrievalOffice[]" value="' + String(officeId).replace(/"/g, '') + '">' +
+            '<div class="reg-office-name"><div class="reg-office-icon"><i class="fa-solid fa-building"></i></div>' +
+            '<span class="reg-office-text">' + escapeHtml(officeName || 'Office') + '</span></div></td>' +
+            '<td>' + retrievalStatusSelectHTML('pending') + '</td>' +
+            '<td style="text-align:center;"><input type="number" name="retrievalCopies[]" value="' + useCopies +
+            '" min="1" oninput="updateTotal(\'totalRetrievalCopies\', \'retrievalBody\')"></td>' +
+            '<td><button type="button" class="btn-remove" onclick="removeOffice(this, \'totalRetrievalCopies\', \'retrievalBody\')">' +
+            '<i class="fa-solid fa-xmark"></i></button></td>';
+        tbody.appendChild(tr);
+    }
+    updateTotal('totalRetrievalCopies', 'retrievalBody');
+    const retSection = document.getElementById('section-4');
+    if (retSection) retSection.style.display = 'block';
+}
+
+function maybeRestoreDistOfficeToRetrieval(tr) {
+    if (!tr) return;
+    const officeId = tr.querySelector('input[type="hidden"][name="distOffice[]"]')?.value;
+    if (!officeId) return;
+    const fromRetrieval = tr.dataset.fromRetrieval === '1' || isOfficeInRetrievedHidden(officeId);
+    if (!fromRetrieval) return;
+    const officeName = tr.querySelector('.reg-office-text')?.textContent?.trim() || 'Office';
+    const copies = tr.querySelector('input[type="number"][name="distCopies[]"]')?.value || 1;
+    restoreOfficeToRetrievalPending(officeId, officeName, copies);
+}
+
 window.handleRetrievalStatusChange = function (select) {
     const tr = select?.closest('tr');
     if (!tr) return;
@@ -964,12 +1043,54 @@ window.handleRetrievalStatusChange = function (select) {
     const copies = tr.querySelector('input[type="number"][name="retrievalCopies[]"]')?.value || 1;
     if (select.value === 'retrieved') {
         addRetrievedOfficeToDistribution(officeId, officeName, copies);
+        moveRetrievalRowToHidden(tr, officeId, copies);
+        const distSection = document.getElementById('section-5');
+        if (distSection) distSection.style.display = 'block';
     } else {
         removeRetrievedOfficeFromDistribution(officeId);
     }
 };
 
-function seedRetrievalOfficeRow(tbodyId, totalId, officeId, officeName, copies, status) {
+function moveRetrievalRowToHidden(tr, officeId, copies) {
+    const hiddenBody = document.getElementById('retrievalRetrievedHidden')
+        || ensureRetrievalHiddenBody();
+    if (!hiddenBody) {
+        tr.remove();
+        return;
+    }
+    const existing = [...hiddenBody.querySelectorAll('input[name="retrievalOffice[]"]')]
+        .find(inp => String(inp.value) === String(officeId));
+    if (!existing) {
+        const row = document.createElement('tr');
+        row.innerHTML = '<td>' +
+            '<input type="hidden" name="retrievalOffice[]" value="' + String(officeId).replace(/"/g, '') + '">' +
+            '<input type="hidden" name="retrievalStatus[]" value="retrieved">' +
+            '<input type="hidden" name="retrievalCopies[]" value="' + String(copies).replace(/"/g, '') + '">' +
+            '</td>';
+        hiddenBody.appendChild(row);
+    }
+    const tbody = tr.closest('tbody');
+    tr.remove();
+    if (tbody && tbody.querySelectorAll('tr.reg-office-added').length === 0) {
+        tbody.innerHTML = emptyOfficeRowHTML('retrievalBody');
+    }
+    updateTotal('totalRetrievalCopies', 'retrievalBody');
+}
+
+function ensureRetrievalHiddenBody() {
+    let hidden = document.getElementById('retrievalRetrievedHidden');
+    if (hidden) return hidden;
+    const table = document.querySelector('#retrievalBody')?.closest('table');
+    if (!table) return null;
+    hidden = document.createElement('tbody');
+    hidden.id = 'retrievalRetrievedHidden';
+    hidden.style.display = 'none';
+    hidden.setAttribute('aria-hidden', 'true');
+    table.appendChild(hidden);
+    return hidden;
+}
+
+function seedRetrievalOfficeRow(tbodyId, totalId, officeId, officeName, copies, status, options = {}) {
     const tbody = document.getElementById(tbodyId);
     if (!tbody) return;
 
@@ -980,8 +1101,10 @@ function seedRetrievalOfficeRow(tbodyId, totalId, officeId, officeName, copies, 
         .find(inp => String(inp.value) === String(officeId));
     if (existing) return;
 
+    const keepInRetrieval = !!options.keepInRetrieval;
     const tr = document.createElement('tr');
     tr.className = 'reg-office-added';
+    if (keepInRetrieval) tr.dataset.fromPriorRetrieval = '1';
     tr.innerHTML = `
         <td>
             <input type="hidden" name="retrievalOffice[]" value="${officeId}">
@@ -1002,7 +1125,10 @@ function seedRetrievalOfficeRow(tbodyId, totalId, officeId, officeName, copies, 
     `;
     tbody.appendChild(tr);
     if ((status || 'pending') === 'retrieved') {
-        handleRetrievalStatusChange(tr.querySelector('.reg-retrieval-status'));
+        addRetrievedOfficeToDistribution(officeId, officeName, copies);
+        if (!keepInRetrieval) {
+            moveRetrievalRowToHidden(tr, officeId, copies);
+        }
     } else {
         removeRetrievedOfficeFromDistribution(officeId);
     }
@@ -1121,6 +1247,7 @@ document.addEventListener("DOMContentLoaded", async function () {
 
     initSelectProtection();
     initFileInputs();
+    initKeywordsWidget();
 
     // ── Wire search/autofill on the initial DCN revision row ──
     const initialRevisionRow = document.querySelector('#revisionTableBody tr');
@@ -1131,11 +1258,15 @@ document.addEventListener("DOMContentLoaded", async function () {
     if (revField) {
         revField.addEventListener('input', function () {
             this.dataset.userEdited = 'true';
+            scheduleRevNoCheck();
         });
+        revField.addEventListener('change', scheduleRevNoCheck);
+        revField.addEventListener('blur', scheduleRevNoCheck);
     }
 
     // ── Document No. live lookup (both modes) ──
     initDocNoLookup(revField);
+    initRevNoLookup();
     wireSyllabiMasterlistSync();
     wireApprovalDeadlineSync();
     wireCompareRevisionButton();
@@ -1278,14 +1409,20 @@ function initDocNoLookup(revField) {
 function handleEmptyDocNo(hintEl, revField) {
     window.__revisedComparePreviousUrl = null;
     window.__revisedComparePreviousRev = null;
+    window.__revisedFamilyScans = [];
+    refreshCompareRevisionButton();
 
     const preservedFrom = getRevisedFromDocNo();
     if (preservedFrom) {
         window.__revisedFromDocNo = preservedFrom;
     } else {
         window.__revisedFromDocNo = null;
+        clearRevisedApprovalContext();
         const fromInput = document.getElementById('revisedFromDocNo');
         if (fromInput) fromInput.value = '';
+        if (typeof window.handleApprovalToggle === 'function') {
+            window.handleApprovalToggle(false);
+        }
     }
 
     if (isRevisedMode()) {
@@ -1324,14 +1461,39 @@ async function runRenumberedDocNoCheck(docNo, fromNo, hintEl) {
         const subTypeId = document.getElementById('subType').value;
         const url = '/dcs/register/check-docno?doc_no=' + encodeURIComponent(docNo) +
                     (docTypeId ? '&doc_type_id=' + docTypeId : '') +
-                    (subTypeId ? '&sub_type_id=' + subTypeId : '');
+                    (subTypeId ? '&sub_type_id=' + subTypeId : '') +
+                    '&related_from=' + encodeURIComponent(fromNo);
         const res = await fetch(url);
         const data = await res.json();
+        const revField = document.getElementById('masterlistRevisionNo');
 
         if (data.exists) {
+            // Same lineage (e.g. return to original 2024-323 while linked from 2024-323-2):
+            // allowed — uniqueness is per (doc_no, revise_no), not doc_no alone.
+            if (data.same_family !== false) {
+                applyRevisedDocumentContext(data, { hintEl, revField, forceNextRev: true });
+                const docNoInput = document.getElementById('masterlistDocNo');
+                if (docNoInput) docNoInput.value = docNo;
+                window.__revisedFromDocNo = fromNo;
+                const fromInput = document.getElementById('revisedFromDocNo');
+                if (fromInput) fromInput.value = fromNo;
+
+                if (hintEl) {
+                    hintEl.innerHTML = '<i class="fa-solid fa-circle-check"></i> Using existing number <strong>' +
+                        escapeHtml(docNo) + '</strong> (linked from <strong>' +
+                        escapeHtml(fromNo) + '</strong>). Suggested Rev ' +
+                        escapeHtml(String(data.next_rev ?? '')) + '.';
+                    hintEl.style.color = '#16a34a';
+                    hintEl.dataset.valid = 'renumbered';
+                }
+                setSaveEnabled(true);
+                scheduleRevNoCheck();
+                return;
+            }
+
             if (hintEl) {
                 hintEl.innerHTML = '<i class="fa-solid fa-circle-exclamation"></i> Document number <strong>' +
-                    escapeHtml(docNo) + '</strong> is already registered. Choose a different number for this revision.';
+                    escapeHtml(docNo) + '</strong> is already registered under a different document family. Choose a different number for this revision.';
                 hintEl.style.color = '#dc2626';
                 hintEl.dataset.valid = 'duplicate';
             }
@@ -1340,13 +1502,14 @@ async function runRenumberedDocNoCheck(docNo, fromNo, hintEl) {
         }
 
         if (hintEl) {
-            hintEl.innerHTML = '<i class="fa-solid fa-circle-check"></i> Document number changed from <strong>' +
+            hintEl.innerHTML = '<i class="fa-solid fa-circle-check"></i> Changed from <strong>' +
                 escapeHtml(fromNo) + '</strong> to <strong>' + escapeHtml(docNo) + '</strong>.' +
-                '<br><span style="font-weight:400;font-size:11px;">Previous-revision details are kept. The original number remains linked for this revision.</span>';
+                '<br><span style="font-weight:400;font-size:11px;">Previous details kept; original number stays linked.</span>';
             hintEl.style.color = '#16a34a';
             hintEl.dataset.valid = 'renumbered';
         }
         setSaveEnabled(true);
+        scheduleRevNoCheck();
     } catch (e) {
         console.error('Renumbered doc-no check failed:', e);
         if (hintEl) {
@@ -1356,6 +1519,7 @@ async function runRenumberedDocNoCheck(docNo, fromNo, hintEl) {
             hintEl.dataset.valid = 'renumbered';
         }
         setSaveEnabled(true);
+        scheduleRevNoCheck();
     }
 }
 
@@ -1396,14 +1560,17 @@ function applyRevisedDocumentContext(data, options = {}) {
     const effectiveDocNo = (docNo ?? document.getElementById('masterlistDocNo')?.value ?? '').trim();
 
     if (revFieldEl) {
-        if (!revFieldEl.value || revFieldEl.dataset.userEdited !== 'true') {
+        // Fresh doc-no context from DCN/lookup always suggests family next rev.
+        if (options.forceNextRev || !revFieldEl.value || revFieldEl.dataset.userEdited !== 'true') {
             revFieldEl.value = data.next_rev;
+            revFieldEl.dataset.userEdited = '';
         }
         revFieldEl.readOnly = false;
         revFieldEl.style.background = '';
         revFieldEl.style.cursor = '';
         revFieldEl.removeAttribute('min');
-        revFieldEl.setAttribute('title', 'Suggested: Rev ' + data.next_rev + ' (latest is ' + data.latest_rev + '). Lower revision numbers are allowed.');
+        revFieldEl.setAttribute('title', 'Suggested: Rev ' + data.next_rev + ' (family latest is ' + data.latest_rev + '). Gap fills are allowed only if that Rev is unused in the family.');
+        scheduleRevNoCheck();
     }
 
     const titleField = document.getElementById('masterlistDocTitle');
@@ -1411,6 +1578,15 @@ function applyRevisedDocumentContext(data, options = {}) {
         titleField.value = data.latest_title;
         titleField.readOnly = false;
     }
+
+    // Non-date masterlist fields from previous revision
+    const pagesField = document.getElementById('masterlistNoOfPages');
+    if (pagesField && (data.latest_no_pages !== null && data.latest_no_pages !== undefined)
+        && !String(pagesField.value || '').trim()) {
+        pagesField.value = data.latest_no_pages;
+    }
+
+    // Keywords are NOT copied on revise — user enters new keywords for this revision
 
     window.__syncingSourceUnits = true;
     try {
@@ -1440,21 +1616,51 @@ function applyRevisedDocumentContext(data, options = {}) {
         renderRelatedDocsChips();
     }
 
-    window.__revisedComparePreviousUrl = data.latest_scanned_copy_url || null;
-    window.__revisedComparePreviousRev = data.latest_rev || null;
+    window.__revisedFamilyScans = Array.isArray(data.revision_scans) ? data.revision_scans : [];
+    resolveRevisedComparePrevious();
 
     if (data.latest_distribution_offices && data.latest_distribution_offices.length > 0
         && tableIsEmpty('retrievalBody')) {
+        // Previous distribution copies must be retrieved again on this revision → always Pending.
         data.latest_distribution_offices.forEach(o => {
             seedRetrievalOfficeRow('retrievalBody', 'totalRetrievalCopies', o.office_id, o.office_name, o.copies, 'pending');
         });
         updateTotal('totalRetrievalCopies', 'retrievalBody');
     }
 
+    // Offices retrieved on a prior cycle but not on latest distribution still need a Pending row.
+    if (data.already_retrieved_offices && data.already_retrieved_offices.length > 0) {
+        data.already_retrieved_offices.forEach(o => {
+            seedRetrievalOfficeRow(
+                'retrievalBody', 'totalRetrievalCopies',
+                o.office_id, o.office_name, o.copies || 1, 'pending'
+            );
+        });
+        updateTotal('totalRetrievalCopies', 'retrievalBody');
+    }
+
+    // Prefill only applies in revised mode — open Retrieval when offices were seeded.
+    if (isRevisedMode() && !tableIsEmpty('retrievalBody')) {
+        const retCb = document.querySelector('#dynamicCheckboxes input[name="checklists[]"][value="4"]');
+        if (retCb) {
+            retCb.checked = true;
+            retCb.dataset.lastChecked = 'true';
+            if (!retCb.disabled) toggleSection(4, true);
+            else {
+                const retSection = document.getElementById('section-4');
+                if (retSection) retSection.style.display = 'block';
+            }
+        } else {
+            const retSection = document.getElementById('section-4');
+            if (retSection) retSection.style.display = 'block';
+        }
+    }
+
+    applyRevisedApprovalFromPrevious(data);
+
     if (hint) {
-        hint.innerHTML = '<i class="fa-solid fa-circle-check"></i> ' + escapeHtml(data.message || 'Document linked for revision.') +
-            '<br><span style="font-weight:400;font-size:11px;">Keep document no. <strong>' + escapeHtml(effectiveDocNo) +
-            '</strong> or change it (e.g. renumber). Originator and source unit remain editable.</span>';
+        hint.innerHTML = '<i class="fa-solid fa-circle-check"></i> Document found. Keep <strong>' +
+            escapeHtml(effectiveDocNo) + '</strong> or renumber — details prefilled (dates blank).';
         hint.style.color = '#16a34a';
         hint.dataset.valid = 'true';
     }
@@ -1462,18 +1668,98 @@ function applyRevisedDocumentContext(data, options = {}) {
     document.getElementById('uploadScannedCopy')?.dispatchEvent(new Event('change'));
 }
 
+/**
+ * Sync Approval radios + Approval Details section from the previous registration.
+ * - Previous Applicable  → Applicable checked, Approval Details shown (body/no filled, date blank)
+ * - Previous Not Applicable / unknown → Not Applicable, Approval Details hidden
+ * User may still switch Applicable ↔ Not Applicable manually after that.
+ */
+function applyRevisedApprovalFromPrevious(data) {
+    if (!data) return;
+
+    window.__revisedApprovalContext = {
+        latest_approval_status: data.latest_approval_status ?? null,
+        latest_approval_body_id: data.latest_approval_body_id ?? null,
+        latest_approval_no: data.latest_approval_no ?? null,
+    };
+
+    const status = String(data.latest_approval_status || '').toLowerCase();
+    const isApplicable = status === 'applicable';
+
+    const applicableRadio = document.querySelector('input[name="approval_status"][value="applicable"]');
+    const notApplicableRadio = document.querySelector('input[name="approval_status"][value="not_applicable"]');
+    if (!applicableRadio || !notApplicableRadio) return;
+
+    applicableRadio.disabled = false;
+    notApplicableRadio.disabled = false;
+
+    applicableRadio.checked = isApplicable;
+    notApplicableRadio.checked = !isApplicable;
+
+    if (typeof window.handleApprovalToggle === 'function') {
+        window.handleApprovalToggle(isApplicable);
+    } else {
+        const approval = document.getElementById('section-approval');
+        if (approval) approval.style.display = isApplicable ? 'block' : 'none';
+    }
+
+    const bodySelect = document.getElementById('approvalBody');
+    const approvalNo = document.getElementById('approvalNo');
+    const approvalDate = document.getElementById('approvalDate');
+
+    if (isApplicable) {
+        if (bodySelect && data.latest_approval_body_id != null && data.latest_approval_body_id !== '') {
+            const want = String(data.latest_approval_body_id);
+            // Ensure option exists before selecting
+            const hasOption = Array.from(bodySelect.options).some(o => String(o.value) === want);
+            if (hasOption) {
+                bodySelect.value = want;
+                bodySelect.dispatchEvent(new Event('change', { bubbles: true }));
+            }
+        }
+        if (approvalNo && data.latest_approval_no) {
+            approvalNo.value = data.latest_approval_no;
+        }
+        // Never carry over previous approval date
+        if (approvalDate) approvalDate.value = '';
+    } else {
+        if (bodySelect) bodySelect.selectedIndex = 0;
+        if (approvalNo) approvalNo.value = '';
+        if (approvalDate) approvalDate.value = '';
+    }
+}
+
+function clearRevisedApprovalContext() {
+    window.__revisedApprovalContext = null;
+}
+
 function applyRevisedModeLookupResult(data, hintEl, revField) {
     if (data.exists) {
         setSaveEnabled(true);
         const lookedUpNo = (document.getElementById('masterlistDocNo')?.value || '').trim();
-        applyRevisedDocumentContext(data, { docNo: lookedUpNo, hintEl, revField });
+        applyRevisedDocumentContext(data, { docNo: lookedUpNo, hintEl, revField, forceNextRev: true });
     } else {
         setSaveEnabled(false);
         window.__revisedComparePreviousUrl = null;
         window.__revisedComparePreviousRev = null;
+        window.__revisedFamilyScans = [];
+        refreshCompareRevisionButton();
         window.__revisedFromDocNo = null;
+        clearRevisedApprovalContext();
         const fromInput = document.getElementById('revisedFromDocNo');
         if (fromInput) fromInput.value = '';
+
+        // Hide Approval Details until a valid previous document is linked
+        const applicableRadio = document.querySelector('input[name="approval_status"][value="applicable"]');
+        const notApplicableRadio = document.querySelector('input[name="approval_status"][value="not_applicable"]');
+        if (notApplicableRadio) notApplicableRadio.checked = true;
+        if (applicableRadio) applicableRadio.checked = false;
+        if (typeof window.handleApprovalToggle === 'function') {
+            window.handleApprovalToggle(false);
+        } else {
+            const approval = document.getElementById('section-approval');
+            if (approval) approval.style.display = 'none';
+        }
 
         if (revField) {
             revField.value = '';
@@ -1535,6 +1821,70 @@ function isRevisedMode() {
     return hidden && hidden.value === 'revised';
 }
 
+/** Checklist 4 = Document Retrieval — only for revised documents. */
+function filterChecklistsForMode(checklists) {
+    const list = Array.isArray(checklists) ? checklists : [];
+    if (isRevisedMode()) return list;
+    return list.filter(c => parseInt(c.checklist_id, 10) !== 4);
+}
+
+function clearRetrievalSection() {
+    const section = document.getElementById('section-4');
+    if (section) section.style.display = 'none';
+
+    ['retrievalFormDate', 'retrievalFormTime', 'retrievalDate', 'retrievalTime',
+        'retrievalTimeSpentDisplay', 'retrievalTimeSpent', 'retrievalRemarks', 'scannedRet'].forEach(id => {
+        const el = document.getElementById(id);
+        if (!el) return;
+        if (el.type === 'file') {
+            el.value = '';
+            return;
+        }
+        el.value = '';
+    });
+
+    const body = document.getElementById('retrievalBody');
+    if (body) body.innerHTML = emptyOfficeRowHTML('retrievalBody');
+    const hidden = document.getElementById('retrievalRetrievedHidden');
+    if (hidden) hidden.innerHTML = '';
+    const total = document.getElementById('totalRetrievalCopies');
+    if (total) total.textContent = '0';
+}
+
+function syncRetrievalForMode() {
+    if (!isRevisedMode()) {
+        clearRetrievalSection();
+        // Drop retrieval checkbox if it was rendered for a prior version selection.
+        document.querySelectorAll('#dynamicCheckboxes input[name="checklists[]"][value="4"]').forEach(cb => {
+            cb.checked = false;
+            cb.dataset.lastChecked = 'false';
+            const label = cb.closest('label');
+            if (label) label.remove();
+        });
+        return;
+    }
+
+    // Re-include retrieval checklist when switching into revised mode.
+    if (window.__lastVersionChecklists && window.__lastVersionChecklists.length) {
+        const container = document.getElementById('dynamicCheckboxes');
+        const hasRetrieval = container?.querySelector('input[name="checklists[]"][value="4"]');
+        if (!hasRetrieval) {
+            const wasEnabled = !!container?.querySelector('input[type="checkbox"]:not([disabled])');
+            const checkedIds = [...(container?.querySelectorAll('input[name="checklists[]"]:checked') || [])]
+                .map(cb => parseInt(cb.value, 10));
+            renderChecklists(window.__lastVersionChecklists, !wasEnabled);
+            container?.querySelectorAll('input[name="checklists[]"]').forEach(cb => {
+                const id = parseInt(cb.value, 10);
+                const on = checkedIds.includes(id);
+                cb.checked = on;
+                cb.dataset.lastChecked = on ? 'true' : 'false';
+                if (wasEnabled) cb.disabled = false;
+                toggleSection(id, on);
+            });
+        }
+    }
+}
+
 function applyRevisionMode() {
     const revField = document.getElementById('masterlistRevisionNo');
     const hintEl = document.getElementById('docNoHint');
@@ -1550,7 +1900,7 @@ function applyRevisionMode() {
             revField.removeAttribute('title');
         }
         if (hintEl) {
-            hintEl.innerHTML = '<span style="color:#94a3b8"><i class="fa-solid fa-circle-info"></i> Pick a document in Documents for Revision (DCN) or enter its number here. You may keep the same number or assign a new one for this revision.</span>';
+            hintEl.innerHTML = '<span style="color:#94a3b8"><i class="fa-solid fa-circle-info"></i> Required: pick the document being revised under Documents for Revision (DCN). Then enter/confirm the document number for this new revision.</span>';
             hintEl.style.color = '';
             hintEl.dataset.valid = '';
         }
@@ -1564,6 +1914,7 @@ function applyRevisionMode() {
     } else {
         docNoDuplicate = false;
         window.__revisedFromDocNo = null;
+        clearRevisedApprovalContext();
         const fromInput = document.getElementById('revisedFromDocNo');
         if (fromInput) fromInput.value = '';
         if (revField) {
@@ -1580,6 +1931,8 @@ function applyRevisionMode() {
         }
         setSaveEnabled(true);
     }
+
+    syncRetrievalForMode();
 }
 
 function updateRegistrationMode() {
@@ -1594,7 +1947,7 @@ function updateRegistrationMode() {
 
 function setSaveEnabled(enabled) {
     // Don't re-enable if duplicate is detected
-    if (enabled && docNoDuplicate) return;
+    if (enabled && (docNoDuplicate || revNoDuplicate)) return;
 
     const saveBtn = document.getElementById('btnSaveDocument');
     if (!saveBtn) return;
@@ -1613,6 +1966,134 @@ function setSaveEnabled(enabled) {
         saveBtn.style.cursor = 'not-allowed';
         saveBtn.style.pointerEvents = 'none';
         saveBtn.style.filter = 'grayscale(1)';
+    }
+}
+
+// ══════════════════════════════════════════════
+// REVISION NO. LIVE DUPLICATE CHECK
+// ══════════════════════════════════════════════
+let revNoTimer = null;
+
+function getActiveDocNoForRevCheck() {
+    if (window.__isSyllabiMode) {
+        return (document.getElementById('syllabiDocNo')?.value || document.getElementById('masterlistDocNo')?.value || '').trim();
+    }
+    return (document.getElementById('masterlistDocNo')?.value || '').trim();
+}
+
+function clearRevNoHint() {
+    revNoDuplicate = false;
+    const hint = document.getElementById('revNoHint');
+    const revField = document.getElementById('masterlistRevisionNo');
+    if (hint) {
+        hint.innerHTML = '';
+        hint.style.color = '';
+        hint.dataset.valid = '';
+    }
+    if (revField) {
+        revField.style.borderColor = '';
+        revField.classList.remove('reg-input-invalid');
+    }
+}
+
+function initRevNoLookup() {
+    // Re-check when type/subtype or doc no changes.
+    document.getElementById('docType')?.addEventListener('change', scheduleRevNoCheck);
+    document.getElementById('subType')?.addEventListener('change', scheduleRevNoCheck);
+    document.getElementById('syllabiDocNo')?.addEventListener('input', scheduleRevNoCheck);
+}
+
+function scheduleRevNoCheck() {
+    clearTimeout(revNoTimer);
+    const hint = document.getElementById('revNoHint');
+    const docNo = getActiveDocNoForRevCheck();
+    const revField = document.getElementById('masterlistRevisionNo');
+    if (!revField) return;
+
+    if (!docNo) {
+        clearRevNoHint();
+        return;
+    }
+
+    if (hint) {
+        hint.innerHTML = '<span style="color:#94a3b8"><i class="fa-solid fa-spinner fa-spin"></i> Checking revision…</span>';
+        hint.style.color = '';
+        hint.dataset.valid = '';
+    }
+
+    revNoTimer = setTimeout(() => runRevNoCheck(), 400);
+}
+
+async function runRevNoCheck() {
+    const revField = document.getElementById('masterlistRevisionNo');
+    const hint = document.getElementById('revNoHint');
+    const docNo = getActiveDocNoForRevCheck();
+    if (!revField || !docNo) {
+        clearRevNoHint();
+        return;
+    }
+
+    const reviseNo = revField.value === '' ? '0' : revField.value;
+    const docTypeId = document.getElementById('docType')?.value || '';
+    const subTypeId = document.getElementById('subType')?.value || '';
+
+    try {
+        const url = '/dcs/register/check-revno?doc_no=' + encodeURIComponent(docNo) +
+            '&revise_no=' + encodeURIComponent(reviseNo) +
+            (docTypeId ? '&doc_type_id=' + encodeURIComponent(docTypeId) : '') +
+            (subTypeId ? '&sub_type_id=' + encodeURIComponent(subTypeId) : '');
+        const res = await fetch(url);
+        const data = await res.json();
+
+        if (data.needs_doc_no || data.needs_doc_type) {
+            clearRevNoHint();
+            return;
+        }
+
+        if (data.taken) {
+            revNoDuplicate = true;
+            if (hint) {
+                hint.innerHTML = '<i class="fa-solid fa-circle-exclamation"></i> ' +
+                    escapeHtml(data.message || 'This revision already exists.');
+                hint.style.color = '#dc2626';
+                hint.dataset.valid = 'duplicate';
+            }
+            revField.style.borderColor = '#dc2626';
+            revField.classList.add('reg-input-invalid');
+            setSaveEnabled(false);
+            resolveRevisedComparePrevious();
+            return;
+        }
+
+        revNoDuplicate = false;
+        if (hint) {
+            if (Array.isArray(data.taken_revs) && data.taken_revs.length > 0) {
+                hint.innerHTML = '<i class="fa-solid fa-circle-check"></i> ' + escapeHtml(data.message || 'Revision available.');
+                hint.style.color = '#16a34a';
+                hint.dataset.valid = 'true';
+            } else {
+                hint.innerHTML = '';
+                hint.style.color = '';
+                hint.dataset.valid = 'true';
+            }
+        }
+        revField.style.borderColor = '';
+        revField.classList.remove('reg-input-invalid');
+        resolveRevisedComparePrevious();
+        // Re-enable save only if doc-no side is also OK
+        if (!docNoDuplicate) {
+            const docHint = document.getElementById('docNoHint');
+            const docOk = !isRevisedMode()
+                || isRevisedDocNoReady(docHint)
+                || (docHint?.dataset?.valid === 'true');
+            if (!isRevisedMode() || docOk) {
+                setSaveEnabled(true);
+            }
+        }
+    } catch (e) {
+        console.error('RevNo check failed:', e);
+        clearRevNoHint();
+        resolveRevisedComparePrevious();
     }
 }
 
@@ -1701,6 +2182,7 @@ function populateRevisionRowFromDoc(row, doc) {
     const revField     = row.querySelector('input[name="revisionNo[]"]');
     const pathInput    = row.querySelector('input[name="revisionScannedPath[]"]');
     const purposeField = row.querySelector('input[name="revisionPurpose[]"]');
+    const purposeText  = row.querySelector('.reg-rev-purpose-text');
 
     if (titleInput) titleInput.value = doc.doc_title || '';
     if (noInput) noInput.value = doc.doc_no || '';
@@ -1708,6 +2190,18 @@ function populateRevisionRowFromDoc(row, doc) {
     if (revField) revField.value = (doc.revise_no !== null && doc.revise_no !== undefined) ? doc.revise_no : '';
     if (pathInput) pathInput.value = doc.scanned_copy_path || '';
     if (purposeField) purposeField.value = doc.brief_purpose || '';
+    if (purposeText) {
+        const purpose = String(doc.brief_purpose || '').trim();
+        purposeText.textContent = purpose || '—';
+        purposeText.classList.toggle('is-wrap', purpose.length > 42);
+    }
+    // If title was already converted to wrap display, refresh the visible text.
+    const titleText = row.querySelector('.reg-rev-title-text');
+    if (titleText) {
+        const title = String(doc.doc_title || '').trim();
+        titleText.textContent = title || '—';
+        titleText.classList.toggle('is-wrap', title.length > 28);
+    }
 
     lockRevisionRowFields(row);
     lockRevisionScannedCopyCell(row, doc.scanned_copy_url);
@@ -1786,7 +2280,7 @@ window.pickRevisionDocument = async function (key, idx) {
     }
 };
 
-async function bridgeDcnPickToMasterlist(docNo) {
+async function bridgeDcnPickToMasterlist(docNo, options = {}) {
     const hintEl = document.getElementById('docNoHint');
     const revField = document.getElementById('masterlistRevisionNo');
     try {
@@ -1799,7 +2293,7 @@ async function bridgeDcnPickToMasterlist(docNo) {
         const data = await res.json();
         if (data.exists) {
             setSaveEnabled(true);
-            applyRevisedDocumentContext(data, { docNo, hintEl, revField });
+            applyRevisedDocumentContext(data, { docNo, hintEl, revField, forceNextRev: true });
         }
     } catch (e) {
         console.error('DCN pick check-docno failed:', e);
@@ -1815,12 +2309,39 @@ function lockRevisionPopulatedField(el) {
     el.style.color = '#475569';
 }
 
+/** Show full title as wrapping text (no horizontal scroll) while keeping form value. */
+function lockRevisionTitleAsWrap(row) {
+    const input = row.querySelector('input[name="documentTitle[]"]');
+    if (!input || input.type === 'hidden') return;
+    const cell = input.closest('td');
+    if (!cell) return;
+
+    const title = String(input.value || '').trim();
+    input.type = 'hidden';
+    input.value = title;
+    input.classList.remove('reg-revrow-locked');
+    input.removeAttribute('style');
+
+    cell.classList.add('reg-rev-title-cell');
+    let span = cell.querySelector('.reg-rev-title-text');
+    if (!span) {
+        span = document.createElement('span');
+        span.className = 'reg-rev-title-text';
+        cell.appendChild(span);
+    }
+    span.textContent = title || '—';
+    span.classList.toggle('is-wrap', title.length > 28);
+}
+
 /** Locks auto-filled revision fields after a document is picked. */
 function lockRevisionRowFields(row) {
     row.dataset.linked = "true";
+    lockRevisionTitleAsWrap(row);
     row.querySelectorAll(
-        'input[name="documentTitle[]"], input[name="documentNo[]"], input[name="effectiveDate[]"], input[name="revisionNo[]"], input[name="revisionPurpose[]"]'
-    ).forEach(lockRevisionPopulatedField);
+        'input[name="documentNo[]"], input[name="effectiveDate[]"], input[name="revisionNo[]"], input[name="revisionPurpose[]"]'
+    ).forEach((el) => {
+        if (el.type !== 'hidden') lockRevisionPopulatedField(el);
+    });
 }
 
 function lockRevisionScannedCopyCell(row, scannedCopyUrl) {
@@ -2427,6 +2948,105 @@ document.addEventListener('click', function (e) {
 });
 
 // ══════════════════════════════════════════════
+// KEYWORDS CHIP INPUT
+// ══════════════════════════════════════════════
+function initKeywordsWidget(root = document) {
+    root.querySelectorAll('[data-keywords-widget]').forEach((widget) => {
+        if (widget.dataset.bound === '1') return;
+        widget.dataset.bound = '1';
+
+        const chipsEl = widget.querySelector('[data-keywords-chips]');
+        const entry = widget.querySelector('[data-keywords-entry]');
+        const hidden = widget.querySelector('input[type="hidden"][name="keywords"]');
+        const box = widget.querySelector('[data-keywords-box]');
+        if (!chipsEl || !entry || !hidden) return;
+
+        const normalize = (raw) => String(raw || '')
+            .split(/[,;\n]+/)
+            .map((part) => part.trim())
+            .filter(Boolean);
+
+        const uniquePush = (list, value) => {
+            const exists = list.some((item) => item.toLowerCase() === value.toLowerCase());
+            if (!exists) list.push(value);
+            return list;
+        };
+
+        const readTokens = () => normalize(hidden.value);
+
+        const writeTokens = (tokens) => {
+            hidden.value = tokens.join(', ');
+            chipsEl.innerHTML = tokens.map((token) => (
+                '<span class="reg-keyword-chip">' +
+                    '<span title="' + escapeHtml(token) + '">' + escapeHtml(token) + '</span>' +
+                    '<button type="button" aria-label="Remove keyword" data-keyword-remove="' + escapeHtml(token) + '">' +
+                        '<i class="fa-solid fa-xmark"></i>' +
+                    '</button>' +
+                '</span>'
+            )).join('');
+        };
+
+        const addTokens = (raw) => {
+            const next = readTokens();
+            normalize(raw).forEach((token) => uniquePush(next, token));
+            writeTokens(next);
+            entry.value = '';
+        };
+
+        const removeToken = (token) => {
+            writeTokens(readTokens().filter((item) => item.toLowerCase() !== String(token).toLowerCase()));
+        };
+
+        writeTokens(readTokens());
+        widget.__seedKeywords = (raw) => {
+            writeTokens(normalize(raw));
+        };
+
+        box?.addEventListener('click', (e) => {
+            if (e.target.closest('[data-keyword-remove]')) return;
+            entry.focus();
+        });
+
+        chipsEl.addEventListener('click', (e) => {
+            const btn = e.target.closest('[data-keyword-remove]');
+            if (!btn) return;
+            e.preventDefault();
+            removeToken(btn.getAttribute('data-keyword-remove') || '');
+            entry.focus();
+        });
+
+        entry.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter' || e.key === ',' || e.key === 'Tab') {
+                if (!entry.value.trim()) {
+                    if (e.key === ',') e.preventDefault();
+                    return;
+                }
+                e.preventDefault();
+                addTokens(entry.value);
+                return;
+            }
+            if (e.key === 'Backspace' && !entry.value) {
+                const tokens = readTokens();
+                if (!tokens.length) return;
+                tokens.pop();
+                writeTokens(tokens);
+            }
+        });
+
+        entry.addEventListener('blur', () => {
+            if (entry.value.trim()) addTokens(entry.value);
+        });
+
+        entry.addEventListener('paste', (e) => {
+            const text = e.clipboardData?.getData('text') || '';
+            if (!text.includes(',') && !text.includes(';') && !text.includes('\n')) return;
+            e.preventDefault();
+            addTokens(text);
+        });
+    });
+}
+
+// ══════════════════════════════════════════════
 // SELECT PROTECTION
 // (guards against selects being changed by anything other than a real user gesture)
 // ══════════════════════════════════════════════
@@ -2716,6 +3336,7 @@ function closeFilePreviewModal() {
 }
 
 function openCompareRevisionModal() {
+    resolveRevisedComparePrevious();
     const upload = document.getElementById('uploadScannedCopy');
     const prevUrl = window.__revisedComparePreviousUrl;
     const prevRev = window.__revisedComparePreviousRev;
@@ -2728,7 +3349,8 @@ function openCompareRevisionModal() {
         return;
     }
     if (!prevUrl) {
-        alert('The previous revision has no scanned copy to compare.');
+        const nextRev = document.getElementById('masterlistRevisionNo')?.value?.trim() || '?';
+        alert('No scanned copy found for the previous revision before Rev ' + nextRev + '.');
         return;
     }
     if (!overlay) return;
@@ -2749,7 +3371,9 @@ function openCompareRevisionModal() {
     document.body.style.overflow = 'hidden';
 
     if (typeof window.runRegisterPdfCompare === 'function') {
-        window.runRegisterPdfCompare(prevUrl, window.__compareRevisionNewBlobUrl).catch(() => {});
+        window.runRegisterPdfCompare(prevUrl, window.__compareRevisionNewBlobUrl, {
+            rightFile: upload.files[0],
+        }).catch(() => {});
     }
 }
 
@@ -2760,12 +3384,8 @@ function closeCompareRevisionModal() {
 
     overlay.classList.remove('is-open');
     overlay.setAttribute('aria-hidden', 'true');
-    if (root) {
-        root.dataset.leftUrl = '';
-        root.dataset.rightUrl = '';
-        root.querySelectorAll('[data-review-side]').forEach(el => { el.innerHTML = ''; });
-        root.querySelectorAll('[data-review-note]').forEach(el => { el.textContent = ''; });
-    }
+    // Keep rendered compare DOM when possible; only clear volatile blob URL.
+    // Re-open restores from local/session cache using file hash (not blob URL).
     if (window.__compareRevisionNewBlobUrl) {
         URL.revokeObjectURL(window.__compareRevisionNewBlobUrl);
         window.__compareRevisionNewBlobUrl = null;
@@ -2904,6 +3524,10 @@ async function handleVersionChange() {
     subTypeSelect.setAttribute("disabled", "disabled");
     disableApproval();
 
+    // Set new/revised mode before rendering so Document Retrieval (checklist 4)
+    // is only included when registering a revision.
+    updateRegistrationMode();
+
     if (!versionId) {
         renderChecklists([
             { checklist_id: 1, checklist_name: "Document Request Form" },
@@ -2912,7 +3536,6 @@ async function handleVersionChange() {
             { checklist_id: 4, checklist_name: "Document Retrieval" },
             { checklist_id: 5, checklist_name: "Document Distribution" },
         ], true);
-        applyRevisionMode();
         return;
     }
 
@@ -2923,8 +3546,6 @@ async function handleVersionChange() {
     } catch (err) {
         console.error("Failed to load checklists:", err);
     }
-
-    updateRegistrationMode();
 }
 
 // ══════════════════════════════════════════════
@@ -2961,6 +3582,7 @@ function handleDocTypeChange() {
     window.__lastSubTypeId = null;
     syllabiTitleManuallyEdited = false;
     docNoDuplicate = false;
+    clearRevNoHint();
     setSaveEnabled(true);
     const docTypeSelect = document.getElementById("docType");
     const docTypeId = parseInt(docTypeSelect.value);
@@ -3181,7 +3803,10 @@ function renderChecklists(checklists, disabled) {
     const container = document.getElementById("dynamicCheckboxes");
     container.innerHTML = "";
 
-    checklists.forEach(c => {
+    window.__lastVersionChecklists = Array.isArray(checklists) ? checklists.slice() : [];
+    const visible = filterChecklistsForMode(window.__lastVersionChecklists);
+
+    visible.forEach(c => {
         const label = document.createElement("label");
         label.className = "reg-check-item";
 
@@ -3222,6 +3847,10 @@ function renderChecklists(checklists, disabled) {
 
         container.appendChild(label);
     });
+
+    if (!isRevisedMode()) {
+        clearRetrievalSection();
+    }
 }
 
 function lockChecklist() {
@@ -3265,6 +3894,12 @@ window.toggleSection = function (checklistId, show) {
 
     // In syllabi mode, only DRF stays hidden — Masterlist now shows in full
     if (checklistId === 1 && window.__isSyllabiMode) return;
+
+    // Retrieval (checklist 4) is only for revised documents
+    if (checklistId === 4 && !isRevisedMode()) {
+        clearRetrievalSection();
+        return;
+    }
 
     const el = document.getElementById(sectionId);
     if (!el) return;
@@ -3338,18 +3973,34 @@ window.generateDistributionTemplate = function () {
         return;
     }
     const offices = [];
-    document.querySelectorAll('#distBody .reg-office-text').forEach((el) => {
-        const name = el.textContent.trim();
-        if (name) offices.push(name);
+    const copies = [];
+    document.querySelectorAll('#distBody tr.reg-office-added').forEach((tr) => {
+        const name = tr.querySelector('.reg-office-text')?.textContent.trim() || '';
+        if (!name) return;
+        const copyVal = tr.querySelector('input[name="distCopies[]"]')?.value || '';
+        offices.push(name);
+        copies.push(copyVal);
     });
     if (offices.length === 0) {
         alert('Add at least one receiving office before generating the distribution template.');
         return;
     }
+    // Always use Masterlist Registration fields for the printed form header/footer.
+    const docTitle = (document.getElementById('masterlistDocTitle')?.value || '').trim()
+        || (document.getElementById('syllabiDocTitle')?.value || '').trim();
+    const effectivityDate = (document.getElementById('masterlistEffectivityDate')?.value || '').trim()
+        || (document.getElementById('syllabiEffectivityDate')?.value || '').trim();
+    const revisionNo = (document.getElementById('masterlistRevisionNo')?.value || '').trim()
+        || (document.querySelector('input[name="masterlistRevisionNo"]')?.value || '').trim();
+
     const params = new URLSearchParams();
     params.set('date', document.getElementById('distributionDate')?.value || '');
     params.set('template_id', '0');
+    params.set('document_title', docTitle);
+    params.set('effectivity_date', effectivityDate);
+    params.set('revision_no', revisionNo);
     offices.forEach((name) => params.append('offices[]', name));
+    copies.forEach((n) => params.append('copies[]', n));
     window.open('{{ route('dcs.reports.distributionTemplate') }}?' + params.toString(), '_blank', 'noopener');
 };
 
@@ -3400,7 +4051,10 @@ function removeOfficesByCluster(clusterCode) {
     const ids = new Set(clusterOffices(clusterCode).map((o) => String(o.office_id)));
     tbody.querySelectorAll('tr.reg-office-added').forEach((tr) => {
         const inp = tr.querySelector('input[type="hidden"][name="distOffice[]"]');
-        if (inp && ids.has(String(inp.value))) tr.remove();
+        if (inp && ids.has(String(inp.value))) {
+            maybeRestoreDistOfficeToRetrieval(tr);
+            tr.remove();
+        }
     });
 
     updateTotal('totalDistCopies', 'distBody');
@@ -3578,6 +4232,9 @@ function validateForm() {
                     : "Pick a document in Documents for Revision (DCN) or enter a registered document number before revising.",
             });
         }
+        if (!window.__isSyllabiMode) {
+            validateRevisedRequiresDocumentsForRevision(errors);
+        }
     }
 
     const checkedBoxes = document.querySelectorAll("#dynamicCheckboxes input[type='checkbox']:checked");
@@ -3657,6 +4314,32 @@ function validateRevisionRowsLinked(errors) {
             row.querySelectorAll('input[name="documentTitle[]"], input[name="documentNo[]"]')
                 .forEach(el => el.classList.add("reg-input-error"));
         }
+    });
+}
+
+/** Revised registrations must pick the document being revised in DCN. */
+function validateRevisedRequiresDocumentsForRevision(errors) {
+    if (!sectionVisible("section-2")) {
+        errors.push({
+            field: "dynamicCheckboxes",
+            message: "DCN is required for revised documents. Check Document Change Notice and select the document being revised under Documents for Revision.",
+            type: "checklist",
+        });
+        return;
+    }
+
+    const hasLinked = [...document.querySelectorAll("#revisionTableBody tr")]
+        .some(row => row.dataset.linked === "true");
+    if (hasLinked) return;
+
+    errors.push({
+        field: "revisionTableBody",
+        message: "Select the document being revised under Documents for Revision (DCN). This is required before saving a revised document.",
+        type: "table",
+    });
+    document.querySelectorAll("#revisionTableBody tr").forEach(row => {
+        row.querySelectorAll('input[name="documentTitle[]"], input[name="documentNo[]"]')
+            .forEach(el => el.classList.add("reg-input-error"));
     });
 }
 
@@ -3921,7 +4604,7 @@ function getOfficeList(tbodyId) {
     tbody.querySelectorAll("tr").forEach(row => {
         const name = row.querySelector(".reg-office-text")?.textContent?.trim();
         const copies = row.querySelector('input[type="number"]')?.value || "1";
-        if (name) offices.push(name + " (" + copies + " copies)");
+        if (name) offices.push({ name, copies: String(copies) });
     });
     return offices;
 }
@@ -3963,11 +4646,37 @@ function addReviewList(container, title, items) {
     container.appendChild(section);
 }
 
+function addReviewOfficeList(container, title, offices) {
+    const section = document.createElement("div");
+    section.className = "review-section";
+
+    let html = '<div class="review-section-title">' + escapeHtml(title) + '</div>';
+    html += '<div class="review-office-table">';
+    html += '<div class="review-office-head"><span>Office</span><span>Copies</span></div>';
+    offices.forEach((office) => {
+        const count = Number(office.copies) || 1;
+        const label = count === 1 ? '1 copy' : (count + ' copies');
+        html += '<div class="review-office-row">';
+        html += '<span class="review-office-name">' + escapeHtml(office.name) + '</span>';
+        html += '<span class="review-office-copies">' + escapeHtml(label) + '</span>';
+        html += '</div>';
+    });
+    html += '</div>';
+
+    section.innerHTML = html;
+    container.appendChild(section);
+}
+
 window.confirmSave = function () {
     if (docNoDuplicate) {
         const fieldId = window.__isSyllabiMode ? 'syllabiDocNo' : 'masterlistDocNo';
         scrollToField(fieldId);
         document.getElementById(fieldId)?.focus();
+        return;
+    }
+    if (revNoDuplicate) {
+        scrollToField('masterlistRevisionNo');
+        document.getElementById('masterlistRevisionNo')?.focus();
         return;
     }
     const errors = validateForm();
@@ -4220,7 +4929,7 @@ function buildRetrievalReview(reviewContent) {
         { label: "File", value: f.length > 0 ? f[0].name : null, isFile: true },
     ]);
     const off = getOfficeList("retrievalBody");
-    if (off.length) addReviewList(reviewContent, "Receiving Offices (Retrieval)", off);
+    if (off.length) addReviewOfficeList(reviewContent, "Receiving Offices (Retrieval)", off);
 }
 
 function buildDistributionReview(reviewContent) {
@@ -4236,7 +4945,7 @@ function buildDistributionReview(reviewContent) {
         { label: "File", value: f.length > 0 ? f[0].name : null, isFile: true },
     ]);
     const off = getOfficeList("distBody");
-    if (off.length) addReviewList(reviewContent, "Receiving Offices (Distribution)", off);
+    if (off.length) addReviewOfficeList(reviewContent, "Receiving Offices (Distribution)", off);
 }
 
 window.closeConfirmModal = function () {
@@ -4284,30 +4993,79 @@ function wireApprovalDeadlineSync() {
     });
 }
 
+/**
+ * DRR left side = scanned copy of the highest family rev strictly below the new Rev No.
+ * e.g. entering Rev 5 with family 1–4,7 → compare against Rev 4 (not Latest 7).
+ */
+function resolveRevisedComparePrevious() {
+    const scans = Array.isArray(window.__revisedFamilyScans) ? window.__revisedFamilyScans : [];
+    const revRaw = document.getElementById('masterlistRevisionNo')?.value;
+    const newRev = revRaw === '' || revRaw === null || revRaw === undefined
+        ? null
+        : Number(revRaw);
+
+    window.__revisedComparePreviousUrl = null;
+    window.__revisedComparePreviousRev = null;
+
+    if (newRev === null || Number.isNaN(newRev) || scans.length === 0) {
+        refreshCompareRevisionButton();
+        return;
+    }
+
+    let best = null;
+    for (const row of scans) {
+        const r = Number(row?.revise_no);
+        if (Number.isNaN(r) || r >= newRev) continue;
+        if (!row?.scanned_copy_url) continue;
+        if (!best || r > Number(best.revise_no)) {
+            best = row;
+        }
+    }
+
+    if (best) {
+        window.__revisedComparePreviousUrl = best.scanned_copy_url;
+        window.__revisedComparePreviousRev = Number(best.revise_no);
+    }
+
+    refreshCompareRevisionButton();
+}
+
+function refreshCompareRevisionButton() {
+    const upload = document.getElementById('uploadScannedCopy');
+    const wrap = document.getElementById('compareRevisionWrap');
+    if (!wrap) return;
+    const show = isRevisedMode()
+        && (upload?.files?.length > 0)
+        && !!window.__revisedComparePreviousUrl;
+    wrap.style.display = show ? 'block' : 'none';
+}
+
 function wireCompareRevisionButton() {
     const upload = document.getElementById('uploadScannedCopy');
     const wrap = document.getElementById('compareRevisionWrap');
     const btn = document.getElementById('btnCompareRevision');
     if (!upload || !wrap || !btn) return;
 
-    const refresh = () => {
-        const show = isRevisedMode()
-            && (upload.files?.length > 0)
-            && !!window.__revisedComparePreviousUrl;
-        wrap.style.display = show ? 'block' : 'none';
-    };
-
     btn.addEventListener('click', (e) => {
         e.preventDefault();
+        resolveRevisedComparePrevious();
         openCompareRevisionModal();
     });
-    upload.addEventListener('change', refresh);
-    document.getElementById('masterlistDocNo')?.addEventListener('input', refresh);
-    refresh();
+    upload.addEventListener('change', () => {
+        resolveRevisedComparePrevious();
+    });
+    document.getElementById('masterlistDocNo')?.addEventListener('input', refreshCompareRevisionButton);
+    document.getElementById('masterlistRevisionNo')?.addEventListener('input', resolveRevisedComparePrevious);
+    document.getElementById('masterlistRevisionNo')?.addEventListener('change', resolveRevisedComparePrevious);
+    refreshCompareRevisionButton();
 }
 
 function enableApproval() {
     document.querySelectorAll('input[name="approval_status"]').forEach(r => r.disabled = false);
+    // After checklist unlock, re-sync Approval Details from the linked previous document
+    if (isRevisedMode() && window.__revisedApprovalContext) {
+        applyRevisedApprovalFromPrevious(window.__revisedApprovalContext);
+    }
 }
 
 function disableApproval() {
@@ -4332,7 +5090,10 @@ function revisionRowCellsHTML() {
         <td><input type="date" name="effectiveDate[]" readonly class="reg-revrow-locked" tabindex="-1"></td>
         <td><input type="number" name="revisionNo[]" placeholder="—" readonly class="reg-revrow-locked" tabindex="-1"></td>
         <td class="reg-rev-scan-cell" style="text-align:center;color:#94a3b8;">—</td>
-        <td><input type="text" name="revisionPurpose[]" placeholder="—" readonly class="reg-revrow-locked" tabindex="-1"></td>
+        <td class="reg-rev-purpose-cell">
+            <input type="hidden" name="revisionPurpose[]" value="">
+            <span class="reg-rev-purpose-text">—</span>
+        </td>
         <td><button type="button" class="reg-row-del" onclick="removeRevisionRow(this)"><i class="fa-solid fa-trash-can"></i></button></td>
     `;
 }
@@ -5682,6 +6443,9 @@ window.removeOffice = function (btn, totalId, bodyId) {
         if (officeId && status === 'retrieved') {
             removeRetrievedOfficeFromDistribution(officeId);
         }
+    }
+    if (bodyId === 'distBody') {
+        maybeRestoreDistOfficeToRetrieval(tr);
     }
     tr.style.opacity = "0";
     tr.style.transform = "translateX(20px)";

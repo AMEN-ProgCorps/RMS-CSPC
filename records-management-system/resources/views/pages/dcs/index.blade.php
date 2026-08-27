@@ -1,5 +1,6 @@
 <?php
 
+use App\Helpers\OfficeIntakeHelper;
 use App\Helpers\RegisterQueryHelper;
 use Illuminate\Support\Facades\DB;
 use Livewire\Attributes\Layout;
@@ -9,25 +10,45 @@ use Livewire\Volt\Component;
 new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class extends Component {
     public function with(): array
     {
+        if (RegisterQueryHelper::isLimitedDcsUser()) {
+            return [
+                'isLimitedDcs' => true,
+                'officeDrfCount' => OfficeIntakeHelper::listMyDrf()->count(),
+                'officeDcnCount' => OfficeIntakeHelper::listMyDcn()->count(),
+                'headerDate' => now('Asia/Manila')->format('l, F j, Y'),
+                'stats' => [],
+                'typeIds' => [],
+                'holidays' => [],
+            ];
+        }
+
         $typeIds = RegisterQueryHelper::parentTypeIdMap();
         $queue = DB::table('dcs_document_requests as dr')
             ->leftJoin('dcs_masterlist_registration as ml', 'ml.request_id', '=', 'dr.id')
-            ->whereIn('dr.approval_status', ['applicable', 'not_applicable'])
+            ->whereIn('dr.approval_status', ['applicable', 'not_applicable']);
+        RegisterQueryHelper::applyNotDeleted($queue, 'dr');
+        RegisterQueryHelper::applyOfficeScope($queue, 'dr');
+        $queue = $queue
             ->selectRaw('COUNT(dr.id)::int as total')
             ->selectRaw("COUNT(dr.id) FILTER (WHERE COALESCE(NULLIF(TRIM(ml.revision_status), ''), 'latest') <> 'obsolete')::int as latest")
             ->selectRaw("COUNT(dr.id) FILTER (WHERE ml.revision_status = 'obsolete')::int as obsolete")
             ->first();
 
-        $byType = fn (int $typeId) => DB::table('dcs_document_requests as dr')
-            ->leftJoin('dcs_masterlist_registration as ml', 'ml.request_id', '=', 'dr.id')
-            ->whereIn('dr.approval_status', ['applicable', 'not_applicable'])
-            ->where('dr.doc_type_id', $typeId)
-            ->where(function ($q) {
-                $q->whereNull('ml.revision_status')
-                    ->orWhere('ml.revision_status', '')
-                    ->orWhere('ml.revision_status', 'latest');
-            })
-            ->count();
+        $byType = function (int $typeId) {
+            $q = DB::table('dcs_document_requests as dr')
+                ->leftJoin('dcs_masterlist_registration as ml', 'ml.request_id', '=', 'dr.id')
+                ->whereIn('dr.approval_status', ['applicable', 'not_applicable'])
+                ->where('dr.doc_type_id', $typeId)
+                ->where(function ($q) {
+                    $q->whereNull('ml.revision_status')
+                        ->orWhere('ml.revision_status', '')
+                        ->orWhere('ml.revision_status', 'latest');
+                });
+            RegisterQueryHelper::applyNotDeleted($q, 'dr');
+            RegisterQueryHelper::applyOfficeScope($q, 'dr');
+
+            return $q->count();
+        };
 
         $stats = [
             'totalDocuments' => (int) ($queue->total ?? 0),
@@ -63,6 +84,9 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
         }
 
         return [
+            'isLimitedDcs' => false,
+            'officeDrfCount' => 0,
+            'officeDcnCount' => 0,
             'stats' => $stats,
             'typeIds' => $typeIds,
             'headerDate' => now('Asia/Manila')->format('l, F j, Y'),
@@ -71,20 +95,56 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
     }
 }; ?>
 
-<main class="dashboard-main" wire:ignore x-data="dcsDashboardCalendar()">
-    <div class="dashboard-header">
-        <div class="welcome-text">
-            <h1 class="page-title">Document Control System</h1>
+@if(!empty($isLimitedDcs))
+<div class="ofi-page">
+    <div class="ofi-inner">
+        <div class="ofi-header">
+            <div>
+                <h1>Document Control System</h1>
+                <p>{{ $headerDate }} — Create and print your Document Request Forms and Document Change Notices, then submit the printed copies to RFIO.</p>
+            </div>
         </div>
-        <button type="button" class="header-date dash-calendar-trigger" @click.stop="calendarOpen = !calendarOpen" :aria-expanded="calendarOpen.toString()">
-            <i class="fa-regular fa-calendar"></i>
-            <span>{{ $headerDate }}</span>
-            <i class="fa-solid fa-chevron-down dash-calendar-chevron" :class="{ 'is-open': calendarOpen }"></i>
-        </button>
+        @if(session('error'))
+            <div class="ofi-alert err">{{ session('error') }}</div>
+        @endif
+        <div class="ofi-stat-grid">
+            <a href="{{ route('dcs.office.drf.index', absolute: false) }}" class="ofi-card ofi-stat-card">
+                <div class="ofi-stat-label">My DRF</div>
+                <div class="ofi-stat-value is-drf">{{ (int) $officeDrfCount }}</div>
+                <div class="ofi-stat-hint">Document Request Forms you created</div>
+            </a>
+            <a href="{{ route('dcs.office.dcn.index', absolute: false) }}" class="ofi-card ofi-stat-card">
+                <div class="ofi-stat-label">My DCN</div>
+                <div class="ofi-stat-value is-dcn">{{ (int) $officeDcnCount }}</div>
+                <div class="ofi-stat-hint">Document Change Notices you created</div>
+            </a>
+        </div>
+        <div class="ofi-header-actions">
+            <a href="{{ route('dcs.office.drf.create', absolute: false) }}" class="ofi-btn primary"><i class="fa-solid fa-plus"></i> New DRF</a>
+            <a href="{{ route('dcs.office.dcn.create', absolute: false) }}" class="ofi-btn primary"><i class="fa-solid fa-plus"></i> New DCN</a>
+        </div>
     </div>
+</div>
+@else
+<main class="dashboard-main" wire:ignore x-data="dcsDashboardCalendar()">
+    <div
+        class="dash-calendar-shell"
+        @keydown.escape.window="modal !== null && (modal = null)"
+    >
+        <div class="dashboard-header">
+            <div class="welcome-text">
+                <h1 class="page-title">Document Control System</h1>
+            </div>
+            <button type="button" class="header-date dash-calendar-trigger" @click.stop="toggleCalendar()" :aria-expanded="calendarOpen.toString()">
+                <i class="fa-regular fa-calendar"></i>
+                <span>{{ $headerDate }}</span>
+                <i class="fa-solid fa-chevron-down dash-calendar-chevron" :class="{ 'is-open': calendarOpen }"></i>
+            </button>
+        </div>
 
-    <div class="dashboard-content-wrapper dashboard-content-wrapper--full">
-        <div class="main-column">
+        <div class="dash-body" :class="{ 'is-calendar-open': calendarOpen, 'is-ready': calendarReady }">
+            <div class="dashboard-content-wrapper dashboard-content-wrapper--full">
+                <div class="main-column">
             <section class="dash-queue-bar">
                 <a href="{{ route('dcs.database.index', absolute: false) }}" class="dash-queue-chip">
                     <span>Total</span><strong>{{ number_format((int) $stats['totalDocuments']) }}</strong>
@@ -180,7 +240,7 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                                                     </span>
                                                 </div>
                                             </div>
-                                            <span class="dash-search-rev" x-text="'Rev ' + (doc.revise_no ?? 0)"></span>
+                                            <span class="dash-search-rev" x-text="'Rev ' + (doc.revise_no ?? 0) + (doc.revision_status === 'obsolete' ? ' · Obsolete' : '')"></span>
                                         </div>
                                         <div class="dash-search-item-hint">
                                             <span>Click to view checklists and revisions</span>
@@ -252,6 +312,26 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                                                 <template x-for="(section, idx) in (checklistPreview.sections || [])" :key="idx">
                                                     <div class="dash-cl-section">
                                                         <h4 x-text="section.heading"></h4>
+                                                        <template x-if="section.offices && section.offices.length">
+                                                            <div class="dash-cl-office-wrap" :class="{ 'has-copies': section.with_copies }">
+                                                                <table class="dash-cl-office-table">
+                                                                    <thead>
+                                                                        <tr>
+                                                                            <th class="dash-cl-office-col-name">Office</th>
+                                                                            <th class="dash-cl-office-col-copies" x-show="section.with_copies">Copies</th>
+                                                                        </tr>
+                                                                    </thead>
+                                                                    <tbody>
+                                                                        <template x-for="(office, officeIdx) in section.offices" :key="officeIdx">
+                                                                            <tr>
+                                                                                <td class="dash-cl-office-col-name" x-text="office.office"></td>
+                                                                                <td class="dash-cl-office-col-copies" x-show="section.with_copies" x-text="office.copies"></td>
+                                                                            </tr>
+                                                                        </template>
+                                                                    </tbody>
+                                                                </table>
+                                                            </div>
+                                                        </template>
                                                         <template x-if="section.items">
                                                             <ul class="dash-cl-list">
                                                                 <template x-for="item in section.items" :key="item">
@@ -353,77 +433,88 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                 </div>
             </section>
         </div>
+            </div>
+
+            <aside
+                class="dash-calendar-panel"
+                :class="{ 'is-open': calendarOpen }"
+                :aria-hidden="(!calendarOpen).toString()"
+                @click.stop
+            >
+                <div class="dash-calendar-panel-inner">
+                    <div class="dash-calendar-dropdown">
+                        <div class="widget calendar-widget white-card">
+                            <div class="calendar-header">
+                                <h3 x-text="title"></h3>
+                                <div class="cal-nav">
+                                    <button type="button" x-on:click="changeMonth(-1)"><i class="fa-solid fa-chevron-left"></i></button>
+                                    <button type="button" x-on:click="changeMonth(1)"><i class="fa-solid fa-chevron-right"></i></button>
+                                </div>
+                            </div>
+                            <div class="weekdays">
+                                <div>S</div><div>M</div><div>T</div><div>W</div><div>T</div><div>F</div><div>S</div>
+                            </div>
+                            <div class="calendar-grid">
+                                <template x-for="cell in cells" :key="cell.iso + cell.outside">
+                                    <div class="cal-cell" :class="{ 'out-month': cell.outside }" x-on:click="openDay(cell.iso)">
+                                        <div class="day-num"
+                                            :class="{ today: cell.today && !cell.colors.length, holiday: cell.holiday && !cell.colors.length }"
+                                            :style="cell.colors.length ? ('background-color:' + cell.colors[0] + ';color:#fff;font-weight:700') : ''"
+                                            x-text="cell.day"></div>
+                                        <div class="day-markers">
+                                            <span class="day-marker holiday" x-show="cell.holiday"></span>
+                                            <template x-for="(color, idx) in cell.colors" :key="idx">
+                                                <span class="day-marker event" x-show="idx > 0" :style="'background-color:' + color"></span>
+                                            </template>
+                                        </div>
+                                    </div>
+                                </template>
+                            </div>
+                            <div class="cal-legend">
+                                <span class="legend-item"><span class="dot holiday-dot"></span> Holiday</span>
+                                <span class="legend-item"><span class="dot event-dot"></span> Event</span>
+                                <button type="button" class="btn-mini" x-on:click="openAdd(todayIso())">+ Add Event</button>
+                            </div>
+                        </div>
+
+                        <div class="widget upcoming-widget white-card">
+                            <div class="widget-header">
+                                <h3>Events</h3>
+                                <span class="badge" x-text="filteredUpcoming.length"></span>
+                            </div>
+                            <div class="ev-category-pills" x-show="categories.length > 0">
+                                <button type="button" class="ev-cat-pill" :class="{ 'is-active': eventCategoryFilter === '' }" @click="eventCategoryFilter = ''">All</button>
+                                <template x-for="cat in categories" :key="cat.id">
+                                    <button type="button" class="ev-cat-pill" :class="{ 'is-active': String(eventCategoryFilter) === String(cat.id) }" @click="eventCategoryFilter = cat.id" x-text="cat.name"></button>
+                                </template>
+                            </div>
+                            <div class="upcoming-list">
+                                <template x-if="filteredUpcoming.length === 0">
+                                    <div class="upcoming-empty">
+                                        <i class="fa-regular fa-calendar-check"></i>
+                                        <span>No events in the next 14 days</span>
+                                    </div>
+                                </template>
+                                <template x-for="ev in filteredUpcoming" :key="ev.id">
+                                    <div class="upcoming-item" x-on:click="openDay(ev.date)">
+                                        <div class="upcoming-event-dot" :style="'background-color:' + (ev.color || '#0d2a7a')"></div>
+                                        <div class="upcoming-info">
+                                            <div class="title" x-text="ev.title"></div>
+                                            <div class="time" x-text="(ev.category_name ? ev.category_name + ' · ' : '') + formatTime(ev.startTime) + ' — ' + formatTime(ev.endTime)"></div>
+                                        </div>
+                                    </div>
+                                </template>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </aside>
+        </div>
     </div>
 
     <template x-teleport="body">
-        <div class="dash-calendar-portal" x-show="calendarOpen || modal !== null" x-cloak @keydown.escape.window="dismissCalendarPortal()">
-            <div class="dash-calendar-backdrop" @click="dismissCalendarPortal()"></div>
-            <div class="dash-calendar-dropdown" x-show="calendarOpen" @click.stop>
-                <div class="widget calendar-widget white-card">
-                    <div class="calendar-header">
-                        <h3 x-text="title"></h3>
-                        <div class="cal-nav">
-                            <button type="button" x-on:click="changeMonth(-1)"><i class="fa-solid fa-chevron-left"></i></button>
-                            <button type="button" x-on:click="changeMonth(1)"><i class="fa-solid fa-chevron-right"></i></button>
-                        </div>
-                    </div>
-                    <div class="weekdays">
-                        <div>S</div><div>M</div><div>T</div><div>W</div><div>T</div><div>F</div><div>S</div>
-                    </div>
-                    <div class="calendar-grid">
-                        <template x-for="cell in cells" :key="cell.iso + cell.outside">
-                            <div class="cal-cell" :class="{ 'out-month': cell.outside }" x-on:click="openDay(cell.iso)">
-                                <div class="day-num"
-                                    :class="{ today: cell.today && !cell.colors.length, holiday: cell.holiday && !cell.colors.length }"
-                                    :style="cell.colors.length ? ('background-color:' + cell.colors[0] + ';color:#fff;font-weight:700') : ''"
-                                    x-text="cell.day"></div>
-                                <div class="day-markers">
-                                    <span class="day-marker holiday" x-show="cell.holiday"></span>
-                                    <template x-for="(color, idx) in cell.colors" :key="idx">
-                                        <span class="day-marker event" x-show="idx > 0" :style="'background-color:' + color"></span>
-                                    </template>
-                                </div>
-                            </div>
-                        </template>
-                    </div>
-                    <div class="cal-legend">
-                        <span class="legend-item"><span class="dot holiday-dot"></span> Holiday</span>
-                        <span class="legend-item"><span class="dot event-dot"></span> Event</span>
-                        <button type="button" class="btn-mini" x-on:click="openAdd(todayIso())">+ Add Event</button>
-                    </div>
-                </div>
-
-                <div class="widget upcoming-widget white-card">
-                    <div class="widget-header">
-                        <h3>Events</h3>
-                        <span class="badge" x-text="filteredUpcoming.length"></span>
-                    </div>
-                    <div class="ev-category-pills" x-show="categories.length > 0">
-                        <button type="button" class="ev-cat-pill" :class="{ 'is-active': eventCategoryFilter === '' }" @click="eventCategoryFilter = ''">All</button>
-                        <template x-for="cat in categories" :key="cat.id">
-                            <button type="button" class="ev-cat-pill" :class="{ 'is-active': String(eventCategoryFilter) === String(cat.id) }" @click="eventCategoryFilter = cat.id" x-text="cat.name"></button>
-                        </template>
-                    </div>
-                    <div class="upcoming-list">
-                        <template x-if="filteredUpcoming.length === 0">
-                            <div class="upcoming-empty">
-                                <i class="fa-regular fa-calendar-check"></i>
-                                <span>No events in the next 14 days</span>
-                            </div>
-                        </template>
-                        <template x-for="ev in filteredUpcoming" :key="ev.id">
-                            <div class="upcoming-item" x-on:click="openDay(ev.date)">
-                                <div class="upcoming-event-dot" :style="'background-color:' + (ev.color || '#0d2a7a')"></div>
-                                <div class="upcoming-info">
-                                    <div class="title" x-text="ev.title"></div>
-                                    <div class="time" x-text="(ev.category_name ? ev.category_name + ' · ' : '') + formatTime(ev.startTime) + ' — ' + formatTime(ev.endTime)"></div>
-                                </div>
-                            </div>
-                        </template>
-                    </div>
-                </div>
-            </div>
-
+        <div class="dash-calendar-portal" x-show="modal !== null" x-cloak @keydown.escape.window="modal = null">
+            <div class="dash-calendar-backdrop" @click="modal = null"></div>
             <div class="dash-event-layer" x-cloak x-bind:style="modal !== null ? 'display:flex' : 'display:none'">
                 <div class="dash-event-panel" @click.stop>
                 <template x-if="modal === 'day'">
@@ -568,6 +659,7 @@ document.addEventListener('alpine:init', () => {
             { key: 'distribution', label: 'Distribution' },
             { key: 'retrieval', label: 'Retrieval' },
         ],
+        activeChecklists: null,
         search() {
             clearTimeout(this.timer);
             const q = this.query.trim();
@@ -602,8 +694,10 @@ document.addEventListener('alpine:init', () => {
             this.open = false;
         },
         detailChecklistOptions() {
-            if (!this.detailDoc?.checklists) return [];
-            return this.checklistOptions.filter((cl) => this.detailDoc.checklists[cl.key]);
+            const flags = this.activeChecklists || this.detailDoc?.checklists;
+            if (!flags) return [];
+            // Only tabs for checklists that were actually saved on this revision
+            return this.checklistOptions.filter((cl) => !!flags[cl.key]);
         },
         resolveMatchedRevision(doc, revisions) {
             const targetId = doc.match_request_id || doc.request_id;
@@ -615,6 +709,7 @@ document.addEventListener('alpine:init', () => {
                     request_id: doc.request_id,
                     doc_no: doc.doc_no,
                     revise_no: doc.revise_no ?? 0,
+                    checklists: doc.checklists || null,
                 };
             }
             if (doc.match_request_id && doc.match_revise_no != null) {
@@ -622,6 +717,7 @@ document.addEventListener('alpine:init', () => {
                     request_id: doc.match_request_id,
                     doc_no: doc.doc_no,
                     revise_no: doc.match_revise_no,
+                    checklists: null,
                 };
             }
             return null;
@@ -632,6 +728,14 @@ document.addEventListener('alpine:init', () => {
             this.detailDocLabel = (rev.doc_no || this.detailDoc?.doc_no || 'No number')
                 + ' — Rev ' + (rev.revise_no ?? 0);
             this.checklistEditUrl = '/dcs/register/' + rev.request_id + '/edit';
+            // Prefer per-revision checklist presence (excludes unchecked sections like DCN/Retrieval on first register)
+            if (rev.checklists) {
+                this.activeChecklists = rev.checklists;
+            } else if (this.detailDoc?.request_id === rev.request_id && this.detailDoc?.checklists) {
+                this.activeChecklists = this.detailDoc.checklists;
+            } else {
+                this.activeChecklists = { masterlist: true };
+            }
         },
         scrollActiveRevisionIntoView() {
             this.$nextTick(() => {
@@ -645,12 +749,15 @@ document.addEventListener('alpine:init', () => {
             this.revisions = [];
             this.checklistPreview = null;
             this.activeChecklistKey = '';
+            this.activeChecklists = doc.checklists || null;
             this.checklistStampUrl = doc.stamp_url || '';
             document.body.classList.add('dash-cl-open');
 
             this.revisionsLoading = true;
             try {
-                const res = await fetch('/dcs/api/documents/revisions?request_id=' + doc.request_id);
+                // Load the full lineage (tip), but activate the matched revision (may be obsolete).
+                const lineageId = doc.lineage_request_id || doc.request_id;
+                const res = await fetch('/dcs/api/documents/revisions?request_id=' + lineageId);
                 this.revisions = res.ok ? await res.json() : [];
             } catch (e) {
                 this.revisions = [];
@@ -660,20 +767,29 @@ document.addEventListener('alpine:init', () => {
 
             const matched = this.resolveMatchedRevision(doc, this.revisions);
             this.applyActiveRevision(matched || doc);
-            if (matched && matched.request_id !== doc.request_id) {
+            if (matched && matched.request_id !== (doc.lineage_request_id || doc.request_id)) {
                 this.scrollActiveRevisionIntoView();
             }
 
-            const options = this.detailChecklistOptions();
-            if (options.length) {
-                await this.loadChecklist(options[0].key);
-            }
+            await this.loadFirstAvailableChecklist();
         },
         async selectRevision(rev) {
             if (!rev || rev.request_id === this.activeRequestId) return;
             this.applyActiveRevision(rev);
-            const key = this.activeChecklistKey || this.detailChecklistOptions()[0]?.key;
-            if (key) await this.loadChecklist(key);
+            await this.loadFirstAvailableChecklist();
+        },
+        async loadFirstAvailableChecklist() {
+            const options = this.detailChecklistOptions();
+            if (!options.length) {
+                this.activeChecklistKey = '';
+                this.checklistPreview = null;
+                return;
+            }
+
+            // Keep current tab if it still exists on this revision; otherwise first available
+            const current = this.activeChecklistKey;
+            const preferred = options.find((cl) => cl.key === current) || options[0];
+            await this.loadChecklist(preferred.key);
         },
         async loadChecklist(type) {
             this.activeChecklistKey = type;
@@ -704,6 +820,7 @@ document.addEventListener('alpine:init', () => {
             this.checklistStampUrl = '';
             this.activeChecklistKey = '';
             this.activeRequestId = null;
+            this.activeChecklists = null;
             document.body.classList.remove('dash-cl-open');
         },
     }));
@@ -712,6 +829,8 @@ document.addEventListener('alpine:init', () => {
         months: ['January','February','March','April','May','June','July','August','September','October','November','December'],
         holidays: @json($holidays),
         calendarOpen: false,
+        calendarReady: false,
+        calendarPersistKey: 'dcs.dashboard.calendarOpen',
         eventCategoryFilter: '',
         year: new Date().getFullYear(),
         month: new Date().getMonth(),
@@ -733,14 +852,33 @@ document.addEventListener('alpine:init', () => {
             return h;
         },
         async init() {
+            try {
+                this.calendarOpen = localStorage.getItem(this.calendarPersistKey) === '1';
+            } catch (e) {
+                this.calendarOpen = false;
+            }
+
+            this.$watch('calendarOpen', (open) => {
+                try {
+                    localStorage.setItem(this.calendarPersistKey, open ? '1' : '0');
+                } catch (e) {}
+            });
+
+            this.$nextTick(() => {
+                requestAnimationFrame(() => {
+                    this.calendarReady = true;
+                });
+            });
+
             await this.loadAll();
+        },
+        toggleCalendar() {
+            this.calendarOpen = !this.calendarOpen;
         },
         dismissCalendarPortal() {
             if (this.modal !== null) {
                 this.modal = null;
-                return;
             }
-            this.calendarOpen = false;
         },
         async loadAll() {
             try {
@@ -962,3 +1100,4 @@ document.addEventListener('alpine:init', () => {
     }));
 });
 </script>
+@endif

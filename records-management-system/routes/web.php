@@ -3,6 +3,7 @@
 require_once resource_path('views/pages/dcs/logic/bootstrap.blade.php');
 
 use App\Http\Controllers\ChatController;
+use App\Helpers\OfficeIntakeHelper;
 use App\Helpers\CalendarHelper;
 use App\Helpers\RegisterPersistHelper;
 use App\Helpers\RegisterQueryHelper;
@@ -386,6 +387,7 @@ Route::middleware(['auth'])
         Volt::route('/admin/activity/rdp/volume-conversion-logs', 'pages.admin.activity.rdp.volume-conversion-logs')->name('admin.activity.rdp.volume-conversion-logs');
         Volt::route('/admin/activity/rdp/update-logs', 'pages.admin.activity.rdp.update-logs')->name('admin.activity.rdp.update-logs');
         Volt::route('/admin/activity/rdp/record-series-logs', 'pages.admin.activity.rdp.record-series-logs')->name('admin.activity.rdp.record-series-logs');
+        Volt::route('/admin/activity/dcs/activity-logs', 'pages.admin.activity.dcs.activity-logs')->name('admin.activity.dcs.activity-logs');
         Volt::route('/admin/activity/chat-audit', 'pages.admin.activity.chat-audit')->name('admin.activity.chat-audit');
 
 
@@ -490,57 +492,106 @@ Route::middleware(['auth'])
         Route::prefix('dcs')->name('dcs.')->group(function () {
             Volt::route('/dashboard', 'pages.dcs.index')->name('dashboard');
 
+            // Office intake (RFIO full users + limited non-RFIO offices)
+            Volt::route('/office/drf', 'pages.dcs.office.drf-index')->name('office.drf.index');
+            Volt::route('/office/drf/create', 'pages.dcs.office.drf-create')->name('office.drf.create');
+            Route::post('/office/drf', fn (Request $request) => OfficeIntakeHelper::storeDrf($request))->name('office.drf.store');
+            Volt::route('/office/drf/{id}', 'pages.dcs.office.drf-show')->name('office.drf.show');
+            Route::get('/office/drf/{id}/print', function (int $id) {
+                OfficeIntakeHelper::assertCanAccessIntake();
+                $drf = OfficeIntakeHelper::findOfficeDrf($id);
+                abort_unless($drf, 404);
+                OfficeIntakeHelper::assertOwnsDrf($drf);
+                $logoPath = public_path('images/logo.png');
+                $logoSrc = file_exists($logoPath) ? ('data:image/png;base64,' . base64_encode(file_get_contents($logoPath))) : '';
+                $sourceOffices = OfficeIntakeHelper::drfSourceOffices($id);
+
+                return response()->view('pages.dcs.office.drf-print', compact('drf', 'logoSrc', 'sourceOffices'));
+            })->name('office.drf.print');
+            Route::match(['put', 'patch', 'post'], '/office/drf/{id}', fn () => OfficeIntakeHelper::rejectMutation())
+                ->name('office.drf.update');
+
+            Volt::route('/office/dcn', 'pages.dcs.office.dcn-index')->name('office.dcn.index');
+            Volt::route('/office/dcn/create', 'pages.dcs.office.dcn-create')->name('office.dcn.create');
+            Route::post('/office/dcn', fn (Request $request) => OfficeIntakeHelper::storeDcn($request))->name('office.dcn.store');
+            Volt::route('/office/dcn/{id}', 'pages.dcs.office.dcn-show')->name('office.dcn.show');
+            Route::get('/office/dcn/{id}/print', function (int $id) {
+                OfficeIntakeHelper::assertCanAccessIntake();
+                $dcn = OfficeIntakeHelper::findOfficeDcn($id);
+                abort_unless($dcn, 404);
+                OfficeIntakeHelper::assertOwnsDcn($dcn);
+                $logoPath = public_path('images/logo.png');
+                $logoSrc = file_exists($logoPath) ? ('data:image/png;base64,' . base64_encode(file_get_contents($logoPath))) : '';
+                $revisions = OfficeIntakeHelper::dcnRevisions($id);
+                $sourceOffices = OfficeIntakeHelper::dcnSourceOffices($id);
+
+                return response()->view('pages.dcs.office.dcn-print', compact('dcn', 'logoSrc', 'revisions', 'sourceOffices'));
+            })->name('office.dcn.print');
+            Route::match(['put', 'patch', 'post'], '/office/dcn/{id}', fn () => OfficeIntakeHelper::rejectMutation())
+                ->name('office.dcn.update');
+
+            // Document lookup for office DCN (and full Register) — available to all DCS users
             Route::get('/api/documents/search', fn (Request $request) => RegisterQueryHelper::searchDocuments($request));
             Route::get('/api/documents/revisions', fn (Request $request) => RegisterQueryHelper::documentRevisions($request));
-            Route::get('/api/documents/{id}/checklist/{type}', function (int $id, string $type) {
-                return response()->json(RegisterQueryHelper::documentChecklistPreview($id, $type));
-            })->whereIn('type', ['drf', 'dcn', 'masterlist', 'approval', 'distribution', 'retrieval']);
-            Route::get('/api/calendar/categories', fn () => CalendarHelper::categories());
-            Route::post('/api/calendar/categories', fn (Request $request) => CalendarHelper::storeCategory($request));
-            Route::delete('/api/calendar/categories/{id}', fn (int $id) => CalendarHelper::destroyCategory($id));
-            Route::get('/api/calendar/events', fn () => CalendarHelper::events());
-            Route::post('/api/calendar/events', fn (Request $request) => CalendarHelper::storeEvent($request));
-            Route::put('/api/calendar/events/{id}', fn (Request $request, int $id) => CalendarHelper::updateEvent($request, $id));
-            Route::delete('/api/calendar/events/{id}', fn (int $id) => CalendarHelper::destroyEvent($id));
+            Route::get('/api/offices', fn () => response()->json(
+                collect(RegisterQueryHelper::jsCatalog()['offices'] ?? [])->values()
+            ));
 
-            Route::get('/register/check-docno', fn (Request $request) => response()->json(RegisterQueryHelper::checkDocNo($request)))
-                ->name('register.checkDocNo');
-            Route::post('/register/extract-scan', fn (Request $request) => response()->json(RegisterScanService::extract($request)))
-                ->name('register.extractScan');
+            Route::middleware(['dcs.full'])->group(function () {
+                Route::get('/api/documents/{id}/checklist/{type}', function (int $id, string $type) {
+                    return response()->json(RegisterQueryHelper::documentChecklistPreview($id, $type));
+                })->whereIn('type', ['drf', 'dcn', 'masterlist', 'approval', 'distribution', 'retrieval']);
+                Route::get('/api/calendar/categories', fn () => CalendarHelper::categories());
+                Route::post('/api/calendar/categories', fn (Request $request) => CalendarHelper::storeCategory($request));
+                Route::delete('/api/calendar/categories/{id}', fn (int $id) => CalendarHelper::destroyCategory($id));
+                Route::get('/api/calendar/events', fn () => CalendarHelper::events());
+                Route::post('/api/calendar/events', fn (Request $request) => CalendarHelper::storeEvent($request));
+                Route::put('/api/calendar/events/{id}', fn (Request $request, int $id) => CalendarHelper::updateEvent($request, $id));
+                Route::delete('/api/calendar/events/{id}', fn (int $id) => CalendarHelper::destroyEvent($id));
 
-            Volt::route('/register', 'pages.dcs.register.index')->name('register.create');
-            Route::post('/register', fn (Request $request) => RegisterPersistHelper::persist($request))->name('register.store');
-            Route::get('/register/revised', fn () => redirect()->route('dcs.register.create', ['type' => 'revised']))
-                ->name('register.revised');
+                Route::get('/register/check-docno', fn (Request $request) => response()->json(RegisterQueryHelper::checkDocNo($request)))
+                    ->name('register.checkDocNo');
+                Route::get('/register/check-revno', fn (Request $request) => response()->json(RegisterQueryHelper::checkRevNo($request)))
+                    ->name('register.checkRevNo');
+                Route::post('/register/extract-scan', fn (Request $request) => response()->json(RegisterScanService::extract($request)))
+                    ->name('register.extractScan');
+                Route::post('/api/drr/ocr-pages', fn (Request $request) => response()->json(\App\Services\DrrOcrService::ocrPages($request)))
+                    ->name('drr.ocrPages');
 
-            Volt::route('/register/update', 'pages.dcs.register.update')->name('register.update');
-            Volt::route('/recycle-bin', 'pages.dcs.recycle-bin.index')->name('recycle-bin');
-            Volt::route('/review', 'pages.dcs.review.index')->name('review');
-            Volt::route('/register/history/{docNo}', 'pages.dcs.register.history')->name('register.history');
-            Volt::route('/register/{id}/edit', 'pages.dcs.register.edit')->name('register.edit');
-            Route::put('/register/{id}', fn (Request $request, $id) => RegisterUpdateHelper::update($request, (int) $id))
-                ->name('register.updateDoc');
+                Volt::route('/register', 'pages.dcs.register.index')->name('register.create');
+                Route::post('/register', fn (Request $request) => RegisterPersistHelper::persist($request))->name('register.store');
+                Route::get('/register/revised', fn () => redirect()->route('dcs.register.create', ['type' => 'revised']))
+                    ->name('register.revised');
 
-            Volt::route('/reports/masterlist', 'pages.dcs.reports.show')->name('reports.masterlist');
-            Volt::route('/reports/monitoring', 'pages.dcs.reports.show')->name('reports.monitoring');
-            Volt::route('/reports/opcr', 'pages.dcs.reports.show')->name('reports.opcr');
-            Volt::route('/reports/others', 'pages.dcs.reports.show')->name('reports.others');
-            Volt::route('/reports/syllabi-tos', 'pages.dcs.reports.syllabi-tos')->name('reports.syllabiTos');
-            Route::get('/reports/export', fn (Request $request) => app(ReportHelper::class)->export($request))->name('reports.export');
-            Route::match(['get', 'post'], '/reports/distribution-template', fn (Request $request) => ReportTemplateHelper::render($request))
-                ->name('reports.distributionTemplate');
-            Route::get('/api/report-templates', fn () => response()->json(ReportTemplateHelper::list()));
-            Route::post('/api/report-templates', fn (Request $request) => ReportTemplateHelper::store($request));
-            Route::delete('/api/report-templates/{id}', fn (int $id) => ReportTemplateHelper::destroy($id));
+                Volt::route('/register/update', 'pages.dcs.register.update')->name('register.update');
+                Volt::route('/recycle-bin', 'pages.dcs.recycle-bin.index')->name('recycle-bin');
+                Volt::route('/review', 'pages.dcs.review.index')->name('review');
+                Volt::route('/register/history/{docNo}', 'pages.dcs.register.history')->name('register.history');
+                Volt::route('/register/{id}/edit', 'pages.dcs.register.edit')->name('register.edit');
+                Route::put('/register/{id}', fn (Request $request, $id) => RegisterUpdateHelper::update($request, (int) $id))
+                    ->name('register.updateDoc');
 
-            Volt::route('/stamping', 'pages.dcs.stamping.index')->name('stamping.index');
-            Route::post('/stamp/apply', fn (Request $request) => app(StampService::class)->apply($request))->name('stamp.apply');
-            Route::post('/stamp/remove', fn (Request $request) => app(StampService::class)->remove($request))->name('stamp.remove');
-            Route::post('/stamp/download', fn (Request $request) => app(StampService::class)->download($request))->name('stamp.download');
-            Route::post('/stamp/preview', fn (Request $request) => app(StampService::class)->preview($request))->name('stamp.preview');
+                Volt::route('/reports/masterlist', 'pages.dcs.reports.show')->name('reports.masterlist');
+                Volt::route('/reports/monitoring', 'pages.dcs.reports.show')->name('reports.monitoring');
+                Volt::route('/reports/opcr', 'pages.dcs.reports.show')->name('reports.opcr');
+                Volt::route('/reports/others', 'pages.dcs.reports.show')->name('reports.others');
+                Volt::route('/reports/syllabi-tos', 'pages.dcs.reports.syllabi-tos')->name('reports.syllabiTos');
+                Route::get('/reports/export', fn (Request $request) => app(ReportHelper::class)->export($request))->name('reports.export');
+                Route::match(['get', 'post'], '/reports/distribution-template', fn (Request $request) => ReportTemplateHelper::render($request))
+                    ->name('reports.distributionTemplate');
+                Route::get('/api/report-templates', fn () => response()->json(ReportTemplateHelper::list()));
+                Route::post('/api/report-templates', fn (Request $request) => ReportTemplateHelper::store($request));
+                Route::delete('/api/report-templates/{id}', fn (int $id) => ReportTemplateHelper::destroy($id));
 
-            Volt::route('/database', 'pages.dcs.database.index')->name('database.index');
-            Volt::route('/settings', 'pages.dcs.settings.index')->name('settings.index');
+                Volt::route('/stamping', 'pages.dcs.stamping.index')->name('stamping.index');
+                Route::post('/stamp/apply', fn (Request $request) => app(StampService::class)->apply($request))->name('stamp.apply');
+                Route::post('/stamp/remove', fn (Request $request) => app(StampService::class)->remove($request))->name('stamp.remove');
+                Route::post('/stamp/download', fn (Request $request) => app(StampService::class)->download($request))->name('stamp.download');
+                Route::post('/stamp/preview', fn (Request $request) => app(StampService::class)->preview($request))->name('stamp.preview');
+
+                Volt::route('/database', 'pages.dcs.database.index')->name('database.index');
+                Volt::route('/settings', 'pages.dcs.settings.index')->name('settings.index');
+            });
         });
     });
 

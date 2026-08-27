@@ -515,6 +515,8 @@ body:has(#dcs-sidebar-collapsed:checked) .reg-container,
 body:has(#dcs-sidebar-collapsed:checked) .upd-container,
 body:has(#dcs-sidebar-collapsed:checked) .hst-container,
 body:has(#dcs-sidebar-collapsed:checked) .drr-container,
+body:has(#dcs-sidebar-collapsed:checked) .rb-container,
+body:has(#dcs-sidebar-collapsed:checked) .ofi-page,
 body:has(#dcs-sidebar-collapsed:checked) .settings-main {
     left: var(--dcs-sidebar-collapsed);
 }
@@ -528,6 +530,8 @@ body:has(#dcs-sidebar-collapsed:checked) .settings-main {
     .upd-container,
     .hst-container,
     .drr-container,
+    .rb-container,
+    .ofi-page,
     .settings-main,
     body:has(#dcs-sidebar-collapsed:checked) .dashboard-main,
     body:has(#dcs-sidebar-collapsed:checked) .rpt-page,
@@ -537,6 +541,8 @@ body:has(#dcs-sidebar-collapsed:checked) .settings-main {
     body:has(#dcs-sidebar-collapsed:checked) .upd-container,
     body:has(#dcs-sidebar-collapsed:checked) .hst-container,
     body:has(#dcs-sidebar-collapsed:checked) .drr-container,
+    body:has(#dcs-sidebar-collapsed:checked) .rb-container,
+    body:has(#dcs-sidebar-collapsed:checked) .ofi-page,
     body:has(#dcs-sidebar-collapsed:checked) .settings-main {
         left: 0 !important;
     }

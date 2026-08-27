@@ -18,6 +18,8 @@ return new class extends Migration
             $table->foreign('office_id')->references('id')->on('office');
             $table->integer('copies')->nullable();
             $table->date('distribution_date')->nullable();
+
+            $table->unique(['distribution_id', 'office_id'], 'dcs_dist_offices_unique');
         });
     }
 

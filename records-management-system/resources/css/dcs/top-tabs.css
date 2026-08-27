@@ -6,7 +6,8 @@
     left: var(--dcs-sidebar);
     right: 0;
     z-index: 40;
-    padding: 10px var(--dcs-page-pad) 0;
+    /* Use pad-x only — --dcs-page-pad is two values and would zero out left padding. */
+    padding: 10px var(--dcs-page-pad-x) 0;
     box-sizing: border-box;
     pointer-events: none;
     transition: left var(--dcs-ease);
@@ -93,7 +94,9 @@ body:has(.dcs-top-tabs-host .top-nav-tabs-wrapper) .reg-container,
 body:has(.dcs-top-tabs-host .top-nav-tabs-wrapper) .upd-container,
 body:has(.dcs-top-tabs-host .top-nav-tabs-wrapper) .hst-container,
 body:has(.dcs-top-tabs-host .top-nav-tabs-wrapper) .drr-container,
-body:has(.dcs-top-tabs-host .top-nav-tabs-wrapper) .settings-main {
+body:has(.dcs-top-tabs-host .top-nav-tabs-wrapper) .rb-container,
+body:has(.dcs-top-tabs-host .top-nav-tabs-wrapper) .settings-main,
+body:has(.dcs-top-tabs-host .top-nav-tabs-wrapper) .ofi-page {
     top: calc(var(--dcs-header-height) + 58px);
 }
 
@@ -125,7 +128,9 @@ body:has(#dcs-sidebar-collapsed:checked) .dcs-top-tabs-host {
     body:has(.dcs-top-tabs-host .top-nav-tabs-wrapper) .upd-container,
     body:has(.dcs-top-tabs-host .top-nav-tabs-wrapper) .hst-container,
     body:has(.dcs-top-tabs-host .top-nav-tabs-wrapper) .drr-container,
-    body:has(.dcs-top-tabs-host .top-nav-tabs-wrapper) .settings-main {
+    body:has(.dcs-top-tabs-host .top-nav-tabs-wrapper) .rb-container,
+    body:has(.dcs-top-tabs-host .top-nav-tabs-wrapper) .settings-main,
+    body:has(.dcs-top-tabs-host .top-nav-tabs-wrapper) .ofi-page {
         top: calc(var(--dcs-header-height) + 52px);
     }
 }

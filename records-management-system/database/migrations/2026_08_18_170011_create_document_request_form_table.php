@@ -11,14 +11,8 @@ return new class extends Migration
     {
         Schema::create('dcs_document_request_form', function (Blueprint $table) {
             $table->id();
-            $table->foreignId('checklist_id')->nullable()
-                  ->constrained('dcs_checklist_types');
-            $table->foreignId('version_id')->nullable()
-                  ->constrained('dcs_version_type');
             $table->foreignId('request_id')->nullable()
                   ->constrained('dcs_document_requests');
-            $table->foreignId('doc_type_id')->nullable()
-                  ->constrained('dcs_doc_types');
             $table->string('drf_no', 100)->nullable();
             $table->date('drf_date')->nullable();
             $table->date('drf_receipt_date')->nullable();

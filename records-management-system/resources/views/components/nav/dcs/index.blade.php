@@ -1,5 +1,7 @@
 @php
     $enableTopTabs = auth()->user()?->enableTopTabs() ?? true;
+    $isLimitedDcs = \App\Helpers\RegisterQueryHelper::isLimitedDcsUser();
+    $isFullDcs = \App\Helpers\RegisterQueryHelper::isFullDcsUser();
 @endphp
 
 <label for="dcs-nav-open" class="nav-backdrop" aria-hidden="true"></label>
@@ -34,98 +36,117 @@
             </a>
         </li>
 
-        @if($enableTopTabs)
-            <li class="nav-item {{ request()->is('dcs/register*') ? 'active' : '' }}">
-                <a href="{{ route('dcs.register.create', absolute: false) }}">
-                    <i class="fa-regular fa-pen-to-square"></i>
-                    <span>Document Registration</span>
-                    <span class="tooltip">Document Registration</span>
+        @if($isLimitedDcs)
+            <li class="nav-item {{ request()->routeIs('dcs.office.drf.*') ? 'active' : '' }}">
+                <a href="{{ route('dcs.office.drf.index', absolute: false) }}">
+                    <i class="fa-regular fa-file-lines"></i>
+                    <span>My DRF</span>
+                    <span class="tooltip">My Document Request Forms</span>
                 </a>
             </li>
-        @else
-            <li class="nav-item dropdown {{ request()->is('dcs/register*') ? 'active' : '' }}">
-                <details {{ request()->is('dcs/register*') ? 'open' : '' }}>
-                    <summary class="dropdown-trigger">
+            <li class="nav-item {{ request()->routeIs('dcs.office.dcn.*') ? 'active' : '' }}">
+                <a href="{{ route('dcs.office.dcn.index', absolute: false) }}">
+                    <i class="fa-regular fa-file-pen"></i>
+                    <span>My DCN</span>
+                    <span class="tooltip">My Document Change Notices</span>
+                </a>
+            </li>
+        @endif
+
+        @if($isFullDcs)
+            @if($enableTopTabs)
+                <li class="nav-item {{ request()->is('dcs/register*') ? 'active' : '' }}">
+                    <a href="{{ route('dcs.register.create', absolute: false) }}">
                         <i class="fa-regular fa-pen-to-square"></i>
                         <span>Document Registration</span>
-                        <i class="fas fa-caret-down arrow"></i>
                         <span class="tooltip">Document Registration</span>
-                    </summary>
-                    <ul class="sub-dropdown">
-                        <li>
-                            <a href="{{ route('dcs.register.create', absolute: false) }}" class="{{ request()->routeIs('dcs.register.create') || request()->routeIs('dcs.register.revised') ? 'active-sub' : '' }}">Register</a>
-                        </li>
-                        <li>
-                            <a href="{{ route('dcs.register.update', absolute: false) }}" class="{{ request()->routeIs('dcs.register.update') || request()->routeIs('dcs.register.edit') || request()->routeIs('dcs.register.history') ? 'active-sub' : '' }}">Update</a>
-                        </li>
-                    </ul>
-                </details>
-            </li>
-        @endif
+                    </a>
+                </li>
+            @else
+                <li class="nav-item dropdown {{ request()->is('dcs/register*') ? 'active' : '' }}">
+                    <details {{ request()->is('dcs/register*') ? 'open' : '' }}>
+                        <summary class="dropdown-trigger">
+                            <i class="fa-regular fa-pen-to-square"></i>
+                            <span>Document Registration</span>
+                            <i class="fas fa-caret-down arrow"></i>
+                            <span class="tooltip">Document Registration</span>
+                        </summary>
+                        <ul class="sub-dropdown">
+                            <li>
+                                <a href="{{ route('dcs.register.create', absolute: false) }}" class="{{ request()->routeIs('dcs.register.create') || request()->routeIs('dcs.register.revised') ? 'active-sub' : '' }}">Register</a>
+                            </li>
+                            <li>
+                                <a href="{{ route('dcs.register.update', absolute: false) }}" class="{{ request()->routeIs('dcs.register.update') || request()->routeIs('dcs.register.edit') || request()->routeIs('dcs.register.history') ? 'active-sub' : '' }}">Update</a>
+                            </li>
+                        </ul>
+                    </details>
+                </li>
+            @endif
 
-        @if($enableTopTabs)
-            <li class="nav-item {{ request()->is('dcs/reports*') ? 'active' : '' }}">
-                <a href="{{ route('dcs.reports.masterlist', absolute: false) }}">
-                    <i class="fa-regular fa-file-lines"></i>
-                    <span>Generate Report</span>
-                    <span class="tooltip">Generate Report</span>
-                </a>
-            </li>
-        @else
-            <li class="nav-item dropdown {{ request()->is('dcs/reports*') ? 'active' : '' }}">
-                <details {{ request()->is('dcs/reports*') ? 'open' : '' }}>
-                    <summary class="dropdown-trigger">
+            @if($enableTopTabs)
+                <li class="nav-item {{ request()->is('dcs/reports*') ? 'active' : '' }}">
+                    <a href="{{ route('dcs.reports.masterlist', absolute: false) }}">
                         <i class="fa-regular fa-file-lines"></i>
                         <span>Generate Report</span>
-                        <i class="fas fa-caret-down arrow"></i>
                         <span class="tooltip">Generate Report</span>
-                    </summary>
-                    <ul class="sub-dropdown">
-                        <li><a href="{{ route('dcs.reports.masterlist', absolute: false) }}" class="{{ request()->routeIs('dcs.reports.masterlist') ? 'active-sub' : '' }}">Masterlists</a></li>
-                        <li><a href="{{ route('dcs.reports.monitoring', absolute: false) }}" class="{{ request()->routeIs('dcs.reports.monitoring') ? 'active-sub' : '' }}">Monitoring Reports</a></li>
-                        <li><a href="{{ route('dcs.reports.syllabiTos', absolute: false) }}" class="{{ request()->routeIs('dcs.reports.syllabiTos') ? 'active-sub' : '' }}">Syllabi &amp; TOS/Rubrics</a></li>
-                        <li><a href="{{ route('dcs.reports.opcr', absolute: false) }}" class="{{ request()->routeIs('dcs.reports.opcr') ? 'active-sub' : '' }}">OPCR Targets</a></li>
-                        <li><a href="{{ route('dcs.reports.others', absolute: false) }}" class="{{ request()->routeIs('dcs.reports.others') ? 'active-sub' : '' }}">Others</a></li>
-                    </ul>
-                </details>
+                    </a>
+                </li>
+            @else
+                <li class="nav-item dropdown {{ request()->is('dcs/reports*') ? 'active' : '' }}">
+                    <details {{ request()->is('dcs/reports*') ? 'open' : '' }}>
+                        <summary class="dropdown-trigger">
+                            <i class="fa-regular fa-file-lines"></i>
+                            <span>Generate Report</span>
+                            <i class="fas fa-caret-down arrow"></i>
+                            <span class="tooltip">Generate Report</span>
+                        </summary>
+                        <ul class="sub-dropdown">
+                            <li><a href="{{ route('dcs.reports.masterlist', absolute: false) }}" class="{{ request()->routeIs('dcs.reports.masterlist') ? 'active-sub' : '' }}">Masterlists</a></li>
+                            <li><a href="{{ route('dcs.reports.monitoring', absolute: false) }}" class="{{ request()->routeIs('dcs.reports.monitoring') ? 'active-sub' : '' }}">Monitoring Reports</a></li>
+                            <li><a href="{{ route('dcs.reports.syllabiTos', absolute: false) }}" class="{{ request()->routeIs('dcs.reports.syllabiTos') ? 'active-sub' : '' }}">Syllabi &amp; TOS/Rubrics</a></li>
+                            <li><a href="{{ route('dcs.reports.opcr', absolute: false) }}" class="{{ request()->routeIs('dcs.reports.opcr') ? 'active-sub' : '' }}">OPCR Targets</a></li>
+                            <li><a href="{{ route('dcs.reports.others', absolute: false) }}" class="{{ request()->routeIs('dcs.reports.others') ? 'active-sub' : '' }}">Others</a></li>
+                        </ul>
+                    </details>
+                </li>
+            @endif
+
+            <li class="nav-item {{ request()->routeIs('dcs.review') ? 'active' : '' }}">
+                <a href="{{ route('dcs.review', absolute: false) }}">
+                    <i class="fa-solid fa-code-compare"></i>
+                    <span>Document Review</span>
+                    <span class="tooltip">Document Review</span>
+                </a>
+            </li>
+
+            <li class="nav-item {{ request()->routeIs('dcs.stamping.*') || request()->routeIs('dcs.stamp.*') ? 'active' : '' }}">
+                <a href="{{ route('dcs.stamping.index', absolute: false) }}">
+                    <i class="fa-solid fa-stamp"></i>
+                    <span>Stamp Document</span>
+                    <span class="tooltip">Stamp Document</span>
+                </a>
+            </li>
+            <li class="nav-item {{ request()->routeIs('dcs.database.*') ? 'active' : '' }}">
+                <a href="{{ route('dcs.database.index', absolute: false) }}">
+                    <i class="fa-solid fa-database"></i>
+                    <span>Database</span>
+                    <span class="tooltip">Database</span>
+                </a>
+            </li>
+            <li data-page="settings" class="nav-item {{ request()->routeIs('dcs.settings.*') ? 'active' : '' }}">
+                <a href="{{ route('dcs.settings.index', absolute: false) }}">
+                    <i class="fa-solid fa-gear"></i>
+                    <span>Settings</span>
+                    <span class="tooltip">Settings</span>
+                </a>
+            </li>
+            <li class="nav-item {{ request()->routeIs('dcs.recycle-bin') ? 'active' : '' }}">
+                <a href="{{ route('dcs.recycle-bin', absolute: false) }}">
+                    <i class="fa-solid fa-trash-can"></i>
+                    <span>Recycle Bin</span>
+                    <span class="tooltip">Recycle Bin</span>
+                </a>
             </li>
         @endif
-
-        <li class="nav-item {{ request()->routeIs('dcs.review') ? 'active' : '' }}">
-            <a href="{{ route('dcs.review', absolute: false) }}">
-                <i class="fa-solid fa-code-compare"></i>
-                <span>Document Review</span>
-                <span class="tooltip">Document Review</span>
-            </a>
-        </li>
-
-        <li class="nav-item {{ request()->routeIs('dcs.stamping.*') || request()->routeIs('dcs.stamp.*') ? 'active' : '' }}">
-            <a href="{{ route('dcs.stamping.index', absolute: false) }}">
-                <i class="fa-solid fa-stamp"></i>
-                <span>Stamp Document</span>
-                <span class="tooltip">Stamp Document</span>
-            </a>
-        </li>
-        <li class="nav-item {{ request()->routeIs('dcs.database.*') ? 'active' : '' }}">
-            <a href="{{ route('dcs.database.index', absolute: false) }}">
-                <i class="fa-solid fa-database"></i>
-                <span>Database</span>
-                <span class="tooltip">Database</span>
-            </a>
-        </li>
-        <li data-page="settings" class="nav-item {{ request()->routeIs('dcs.settings.*') ? 'active' : '' }}">
-            <a href="{{ route('dcs.settings.index', absolute: false) }}">
-                <i class="fa-solid fa-gear"></i>
-                <span>Settings</span>
-                <span class="tooltip">Settings</span>
-            </a>
-        </li>
-        <li class="nav-item {{ request()->routeIs('dcs.recycle-bin') ? 'active' : '' }}">
-            <a href="{{ route('dcs.recycle-bin', absolute: false) }}">
-                <i class="fa-solid fa-recycle"></i>
-                <span>Recycle Bin</span>
-                <span class="tooltip">Recycle Bin</span>
-            </a>
-        </li>
     </ul>
 </nav>

@@ -6,11 +6,11 @@ header.rms-app-header {
     position: fixed;
     top: 0;
     left: 0;
-    right: 0;
     z-index: 1000;
-    box-sizing: border-box;
+    /* Match DTS/RDP: content-box + calc width so padding does not shrink the bar */
+    box-sizing: content-box;
     background: #003699;
-    width: 100%;
+    width: calc(100% - var(--padding-header));
     height: 70px;
     display: flex;
     gap: 10px;
@@ -78,160 +78,18 @@ header.rms-app-header .office_name {
     letter-spacing: 0%;
 }
 
+/* ACTIONS positioning — look & feel from ./actions-dropdown.css (same as dashboard.css) */
 header.rms-app-header .actions-container {
     position: absolute;
     top: 10px;
     right: 15px;
-    display: flex;
-    justify-content: center;
-}
-
-/* Match dashboard.css .action_button — do not set font-size/weight (DCS pages
-   clamp html font-size; inherit would make ACTIONS look larger than DTS/RDP). */
-header.rms-app-header .action_button {
-    cursor: pointer;
-    background-color: #FFFFFF33;
-    color: #FFFFFF;
-    width: 123px;
-    height: 30px;
-    opacity: 1;
-    border-radius: 100px;
-    box-shadow: rgba(0, 0, 0, 0.35) 0px 5px 15px;
-    border: none;
-    transition: .5s;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    padding: 0;
-    margin: 0;
-    gap: 0;
-    letter-spacing: normal;
-    text-transform: none;
-    line-height: normal;
-    -webkit-appearance: none;
-    appearance: none;
-    /* Keep UA button size (~13.33px) so label matches DTS/RDP despite DCS html clamp */
-    font-size: 13.3333px;
-    font-weight: 400;
-}
-
-header.rms-app-header .action_button span {
-    color: #FFFFFF;
-    font-size: 13.3333px;
-    font-weight: 400;
-    letter-spacing: normal;
-    text-transform: none;
-}
-
-header.rms-app-header .action_button img {
-    width: 20px;
-    height: 20px;
-    display: block;
-    flex-shrink: 0;
-}
-
-header.rms-app-header .action_button img.rotate {
-    transition: .5s;
-    transform: rotate(180deg);
-}
-
-header.rms-app-header .action_button img.revert {
-    transition: .5s;
-    transform: rotate(0deg);
-}
-
-header.rms-app-header .drop_down-container {
-    position: absolute;
-    box-shadow: rgba(50, 50, 93, 0.25) 0px 13px 27px -5px, rgba(0, 0, 0, 0.3) 0px 8px 16px -8px;
-    top: 30px;
-    right: inherit;
-    z-index: 10;
-    background-color: #FFFFFF;
-    display: flex;
-    flex-direction: column;
-    align-items: flex-start;
-    justify-content: center;
-    max-height: 0px;
-    padding: 5px 15px 15px 15px;
-    border-radius: 10px;
-    width: 200px;
-    opacity: 0;
-    overflow: hidden;
-    pointer-events: none;
-}
-
-header.rms-app-header .drop_down-container span {
-    font-family: 'Inter', sans-serif;
-    font-weight: 700;
-    font-size: 13px;
-    line-height: 121%;
-    color: #A2A2A2;
-}
-
-header.rms-app-header .drop_down-container.show {
-    animation: rms_header_dropdown .5s ease-in forwards;
-    pointer-events: auto;
-}
-
-@keyframes rms_header_dropdown {
-    0% {
-        max-height: 0px;
-        opacity: 0;
-    }
-    100% {
-        max-height: 500px;
-        opacity: 1;
-    }
-}
-
-header.rms-app-header .drop_down-container hr {
-    width: 100%;
-    border: 0.5px solid #A2A2A2;
-}
-
-header.rms-app-header .drop_down-container button {
-    padding: 10px 20px;
-    background-color: transparent;
-    text-decoration: none;
-    width: 100%;
-    text-align: center;
-    border: none;
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    cursor: pointer;
-}
-
-header.rms-app-header .drop_down-container button img {
-    max-width: 21px;
-    max-height: 21px;
-}
-
-header.rms-app-header .drop_down-container button:hover span {
-    color: #003699;
+    z-index: 1001;
 }
 
 /* Keep brand blue header in dark mode (same as DTS / RDP / Profile). */
 [data-theme="dark"] header.rms-app-header {
     background: #003699;
     border-bottom: none;
-}
-
-[data-theme="dark"] header.rms-app-header .drop_down-container {
-    background-color: #131c2e;
-    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
-}
-
-[data-theme="dark"] header.rms-app-header .drop_down-container span {
-    color: #94a3b8;
-}
-
-[data-theme="dark"] header.rms-app-header .drop_down-container button:hover span {
-    color: #60a5fa;
-}
-
-[data-theme="dark"] header.rms-app-header .drop_down-container hr {
-    border-color: #1e293b;
 }
 
 @media (max-width: 900px) {

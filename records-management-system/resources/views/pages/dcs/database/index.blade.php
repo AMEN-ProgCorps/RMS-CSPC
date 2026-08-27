@@ -174,6 +174,7 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
         try {
             $query = DB::table('dcs_document_requests as dr');
             // Include soft-deleted rows so the inventory can show them with deleted styling.
+            RegisterQueryHelper::applyOfficeScope($query, 'dr');
 
             if ($this->docTypeId !== 'all' && $this->docTypeId !== '') {
                 $query->where('dr.doc_type_id', $this->docTypeId);
@@ -299,6 +300,24 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
             // Stack renumbered families: CSPC-F-102 under CSPC-F-1023 when revised_from_doc_no links them.
             $groups = $this->mergeRenumberLineageGroups($groups);
 
+            $inventoryScopeIds = [];
+            foreach ($groups as $g) {
+                $rid = (int) ($g['parent']['request_id'] ?? 0);
+                if ($rid > 0) {
+                    $inventoryScopeIds[$rid] = $rid;
+                }
+                foreach ($g['children'] ?? [] as $child) {
+                    $cid = (int) ($child['request_id'] ?? 0);
+                    if ($cid > 0) {
+                        $inventoryScopeIds[$cid] = $cid;
+                    }
+                }
+            }
+            RegisterQueryHelper::promoteLatestForLineageGroups(
+                $groups,
+                $inventoryScopeIds !== [] ? array_values($inventoryScopeIds) : RegisterQueryHelper::visibleRequestIds()
+            );
+
             if ($this->revisionStatus === 'latest') {
                 $groups = $groups
                     ->filter(fn ($g) => strtolower((string) ($g['parent']['status'] ?? '')) === 'latest')
@@ -412,9 +431,19 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
         $ret = $doc->documentRetrieval;
         $dist = $doc->documentDistribution;
 
+        // Purpose of Revision = DCN Justification for this registration.
+        // Fall back to the first non-empty Documents-for-Revision brief purpose.
         $dcnPurpose = null;
-        if ($dcn && $dcn->revisions->isNotEmpty()) {
-            $dcnPurpose = $dcn->revisions->sortBy('id')->first()->brief_purpose;
+        if ($dcn) {
+            $justification = trim((string) ($dcn->brief_purpose ?? ''));
+            if ($justification !== '') {
+                $dcnPurpose = $justification;
+            } elseif ($dcn->revisions->isNotEmpty()) {
+                $dcnPurpose = $dcn->revisions
+                    ->sortBy('id')
+                    ->map(fn ($rev) => trim((string) ($rev->brief_purpose ?? '')))
+                    ->first(fn ($purpose) => $purpose !== '') ?: null;
+            }
         }
 
         $retOffices = null;
@@ -509,8 +538,8 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
     }
 
     /**
-     * Fold prior doc-no families into the current number's group via revised_from_doc_no.
-     * Walks the full chain (e.g. 10234 → 1023 → 102) so every prior number appears as an obsolete child.
+     * Fold prior doc-no families into the current tip via revised_from_doc_no.
+     * Each prior family attaches to at most one successor (highest rev wins).
      */
     private function mergeRenumberLineageGroups(\Illuminate\Support\Collection $groups): \Illuminate\Support\Collection
     {
@@ -520,45 +549,73 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
 
         $indexed = $groups->values();
         $byKey = [];
+        $groupTips = [];
+        $mergeScopeIds = [];
         foreach ($indexed as $i => $g) {
             $key = $this->renumberGroupKey($g['doc_no'] ?? '', $g['doc_type_id'] ?? 0, $g['sub_type_id'] ?? 0);
             $byKey[$key] = $i;
-        }
-
-        // Doc keys that are the "previous" side of a renumber link — they belong under a newer tip.
-        $targetKeys = [];
-        foreach ($indexed as $g) {
-            $from = trim((string) ($g['parent']['revised_from_doc_no'] ?? ''));
-            if ($from === '') {
-                continue;
+            $parent = $g['parent'] ?? [];
+            $rev = (int) ($parent['rev_no'] ?? 0);
+            $rid = (int) ($parent['request_id'] ?? 0);
+            if ($rid > 0) {
+                $mergeScopeIds[$rid] = $rid;
             }
-            $targetKeys[$this->renumberGroupKey($from, $g['doc_type_id'] ?? 0, $g['sub_type_id'] ?? 0)] = true;
+            foreach ($g['children'] ?? [] as $child) {
+                $cid = (int) ($child['request_id'] ?? 0);
+                if ($cid > 0) {
+                    $mergeScopeIds[$cid] = $cid;
+                }
+            }
+            $groupTips[$key] = [
+                'doc_no' => (string) ($g['doc_no'] ?? ''),
+                'doc_type_id' => (int) ($g['doc_type_id'] ?? 0),
+                'sub_type_id' => (int) ($g['sub_type_id'] ?? 0),
+                'rev_no' => $rev,
+                'request_id' => $rid,
+                'revised_from' => trim((string) ($parent['revised_from_doc_no'] ?? '')),
+                'score' => ($rev * 1_000_000_000) + $rid,
+                'is_active' => empty($parent['is_deleted']),
+            ];
         }
 
+        $mergeScopeIds = array_values($mergeScopeIds);
+        $visibleIds = $mergeScopeIds !== []
+            ? $mergeScopeIds
+            : RegisterQueryHelper::visibleRequestIds();
+        $edges = RegisterQueryHelper::buildLineageMergeEdges($groupTips, $visibleIds);
+        if ($edges === []) {
+            return $groups;
+        }
+
+        $absorbedAsTopLevel = [];
+        foreach ($edges as $absorbedKeys) {
+            foreach (array_keys($absorbedKeys) as $absorbedKey) {
+                $absorbedAsTopLevel[$absorbedKey] = true;
+            }
+        }
+
+        $globallyMergedFrom = [];
         $merged = collect();
         foreach ($indexed as $i => $g) {
             $key = $this->renumberGroupKey($g['doc_no'] ?? '', $g['doc_type_id'] ?? 0, $g['sub_type_id'] ?? 0);
-            if (isset($targetKeys[$key])) {
-                // Absorbed into a newer renumber tip; skip as top-level.
+            if (isset($absorbedAsTopLevel[$key])) {
                 continue;
             }
 
             $children = collect($g['children'] ?? [])->all();
             $seen = [$key => true];
-            $cursor = $g;
+            $queue = array_keys($edges[$key] ?? []);
 
-            // Walk revised_from_doc_no backward: 10234 → 1023 → 102 → …
-            while (true) {
-                $from = trim((string) ($cursor['parent']['revised_from_doc_no'] ?? ''));
-                if ($from === '') {
-                    break;
+            while ($queue !== []) {
+                $priorKey = array_shift($queue);
+                if (isset($seen[$priorKey]) || ! isset($byKey[$priorKey])) {
+                    continue;
                 }
-
-                $priorKey = $this->renumberGroupKey($from, $g['doc_type_id'] ?? 0, $g['sub_type_id'] ?? 0);
-                if (isset($seen[$priorKey]) || !isset($byKey[$priorKey])) {
-                    break;
+                if (isset($globallyMergedFrom[$priorKey])) {
+                    continue;
                 }
                 $seen[$priorKey] = true;
+                $globallyMergedFrom[$priorKey] = $key;
 
                 $prior = $indexed[$byKey[$priorKey]];
                 $priorParent = $prior['parent'];
@@ -570,15 +627,36 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                     $children[] = $child;
                 }
 
-                $cursor = $prior;
+                foreach (array_keys($edges[$priorKey] ?? []) as $nextKey) {
+                    $queue[] = $nextKey;
+                }
             }
 
             usort($children, fn ($a, $b) => ((int) ($b['rev_no'] ?? 0)) <=> ((int) ($a['rev_no'] ?? 0)));
 
-            $g['children'] = $children;
-            $g['has_revisions'] = !empty($children);
-            $g['revision_count'] = 1 + count($children);
-            $g['obsolete_count'] = count($children);
+            $stack = array_merge([$g['parent']], $children);
+            usort($stack, fn ($a, $b) => ((int) ($b['rev_no'] ?? 0)) <=> ((int) ($a['rev_no'] ?? 0))
+                ?: ((int) ($b['request_id'] ?? 0)) <=> ((int) ($a['request_id'] ?? 0)));
+            $tip = $stack[0];
+            foreach ($stack as &$member) {
+                $isTip = (int) ($member['request_id'] ?? 0) === (int) ($tip['request_id'] ?? 0);
+                if ($isTip && empty($member['is_deleted'])) {
+                    $member['status'] = 'Latest';
+                } elseif (!$isTip && empty($member['is_deleted'])) {
+                    $member['status'] = 'Obsolete';
+                }
+            }
+            unset($member);
+
+            $g['parent'] = $tip;
+            $g['doc_no'] = $tip['doc_no'] ?? ($g['doc_no'] ?? 'N/A');
+            $g['children'] = array_values(array_filter(
+                $stack,
+                fn ($r) => (int) ($r['request_id'] ?? 0) !== (int) ($tip['request_id'] ?? 0)
+            ));
+            $g['has_revisions'] = ! empty($g['children']);
+            $g['revision_count'] = 1 + count($g['children']);
+            $g['obsolete_count'] = count($g['children']);
             $merged->push($g);
         }
 
@@ -982,23 +1060,8 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                         @endif
 
                         @foreach($group['children'] ?? [] as $ci => $child)
-                            @php
-                                $flatView = $revisionStatus !== 'all'
-                                    || trim($search) !== ''
-                                    || $subTypeId !== 'all'
-                                    || $originator !== ''
-                                    || $sourceUnit !== ''
-                                    || $status !== ''
-                                    || $dateFrom !== ''
-                                    || $dateTo !== ''
-                                    || $revNo !== '';
-                                $showChildNumber = $revisionStatus === 'obsolete' || $flatView
-                                    || strcasecmp((string) ($child['doc_no'] ?? ''), (string) ($group['doc_no'] ?? '')) !== 0;
-                            @endphp
                             <tr class="db-child-row @if(!empty($child['is_deleted'])) db-deleted-row @endif" x-show="categories['{{ $catSlug }}'] && expandedRevs['{{ $revKey }}']" @if(!empty($child['is_deleted'])) title="Moved to Recycle Bin{{ !empty($child['deleted_at']) ? ' on ' . $child['deleted_at'] : '' }}" @endif>
-                                <td class="db-child-ind">
-                                    <span class="db-child-dot"></span>@if($showChildNumber){{ $itemNo }}.{{ $ci + 1 }}@endif
-                                </td>
+                                <td class="db-child-ind"></td>
                                 @include('pages.dcs.database._row', ['r' => $child])
                             </tr>
                             @if(!empty($child['syllabi_courses']) && count($child['syllabi_courses']))

@@ -33,6 +33,7 @@ export default defineConfig({
                 'resources/css/rdp/inventory-and-appraisal.css',
                 'resources/css/rdp/records-and-disposition-schedule.css',
                 'resources/css/dcs/chrome.css',
+                'resources/css/dcs/actions-dropdown.css',
                 'resources/css/dcs/dashboard.css',
                 'resources/css/dcs/settings.css',
                 'resources/css/dcs/register.css',

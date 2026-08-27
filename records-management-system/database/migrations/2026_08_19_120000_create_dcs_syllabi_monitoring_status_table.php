@@ -19,7 +19,9 @@ return new class extends Migration
             $table->unsignedBigInteger('semester_id');
             $table->unsignedBigInteger('program_id');
             $table->string('section', 20);
-            $table->date('deadline')->nullable();
+            // Must match dcs_masterlist_registration.deadline on the syllabi registration
+            // (same cohort filtered on the monitoring report).
+            $table->date('deadline');
             $table->string('status', 40);
             $table->timestamps();
 

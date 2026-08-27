@@ -19,6 +19,8 @@ return new class extends Migration
             $table->integer('copies')->nullable();
             $table->string('retrieval_status', 20)->default('pending');
             $table->date('retrieval_date')->nullable();
+
+            $table->unique(['retrieval_id', 'office_id'], 'dcs_ret_offices_unique');
         });
     }
 

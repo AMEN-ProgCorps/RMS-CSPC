@@ -255,15 +255,15 @@
 
       const atBottomNow = isAtBottom();
 
-      // Cap the DOM at PAGE_SIZE (50) visible messages so real-time
+      // Cap the DOM at MAX_WINDOW visible messages so real-time
       // WebSocket pushes never grow the chat window without bound.
       // Only trim while actively viewing the live/latest window —
       // never while the user has paged back into older history.
       const viewingOlderNow = isGlobalChat ? gcViewingOlder : dmViewingOlder;
       if (!viewingOlderNow) {
-        const trimmed = trimChatMessages(PAGE_SIZE);
+        const trimmed = trimChatMessages(MAX_WINDOW);
         // If we just removed messages from the top, update the pagination
-        // cursor so "Load Older" can re-fetch the trimmed messages.
+        // cursor so the auto-backread can re-fetch the trimmed messages.
         if (trimmed) refreshCursorAfterTopTrim();
       }
 
@@ -366,10 +366,10 @@
 
       const atBottomNow = isAtBottom();
 
-      // Same PAGE_SIZE cap as DM/Global Chat — only trim while looking at the
+      // Same MAX_WINDOW cap as DM/Global Chat — only trim while looking at the
       // live/latest window, never while paged back into older history.
       if (!adminConvViewingOlder) {
-        const trimmed = trimChatMessages(PAGE_SIZE);
+        const trimmed = trimChatMessages(MAX_WINDOW);
         if (trimmed) refreshCursorAfterTopTrim();
       }
 
@@ -1044,7 +1044,7 @@
       // Register Speculation Rules API rule dynamically for Chrome's speculative engine
       if (typeof HTMLScriptElement !== 'undefined' && HTMLScriptElement.supports && HTMLScriptElement.supports('speculationrules')) {
         const url = 'load_dm.php?target_id=' + encodeURIComponent(user.account_id || 0) +
-                    '&target_user=' + encodeURIComponent(user.username) + '&before_uuid=';
+                    '&target_user=' + encodeURIComponent(user.username) + '&before_uuid=&limit=' + INITIAL_LOAD;
         const ruleId = 'speculation-rule-conv-' + String(user.username).replace(/[^a-zA-Z0-9_-]/g, '');
         if (!document.getElementById(ruleId)) {
           try {
@@ -1080,7 +1080,7 @@
       const promise = new Promise(function(resolve) {
         const xhr = new XMLHttpRequest();
         const url = 'load_dm.php?target_id=' + encodeURIComponent(user.account_id || 0) +
-                    '&target_user=' + encodeURIComponent(user.username) + '&before_uuid=';
+                    '&target_user=' + encodeURIComponent(user.username) + '&before_uuid=&limit=' + INITIAL_LOAD;
         xhr.open('GET', url, true);
         xhr.onload = function() {
           dmPrefetchInFlight.delete(user.username);
@@ -2032,11 +2032,21 @@
 
     // State for global chat
     let isGlobalChat = false;
-    // How many messages are fetched per page AND how many are kept on screen at
-    // once. Loading an older page swaps the window rather than growing it
-    // indefinitely — the newest messages get trimmed off the bottom to make
-    // room, and clicking "Go to bottom" snaps back to the latest PAGE_SIZE.
-    const PAGE_SIZE = 50;
+    // ── Infinite-scroll window constants ─────────────────────────────────────
+    // INITIAL_LOAD  — messages fetched when first opening a conversation.
+    // BACKREAD_BATCH — messages fetched per auto-triggered scroll-up fetch.
+    // MAX_WINDOW    — maximum messages kept in the DOM at once. When the user
+    //                 keeps scrolling up, older pages are prepended and the
+    //                 same count is trimmed from the bottom so the DOM never
+    //                 grows past this cap.  "Go to bottom" always snaps back
+    //                 to a fresh INITIAL_LOAD-sized window.
+    const INITIAL_LOAD   = 100;
+    const BACKREAD_BATCH = 50;
+    const MAX_WINDOW     = 300;  // ~100 initial + 4 backreads; safe for mid-range Android
+    // Legacy alias — kept so every existing trimWindowFromTop/Bottom call site
+    // that still references PAGE_SIZE continues to compile without changes.
+    // New code should prefer the explicit constants above.
+    const PAGE_SIZE = BACKREAD_BATCH;
     let gcCursor = '';
     let gcHasMore = false;
     let gcViewingOlder = false; // true once the user has loaded an older window
@@ -2346,7 +2356,7 @@
     // scrollHeight, so scrollTop is shifted by the exact delta, keeping
     // whatever the user was looking at visually stable (no jump).
     // Returns true if any messages were actually removed.
-    function trimChatMessages(maxMessages = 50) {
+    function trimChatMessages(maxMessages = MAX_WINDOW) {
       if (!chatBox) return false;
       const items = Array.from(chatBox.querySelectorAll('.message-container'));
       const excess = items.length - maxMessages;
@@ -2968,8 +2978,11 @@
 
       const wasAtBottom = isAtBottom();
       const requestedConv = activeAdminConv;
-      const cursor = loadOlderMode ? adminConvCursor : '';
-      const url = 'load_dm_admin.php?conv_id=' + encodeURIComponent(convId) + '&before_uuid=' + encodeURIComponent(cursor);
+      const cursor     = loadOlderMode ? adminConvCursor : '';
+      const limitParam = loadOlderMode ? BACKREAD_BATCH : INITIAL_LOAD;
+      const url = 'load_dm_admin.php?conv_id=' + encodeURIComponent(convId)
+                + '&before_uuid=' + encodeURIComponent(cursor)
+                + '&limit=' + limitParam;
 
       const xhr = new XMLHttpRequest();
       adminConvXhr = xhr;
@@ -3004,7 +3017,7 @@
             else chatBox.insertBefore(el, firstChild);
           });
           chatBox.scrollTop += chatBox.scrollHeight - prev;
-          trimWindowFromBottom(PAGE_SIZE);
+          trimWindowFromBottom(MAX_WINDOW);
           if (!adminConvHasMore) showNoMoreOlderNotice(); else if (!document.getElementById('loadOlderBtn')) insertLoadOlderBtn();
           applyAdminBadges();
           applyEmojiOnly();
@@ -3052,7 +3065,7 @@
           const newScrollHeight = chatBox.scrollHeight;
           chatBox.scrollTop = Math.max(0, prevScrollTop + newScrollHeight - prevScrollHeight);
           if (!adminConvViewingOlder) {
-            if (trimWindowFromTop(PAGE_SIZE)) refreshCursorAfterTopTrim();
+            if (trimWindowFromTop(MAX_WINDOW)) refreshCursorAfterTopTrim();
           }
           if (isFirstLoad) { isFirstLoad = false; handleFirstLoadScroll(); }
           else if (wasAtBottom || shouldAutoScroll) requestAnimationFrame(() => requestAnimationFrame(() => scrollToBottom(true, false)));

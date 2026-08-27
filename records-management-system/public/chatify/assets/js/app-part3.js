@@ -473,7 +473,7 @@
       // showScrollIndicator() is only ever called by callers that already
       // know the user isn't at the bottom (new message arrived while
       // scrolled up, or the main scroll listener detected !atBottom —
-      // which covers scrolling up past the loaded PAGE_SIZE window into
+      // which covers scrolling up past the loaded INITIAL_LOAD window into
       // older history too). So as long as the chat has finished its
       // initial load, the button should show — it used to be gated on
       // "scrollTop <= 5" (literally the very top) which meant scrolling
@@ -1113,7 +1113,7 @@
       userScrolledUp = false;
 
       // If the user has loaded an older window, "Go to bottom" snaps back to
-      // the latest PAGE_SIZE messages instead of just scrolling within the
+      // the latest INITIAL_LOAD messages instead of just scrolling within the
       // (now stale) older batch that's on screen.
       if (isGlobalChat && gcViewingOlder) {
         gcViewingOlder = false;
@@ -1155,7 +1155,7 @@
     // ── Auto-load older messages on backread (replaces the old floating
     // "Load Older Messages" button) ─────────────────────────────────────
     // Once the user scrolls up near the top of the currently loaded window,
-    // the next PAGE_SIZE (or whatever's left) is fetched and prepended
+    // the next BACKREAD_BATCH (or whatever's left) is fetched and prepended
     // automatically — no button, no tap required.
     //
     // Perf notes:
@@ -1170,7 +1170,7 @@
     //     fetch for this chat is already in flight, or there's nothing left
     //     to load — so the common case (scrolling anywhere but the very top)
     //     costs almost nothing.
-    const AUTO_LOAD_OLDER_THRESHOLD_PX = 120;
+    const AUTO_LOAD_OLDER_THRESHOLD_PX = 200;
     let autoLoadOlderTicking = false;
 
     function currentChatHasOlderMessages() {
@@ -1368,8 +1368,8 @@
         // Maintain scroll position
         chatBox.scrollTop += chatBox.scrollHeight - prev;
         // Swap the window: drop the newest messages off the bottom so the
-        // total on screen stays capped at PAGE_SIZE instead of growing forever.
-        trimWindowFromBottom(PAGE_SIZE);
+        // total on screen stays capped at MAX_WINDOW instead of growing forever.
+        trimWindowFromBottom(MAX_WINDOW);
         if (!gcHasMore) showNoMoreOlderNotice(); else if (!document.getElementById('loadOlderBtn')) insertLoadOlderBtn();
         applyAdminBadges();
         applyEmojiOnly();
@@ -1410,7 +1410,7 @@
         if (toInsert.length === 0) {
           document.querySelectorAll('[data-sending-uid]').forEach(el => el.remove());
           if (!gcViewingOlder) {
-            if (trimWindowFromTop(PAGE_SIZE)) refreshCursorAfterTopTrim();
+            if (trimWindowFromTop(MAX_WINDOW)) refreshCursorAfterTopTrim();
           }
           applyAdminBadges(); applyEmojiOnly();
           if (gcHasMore && !document.getElementById('loadOlderBtn') && !document.getElementById('noMoreOlderNotice')) insertLoadOlderBtn();
@@ -1429,7 +1429,7 @@
         });
         document.querySelectorAll('[data-sending-uid]').forEach(el => el.remove());
         if (!gcViewingOlder) {
-          if (trimWindowFromTop(PAGE_SIZE)) refreshCursorAfterTopTrim();
+          if (trimWindowFromTop(MAX_WINDOW)) refreshCursorAfterTopTrim();
         }
 
         let revealedCount = 0;
@@ -1499,7 +1499,7 @@
 
       gcPrefetchPromise = new Promise(function(resolve) {
         const xhr = new XMLHttpRequest();
-        xhr.open('GET', 'load.php?before_uuid=', true);
+        xhr.open('GET', 'load.php?before_uuid=&limit=' + INITIAL_LOAD, true);
         xhr.onload = function() {
           if (this.status === 200) {
             try { globalChatPrefetchedData = JSON.parse(this.responseText); } catch(e) {}
@@ -1571,10 +1571,12 @@
 
       isLoadingGC = true;
 
-      const cursor = loadOlderMode ? gcCursor : '';
+      const cursor     = loadOlderMode ? gcCursor : '';
+      const limitParam = loadOlderMode ? BACKREAD_BATCH : INITIAL_LOAD;
 
       const xhr = new XMLHttpRequest();
-      xhr.open('GET', 'load.php?before_uuid=' + encodeURIComponent(cursor), true);
+      xhr.open('GET', 'load.php?before_uuid=' + encodeURIComponent(cursor)
+                    + '&limit=' + limitParam, true);
       xhr.onload = function() {
         isLoadingGC = false;
         if (this.status !== 200) return;
@@ -1598,6 +1600,10 @@
       if (loadOlderMode) {
         dmCursor = data.nextCursor || '';
         dmViewingOlder = true;
+        // Remove the seen indicator before DOM mutations — it will be
+        // re-placed correctly when the next normal poll lands.
+        const existingSeen = chatBox.querySelector('.seen-indicator');
+        if (existingSeen) existingSeen.remove();
         const prev = chatBox.scrollHeight;
         const temp = document.createElement('div');
         temp.innerHTML = newHtml;
@@ -1609,11 +1615,16 @@
           else chatBox.insertBefore(el, firstChild);
         });
         chatBox.scrollTop += chatBox.scrollHeight - prev;
-        trimWindowFromBottom(PAGE_SIZE);
+        trimWindowFromBottom(MAX_WINDOW);
         if (!dmHasMore) showNoMoreOlderNotice(); else if (!document.getElementById('loadOlderBtn')) insertLoadOlderBtn();
         applyAdminBadges(); applyEmojiOnly();
         attachImageLoadListeners();
-        updateSeenIndicator();
+        // NOTE: updateSeenIndicator() intentionally NOT called here.
+        // In loadOlderMode the seen state (dmReadUpTo) is unchanged — the
+        // user is just scrolling back through history. Calling it after
+        // trimWindowFromBottom() would make the indicator jump to a
+        // mid-history sent message because the newest sent messages were
+        // just trimmed off the bottom of the DOM.
         return;
       }
 
@@ -1669,7 +1680,7 @@
         const newScrollHeight = chatBox.scrollHeight;
         chatBox.scrollTop = Math.max(0, prevScrollTop + newScrollHeight - prevScrollHeight);
         if (!dmViewingOlder) {
-          if (trimWindowFromTop(PAGE_SIZE)) refreshCursorAfterTopTrim();
+          if (trimWindowFromTop(MAX_WINDOW)) refreshCursorAfterTopTrim();
         }
         if (isFirstLoad) { isFirstLoad = false; handleFirstLoadScroll(); }
         else if (wasAtBottom || shouldAutoScroll) requestAnimationFrame(() => requestAnimationFrame(() => scrollToBottom(true, false)));
@@ -1751,8 +1762,12 @@
       isLoadingChat = true;
 
       const requestedUser = activeDM;
-      const cursor = loadOlderMode ? dmCursor : '';
-      const url = 'load_dm.php?target_id=' + encodeURIComponent(activeDMAccountId || 0) + '&target_user=' + encodeURIComponent(activeDM) + '&before_uuid=' + encodeURIComponent(cursor);
+      const cursor     = loadOlderMode ? dmCursor : '';
+      const limitParam = loadOlderMode ? BACKREAD_BATCH : INITIAL_LOAD;
+      const url = 'load_dm.php?target_id=' + encodeURIComponent(activeDMAccountId || 0)
+                + '&target_user=' + encodeURIComponent(activeDM)
+                + '&before_uuid=' + encodeURIComponent(cursor)
+                + '&limit=' + limitParam;
 
       const xhr = new XMLHttpRequest();
       chatXhr = xhr;
@@ -2552,9 +2567,9 @@
                   applyAdminBadges();
                   // The optimistic bubble just became a real, permanent
                   // .message-container inside chatBox — cap the window at
-                  // PAGE_SIZE just like any other real-time append.
+                  // MAX_WINDOW just like any other real-time append.
                   if (!gcViewingOlder && !dmViewingOlder) {
-                    const trimmed = trimChatMessages(PAGE_SIZE);
+                    const trimmed = trimChatMessages(MAX_WINDOW);
                     if (trimmed) refreshCursorAfterTopTrim();
                   }
                   // Always scroll for the user's own confirmed message — see note

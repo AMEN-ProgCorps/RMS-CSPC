@@ -526,6 +526,7 @@ wss.on('connection', (ws) => {
           authenticated: true,
           expires: parseInt(expires, 10) // re-checked continuously, see sweep below
         });
+        const wasAlreadyOnline = accountSockets.has(accountId) && accountSockets.get(accountId).size > 0;
         indexSocket(ws, accountId);
         if (data.comm_settings && typeof data.comm_settings === 'object') {
           userCommSettings.set(accountId, {
@@ -535,6 +536,22 @@ wss.on('connection', (ws) => {
         }
         log(`Client authenticated: account_id=${account_id}, name="${name}"`);
         ws.send(JSON.stringify({ type: 'auth_success' }));
+
+        // Send initial presence snapshot (list of all online accountIds)
+        safeSend(ws, JSON.stringify({
+          type: 'presence_snapshot',
+          online_accounts: Array.from(accountSockets.keys())
+        }));
+
+        // If this is the account's first connected socket, broadcast online presence to all clients
+        if (!wasAlreadyOnline) {
+          broadcastToAll(JSON.stringify({
+            type: 'presence',
+            account_id: accountId,
+            status: 'online',
+            timestamp: Math.floor(Date.now() / 1000)
+          }));
+        }
 
         // Sync active typing previews for this recipient (handles page refresh)
         for (const [key, entry] of activeTypingPreviews.entries()) {
@@ -932,6 +949,16 @@ wss.on('connection', (ws) => {
       log(`Client disconnected: account_id=${state.accountId}, code=${code}`);
       unindexSocket(ws, state.accountId);
       clearRateState(state.accountId);
+
+      // If user now has 0 remaining connected sockets, broadcast offline presence to all
+      if (!accountSockets.has(state.accountId)) {
+        broadcastToAll(JSON.stringify({
+          type: 'presence',
+          account_id: state.accountId,
+          status: 'offline',
+          timestamp: Math.floor(Date.now() / 1000)
+        }));
+      }
 
       // Clean up active typing previews sent by this disconnected user
       for (const [key, entry] of activeTypingPreviews.entries()) {

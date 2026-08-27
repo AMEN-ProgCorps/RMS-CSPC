@@ -512,3 +512,79 @@
     display: block;
 }
 
+/* Dark Mode Overrides for Create Transaction */
+[data-theme="dark"] .rms-container,
+[data-theme="dark"] .beta-create-card,
+[data-theme="dark"] .copy-furnished-card,
+[data-theme="dark"] .beta-cf-box {
+    background-color: #131c2e !important;
+    border-color: #1e293b !important;
+    color: #f8fafc !important;
+}
+
+[data-theme="dark"] .control-label,
+[data-theme="dark"] .input-label,
+[data-theme="dark"] .unit-college-label,
+[data-theme="dark"] .beta-section-title,
+[data-theme="dark"] .beta-label,
+[data-theme="dark"] .beta-cf-title {
+    color: #f1f5f9 !important;
+}
+
+[data-theme="dark"] .control-input,
+[data-theme="dark"] .text-input,
+[data-theme="dark"] .select-input,
+[data-theme="dark"] .textarea-input,
+[data-theme="dark"] .beta-input,
+[data-theme="dark"] .beta-select,
+[data-theme="dark"] .beta-textarea {
+    background-color: #0f172a !important;
+    color: #f8fafc !important;
+    border-color: #334155 !important;
+}
+
+[data-theme="dark"] .control-input:focus,
+[data-theme="dark"] .text-input:focus,
+[data-theme="dark"] .select-input:focus,
+[data-theme="dark"] .textarea-input:focus,
+[data-theme="dark"] .beta-input:focus,
+[data-theme="dark"] .beta-select:focus,
+[data-theme="dark"] .beta-textarea:focus {
+    border-color: #3b82f6 !important;
+    box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.2) !important;
+}
+
+[data-theme="dark"] .beta-form-footer {
+    border-top-color: #1e293b !important;
+}
+
+/* Custom Flow / Sequence Path Modal & Elements */
+[data-theme="dark"] label[style*="color: #334155"],
+[data-theme="dark"] label[style*="color:#334155"] {
+    color: #f8fafc !important;
+}
+
+[data-theme="dark"] span[style*="color: #1e293b"],
+[data-theme="dark"] span[style*="color:#1e293b"] {
+    color: #f8fafc !important;
+}
+
+[data-theme="dark"] span[style*="color: #64748b"],
+[data-theme="dark"] span[style*="color:#64748b"] {
+    color: #94a3b8 !important;
+}
+
+[data-theme="dark"] select[style*="background: #ffffff"],
+[data-theme="dark"] select[style*="background:#ffffff"] {
+    background-color: #0f172a !important;
+    color: #f8fafc !important;
+    border-color: #334155 !important;
+}
+
+[data-theme="dark"] select option {
+    background-color: #0f172a !important;
+    color: #f8fafc !important;
+}
+
+
+

@@ -49,24 +49,15 @@ new #[Layout('layouts.profile')] #[Title('Profile Manager - Details')] class ext
         $this->refresh();
     }
 
-    public function toggleAutoOpenChat(): void
-    {
-        $user = auth()->user();
-        if ($user) {
-            $setting = \App\Models\PersonalSetting::firstOrCreate(
-                ['user' => $user->id],
-                ['auto_open_chat' => true]
-            );
-            $setting->auto_open_chat = !$setting->auto_open_chat;
-            $setting->save();
-            $this->autoOpenChat = (bool)$setting->auto_open_chat;
-        }
-    }
-
     public function refresh(): void
     {
-        $user = auth()->user()->fresh();
-        $this->autoOpenChat = $user ? $user->autoOpenChat() : true;
+        $user = auth()->user()?->fresh(['details']);
+        if (!$user) {
+            return;
+        }
+
+        $this->autoOpenChat = $user->autoOpenChat();
+        $this->accountId = $user->id;
         
         $newRoleId = $user->account_role;
         $newPermissions = [];
@@ -126,8 +117,13 @@ new #[Layout('layouts.profile')] #[Title('Profile Manager - Details')] class ext
             $this->lastName      = $details->last_name      ?? '';
             $this->middleName    = $details->middle_name    ?? '';
             $this->email         = $details->email          ?? '';
-            $this->avatarUrl     = $details->avatar_url      ?? '';
-            $this->accountId     = $details->account_id;
+            $this->avatarUrl     = $details->avatar_url     ?? '';
+        } else {
+            $this->firstName     = '';
+            $this->lastName      = '';
+            $this->middleName    = '';
+            $this->email         = '';
+            $this->avatarUrl     = '';
         }
 
         // Fetch and map Role name from database condition keys
@@ -203,8 +199,8 @@ new #[Layout('layouts.profile')] #[Title('Profile Manager - Details')] class ext
             <div class="detail-row" setid="email" x-data="{ masked: true }">
                 <span class="detail-label">Email</span>
                 <div class="masked-field">
-                    <span class="masked-value" data-masked="true" x-text="masked ? '{{ str_repeat('•', max(strlen($email), 12)) }}' : '{{ addslashes($email) }}'">{{ str_repeat('•', max(strlen($email), 12)) }}</span>
-                    <button type="button" class="mask-toggle" data-target="email" @click="masked = !masked" aria-label="Show hidden email">
+                    <span class="masked-value" :data-masked="masked" x-text="masked ? '••••••••••••••••' : ($wire.email || '—')">••••••••••••••••</span>
+                    <button type="button" class="mask-toggle" @click="masked = !masked" aria-label="Toggle hidden email">
                         <span class="eye-icon">
                             <i class="fa-solid" :class="masked ? 'fa-eye' : 'fa-eye-slash'"></i>
                         </span>
@@ -213,28 +209,9 @@ new #[Layout('layouts.profile')] #[Title('Profile Manager - Details')] class ext
             </div>
         </div>
 
-        <!-- Role & Permissions & Personal Settings Card -->
+        <!-- Role & Permissions Card -->
         <div class="profile-card">
             <h2 class="card-title">
-                <i class="fa-solid fa-sliders"></i> Personal Preferences & Settings
-            </h2>
-            
-            <div class="detail-row" style="padding: 12px 0; border-bottom: 1px solid #e2e8f0; display: flex; align-items: center; justify-content: space-between;">
-                <div>
-                    <span class="detail-label" style="font-size: 14px; font-weight: 600; color: #1e293b; display: block;">Auto-open Chatify upon login</span>
-                    <span style="font-size: 12px; color: #64748b; display: block; margin-top: 2px;">Automatically open the floating Chatify messaging widget when logging into your account.</span>
-                </div>
-                <div>
-                    <label style="position: relative; display: inline-block; width: 44px; height: 24px; cursor: pointer;">
-                        <input type="checkbox" wire:click="toggleAutoOpenChat" {{ $autoOpenChat ? 'checked' : '' }} style="opacity: 0; width: 0; height: 0;">
-                        <span style="position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0; background-color: {{ $autoOpenChat ? '#2563eb' : '#cbd5e1' }}; transition: .3s; border-radius: 24px;">
-                            <span style="position: absolute; content: ''; height: 18px; width: 18px; left: {{ $autoOpenChat ? '22px' : '3px' }}; bottom: 3px; background-color: white; transition: .3s; border-radius: 50%;"></span>
-                        </span>
-                    </label>
-                </div>
-            </div>
-
-            <h2 class="card-title" style="margin-top: 25px;">
                 <i class="fa-solid fa-key"></i> System Access & Permissions
             </h2>
             

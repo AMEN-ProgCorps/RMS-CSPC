@@ -1,50 +1,12 @@
 <?php
 
+use App\Helpers\NetworkHelper;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\RateLimiter;
 use Livewire\Attributes\Layout;
 use Livewire\Attributes\Title;
 use Livewire\Volt\Component;
-/* The Process here is like this
-     * Phase 1: User enters the tracking number and clicks the track button
-     * Phase 1.2: The page will check if following data is stored within the browser file storage:
-     *      data: { 
-     *             device_id: string, 
-     *             document_tracked_within_10_minutes: int / 3, //this one starts on 0
-     *             last_document_tracked_at: timestamp,
-     *             email_used_on_verification: string,
-     *             is_email_not_cspc: boolean,
-     *             device_blocked_until: timestamp     
-     *          }
-     * Phase 1.3: If the data exists, the system will check if the device is blocked or not, 
-     *                 L if the device is blocked, the system will show a message that the device is blocked until the timestamp stored in the 
-     *                      device_blocked_until, but if the last_document_tracked_at is greater than 10 minutes, the system will unblock the device 
-     *                      and reset the document_tracked_within_10_minutes to 0, and proceed to phase 1.4, 
-     *                 L if the device is not blocked, the system will check if the document_tracked_within_10_minutes is greater than or equal to 3, 
-     *                      L if it is, the system will block the device for 50 minutes and show a message that the device is blocked for 50 minutes, 
-     *                          and will recorded on device_blocked_until with the current timestamp plus 50 minutes, 
-     *                      L if it is not, then add 1 point to document_tracked_within_10_minutes and the system will proceed to phase 1.4
-     *            If the data does not exist, the system will create a new tracking device with a unique device_id and set the document_tracked_within_10_minutes 
-     *                  to 0, Then proceed to phase 1.4
-     * Phase 1.4: The system will check if the email_used_on_verification is not null,
-     *              L if it is not null, the system will check if the email_used_on_verification is a cspc email or not,
-     *                  the incicator will be this domain @cspc.edu.ph or the subdomain of cspc.edu.ph which is like this: @*.cspc.edu.ph,
-     * Phase 2: The system checks if the tracking number exists in the database[
-     *              The checking for track document is check using this: 
-     *                  the inputed code aka the tracked_id is equal to dts_transaction.qrcode in the database
-     *         ]
-     *              L if it does not exist, the system will increment the document_tracked_within_10_minutes by 1, 
-     *                  update the last_document_tracked_at to the current timestamp, and upload data to the backend: the date will be like this:
-     *                  data: {
-     *                      tracked_id: <the id of the documeent that the user inputed>
-     *                      device_id: <the unique device id generated in phase 1.3> 
-     *                      email: null, // due to the fact that the email verification is only for the documents that exist, the email_used_on_verification will be null if the tracking number does not exist,
-     *                      current_timestamp: <the current timestamp when the user inputed the tracking number>
-     *                      status: <document_tracked_within_10_minutes rated as if 1: warning, 2: danger, 3: blocked>
-     *                    }        
-     *                  and show a message that the tracking number does not exist, and will not proceed to phase 3
-     *              L If it does exist, then proceed to phase 3,
-     * Phase 3: page will be redirected to tracked.blade.php, if all phases is completed without the device being blocked, and the tracking number exists in the database
-     */
+
 new #[Layout('layouts.portal')] #[Title('Track Document')] class extends Component
 {
     public string $trackingNumber = '';
@@ -56,6 +18,18 @@ new #[Layout('layouts.portal')] #[Title('Track Document')] class extends Compone
         $this->validate([
             'trackingNumber' => ['required', 'string'],
         ]);
+
+        $ip = NetworkHelper::getClientIp();
+        $rateKey = 'track_doc:' . $ip;
+
+        // Server-side brute force protection: max 20 attempts per 10 min window per IP
+        if (RateLimiter::tooManyAttempts($rateKey, 20)) {
+            $seconds = RateLimiter::availableIn($rateKey);
+            $mins = max(1, (int) ceil($seconds / 60));
+            $this->dispatch('track-result', status: 'rate-limited', message: "Too many tracking attempts from your network. Please try again in {$mins} minute(s).");
+            return;
+        }
+        RateLimiter::hit($rateKey, 600);
 
         $input = trim($this->trackingNumber);
         $decoded = base64_decode($input, true);
@@ -223,6 +197,11 @@ new #[Layout('layouts.portal')] #[Title('Track Document')] class extends Compone
             <span class="top">Track Document</span>
             <span class="subtitle">Enter your tracking number to view your document status without login</span>
         </div>
+        @if (session('error'))
+            <div style="background:#FEF2F2;border:1px solid #F87171;color:#991B1B;padding:0.75rem 1rem;border-radius:0.5rem;font-size:0.875rem;margin-bottom:0.5rem;text-align:center;">
+                {{ session('error') }}
+            </div>
+        @endif
         <form id="track-form" class="td-search">
             <div class="search-container">
                 <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24">
@@ -263,7 +242,7 @@ new #[Layout('layouts.portal')] #[Title('Track Document')] class extends Compone
     const CSPC_PATTERN = /^[^@]+@(cspc\.edu\.ph|[^@]+\.cspc\.edu\.ph)$/i;
 
     const wait = ms => new Promise(r => setTimeout(r, ms));
-    const step = () => wait(500);
+    const step = () => wait(160);
     let submitting = false;
     let cleanupTrackResult = null;
 
@@ -315,16 +294,20 @@ new #[Layout('layouts.portal')] #[Title('Track Document')] class extends Compone
         cleanupTrackResult = Livewire.on('track-result', function (data) {
             submitting = false;
             let status = null;
+            let msg = null;
             if (typeof data === 'string') {
                 status = data;
             } else if (data && typeof data === 'object') {
                 status = data.status || (data[0] && (data[0].status || data[0])) || null;
+                msg = data.message || (data[0] && data[0].message) || null;
             }
 
             if (status === 'not-found') {
                 setStatus('Phase 2 — Result', 'Document Cannot Be Found. Please check your tracking number and try again.', 'error');
             } else if (status === 'found') {
                 setStatus('Phase 3', 'Document Found! Redirecting to results...', 'success');
+            } else if (status === 'rate-limited') {
+                setStatus('Rate Limited', msg || 'Too many attempts. Please wait a few minutes.', 'blocked');
             } else if (status === 'db-error') {
                 setStatus('Phase 2 — Error', 'Cannot connect to the database server. Please try again later or contact the Records Office.', 'db-error');
             }

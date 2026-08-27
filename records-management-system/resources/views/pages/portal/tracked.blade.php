@@ -44,6 +44,10 @@ new #[Layout('layouts.portal')] #[Title('Track Document — Results')] class ext
     public string $email = '';
     public string $emailStatus = '';
 
+    public bool $isGoogleVerified = false;
+    public string $verifiedGoogleName = '';
+    public string $verifiedGoogleAvatar = '';
+
     public bool $showPasswordStep = false;
     public bool $showDocumentData = false;
     public string $documentPassword = '';
@@ -88,10 +92,33 @@ new #[Layout('layouts.portal')] #[Title('Track Document — Results')] class ext
 
         if (! $this->documentFound) {
             $this->dispatch('document-not-found-on-tracked');
+            return;
+        }
+
+        // Check if user just verified via Google SSO
+        if (session()->has('verified_tracker_email')) {
+            $this->email = (string) session('verified_tracker_email');
+            $this->isGoogleVerified = (session('verified_tracker_auth_type') === 'google');
+            $this->verifiedGoogleName = (string) session('verified_tracker_name', '');
+            $this->verifiedGoogleAvatar = (string) session('verified_tracker_avatar', '');
+
+            // Auto-verify with the authenticated Google email
+            $this->verifyEmail();
         }
     }
 
-
+    public function switchAccount(): void
+    {
+        session()->forget(['verified_tracker_email', 'verified_tracker_name', 'verified_tracker_avatar', 'verified_tracker_auth_type']);
+        $this->email = '';
+        $this->emailStatus = '';
+        $this->isGoogleVerified = false;
+        $this->verifiedGoogleName = '';
+        $this->verifiedGoogleAvatar = '';
+        $this->showPasswordStep = false;
+        $this->showDocumentData = false;
+        $this->resetErrorBag();
+    }
 
     public function verifyEmail(): void
     {
@@ -111,7 +138,7 @@ new #[Layout('layouts.portal')] #[Title('Track Document — Results')] class ext
 
             if ($transactionDetails && !empty($transactionDetails->allowed_email)) {
                 if (strtolower(trim($this->email)) !== strtolower(trim($transactionDetails->allowed_email))) {
-                    $this->addError('email', 'This email address is not authorized to track this document.');
+                    $this->addError('email', "The email '{$this->email}' is not authorized to track this document.");
                     return;
                 }
             }
@@ -122,12 +149,12 @@ new #[Layout('layouts.portal')] #[Title('Track Document — Results')] class ext
             $hasPassword = $transactionDetails && !empty($transactionDetails->document_password);
 
             if ($isCspc) {
-                $this->emailStatus = 'CSPC email verified.';
+                $this->emailStatus = 'CSPC account verified.';
                 $this->loadDocumentData();
                 $this->showDocumentData = true;
             } else {
                 if ($hasPassword) {
-                    $this->emailStatus = 'Non-CSPC email. Document password is required.';
+                    $this->emailStatus = 'Email verified. Document password required.';
                     $this->showPasswordStep = true;
                 } else {
                     $this->emailStatus = 'Email verified.';
@@ -243,6 +270,140 @@ new #[Layout('layouts.portal')] #[Title('Track Document — Results')] class ext
 
 @push('styles')
     @vite(['resources/css/td.css'])
+    <style>
+        .google-sso-track-btn {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 10px;
+            width: 100%;
+            padding: 11px 16px;
+            background: #ffffff;
+            border: 1.5px solid #d1d5db;
+            border-radius: 8px;
+            color: #374151;
+            font-family: "Inter", -apple-system, BlinkMacSystemFont, sans-serif;
+            font-size: 14px;
+            font-weight: 600;
+            text-decoration: none;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.06);
+        }
+        .google-sso-track-btn:hover {
+            background: #f9fafb;
+            border-color: #9ca3af;
+            box-shadow: 0 2px 6px rgba(0,0,0,0.1);
+        }
+        .google-sso-track-btn svg {
+            width: 20px;
+            height: 20px;
+            flex-shrink: 0;
+        }
+        .auth-divider {
+            display: flex;
+            align-items: center;
+            text-align: center;
+            margin: 12px 0;
+            color: #9ca3af;
+            font-size: 12px;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+        .auth-divider::before,
+        .auth-divider::after {
+            content: '';
+            flex: 1;
+            border-bottom: 1px solid #e5e7eb;
+        }
+        .auth-divider span {
+            padding: 0 12px;
+        }
+        .user-verified-badge {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 8px 12px;
+            background: #ecfdf5;
+            border: 1px solid #a7f3d0;
+            border-radius: 8px;
+            margin-bottom: 12px;
+        }
+        .user-verified-badge img {
+            width: 32px;
+            height: 32px;
+            border-radius: 50%;
+            object-fit: cover;
+        }
+        .user-verified-badge .user-info {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            text-align: left;
+        }
+        .user-verified-badge .user-email {
+            font-size: 13px;
+            font-weight: 600;
+            color: #065f46;
+        }
+        .user-verified-badge .user-tag {
+            font-size: 11px;
+            color: #047857;
+        }
+        .switch-account-link {
+            font-size: 12px;
+            color: #0059FF;
+            text-decoration: underline;
+            background: none;
+            border: none;
+            cursor: pointer;
+            padding: 0;
+            margin-top: 4px;
+        }
+        .doc-verification-input {
+            width: 100%;
+            padding: 10px 14px;
+            border: 1px solid #D9D9D9;
+            border-radius: 8px;
+            font-family: "Inter", -apple-system, BlinkMacSystemFont, sans-serif;
+            font-size: 14px;
+            outline: none;
+            transition: border-color 0.2s;
+        }
+        .doc-verification-input:focus {
+            border-color: #0059FF;
+            box-shadow: 0 0 0 2px rgba(0, 89, 255, 0.15);
+        }
+        .verification-btn, .password-btn {
+            background-color: #0059FF;
+            color: #FFFFFF;
+            border: none;
+            padding: 11px 20px;
+            border-radius: 8px;
+            font-family: "Inter", -apple-system, BlinkMacSystemFont, sans-serif;
+            font-size: 14px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: background-color 0.2s;
+            width: 100%;
+            margin-top: 8px;
+        }
+        .verification-btn:hover, .password-btn:hover {
+            background-color: #003699;
+        }
+        .error-banner {
+            background: #FEF2F2;
+            border: 1px solid #FCA5A5;
+            color: #991B1B;
+            padding: 10px 14px;
+            border-radius: 8px;
+            font-size: 13px;
+            font-weight: 500;
+            margin-bottom: 12px;
+            text-align: center;
+        }
+    </style>
 @endpush
 
 <div>
@@ -280,34 +441,88 @@ new #[Layout('layouts.portal')] #[Title('Track Document — Results')] class ext
             @if ($documentFound)
                 @if (! $showPasswordStep && ! $showDocumentData)
                     <div id="doc-verification" class="data-containers">
+                        @error('email')
+                            <div class="error-banner">
+                                {{ $message }}
+                                <div style="margin-top: 6px;">
+                                    <a href="{{ route('auth.google.track', ['number' => $trackingNumber]) }}" class="switch-account-link">
+                                        Try signing in with a different Google account
+                                    </a>
+                                </div>
+                            </div>
+                        @enderror
+
+                        {{-- 1-Click Google SSO Verification --}}
+                        <div>
+                            <a href="{{ route('auth.google.track', ['number' => $trackingNumber]) }}" class="google-sso-track-btn">
+                                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48">
+                                    <path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.66 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"/>
+                                    <path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"/>
+                                    <path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"/>
+                                    <path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.66 48 24 48z"/>
+                                </svg>
+                                <span>Verify with Google</span>
+                            </a>
+                        </div>
+
+                        <div class="auth-divider">
+                            <span>or enter email manually</span>
+                        </div>
+
                         <form wire:submit="verifyEmail" class="doc-verification">
-                            <span class="subtitle">Email Address</span>
+                            <span class="subtitle" style="display:block; margin-bottom: 6px;">Authorized Email Address:</span>
                             <input
                                 wire:model="email"
                                 type="email"
                                 autocomplete="email"
                                 name="email"
                                 id="email-input"
-                                placeholder="Enter your email address"
+                                class="doc-verification-input"
+                                placeholder="e.g. name@cspc.edu.ph or personal@gmail.com"
                                 required
                             >
-                            <div id="email-status" class="email-status">{{ $emailStatus }}</div>
-                            <button type="submit" class="verification-btn">Verify</button>
+                            @if ($emailStatus)
+                                <div id="email-status" class="email-status">{{ $emailStatus }}</div>
+                            @endif
+                            <button type="submit" class="verification-btn">Verify Email</button>
                         </form>
                     </div>
                 @endif
+
                 @if ($showPasswordStep && ! $showDocumentData)
                     <div id="doc-password" class="data-containers">
+                        @if ($isGoogleVerified)
+                            <div class="user-verified-badge">
+                                @if ($verifiedGoogleAvatar)
+                                    <img src="{{ $verifiedGoogleAvatar }}" alt="Google Avatar">
+                                @endif
+                                <div class="user-info">
+                                    <span class="user-email">✓ {{ $email }}</span>
+                                    <span class="user-tag">Verified with Google</span>
+                                </div>
+                                <button type="button" wire:click="switchAccount" class="switch-account-link">Change</button>
+                            </div>
+                        @else
+                            <div class="user-verified-badge" style="background:#F3F4F6; border-color:#E5E7EB;">
+                                <div class="user-info">
+                                    <span class="user-email" style="color:#374151;">{{ $email }}</span>
+                                    <span class="user-tag" style="color:#6B7280;">Manual verification</span>
+                                </div>
+                                <button type="button" wire:click="switchAccount" class="switch-account-link">Change</button>
+                            </div>
+                        @endif
+
                         <form wire:submit="submitPassword" class="doc-password">
-                            <span class="subtitle">Enter Document Password:</span>
-                            <input wire:model="documentPassword" type="password" placeholder="Document Password" required>
+                            <span class="subtitle" style="display:block; margin-bottom: 6px;">Enter Document Password:</span>
+                            <input wire:model="documentPassword" type="password" class="doc-verification-input" placeholder="Enter document password" required>
                             @error('documentPassword')
-                                <span class="form-error">{{ $message }}</span>
+                                <div class="error-banner" style="margin-top: 8px;">{{ $message }}</div>
                             @enderror
-                            <button type="submit" class="password-btn">Submit</button>
+                            <button type="submit" class="password-btn">Submit Password</button>
                         </form>
                     </div>
                 @endif
+
                 @if ($showDocumentData)
                     <div id="document-data" class="data-containers">
                         <div class="doc-status" style="background-color: {{ $docStatusColor }}">

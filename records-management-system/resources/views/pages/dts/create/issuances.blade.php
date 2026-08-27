@@ -78,9 +78,6 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create Issuance
     public function selectAllCfOffices(): void
     {
         $this->cf_selected_offices = ['ALL'];
-        if ($this->hasHub) {
-            $this->free_flow_receiving_offices = ['ALL'];
-        }
         $this->copy_furnished = 'Yes';
         $this->cf_search = '';
     }
@@ -97,7 +94,41 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create Issuance
     public array $customFlowSequence = [];
     public string $customFlowSelectedOffice = '';
     public string $customFlowFor = 'user';
+    public array $customFlowHubOffices = [];
+    public string $customFlowSelectedHubOffice = '';
+    public string $customFlowHubSearch = '';
     public string $toastMessage = '';
+
+    public function selectCustomFlowHubOffice(string $officeCode): void
+    {
+        if ($officeCode === 'ALL') {
+            $this->customFlowHubOffices = ['ALL'];
+        } else {
+            $this->customFlowHubOffices = array_values(array_filter($this->customFlowHubOffices, fn($code) => $code !== 'ALL'));
+            if (!in_array($officeCode, $this->customFlowHubOffices)) {
+                $this->customFlowHubOffices[] = $officeCode;
+            }
+        }
+        $this->customFlowHubSearch = '';
+    }
+
+    public function removeCustomFlowHubOffice(int $index): void
+    {
+        unset($this->customFlowHubOffices[$index]);
+        $this->customFlowHubOffices = array_values($this->customFlowHubOffices);
+    }
+
+    public function selectAllCustomFlowHubOffices(): void
+    {
+        $this->customFlowHubOffices = ['ALL'];
+        $this->customFlowHubSearch = '';
+    }
+
+    public function clearCustomFlowHubOffices(): void
+    {
+        $this->customFlowHubOffices = [];
+        $this->customFlowHubSearch = '';
+    }
 
     // Success Modal properties
     public bool $showSuccessModal = false;
@@ -146,7 +177,9 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create Issuance
             abort(403, 'Unauthorized access to Issuance transactions.');
         }
 
-        $this->userOfficeCode = auth()->user()?->details?->office?->office_code ?? 'RFIO';
+        $this->userOfficeCode = auth()->user()?->details?->office?->office_code 
+            ?? \App\Services\DocumentStorageService::resolveOfficeCode(auth()->user()) 
+            ?? (DB::table('office')->where('is_active', true)->whereNotIn('office_code', ['ORIGIN', '[H]', '[HUB]'])->value('office_code') ?: 'RFOIU');
         $this->offices = DB::table('office')
             ->where('is_active', true)
             ->whereNotIn('office_code', ['ORIGIN', '[H]'])
@@ -310,6 +343,24 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create Issuance
                 $this->cf_selected_offices = [];
                 $this->copy_furnished = 'Yes';
             }
+
+            // Load predefined HUB receiving offices if sequence contains [HUB]
+            if (in_array('[HUB]', $rawOffices)) {
+                $predefinedHubOffices = DB::table('hub_flow_datas')
+                    ->where('flow_owner', $flow->id)
+                    ->pluck('offices_hub')
+                    ->toArray();
+
+                if (!empty($predefinedHubOffices)) {
+                    $this->free_flow_receiving_offices = $predefinedHubOffices;
+                    // Auto-sync into Copy Furnished according to one-way rule
+                    foreach ($predefinedHubOffices as $hOff) {
+                        if (!in_array($hOff, $this->cf_selected_offices)) {
+                            $this->cf_selected_offices[] = $hOff;
+                        }
+                    }
+                }
+            }
         } else {
             $this->flow_offices = [];
         }
@@ -364,21 +415,10 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create Issuance
     {
         if ($officeCode === 'ALL') {
             $this->cf_selected_offices = ['ALL'];
-            if ($this->hasHub) {
-                $this->free_flow_receiving_offices = ['ALL'];
-            }
         } else {
             $this->cf_selected_offices = array_values(array_filter($this->cf_selected_offices, fn($code) => $code !== 'ALL'));
             if (!in_array($officeCode, $this->cf_selected_offices)) {
                 $this->cf_selected_offices[] = $officeCode;
-            }
-
-            // In [HUB] mode, auto-add to Receiving Offices as well
-            if ($this->hasHub) {
-                $this->free_flow_receiving_offices = array_values(array_filter($this->free_flow_receiving_offices, fn($code) => $code !== 'ALL'));
-                if (!in_array($officeCode, $this->free_flow_receiving_offices)) {
-                    $this->free_flow_receiving_offices[] = $officeCode;
-                }
             }
         }
         $this->copy_furnished = 'Yes';
@@ -541,6 +581,9 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create Issuance
         $this->customFlowSequence = [];
         $this->customFlowSelectedOffice = '';
         $this->customFlowFor = 'user';
+        $this->customFlowHubOffices = [];
+        $this->customFlowSelectedHubOffice = '';
+        $this->customFlowHubSearch = '';
         $this->showCustomFlowModal = true;
     }
 
@@ -614,6 +657,27 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create Issuance
                         'sequence_ranking' => $rank + 1,
                         'office_code' => $officeCode,
                     ]);
+                }
+
+                // Insert custom predefined HUB receiving offices
+                if (in_array('[HUB]', $this->customFlowSequence) && count($this->customFlowHubOffices) > 0) {
+                    $officesToSave = $this->customFlowHubOffices;
+                    if (in_array('ALL', $officesToSave)) {
+                        $allOffices = DB::table('office')
+                            ->where('is_active', true)
+                            ->whereNotIn('office_code', ['ORIGIN', '[H]', '[HUB]'])
+                            ->pluck('office_code')
+                            ->toArray();
+                        $officesToSave = $allOffices;
+                    }
+                    foreach ($officesToSave as $hOff) {
+                        DB::table('hub_flow_datas')->insert([
+                            'flow_owner' => $flowId,
+                            'offices_hub' => $hOff,
+                            'created_at' => now(),
+                            'updated_at' => now(),
+                        ]);
+                    }
                 }
 
                 $this->transaction_flow = $flowCode;
@@ -1667,6 +1731,58 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create Issuance
                         @endif
                         @error('customFlowSequence') <span style="font-size: 11.5px; color: #ef4444; font-weight: 500;">{{ $message }}</span> @enderror
                     </div>
+
+                    @if(in_array('[HUB]', $customFlowSequence))
+                        <!-- Predefined HUB Receiving Offices Selection for this Custom Flow -->
+                        <div style="display: flex; flex-direction: column; gap: 8px; padding: 16px; background: rgba(245, 158, 11, 0.05); border-radius: 12px; border: 1px solid rgba(245, 158, 11, 0.25);">
+                            <div style="display: flex; justify-content: space-between; align-items: center;">
+                                <label style="font-size: 12.5px; font-weight: 700; color: #b45309; display: flex; align-items: center; gap: 6px; margin: 0;">
+                                    <i class="fa-solid fa-layer-group"></i> Predefined HUB Receiving Offices
+                                </label>
+                                <div style="display: flex; gap: 6px;">
+                                    <button type="button" wire:click="selectAllCustomFlowHubOffices" style="padding: 3px 8px; font-size: 11px; font-weight: 600; background: #fef3c7; color: #92400e; border: 1px solid #fde68a; border-radius: 6px; cursor: pointer;">
+                                        Select All
+                                    </button>
+                                    @if(count($customFlowHubOffices) > 0)
+                                        <button type="button" wire:click="clearCustomFlowHubOffices" style="padding: 3px 8px; font-size: 11px; font-weight: 600; background: #fee2e2; color: #b91c1c; border: 1px solid #fecaca; border-radius: 6px; cursor: pointer;">
+                                            Clear
+                                        </button>
+                                    @endif
+                                </div>
+                            </div>
+                            <span style="font-size: 11px; color: #64748b;">Specify target receiving offices to be pre-selected when this custom flow is chosen:</span>
+                            
+                            <div style="display: flex; gap: 8px; width: 100%;">
+                                <select wire:model="customFlowSelectedHubOffice" style="flex: 1; min-width: 0; height: 38px; padding: 0 12px; border: 1.5px solid #cbd5e1; border-radius: 8px; font-size: 13px; outline: none; background: #ffffff;">
+                                    <option value="">Select a Hub Recipient Office...</option>
+                                    <option value="ALL">🌟 ALL OFFICES (Broadcast to All)</option>
+                                    @foreach($offices as $off)
+                                        @if(!in_array($off['office_code'], ['ORIGIN', '[H]', '[HUB]']))
+                                            <option value="{{ $off['office_code'] }}">{{ $off['office_name'] }} ({{ $off['office_code'] }})</option>
+                                        @endif
+                                    @endforeach
+                                </select>
+                                <button type="button" wire:click="selectCustomFlowHubOffice(customFlowSelectedHubOffice)" style="background: #f59e0b; color: #ffffff; border: none; padding: 0 16px; border-radius: 8px; font-size: 13px; font-weight: 600; cursor: pointer;">Add</button>
+                            </div>
+
+                            <div style="display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; padding: 8px; background: #ffffff; border: 1px solid #fde68a; border-radius: 8px; min-height: 38px;">
+                                @forelse($customFlowHubOffices as $idx => $code)
+                                    @php
+                                        $isAll = ($code === 'ALL');
+                                        $name = $isAll ? '🌟 ALL OFFICES' : (collect($offices)->firstWhere('office_code', $code)['office_name'] ?? $code);
+                                    @endphp
+                                    <div style="display: inline-flex; align-items: center; gap: 6px; background: #fef3c7; color: #92400e; padding: 4px 10px; border-radius: 16px; font-size: 11.5px; font-weight: 600; border: 1px solid #fcd34d;">
+                                        <span>{{ $name }} ({{ $code }})</span>
+                                        <button type="button" wire:click="removeCustomFlowHubOffice({{ $idx }})" style="background: none; border: none; color: #ef4444; cursor: pointer; font-size: 13px; font-weight: bold; line-height: 1; padding: 0;">&times;</button>
+                                    </div>
+                                @empty
+                                    <div style="font-size: 11.5px; color: #94a3b8; font-style: italic; display: flex; align-items: center; justify-content: center; width: 100%;">
+                                        No hub receiving offices selected yet.
+                                    </div>
+                                @endforelse
+                            </div>
+                        </div>
+                    @endif
                 </div>
 
                 <!-- Footer -->

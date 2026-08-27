@@ -1,26 +1,23 @@
 FROM php:8.4-fpm-alpine
 
-# ── System dependencies & Nginx & Supervisor ────────────────────────────────
+# ── System dependencies, Nginx, Supervisor, ImageMagick & OCR ────────────────
 RUN apk add --no-cache \
         bash \
         curl \
         nginx \
         supervisor \
-        libpng-dev \
-        libjpeg-turbo-dev \
-        libwebp-dev \
-        freetype-dev \
-        libxml2-dev \
-        oniguruma-dev \
-        zip \
-        unzip \
         postgresql-client \
-        postgresql-dev \
-    && docker-php-ext-configure gd \
-        --with-freetype \
-        --with-jpeg \
-        --with-webp \
-    && docker-php-ext-install \
+        tesseract-ocr \
+        tesseract-ocr-data-eng \
+        ghostscript \
+        imagemagick \
+    && mkdir -p /run/nginx /var/log/supervisor /var/log/nginx
+
+# ── PHP Extension Installer ───────────────────────────────────────────────────
+COPY --from=mlocati/php-extension-installer /usr/bin/install-php-extensions /usr/local/bin/
+
+# ── Install PHP Extensions ───────────────────────────────────────────────────
+RUN install-php-extensions \
         pdo_pgsql \
         pgsql \
         mbstring \
@@ -28,14 +25,25 @@ RUN apk add --no-cache \
         pcntl \
         bcmath \
         gd \
-    && mkdir -p /run/nginx /var/log/supervisor /var/log/nginx
+        zip \
+        intl \
+        opcache \
+        imagick
+
+# ── Adjust ImageMagick PDF Policy ─────────────────────────────────────────────
+RUN find /etc -name 'policy.xml' -exec sed -i \
+        -e 's/rights="none" pattern="PDF"/rights="read|write" pattern="PDF"/I' \
+        -e 's/rights="none" pattern="{PS,PDF,XPS}"/rights="read|write" pattern="{PS,PDF,XPS}"/I' \
+        -e 's/pattern="{GIF,JPEG,PNG,WEBP}"/pattern="{GIF,JPEG,PNG,WEBP,PDF,PS}"/I' \
+        {} \;
 
 # ── Composer ──────────────────────────────────────────────────────────────────
 COPY --from=composer:2 /usr/bin/composer /usr/bin/composer
 
 WORKDIR /var/www/html
 
-# ── Nginx & Supervisor Configs ────────────────────────────────────────────────
+# ── PHP, Nginx & Supervisor Configs ──────────────────────────────────────────
+COPY docker/php/custom.ini /usr/local/etc/php/conf.d/custom.ini
 COPY docker/nginx/default.conf /etc/nginx/http.d/default.conf
 COPY docker/supervisord.conf /etc/supervisord.conf
 

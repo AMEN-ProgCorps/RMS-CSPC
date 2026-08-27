@@ -7,13 +7,18 @@
     "license": "MIT",
     "require": {
         "php": "^8.3",
+        "barryvdh/laravel-dompdf": "^3.1",
         "google/apiclient": "^2.15.0",
         "laravel/framework": "^13.0",
         "laravel/socialite": "^5.26",
         "laravel/tinker": "^3.0",
         "livewire/livewire": "^4.3",
         "livewire/volt": "^1.10",
-        "masbug/flysystem-google-drive-ext": "*"
+        "masbug/flysystem-google-drive-ext": "*",
+        "setasign/fpdf": "^1.9",
+        "setasign/fpdi": "^2.6",
+        "spatie/pdf-to-image": "^3.3",
+        "thiagoalessio/tesseract_ocr": "^2.13"
     },
     "require-dev": {
         "fakerphp/faker": "^1.23",

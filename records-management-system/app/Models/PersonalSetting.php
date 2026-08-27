@@ -15,10 +15,15 @@ class PersonalSetting extends Model
     protected $fillable = [
         'user',
         'auto_open_chat',
+        'notification_sound_alert',
+        'enable_top_tabs',
+        'theme',
     ];
 
     protected $casts = [
         'auto_open_chat' => 'boolean',
+        'notification_sound_alert' => 'boolean',
+        'enable_top_tabs' => 'boolean',
     ];
 
     /**

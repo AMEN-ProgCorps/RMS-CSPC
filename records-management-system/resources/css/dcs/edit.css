@@ -1,0 +1,78 @@
+@import './tokens.css';
+
+
+.reg-revision-table {
+    padding-top: 0;
+}
+.reg-grid-2{
+    padding-top: 0;
+}
+.reg-current-file {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 12px;
+    background: var(--reg-accent-subtle);
+    border: 1px solid var(--reg-border);
+    border-radius: var(--reg-radius-sm);
+    font-size: 0.82rem;
+    color: var(--reg-text);
+    margin-bottom: 6px;
+}
+.reg-current-file i { color: var(--reg-accent); font-size: 0.85rem; }
+.reg-current-file span { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.reg-current-file a,
+.reg-current-file-view {
+    color: var(--reg-accent);
+    text-decoration: none;
+    font-weight: 600;
+    font-size: 0.78rem;
+}
+.reg-current-file a:hover,
+.reg-current-file-view:hover {
+    text-decoration: underline;
+}
+.reg-current-file-view {
+    border: 0;
+    background: transparent;
+    padding: 0;
+    cursor: pointer;
+}
+.edit-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    background: var(--reg-accent-subtle);
+    color: var(--reg-accent);
+    padding: 4px 12px;
+    border-radius: 20px;
+    font-size: 0.78rem;
+    font-weight: 600;
+}
+.reg-table tbody td.existing-file {
+    padding: 6px 12px;
+}
+
+#btnAddRevisionRow, #btnAddSyllabiRow, .reg-add-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin-top: 10px;
+    padding: 8px 14px;
+    border: 1.5px dashed var(--reg-border-strong);
+    border-radius: var(--reg-radius-sm);
+    background: transparent;
+    color: var(--reg-text-muted);
+    font-size: 0.82rem;
+    font-weight: 500;
+    font-family: inherit;
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+#btnAddRevisionRow:hover, #btnAddSyllabiRow:hover, .reg-add-row:hover {
+    border-color: var(--reg-accent);
+    color: var(--reg-accent);
+    background: var(--reg-accent-subtle);
+    border-style: solid;
+}

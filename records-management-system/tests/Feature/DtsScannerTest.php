@@ -236,7 +236,7 @@ class DtsScannerTest extends TestCase
         Volt::test('pages.dts.scanner')
             ->set('scannedCode', 'QR-SCAN-2')
             ->call('loadTransaction')
-            ->assertSee('Warning: This transaction is currently at');
+            ->assertSet('errorMessage', 'That QR code is no longer within your office transaction list.');
     }
 
     /**
@@ -332,8 +332,9 @@ class DtsScannerTest extends TestCase
             ->call('loadTransaction')
             ->set('actionNeeded', 'For Signature')
             ->set('notes', 'Scanned note text')
-            ->call('proceedTransaction')
-            ->assertSet('errorMessage', '');
+            ->call('executeForward')
+            ->assertSet('errorMessage', '')
+            ->assertSet('activeTransaction', null);
 
         // Verify next step rank updated
         $tx = DB::table('dts_transactions')->where('transaction_id', 'TRANS-SCAN-3')->first();
@@ -349,6 +350,64 @@ class DtsScannerTest extends TestCase
         $this->assertEquals('For Signature', $step1->action_needed);
         $this->assertEquals('Scanned note text', $step1->note);
         $this->assertEquals(1, $step1->scanned_id); // scanned_id set to true!
+    }
+
+    /**
+     * Test that scanning a completed transaction returns finished message.
+     */
+    public function test_scanner_rejects_completed_transaction()
+    {
+        $user = User::find(1);
+        Auth::login($user);
+
+        DB::table('dts_qr_code')->insert([
+            'code_id' => 'QR-SCAN-COMPLETED',
+            'qr_status' => 'used',
+            'created_at' => now(),
+        ]);
+
+        DB::table('dts_transactions')->insert([
+            'transaction_id' => 'TRANS-SCAN-COMP',
+            'trans_type' => 'internal',
+            'qr_code' => 'QR-SCAN-COMPLETED',
+            'current_office' => $this->myOfficeCode,
+            'status' => 'completed',
+            'sequence' => 1,
+        ]);
+
+        DB::table('dts_transaction_details')->insert([
+            'id' => 'TRANS-SCAN-COMP',
+            'type' => 'internal',
+            'created_by' => 1,
+            'originated_from' => $this->myOfficeCode,
+            'current_office_hold' => $this->myOfficeCode,
+            'status' => 'completed',
+            'control_number' => 'CTRL-SCAN-COMP',
+            'subject' => 'Completed Test Document',
+            'requestor_name' => 'Tester User',
+            'date_created' => now(),
+        ]);
+
+        Volt::test('pages.dts.scanner')
+            ->set('scannedCode', 'QR-SCAN-COMPLETED')
+            ->call('loadTransaction')
+            ->assertSet('errorMessage', 'That QR code is already finished its transaction.')
+            ->assertSet('activeTransaction', null);
+    }
+
+    /**
+     * Test that scanning an unregistered QR code returns invalid QR code error.
+     */
+    public function test_scanner_rejects_unregistered_qr_code()
+    {
+        $user = User::find(1);
+        Auth::login($user);
+
+        Volt::test('pages.dts.scanner')
+            ->set('scannedCode', 'QR-NOT-EXIST-999')
+            ->call('loadTransaction')
+            ->assertSet('errorMessage', 'Invalid QR Code: Only valid, registered QR codes can be processed by the scanner.')
+            ->assertSet('activeTransaction', null);
     }
 
     /**

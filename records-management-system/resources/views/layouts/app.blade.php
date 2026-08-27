@@ -5,6 +5,12 @@
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
 
         <title>{{ $title ?? config('app.name') }}</title>
+        <script>
+            (function() {
+                var theme = localStorage.getItem('rms-theme') || '{{ auth()->user()?->theme() ?? "light" }}';
+                document.documentElement.setAttribute('data-theme', theme);
+            })();
+        </script>
 
         <!-- Google Fonts Inter -->
         <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -26,6 +32,7 @@
             }
         </style>
 
+        @vite(['resources/css/dashboard.css', 'resources/js/dashboard.js'])
         @stack('styles')
 
         @livewireStyles
@@ -94,6 +101,18 @@
                         $prewarmUrls[] = '/rdp/reports/nap-form-1';
                         $prewarmUrls[] = '/rdp/reports/nap-form-2';
                         $prewarmUrls[] = '/rdp/reports/nap-form-3';
+                    }
+                    if ($perms->is_sadm || $perms->can_access_dcs) {
+                        $prewarmUrls[] = '/dcs';
+                        $prewarmUrls[] = '/dcs/register';
+                        $prewarmUrls[] = '/dcs/register/update';
+                        $prewarmUrls[] = '/dcs/reports/masterlist';
+                        $prewarmUrls[] = '/dcs/reports/monitoring';
+                        $prewarmUrls[] = '/dcs/reports/opcr';
+                        $prewarmUrls[] = '/dcs/reports/others';
+                        $prewarmUrls[] = '/dcs/stamping';
+                        $prewarmUrls[] = '/dcs/database';
+                        $prewarmUrls[] = '/dcs/settings';
                     }
                     if ($perms->is_sadm || $perms->is_admin) {
                         $prewarmUrls[] = '/admin/console';

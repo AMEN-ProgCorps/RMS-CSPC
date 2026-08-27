@@ -1,0 +1,442 @@
+/* Office DRF/DCN intake — same fixed shell as other DCS pages */
+.ofi-page {
+    position: fixed;
+    top: var(--dcs-header-height, 70px);
+    left: var(--dcs-sidebar, 300px);
+    right: 0;
+    bottom: 0;
+    padding: var(--dcs-page-pad, 24px 28px 40px);
+    background: #f1f5f9;
+    overflow-y: auto;
+    overflow-x: hidden;
+    box-sizing: border-box;
+    z-index: 1;
+    transition: left var(--dcs-ease, 0.2s ease), top var(--dcs-ease, 0.2s ease);
+    animation: ofiFadeIn 0.25s ease both;
+}
+
+/* Clear top tabs (also in top-tabs.css; duplicated here so public asset works without Vite rebuild) */
+body:has(.dcs-top-tabs-host .top-nav-tabs-wrapper) .ofi-page {
+    top: calc(var(--dcs-header-height, 70px) + 58px);
+}
+
+body:has(#dcs-sidebar-collapsed:checked) .ofi-page,
+html[data-dcs-sidebar-collapsed="1"] .ofi-page {
+    left: var(--dcs-sidebar-collapsed, 68px);
+}
+
+@keyframes ofiFadeIn {
+    from { opacity: 0; transform: translateY(6px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+
+.ofi-page::-webkit-scrollbar { width: 6px; }
+.ofi-page::-webkit-scrollbar-thumb {
+    background: #cbd5e1;
+    border-radius: 3px;
+}
+
+.ofi-inner {
+    max-width: 1100px;
+    margin: 0 auto;
+}
+.ofi-inner-wide {
+    max-width: 1240px;
+}
+
+.ofi-toolbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    flex-wrap: wrap;
+    margin-bottom: 16px;
+}
+.ofi-toolbar-hint {
+    margin: 0;
+    font-size: 13px;
+    color: #64748b;
+    max-width: 720px;
+    line-height: 1.45;
+}
+.ofi-reg-actions {
+    display: flex;
+    justify-content: flex-end;
+    margin: 4px 0 24px;
+}
+.ofi-page .reg-card {
+    margin-bottom: 16px;
+}
+
+.ofi-grid-3 {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 14px;
+}
+.ofi-dual {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+}
+.ofi-upload {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 12px 14px;
+    border: 1px dashed #cbd5e1;
+    border-radius: 8px;
+    background: #f8fafc;
+    color: #475569;
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+}
+.ofi-upload input[type="file"] { display: none; }
+.ofi-upload:hover { border-color: #93c5fd; background: #eff6ff; }
+
+.ofi-source { position: relative; }
+.ofi-source-inputwrap {
+    display: flex;
+    align-items: center;
+    border: 1px solid #cbd5e1;
+    border-radius: 8px;
+    background: #fff;
+    overflow: hidden;
+}
+.ofi-source-search {
+    flex: 1;
+    border: 0 !important;
+    border-radius: 0 !important;
+    padding: 9px 11px !important;
+    outline: none;
+}
+.ofi-source-arrow {
+    border: 0;
+    background: transparent;
+    padding: 8px 10px;
+    color: #64748b;
+    cursor: pointer;
+}
+.ofi-source-results,
+.ofi-rev-dropdown {
+    position: absolute;
+    left: 0;
+    right: 0;
+    top: calc(100% + 4px);
+    max-height: 220px;
+    overflow-y: auto;
+    background: #fff;
+    border: 1px solid #e2e8f0;
+    border-radius: 8px;
+    box-shadow: 0 8px 24px rgba(15, 23, 42, 0.12);
+    z-index: 40;
+}
+.ofi-rev-dropdown {
+    position: fixed;
+    right: auto;
+    top: auto;
+}
+.ofi-source-item {
+    padding: 8px 12px;
+    font-size: 13px;
+    color: #0f172a;
+    cursor: pointer;
+}
+.ofi-source-item:hover { background: #eff6ff; }
+.ofi-source-empty {
+    padding: 10px 12px;
+    font-size: 12px;
+    color: #94a3b8;
+}
+.ofi-source-chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-top: 8px;
+}
+.ofi-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 8px;
+    border-radius: 999px;
+    background: #eef2ff;
+    color: #1e3a8a;
+    font-size: 12px;
+    font-weight: 600;
+}
+.ofi-chip-x {
+    border: 0;
+    background: transparent;
+    color: #64748b;
+    cursor: pointer;
+    font-size: 14px;
+    line-height: 1;
+}
+.ofi-muted { color: #94a3b8; font-weight: 500; }
+
+.ofi-table-wrap {
+    overflow-x: auto;
+    border: 1px solid #e2e8f0;
+    border-radius: 10px;
+    margin-bottom: 10px;
+}
+.ofi-rev-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 12px;
+    min-width: 820px;
+}
+.ofi-rev-table th {
+    text-align: left;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+    color: #64748b;
+    background: #f8fafc;
+    padding: 8px 8px;
+    border-bottom: 1px solid #e2e8f0;
+}
+.ofi-rev-table td {
+    padding: 8px;
+    border-bottom: 1px solid #f1f5f9;
+    vertical-align: middle;
+}
+.ofi-rev-table input[type="text"],
+.ofi-rev-table input[type="date"],
+.ofi-rev-table input[type="number"] {
+    width: 100%;
+    padding: 7px 8px;
+    border: 1px solid #cbd5e1;
+    border-radius: 6px;
+    font-size: 12px;
+    box-sizing: border-box;
+}
+.ofi-locked {
+    background: #f1f5f9 !important;
+    color: #475569;
+}
+.ofi-row-del {
+    border: 0;
+    background: transparent;
+    color: #dc2626;
+    cursor: pointer;
+    padding: 6px;
+}
+.ofi-btn-sm {
+    padding: 6px 8px;
+    font-size: 12px;
+}
+.ofi-rev-purpose-text {
+    font-size: 12px;
+    color: #334155;
+    display: block;
+    max-width: 180px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.ofi-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 16px;
+    margin-bottom: 18px;
+    flex-wrap: wrap;
+}
+.ofi-header h1 {
+    font-size: 22px;
+    font-weight: 800;
+    color: #0f172a;
+    margin: 0 0 4px;
+}
+.ofi-header p {
+    margin: 0;
+    font-size: 13px;
+    color: #64748b;
+    max-width: 640px;
+    line-height: 1.45;
+}
+.ofi-header-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+.ofi-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 9px 14px;
+    border-radius: 8px;
+    border: 1px solid #cbd5e1;
+    background: #fff;
+    color: #334155;
+    font-size: 13px;
+    font-weight: 700;
+    text-decoration: none;
+    cursor: pointer;
+}
+.ofi-btn.primary {
+    background: #1d4ed8;
+    border-color: #1d4ed8;
+    color: #fff;
+}
+.ofi-card {
+    background: #fff;
+    border: 1px solid #e2e8f0;
+    border-radius: 12px;
+    padding: 18px 20px;
+    box-shadow: 0 2px 8px rgba(15, 23, 42, 0.04);
+}
+.ofi-stat-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 16px;
+    margin-bottom: 16px;
+}
+.ofi-stat-card {
+    display: block;
+    text-decoration: none;
+    color: inherit;
+    transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+.ofi-stat-card:hover {
+    border-color: #93c5fd;
+    box-shadow: 0 4px 14px rgba(29, 78, 216, 0.08);
+}
+.ofi-stat-label {
+    font-size: 12px;
+    font-weight: 700;
+    color: #64748b;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+}
+.ofi-stat-value {
+    font-size: 32px;
+    font-weight: 800;
+    margin: 8px 0;
+    line-height: 1;
+}
+.ofi-stat-value.is-drf { color: #1d4ed8; }
+.ofi-stat-value.is-dcn { color: #0f766e; }
+.ofi-stat-hint {
+    font-size: 13px;
+    color: #64748b;
+}
+.ofi-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 13px;
+}
+.ofi-table th {
+    text-align: left;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: #64748b;
+    border-bottom: 1px solid #e2e8f0;
+    padding: 8px 10px;
+}
+.ofi-table td {
+    padding: 12px 10px;
+    border-bottom: 1px solid #f1f5f9;
+    color: #0f172a;
+    vertical-align: middle;
+}
+.ofi-actions { display: flex; gap: 12px; }
+.ofi-actions a {
+    color: #1d4ed8;
+    font-size: 15px;
+}
+.ofi-empty {
+    text-align: center;
+    color: #94a3b8;
+    padding: 28px 10px !important;
+}
+.ofi-alert {
+    padding: 12px 14px;
+    border-radius: 10px;
+    font-size: 13px;
+    font-weight: 600;
+    margin-bottom: 14px;
+}
+.ofi-alert.ok { background: #f0fdf4; color: #166534; border: 1px solid #bbf7d0; }
+.ofi-alert.err { background: #fef2f2; color: #991b1b; border: 1px solid #fecaca; }
+.ofi-alert ul { margin: 0; padding-left: 18px; }
+.ofi-lock-banner {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 12px 14px;
+    border-radius: 10px;
+    background: #fffbeb;
+    border: 1px solid #fde68a;
+    color: #92400e;
+    font-size: 13px;
+    font-weight: 700;
+    margin-bottom: 14px;
+}
+.ofi-form .ofi-field { margin-bottom: 14px; }
+.ofi-field label {
+    display: block;
+    font-size: 12px;
+    font-weight: 700;
+    color: #334155;
+    margin-bottom: 6px;
+}
+.ofi-field input[type="text"],
+.ofi-field input[type="date"],
+.ofi-field textarea {
+    width: 100%;
+    padding: 9px 11px;
+    border: 1px solid #cbd5e1;
+    border-radius: 8px;
+    font-size: 13px;
+    color: #0f172a;
+    background: #fff;
+    box-sizing: border-box;
+}
+.ofi-field textarea { resize: vertical; min-height: 88px; }
+.ofi-grid-2 {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 14px;
+}
+.ofi-radio-row { display: flex; gap: 20px; font-size: 13px; color: #0f172a; }
+.ofi-radio-row label { display: inline-flex; align-items: center; gap: 6px; font-weight: 500; }
+.ofi-hint { font-size: 12px; color: #64748b; margin: 0 0 8px; }
+.ofi-distribute-grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 8px;
+}
+.ofi-form-actions { margin-top: 8px; display: flex; justify-content: flex-end; }
+.ofi-readonly .ofi-value {
+    font-size: 14px;
+    color: #0f172a;
+    padding: 8px 10px;
+    background: #f8fafc;
+    border-radius: 8px;
+    border: 1px solid #e2e8f0;
+}
+.ofi-pre { white-space: pre-wrap; }
+.ofi-list { margin: 0; padding-left: 18px; color: #0f172a; font-size: 14px; }
+
+@media (max-width: 900px) {
+    .ofi-page,
+    body:has(#dcs-sidebar-collapsed:checked) .ofi-page,
+    html[data-dcs-sidebar-collapsed="1"] .ofi-page {
+        left: 0 !important;
+        padding: 16px 12px 28px;
+    }
+    body:has(.dcs-top-tabs-host .top-nav-tabs-wrapper) .ofi-page {
+        top: calc(var(--dcs-header-height, 70px) + 52px);
+    }
+    .ofi-stat-grid,
+    .ofi-grid-2,
+    .ofi-grid-3,
+    .ofi-distribute-grid {
+        grid-template-columns: 1fr;
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .ofi-page { animation: none; }
+}

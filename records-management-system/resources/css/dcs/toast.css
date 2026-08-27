@@ -1,0 +1,162 @@
+/* Shared DCS toast — same look as Register, used on every DCS page. */
+.dcs-toast,
+.reg-toast {
+    position: fixed;
+    top: 80px;
+    right: 24px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    background: var(--dcs-surface);
+    border-radius: var(--dcs-radius-sm);
+    padding: 14px 16px;
+    min-width: 320px;
+    max-width: 420px;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12);
+    z-index: 9999;
+    animation: dcsToastIn 0.4s ease;
+    overflow: hidden;
+}
+
+.dcs-toast-success,
+.reg-toast-success {
+    border: 1px solid var(--dcs-success-border);
+    border-left: 4px solid var(--dcs-success);
+}
+
+.dcs-toast-error,
+.reg-toast-error {
+    border: 1px solid var(--dcs-red-border);
+    border-left: 4px solid var(--dcs-red);
+}
+
+@keyframes dcsToastIn {
+    from { opacity: 0; transform: translateX(40px); }
+    to { opacity: 1; transform: translateX(0); }
+}
+
+@keyframes dcsToastOut {
+    from { opacity: 1; transform: translateX(0); }
+    to { opacity: 0; transform: translateX(40px); }
+}
+
+.dcs-toast-icon,
+.reg-toast-icon {
+    width: 36px;
+    height: 36px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 50%;
+    flex-shrink: 0;
+}
+
+.dcs-toast-success .dcs-toast-icon,
+.reg-toast-success .reg-toast-icon {
+    background: var(--dcs-success-bg);
+}
+
+.dcs-toast-success .dcs-toast-icon i,
+.reg-toast-success .reg-toast-icon i {
+    color: var(--dcs-success);
+}
+
+.dcs-toast-error .dcs-toast-icon,
+.reg-toast-error .reg-toast-icon {
+    background: var(--dcs-red-bg);
+}
+
+.dcs-toast-error .dcs-toast-icon i,
+.reg-toast-error .reg-toast-icon i {
+    color: var(--dcs-red);
+}
+
+.dcs-toast-content,
+.reg-toast-content {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    flex: 1;
+}
+
+.dcs-toast-title,
+.reg-toast-title {
+    font-size: 0.82rem;
+    font-weight: 700;
+}
+
+.dcs-toast-success .dcs-toast-title,
+.reg-toast-success .reg-toast-title {
+    color: var(--dcs-success);
+}
+
+.dcs-toast-error .dcs-toast-title,
+.reg-toast-error .reg-toast-title {
+    color: var(--dcs-red);
+}
+
+.dcs-toast-message,
+.reg-toast-message {
+    font-size: 0.8rem;
+    color: var(--dcs-text-muted);
+}
+
+.dcs-toast-close,
+.reg-toast-close {
+    background: none;
+    border: none;
+    color: var(--dcs-text-subtle);
+    cursor: pointer;
+    padding: 4px 8px;
+    border-radius: 4px;
+    font-size: 0.8rem;
+    transition: all 0.2s ease;
+    flex-shrink: 0;
+}
+
+.dcs-toast-close:hover,
+.reg-toast-close:hover {
+    background: #f1f5f9;
+    color: var(--dcs-text-muted);
+}
+
+.dcs-toast-progress,
+.reg-toast-progress {
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    height: 3px;
+    animation: dcsToastProgress 5s linear forwards;
+}
+
+.dcs-toast-success .dcs-toast-progress,
+.reg-toast-success .reg-toast-progress {
+    background: var(--dcs-success);
+}
+
+.dcs-toast-error .dcs-toast-progress,
+.reg-toast-error .reg-toast-progress {
+    background: var(--dcs-red);
+}
+
+@keyframes dcsToastProgress {
+    from { width: 100%; }
+    to { width: 0%; }
+}
+
+@media (max-width: 640px) {
+    .dcs-toast,
+    .reg-toast {
+        left: 16px;
+        right: 16px;
+        min-width: 0;
+        max-width: none;
+    }
+}
+
+@media print {
+    .dcs-toast,
+    .reg-toast {
+        display: none !important;
+    }
+}

@@ -92,6 +92,7 @@ new #[Layout('layouts.profile')] #[Title('Profile Manager - Notification Manager
             if ($perms->is_sadm) {
                 $allowedSubsystems[] = 'Document Tracking System';
                 $allowedSubsystems[] = 'Records Disposition Program';
+                $allowedSubsystems[] = 'Document Control System';
                 $allowedSubsystems[] = 'Admin Console';
             } else {
                 if ($perms->can_access_dts) {
@@ -99,6 +100,9 @@ new #[Layout('layouts.profile')] #[Title('Profile Manager - Notification Manager
                 }
                 if ($perms->can_access_rdp) {
                     $allowedSubsystems[] = 'Records Disposition Program';
+                }
+                if ($perms->can_access_dcs) {
+                    $allowedSubsystems[] = 'Document Control System';
                 }
             }
         }
@@ -154,6 +158,7 @@ new #[Layout('layouts.profile')] #[Title('Profile Manager - Notification Manager
             ]
         );
         $this->loadNotifications();
+        $this->dispatch('rms-notification-updated');
     }
 
     /**
@@ -182,6 +187,7 @@ new #[Layout('layouts.profile')] #[Title('Profile Manager - Notification Manager
             ]
         );
         $this->loadNotifications();
+        $this->dispatch('rms-notification-updated');
     }
 };
 ?>

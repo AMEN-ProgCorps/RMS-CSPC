@@ -1,6 +1,18 @@
 <?php
 
+require_once resource_path('views/pages/dcs/logic/bootstrap.blade.php');
+
 use App\Http\Controllers\ChatController;
+use App\Helpers\OfficeIntakeHelper;
+use App\Helpers\CalendarHelper;
+use App\Helpers\RegisterPersistHelper;
+use App\Helpers\RegisterQueryHelper;
+use App\Helpers\RegisterUpdateHelper;
+use App\Helpers\ReportHelper;
+use App\Helpers\ReportTemplateHelper;
+use App\Services\RegisterScanService;
+use App\Services\StampService;
+use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Route;
 use Livewire\Volt\Volt;
@@ -142,6 +154,88 @@ Route::get('/auth/google/callback', function () use ($resolveGoogleSsoCredential
     }
 })->name('auth.google.callback');
 
+// ── Google OAuth SSO for Public Document Tracking ───────────────────────────
+$resolveGoogleTrackingSsoCredentials = function () {
+    $clientId = \Illuminate\Support\Facades\DB::table('system_settings')->where('key', 'google_tracking_sso_client_id')->value('value')
+        ?: config('services.google_tracking.client_id')
+        ?: env('GOOGLE_TRACKING_CLIENT_ID')
+        ?: \Illuminate\Support\Facades\DB::table('system_settings')->where('key', 'google_sso_client_id')->value('value')
+        ?: config('services.google.client_id')
+        ?: env('GOOGLE_CLIENT_ID');
+
+    $clientSecret = \Illuminate\Support\Facades\DB::table('system_settings')->where('key', 'google_tracking_sso_client_secret')->value('value')
+        ?: config('services.google_tracking.client_secret')
+        ?: env('GOOGLE_TRACKING_CLIENT_SECRET')
+        ?: \Illuminate\Support\Facades\DB::table('system_settings')->where('key', 'google_sso_client_secret')->value('value')
+        ?: config('services.google.client_secret')
+        ?: env('GOOGLE_CLIENT_SECRET');
+
+    $dbRedirect = \Illuminate\Support\Facades\DB::table('system_settings')->where('key', 'google_tracking_sso_redirect_uri')->value('value');
+    $envRedirect = $dbRedirect ?: env('GOOGLE_TRACKING_REDIRECT_URI');
+    $redirectUrl = (!empty($envRedirect) && $envRedirect !== 'dynamic')
+        ? $envRedirect
+        : url('/auth/google/track/callback');
+
+    return compact('clientId', 'clientSecret', 'redirectUrl');
+};
+
+Route::get('/auth/google/track', function (Request $request) use ($resolveGoogleTrackingSsoCredentials) {
+    ['clientId' => $clientId, 'clientSecret' => $clientSecret, 'redirectUrl' => $redirectUrl] = $resolveGoogleTrackingSsoCredentials();
+
+    if (empty($clientId) || empty($clientSecret)) {
+        return redirect()->route('track-document')->with('error', 'Google Auth credentials for document tracking are not configured.');
+    }
+
+    if ($request->filled('number')) {
+        session(['tracking_target_number' => trim($request->query('number'))]);
+    }
+
+    return \Laravel\Socialite\Facades\Socialite::buildProvider(
+        \Laravel\Socialite\Two\GoogleProvider::class,
+        [
+            'client_id'     => $clientId,
+            'client_secret' => $clientSecret,
+            'redirect'      => $redirectUrl,
+        ]
+    )->stateless()->redirect();
+})->name('auth.google.track');
+
+Route::get('/auth/google/track/callback', function () use ($resolveGoogleTrackingSsoCredentials) {
+    try {
+        ['clientId' => $clientId, 'clientSecret' => $clientSecret, 'redirectUrl' => $redirectUrl] = $resolveGoogleTrackingSsoCredentials();
+
+        $googleUser = \Laravel\Socialite\Facades\Socialite::buildProvider(
+            \Laravel\Socialite\Two\GoogleProvider::class,
+            [
+                'client_id'     => $clientId,
+                'client_secret' => $clientSecret,
+                'redirect'      => $redirectUrl,
+            ]
+        )->stateless()->user();
+
+        $email = strtolower(trim($googleUser->getEmail()));
+        $trackingNumber = session('tracking_target_number');
+
+        // Store verified email in session for tracking verification
+        session([
+            'verified_tracker_email'     => $email,
+            'verified_tracker_name'      => $googleUser->getName() ?? '',
+            'verified_tracker_avatar'    => $googleUser->getAvatar() ?? '',
+            'verified_tracker_auth_type' => 'google',
+        ]);
+
+        if (!empty($trackingNumber)) {
+            return redirect()->route('tracked', ['number' => $trackingNumber]);
+        }
+
+        return redirect()->route('track-document');
+    } catch (\Throwable $e) {
+        $msg = $e->getMessage() ?: get_class($e);
+        \Illuminate\Support\Facades\Log::error('Google Tracking Auth Error: ' . $msg . "\n" . $e->getTraceAsString());
+        return redirect()->route('track-document')->with('error', 'Google verification failed: ' . $msg);
+    }
+})->name('auth.google.track.callback');
+
 // Public document tracking
 Volt::route('/track-document', 'pages.portal.track-document')
     ->name('track-document');
@@ -192,6 +286,7 @@ Route::middleware(['auth'])
                     if ($perms->is_sadm) {
                         $allowedSubsystems[] = 'Document Tracking System';
                         $allowedSubsystems[] = 'Records Disposition Program';
+                        $allowedSubsystems[] = 'Document Control System';
                         $allowedSubsystems[] = 'Admin Console';
                     } else {
                         if ($perms->can_access_dts) {
@@ -199,6 +294,9 @@ Route::middleware(['auth'])
                         }
                         if ($perms->can_access_rdp) {
                             $allowedSubsystems[] = 'Records Disposition Program';
+                        }
+                        if ($perms->can_access_dcs) {
+                            $allowedSubsystems[] = 'Document Control System';
                         }
                     }
                 }
@@ -266,6 +364,7 @@ Route::middleware(['auth'])
 
     // Profile Manager
     Volt::route('/profile', 'pages.profile.index')->name('profile');
+    Volt::route('/profile/settings', 'pages.profile.settings')->name('profile.settings');
     Volt::route('/profile/security-logs', 'pages.profile.security-logs')->name('profile.security-logs');
     Volt::route('/profile/notification-manager', 'pages.profile.notification-manager')->name('profile.notification-manager');
     
@@ -288,6 +387,7 @@ Route::middleware(['auth'])
         Volt::route('/admin/activity/rdp/volume-conversion-logs', 'pages.admin.activity.rdp.volume-conversion-logs')->name('admin.activity.rdp.volume-conversion-logs');
         Volt::route('/admin/activity/rdp/update-logs', 'pages.admin.activity.rdp.update-logs')->name('admin.activity.rdp.update-logs');
         Volt::route('/admin/activity/rdp/record-series-logs', 'pages.admin.activity.rdp.record-series-logs')->name('admin.activity.rdp.record-series-logs');
+        Volt::route('/admin/activity/dcs/activity-logs', 'pages.admin.activity.dcs.activity-logs')->name('admin.activity.dcs.activity-logs');
         Volt::route('/admin/activity/chat-audit', 'pages.admin.activity.chat-audit')->name('admin.activity.chat-audit');
 
 
@@ -383,6 +483,116 @@ Route::middleware(['auth'])
                 ->header('Content-Type', 'application/pdf')
                 ->header('Content-Disposition', 'inline; filename="' . $filename . '"');
         })->name('dts.view-document');
+    });
+
+    // DCS — Document Control System (requires can_access_dcs or is_sadm)
+    Route::middleware(['can.access.dcs'])->group(function () {
+        Volt::route('/dcs', 'pages.dcs.index')->name('dcs');
+
+        Route::prefix('dcs')->name('dcs.')->group(function () {
+            Volt::route('/dashboard', 'pages.dcs.index')->name('dashboard');
+
+            // Office intake (RFIO full users + limited non-RFIO offices)
+            Volt::route('/office/drf', 'pages.dcs.office.drf-index')->name('office.drf.index');
+            Volt::route('/office/drf/create', 'pages.dcs.office.drf-create')->name('office.drf.create');
+            Route::post('/office/drf', fn (Request $request) => OfficeIntakeHelper::storeDrf($request))->name('office.drf.store');
+            Volt::route('/office/drf/{id}', 'pages.dcs.office.drf-show')->name('office.drf.show');
+            Route::get('/office/drf/{id}/print', function (int $id) {
+                OfficeIntakeHelper::assertCanAccessIntake();
+                $drf = OfficeIntakeHelper::findOfficeDrf($id);
+                abort_unless($drf, 404);
+                OfficeIntakeHelper::assertOwnsDrf($drf);
+                $logoPath = public_path('images/logo.png');
+                $logoSrc = file_exists($logoPath) ? ('data:image/png;base64,' . base64_encode(file_get_contents($logoPath))) : '';
+                $sourceOffices = OfficeIntakeHelper::drfSourceOffices($id);
+
+                return response()->view('pages.dcs.office.drf-print', compact('drf', 'logoSrc', 'sourceOffices'));
+            })->name('office.drf.print');
+            Route::match(['put', 'patch', 'post'], '/office/drf/{id}', fn () => OfficeIntakeHelper::rejectMutation())
+                ->name('office.drf.update');
+
+            Volt::route('/office/dcn', 'pages.dcs.office.dcn-index')->name('office.dcn.index');
+            Volt::route('/office/dcn/create', 'pages.dcs.office.dcn-create')->name('office.dcn.create');
+            Route::post('/office/dcn', fn (Request $request) => OfficeIntakeHelper::storeDcn($request))->name('office.dcn.store');
+            Volt::route('/office/dcn/{id}', 'pages.dcs.office.dcn-show')->name('office.dcn.show');
+            Route::get('/office/dcn/{id}/print', function (int $id) {
+                OfficeIntakeHelper::assertCanAccessIntake();
+                $dcn = OfficeIntakeHelper::findOfficeDcn($id);
+                abort_unless($dcn, 404);
+                OfficeIntakeHelper::assertOwnsDcn($dcn);
+                $logoPath = public_path('images/logo.png');
+                $logoSrc = file_exists($logoPath) ? ('data:image/png;base64,' . base64_encode(file_get_contents($logoPath))) : '';
+                $revisions = OfficeIntakeHelper::dcnRevisions($id);
+                $sourceOffices = OfficeIntakeHelper::dcnSourceOffices($id);
+
+                return response()->view('pages.dcs.office.dcn-print', compact('dcn', 'logoSrc', 'revisions', 'sourceOffices'));
+            })->name('office.dcn.print');
+            Route::match(['put', 'patch', 'post'], '/office/dcn/{id}', fn () => OfficeIntakeHelper::rejectMutation())
+                ->name('office.dcn.update');
+
+            // Document lookup for office DCN (and full Register) — available to all DCS users
+            Route::get('/api/documents/search', fn (Request $request) => RegisterQueryHelper::searchDocuments($request));
+            Route::get('/api/documents/revisions', fn (Request $request) => RegisterQueryHelper::documentRevisions($request));
+            Route::get('/api/offices', fn () => response()->json(
+                collect(RegisterQueryHelper::jsCatalog()['offices'] ?? [])->values()
+            ));
+
+            Route::middleware(['dcs.full'])->group(function () {
+                Route::get('/api/documents/{id}/checklist/{type}', function (int $id, string $type) {
+                    return response()->json(RegisterQueryHelper::documentChecklistPreview($id, $type));
+                })->whereIn('type', ['drf', 'dcn', 'masterlist', 'approval', 'distribution', 'retrieval']);
+                Route::get('/api/calendar/categories', fn () => CalendarHelper::categories());
+                Route::post('/api/calendar/categories', fn (Request $request) => CalendarHelper::storeCategory($request));
+                Route::delete('/api/calendar/categories/{id}', fn (int $id) => CalendarHelper::destroyCategory($id));
+                Route::get('/api/calendar/events', fn () => CalendarHelper::events());
+                Route::post('/api/calendar/events', fn (Request $request) => CalendarHelper::storeEvent($request));
+                Route::put('/api/calendar/events/{id}', fn (Request $request, int $id) => CalendarHelper::updateEvent($request, $id));
+                Route::delete('/api/calendar/events/{id}', fn (int $id) => CalendarHelper::destroyEvent($id));
+
+                Route::get('/register/check-docno', fn (Request $request) => response()->json(RegisterQueryHelper::checkDocNo($request)))
+                    ->name('register.checkDocNo');
+                Route::get('/register/check-revno', fn (Request $request) => response()->json(RegisterQueryHelper::checkRevNo($request)))
+                    ->name('register.checkRevNo');
+                Route::post('/register/extract-scan', fn (Request $request) => response()->json(RegisterScanService::extract($request)))
+                    ->name('register.extractScan');
+                Route::post('/api/drr/ocr-pages', fn (Request $request) => response()->json(\App\Services\DrrOcrService::ocrPages($request)))
+                    ->name('drr.ocrPages');
+
+                Volt::route('/register', 'pages.dcs.register.index')->name('register.create');
+                Route::post('/register', fn (Request $request) => RegisterPersistHelper::persist($request))->name('register.store');
+                Route::get('/register/revised', fn () => redirect()->route('dcs.register.create', ['type' => 'revised']))
+                    ->name('register.revised');
+
+                Volt::route('/register/update', 'pages.dcs.register.update')->name('register.update');
+                Volt::route('/recycle-bin', 'pages.dcs.recycle-bin.index')->name('recycle-bin');
+                Volt::route('/review', 'pages.dcs.review.index')->name('review');
+                Volt::route('/register/history/{docNo}', 'pages.dcs.register.history')->name('register.history');
+                Volt::route('/register/{id}/edit', 'pages.dcs.register.edit')->name('register.edit');
+                Route::put('/register/{id}', fn (Request $request, $id) => RegisterUpdateHelper::update($request, (int) $id))
+                    ->name('register.updateDoc');
+
+                Volt::route('/reports/masterlist', 'pages.dcs.reports.show')->name('reports.masterlist');
+                Volt::route('/reports/monitoring', 'pages.dcs.reports.show')->name('reports.monitoring');
+                Volt::route('/reports/opcr', 'pages.dcs.reports.show')->name('reports.opcr');
+                Volt::route('/reports/others', 'pages.dcs.reports.show')->name('reports.others');
+                Volt::route('/reports/syllabi-tos', 'pages.dcs.reports.syllabi-tos')->name('reports.syllabiTos');
+                Route::get('/reports/export', fn (Request $request) => app(ReportHelper::class)->export($request))->name('reports.export');
+                Route::match(['get', 'post'], '/reports/distribution-template', fn (Request $request) => ReportTemplateHelper::render($request))
+                    ->name('reports.distributionTemplate');
+                Route::get('/api/report-templates', fn () => response()->json(ReportTemplateHelper::list()));
+                Route::post('/api/report-templates', fn (Request $request) => ReportTemplateHelper::store($request));
+                Route::delete('/api/report-templates/{id}', fn (int $id) => ReportTemplateHelper::destroy($id));
+
+                Volt::route('/stamping', 'pages.dcs.stamping.index')->name('stamping.index');
+                Route::post('/stamp/apply', fn (Request $request) => app(StampService::class)->apply($request))->name('stamp.apply');
+                Route::post('/stamp/remove', fn (Request $request) => app(StampService::class)->remove($request))->name('stamp.remove');
+                Route::post('/stamp/download', fn (Request $request) => app(StampService::class)->download($request))->name('stamp.download');
+                Route::post('/stamp/preview', fn (Request $request) => app(StampService::class)->preview($request))->name('stamp.preview');
+
+                Volt::route('/database', 'pages.dcs.database.index')->name('database.index');
+                Volt::route('/settings', 'pages.dcs.settings.index')->name('settings.index');
+            });
+        });
     });
 
 });

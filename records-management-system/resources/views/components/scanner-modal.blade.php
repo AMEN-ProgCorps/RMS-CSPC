@@ -99,21 +99,10 @@ new class extends Component {
         }
 
         $qrExists = DB::table('dts_qr_code')->where('code_id', $code)->exists();
-        $cnExists = DB::table('dts_transaction_details')->where('control_number', $code)->exists();
-
-        if (!$qrExists && !$cnExists) {
-            $this->errorMessage = 'Invalid Code: Scanned input is neither a registered QR Code nor a valid Control Number.';
+        if (!$qrExists) {
+            $this->errorMessage = 'Invalid QR Code: Only valid, registered QR codes can be processed by the scanner.';
             $this->dispatch('scanner-code-invalid');
             return;
-        }
-
-        if ($qrExists) {
-            $hasTransaction = DB::table('dts_transactions')->where('qr_code', $code)->exists();
-            if (!$hasTransaction) {
-                $this->errorMessage = 'Inactive QR Code: Code registered in system but not yet linked to any transaction.';
-                $this->dispatch('scanner-code-invalid');
-                return;
-            }
         }
 
         $transaction = DB::table('dts_transactions as dt')
@@ -122,10 +111,7 @@ new class extends Component {
             ->leftJoin('office as originated_office', 'originated_office.office_code', '=', 'dtd.originated_from')
             ->leftJoin('office as current_office_tb', 'current_office_tb.office_code', '=', 'dt.current_office')
             ->leftJoin('document_data as doc', 'doc.document_path', '=', 'dt.doc_dir')
-            ->where(function($q) use ($code) {
-                $q->where('dt.qr_code', $code)
-                  ->orWhere('dtd.control_number', $code);
-            })
+            ->where('dt.qr_code', $code)
             ->select(
                 'dt.transaction_id',
                 'dt.trans_type as type',
@@ -149,7 +135,20 @@ new class extends Component {
             ->first();
 
         if (!$transaction) {
-            $this->errorMessage = 'No transaction found matching code: ' . $code;
+            $this->errorMessage = 'Inactive QR Code: Code registered in system but not yet linked to any transaction.';
+            $this->dispatch('scanner-code-invalid');
+            return;
+        }
+
+        $rawStatus = strtolower($transaction->status);
+        if ($rawStatus === 'completed') {
+            $this->errorMessage = 'That QR code is already finished its transaction.';
+            $this->dispatch('scanner-code-invalid');
+            return;
+        }
+
+        if ($rawStatus === 'cancelled') {
+            $this->errorMessage = 'That QR code transaction has been cancelled.';
             $this->dispatch('scanner-code-invalid');
             return;
         }
@@ -157,15 +156,24 @@ new class extends Component {
         $userOfficeCode = auth()->user()?->details?->office?->office_code 
             ?? \App\Services\DocumentStorageService::resolveOfficeCode(auth()->user());
 
-        $isReceivedAtUserOffice = false;
-        if ($userOfficeCode) {
-            $lastLog = DB::table('sub_document_tracking_system_logs')
-                ->where('transaction_id', $transaction->transaction_id)
-                ->where('office_code', $userOfficeCode)
-                ->orderBy('id', 'desc')
-                ->first();
-            $isReceivedAtUserOffice = $lastLog && ($lastLog->type === 'received' || (!empty($lastLog->date_in) && $lastLog->type !== 'forwarded'));
+        if (!$userOfficeCode) {
+            $this->errorMessage = 'User office code could not be resolved.';
+            $this->dispatch('scanner-code-invalid');
+            return;
         }
+
+        if ($transaction->current_office !== $userOfficeCode) {
+            $this->errorMessage = 'That QR code is no longer within your office transaction list.';
+            $this->dispatch('scanner-code-invalid');
+            return;
+        }
+
+        $lastLog = DB::table('sub_document_tracking_system_logs')
+            ->where('transaction_id', $transaction->transaction_id)
+            ->where('office_code', $userOfficeCode)
+            ->orderBy('id', 'desc')
+            ->first();
+        $isReceivedAtUserOffice = $lastLog && ($lastLog->type === 'received' || (!empty($lastLog->date_in) && $lastLog->type !== 'forwarded'));
 
         // Get next office in sequence if flow exists
         $nextOfficeName = 'End of Flow';
@@ -184,8 +192,6 @@ new class extends Component {
             }
         }
 
-        $isCompleted = strtolower($transaction->status) === 'completed';
-
         $this->activeTransaction = [
             'id' => $transaction->transaction_id,
             'control_number' => $transaction->control_number,
@@ -200,7 +206,7 @@ new class extends Component {
             'next_office' => $nextOfficeName,
             'next_office_code' => $nextOfficeCode,
             'status' => ucfirst($transaction->status),
-            'is_completed' => $isCompleted,
+            'is_completed' => false,
             'sequence' => $transaction->sequence,
             'document_name' => $transaction->document_name,
             'is_received_here' => $isReceivedAtUserOffice,
@@ -231,11 +237,6 @@ new class extends Component {
             return;
         }
 
-        if ($this->activeTransaction['is_completed']) {
-            $this->errorMessage = 'This transaction is already completed. No further action can be performed.';
-            return;
-        }
-
         $userOfficeCode = auth()->user()?->details?->office?->office_code 
             ?? \App\Services\DocumentStorageService::resolveOfficeCode(auth()->user());
 
@@ -244,8 +245,8 @@ new class extends Component {
             return;
         }
 
-        if ($this->activeTransaction['current_office_code'] !== $userOfficeCode && !auth()->user()?->permissions?->is_sadm) {
-            $this->errorMessage = 'Unauthorized: Document is currently assigned to ' . $this->activeTransaction['current_office'] . '.';
+        if ($this->activeTransaction['current_office_code'] !== $userOfficeCode) {
+            $this->errorMessage = 'That QR code is no longer within your office transaction list.';
             return;
         }
 
@@ -293,6 +294,22 @@ new class extends Component {
                                     'scanned_id' => true,
                                 ]);
                         }
+                    }
+
+                    $userFirstName = auth()->user()?->details?->first_name 
+                        ?: DB::table('account_details')->where('account_id', auth()->id())->value('first_name')
+                        ?: auth()->user()?->username 
+                        ?: 'User';
+
+                    $controlNumber = $this->activeTransaction['control_number'] ?? '';
+
+                    if ($userOfficeCode) {
+                        \App\Services\DtsNotificationService::notifyReceived($userOfficeCode, $userFirstName, $controlNumber, $transId);
+                    }
+
+                    $originatedFrom = $this->activeTransaction['originated_office_code'] ?? null;
+                    if ($originatedFrom && $originatedFrom !== $userOfficeCode) {
+                        \App\Services\DtsNotificationService::notifyHubOfficeReceived($originatedFrom, $userOfficeCode, $controlNumber, $transId);
                     }
 
                     $this->successMessage = "Transaction '{$this->activeTransaction['control_number']}' received successfully at {$this->activeTransaction['current_office']}!";
@@ -379,6 +396,13 @@ new class extends Component {
                             'notes' => 'Returned for revision from ' . $userOfficeCode . ': ' . ($this->notes ?: 'Please revise document'),
                             'performed_by' => auth()->id(),
                         ]);
+
+                        $controlNumber = $this->activeTransaction['control_number'] ?? '';
+                        \App\Services\DtsNotificationService::createNotification(
+                            $originatedFrom,
+                            "Transaction {$controlNumber} has been returned for revision by {$userOfficeCode}.",
+                            '/dts?open=' . urlencode($transId)
+                        );
 
                         $originatedOfficeName = DB::table('office')->where('office_code', $originatedFrom)->value('office_name') ?: $originatedFrom;
                         $this->successMessage = "Transaction '{$this->activeTransaction['control_number']}' returned for revision to {$originatedOfficeName}!";
@@ -520,6 +544,26 @@ new class extends Component {
 
                             $destOfficeName = DB::table('office')->where('office_code', $nextOfficeCode)->value('office_name') ?: $nextOfficeCode;
                             $this->successMessage = "Transaction '{$this->activeTransaction['control_number']}' forwarded successfully to {$destOfficeName}!";
+
+                            $userFirstName = auth()->user()?->details?->first_name 
+                                ?: DB::table('account_details')->where('account_id', auth()->id())->value('first_name')
+                                ?: auth()->user()?->username 
+                                ?: 'User';
+
+                            $controlNumber = $this->activeTransaction['control_number'] ?? '';
+
+                            if ($userOfficeCode) {
+                                \App\Services\DtsNotificationService::notifyForwarded($userOfficeCode, $userFirstName, $controlNumber, $transId);
+                            }
+
+                            if (!empty($nextOfficeCode)) {
+                                \App\Services\DtsNotificationService::notifyWaitingToBeReceived($nextOfficeCode, $controlNumber, $transId);
+                            }
+
+                            $originatedFrom = $this->activeTransaction['originated_office_code'] ?? null;
+                            if ($originatedFrom && $originatedFrom !== $userOfficeCode) {
+                                \App\Services\DtsNotificationService::notifyHubOfficeForwarded($originatedFrom, $userOfficeCode, $controlNumber, $transId, $userFirstName);
+                            }
                         } else {
                             // End of flow -> Complete
                             DB::table('dts_transactions')
@@ -528,14 +572,25 @@ new class extends Component {
                                     'status' => 'completed',
                                 ]);
 
+                            $controlNumber = $this->activeTransaction['control_number'] ?? '';
+                            if ($userOfficeCode) {
+                                \App\Services\DtsNotificationService::notifyCompleted($userOfficeCode, $controlNumber, $transId);
+                            }
+
                             $this->successMessage = "Transaction '{$this->activeTransaction['control_number']}' marked as COMPLETED!";
                         }
                     }
                 }
             });
 
-            // Reload active transaction details
-            $this->loadTransaction();
+            if ($isReceived) {
+                // Forwarded or returned for revision - reset active transaction
+                $this->activeTransaction = null;
+                $this->scannedCode = '';
+            } else {
+                // Received - refresh active transaction details
+                $this->loadTransaction();
+            }
             $this->notes = '';
             $this->dispatch('dts-transaction-updated');
         } catch (\Throwable $e) {

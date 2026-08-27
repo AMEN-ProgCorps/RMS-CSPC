@@ -7,7 +7,7 @@ This is the development repository for the **Records Management System (RMS) Ver
 
 ## 🚀 Quick Start with Docker
 
-The entire stack (PHP/Laravel application, MySQL database, Node/Vite development server, and phpMyAdmin) is containerized. You do not need to install PHP, Composer, Node.js, or MySQL locally on your host machine.
+The entire stack (PHP/Laravel application, PostgreSQL database, Node/Vite development server, Adminer, and Chatify WebSocket server) is containerized. You do not need to install PHP, Composer, Node.js, or PostgreSQL locally on your host machine.
 
 ### Prerequisites
 - [Docker Desktop](https://www.docker.com/products/docker-desktop/) (includes Docker Compose)
@@ -27,7 +27,7 @@ The entire stack (PHP/Laravel application, MySQL database, Node/Vite development
    *(Note: Add the `-d` flag if you want to run the containers in detached/background mode).*
 
 3. **Database Migrations:**
-   During startup, the container entrypoint script will automatically wait for the MySQL database to become healthy and then run migrations (`php artisan migrate --force`).
+   During startup, the container entrypoint script will automatically wait for the PostgreSQL database to become healthy and then run migrations (`php artisan migrate --force`).
 
 4. **Verify Application Key:**
    The `.env.docker` file contains a pre-configured `APP_KEY`. If you need to generate a new key or re-key the application, run:
@@ -43,10 +43,11 @@ Once the containers are running, the following services are available:
 
 | Service | Host URL | Description |
 | :--- | :--- | :--- |
-| **Laravel App** | [http://localhost:49000](http://localhost:49000) | The main Records Management System application. |
-| **phpMyAdmin** | [http://localhost:9000](http://localhost:9000) | Database management interface. |
-| **Vite Dev Server** | [http://localhost:5173](http://localhost:5173) | Hot Module Replacement (HMR) for frontend assets. |
-| **MySQL Database** | `localhost:3307` | Database server (mapped from port `3306` inside). |
+| **Laravel App** | [http://localhost](http://localhost) | The main Records Management System application (Port `80`). |
+| **Adminer** | [http://localhost:8088](http://localhost:8088) | Database management interface (Port `8088`). |
+| **Vite Dev Server** | [http://localhost:5173](http://localhost:5173) | Hot Module Replacement (HMR) for frontend assets (Port `5173`). |
+| **PostgreSQL Database** | `localhost:5432` | PostgreSQL Database server (Port `5432`). |
+| **Chatify WebSocket** | `ws://localhost/ws` | Real-time chat & notifications (proxied via port `80`). |
 
 ---
 
@@ -54,12 +55,12 @@ Once the containers are running, the following services are available:
 
 These details are defined in [records-management-system/.env.docker](file:////RMS-CSPC/records-management-system/.env.docker) and are used to connect to the database:
 
-- **Host (from Host Machine):** `127.0.0.1` (Port: `3307`)
-- **Host (from inside Docker App Container):** `db` (Port: `3306`)
+- **Host (from Host Machine):** `127.0.0.1` (Port: `5432`)
+- **Host (from inside Docker Containers):** `db` (Port: `5432`)
+- **Database Driver:** `pgsql`
 - **Database Name:** `rms`
 - **Username:** `adminrms`
 - **Password:** `admin`
-- **Root Password:** `MacCloud`
 
 ---
 

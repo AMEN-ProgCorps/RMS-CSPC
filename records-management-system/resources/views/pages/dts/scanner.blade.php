@@ -286,23 +286,11 @@ new #[Layout('layouts.dts')] #[Title('Advanced Scanner Console - DTS')] class ex
         }
 
         $qrExists = DB::table('dts_qr_code')->where('code_id', $code)->exists();
-        $cnExists = DB::table('dts_transaction_details')->where('control_number', $code)->exists();
-
-        if (!$qrExists && !$cnExists) {
-            $this->errorMessage = "Invalid Code: '{$rawCode}' is neither a registered QR Code nor a valid Control Number.";
+        if (!$qrExists) {
+            $this->errorMessage = 'Invalid QR Code: Only valid, registered QR codes can be processed by the scanner.';
             $this->dispatch('scanner-audio-error');
-            $this->logSessionScan($rawCode, 'Invalid Code', 'error');
+            $this->logSessionScan($rawCode, 'Invalid QR Code', 'error');
             return;
-        }
-
-        if ($qrExists) {
-            $hasTransaction = DB::table('dts_transactions')->where('qr_code', $code)->exists();
-            if (!$hasTransaction) {
-                $this->errorMessage = 'Inactive QR Code: Code registered in system but not yet linked to any transaction.';
-                $this->dispatch('scanner-audio-error');
-                $this->logSessionScan($rawCode, 'Inactive QR Code', 'warning');
-                return;
-            }
         }
 
         $transaction = DB::table('dts_transactions as dt')
@@ -311,10 +299,7 @@ new #[Layout('layouts.dts')] #[Title('Advanced Scanner Console - DTS')] class ex
             ->leftJoin('office as originated_office', 'originated_office.office_code', '=', 'dtd.originated_from')
             ->leftJoin('office as current_office_tb', 'current_office_tb.office_code', '=', 'dt.current_office')
             ->leftJoin('document_data as doc', 'doc.document_path', '=', 'dt.doc_dir')
-            ->where(function($q) use ($code) {
-                $q->where('dt.qr_code', $code)
-                  ->orWhere('dtd.control_number', $code);
-            })
+            ->where('dt.qr_code', $code)
             ->select(
                 'dt.transaction_id',
                 'dt.trans_type as type',
@@ -341,24 +326,50 @@ new #[Layout('layouts.dts')] #[Title('Advanced Scanner Console - DTS')] class ex
             ->first();
 
         if (!$transaction) {
-            $this->errorMessage = "No active transaction found matching: '{$code}'.";
+            $this->errorMessage = 'Inactive QR Code: Code registered in system but not yet linked to any transaction.';
             $this->dispatch('scanner-audio-error');
-            $this->logSessionScan($code, 'Not Found', 'error');
+            $this->logSessionScan($rawCode, 'Inactive QR Code', 'warning');
+            return;
+        }
+
+        $rawStatus = strtolower($transaction->status);
+        if ($rawStatus === 'completed') {
+            $this->errorMessage = 'That QR code is already finished its transaction.';
+            $this->dispatch('scanner-audio-error');
+            $this->logSessionScan($code, 'Finished Transaction', 'warning');
+            return;
+        }
+
+        if ($rawStatus === 'cancelled') {
+            $this->errorMessage = 'That QR code transaction has been cancelled.';
+            $this->dispatch('scanner-audio-error');
+            $this->logSessionScan($code, 'Cancelled Transaction', 'warning');
             return;
         }
 
         $userOfficeCode = auth()->user()?->details?->office?->office_code 
             ?? \App\Services\DocumentStorageService::resolveOfficeCode(auth()->user());
 
-        $isReceivedAtUserOffice = false;
-        if ($userOfficeCode) {
-            $lastLog = DB::table('sub_document_tracking_system_logs')
-                ->where('transaction_id', $transaction->transaction_id)
-                ->where('office_code', $userOfficeCode)
-                ->orderBy('id', 'desc')
-                ->first();
-            $isReceivedAtUserOffice = $lastLog && ($lastLog->type === 'received' || (!empty($lastLog->date_in) && $lastLog->type !== 'forwarded'));
+        if (!$userOfficeCode) {
+            $this->errorMessage = 'Could not resolve your user office profile.';
+            $this->dispatch('scanner-audio-error');
+            return;
         }
+
+        // Office Scope Check: Document must currently be assigned to user's office
+        if ($transaction->current_office !== $userOfficeCode) {
+            $this->errorMessage = 'That QR code is no longer within your office transaction list.';
+            $this->dispatch('scanner-audio-error');
+            $this->logSessionScan($code, 'Out of Office Scope', 'error');
+            return;
+        }
+
+        $lastLog = DB::table('sub_document_tracking_system_logs')
+            ->where('transaction_id', $transaction->transaction_id)
+            ->where('office_code', $userOfficeCode)
+            ->orderBy('id', 'desc')
+            ->first();
+        $isReceivedAtUserOffice = $lastLog && ($lastLog->type === 'received' || (!empty($lastLog->date_in) && $lastLog->type !== 'forwarded'));
 
         // Get next office in sequence
         $nextOfficeName = 'End of Flow (Complete)';
@@ -380,9 +391,6 @@ new #[Layout('layouts.dts')] #[Title('Advanced Scanner Console - DTS')] class ex
             }
         }
 
-        $isCompleted = strtolower($transaction->status) === 'completed';
-        $isCancelled = strtolower($transaction->status) === 'cancelled';
-
         $this->activeTransaction = [
             'id' => $transaction->transaction_id,
             'control_number' => $transaction->control_number,
@@ -399,9 +407,9 @@ new #[Layout('layouts.dts')] #[Title('Advanced Scanner Console - DTS')] class ex
             'next_office' => $nextOfficeName,
             'next_office_code' => $nextOfficeCode,
             'status' => ucfirst($transaction->status),
-            'raw_status' => strtolower($transaction->status),
-            'is_completed' => $isCompleted,
-            'is_cancelled' => $isCancelled,
+            'raw_status' => $rawStatus,
+            'is_completed' => false,
+            'is_cancelled' => false,
             'sequence' => $transaction->sequence,
             'document_name' => $transaction->document_name,
             'document_path' => $transaction->document_path,
@@ -413,16 +421,21 @@ new #[Layout('layouts.dts')] #[Title('Advanced Scanner Console - DTS')] class ex
         ];
 
         $this->dispatch('scanner-audio-success');
-        $this->logSessionScan($transaction->control_number, $transaction->subject ?: 'Document Inspected', 'success');
+        $this->logSessionScan($transaction->qr_code, $transaction->subject ?: 'Document Inspected', 'success');
 
         // Auto-Action if enabled and eligible (Auto-Receive incoming OR Auto-Forward already received)
-        if ($this->autoAction && !$isCompleted && !$isCancelled && ($transaction->current_office === $userOfficeCode || auth()->user()?->permissions?->is_sadm)) {
+        if ($this->autoAction && $transaction->current_office === $userOfficeCode) {
             if (!$isReceivedAtUserOffice) {
                 $this->executeReceive();
             } else {
                 $this->executeForward();
             }
         }
+    }
+
+    public function selectScannedCode(string $code): void
+    {
+        $this->selectAndScan($code);
     }
 
     /**
@@ -445,8 +458,8 @@ new #[Layout('layouts.dts')] #[Title('Advanced Scanner Console - DTS')] class ex
             return;
         }
 
-        if ($this->activeTransaction['current_office_code'] !== $userOfficeCode && !auth()->user()?->permissions?->is_sadm) {
-            $this->errorMessage = "Unauthorized: Document is currently assigned to '{$this->activeTransaction['current_office']}'.";
+        if ($this->activeTransaction['current_office_code'] !== $userOfficeCode) {
+            $this->errorMessage = 'That QR code is no longer within your office transaction list.';
             return;
         }
 
@@ -493,16 +506,33 @@ new #[Layout('layouts.dts')] #[Title('Advanced Scanner Console - DTS')] class ex
                             ]);
                     }
                 }
+
+                $userFirstName = auth()->user()?->details?->first_name 
+                    ?: DB::table('account_details')->where('account_id', auth()->id())->value('first_name')
+                    ?: auth()->user()?->username 
+                    ?: 'User';
+
+                $controlNumber = $this->activeTransaction['control_number'] ?? '';
+                $transId = $this->activeTransaction['id'] ?? '';
+
+                if ($userOfficeCode) {
+                    \App\Services\DtsNotificationService::notifyReceived($userOfficeCode, $userFirstName, $controlNumber, $transId);
+                }
+
+                $originatedFrom = $this->activeTransaction['originated_office_code'] ?? null;
+                if ($originatedFrom && $originatedFrom !== $userOfficeCode) {
+                    \App\Services\DtsNotificationService::notifyHubOfficeReceived($originatedFrom, $userOfficeCode, $controlNumber, $transId);
+                }
             });
 
             $this->successMessage = "Document '{$this->activeTransaction['control_number']}' successfully RECEIVED at {$this->activeTransaction['current_office']}!";
             $this->dispatch('scanner-audio-action');
-            $this->logSessionScan($this->activeTransaction['control_number'], 'Received', 'action');
+            $this->logSessionScan($this->activeTransaction['qr_code'], 'Received', 'action');
 
             if ($this->continuousMode) {
                 $this->resetConsole();
             } else {
-                $this->loadTransaction(); // Refresh active transaction details
+                $this->loadTransaction(); // Refresh active transaction details to show received state
             }
         } catch (\Exception $e) {
             $this->errorMessage = 'Failed to receive document: ' . $e->getMessage();
@@ -529,8 +559,8 @@ new #[Layout('layouts.dts')] #[Title('Advanced Scanner Console - DTS')] class ex
             return;
         }
 
-        if ($this->activeTransaction['current_office_code'] !== $userOfficeCode && !auth()->user()?->permissions?->is_sadm) {
-            $this->errorMessage = "Unauthorized: Document is currently assigned to '{$this->activeTransaction['current_office']}'.";
+        if ($this->activeTransaction['current_office_code'] !== $userOfficeCode) {
+            $this->errorMessage = 'That QR code is no longer within your office transaction list.';
             return;
         }
 
@@ -668,23 +698,50 @@ new #[Layout('layouts.dts')] #[Title('Advanced Scanner Console - DTS')] class ex
 
                     $destOfficeName = DB::table('office')->where('office_code', $nextOfficeCode)->value('office_name') ?: $nextOfficeCode;
                     $this->successMessage = "Document '{$this->activeTransaction['control_number']}' forwarded successfully to {$destOfficeName}!";
+
+                    $userFirstName = auth()->user()?->details?->first_name 
+                        ?: DB::table('account_details')->where('account_id', auth()->id())->value('first_name')
+                        ?: auth()->user()?->username 
+                        ?: 'User';
+
+                    $controlNumber = $this->activeTransaction['control_number'] ?? '';
+                    $transId = $this->activeTransaction['id'] ?? '';
+
+                    if ($userOfficeCode) {
+                        \App\Services\DtsNotificationService::notifyForwarded($userOfficeCode, $userFirstName, $controlNumber, $transId);
+                    }
+
+                    if (!empty($nextOfficeCode)) {
+                        \App\Services\DtsNotificationService::notifyWaitingToBeReceived($nextOfficeCode, $controlNumber, $transId);
+                    }
+
+                    $originatedFrom = $this->activeTransaction['originated_office_code'] ?? null;
+                    if ($originatedFrom && $originatedFrom !== $userOfficeCode) {
+                        \App\Services\DtsNotificationService::notifyHubOfficeForwarded($originatedFrom, $userOfficeCode, $controlNumber, $transId, $userFirstName);
+                    }
                 } else {
                     DB::table('dts_transactions')
                         ->where('transaction_id', $transId)
                         ->update(['status' => 'completed']);
+
+                    $controlNumber = $this->activeTransaction['control_number'] ?? '';
+                    $transId = $this->activeTransaction['id'] ?? '';
+
+                    if ($userOfficeCode) {
+                        \App\Services\DtsNotificationService::notifyCompleted($userOfficeCode, $controlNumber, $transId);
+                    }
 
                     $this->successMessage = "Document '{$this->activeTransaction['control_number']}' marked as COMPLETED!";
                 }
             });
 
             $this->dispatch('scanner-audio-action');
-            $this->logSessionScan($this->activeTransaction['control_number'], 'Forwarded', 'action');
+            $this->logSessionScan($this->activeTransaction['qr_code'], 'Forwarded', 'action');
 
-            if ($this->continuousMode) {
-                $this->resetConsole();
-            } else {
-                $this->loadTransaction();
-            }
+            // Reset console to ensure document cannot be received/forwarded again from same scan
+            $msg = $this->successMessage;
+            $this->resetConsole();
+            $this->successMessage = $msg;
         } catch (\Exception $e) {
             $this->errorMessage = 'Failed to forward document: ' . $e->getMessage();
         }
@@ -709,6 +766,11 @@ new #[Layout('layouts.dts')] #[Title('Advanced Scanner Console - DTS')] class ex
 
         $userOfficeCode = auth()->user()?->details?->office?->office_code 
             ?? \App\Services\DocumentStorageService::resolveOfficeCode(auth()->user());
+
+        if ($this->activeTransaction['current_office_code'] !== $userOfficeCode) {
+            $this->errorMessage = 'That QR code is no longer within your office transaction list.';
+            return;
+        }
 
         try {
             DB::transaction(function () use ($userOfficeCode) {
@@ -785,18 +847,24 @@ new #[Layout('layouts.dts')] #[Title('Advanced Scanner Console - DTS')] class ex
                     'notes' => 'Returned for revision: ' . $this->notes,
                     'performed_by' => auth()->id(),
                 ]);
+
+                $controlNumber = $this->activeTransaction['control_number'] ?? '';
+                \App\Services\DtsNotificationService::createNotification(
+                    $originatedFrom,
+                    "Transaction {$controlNumber} has been returned for revision by {$userOfficeCode}.",
+                    '/dts?open=' . urlencode($transId)
+                );
             });
 
             $originatedOfficeName = DB::table('office')->where('office_code', $this->activeTransaction['originated_office_code'])->value('office_name') ?: $this->activeTransaction['originated_office_code'];
             $this->successMessage = "Document '{$this->activeTransaction['control_number']}' returned for revision to {$originatedOfficeName}!";
             $this->dispatch('scanner-audio-action');
-            $this->logSessionScan($this->activeTransaction['control_number'], 'Returned for Revision', 'warning');
+            $this->logSessionScan($this->activeTransaction['qr_code'], 'Returned for Revision', 'warning');
 
-            if ($this->continuousMode) {
-                $this->resetConsole();
-            } else {
-                $this->loadTransaction();
-            }
+            // Reset console to ensure document cannot be received/forwarded again from same scan
+            $msg = $this->successMessage;
+            $this->resetConsole();
+            $this->successMessage = $msg;
         } catch (\Exception $e) {
             $this->errorMessage = 'Failed to return document: ' . $e->getMessage();
         }
@@ -825,16 +893,8 @@ new #[Layout('layouts.dts')] #[Title('Advanced Scanner Console - DTS')] class ex
     <div style="background: #ffffff; border: 1px solid #e2e8f0; border-radius: 16px; padding: 20px 24px; margin-bottom: 24px; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05); display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 16px;">
         <div style="display: flex; align-items: center; gap: 16px;">
             <div style="width: 48px; height: 48px; border-radius: 12px; background: linear-gradient(135deg, #0284c7 0%, #0369a1 100%); display: flex; align-items: center; justify-content: center; color: #ffffff; box-shadow: 0 4px 10px rgba(2, 132, 199, 0.3);">
-                <svg xmlns="http://www.w3.org/2000/svg" width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
-                    <path d="M3 7V5a2 2 0 0 1 2-2h2"/>
-                    <path d="M17 3h2a2 2 0 0 1 2 2v2"/>
-                    <path d="M21 17v2a2 2 0 0 1-2 2h-2"/>
-                    <path d="M7 21H5a2 2 0 0 1-2-2v-2"/>
-                    <line x1="7" y1="12" x2="17" y2="12"/>
-                    <rect x="7" y="7" width="3" height="3" fill="currentColor"/>
-                    <rect x="14" y="7" width="3" height="3" fill="currentColor"/>
-                    <rect x="7" y="14" width="3" height="3" fill="currentColor"/>
-                    <rect x="14" y="14" width="3" height="3" fill="currentColor"/>
+                <svg xmlns="http://www.w3.org/2000/svg" width="26" height="26" viewBox="0 0 24 24" fill="none">
+                    <path d="M3 8V5a2 2 0 0 1 2-2h3v2H5v3H3zm13-5h3a2 2 0 0 1 2 2v3h-2V5h-3V3zM3 16v3a2 2 0 0 0 2 2h3v-2H5v-3H3zm18 0v3a2 2 0 0 1-2 2h-3v-2h3v-3h2zM7 7h3.5v3.5H7V7zm6.5 0h3.5v3.5h-3.5V7zM7 13.5h3.5v3.5H7v-3.5zm6.5 0h3.5v3.5h-3.5v-3.5z" fill="currentColor"/>
                 </svg>
             </div>
             <div>
@@ -1389,7 +1449,7 @@ new #[Layout('layouts.dts')] #[Title('Advanced Scanner Console - DTS')] class ex
                                     </div>
 
                                     <div>
-                                        <button type="button" wire:click="selectAndScan('{{ $item->control_number }}')" 
+                                        <button type="button" wire:click="selectAndScan('{{ $item->qr_code }}')" 
                                                 style="padding: 8px 16px; border-radius: 8px; background: #0284c7; color: #ffffff; border: none; font-size: 12px; font-weight: 700; cursor: pointer; display: inline-flex; align-items: center; gap: 6px; box-shadow: 0 2px 4px rgba(2, 132, 199, 0.2); white-space: nowrap;">
                                             <i class="fa-solid fa-barcode"></i> Select & Scan
                                         </button>

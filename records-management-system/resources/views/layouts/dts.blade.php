@@ -5,6 +5,10 @@
     <link rel="icon" href="{{ asset('images/cspc.webp') }}" type="image/webp">
     
     <script>
+        (function() {
+            var theme = localStorage.getItem('rms-theme') || '{{ auth()->user()?->theme() ?? "light" }}';
+            document.documentElement.setAttribute('data-theme', theme);
+        })();
         window.assetPaths = {
             toggleNavSection: "{{ asset('icons/toggle-nav-section.svg') }}",
             toggleNavDefault: "{{ asset('icons/toggle-nav-default.svg') }}",
@@ -91,7 +95,9 @@
             </div>
         </div>
         <div id="article-container" class="article-container imdown">
+            <x-nav.top-tabs system="dts" />
             {{ $slot }}
+        </div>
     </section>
     <x-chatify.floating-widget />
     <livewire:components.scanner-modal />

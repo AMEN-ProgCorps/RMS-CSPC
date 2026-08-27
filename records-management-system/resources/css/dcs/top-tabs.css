@@ -1,0 +1,136 @@
+/* Top Navigation Tabs host for DCS (mirrors DTS/RDP enable_top_tabs preference). */
+
+.dcs-top-tabs-host {
+    position: fixed;
+    top: var(--dcs-header-height);
+    left: var(--dcs-sidebar);
+    right: 0;
+    z-index: 40;
+    /* Use pad-x only — --dcs-page-pad is two values and would zero out left padding. */
+    padding: 10px var(--dcs-page-pad-x) 0;
+    box-sizing: border-box;
+    pointer-events: none;
+    transition: left var(--dcs-ease);
+}
+
+.dcs-top-tabs-host .top-nav-tabs-wrapper {
+    pointer-events: auto;
+    position: relative;
+    width: 100%;
+    margin-bottom: 0;
+    background: #FFFFFF;
+    border-radius: 12px;
+    padding: 6px 10px;
+    box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.05), 0 1px 2px -1px rgba(0, 0, 0, 0.03);
+    border: 1px solid #E2E8F0;
+    box-sizing: border-box;
+}
+
+.dcs-top-tabs-host .top-nav-tabs-container {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    overflow-x: auto;
+    overflow-y: hidden;
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+    padding: 2px 0;
+}
+
+.dcs-top-tabs-host .top-nav-tabs-container::-webkit-scrollbar {
+    display: none;
+}
+
+.dcs-top-tabs-host .top-nav-tab-item {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 8px 18px;
+    border-radius: 8px;
+    font-family: var(--dcs-font, 'Inter', system-ui, sans-serif);
+    font-size: 13.5px;
+    font-weight: 500;
+    color: #64748B;
+    text-decoration: none;
+    white-space: nowrap;
+    cursor: pointer;
+    background-color: transparent;
+    border: 1px solid transparent;
+    transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+    user-select: none;
+}
+
+.dcs-top-tabs-host .top-nav-tab-item:hover {
+    color: #043899;
+    background-color: #F1F5F9;
+    border-color: #E2E8F0;
+}
+
+.dcs-top-tabs-host .top-nav-tab-item.active {
+    color: #043899;
+    background-color: #EEF2FF;
+    font-weight: 700;
+    border-color: #C7D2FE;
+    box-shadow: 0 1px 3px 0 rgba(4, 56, 153, 0.08);
+}
+
+.dcs-top-tabs-host .top-nav-tab-item.active .top-nav-tab-indicator {
+    position: absolute;
+    bottom: -1px;
+    left: 16%;
+    right: 16%;
+    height: 3px;
+    background-color: #D97706;
+    border-radius: 3px 3px 0 0;
+}
+
+/* Push fixed page shells down when top tabs are visible. */
+body:has(.dcs-top-tabs-host .top-nav-tabs-wrapper) .dashboard-main,
+body:has(.dcs-top-tabs-host .top-nav-tabs-wrapper) .rpt-page,
+body:has(.dcs-top-tabs-host .top-nav-tabs-wrapper) .db-page,
+body:has(.dcs-top-tabs-host .top-nav-tabs-wrapper) .st-container,
+body:has(.dcs-top-tabs-host .top-nav-tabs-wrapper) .reg-container,
+body:has(.dcs-top-tabs-host .top-nav-tabs-wrapper) .upd-container,
+body:has(.dcs-top-tabs-host .top-nav-tabs-wrapper) .hst-container,
+body:has(.dcs-top-tabs-host .top-nav-tabs-wrapper) .drr-container,
+body:has(.dcs-top-tabs-host .top-nav-tabs-wrapper) .rb-container,
+body:has(.dcs-top-tabs-host .top-nav-tabs-wrapper) .settings-main,
+body:has(.dcs-top-tabs-host .top-nav-tabs-wrapper) .ofi-page {
+    top: calc(var(--dcs-header-height) + 58px);
+}
+
+body:has(#dcs-sidebar-collapsed:checked) .dcs-top-tabs-host {
+    left: var(--dcs-sidebar-collapsed);
+}
+
+@media (max-width: 900px) {
+    .dcs-top-tabs-host,
+    body:has(#dcs-sidebar-collapsed:checked) .dcs-top-tabs-host {
+        left: 0 !important;
+        padding: 8px 12px 0;
+    }
+
+    .dcs-top-tabs-host .top-nav-tabs-wrapper {
+        padding: 4px 6px;
+    }
+
+    .dcs-top-tabs-host .top-nav-tab-item {
+        padding: 6px 12px;
+        font-size: 12.5px;
+    }
+
+    body:has(.dcs-top-tabs-host .top-nav-tabs-wrapper) .dashboard-main,
+    body:has(.dcs-top-tabs-host .top-nav-tabs-wrapper) .rpt-page,
+    body:has(.dcs-top-tabs-host .top-nav-tabs-wrapper) .db-page,
+    body:has(.dcs-top-tabs-host .top-nav-tabs-wrapper) .st-container,
+    body:has(.dcs-top-tabs-host .top-nav-tabs-wrapper) .reg-container,
+    body:has(.dcs-top-tabs-host .top-nav-tabs-wrapper) .upd-container,
+    body:has(.dcs-top-tabs-host .top-nav-tabs-wrapper) .hst-container,
+    body:has(.dcs-top-tabs-host .top-nav-tabs-wrapper) .drr-container,
+    body:has(.dcs-top-tabs-host .top-nav-tabs-wrapper) .rb-container,
+    body:has(.dcs-top-tabs-host .top-nav-tabs-wrapper) .settings-main,
+    body:has(.dcs-top-tabs-host .top-nav-tabs-wrapper) .ofi-page {
+        top: calc(var(--dcs-header-height) + 52px);
+    }
+}

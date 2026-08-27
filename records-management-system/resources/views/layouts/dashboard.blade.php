@@ -4,6 +4,10 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <link rel="icon" href="{{ asset('images/cspc.webp') }}" type="image/webp">
     <script>
+        (function() {
+            var theme = localStorage.getItem('rms-theme') || '{{ auth()->user()?->theme() ?? "light" }}';
+            document.documentElement.setAttribute('data-theme', theme);
+        })();
         window.assetPaths = {
             toggleNavSection: "{{ asset('icons/toggle-nav-section.svg') }}",
             toggleNavDefault: "{{ asset('icons/toggle-nav-default.svg') }}",
@@ -161,8 +165,8 @@
                     <img src="{{ asset('icons/profile.svg') }}" alt="Profile Icon">
                     <span>Profile</span>
                 </button>
-                <button class="subSystem" onclick="window.location.href='/logout'">
-                    <img src="{{ asset('icons/Logout.svg') }}" alt="Logout Icon">
+                <button class="subSystem subSystem--logout" onclick="window.location.href='/logout'">
+                    <img src="{{ asset('icons/logout.svg') }}" alt="Logout Icon">
                     <span>LOGOUT</span>
                 </button>
             </div>

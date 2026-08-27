@@ -1027,7 +1027,7 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
             <div class="ia-form-row">
                 <span class="ia-label">Time Value</span>
                 <div style="flex: 1; display: flex; align-items: center; gap: 8px;">
-                    <select class="ia-input" disabled style="cursor: not-allowed; background: var(--ia-slate-100); font-weight: 700; color: var(--ia-blue-800);">
+                    <select class="ia-input ia-input-disabled" disabled style="cursor: not-allowed; font-weight: 700;">
                         @foreach($timeValuesList as $tv)
                             <option value="{{ $tv->char_value }}" {{ $time_value === $tv->char_value ? 'selected' : '' }}>
                                 {{ $tv->char_value }} — {{ mb_strtoupper($tv->description) }}

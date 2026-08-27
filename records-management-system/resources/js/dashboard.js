@@ -199,26 +199,66 @@ function setupIconModeInteractions() {
                 const menuList = document.createElement('div');
                 menuList.className = 'flyout-menu-list';
 
-                subButtons.forEach(sub => {
-                    const subText = sub.textContent.trim();
-                    const isActive = sub.classList.contains('force-active');
-                    const onclickAttr = sub.getAttribute('onclick') || '';
+                const treeGroups = functionsContainer ? functionsContainer.querySelectorAll('.nav-tree-group') : [];
 
-                    const item = document.createElement('div');
-                    item.className = `flyout-item ${isActive ? 'force-active' : ''}`;
-                    item.textContent = subText;
+                if (treeGroups && treeGroups.length > 0) {
+                    treeGroups.forEach(group => {
+                        const groupTitleEl = group.querySelector('.nav-tree-title');
+                        const groupName = group.dataset.groupName || (groupTitleEl ? groupTitleEl.textContent.trim() : '');
+                        const groupButtons = group.querySelectorAll('.function-button');
 
-                    item.addEventListener('click', () => {
-                        closeNavFlyout();
+                        if (groupButtons.length > 0) {
+                            if (groupName) {
+                                const groupHeader = document.createElement('div');
+                                groupHeader.className = 'flyout-group-title';
+                                groupHeader.textContent = groupName.toUpperCase();
+                                menuList.appendChild(groupHeader);
+                            }
 
-                        const urlMatch = onclickAttr.match(/proccedto\('([^']+)'\)/);
-                        if (urlMatch && urlMatch[1]) {
-                            proccedto(urlMatch[1]);
+                            groupButtons.forEach(sub => {
+                                const subText = sub.textContent.trim();
+                                const isActive = sub.classList.contains('force-active');
+                                const onclickAttr = sub.getAttribute('onclick') || '';
+
+                                const item = document.createElement('div');
+                                item.className = `flyout-item ${isActive ? 'force-active' : ''}`;
+                                item.textContent = subText;
+
+                                item.addEventListener('click', () => {
+                                    closeNavFlyout();
+
+                                    const urlMatch = onclickAttr.match(/proccedto\('([^']+)'\)/);
+                                    if (urlMatch && urlMatch[1]) {
+                                        proccedto(urlMatch[1]);
+                                    }
+                                });
+
+                                menuList.appendChild(item);
+                            });
                         }
                     });
+                } else {
+                    subButtons.forEach(sub => {
+                        const subText = sub.textContent.trim();
+                        const isActive = sub.classList.contains('force-active');
+                        const onclickAttr = sub.getAttribute('onclick') || '';
 
-                    menuList.appendChild(item);
-                });
+                        const item = document.createElement('div');
+                        item.className = `flyout-item ${isActive ? 'force-active' : ''}`;
+                        item.textContent = subText;
+
+                        item.addEventListener('click', () => {
+                            closeNavFlyout();
+
+                            const urlMatch = onclickAttr.match(/proccedto\('([^']+)'\)/);
+                            if (urlMatch && urlMatch[1]) {
+                                proccedto(urlMatch[1]);
+                            }
+                        });
+
+                        menuList.appendChild(item);
+                    });
+                }
 
                 flyout.appendChild(header);
                 flyout.appendChild(menuList);
@@ -294,3 +334,185 @@ window.addEventListener('resize', () => {
 window.initializeSidebarState = initializeSidebarState;
 window.initializeNavTooltips = initializeNavTooltips;
 window.setupIconModeInteractions = setupIconModeInteractions;
+
+/* ==========================================================================
+   RMS Synchronized Cross-Tab Settings Auto-Refresh Engine
+   ========================================================================== */
+(function() {
+    const SYNC_CHANNEL_NAME = 'rms_settings_sync_channel';
+    const STORAGE_KEY = 'rms_settings_sync_event';
+    const COUNTDOWN_SECONDS = 5;
+    let refreshCountdownTimer = null;
+    let refreshToastElement = null;
+    let lastHandledEventId = null;
+
+    // Create BroadcastChannel if supported in the browser
+    let broadcastChannel = null;
+    try {
+        if ('BroadcastChannel' in window) {
+            broadcastChannel = new BroadcastChannel(SYNC_CHANNEL_NAME);
+            broadcastChannel.onmessage = (event) => {
+                if (event && event.data) {
+                    handleSyncEvent(event.data, false);
+                }
+            };
+        }
+    } catch (e) {
+        console.warn('RMS Sync: BroadcastChannel unavailable:', e);
+    }
+
+    // Storage event fallback (guarantees cross-tab and cross-window sync)
+    window.addEventListener('storage', (e) => {
+        if (e.key === 'rms-theme' && e.newValue) {
+            if (!document.querySelector('meta[name="rms-portal"]')) {
+                document.documentElement.setAttribute('data-theme', e.newValue);
+            }
+        }
+        if (e.key === STORAGE_KEY && e.newValue) {
+            try {
+                const data = JSON.parse(e.newValue);
+                handleSyncEvent(data, false);
+            } catch (err) {}
+        }
+    });
+
+    // Global dispatch function to broadcast setting updates
+    function broadcastSettingsChanged(type = 'profile_preference', message = '') {
+        const eventData = {
+            id: 'sync_' + Date.now() + '_' + Math.random().toString(36).substring(2, 8),
+            type: type,
+            message: message || (type === 'site_settings' ? 'Site settings updated.' : 'Preferences updated.'),
+            timestamp: Date.now()
+        };
+
+        if (broadcastChannel) {
+            try {
+                broadcastChannel.postMessage(eventData);
+            } catch (err) {}
+        }
+
+        try {
+            localStorage.setItem(STORAGE_KEY, JSON.stringify(eventData));
+        } catch (err) {}
+
+        handleSyncEvent(eventData, true);
+    }
+    window.rmsBroadcastSettingsChanged = broadcastSettingsChanged;
+
+    // Listen for Livewire or custom browser events dispatched on the current tab
+    window.addEventListener('rms-settings-changed', (e) => {
+        const detail = e.detail || {};
+        const type = (typeof detail === 'object' && detail.type) ? detail.type : (typeof detail === 'string' ? detail : 'profile_preference');
+        const message = (typeof detail === 'object' && detail.message) ? detail.message : '';
+        broadcastSettingsChanged(type, message);
+    });
+
+    function handleSyncEvent(data, isInitiator) {
+        if (!data || !data.id || data.id === lastHandledEventId) return;
+        // Ignore stale events older than 10 seconds
+        if (data.timestamp && (Date.now() - data.timestamp > 10000)) return;
+        lastHandledEventId = data.id;
+
+        if (data.type === 'theme_change') {
+            if (!document.querySelector('meta[name="rms-portal"]')) {
+                const currentTheme = localStorage.getItem('rms-theme') || 'light';
+                document.documentElement.setAttribute('data-theme', currentTheme);
+            }
+        }
+
+        showRefreshCountdownBanner(data, isInitiator);
+    }
+
+    function showRefreshCountdownBanner(data, isInitiator) {
+        if (refreshCountdownTimer) {
+            clearInterval(refreshCountdownTimer);
+            refreshCountdownTimer = null;
+        }
+        if (refreshToastElement) {
+            refreshToastElement.remove();
+            refreshToastElement = null;
+        }
+
+        const isSiteSettings = data.type === 'site_settings';
+        const titleText = isSiteSettings 
+            ? 'Site Settings Updated' 
+            : 'Preferences Updated';
+            
+        const descText = isSiteSettings
+            ? 'Administrator updated system site settings.'
+            : (isInitiator ? 'Your profile preferences were updated.' : 'Preferences were updated in another tab.');
+
+        let remaining = COUNTDOWN_SECONDS;
+
+        const toast = document.createElement('div');
+        toast.id = 'rms-sync-refresh-toast';
+        toast.className = 'rms-sync-toast';
+        toast.innerHTML = `
+            <div class="rms-sync-toast-content">
+                <div class="rms-sync-icon-wrapper">
+                    <svg class="rms-sync-spin-icon" xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"/>
+                    </svg>
+                </div>
+                <div class="rms-sync-text">
+                    <div class="rms-sync-title">${titleText}</div>
+                    <div class="rms-sync-desc">${descText} Refreshing page in <strong id="rms-sync-countdown-sec" class="rms-sync-timer-badge">${remaining}s</strong> to apply changes...</div>
+                </div>
+                <div class="rms-sync-actions">
+                    <button type="button" id="rms-sync-refresh-btn" class="rms-sync-btn-refresh">Refresh Now</button>
+                    <button type="button" id="rms-sync-dismiss-btn" class="rms-sync-btn-dismiss" title="Dismiss auto-refresh">✕</button>
+                </div>
+            </div>
+            <div class="rms-sync-progress-bar">
+                <div id="rms-sync-progress-fill" class="rms-sync-progress-fill"></div>
+            </div>
+        `;
+
+        document.body.appendChild(toast);
+        refreshToastElement = toast;
+
+        // Animate entrance
+        requestAnimationFrame(() => {
+            toast.classList.add('rms-sync-toast-visible');
+            const progressFill = toast.querySelector('#rms-sync-progress-fill');
+            if (progressFill) {
+                progressFill.style.transition = `width ${COUNTDOWN_SECONDS}s linear`;
+                progressFill.style.width = '100%';
+            }
+        });
+
+        // Event listeners
+        const refreshBtn = toast.querySelector('#rms-sync-refresh-btn');
+        if (refreshBtn) {
+            refreshBtn.addEventListener('click', () => {
+                window.location.reload();
+            });
+        }
+
+        const dismissBtn = toast.querySelector('#rms-sync-dismiss-btn');
+        if (dismissBtn) {
+            dismissBtn.addEventListener('click', () => {
+                if (refreshCountdownTimer) {
+                    clearInterval(refreshCountdownTimer);
+                    refreshCountdownTimer = null;
+                }
+                toast.classList.remove('rms-sync-toast-visible');
+                setTimeout(() => toast.remove(), 300);
+            });
+        }
+
+        // 5-second countdown loop
+        const countdownEl = toast.querySelector('#rms-sync-countdown-sec');
+        refreshCountdownTimer = setInterval(() => {
+            remaining--;
+            if (countdownEl) {
+                countdownEl.textContent = `${remaining}s`;
+            }
+            if (remaining <= 0) {
+                clearInterval(refreshCountdownTimer);
+                refreshCountdownTimer = null;
+                window.location.reload();
+            }
+        }, 1000);
+    }
+})();

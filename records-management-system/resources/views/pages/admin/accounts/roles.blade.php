@@ -70,6 +70,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Roles')] class extends C
     public bool $canAccessDts = false;
     public bool $canAccessArchv = false;
     public bool $canAccessDcs = false;
+    public bool $dcsViewAllDocuments = false;
     public bool $canModifyDocflow = false;
     public bool $canModifyAccountlist = false;
     public bool $canModifyPass = false;
@@ -91,6 +92,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Roles')] class extends C
     public bool $canAccessSubsystems = false;
     public bool $canAccessDtsAdmin = false;
     public bool $canAccessRdpAdmin = false;
+    public bool $canAccessDcsAdmin = false;
     public bool $canAccessSettings = false;
     public bool $canAccessRecycleBin = false;
 
@@ -169,6 +171,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Roles')] class extends C
         $this->canAccessDts = false;
         $this->canAccessArchv = false;
         $this->canAccessDcs = false;
+        $this->dcsViewAllDocuments = false;
         $this->canModifyDocflow = false;
         $this->canModifyAccountlist = false;
         $this->canModifyPass = false;
@@ -183,6 +186,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Roles')] class extends C
         $this->canDtsUseIssuance = false;
         $this->canDtsUserReceived = false;
         $this->canDtsModifyTransaction = false;
+        $this->canAccessDcsAdmin = false;
         $this->rdpViewAllFiles = false;
         $this->canRdpModifySeries = true;
         $this->canRdpGenerateReports = true;
@@ -234,6 +238,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Roles')] class extends C
                 $this->canAccessDts = (bool) $perms->can_access_dts;
                 $this->canAccessArchv = (bool) $perms->can_access_rdp;
                 $this->canAccessDcs = (bool) $perms->can_access_dcs;
+                $this->dcsViewAllDocuments = (bool) ($perms->dcs_view_all_documents ?? false);
                 $this->canModifyDocflow = (bool) $perms->can_dts_modify_docflow;
                 $this->canModifyAccountlist = (bool) $perms->can_sadm_modify_accountlist;
                 $this->canModifyPass = (bool) $perms->can_sadm_modify_pass;
@@ -255,6 +260,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Roles')] class extends C
                 $this->canAccessSubsystems = (bool) ($perms->can_access_subsystems ?? false);
                 $this->canAccessDtsAdmin = (bool) ($perms->can_access_dts_admin ?? false);
                 $this->canAccessRdpAdmin = (bool) ($perms->can_access_rdp_admin ?? false);
+                $this->canAccessDcsAdmin = (bool) ($perms->can_access_dcs_admin ?? false);
                 $this->canAccessSettings = (bool) ($perms->can_access_settings ?? false);
                 $this->canAccessRecycleBin = (bool) ($perms->can_access_recycle_bin ?? false);
 
@@ -458,6 +464,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Roles')] class extends C
         $perms->can_access_dts = $this->canAccessDts;
         $perms->can_access_rdp = $this->canAccessArchv;
         $perms->can_access_dcs = $this->canAccessDcs;
+        $perms->dcs_view_all_documents = ($this->isSadm || $this->isAdmin) ? $this->dcsViewAllDocuments : false;
         $perms->can_dts_modify_docflow = $this->canModifyDocflow;
         $perms->can_sadm_modify_accountlist = $this->canModifyAccountlist;
         $perms->can_sadm_modify_pass = $this->canModifyPass;
@@ -479,6 +486,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Roles')] class extends C
         $perms->can_access_subsystems = $this->canAccessSubsystems;
         $perms->can_access_dts_admin = $this->canAccessDtsAdmin;
         $perms->can_access_rdp_admin = $this->canAccessRdpAdmin;
+        $perms->can_access_dcs_admin = $this->canAccessDcsAdmin;
         $perms->can_access_settings = $this->canAccessSettings;
         $perms->can_access_recycle_bin = $this->canAccessRecycleBin;
 
@@ -525,6 +533,8 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Roles')] class extends C
             $this->canModifyPass = false;
             $this->canDtsModifyTransaction = false;
             $this->rdpViewAllFiles = false;
+            $this->dcsViewAllDocuments = false;
+            $this->canAccessDcsAdmin = false;
         }
     }
 
@@ -592,6 +602,8 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Roles')] class extends C
         $this->canAccessDts = true;
         $this->canAccessArchv = true;
         $this->canAccessDcs = true;
+        $this->dcsViewAllDocuments = true;
+        $this->canAccessDcsAdmin = true;
         $this->canModifyDocflow = true;
         $this->canModifyAccountlist = true;
         $this->canModifyPass = true;
@@ -774,8 +786,8 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Roles')] class extends C
                                     @endif
                                 </td>
                                 <td style="padding: 10px 12px; text-align: right;">
-                                    <button type="button" class="btn-table-action" wire:click.stop="selectRole({{ $role->id }})" style="padding: 4px 8px; font-size: 11px; border-radius: 4px; border: 1px solid #cbd5e1; background: #fff; cursor: pointer;">
-                                        Configure
+                                    <button type="button" class="btn-table-action" wire:click.stop="selectRole({{ $role->id }})" style="padding: 5px 12px; font-size: 11.5px; font-weight: 600; border-radius: 6px; border: 1px solid #3b82f6; background: rgba(37, 99, 235, 0.12); color: #2563eb; cursor: pointer; display: inline-flex; align-items: center; gap: 5px;">
+                                        <i class="fa-solid fa-pen-to-square"></i> Configure
                                     </button>
                                 </td>
                             </tr>
@@ -840,7 +852,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Roles')] class extends C
                         {{ $selectedRoleId === -1 ? 'Configure access clearance permissions from scratch' : 'Review & adjust active clearance clearances' }}
                     </span>
                 </div>
-                <button type="button" class="btn-close-details" wire:click="cancelSelection" title="Close details panel" style="background: transparent; border: none; color: #94a3b8; font-size: 18px; cursor: pointer; padding: 6px 10px; border-radius: 8px; margin-left: auto;">
+                <button type="button" class="btn-close-details" wire:click="cancelSelection" title="Close Details Panel">
                     <i class="fa-solid fa-xmark"></i>
                 </button>
             </div>
@@ -1251,6 +1263,23 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Roles')] class extends C
                                 </div>
                             </div>
 
+                            <!-- Document Control System Clearances -->
+                            <div class="permissions-section-card">
+                                <span class="permissions-section-title"><i class="fa-solid fa-stamp"></i> Document Control System (DCS) Clearances</span>
+                                <div class="permissions-grid-layout">
+                                    <div class="permission-toggle-row" style="{{ (!$isSadm && !$isAdmin) ? 'opacity: 0.5; transition: opacity 0.2s ease;' : '' }}">
+                                        <div class="permission-toggle-info">
+                                            <span class="permission-toggle-title">View All DCS Documents</span>
+                                            <span class="permission-toggle-desc">Full DCS access across all offices (same as RFIO). Without this, non-RFIO users with DCS access only create and print their own DRF/DCN forms.</span>
+                                        </div>
+                                        <label class="switch">
+                                            <input type="checkbox" wire:model="dcsViewAllDocuments" {{ (!$isSadm && !$isAdmin) ? 'disabled' : '' }}>
+                                            <span class="slider"></span>
+                                        </label>
+                                    </div>
+                                </div>
+                            </div>
+
                             <!-- Category 3: Security & Accounts Control -->
                             <div class="permissions-section-card">
                                 <span class="permissions-section-title"><i class="fa-solid fa-user-lock"></i> Administration Clearances</span>
@@ -1329,6 +1358,17 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Roles')] class extends C
                                         </div>
                                         <label class="switch">
                                             <input type="checkbox" wire:model="canAccessRdpAdmin" {{ (!$isSadm && !$isAdmin) ? 'disabled' : '' }}>
+                                            <span class="slider"></span>
+                                        </label>
+                                    </div>
+                                    <!-- Access DCS Admin -->
+                                    <div class="permission-toggle-row" style="{{ (!$isSadm && !$isAdmin) ? 'opacity: 0.5; transition: opacity 0.2s ease;' : '' }}">
+                                        <div class="permission-toggle-info">
+                                            <span class="permission-toggle-title">Access DCS Admin Log</span>
+                                            <span class="permission-toggle-desc">Clearance to view Document Control System activity logs in Admin Console.</span>
+                                        </div>
+                                        <label class="switch">
+                                            <input type="checkbox" wire:model="canAccessDcsAdmin" {{ (!$isSadm && !$isAdmin) ? 'disabled' : '' }}>
                                             <span class="slider"></span>
                                         </label>
                                     </div>

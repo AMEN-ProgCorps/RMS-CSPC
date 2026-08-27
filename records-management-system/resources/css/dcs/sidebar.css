@@ -1,0 +1,952 @@
+/* sidebar.css */
+* {
+    box-sizing: border-box;
+}
+
+#dcs-nav-open,
+#dcs-sidebar-collapsed {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    opacity: 0;
+    pointer-events: none;
+}
+
+.nav-item.dropdown details {
+    margin: 0;
+}
+
+.nav-item.dropdown summary {
+    list-style: none;
+}
+
+.nav-item.dropdown summary::-webkit-details-marker {
+    display: none;
+}
+
+/* ─── Mobile backdrop overlay ─── */
+.nav-backdrop {
+    display: none;
+    position: fixed;
+    inset: 0;
+    background: rgba(12, 18, 33, 0.35);
+    z-index: 9999;
+    opacity: 0;
+    transition: opacity 0.3s ease;
+    cursor: pointer;
+}
+
+body:has(#dcs-nav-open:checked) .nav-backdrop {
+    display: block;
+    opacity: 1;
+}
+
+/* ─── Mobile hamburger (inside shared subsystem header) ─── */
+.mobile-nav-toggle {
+    display: none;
+    align-items: center;
+    justify-content: center;
+    width: 40px;
+    height: 40px;
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    background: rgba(255, 255, 255, 0.08);
+    color: rgba(255, 255, 255, 0.9);
+    cursor: pointer;
+    border-radius: 9px;
+    font-size: 1.15rem;
+    flex-shrink: 0;
+    transition: background 0.2s ease, color 0.2s ease;
+    -webkit-tap-highlight-color: transparent;
+}
+
+.mobile-nav-toggle:hover {
+    background: rgba(255, 255, 255, 0.16);
+    color: #fff;
+}
+
+.mobile-nav-toggle svg,
+.mobile-nav-toggle i {
+    width: 22px;
+    height: 22px;
+    font-size: 1.1rem;
+}
+
+/* ─── Base ─── */
+.side-nav {
+    position: fixed;
+    top: var(--nav-top);
+    left: 0;
+    width: var(--nav-width);
+    height: calc(100vh - var(--nav-top));
+    height: calc(100dvh - var(--nav-top));
+    background: var(--surface);
+    border-right: 1px solid var(--border);
+    display: flex;
+    flex-direction: column;
+    z-index: 999;
+    transition: width var(--transition),
+                transform var(--transition),
+                box-shadow var(--transition);
+    box-shadow: var(--shadow-sm);
+    overflow: hidden;
+}
+
+body:has(#dcs-sidebar-collapsed:checked) .side-nav {
+    overflow: visible;
+}
+
+.side-nav::before,
+.side-nav::after {
+    content: none !important;
+    display: none !important;
+}
+
+/* ─── Collapse Button ─── */
+.collapse-btn {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 16px;
+    margin: 0;
+    cursor: pointer;
+    border: none;
+    background: transparent;
+    transition: background var(--transition-fast);
+    position: relative;
+    min-height: 56px;
+    flex-shrink: 0;
+    -webkit-tap-highlight-color: transparent;
+}
+
+.collapse-btn:hover {
+    background: var(--surface-hover);
+}
+
+.collapse-btn-inner {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    overflow: hidden;
+    flex: 1;
+    min-width: 0;
+}
+
+.collapse-text {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 0;
+    opacity: 1;
+    transform: translateX(0);
+    transition: opacity var(--transition), transform var(--transition);
+}
+
+.toggle-icon-wrap {
+    width: 32px;
+    height: 32px;
+    min-width: 32px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: var(--radius-sm);
+    background: var(--accent-subtle);
+    flex: 0 0 32px;
+    overflow: visible;
+    transition: background var(--transition-fast), transform var(--transition);
+}
+
+.collapse-btn:hover .toggle-icon-wrap {
+    background: #dce4f5;
+    transform: scale(1.05);
+}
+
+.toggle-icon {
+    width: 18px;
+    height: 18px;
+    max-width: none;
+    object-fit: contain;
+    flex-shrink: 0;
+    transition: opacity var(--transition);
+}
+
+.active-icon {
+    display: none;
+}
+
+.collapse-btn:hover .default-icon {
+    display: none;
+}
+
+.collapse-btn:hover .active-icon {
+    display: block;
+}
+
+.collapse-label {
+    font-size: 0.8rem;
+    font-weight: 600;
+    color: var(--accent);
+    white-space: nowrap;
+    line-height: 1.2;
+    min-width: 0;
+    letter-spacing: 0;
+}
+
+.collapse-version {
+    font-size: 0.65rem;
+    font-weight: 500;
+    color: var(--text-muted);
+    white-space: nowrap;
+    line-height: 1.2;
+}
+
+.collapse-indicator {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 24px;
+    height: 24px;
+    border-radius: 4px;
+    color: var(--text-muted);
+    transition: color var(--transition-fast),
+                transform var(--transition),
+                opacity var(--transition);
+    flex-shrink: 0;
+}
+
+.collapse-btn:hover .collapse-indicator {
+    color: var(--accent);
+}
+
+.chevron-path {
+    transition: transform var(--transition), stroke var(--transition);
+    transform-origin: center;
+}
+
+body:has(#dcs-sidebar-collapsed:checked) .side-nav .collapse-indicator .chevron-path {
+    transform: rotate(180deg);
+    transform-origin: 50% 50%;
+}
+
+/* ─── Dividers ─── */
+.nav-divider {
+    height: 1px;
+    background: var(--border-light);
+    margin: 0 12px;
+    flex-shrink: 0;
+    transition: margin var(--transition);
+}
+
+body:has(#dcs-sidebar-collapsed:checked) .side-nav .nav-divider {
+    margin: 0 16px;
+}
+
+/* ─── Nav Links ─── */
+.nav-links {
+    list-style: none;
+    flex: 1;
+    overflow-y: auto;
+    overflow-x: hidden;
+    padding: 8px;
+    margin: 0;
+    scrollbar-width: thin;
+    scrollbar-color: var(--border) transparent;
+}
+
+.nav-links::-webkit-scrollbar {
+    width: 4px;
+}
+
+.nav-links::-webkit-scrollbar-thumb {
+    background: var(--border);
+    border-radius: 4px;
+}
+
+/* ─── Nav Items ─── */
+.nav-item {
+    position: relative;
+    margin-bottom: 2px;
+}
+
+.nav-item > a,
+.nav-item.dropdown > span,
+.nav-item.dropdown summary {
+    display: flex;
+    align-items: center;
+    padding: 10px 12px;
+    color: var(--text-muted);
+    text-decoration: none;
+    cursor: pointer;
+    font-size: 0.875rem;
+    font-weight: 500;
+    border-radius: var(--radius);
+    transition: all var(--transition-fast);
+    position: relative;
+    min-height: 40px;
+    gap: 0;
+    -webkit-tap-highlight-color: transparent;
+}
+
+.nav-item > a span:not(.tooltip),
+.nav-item.dropdown > span > span:not(.tooltip),
+.nav-item.dropdown summary > span:not(.tooltip) {
+    white-space: nowrap;
+    opacity: 1;
+    transform: translateX(0);
+    transition: opacity var(--transition), transform var(--transition);
+}
+
+.nav-item i:not(.arrow) {
+    width: 36px;
+    min-width: 36px;
+    height: 36px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1rem;
+    color: var(--text-subtle);
+    border-radius: var(--radius-sm);
+    transition: all var(--transition-fast);
+    margin-right: 10px;
+    background: transparent;
+}
+
+/* Hover */
+.nav-item > a:hover,
+.nav-item.dropdown > span:hover,
+.nav-item.dropdown summary:hover {
+    background: var(--surface-hover);
+    color: var(--text);
+}
+
+.nav-item > a:hover i:not(.arrow),
+.nav-item.dropdown > span:hover i:not(.arrow),
+.nav-item.dropdown summary:hover i:not(.arrow) {
+    color: var(--accent);
+    background: var(--accent-subtle);
+}
+
+/* Active */
+.nav-item.active > a,
+.nav-item.active.dropdown > span,
+.nav-item.active.dropdown summary {
+    background: var(--surface-active);
+    color: var(--accent);
+    font-weight: 600;
+}
+
+.nav-item.active > a i:not(.arrow),
+.nav-item.active.dropdown > span i:not(.arrow),
+.nav-item.active.dropdown summary i:not(.arrow) {
+    color: var(--accent);
+    background: var(--accent-subtle);
+}
+
+/* Active indicator bar */
+.nav-item.active::before {
+    content: '';
+    position: absolute;
+    left: -8px;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 3px;
+    height: 20px;
+    background: var(--accent);
+    border-radius: 0 2px 2px 0;
+    animation: indicatorSlide 0.25s ease forwards;
+}
+
+@keyframes indicatorSlide {
+    from { height: 0; opacity: 0; }
+    to   { height: 20px; opacity: 1; }
+}
+
+/* ─── Arrow ─── */
+.arrow {
+    margin-left: auto;
+    font-size: 0.7rem;
+    color: var(--text-subtle);
+    transition: transform var(--transition), opacity var(--transition);
+    width: auto !important;
+    min-width: auto !important;
+    background: none !important;
+    padding: 0;
+}
+
+.nav-item.dropdown details[open] .arrow {
+    transform: rotate(180deg);
+}
+
+/* ─── Sub-dropdown ─── */
+.sub-dropdown {
+    list-style: none;
+    max-height: 0;
+    overflow: hidden;
+    text-decoration: none;
+    transition: max-height var(--transition-slow), opacity var(--transition);
+    opacity: 0;
+    padding: 0;
+    margin: 0;
+}
+
+.nav-item.dropdown details[open] .sub-dropdown {
+    max-height: 300px;
+    opacity: 1;
+}
+
+.sub-dropdown li {
+    margin: 0;
+}
+
+.sub-dropdown li a {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 12px 8px 46px;
+    color: var(--text-muted);
+    font-size: 0.82rem;
+    font-weight: 450;
+    text-decoration: none;
+    border-radius: var(--radius-sm);
+    transition: all var(--transition-fast);
+    position: relative;
+    min-height: 38px;
+}
+
+.sub-dropdown li a:hover {
+    color: var(--accent);
+    background: var(--accent-glow);
+}
+
+.sub-dropdown li a:hover .sub-dot {
+    background: var(--accent);
+    transform: scale(1.3);
+}
+
+.sub-dropdown li a.active-sub {
+    color: #FFB800;
+    font-weight: 600;
+    background: var(--accent-subtle);
+}
+
+.sub-dropdown li a.active-sub .sub-dot {
+    background: #FFB800;
+}
+
+.sub-dropdown li a:hover,
+.sub-dropdown li a.active-sub:hover {
+    color: #FFB800;
+}
+
+/* ─── Tooltip ─── */
+.tooltip {
+    display: none;
+    position: fixed;
+    background: #1e293b;
+    color: #ffffff;
+    padding: 8px 14px;
+    border-radius: 6px;
+    font-size: 0.8rem;
+    font-weight: 500;
+    white-space: nowrap;
+    pointer-events: none;
+    z-index: 10050;
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.18);
+    opacity: 0;
+    visibility: hidden;
+    transition: opacity 0.15s ease, visibility 0.15s ease;
+}
+
+.tooltip::before {
+    content: '';
+    position: absolute;
+    left: -5px;
+    top: 50%;
+    transform: translateY(-50%) rotate(45deg);
+    width: 10px;
+    height: 10px;
+    background: #1e293b;
+    border-radius: 1px;
+}
+
+body:has(#dcs-sidebar-collapsed:checked) .side-nav .tooltip {
+    display: block;
+    position: absolute;
+    left: calc(100% + 10px);
+    top: 50%;
+    transform: translateY(-50%);
+}
+
+body:has(#dcs-sidebar-collapsed:checked) .side-nav .nav-item:hover .tooltip {
+    opacity: 1;
+    visibility: visible;
+}
+
+body:has(#dcs-sidebar-collapsed:checked) .side-nav .nav-item.dropdown:hover .tooltip,
+body:has(#dcs-sidebar-collapsed:checked) .side-nav .nav-item.dropdown:focus-within .tooltip {
+    opacity: 0;
+    visibility: hidden;
+}
+
+body:has(#dcs-sidebar-collapsed:checked) .side-nav .nav-item.expanded-overlay .tooltip {
+    opacity: 0 !important;
+    visibility: hidden !important;
+}
+
+/* ─── Nav Footer ─── */
+.nav-footer {
+    flex-shrink: 0;
+    padding: 0 8px 12px;
+}
+
+.footer-item {
+    margin-top: 4px;
+}
+
+/* ─── Collapsed State (desktop) ─── */
+body:has(#dcs-sidebar-collapsed:checked) .side-nav {
+    width: var(--nav-collapsed);
+}
+
+body:has(#dcs-sidebar-collapsed:checked) .dashboard-main,
+body:has(#dcs-sidebar-collapsed:checked) .rpt-page,
+body:has(#dcs-sidebar-collapsed:checked) .db-page,
+body:has(#dcs-sidebar-collapsed:checked) .st-container,
+body:has(#dcs-sidebar-collapsed:checked) .reg-container,
+body:has(#dcs-sidebar-collapsed:checked) .upd-container,
+body:has(#dcs-sidebar-collapsed:checked) .hst-container,
+body:has(#dcs-sidebar-collapsed:checked) .drr-container,
+body:has(#dcs-sidebar-collapsed:checked) .rb-container,
+body:has(#dcs-sidebar-collapsed:checked) .ofi-page,
+body:has(#dcs-sidebar-collapsed:checked) .settings-main {
+    left: var(--dcs-sidebar-collapsed);
+}
+
+@media (max-width: 900px) {
+    .dashboard-main,
+    .rpt-page,
+    .db-page,
+    .st-container,
+    .reg-container,
+    .upd-container,
+    .hst-container,
+    .drr-container,
+    .rb-container,
+    .ofi-page,
+    .settings-main,
+    body:has(#dcs-sidebar-collapsed:checked) .dashboard-main,
+    body:has(#dcs-sidebar-collapsed:checked) .rpt-page,
+    body:has(#dcs-sidebar-collapsed:checked) .db-page,
+    body:has(#dcs-sidebar-collapsed:checked) .st-container,
+    body:has(#dcs-sidebar-collapsed:checked) .reg-container,
+    body:has(#dcs-sidebar-collapsed:checked) .upd-container,
+    body:has(#dcs-sidebar-collapsed:checked) .hst-container,
+    body:has(#dcs-sidebar-collapsed:checked) .drr-container,
+    body:has(#dcs-sidebar-collapsed:checked) .rb-container,
+    body:has(#dcs-sidebar-collapsed:checked) .ofi-page,
+    body:has(#dcs-sidebar-collapsed:checked) .settings-main {
+        left: 0 !important;
+    }
+}
+
+body:has(#dcs-sidebar-collapsed:checked) .side-nav .collapse-text {
+    opacity: 0;
+    width: 0;
+    overflow: hidden;
+    transform: translateX(-10px);
+    pointer-events: none;
+}
+
+body:has(#dcs-sidebar-collapsed:checked) .side-nav .collapse-btn-inner {
+    flex: 0 0 auto;
+    width: auto;
+    min-width: 32px;
+    gap: 0;
+    overflow: visible;
+}
+
+body:has(#dcs-sidebar-collapsed:checked) .side-nav .toggle-icon-wrap {
+    flex: 0 0 32px;
+    width: 32px;
+    height: 32px;
+    min-width: 32px;
+    overflow: visible;
+}
+
+body:has(#dcs-sidebar-collapsed:checked) .side-nav .toggle-icon.default-icon {
+    display: block;
+    width: 18px;
+    height: 18px;
+    opacity: 1;
+    visibility: visible;
+}
+
+body:has(#dcs-sidebar-collapsed:checked) .side-nav .toggle-icon.active-icon {
+    display: none;
+}
+
+body:has(#dcs-sidebar-collapsed:checked) .side-nav .collapse-btn:hover .toggle-icon.default-icon {
+    display: none;
+}
+
+body:has(#dcs-sidebar-collapsed:checked) .side-nav .collapse-btn:hover .toggle-icon.active-icon {
+    display: block;
+}
+
+body:has(#dcs-sidebar-collapsed:checked) .side-nav .collapse-btn {
+    justify-content: center;
+    padding: 12px 0;
+    overflow: visible;
+}
+
+body:has(#dcs-sidebar-collapsed:checked) .side-nav .collapse-indicator {
+    display: none;
+}
+
+body:has(#dcs-sidebar-collapsed:checked) .side-nav .nav-links {
+    padding: 8px 10px;
+    overflow: visible;
+}
+
+body:has(#dcs-sidebar-collapsed:checked) .side-nav .nav-item {
+    overflow: visible;
+}
+
+body:has(#dcs-sidebar-collapsed:checked) .side-nav .nav-item > a,
+body:has(#dcs-sidebar-collapsed:checked) .side-nav .nav-item.dropdown > span,
+body:has(#dcs-sidebar-collapsed:checked) .side-nav .nav-item.dropdown summary {
+    justify-content: center;
+    padding: 4px 0;
+    overflow: visible;
+    background: transparent;
+}
+
+body:has(#dcs-sidebar-collapsed:checked) .side-nav .nav-item > a:hover,
+body:has(#dcs-sidebar-collapsed:checked) .side-nav .nav-item.dropdown > span:hover,
+body:has(#dcs-sidebar-collapsed:checked) .side-nav .nav-item.dropdown summary:hover,
+body:has(#dcs-sidebar-collapsed:checked) .side-nav .nav-item.active > a,
+body:has(#dcs-sidebar-collapsed:checked) .side-nav .nav-item.active.dropdown > span,
+body:has(#dcs-sidebar-collapsed:checked) .side-nav .nav-item.active.dropdown summary {
+    background: transparent;
+}
+
+body:has(#dcs-sidebar-collapsed:checked) .side-nav .nav-item i:not(.arrow) {
+    margin-right: 0;
+}
+
+body:has(#dcs-sidebar-collapsed:checked) .side-nav .nav-item > a:hover i:not(.arrow),
+body:has(#dcs-sidebar-collapsed:checked) .side-nav .nav-item.dropdown > span:hover i:not(.arrow),
+body:has(#dcs-sidebar-collapsed:checked) .side-nav .nav-item.dropdown summary:hover i:not(.arrow),
+body:has(#dcs-sidebar-collapsed:checked) .side-nav .nav-item.active > a i:not(.arrow),
+body:has(#dcs-sidebar-collapsed:checked) .side-nav .nav-item.active.dropdown > span i:not(.arrow),
+body:has(#dcs-sidebar-collapsed:checked) .side-nav .nav-item.active.dropdown summary i:not(.arrow) {
+    color: var(--accent);
+    background: var(--accent-subtle);
+}
+
+body:has(#dcs-sidebar-collapsed:checked) .side-nav .nav-item > a span:not(.tooltip),
+body:has(#dcs-sidebar-collapsed:checked) .side-nav .nav-item.dropdown > span > span:not(.tooltip),
+body:has(#dcs-sidebar-collapsed:checked) .side-nav .nav-item.dropdown summary > span:not(.tooltip) {
+    opacity: 0;
+    width: 0;
+    overflow: hidden;
+    transform: translateX(-8px);
+    pointer-events: none;
+}
+
+body:has(#dcs-sidebar-collapsed:checked) .side-nav .arrow {
+    display: none !important;
+}
+
+body:has(#dcs-sidebar-collapsed:checked) .side-nav .sub-dropdown {
+    display: none;
+}
+
+body:has(#dcs-sidebar-collapsed:checked) .side-nav .nav-item.dropdown:hover .sub-dropdown,
+body:has(#dcs-sidebar-collapsed:checked) .side-nav .nav-item.dropdown:focus-within .sub-dropdown {
+    display: block;
+    position: absolute;
+    left: calc(100% + 6px);
+    top: 0;
+    max-height: none;
+    opacity: 1;
+    overflow: visible;
+    min-width: 200px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 6px;
+    z-index: 10000;
+    box-shadow: 0 8px 32px rgba(15, 23, 42, 0.12), 0 2px 8px rgba(15, 23, 42, 0.06);
+}
+
+body:has(#dcs-sidebar-collapsed:checked) .side-nav .sub-dropdown li a {
+    padding: 10px 14px;
+}
+
+/* ─── Expanded sub-dropdown overlay (collapsed desktop) ─── */
+body:has(#dcs-sidebar-collapsed:checked) .side-nav .nav-item.dropdown.expanded-overlay {
+    position: static;
+}
+
+body:has(#dcs-sidebar-collapsed:checked) .side-nav .dropdown-float {
+    position: fixed;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    box-shadow: 0 8px 32px rgba(15, 23, 42, 0.12),
+                0 2px 8px rgba(15, 23, 42, 0.06);
+    padding: 6px;
+    min-width: 200px;
+    z-index: 10000;
+    animation: floatIn 0.22s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@keyframes floatIn {
+    from { opacity: 0; transform: translateX(-8px) scale(0.96); }
+    to   { opacity: 1; transform: translateX(0) scale(1); }
+}
+
+body:has(#dcs-sidebar-collapsed:checked) .side-nav .dropdown-float-header {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 14px 8px;
+    font-size: 0.72rem;
+    font-weight: 600;
+    color: var(--accent);
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    border-bottom: 1px solid var(--border-light);
+    margin-bottom: 4px;
+}
+
+body:has(#dcs-sidebar-collapsed:checked) .side-nav .dropdown-float-header i {
+    font-size: 0.75rem;
+    opacity: 0.7;
+}
+
+body:has(#dcs-sidebar-collapsed:checked) .side-nav .dropdown-float a {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 14px;
+    color: var(--text-muted);
+    font-size: 0.84rem;
+    font-weight: 500;
+    text-decoration: none;
+    border-radius: 7px;
+    transition: all 0.15s ease;
+    margin: 2px 0;
+}
+
+body:has(#dcs-sidebar-collapsed:checked) .side-nav .dropdown-float a:hover {
+    background: var(--surface-hover);
+    color: var(--text);
+    padding-left: 18px;
+}
+
+body:has(#dcs-sidebar-collapsed:checked) .side-nav .dropdown-float a.active-sub {
+    color: #FFB800;
+    font-weight: 600;
+    background: var(--surface-active);
+}
+
+body:has(#dcs-sidebar-collapsed:checked) .side-nav .dropdown-float a.active-sub .sub-dot {
+    background: #FFB800;
+    box-shadow: 0 0 0 3px rgba(255, 184, 0, 0.15);
+}
+
+body:has(#dcs-sidebar-collapsed:checked) .side-nav .dropdown-float a:hover,
+body:has(#dcs-sidebar-collapsed:checked) .side-nav .dropdown-float a.active-sub:hover {
+    color: #FFB800;
+}
+
+body:has(#dcs-sidebar-collapsed:checked) .side-nav .dropdown-float .sub-dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--border);
+    flex-shrink: 0;
+    transition: all 0.15s ease;
+}
+
+body:has(#dcs-sidebar-collapsed:checked) .side-nav .dropdown-float a:hover .sub-dot {
+    background: var(--accent);
+    transform: scale(1.3);
+}
+
+
+/* ═══════════════════════════════════════════
+   RESPONSIVE BREAKPOINTS
+   ═══════════════════════════════════════════ */
+/* ── Tablets and below: off-canvas drawer ── */
+@media (max-width: 900px) {
+    .mobile-nav-toggle {
+        display: inline-flex;
+    }
+
+    .side-nav {
+        top: 0;
+        height: 100vh;
+        height: 100dvh;
+        width: var(--nav-width);
+        transform: translateX(-100%);
+        box-shadow: none;
+        border-right: none;
+        z-index: 10000;
+        transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1),
+                    box-shadow 0.3s ease;
+    }
+
+    body:has(#dcs-nav-open:checked) .side-nav {
+        transform: translateX(0);
+        box-shadow: 4px 0 24px rgba(15, 23, 42, 0.15);
+    }
+
+    /* When open on mobile, always show full sidebar */
+    body:has(#dcs-nav-open:checked) .side-nav {
+        width: var(--nav-width);
+    }
+
+    body:has(#dcs-nav-open:checked) .side-nav .collapse-text {
+        opacity: 1;
+        width: auto;
+        transform: translateX(0);
+        pointer-events: auto;
+    }
+
+    body:has(#dcs-nav-open:checked) .side-nav .collapse-btn {
+        justify-content: space-between;
+        padding: 16px;
+    }
+
+    body:has(#dcs-nav-open:checked) .side-nav .nav-item > a,
+    body:has(#dcs-nav-open:checked) .side-nav .nav-item.dropdown > span,
+    body:has(#dcs-nav-open:checked) .side-nav .nav-item.dropdown summary {
+        justify-content: flex-start;
+        padding: 12px 14px;
+    }
+
+    body:has(#dcs-nav-open:checked) .side-nav .nav-item i:not(.arrow) {
+        margin-right: 10px;
+    }
+
+    body:has(#dcs-nav-open:checked) .side-nav .nav-item > a span:not(.tooltip),
+    body:has(#dcs-nav-open:checked) .side-nav .nav-item.dropdown > span > span:not(.tooltip),
+    body:has(#dcs-nav-open:checked) .side-nav .nav-item.dropdown summary > span:not(.tooltip) {
+        opacity: 1;
+        width: auto;
+        overflow: visible;
+        transform: translateX(0);
+        pointer-events: auto;
+    }
+
+    body:has(#dcs-nav-open:checked) .side-nav .arrow {
+        display: inline !important;
+    }
+
+    body:has(#dcs-nav-open:checked) .side-nav .sub-dropdown {
+        display: block !important;
+    }
+
+    body:has(#dcs-nav-open:checked) .side-nav .tooltip {
+        display: none !important;
+    }
+}
+
+
+/* ── Large phones ── */
+@media (max-width: 640px) {
+    :root {
+        --nav-top: 0;
+    }
+
+    .side-nav {
+        width: min(var(--nav-width), 85vw);
+    }
+
+    body:has(#dcs-nav-open:checked) .side-nav {
+        width: min(var(--nav-width), 85vw);
+    }
+}
+
+/* ── Small phones ── */
+@media (max-width: 380px) {
+    .side-nav {
+        width: 100vw;
+        border-radius: 0;
+    }
+
+    body:has(#dcs-nav-open:checked) .side-nav {
+        width: 100vw;
+        box-shadow: none;
+    }
+}
+
+/* ── Tall / landscape phones ── */
+@media (max-height: 500px) and (orientation: landscape) {
+    body:has(#dcs-nav-open:checked) .side-nav .nav-links {
+        padding-top: 4px;
+    }
+
+    body:has(#dcs-nav-open:checked) .side-nav .nav-item > a,
+    body:has(#dcs-nav-open:checked) .side-nav .nav-item.dropdown > span,
+    body:has(#dcs-nav-open:checked) .side-nav .nav-item.dropdown summary {
+        min-height: 40px;
+        padding: 8px 14px;
+    }
+
+    body:has(#dcs-nav-open:checked) .side-nav .sub-dropdown li a {
+        min-height: 38px;
+        padding: 7px 14px 7px 48px;
+    }
+}
+
+/* ── Very large screens ── */
+@media (min-width: 1600px) {
+    :root {
+        --nav-width: 300px;
+    }
+}
+
+/* ── Reduced motion ── */
+@media (prefers-reduced-motion: reduce) {
+    .side-nav,
+    .side-nav *,
+    .side-nav *::before,
+    .side-nav *::after {
+        transition-duration: 0.01ms !important;
+        animation-duration: 0.01ms !important;
+    }
+}
+
+/* ── Touch devices: always show action buttons ── */
+@media (hover: none) {
+    .nav-item > a:active,
+    .nav-item.dropdown > span:active,
+    .nav-item.dropdown summary:active {
+        background: var(--surface-hover);
+    }
+
+    .sub-dropdown li a:active {
+        background: var(--accent-glow);
+        color: var(--accent);
+    }
+}
+
+/* ── High contrast (Windows) ── */
+@media (forced-colors: active) {
+    .nav-item.active::before {
+        forced-color-adjust: none;
+        background: Highlight;
+    }
+}
+
+/* ── Print ── */
+@media print {
+    .side-nav,
+    .nav-backdrop,
+    .mobile-nav-toggle {
+        display: none !important;
+    }
+}

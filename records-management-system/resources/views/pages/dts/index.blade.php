@@ -2233,7 +2233,7 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
                                                 @endforelse
                                             </div>
                                         </td>
-                                        <td style="color: #dc2626; font-weight: 600; white-space: nowrap; text-align: center;">{{ $t->total_elapsed_days }} day(s)</td>
+                                        <td style="font-weight: 600; white-space: nowrap; text-align: center;">{{ $t->total_elapsed_days }} day(s)</td>
                                         <td style="padding: 12px 14px;">
                                             <span class="rms-badge badge-{{ $t->status === 'completed' ? 'success' : ($t->status === 'cancelled' ? 'danger' : 'warning') }}">
                                                 {{ ucfirst($t->status) }}
@@ -2301,7 +2301,7 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
                                                     @endforelse
                                                 </div>
                                             </td>
-                                            <td style="color: #dc2626; font-weight: 600; white-space: nowrap; text-align: center; font-size: 12px;">{{ $t->total_elapsed_days }} day(s)</td>
+                                            <td style="font-weight: 600; white-space: nowrap; text-align: center; font-size: 12px;">{{ $t->total_elapsed_days }} day(s)</td>
                                             <td style="padding: 10px 14px;">
                                                 <span class="rms-badge badge-{{ $t->status === 'completed' ? 'success' : ($t->status === 'cancelled' ? 'danger' : 'warning') }}">
                                                     {{ ucfirst($t->status) }}
@@ -2361,7 +2361,7 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
                                                         @endforelse
                                                     </div>
                                                 </td>
-                                                <td style="color: #dc2626; font-weight: 600; white-space: nowrap; text-align: center; font-size: 12px;">{{ $t->total_elapsed_days }} day(s)</td>
+                                                <td style="font-weight: 600; white-space: nowrap; text-align: center; font-size: 12px;">{{ $t->total_elapsed_days }} day(s)</td>
                                                 <td style="padding: 10px 14px;">
                                                     <span class="rms-badge badge-{{ $child->status === 'completed' ? 'success' : 'warning' }}">
                                                         {{ ucfirst($child->status) }}
@@ -2384,7 +2384,7 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
                                             @endif
                                         </td>
                                         <td style="padding: 12px 14px; color: #16a34a; font-weight: 600;">{{ $t->action_needed ?? 'For action' }}</td>
-                                        <td style="color: #dc2626; font-weight: 600; white-space: nowrap; text-align: center;">{{ $t->incoming_elapsed_days }} day(s)</td>
+                                        <td style="font-weight: 600; white-space: nowrap; text-align: center;">{{ $t->incoming_elapsed_days }} day(s)</td>
                                         <td style="text-align: center; white-space: nowrap;">
                                             <button type="button" onclick="if(window.openScannerModal) window.openScannerModal('{{ $t->control_number }}');" class="rms-select" style="text-decoration: none; display: inline-flex; align-items: center; gap: 4px; border: none; background: transparent; cursor: pointer; color: #0284c7; font-weight: 600;">
                                                 <i class="fa-solid fa-qrcode"></i> Scan
@@ -2402,7 +2402,7 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
                                         </td>
                                         <td style="padding: 12px 14px; color: #3b82f6; font-weight: 600;">{{ $t->next_office_name }}</td>
                                         <td style="padding: 12px 14px; color: #16a34a; font-weight: 600;">{{ $t->action_needed ?? 'For action' }}</td>
-                                        <td style="color: #dc2626; font-weight: 600; white-space: nowrap; text-align: center;">{{ $t->received_elapsed_days }} day(s)</td>
+                                        <td style="font-weight: 600; white-space: nowrap; text-align: center;">{{ $t->received_elapsed_days }} day(s)</td>
                                         <td style="text-align: center; white-space: nowrap;">
                                             <div style="display: flex; align-items: center; justify-content: center; gap: 8px;">
                                                 <button type="button" wire:click="openTransaction('{{ $t->transaction_id }}')" class="rms-select" style="border: none; background: transparent; cursor: pointer; color: #043899; font-weight: 500;">View</button>
@@ -2423,7 +2423,7 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
                                         </td>
                                         <td style="padding: 12px 14px; color: #3b82f6; font-weight: 600;">{{ $t->next_office_name }}</td>
                                         <td style="padding: 12px 14px; color: #16a34a; font-weight: 600;">{{ $t->action_needed ?? 'For action' }}</td>
-                                        <td style="color: #dc2626; font-weight: 600; white-space: nowrap; text-align: center;">{{ $t->released_elapsed_days }} day(s)</td>
+                                        <td style="font-weight: 600; white-space: nowrap; text-align: center;">{{ $t->released_elapsed_days }} day(s)</td>
                                         <td style="text-align: center; white-space: nowrap;">
                                             <button type="button" wire:click="openTransaction('{{ $t->transaction_id }}')" class="rms-select" style="border: none; background: transparent; cursor: pointer; color: #043899; font-weight: 600;">View</button>
                                         </td>
@@ -2439,7 +2439,7 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
                                         </td>
                                         <td style="padding: 12px 14px; color: #3b82f6; font-weight: 600;">{{ $t->next_office_name }}</td>
                                         <td style="padding: 12px 14px; color: #16a34a; font-weight: 600;">{{ $t->action_needed ?? 'For action' }}</td>
-                                        <td style="color: #dc2626; font-weight: 600; white-space: nowrap; text-align: center;">{{ $t->total_elapsed_days }} day(s)</td>
+                                        <td style="font-weight: 600; white-space: nowrap; text-align: center;">{{ $t->total_elapsed_days }} day(s)</td>
                                         <td style="text-align: center; white-space: nowrap;">
                                             <button type="button" wire:click="openTransaction('{{ $t->transaction_id }}')" class="rms-select" style="border: none; background: transparent; cursor: pointer; color: #043899; font-weight: 600;">View</button>
                                         </td>
@@ -2578,7 +2578,7 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
                                             @endforelse
                                         </div>
                                     </td>
-                                    <td style="color: #dc2626; font-weight: 600; white-space: nowrap; text-align: center;">{{ $t->total_elapsed_days }} day(s)</td>
+                                    <td style="font-weight: 600; white-space: nowrap; text-align: center;">{{ $t->total_elapsed_days }} day(s)</td>
                                     <td style="padding: 12px 14px;">
                                         <span class="rms-badge badge-{{ $t->status === 'completed' ? 'success' : ($t->status === 'cancelled' ? 'danger' : 'warning') }}">
                                             {{ ucfirst($t->status) }}
@@ -2646,7 +2646,7 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
                                                 @endforelse
                                             </div>
                                         </td>
-                                        <td style="color: #dc2626; font-weight: 600; white-space: nowrap; text-align: center; font-size: 12px;">{{ $t->total_elapsed_days }} day(s)</td>
+                                        <td style="font-weight: 600; white-space: nowrap; text-align: center; font-size: 12px;">{{ $t->total_elapsed_days }} day(s)</td>
                                         <td style="padding: 10px 14px;">
                                             <span class="rms-badge badge-{{ $t->status === 'completed' ? 'success' : ($t->status === 'cancelled' ? 'danger' : 'warning') }}">
                                                 {{ ucfirst($t->status) }}
@@ -2706,7 +2706,7 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
                                                     @endforelse
                                                 </div>
                                             </td>
-                                            <td style="color: #dc2626; font-weight: 600; white-space: nowrap; text-align: center; font-size: 12px;">{{ $t->total_elapsed_days }} day(s)</td>
+                                            <td style="font-weight: 600; white-space: nowrap; text-align: center; font-size: 12px;">{{ $t->total_elapsed_days }} day(s)</td>
                                             <td style="padding: 10px 14px;">
                                                 <span class="rms-badge badge-{{ $child->status === 'completed' ? 'success' : 'warning' }}">
                                                     {{ ucfirst($child->status) }}
@@ -2729,7 +2729,7 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
                                         @endif
                                     </td>
                                     <td style="padding: 12px 14px; color: #16a34a; font-weight: 600;">{{ $t->action_needed ?? 'For action' }}</td>
-                                    <td style="color: #dc2626; font-weight: 600; white-space: nowrap; text-align: center;">{{ $t->incoming_elapsed_days }} day(s)</td>
+                                    <td style="font-weight: 600; white-space: nowrap; text-align: center;">{{ $t->incoming_elapsed_days }} day(s)</td>
                                     <td style="text-align: center; white-space: nowrap;">
                                         <button type="button" onclick="if(window.openScannerModal) window.openScannerModal('{{ $t->control_number }}');" class="rms-select" style="text-decoration: none; display: inline-flex; align-items: center; gap: 4px; border: none; background: transparent; cursor: pointer; color: #0284c7; font-weight: 600;">
                                             <i class="fa-solid fa-qrcode"></i> Scan
@@ -2747,7 +2747,7 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
                                     </td>
                                     <td style="padding: 12px 14px; color: #3b82f6; font-weight: 600;">{{ $t->next_office_name }}</td>
                                     <td style="padding: 12px 14px; color: #16a34a; font-weight: 600;">{{ $t->action_needed ?? 'For action' }}</td>
-                                    <td style="color: #dc2626; font-weight: 600; white-space: nowrap; text-align: center;">{{ $t->received_elapsed_days }} day(s)</td>
+                                    <td style="font-weight: 600; white-space: nowrap; text-align: center;">{{ $t->received_elapsed_days }} day(s)</td>
                                     <td style="text-align: center; white-space: nowrap;">
                                         <div style="display: flex; align-items: center; justify-content: center; gap: 8px;">
                                             <button type="button" wire:click="openTransaction('{{ $t->transaction_id }}')" class="rms-select" style="border: none; background: transparent; cursor: pointer; color: #043899; font-weight: 500;">View</button>
@@ -2768,7 +2768,7 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
                                     </td>
                                     <td style="padding: 12px 14px; color: #3b82f6; font-weight: 600;">{{ $t->next_office_name }}</td>
                                     <td style="padding: 12px 14px; color: #16a34a; font-weight: 600;">{{ $t->action_needed ?? 'For action' }}</td>
-                                    <td style="color: #dc2626; font-weight: 600; white-space: nowrap; text-align: center;">{{ $t->released_elapsed_days }} day(s)</td>
+                                    <td style="font-weight: 600; white-space: nowrap; text-align: center;">{{ $t->released_elapsed_days }} day(s)</td>
                                     <td style="text-align: center; white-space: nowrap;">
                                         <button type="button" wire:click="openTransaction('{{ $t->transaction_id }}')" class="rms-select" style="border: none; background: transparent; cursor: pointer; color: #043899; font-weight: 600;">View</button>
                                     </td>
@@ -2784,7 +2784,7 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
                                     </td>
                                     <td style="padding: 12px 14px; color: #3b82f6; font-weight: 600;">{{ $t->next_office_name }}</td>
                                     <td style="padding: 12px 14px; color: #16a34a; font-weight: 600;">{{ $t->action_needed ?? 'For action' }}</td>
-                                    <td style="color: #dc2626; font-weight: 600; white-space: nowrap; text-align: center;">{{ $t->total_elapsed_days }} day(s)</td>
+                                    <td style="font-weight: 600; white-space: nowrap; text-align: center;">{{ $t->total_elapsed_days }} day(s)</td>
                                     <td style="text-align: center; white-space: nowrap;">
                                         <button type="button" wire:click="openTransaction('{{ $t->transaction_id }}')" class="rms-select" style="border: none; background: transparent; cursor: pointer; color: #043899; font-weight: 600;">View</button>
                                     </td>

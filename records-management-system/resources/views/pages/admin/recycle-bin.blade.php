@@ -555,6 +555,15 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Recycle Bin')] class ext
 @endpush
 
 <div class="activity-logs-container">
+    {{-- Retention notice (same 1-year window as DCS Recycle Bin) --}}
+    <div style="display:flex; gap:12px; align-items:flex-start; margin: 0 24px 12px; padding: 12px 14px; border: 1px solid #bfdbfe; background: #eff6ff; border-radius: 10px; font-family: 'Inter', sans-serif;">
+        <i class="fa-solid fa-circle-info" style="color:#2563eb; margin-top:2px;"></i>
+        <div style="font-size: 12.5px; color:#1e3a8a; line-height:1.45;">
+            <strong style="display:block; margin-bottom:2px;">1-year retention</strong>
+            Soft-deleted items remain available in the Recycle Bin for <strong>1 year</strong> and can be restored during that period.
+        </div>
+    </div>
+
     {{-- Tabs Header --}}
     <div class="tabs-header">
         <button type="button" class="tab-btn {{ $activeTab === 'offices' ? 'active' : '' }}" wire:click="switchTab('offices')">

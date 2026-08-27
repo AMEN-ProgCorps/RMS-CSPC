@@ -159,3 +159,84 @@
         gap: 16px;
     }
 }
+
+/* ==========================================================================
+   Admin Console - Dark Mode Overrides
+   ========================================================================== */
+[data-theme="dark"] .article-container,
+[data-theme="dark"] #article-container {
+    background-color: #0b0f19 !important;
+}
+
+[data-theme="dark"] .dashboard-wrapper {
+    color: #cbd5e1;
+}
+
+[data-theme="dark"] .dashboard-title {
+    color: #f8fafc !important;
+}
+
+[data-theme="dark"] .stat-card {
+    background: #131c2e !important;
+    border: 1px solid #1e293b !important;
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4) !important;
+}
+
+[data-theme="dark"] .stat-card:hover {
+    border-color: #334155 !important;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.6) !important;
+}
+
+[data-theme="dark"] .stat-label {
+    color: #94a3b8 !important;
+}
+
+[data-theme="dark"] .stat-value {
+    color: #f8fafc !important;
+}
+
+[data-theme="dark"] .stat-icon-wrapper {
+    background: #0f172a !important;
+    color: #60a5fa !important;
+    border: 1px solid #1e293b !important;
+}
+
+[data-theme="dark"] .activities-panel {
+    background: #131c2e !important;
+    border: 1px solid #1e293b !important;
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4) !important;
+}
+
+[data-theme="dark"] .activities-title {
+    color: #f8fafc !important;
+}
+
+[data-theme="dark"] .activity-row {
+    border-bottom: 1px solid #1e293b !important;
+}
+
+[data-theme="dark"] .activity-row:hover {
+    background-color: rgba(255, 255, 255, 0.02);
+}
+
+[data-theme="dark"] .activity-name {
+    color: #f8fafc !important;
+}
+
+[data-theme="dark"] .activity-meta {
+    color: #94a3b8 !important;
+}
+
+[data-theme="dark"] .activity-date {
+    color: #64748b !important;
+}
+
+[data-theme="dark"] .activity-time {
+    color: #38bdf8 !important;
+    font-weight: 600 !important;
+}
+
+[data-theme="dark"] .activity-right {
+    color: #cbd5e1 !important;
+}
+

@@ -1,0 +1,115 @@
+/* Shared RMS top bar for DCS — scoped so page <header class="st-header|db-header|rpt-hdr"> is not affected.
+   Mirrors dashboard.css header / logo / actions used by DTS & RDP. */
+
+header.rms-app-header {
+    --padding-header: 15px;
+    position: fixed;
+    top: 0;
+    left: 0;
+    z-index: 1000;
+    /* Match DTS/RDP: content-box + calc width so padding does not shrink the bar */
+    box-sizing: content-box;
+    background: #003699;
+    width: calc(100% - var(--padding-header));
+    height: 70px;
+    display: flex;
+    gap: 10px;
+    align-items: center;
+    padding: 0 0 0 var(--padding-header);
+}
+
+header.rms-app-header .cspc-logo {
+    width: 70px;
+    height: 70px;
+    padding: 0 15px !important;
+    margin: 0 !important;
+    box-sizing: content-box;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+}
+
+header.rms-app-header .cspc-logo .ico {
+    box-shadow: 0px 0px 20px 0px #0059FF;
+    border-radius: 50%;
+    width: 80% !important;
+    height: 80% !important;
+    max-width: none !important;
+    max-height: none !important;
+    object-fit: cover;
+    display: block;
+}
+
+header.rms-app-header .label-container {
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    min-width: 0;
+}
+
+header.rms-app-header .label-container .subtitle {
+    font-family: Roboto, Inter, sans-serif;
+    font-weight: 400;
+    font-size: 15px;
+    line-height: 117%;
+    letter-spacing: 0%;
+    color: #FFFFFF;
+}
+
+header.rms-app-header .label-container .title {
+    font-family: Roboto, Inter, sans-serif;
+    font-weight: 700;
+    font-size: 27px;
+    line-height: 117%;
+    letter-spacing: 0%;
+    color: #FFB200;
+}
+
+header.rms-app-header .office_name {
+    position: absolute;
+    bottom: 2px;
+    right: 20px;
+    font-family: Roboto, Inter, sans-serif;
+    font-weight: 400;
+    font-size: 15px;
+    line-height: 117%;
+    color: #EEEEEE;
+    letter-spacing: 0%;
+}
+
+/* ACTIONS positioning — look & feel from ./actions-dropdown.css (same as dashboard.css) */
+header.rms-app-header .actions-container {
+    position: absolute;
+    top: 10px;
+    right: 15px;
+    z-index: 1001;
+}
+
+/* Keep brand blue header in dark mode (same as DTS / RDP / Profile). */
+[data-theme="dark"] header.rms-app-header {
+    background: #003699;
+    border-bottom: none;
+}
+
+@media (max-width: 900px) {
+    header.rms-app-header .label-container .title {
+        font-size: 18px;
+    }
+
+    header.rms-app-header .label-container .subtitle {
+        font-size: 12px;
+    }
+
+    header.rms-app-header .cspc-logo {
+        width: 52px;
+        height: 52px;
+        padding: 0 8px;
+    }
+}
+
+@media print {
+    header.rms-app-header {
+        display: none !important;
+    }
+}

@@ -583,6 +583,35 @@ new #[Layout('layouts.dts')] #[Title('DTS - Internal Transactions')] class exten
                 }
             }
 
+            // Upsert / resolve requestor in dts_requestor_history
+            $requestorId = null;
+            if (!empty(trim($this->requestorName ?? ''))) {
+                $tDetail = DB::table('dts_transaction_details')->where('id', $this->selectedTransactionId)->first();
+                $originOffice = $tDetail?->originated_from ?? (auth()->user()?->details?->office?->office_code ?? 'RFIO');
+                $existingReq = DB::table('dts_requestor_history')
+                    ->where('requestor_name', trim($this->requestorName))
+                    ->where('office', $originOffice)
+                    ->first();
+
+                if ($existingReq) {
+                    $requestorId = $existingReq->id;
+                    if (!empty($this->requestorPosition) && $existingReq->requestor_position !== $this->requestorPosition) {
+                        DB::table('dts_requestor_history')
+                            ->where('id', $existingReq->id)
+                            ->update(['requestor_position' => $this->requestorPosition]);
+                    }
+                } else {
+                    $requestorId = DB::table('dts_requestor_history')->insertGetId([
+                        'requestor_name' => trim($this->requestorName),
+                        'requestor_position' => $this->requestorPosition ?: null,
+                        'office' => $originOffice,
+                        'is_active' => true,
+                        'created_at' => now(),
+                        'updated_at' => now(),
+                    ]);
+                }
+            }
+
             DB::table('dts_transaction_details')
                 ->where('id', $this->selectedTransactionId)
                 ->update([
@@ -591,8 +620,7 @@ new #[Layout('layouts.dts')] #[Title('DTS - Internal Transactions')] class exten
                     'subject' => $this->particulars,
                     'classification' => $this->classification ?: null,
                     'action_needed' => $this->actionNeeded ?: null,
-                    'requestor_name' => $this->requestorName ?: null,
-                    'requestor_label' => $this->requestorPosition ?: null,
+                    'requestor_id' => $requestorId,
                     'email_access' => $emailAccessId,
                     'document_password' => $this->docPassword ?: null,
                     'transaction_flow' => $this->transactionFlow,
@@ -1366,13 +1394,13 @@ new #[Layout('layouts.dts')] #[Title('DTS - Internal Transactions')] class exten
                         <th>Created</th>
                         <th>Originator</th>
                         <th>Subject</th>
-                        <th style="color: #dc2626;">Received</th>
-                        <th style="color: #dc2626;">Released</th>
-                        <th style="color: #dc2626;">Received</th>
-                        <th style="color: #dc2626;">Released</th>
-                        <th style="color: #dc2626;">Elapsed Day</th>
-                        <th style="color: #dc2626;">Status</th>
-                        <th style="width: 60px; color: #dc2626;">View</th>
+                        <th>Received</th>
+                        <th>Released</th>
+                        <th>Received</th>
+                        <th>Released</th>
+                        <th>Elapsed Day</th>
+                        <th>Status</th>
+                        <th style="width: 60px;">View</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -1394,7 +1422,7 @@ new #[Layout('layouts.dts')] #[Title('DTS - Internal Transactions')] class exten
                             <td style="text-align: center;">{{ $t->step1_released }}</td>
                             <td style="text-align: center;">{{ $t->step2_received }}</td>
                             <td style="text-align: center;">{{ $t->step2_released }}</td>
-                            <td style="color: #dc2626; font-weight: 600; white-space: nowrap; text-align: center;">
+                            <td style="font-weight: 600; white-space: nowrap; text-align: center;">
                                 {{ $t->elapsed_days }} day(s)
                             </td>
                             <td style="text-align: center;">

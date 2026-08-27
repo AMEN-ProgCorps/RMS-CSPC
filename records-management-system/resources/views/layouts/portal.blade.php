@@ -1,11 +1,18 @@
 <!DOCTYPE html>
-<html lang="{{ str_replace('_', '-', app()->getLocale()) }}">
+<html lang="{{ str_replace('_', '-', app()->getLocale()) }}" data-theme="light">
 <head>
     <title>{{ $title ?? 'RMS CSPC' }}</title>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="csrf-token" content="{{ csrf_token() }}">
+    <meta name="rms-portal" content="true">
     <link rel="icon" href="{{ asset('images/cspc.webp') }}" type="image/webp">
+    <script>
+        (function() {
+            // Outside pages (Login, Track Document, etc.) always remain in light mode
+            document.documentElement.setAttribute('data-theme', 'light');
+        })();
+    </script>
 
 
     <!-- Google Fonts Inter -->
@@ -28,6 +35,7 @@
         }
     </style>
 
+    @vite(['resources/css/dashboard.css', 'resources/js/dashboard.js'])
     @stack('styles')
 
     @livewireStyles
@@ -74,6 +82,18 @@
                     $prewarmUrls[] = '/rdp/reports/nap-form-1';
                     $prewarmUrls[] = '/rdp/reports/nap-form-2';
                     $prewarmUrls[] = '/rdp/reports/nap-form-3';
+                }
+                if ($perms->is_sadm || $perms->can_access_dcs) {
+                    $prewarmUrls[] = '/dcs';
+                    $prewarmUrls[] = '/dcs/register';
+                    $prewarmUrls[] = '/dcs/register/update';
+                    $prewarmUrls[] = '/dcs/reports/masterlist';
+                    $prewarmUrls[] = '/dcs/reports/monitoring';
+                    $prewarmUrls[] = '/dcs/reports/opcr';
+                    $prewarmUrls[] = '/dcs/reports/others';
+                    $prewarmUrls[] = '/dcs/stamping';
+                    $prewarmUrls[] = '/dcs/database';
+                    $prewarmUrls[] = '/dcs/settings';
                 }
                 if ($perms->is_sadm || $perms->is_admin) {
                     $prewarmUrls[] = '/admin/console';

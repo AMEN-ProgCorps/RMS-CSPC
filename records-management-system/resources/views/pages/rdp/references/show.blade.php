@@ -324,6 +324,64 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Reference Se
         .ref-clear-btn:hover {
             background: #e2e8f0;
         }
+
+        /* ==========================================================================
+           Reference Section - Dark Mode Overrides
+           ========================================================================== */
+        [data-theme="dark"] .ref-header-card {
+            background: #131c2e !important;
+            border-color: #1e293b !important;
+            box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3) !important;
+        }
+
+        [data-theme="dark"] .ref-title-group h1 {
+            color: #f8fafc !important;
+        }
+
+        [data-theme="dark"] .ref-subtitle {
+            color: #94a3b8 !important;
+        }
+
+        [data-theme="dark"] .ref-search-input {
+            background: #0f172a !important;
+            border-color: #334155 !important;
+            color: #f8fafc !important;
+        }
+
+        [data-theme="dark"] .ref-clear-btn {
+            background: #1e293b !important;
+            border-color: #334155 !important;
+            color: #cbd5e1 !important;
+        }
+
+        [data-theme="dark"] .ref-badge {
+            background: rgba(37, 99, 235, 0.2) !important;
+            color: #60a5fa !important;
+            border-color: #3b82f6 !important;
+        }
+
+        [data-theme="dark"] [x-data*="collapsedBrackets"] {
+            background: #131c2e !important;
+            border-color: #1e293b !important;
+        }
+
+        [data-theme="dark"] [x-data*="collapsedBrackets"] table thead tr {
+            background: #0f172a !important;
+        }
+
+        [data-theme="dark"] [x-data*="collapsedBrackets"] table th {
+            color: #94a3b8 !important;
+            border-color: #1e293b !important;
+        }
+
+        [data-theme="dark"] [x-data*="collapsedBrackets"] table td {
+            color: #cbd5e1 !important;
+            border-color: #1e293b !important;
+        }
+
+        [data-theme="dark"] [x-data*="collapsedBrackets"] table tr:hover td {
+            background-color: #1a253c !important;
+        }
     </style>
 
     <div class="ref-header-card">

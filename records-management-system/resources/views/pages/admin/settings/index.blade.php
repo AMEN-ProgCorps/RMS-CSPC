@@ -33,13 +33,18 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - System Settings')] class
     public string $driveFolderId = '';
     public bool $driveVerifySsl = true;
 
-    // Google SSO Credential Manager
+    // Google SSO Credential Manager (Internal Staff Login)
     public string $ssoTestResult = '';
     public string $ssoStatus = 'unknown';
     public bool $showSsoEditForm = false;
     public string $ssoClientId = '';
     public string $ssoClientSecret = '';
     public string $ssoRedirectUri = 'dynamic';
+
+    // Google SSO Credential Manager (Public Document Tracking)
+    public string $trackingSsoClientId = '';
+    public string $trackingSsoClientSecret = '';
+    public string $trackingSsoRedirectUri = 'dynamic';
 
     public function toggleDriveEditForm(): void
     {
@@ -113,6 +118,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - System Settings')] class
 
             $this->showDriveEditForm = false;
             $this->successMessage = 'Google Drive Cloud Storage credentials updated successfully!';
+            $this->dispatch('rms-settings-changed', type: 'site_settings', message: 'Google Drive credentials updated by administrator.');
 
             // Purge the resolved disk instance so the next usage rebuilds with fresh credentials from DB
             try {
@@ -143,15 +149,27 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - System Settings')] class
 
         $this->ssoRedirectUri = \DB::table('system_settings')->where('key', 'google_sso_redirect_uri')->value('value')
             ?: env('GOOGLE_REDIRECT_URI', 'dynamic');
+
+        $this->trackingSsoClientId = \DB::table('system_settings')->where('key', 'google_tracking_sso_client_id')->value('value')
+            ?: env('GOOGLE_TRACKING_CLIENT_ID', '');
+
+        $this->trackingSsoClientSecret = \DB::table('system_settings')->where('key', 'google_tracking_sso_client_secret')->value('value')
+            ?: env('GOOGLE_TRACKING_CLIENT_SECRET', '');
+
+        $this->trackingSsoRedirectUri = \DB::table('system_settings')->where('key', 'google_tracking_sso_redirect_uri')->value('value')
+            ?: env('GOOGLE_TRACKING_REDIRECT_URI', 'dynamic');
     }
 
     public function saveSsoCredentials(): void
     {
         try {
             $credentials = [
-                'google_sso_client_id'     => trim($this->ssoClientId),
-                'google_sso_client_secret' => trim($this->ssoClientSecret),
-                'google_sso_redirect_uri'  => trim($this->ssoRedirectUri),
+                'google_sso_client_id'              => trim($this->ssoClientId),
+                'google_sso_client_secret'          => trim($this->ssoClientSecret),
+                'google_sso_redirect_uri'           => trim($this->ssoRedirectUri),
+                'google_tracking_sso_client_id'     => trim($this->trackingSsoClientId),
+                'google_tracking_sso_client_secret' => trim($this->trackingSsoClientSecret),
+                'google_tracking_sso_redirect_uri'  => trim($this->trackingSsoRedirectUri),
             ];
 
             foreach ($credentials as $key => $value) {
@@ -162,19 +180,25 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - System Settings')] class
             }
 
             $this->updateEnvFile([
-                'GOOGLE_CLIENT_ID'     => trim($this->ssoClientId),
-                'GOOGLE_CLIENT_SECRET' => trim($this->ssoClientSecret),
-                'GOOGLE_REDIRECT_URI'  => trim($this->ssoRedirectUri),
+                'GOOGLE_CLIENT_ID'              => trim($this->ssoClientId),
+                'GOOGLE_CLIENT_SECRET'          => trim($this->ssoClientSecret),
+                'GOOGLE_REDIRECT_URI'           => trim($this->ssoRedirectUri),
+                'GOOGLE_TRACKING_CLIENT_ID'     => trim($this->trackingSsoClientId),
+                'GOOGLE_TRACKING_CLIENT_SECRET' => trim($this->trackingSsoClientSecret),
+                'GOOGLE_TRACKING_REDIRECT_URI'  => trim($this->trackingSsoRedirectUri),
             ]);
 
             config([
-                'services.google.client_id'     => trim($this->ssoClientId),
-                'services.google.client_secret' => trim($this->ssoClientSecret),
-                'services.google.redirect'      => trim($this->ssoRedirectUri),
+                'services.google.client_id'              => trim($this->ssoClientId),
+                'services.google.client_secret'          => trim($this->ssoClientSecret),
+                'services.google.redirect'               => trim($this->ssoRedirectUri),
+                'services.google_tracking.client_id'     => trim($this->trackingSsoClientId) ?: trim($this->ssoClientId),
+                'services.google_tracking.client_secret' => trim($this->trackingSsoClientSecret) ?: trim($this->ssoClientSecret),
+                'services.google_tracking.redirect'      => trim($this->trackingSsoRedirectUri),
             ]);
 
             \DB::table('admin_logs')->insert([
-                'changes' => 'Updated Google SSO (Sign-In) credentials via Admin Console',
+                'changes' => 'Updated Google SSO (Internal & Tracking) credentials via Admin Console',
                 'admin_id' => auth()->id(),
                 'what_system' => 3,
                 'when_changes' => now(),
@@ -182,6 +206,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - System Settings')] class
 
             $this->showSsoEditForm = false;
             $this->successMessage = 'Google SSO credentials updated successfully! Changes are live — no restart required.';
+            $this->dispatch('rms-settings-changed', type: 'site_settings', message: 'Google SSO credentials updated by administrator.');
 
             $this->testSsoConnection();
         } catch (\Throwable $e) {
@@ -394,7 +419,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - System Settings')] class
         }
 
         $this->isPreloading = true;
-        $this->preloadLogs[] = "🚀 Initializing office folder preload sequence for " . count($this->preloadOfficesList) . " offices...";
+        $this->preloadLogs[] = "- Initializing office folder preload sequence for " . count($this->preloadOfficesList) . " offices...";
         
         $this->executePreloadStep(0);
     }
@@ -409,7 +434,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - System Settings')] class
         if ($index >= $total) {
             $this->preloadProgress = 100;
             $this->isPreloading = false;
-            $this->preloadLogs[] = "🎉 All office folder structures successfully preloaded and verified (100%)!";
+            $this->preloadLogs[] = "- All office folder structures successfully preloaded and verified (100%)!";
             $this->successMessage = "Successfully preloaded office folder structures on Google Drive & database for {$total} offices! Uploads will now be instant.";
             
             \DB::table('admin_logs')->insert([
@@ -428,7 +453,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - System Settings')] class
         }
 
         $this->preloadCurrentOffice = $officeName;
-        $this->preloadLogs[] = "🔍 Checking if [{$officeName}] folder structure exists on server & Google Drive...";
+        $this->preloadLogs[] = "- Checking if [{$officeName}] folder structure exists on server & Google Drive...";
 
         // 1. Local cache directories
         try {
@@ -437,7 +462,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - System Settings')] class
         } catch (\Throwable $e) {}
 
         // 2. Google Drive directories
-        $this->preloadLogs[] = "📁 Attempting to verify / create [{$officeName}], [{$officeName}/DTS], and [{$officeName}/RDP] on Google Drive...";
+        $this->preloadLogs[] = "- Attempting to verify / create [{$officeName}], [{$officeName}/DTS], and [{$officeName}/RDP] on Google Drive...";
         try {
             \Illuminate\Support\Facades\Storage::disk('google')->makeDirectory($officeName);
             \Illuminate\Support\Facades\Storage::disk('google')->makeDirectory("{$officeName}/DTS");
@@ -468,13 +493,13 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - System Settings')] class
             ]);
         }
 
-        $this->preloadLogs[] = "✅ Creation & DB verification success for [{$officeName}]!";
+        $this->preloadLogs[] = "- Creation & DB verification success for [{$officeName}]!";
         
         $this->preloadCurrentIndex = $index + 1;
         $this->preloadProgress = (int) round(($this->preloadCurrentIndex / $total) * 100);
 
         if ($this->preloadCurrentIndex < $total) {
-            $this->preloadLogs[] = "➡️ Proceeding to next office folder (" . ($this->preloadCurrentIndex + 1) . " of {$total})...";
+            $this->preloadLogs[] = "- Proceeding to next office folder (" . ($this->preloadCurrentIndex + 1) . " of {$total})...";
             $this->js('$wire.executePreloadStep(' . $this->preloadCurrentIndex . ')');
         } else {
             $this->executePreloadStep($total);
@@ -600,10 +625,24 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - System Settings')] class
                 ]);
             });
 
-            $this->successMessage = 'System settings updated successfully!';
+            $this->successMessage = 'System settings updated successfully! Synchronized refresh triggered for all open tabs.';
+            $this->dispatch('rms-settings-changed', type: 'site_settings', message: 'System site settings updated by administrator.');
         } catch (\Exception $e) {
             $this->errorMessage = 'Failed to update system settings: ' . $e->getMessage();
         }
+    }
+
+    public function broadcastRefreshToAllTabs(): void
+    {
+        $this->successMessage = 'Broadcasted synchronized 5-second auto-refresh signal to all active browser tabs!';
+        $this->dispatch('rms-settings-changed', type: 'site_settings', message: 'Administrator initiated a synchronized tab refresh.');
+
+        \DB::table('admin_logs')->insert([
+            'changes' => 'Triggered system-wide cross-tab synchronized refresh across active sessions.',
+            'admin_id' => auth()->id(),
+            'what_system' => 3,
+            'when_changes' => now(),
+        ]);
     }
 
     public function ensureBackupDirectoriesExist(): void
@@ -799,6 +838,84 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - System Settings')] class
             background-color: #1d4ed8;
             box-shadow: 0 4px 12px rgba(37,99,235,0.25);
         }
+
+        /* Dark Mode Overrides */
+        [data-theme="dark"] .page-header h1 {
+            color: #f8fafc !important;
+        }
+        [data-theme="dark"] .page-header p {
+            color: #94a3b8 !important;
+        }
+        [data-theme="dark"] .settings-card {
+            background: #131c2e !important;
+            border-color: #1e293b !important;
+            box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3) !important;
+        }
+        [data-theme="dark"] .settings-card-header {
+            border-bottom: 1px solid #1e293b !important;
+        }
+        [data-theme="dark"] .settings-card-header h3 {
+            color: #f8fafc !important;
+        }
+        [data-theme="dark"] .settings-card-header i {
+            color: #60a5fa !important;
+        }
+        [data-theme="dark"] .setting-item {
+            border-bottom-color: #1a253c !important;
+        }
+        [data-theme="dark"] .setting-title {
+            color: #f8fafc !important;
+        }
+        [data-theme="dark"] .setting-desc {
+            color: #94a3b8 !important;
+        }
+        [data-theme="dark"] .slider {
+            background-color: #334155 !important;
+        }
+        [data-theme="dark"] input:checked + .slider {
+            background-color: #2563eb !important;
+        }
+        [data-theme="dark"] select.form-input {
+            background-color: #0f172a !important;
+            border-color: #334155 !important;
+            color: #f8fafc !important;
+        }
+        [data-theme="dark"] select.form-input option {
+            background-color: #0f172a !important;
+            color: #f8fafc !important;
+        }
+        [data-theme="dark"] div[style*="background: #f8fafc"],
+        [data-theme="dark"] div[style*="background:#f8fafc"] {
+            background-color: #0f172a !important;
+            border-color: #1e293b !important;
+        }
+        [data-theme="dark"] div[style*="background: #eff6ff"],
+        [data-theme="dark"] div[style*="background:#eff6ff"] {
+            background-color: rgba(37, 99, 235, 0.12) !important;
+            border-color: rgba(37, 99, 235, 0.25) !important;
+            color: #93c5fd !important;
+        }
+        [data-theme="dark"] div[style*="background: #eff6ff"] strong,
+        [data-theme="dark"] div[style*="background:#eff6ff"] strong {
+            color: #60a5fa !important;
+        }
+        [data-theme="dark"] div[style*="background: #f8fafc"] span[style*="color: #64748b"] {
+            color: #94a3b8 !important;
+        }
+        [data-theme="dark"] div[style*="background: #f8fafc"] div[style*="color: #0f172a"] {
+            color: #f8fafc !important;
+        }
+        [data-theme="dark"] div[style*="background: #f8fafc"] label {
+            color: #94a3b8 !important;
+        }
+        [data-theme="dark"] div[style*="background: #f8fafc"] input {
+            background-color: #131c2e !important;
+            border-color: #334155 !important;
+            color: #f8fafc !important;
+        }
+        [data-theme="dark"] div[style*="background: #f8fafc"] h4 {
+            color: #f8fafc !important;
+        }
     </style>
 @endpush
 
@@ -832,14 +949,12 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - System Settings')] class
             <div x-data x-init="$nextTick(() => { $el.scrollTop = $el.scrollHeight })" x-effect="$nextTick(() => { $el.scrollTop = $el.scrollHeight })" style="background: #0f172a; color: #38bdf8; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; font-size: 11px; padding: 14px; border-radius: 10px; height: 170px; overflow-y: auto; text-align: left; line-height: 1.6; border: 1px solid #1e293b; margin-bottom: 18px;">
                 @foreach ($preloadLogs as $log)
                     <div style="margin-bottom: 4px; border-bottom: 1px solid rgba(255,255,255,0.05); padding-bottom: 2px;">
-                        @if (str_contains($log, '✅'))
+                        @if (str_contains($log, 'success') || str_contains($log, '100%'))
                             <span style="color: #4ade80; font-weight: 600;">{{ $log }}</span>
-                        @elseif (str_contains($log, '🔍'))
+                        @elseif (str_contains($log, 'Checking'))
                             <span style="color: #fde047;">{{ $log }}</span>
-                        @elseif (str_contains($log, '📁'))
+                        @elseif (str_contains($log, 'Attempting') || str_contains($log, 'Proceeding') || str_contains($log, 'Initializing'))
                             <span style="color: #60a5fa;">{{ $log }}</span>
-                        @elseif (str_contains($log, '🎉'))
-                            <span style="color: #a7f3d0; font-weight: 800;">{{ $log }}</span>
                         @else
                             <span style="color: #94a3b8;">{{ $log }}</span>
                         @endif
@@ -909,11 +1024,6 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - System Settings')] class
                         <h3 style="font-size: 17px; font-weight: 800; color: #0f172a; margin: 0;">Google Drive Cloud Storage Manager</h3>
                         <span style="font-size: 12px; color: #64748b;">Automated multi-tier cloud storage & database caching workflow</span>
                     </div>
-                </div>
-                <div style="display: flex; align-items: center; gap: 8px;">
-                    <span style="display: inline-flex; align-items: center; gap: 6px; padding: 4px 12px; border-radius: 9999px; font-size: 12px; font-weight: 700; background: #dcfce7; color: #15803d;">
-                        <i class="fa-solid fa-circle-check"></i> Connected
-                    </span>
                 </div>
             </div>
 
@@ -1030,53 +1140,82 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - System Settings')] class
                         <span style="font-size: 12px; color: #64748b;">Manage Google Single Sign-On (OAuth 2.0) credentials for portal authentication — live changes, no restart needed</span>
                     </div>
                 </div>
-                <div style="display: flex; align-items: center; gap: 8px;">
-                    @if ($ssoStatus === 'connected')
-                        <span style="display: inline-flex; align-items: center; gap: 6px; padding: 4px 12px; border-radius: 9999px; font-size: 12px; font-weight: 700; background: #dcfce7; color: #15803d;">
-                            <i class="fa-solid fa-circle-check"></i> Configured
-                        </span>
-                    @elseif ($ssoStatus === 'warning')
-                        <span style="display: inline-flex; align-items: center; gap: 6px; padding: 4px 12px; border-radius: 9999px; font-size: 12px; font-weight: 700; background: #fef9c3; color: #854d0e;">
-                            <i class="fa-solid fa-triangle-exclamation"></i> Warning
-                        </span>
-                    @elseif ($ssoStatus === 'error')
-                        <span style="display: inline-flex; align-items: center; gap: 6px; padding: 4px 12px; border-radius: 9999px; font-size: 12px; font-weight: 700; background: #fef2f2; color: #991b1b;">
-                            <i class="fa-solid fa-circle-xmark"></i> Not Configured
-                        </span>
-                    @else
-                        <span style="display: inline-flex; align-items: center; gap: 6px; padding: 4px 12px; border-radius: 9999px; font-size: 12px; font-weight: 700; background: #f1f5f9; color: #64748b;">
-                            <i class="fa-solid fa-circle-question"></i> Unknown
-                        </span>
-                    @endif
-                </div>
             </div>
 
-            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; background: #f8fafc; padding: 12px; border-radius: 8px; margin-bottom: 14px; border: 1px solid #e2e8f0;">
-                <div>
-                    <span style="font-size: 11px; color: #64748b; font-weight: 600; text-transform: uppercase;">Client ID</span>
-                    <div style="font-size: 12px; font-weight: 700; color: #0f172a; font-family: monospace; overflow: hidden; text-overflow: ellipsis;">
-                        @php
-                            $currentSsoId = \DB::table('system_settings')->where('key', 'google_sso_client_id')->value('value') ?: config('services.google.client_id') ?: env('GOOGLE_CLIENT_ID', '');
-                        @endphp
-                        {{ $currentSsoId ? \Illuminate\Support\Str::limit($currentSsoId, 30) : 'Not Set' }}
+            {{-- Dual SSO Configuration Overview: Internal Login vs Public Document Tracking --}}
+            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 14px; margin-bottom: 14px;">
+                {{-- Panel 1: Internal Staff Login SSO --}}
+                <div style="background: #f8fafc; padding: 14px; border-radius: 8px; border: 1px solid #e2e8f0; border-left: 4px solid #ea4335;">
+                    <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px;">
+                        <span style="font-size: 13px; font-weight: 800; color: #0f172a; display: flex; align-items: center; gap: 6px;">
+                            <i class="fa-solid fa-building-columns" style="color: #ea4335;"></i> 1. Internal Staff Login SSO
+                        </span>
+                        <span style="font-size: 10px; background: #fee2e2; color: #991b1b; padding: 2px 6px; border-radius: 4px; font-weight: 700;">
+                            @cspc.edu.ph only
+                        </span>
+                    </div>
+
+                    @php
+                        $currentSsoId = \DB::table('system_settings')->where('key', 'google_sso_client_id')->value('value') ?: config('services.google.client_id') ?: env('GOOGLE_CLIENT_ID', '');
+                        $currentRedirect = \DB::table('system_settings')->where('key', 'google_sso_redirect_uri')->value('value') ?: env('GOOGLE_REDIRECT_URI', 'dynamic');
+                        $fromDb = \DB::table('system_settings')->where('key', 'google_sso_client_id')->value('value');
+                    @endphp
+
+                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px; font-size: 11px;">
+                        <div>
+                            <span style="color: #64748b; font-weight: 600; text-transform: uppercase;">Client ID:</span>
+                            <div style="font-weight: 700; color: #0f172a; font-family: monospace; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                                {{ $currentSsoId ? \Illuminate\Support\Str::limit($currentSsoId, 22) : 'Not Set' }}
+                            </div>
+                        </div>
+                        <div>
+                            <span style="color: #64748b; font-weight: 600; text-transform: uppercase;">Callback Route:</span>
+                            <div style="font-weight: 700; color: #ea4335; font-family: monospace; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                                /auth/google/callback
+                            </div>
+                        </div>
+                    </div>
+                    <div style="margin-top: 6px; font-size: 10px; color: #059669; font-weight: 600;">
+                        Source: {{ $fromDb ? 'Database (Live Override)' : 'Environment (.env)' }}
                     </div>
                 </div>
-                <div>
-                    <span style="font-size: 11px; color: #64748b; font-weight: 600; text-transform: uppercase;">Redirect URI</span>
-                    <div style="font-size: 12px; font-weight: 700; color: #ea4335;">
-                        @php
-                            $currentRedirect = \DB::table('system_settings')->where('key', 'google_sso_redirect_uri')->value('value') ?: env('GOOGLE_REDIRECT_URI', 'dynamic');
-                        @endphp
-                        {{ $currentRedirect === 'dynamic' ? 'Dynamic (Auto-detect)' : $currentRedirect }}
+
+                {{-- Panel 2: Public Document Tracking SSO --}}
+                <div style="background: #f8fafc; padding: 14px; border-radius: 8px; border: 1px solid #e2e8f0; border-left: 4px solid #0284c7;">
+                    <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px;">
+                        <span style="font-size: 13px; font-weight: 800; color: #0f172a; display: flex; align-items: center; gap: 6px;">
+                            <i class="fa-solid fa-earth-americas" style="color: #0284c7;"></i> 2. Public Tracking SSO
+                        </span>
+                        <span style="font-size: 10px; background: #e0f2fe; color: #0369a1; padding: 2px 6px; border-radius: 4px; font-weight: 700;">
+                            Any Google Account
+                        </span>
                     </div>
-                </div>
-                <div>
-                    <span style="font-size: 11px; color: #64748b; font-weight: 600; text-transform: uppercase;">Source</span>
-                    <div style="font-size: 12px; font-weight: 700; color: #059669;">
-                        @php
-                            $fromDb = \DB::table('system_settings')->where('key', 'google_sso_client_id')->value('value');
-                        @endphp
-                        {{ $fromDb ? 'Database (Live Override)' : 'Environment (.env)' }}
+
+                    @php
+                        $customTrackId = \DB::table('system_settings')->where('key', 'google_tracking_sso_client_id')->value('value') ?: config('services.google_tracking.client_id') ?: env('GOOGLE_TRACKING_CLIENT_ID', '');
+                        $trackRedirect = \DB::table('system_settings')->where('key', 'google_tracking_sso_redirect_uri')->value('value') ?: env('GOOGLE_TRACKING_REDIRECT_URI', 'dynamic');
+                    @endphp
+
+                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px; font-size: 11px;">
+                        <div>
+                            <span style="color: #64748b; font-weight: 600; text-transform: uppercase;">Client ID:</span>
+                            <div style="font-weight: 700; color: #0f172a; font-family: monospace; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                                @if (!empty($customTrackId))
+                                    {{ \Illuminate\Support\Str::limit($customTrackId, 22) }}
+                                @else
+                                    <span style="color: #0284c7;">{{ $currentSsoId ? \Illuminate\Support\Str::limit($currentSsoId, 18) . ' (Inherited)' : 'Inheriting Primary' }}</span>
+                                @endif
+                            </div>
+                        </div>
+                        <div>
+                            <span style="color: #64748b; font-weight: 600; text-transform: uppercase;">Callback Route:</span>
+                            <div style="font-weight: 700; color: #0284c7; font-family: monospace; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                                /auth/google/track/callback
+                            </div>
+                        </div>
+                    </div>
+                    <div style="margin-top: 6px; font-size: 10px; color: #0284c7; font-weight: 600;">
+                        {{ !empty($customTrackId) ? 'Configured with custom tracking credentials' : 'Active (Using primary Google OAuth with public tracking callback)' }}
                     </div>
                 </div>
             </div>
@@ -1106,14 +1245,29 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - System Settings')] class
                         <i class="fa-solid fa-key" style="color: #ea4335;"></i> Update Google SSO Credentials
                     </h4>
 
-                    <div style="background: #eff6ff; border: 1px solid #bfdbfe; border-radius: 8px; padding: 10px 14px; margin-bottom: 14px; font-size: 12px; color: #1e40af; display: flex; align-items: flex-start; gap: 8px;">
-                        <i class="fa-solid fa-circle-info" style="margin-top: 2px;"></i>
-                        <span>These credentials are from your <strong>Google Cloud Console</strong> OAuth 2.0 Client ID (Web Application type). Changes take effect immediately — no app restart needed. The Authorized Redirect URI must be <code style="background: #dbeafe; padding: 1px 6px; border-radius: 4px;">{{ url('/auth/google/callback') }}</code></span>
+                    <div style="background: #eff6ff; border: 1px solid #bfdbfe; border-radius: 8px; padding: 12px 14px; margin-bottom: 14px; font-size: 12px; color: #1e40af; display: flex; flex-direction: column; gap: 6px;">
+                        <div style="display: flex; align-items: flex-start; gap: 8px;">
+                            <i class="fa-solid fa-circle-info" style="margin-top: 2px;"></i>
+                            <span>These credentials are from your <strong>Google Cloud Console</strong> OAuth 2.0 Client ID (Web Application type). In Google Cloud Console under <strong>"Authorized redirect URIs"</strong>, you must add:</span>
+                        </div>
+                        <div style="margin-left: 22px; display: flex; flex-direction: column; gap: 4px; font-family: monospace; font-size: 11px;">
+                            <div>
+                                <span style="color: #64748b; font-family: sans-serif; font-size: 11px; font-weight: 600;">Internal Staff Login:</span>
+                                <code style="background: #dbeafe; padding: 2px 6px; border-radius: 4px; color: #1d4ed8;">{{ url('/auth/google/callback') }}</code>
+                            </div>
+                            <div>
+                                <span style="color: #64748b; font-family: sans-serif; font-size: 11px; font-weight: 600;">Public Document Tracking:</span>
+                                <code style="background: #dbeafe; padding: 2px 6px; border-radius: 4px; color: #0369a1;">{{ url('/auth/google/track/callback') }}</code>
+                            </div>
+                        </div>
+                        <div style="margin-left: 22px; font-size: 11px; color: #3b82f6;">
+                            <em>Leaving the field below as <strong>"dynamic"</strong> tells RMS to automatically construct these URLs from your active domain/port.</em>
+                        </div>
                     </div>
 
                     <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 12px;">
                         <div>
-                            <label style="display: block; font-size: 11px; font-weight: 700; color: #334155; margin-bottom: 4px;">Client ID (GOOGLE_CLIENT_ID)</label>
+                            <label style="display: block; font-size: 11px; font-weight: 700; color: #334155; margin-bottom: 4px;">1. Internal Login Client ID (GOOGLE_CLIENT_ID)</label>
                             <input type="text" wire:model="ssoClientId" placeholder="e.g. 459768812355-xxx.apps.googleusercontent.com" style="width: 100%; padding: 8px 10px; border: 1px solid #cbd5e1; border-radius: 6px; font-size: 12px; font-family: monospace;">
                         </div>
 
@@ -1125,13 +1279,41 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - System Settings')] class
                         <div>
                             <label style="display: block; font-size: 11px; font-weight: 700; color: #334155; margin-bottom: 4px;">Redirect URI (GOOGLE_REDIRECT_URI)</label>
                             <input type="text" wire:model="ssoRedirectUri" placeholder="dynamic (auto-detects from APP_URL)" style="width: 100%; padding: 8px 10px; border: 1px solid #cbd5e1; border-radius: 6px; font-size: 12px; font-family: monospace;">
-                            <span style="font-size: 10px; color: #64748b; margin-top: 2px; display: block;">Set to "dynamic" to auto-detect, or enter a fixed URL like https://yourdomain.com/auth/google/callback</span>
+                            <span style="font-size: 10px; color: #64748b; margin-top: 2px; display: block;">Callback: <code style="background:#e2e8f0;padding:1px 4px;border-radius:3px;">{{ url('/auth/google/callback') }}</code></span>
                         </div>
                     </div>
 
-                    <div style="display: flex; gap: 8px; margin-top: 12px;">
+                    {{-- Public Document Tracking SSO Settings --}}
+                    <div style="margin-top: 16px; padding-top: 14px; border-top: 1px solid #cbd5e1;">
+                        <span style="font-size: 12px; font-weight: 700; color: #0284c7; display: block; margin-bottom: 8px;">
+                            <i class="fa-solid fa-earth-americas"></i> 2. Public Document Tracking SSO (Optional Separate Key)
+                        </span>
+                        <div style="font-size: 11px; color: #64748b; margin-bottom: 10px;">
+                            If you have a separate <strong>External</strong> Google OAuth Client ID for public guest tracking, enter it below. Leave blank to fallback to the primary Google SSO credentials.
+                        </div>
+
+                        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 12px;">
+                            <div>
+                                <label style="display: block; font-size: 11px; font-weight: 700; color: #334155; margin-bottom: 4px;">Tracking Client ID (GOOGLE_TRACKING_CLIENT_ID)</label>
+                                <input type="text" wire:model="trackingSsoClientId" placeholder="Leave empty to use main client ID" style="width: 100%; padding: 8px 10px; border: 1px solid #cbd5e1; border-radius: 6px; font-size: 12px; font-family: monospace;">
+                            </div>
+
+                            <div>
+                                <label style="display: block; font-size: 11px; font-weight: 700; color: #334155; margin-bottom: 4px;">Tracking Client Secret (GOOGLE_TRACKING_CLIENT_SECRET)</label>
+                                <input type="password" wire:model="trackingSsoClientSecret" placeholder="Leave empty to use main secret" style="width: 100%; padding: 8px 10px; border: 1px solid #cbd5e1; border-radius: 6px; font-size: 12px; font-family: monospace;">
+                            </div>
+
+                            <div>
+                                <label style="display: block; font-size: 11px; font-weight: 700; color: #334155; margin-bottom: 4px;">Tracking Redirect URI</label>
+                                <input type="text" wire:model="trackingSsoRedirectUri" placeholder="dynamic (auto-detects from APP_URL)" style="width: 100%; padding: 8px 10px; border: 1px solid #cbd5e1; border-radius: 6px; font-size: 12px; font-family: monospace;">
+                                <span style="font-size: 10px; color: #64748b; margin-top: 2px; display: block;">Callback: <code style="background:#e2e8f0;padding:1px 4px;border-radius:3px;">{{ url('/auth/google/track/callback') }}</code></span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div style="display: flex; gap: 8px; margin-top: 14px;">
                         <button type="button" wire:click="saveSsoCredentials" style="background: #16a34a; color: white; border: none; padding: 8px 16px; border-radius: 6px; font-weight: 700; font-size: 12px; cursor: pointer; display: inline-flex; align-items: center; gap: 6px;">
-                            <i class="fa-solid fa-floppy-disk"></i> Save SSO Credentials
+                            <i class="fa-solid fa-floppy-disk"></i> Save All SSO Credentials
                         </button>
                         <button type="button" wire:click="toggleSsoEditForm" style="background: #e2e8f0; color: #475569; border: none; padding: 8px 14px; border-radius: 6px; font-weight: 700; font-size: 12px; cursor: pointer;">
                             Cancel
@@ -1186,6 +1368,21 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - System Settings')] class
                             <input type="checkbox" wire:model="autoForwardCreatedTransaction">
                             <span class="slider"></span>
                         </label>
+                    </div>
+
+                    <!-- Action: Push Synchronized Refresh to Open Tabs -->
+                    <div class="setting-item" style="border-top: 1px dashed #e2e8f0; padding-top: 14px; margin-top: 6px;">
+                        <div class="setting-details">
+                            <span class="setting-title" style="display: flex; align-items: center; gap: 6px;">
+                                <i class="fa-solid fa-arrows-rotate" style="color: #2563eb;"></i>
+                                Broadcast Tab Auto-Refresh
+                            </span>
+                            <span class="setting-desc">Sends an instant synchronized 5-second countdown reload notification to all active browser windows and tabs across the system.</span>
+                        </div>
+                        <button type="button" wire:click="broadcastRefreshToAllTabs" class="form-btn-primary" style="padding: 8px 16px; font-size: 12px; font-weight: 600; white-space: nowrap; height: 36px; display: inline-flex; align-items: center; gap: 6px; background-color: #2563eb; color: #ffffff; border-radius: 8px; border: none; cursor: pointer;">
+                            <i class="fa-solid fa-satellite-dish"></i>
+                            Push Refresh
+                        </button>
                     </div>
                 </div>
             </div>

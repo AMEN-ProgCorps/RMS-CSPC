@@ -5,6 +5,7 @@
         ->toArray();
     $dtsActive = in_array('Document Tracking System', $activeSubsystems);
     $rdpActive = in_array('Records Disposition Program', $activeSubsystems);
+    $dcsActive = in_array('Document Control System', $activeSubsystems);
     $adminActive = in_array('Admin Console', $activeSubsystems);
 @endphp
 <div class="actions-container">
@@ -28,7 +29,7 @@
         @endif
         @if((auth()->user()?->permissions?->is_sadm || auth()->user()?->permissions?->can_access_dts) && !request()->is('dts*') && $dtsActive)
         <button class="subSystem" onclick="window.location.href='/dts'">
-            <img src="{{ asset('icons/dts.svg') }}" alt="Document Control Icon">
+            <img src="{{ asset('icons/dts.svg') }}" alt="Document Tracking Icon">
             <span>Document Tracking</span>
         </button>
         @endif
@@ -36,6 +37,12 @@
         <button class="subSystem" onclick="window.location.href='/rdp'">
             <img src="{{ asset('icons/rdp.svg') }}" alt="Records Disposition Icon">
             <span>Records Disposition</span>
+        </button>
+        @endif
+        @if((auth()->user()?->permissions?->is_sadm || auth()->user()?->permissions?->can_access_dcs) && !request()->is('dcs*') && $dcsActive)
+        <button class="subSystem" onclick="window.location.href='/dcs'">
+            <img src="{{ asset('icons/dcs.svg') }}" alt="Document Control Icon">
+            <span>Document Control</span>
         </button>
         @endif
         <hr>
@@ -51,8 +58,8 @@
             <span id="chatify-dropdown-unread-badge" style="display: none; background: #ef4444; color: #ffffff; font-size: 10px; font-weight: 700; min-width: 18px; height: 18px; border-radius: 9px; padding: 0 5px; align-items: center; justify-content: center;">0</span>
         </button>
 
-        <button class="subSystem" onclick="window.location.href='/logout'">
-            <img src="{{ asset('icons/Logout.svg') }}" alt="Logout Icon">
+        <button class="subSystem subSystem--logout" onclick="window.location.href='/logout'">
+            <img src="{{ asset('icons/logout.svg') }}" alt="Logout Icon">
             <span>LOGOUT</span>
         </button>
     </div>

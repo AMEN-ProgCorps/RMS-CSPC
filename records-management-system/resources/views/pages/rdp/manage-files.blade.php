@@ -727,6 +727,281 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Cockpit File
             cursor: pointer;
         }
         .empty-state { text-align: center; padding: 48px 24px; color: #64748b; }
+
+        .stat-card.active-all { border-color: #2563eb; background: #f8fafc; }
+        .stat-card.active-dts { border-color: #16a34a; background: #f0fdf4; }
+        .stat-card.active-rdp { border-color: #ea580c; background: #fff7ed; }
+        .stat-card.active-shared { border-color: #9333ea; background: #faf5ff; }
+
+        /* ==========================================================================
+           Manage Files (Cockpit) - Dark Mode Overrides
+           ========================================================================== */
+        [data-theme="dark"] .cockpit-wrapper {
+            color: #cbd5e1;
+        }
+
+        [data-theme="dark"] .cockpit-header {
+            border-bottom-color: #1e293b;
+        }
+
+        [data-theme="dark"] .cockpit-header h2 {
+            color: #f8fafc;
+        }
+
+        [data-theme="dark"] .stat-card {
+            background: #131c2e !important;
+            border-color: #1e293b !important;
+            box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3) !important;
+        }
+
+        [data-theme="dark"] .stat-card:hover {
+            border-color: #3b82f6 !important;
+        }
+
+        [data-theme="dark"] .stat-card.active-all {
+            border-color: #3b82f6 !important;
+            background: #172554 !important;
+            box-shadow: 0 0 0 1px #3b82f6 !important;
+        }
+
+        [data-theme="dark"] .stat-card.active-dts {
+            border-color: #22c55e !important;
+            background: #14532d !important;
+            box-shadow: 0 0 0 1px #22c55e !important;
+        }
+
+        [data-theme="dark"] .stat-card.active-rdp {
+            border-color: #f97316 !important;
+            background: #431407 !important;
+            box-shadow: 0 0 0 1px #f97316 !important;
+        }
+
+        [data-theme="dark"] .stat-card.active-shared {
+            border-color: #a855f7 !important;
+            background: #3b0764 !important;
+            box-shadow: 0 0 0 1px #a855f7 !important;
+        }
+
+        [data-theme="dark"] .stat-icon.total {
+            background: rgba(37, 99, 235, 0.2) !important;
+            color: #60a5fa !important;
+        }
+
+        [data-theme="dark"] .stat-icon.dts {
+            background: rgba(22, 163, 74, 0.2) !important;
+            color: #4ade80 !important;
+        }
+
+        [data-theme="dark"] .stat-icon.rdp {
+            background: rgba(234, 88, 12, 0.2) !important;
+            color: #fb923c !important;
+        }
+
+        [data-theme="dark"] .stat-icon.shared {
+            background: rgba(147, 51, 234, 0.2) !important;
+            color: #c084fc !important;
+        }
+
+        [data-theme="dark"] .stat-info .stat-value {
+            color: #f8fafc !important;
+        }
+
+        [data-theme="dark"] .stat-info .stat-label {
+            color: #94a3b8 !important;
+        }
+
+        [data-theme="dark"] .subsystem-bar {
+            border-bottom-color: #1e293b;
+        }
+
+        [data-theme="dark"] .subsystem-tab-btn {
+            background: #0f172a;
+            color: #94a3b8;
+        }
+
+        [data-theme="dark"] .subsystem-tab-btn:hover {
+            background: #1e293b;
+            color: #f8fafc;
+        }
+
+        [data-theme="dark"] .subsystem-tab-btn.active {
+            background: #2563eb;
+            color: #ffffff;
+        }
+
+        [data-theme="dark"] .direction-toggle-btn {
+            background: #0f172a !important;
+            border-color: #334155 !important;
+            color: #cbd5e1 !important;
+        }
+
+        [data-theme="dark"] .direction-toggle-btn:hover {
+            background: #1e293b !important;
+            color: #f8fafc !important;
+        }
+
+        [data-theme="dark"] .direction-toggle-btn svg {
+            fill: #60a5fa !important;
+        }
+
+        [data-theme="dark"] .view-switcher {
+            background: #0f172a !important;
+            border: 1px solid #1e293b !important;
+        }
+
+        [data-theme="dark"] .view-btn {
+            color: #64748b !important;
+        }
+
+        [data-theme="dark"] .view-btn:hover {
+            color: #cbd5e1 !important;
+        }
+
+        [data-theme="dark"] .view-btn.active {
+            background: #1e293b !important;
+            color: #60a5fa !important;
+            box-shadow: 0 2px 6px rgba(0,0,0,0.4) !important;
+        }
+
+        [data-theme="dark"] .empty-state {
+            color: #94a3b8 !important;
+        }
+
+        [data-theme="dark"] .empty-state strong {
+            color: #f8fafc !important;
+        }
+
+        [data-theme="dark"] .files-search input {
+            background: #0f172a !important;
+            border-color: #334155 !important;
+            color: #f8fafc !important;
+        }
+
+        [data-theme="dark"] .files-search input::placeholder {
+            color: #64748b !important;
+        }
+
+        [data-theme="dark"] .files-search svg {
+            fill: #64748b !important;
+        }
+
+        [data-theme="dark"] .top-office-select,
+        [data-theme="dark"] .filter-select {
+            background-color: #0f172a !important;
+            border-color: #334155 !important;
+            color: #f8fafc !important;
+        }
+
+        [data-theme="dark"] .office-badge {
+            background-color: rgba(37, 99, 235, 0.2) !important;
+            color: #93c5fd !important;
+            border-color: rgba(37, 99, 235, 0.4) !important;
+        }
+
+        [data-theme="dark"] .user-office-banner {
+            background-color: rgba(22, 163, 74, 0.15) !important;
+            color: #86efac !important;
+            border-color: rgba(22, 163, 74, 0.3) !important;
+        }
+
+        [data-theme="dark"] .file-card {
+            background: #131c2e !important;
+            border-color: #1e293b !important;
+        }
+
+        [data-theme="dark"] .file-card:hover {
+            border-color: #3b82f6 !important;
+            box-shadow: 0 8px 20px rgba(0, 0, 0, 0.4) !important;
+        }
+
+        [data-theme="dark"] .file-card.selected {
+            background-color: #1e293b !important;
+            border-color: #3b82f6 !important;
+        }
+
+        [data-theme="dark"] .file-card-preview {
+            background: #0f172a !important;
+            border-color: #334155 !important;
+        }
+
+        [data-theme="dark"] .file-card-title {
+            color: #f8fafc !important;
+        }
+
+        [data-theme="dark"] .file-card-meta {
+            color: #94a3b8 !important;
+        }
+
+        [data-theme="dark"] .files-table-card {
+            background: #131c2e !important;
+            border-color: #1e293b !important;
+        }
+
+        [data-theme="dark"] .files-table th {
+            background: #0f172a !important;
+            color: #94a3b8 !important;
+            border-bottom-color: #1e293b !important;
+        }
+
+        [data-theme="dark"] .files-table td {
+            color: #cbd5e1 !important;
+            border-bottom-color: #1e293b !important;
+        }
+
+        [data-theme="dark"] .files-table tr:hover td {
+            background-color: #1a253c !important;
+        }
+
+        [data-theme="dark"] .files-table tr.selected td {
+            background-color: #1e293b !important;
+        }
+
+        [data-theme="dark"] .cockpit-inspector {
+            background: #131c2e !important;
+            border-color: #1e293b !important;
+        }
+
+        [data-theme="dark"] .inspector-header {
+            border-bottom-color: #1e293b !important;
+        }
+
+        [data-theme="dark"] .inspector-header h3 {
+            color: #f8fafc !important;
+        }
+
+        [data-theme="dark"] .inspector-icon-large {
+            background: #0f172a !important;
+            border-color: #1e293b !important;
+        }
+
+        [data-theme="dark"] .inspector-field label {
+            color: #94a3b8 !important;
+        }
+
+        [data-theme="dark"] .inspector-field span {
+            color: #f8fafc !important;
+        }
+
+        [data-theme="dark"] .cockpit-pagination-bar {
+            background: #131c2e !important;
+            border-color: #1e293b !important;
+        }
+
+        [data-theme="dark"] .pagination-summary {
+            color: #94a3b8 !important;
+        }
+
+        [data-theme="dark"] .pagination-summary strong {
+            color: #f8fafc !important;
+        }
+
+        [data-theme="dark"] .per-page-select,
+        [data-theme="dark"] select,
+        [data-theme="dark"] input[type="text"] {
+            background: #0f172a !important;
+            border-color: #334155 !important;
+            color: #f8fafc !important;
+        }
     </style>
 
     <!-- Cockpit Title Header -->
@@ -744,7 +1019,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Cockpit File
 
     <!-- Cockpit Quick Metrics Bar -->
     <div class="cockpit-stats-grid">
-        <div class="stat-card" wire:click="setTab('all')" style="cursor: pointer; {{ $activeTab === 'all' ? 'border-color: #2563eb; background: #f8fafc;' : '' }}">
+        <div class="stat-card {{ $activeTab === 'all' ? 'active-all' : '' }}" wire:click="setTab('all')" style="cursor: pointer;">
             <div class="stat-info">
                 <div class="stat-label">Total Registry Files</div>
                 <div class="stat-value">{{ number_format($stats['total']) }}</div>
@@ -754,7 +1029,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Cockpit File
             </div>
         </div>
 
-        <div class="stat-card" wire:click="setTab('dts')" style="cursor: pointer; {{ $activeTab === 'dts' ? 'border-color: #16a34a; background: #f0fdf4;' : '' }}">
+        <div class="stat-card {{ $activeTab === 'dts' ? 'active-dts' : '' }}" wire:click="setTab('dts')" style="cursor: pointer;">
             <div class="stat-info">
                 <div class="stat-label">DTS Tracking Files</div>
                 <div class="stat-value">{{ number_format($stats['dts']) }}</div>
@@ -764,7 +1039,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Cockpit File
             </div>
         </div>
 
-        <div class="stat-card" wire:click="setTab('rdp')" style="cursor: pointer; {{ $activeTab === 'rdp' ? 'border-color: #ea580c; background: #fff7ed;' : '' }}">
+        <div class="stat-card {{ $activeTab === 'rdp' ? 'active-rdp' : '' }}" wire:click="setTab('rdp')" style="cursor: pointer;">
             <div class="stat-info">
                 <div class="stat-label">RDP Inventory Files</div>
                 <div class="stat-value">{{ number_format($stats['rdp']) }}</div>
@@ -774,7 +1049,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Cockpit File
             </div>
         </div>
 
-        <div class="stat-card" wire:click="setTab('shared')" style="cursor: pointer; {{ $activeTab === 'shared' ? 'border-color: #9333ea; background: #faf5ff;' : '' }}">
+        <div class="stat-card {{ $activeTab === 'shared' ? 'active-shared' : '' }}" wire:click="setTab('shared')" style="cursor: pointer;">
             <div class="stat-info">
                 <div class="stat-label">Shared & Duplicated</div>
                 <div class="stat-value">{{ number_format($stats['shared']) }}</div>

@@ -1588,6 +1588,14 @@ body.dash-cl-open {
 
 .upcoming-item:hover { background: var(--dash-border-light); }
 
+.upcoming-item.is-past {
+    opacity: 0.78;
+}
+
+.upcoming-item.is-past .time {
+    color: var(--dash-text-muted, #64748b);
+}
+
 .upcoming-event-dot {
     width: 6px;
     height: 6px;

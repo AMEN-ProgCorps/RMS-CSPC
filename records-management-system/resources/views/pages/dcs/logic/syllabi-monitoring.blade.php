@@ -83,6 +83,8 @@ class SyllabiMonitoringHelper
 
         $coursesByProgram = $courses->groupBy('program_id');
 
+        $facultyByCourse = self::facultyNamesByCourseId($courses->pluck('id')->all());
+
         $syllabiTypeId = self::subtypeId('syllabi');
         $tosTypeId = self::subtypeId('tos');
 
@@ -115,11 +117,7 @@ class SyllabiMonitoringHelper
                 $syllabiActual = $syllabiActualIds->count();
             }
             $syllabiLacking = max(0, $target - $syllabiActual);
-            $lackingNames = $catalog
-                ->reject(fn ($c) => $syllabiActualIds->contains($c->id))
-                ->map(fn ($c) => self::courseLabel($c))
-                ->values()
-                ->all();
+            $lackingNames = self::lackingCourseLabels($catalog, $syllabiActualIds, $facultyByCourse);
 
             $tosTarget = $target;
             $tosActual = $tosActualIds->intersect($catalogIds)->count();
@@ -137,11 +135,7 @@ class SyllabiMonitoringHelper
             if ($target === 0) {
                 $drfActual = $drfCourseIds->count();
             }
-            $drfLackingNames = $catalog
-                ->reject(fn ($c) => $drfCourseIds->contains($c->id))
-                ->map(fn ($c) => self::courseLabel($c))
-                ->values()
-                ->all();
+            $drfLackingNames = self::lackingCourseLabels($catalog, $drfCourseIds, $facultyByCourse);
             $tosDrfCourseIds = $tosSubs
                 ->filter(fn ($row) => (int) $row->drf_actual > 0)
                 ->pluck('course_id')
@@ -153,16 +147,8 @@ class SyllabiMonitoringHelper
                 $tosDrfActual = $tosDrfCourseIds->count();
             }
             $tosLacking = max(0, $tosTarget - $tosActual);
-            $tosLackingNames = $catalog
-                ->reject(fn ($c) => $tosActualIds->contains($c->id))
-                ->map(fn ($c) => self::courseLabel($c))
-                ->values()
-                ->all();
-            $tosDrfLackingNames = $catalog
-                ->reject(fn ($c) => $tosDrfCourseIds->contains($c->id))
-                ->map(fn ($c) => self::courseLabel($c))
-                ->values()
-                ->all();
+            $tosLackingNames = self::lackingCourseLabels($catalog, $tosActualIds, $facultyByCourse);
+            $tosDrfLackingNames = self::lackingCourseLabels($catalog, $tosDrfCourseIds, $facultyByCourse);
 
             $saved = self::savedStatuses($collegeId, $schoolYearId, $semesterId, (int) $program->id, $statusDeadline);
             $syllabiStatus = $saved['syllabi'] ?? self::suggestStatus($syllabiActual, $target, $syllabiSubs, $deadline);
@@ -445,6 +431,46 @@ class SyllabiMonitoringHelper
         $name = trim((string) ($course->course_name ?? ''));
 
         return $code !== '' ? $code : $name;
+    }
+
+    /** @param list<int|string> $courseIds @return array<int|string, string> */
+    private static function facultyNamesByCourseId(array $courseIds): array
+    {
+        if ($courseIds === [] || ! Schema::hasTable('dcs_program_course_faculties')) {
+            return [];
+        }
+
+        return DB::table('dcs_program_course_faculties as pcf')
+            ->join('dcs_faculties as f', 'f.id', '=', 'pcf.faculty_id')
+            ->whereIn('pcf.program_course_id', $courseIds)
+            ->orderBy('f.faculty_name')
+            ->get(['pcf.program_course_id', 'f.faculty_name'])
+            ->groupBy('program_course_id')
+            ->map(fn ($rows) => $rows->pluck('faculty_name')->join(', '))
+            ->all();
+    }
+
+    /**
+     * @param \Illuminate\Support\Collection<int, object> $catalog
+     * @param \Illuminate\Support\Collection<int, mixed> $submittedIds
+     * @param array<int|string, string> $facultyByCourse
+     * @return list<string>
+     */
+    private static function lackingCourseLabels($catalog, $submittedIds, array $facultyByCourse): array
+    {
+        return $catalog
+            ->reject(fn ($c) => $submittedIds->contains($c->id))
+            ->map(function ($c) use ($facultyByCourse) {
+                $label = self::courseLabel($c);
+                $instructor = trim((string) ($facultyByCourse[$c->id] ?? $facultyByCourse[(string) $c->id] ?? ''));
+                if ($instructor !== '') {
+                    return $label . ' — ' . $instructor;
+                }
+
+                return $label;
+            })
+            ->values()
+            ->all();
     }
 
     private static function pct(int $actual, int $target): ?float

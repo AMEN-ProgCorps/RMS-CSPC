@@ -7,9 +7,9 @@
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body {
-            font-family: Arial, Helvetica, sans-serif;
-            font-size: 11px;
-            color: #1e293b;
+            font-family: Arial, sans-serif;
+            font-size: 10pt;
+            color: #000;
             background: #fff;
             -webkit-print-color-adjust: exact;
             print-color-adjust: exact;
@@ -30,29 +30,93 @@
         .print-container { max-width: 1100px; margin: 0 auto; padding: 24px 36px 60px; }
         body.is-opcr .print-container { max-width: 1400px; }
 
-        /* ── Header ── */
-        .hdr-table { width: 100%; border-collapse: collapse; }
+        /* ── Header (CSPC masterlist letterhead) ── */
+        .hdr-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-bottom: 10px;
+        }
         .hdr-table, .hdr-table tr, .hdr-table td { border: none !important; background: none !important; }
-        .hdr-table td { padding: 0; vertical-align: middle; text-align: left; }
-        .hdr-logo { width: 100px; height: 100px; object-fit: contain; }
-        .hdr-republic { font-size: 11px; color: #64748b; text-transform: uppercase; letter-spacing: 0.5px; }
-        .hdr-name { font-size: 11px; font-weight: 700; color: #0d2a7a; text-transform: uppercase; letter-spacing: 0.3px; margin: 2px 0; }
-        .hdr-location { font-size: 11px; color: #64748b; }
-
-        .hdr-line { position: relative; margin: 10px 0 16px; border-top: 2px solid #0d2a7a; height: 1px; }
-        .hdr-line span { position: absolute; top: -12px; right: 0; background: #fff; padding: 0 0 0 10px; font-size: 11px; font-weight: 700; color: #0d2a7a; }
+        .hdr-table td { padding: 0; text-align: left; }
+        .hdr-brand-row td { vertical-align: middle; }
+        .hdr-logo-cell {
+            width: 1%;
+            white-space: nowrap;
+            padding-right: 8px;
+            font-size: 10pt;
+            line-height: 1.25;
+        }
+        .hdr-text-cell {
+            font-size: 10pt;
+            line-height: 1.25;
+        }
+        .hdr-logo {
+            height: 70pt;
+            width: auto;
+            object-fit: contain;
+            object-position: center center;
+            display: block;
+        }
+        .hdr-republic,
+        .hdr-name,
+        .hdr-location {
+            font-family: Arial, sans-serif;
+            font-size: 10pt;
+            color: #000;
+            line-height: 1.25;
+            white-space: nowrap;
+        }
+        .hdr-name { font-weight: 700; text-transform: uppercase; margin: 1px 0; }
+        .hdr-line-row td {
+            padding-top: 2px;
+            vertical-align: top;
+        }
+        .hdr-line {
+            position: relative;
+            margin: 0 0 10px;
+            border-top: 2px solid #0071BC;
+            height: 0;
+        }
+        .hdr-line span {
+            position: absolute;
+            right: 0;
+            top: -0.6em;
+            background: #fff;
+            padding-left: 8px;
+            font-family: Arial, Helvetica, sans-serif;
+            font-size: 9pt;
+            font-weight: 700;
+            color: #000;
+            line-height: 1;
+            white-space: nowrap;
+        }
         .hdr-line--plain span { display: none; }
 
         /* ── Title ── */
         .rpt-title { text-align: center; margin-bottom: 12px; }
-        .rpt-title h2 { font-size: 11px; font-weight: 700; color: #1e293b; text-transform: uppercase; letter-spacing: 0.5px; }
+        .rpt-title h2 {
+            font-family: Arial, Helvetica, sans-serif;
+            font-size: 16pt;
+            font-weight: 700;
+            color: #000;
+            text-transform: uppercase;
+            letter-spacing: 0.3px;
+        }
         .rpt-period { text-align: center; margin-bottom: 12px; font-size: 11px; color: #64748b; }
         body.is-opcr .rpt-period { display: none !important; }
         body.is-opcr .rpt-filters { display: none !important; }
 
         /* ── Checkboxes ── */
         .rpt-filters { text-align: center; margin-bottom: 16px; }
-        .rpt-fi { display: inline-block; margin: 0 10px 6px; font-size: 11px; font-weight: 500; color: #1e293b; vertical-align: middle; }
+        .rpt-fi {
+            display: inline-block;
+            margin: 0 10px 6px;
+            font-family: Arial, Helvetica, sans-serif;
+            font-size: 10pt;
+            font-weight: 500;
+            color: #000;
+            vertical-align: middle;
+        }
         .rpt-cb {
             display: inline-block;
             width: 12px;
@@ -63,44 +127,50 @@
             background: #fff;
             text-align: center;
             line-height: 12px;
-            font-size: 11px;
+            font-size: 10pt;
             color: #333;
         }
 
         /* ── Table ── */
-        .data-table { width: 100%; border-collapse: collapse; font-size: 11px; }
+        .data-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-family: Arial, sans-serif;
+            font-size: 10pt;
+        }
         .data-table th {
-            background: #4C94D8;
+            background: #8DB4E2;
             -webkit-print-color-adjust: exact;
             print-color-adjust: exact;
-            font-family: Arial, Helvetica, sans-serif;
-            font-size: 11px;
+            font-family: Arial, sans-serif;
+            font-size: 10pt;
             font-weight: 700;
-            text-transform: uppercase;
-            letter-spacing: 0.3px;
-            color: #1e293b;
-            padding: 8px 6px;
+            text-transform: none;
+            letter-spacing: normal;
+            color: #000;
+            padding: 6px 4px;
             border: 1px solid #000;
             text-align: center;
             vertical-align: middle;
+            line-height: 1.15;
         }
         .data-table thead tr:nth-child(2) th {
-            font-size: 10px;
-            font-weight: 600;
+            font-size: 10pt;
+            font-weight: 700;
             padding: 5px 4px;
         }
         .data-table td {
-            font-family: Arial, Helvetica, sans-serif;
-            font-size: 11px;
-            padding: 7px 6px;
+            font-family: Arial, sans-serif;
+            font-size: 10pt;
+            padding: 6px 4px;
             border: 1px solid #000;
             vertical-align: middle;
-            color: #1e293b;
+            color: #000;
             text-align: center;
         }
-        .data-table tr:nth-child(even) td { background: #f8fafc; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-        .rpt-na { color: #94a3b8; }
-        .empty-msg { text-align: center; padding: 24px; color: #94a3b8; font-style: italic; font-size: 11px; }
+        .data-table tr:nth-child(even) td { background: #fff; }
+        .rpt-na { color: #000; }
+        .empty-msg { text-align: center; padding: 24px; color: #000; font-style: italic; font-size: 10pt; font-family: Arial, sans-serif; }
 
         /* ── Footer ── */
         .rpt-footer {
@@ -150,10 +220,9 @@
             body { padding: 0; }
             .print-container { padding: 0 0 10px 0; max-width: 100%; }
             body.has-letterhead .print-container { padding: 200px 28px 100px; }
-            .data-table { font-size: 10px; }
-            .data-table th { font-size: 9px; padding: 5px 3px; }
-            .data-table thead tr:nth-child(2) th { font-size: 8px; padding: 3px 2px; }
-            .data-table td { font-size: 9px; padding: 4px 3px; }
+            .data-table,
+            .data-table th,
+            .data-table td { font-family: Arial, sans-serif; font-size: 10pt; }
             .rpt-footer { position: fixed; bottom: 0; left: 0; right: 0; background: #fff; }
             .rpt-period { display: none !important; }
         }
@@ -178,20 +247,25 @@
             $logoPath = public_path('images/logo.png');
             $logoSrc = file_exists($logoPath) ? ('data:image/png;base64,' . base64_encode(file_get_contents($logoPath))) : '';
         @endphp
-        <table class="hdr-table"><tr>
-            <td style="width:115px; padding-right:14px;">@if($logoSrc)<img src="{{ $logoSrc }}" alt="" class="hdr-logo">@endif</td>
-            <td>
-                <div class="hdr-republic">{{ $republic ?? 'Republic of the Philippines' }}</div>
-                <div class="hdr-name">{{ $institutionName ?? 'Camarines Sur Polytechnic Colleges' }}</div>
-                <div class="hdr-location">{{ $institutionAddress ?? 'Nabua, Camarines Sur' }}</div>
-            </td>
-        </tr></table>
-
-        <div class="hdr-line @if(($activeCategory ?? '') === 'opcr') hdr-line--plain @endif">
-            @if(($activeCategory ?? '') !== 'opcr')
-                <span>{{ $letterNumber ?? 'CSPC-QA-F001' }}</span>
-            @endif
-        </div>
+        <table class="hdr-table" cellpadding="0" cellspacing="0" border="0" width="100%">
+            <tr class="hdr-brand-row">
+                <td class="hdr-logo-cell" valign="middle">@if($logoSrc)<img src="{{ $logoSrc }}" alt="" class="hdr-logo" height="70">@endif</td>
+                <td class="hdr-text-cell" valign="middle">
+                    <div class="hdr-republic">{{ $republic ?? 'Republic of the Philippines' }}</div>
+                    <div class="hdr-name">{{ $institutionName ?? 'Camarines Sur Polytechnic Colleges' }}</div>
+                    <div class="hdr-location">{{ $institutionAddress ?? 'Nabua, Camarines Sur' }}</div>
+                </td>
+            </tr>
+            <tr class="hdr-line-row">
+                <td colspan="2">
+                    <div class="hdr-line @if(($activeCategory ?? '') === 'opcr') hdr-line--plain @endif">
+                        @if(($activeCategory ?? '') !== 'opcr')
+                            <span>{{ $letterNumber ?? 'CSPC-F-DCC-03' }}</span>
+                        @endif
+                    </div>
+                </td>
+            </tr>
+        </table>
         @endif
 
         {{-- TITLE --}}
@@ -269,7 +343,7 @@
                                 $group = $groups[$key] ?? null;
                             @endphp
                             @if($group === null || $group === '')
-                                <th rowspan="2">{{ $visCols[$key] }}</th>
+                                <th rowspan="2">{!! $visCols[$key] !!}</th>
                                 @php $i++; @endphp
                             @else
                                 @php
@@ -278,7 +352,7 @@
                                         $span++;
                                     }
                                 @endphp
-                                <th colspan="{{ $span }}">{{ $group }}</th>
+                                <th colspan="{{ $span }}">{!! $group !!}</th>
                                 @php $i += $span; @endphp
                             @endif
                         @endwhile
@@ -286,12 +360,12 @@
                     <tr>
                         @foreach($keys as $key)
                             @if(($groups[$key] ?? null) !== null && ($groups[$key] ?? null) !== '')
-                                <th>{{ $visCols[$key] }}</th>
+                                <th>{!! $visCols[$key] !!}</th>
                             @endif
                         @endforeach
                     </tr>
                 @else
-                    <tr>@foreach($visCols as $h)<th>{{ $h }}</th>@endforeach</tr>
+                    <tr>@foreach($visCols as $h)<th>{!! $h !!}</th>@endforeach</tr>
                 @endif
             </thead>
             <tbody>

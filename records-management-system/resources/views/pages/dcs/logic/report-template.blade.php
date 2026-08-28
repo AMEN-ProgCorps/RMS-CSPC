@@ -187,6 +187,8 @@ class ReportTemplateHelper
             'footerEffectivity' => $footerEffectivity,
             'footerRev' => $footerRev,
             'title' => 'DISTRIBUTION AND RETRIEVAL',
+            'embed' => $request->boolean('embed'),
+            'autoprint' => $request->boolean('autoprint'),
         ]);
     }
 }

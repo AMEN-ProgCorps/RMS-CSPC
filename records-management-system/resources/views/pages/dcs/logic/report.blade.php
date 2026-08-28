@@ -133,6 +133,17 @@ class ReportHelper
         };
     }
 
+    /** CSPC form code shown on the report letterhead (right of blue rule). */
+    private function letterNumberForReport(?string $category, ?string $sub): string
+    {
+        return match ($sub) {
+            'drf' => 'CSPC-F-DCC-06',
+            'dcn' => 'CSPC-F-DCC-01',
+            'internal_docs' => 'CSPC-F-DCC-03',
+            default => 'CSPC-F-DCC-03',
+        };
+    }
+
     private function parseReportFilters(Request $request): array
     {
         $raw = $request->input('sub_type_ids', '');
@@ -464,13 +475,13 @@ class ReportHelper
         })->values();
 
         $columns = [
-            'item_no'          => 'ITEM NO.',
-            'doc_no'           => 'DOCUMENT NO.',
-            'rev_no'           => 'REV.',
-            'doc_title'        => 'DOCUMENT TITLE',
-            'effectivity_date' => 'EFFECTIVITY DATE',
-            'originator'       => 'ORIGINATOR',
-            'no_pages'         => 'PAGES',
+            'item_no'          => 'Item<br>No.',
+            'doc_no'           => 'Doc. No.',
+            'rev_no'           => 'Rev<br>No.',
+            'doc_title'        => 'Document Title',
+            'effectivity_date' => 'Effectivity<br>Date',
+            'originator'       => 'Originator',
+            'no_pages'         => 'No.<br>of pages',
             'pdf_path'         => 'PDF FILE',
         ];
 
@@ -1507,7 +1518,7 @@ class ReportHelper
             'republic'           => 'Republic of the Philippines',
             'institutionName'    => 'Camarines Sur Polytechnic Colleges',
             'institutionAddress' => 'Nabua, Camarines Sur',
-            'letterNumber'       => 'CSPC-QA-F001',
+            'letterNumber'       => $this->letterNumberForReport($category, $sub),
             'footerLeft'         => 'Effectivity Date:',
             'footerCenter'       => 'Rev.',
             'footerRight'        => '',
@@ -1533,7 +1544,7 @@ class ReportHelper
             $options = new \Dompdf\Options();
             $options->set('isHtml5ParserEnabled', true);
             $options->set('isRemoteEnabled', false);
-            $options->set('defaultFont', 'DejaVu Sans');
+            $options->set('defaultFont', 'Helvetica');
             $options->set('dpi', 96);
             $options->set('isPhpEnabled', false);
 
@@ -1546,7 +1557,7 @@ class ReportHelper
                         // ── Footer via canvas ──
             $canvas  = $dompdf->getCanvas();
             $fm      = $dompdf->getFontMetrics();
-            $font    = $fm->getFont('DejaVu Sans');
+            $font    = $fm->getFont('Helvetica');
             $w       = $canvas->get_width();
             $h       = $canvas->get_height();
 
@@ -1710,7 +1721,10 @@ HTML;
                 }
                 fputcsv($handle, $sub);
             } else {
-                fputcsv($handle, array_values($columns));
+                fputcsv($handle, array_map(
+                    fn ($h) => trim(preg_replace('/\s+/', ' ', strip_tags(str_replace(['<br>', '<br/>', '<br />'], ' ', (string) $h)))),
+                    array_values($columns)
+                ));
             }
 
             foreach ($rows as $row) {

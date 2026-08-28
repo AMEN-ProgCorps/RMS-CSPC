@@ -750,6 +750,31 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
     </template>
 
     <template x-teleport="body">
+    <div class="reg-modal-overlay reg-modal-overlay--wide" id="distributionPrintModal" aria-hidden="true" onclick="if(event.target===this)closeDistributionPrintModal()">
+        <div class="reg-modal reg-modal--wide">
+            <div class="reg-modal-header">
+                <i class="fa-solid fa-print"></i>
+                <h3>Distribution and Retrieval</h3>
+                <button type="button" class="reg-modal-close" onclick="closeDistributionPrintModal()">
+                    <i class="fa-solid fa-xmark"></i>
+                </button>
+            </div>
+            <div class="reg-modal-body reg-modal-body--preview">
+                <iframe id="distributionPrintFrame" title="Distribution and Retrieval"></iframe>
+            </div>
+            <div class="reg-modal-footer">
+                <button type="button" class="reg-btn reg-btn-cancel" onclick="closeDistributionPrintModal()">
+                    <i class="fa-solid fa-xmark"></i> Close
+                </button>
+                <button type="button" class="reg-btn reg-btn-save" onclick="printDistributionPreview()">
+                    <i class="fa-solid fa-print"></i> Print
+                </button>
+            </div>
+        </div>
+    </div>
+    </template>
+
+    <template x-teleport="body">
     <div class="reg-modal-overlay reg-modal-overlay--wide" id="compareRevisionModal" aria-hidden="true" onclick="if(event.target===this)closeCompareRevisionModal()">
         <div class="reg-modal reg-modal--wide">
             <div class="reg-modal-header">
@@ -4014,7 +4039,46 @@ window.generateDistributionTemplate = function () {
     params.set('revision_no', revisionNo);
     offices.forEach((name) => params.append('offices[]', name));
     copies.forEach((n) => params.append('copies[]', n));
-    window.open('{{ route('dcs.reports.distributionTemplate') }}?' + params.toString(), '_blank', 'noopener');
+    openDistributionPrintModal(params);
+};
+
+window.openDistributionPrintModal = function (params) {
+    const overlay = document.getElementById('distributionPrintModal');
+    const frame = document.getElementById('distributionPrintFrame');
+    if (!overlay || !frame) return;
+    params.set('embed', '1');
+    frame.onload = function () {
+        frame.onload = null;
+        setTimeout(function () { window.printDistributionPreview(); }, 250);
+    };
+    frame.src = '{{ route('dcs.reports.distributionTemplate') }}?' + params.toString();
+    overlay.classList.add('is-open');
+    overlay.setAttribute('aria-hidden', 'false');
+    document.body.style.overflow = 'hidden';
+};
+
+window.closeDistributionPrintModal = function () {
+    const overlay = document.getElementById('distributionPrintModal');
+    const frame = document.getElementById('distributionPrintFrame');
+    if (overlay) {
+        overlay.classList.remove('is-open');
+        overlay.setAttribute('aria-hidden', 'true');
+    }
+    if (frame) {
+        frame.onload = null;
+        frame.src = 'about:blank';
+    }
+    document.body.style.overflow = '';
+};
+
+window.printDistributionPreview = function () {
+    const frame = document.getElementById('distributionPrintFrame');
+    try {
+        frame?.contentWindow?.focus();
+        frame?.contentWindow?.print();
+    } catch (e) {
+        alert('Could not open the print dialog.');
+    }
 };
 
 function renderDistClusterChips() {

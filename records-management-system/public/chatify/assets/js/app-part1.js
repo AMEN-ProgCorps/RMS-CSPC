@@ -876,10 +876,24 @@
       }
 
       const accId = Number(user.account_id);
-      const isOnline = hasReceivedPresenceSnapshot
-        ? onlineAccountsSet.has(accId)
-        : (onlineAccountsSet.has(accId) || user.status === 'online' || !!user.is_currently_online);
-      const lastTime = user.last_online_time || user.lastTimestamp;
+
+      // Fully WS-driven now — no fallback to the DB-fetched
+      // is_currently_online/last_online_time fields. Before the WS
+      // connection has delivered its first presence_snapshot we genuinely
+      // don't know this user's status yet, so say so rather than guessing
+      // from a value that (per the earlier bug) can be stale for anyone
+      // who didn't log out cleanly.
+      if (!hasReceivedPresenceSnapshot) {
+        el.textContent = 'Connecting…';
+        return;
+      }
+
+      const isOnline = onlineAccountsSet.has(accId);
+      // last-seen time also comes only from WS data now: either a
+      // presence:offline event received live this session, or the
+      // last_seen map handed over in presence_snapshot for someone who
+      // was already offline when we connected (see server.js).
+      const lastTime = wsLastOnlineTime.get(accId) || user.lastTimestamp;
       el.textContent = formatActiveStatus(isOnline, lastTime);
     }
     window.updateHeaderActiveStatus = updateHeaderActiveStatus;
@@ -943,11 +957,26 @@
         data.online_accounts.forEach(id => onlineAccountsSet.add(Number(id)));
       }
 
+      // Last-seen times for accounts that were ALREADY offline before this
+      // client connected — sourced entirely from the WS server's in-memory
+      // record (see server.js), not from the DB. Without this, someone who
+      // went offline before we connected would have no "Active X ago" data
+      // at all this session.
+      if (data.last_seen && typeof data.last_seen === 'object') {
+        Object.keys(data.last_seen).forEach(id => {
+          wsLastOnlineTime.set(Number(id), data.last_seen[id]);
+        });
+      }
+
       allUsersData.forEach(user => {
         const accId = Number(user.account_id);
         const isOnline = onlineAccountsSet.has(accId);
         user.status = isOnline ? 'online' : 'offline';
         user.is_currently_online = isOnline;
+        if (!isOnline && wsLastOnlineTime.has(accId)) {
+          user.last_online_time = wsLastOnlineTime.get(accId);
+          user.lastTimestamp = wsLastOnlineTime.get(accId);
+        }
 
         const item = sidebarUserItems.get(user.username);
         if (item) {
@@ -1116,11 +1145,15 @@
         const isOnline = onlineAccountsSet.has(accId);
         user.status = isOnline ? 'online' : 'offline';
         user.is_currently_online = isOnline;
-        // Restore WS-authoritative last_online_time if we have one
-        if (!isOnline && wsLastOnlineTime.has(accId)) {
-          user.last_online_time = wsLastOnlineTime.get(accId);
-          user.lastTimestamp = wsLastOnlineTime.get(accId);
-        }
+        // Last-seen time is WS-only from here on — either a live
+        // presence:offline event this session, or the last_seen map handed
+        // over in presence_snapshot. If neither has an entry (e.g. this
+        // account hasn't disconnected since the WS server last restarted),
+        // we deliberately have no last-seen time rather than falling back
+        // to the DB-fetched last_online_time, which is what used to cause
+        // stale/incorrect "Active X ago" text.
+        user.last_online_time = isOnline ? null : (wsLastOnlineTime.get(accId) || null);
+        user.lastTimestamp = user.last_online_time;
       });
     }
 
@@ -1134,9 +1167,22 @@
         serverIsAdmin = !!(data.currentUser && data.currentUser.is_admin);
       }
 
-      // Re-apply WS presence state — the DB payload uses is_currently_online
-      // which can be stale (check_session.php keeps it at 1 while tab is open).
-      // WS presence_snapshot is always authoritative once received.
+      // Immediately strip whatever presence-ish fields the server response
+      // included — the active-status indicator no longer reads is_currently_online/
+      // last_online_time/status from a DB fetch at all, only from the WS
+      // layer (onlineAccountsSet / wsLastOnlineTime). Clearing them here
+      // means there's no leftover DB value anywhere in allUsersData for a
+      // pre-snapshot render to accidentally pick up.
+      allUsersData.forEach(user => {
+        delete user.is_currently_online;
+        delete user.last_online_time;
+        delete user.status;
+      });
+
+      // Re-apply WS presence state now that the fields above are gone —
+      // applyWsPresenceToAllUsers() is a no-op until hasReceivedPresenceSnapshot
+      // is true, at which point it's the only thing that ever sets
+      // status/is_currently_online/last_online_time again.
       applyWsPresenceToAllUsers();
 
       if (activeDM) {
@@ -1487,7 +1533,13 @@
           u.status = isWsOnline ? 'online' : 'offline';
           u.is_currently_online = isWsOnline;
         }
-        const newDotClass = 'status-dot ' + (u.status || 'offline');
+        // Fully WS-driven: before the first presence_snapshot arrives we
+        // don't actually know this user's status yet, so default the dot
+        // to offline rather than trusting whatever the DB-fetched payload
+        // said (that DB flag can be stale for anyone who didn't log out
+        // cleanly, which is what caused the old online-then-offline flash).
+        const effectiveStatus = hasReceivedPresenceSnapshot ? u.status : 'offline';
+        const newDotClass = 'status-dot ' + (effectiveStatus || 'offline');
         if (dot.className !== newDotClass) dot.className = newDotClass;
 
         if (nameEl.textContent !== u.name) nameEl.textContent = u.name;

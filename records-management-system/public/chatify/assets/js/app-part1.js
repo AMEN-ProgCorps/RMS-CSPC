@@ -3016,12 +3016,24 @@
 
     function selectAdminSpyTargetUser(user) {
       adminSpyTargetUser = user;
+      activeAdminConv = null;
+      updateClearChatButtonVisibility();
+      chatHeaderTitle.textContent = '';
+      applyHeaderAdminBadge();
+      applyHeaderAvatar(null);
+      updateHeaderActiveStatus();
       adminSpyConvs = [];
       fetchAdminConvs('', 0, false, user.account_id);
     }
 
     function clearAdminSpyTargetUser() {
       adminSpyTargetUser = null;
+      activeAdminConv = null;
+      updateClearChatButtonVisibility();
+      chatHeaderTitle.textContent = '';
+      applyHeaderAdminBadge();
+      applyHeaderAvatar(null);
+      updateHeaderActiveStatus();
       adminSpyConvs = [];
       const query = adminSearchInput ? adminSearchInput.value.trim() : '';
       if (query !== '') {

@@ -1016,7 +1016,7 @@
 
       const reactions = reactionsModalData.reactions || [];
       const totalCount = reactionsModalData.total_count || reactions.length;
-      const totalLabel = totalCount > 99 ? '100+' : totalCount;
+      const totalLabel = totalCount > 99 ? '99+' : totalCount;
 
       const emojiCounts = {};
       reactions.forEach(function(r) {

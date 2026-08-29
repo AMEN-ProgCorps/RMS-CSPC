@@ -937,13 +937,13 @@
 
     // ── Emoji Reactions ──────────────────────────────────────────────────
     // Long-press (mobile) or right-click (desktop) a message bubble/media to
-    // open a small floating picker with the 5 allowed emoji. Tapping one
+    // open a small floating picker with the 3 allowed emoji. Tapping one
     // saves the reaction (chat_reactions table, via react.php) and renders
     // it as a badge under the bubble. Tapping an existing badge is a
     // shortcut for the same emoji (re-tap removes it, same "one reaction
     // per user per message" rule as the picker). Keep this list in sync
     // with Reactions::ALLOWED in core/Reactions.php.
-    const REACTION_EMOJIS = ['❤️', '😆', '😍', '😭', '😡'];
+    const REACTION_EMOJIS = ['❤️', '😆', '😍'];
     const LONG_PRESS_MS = 280;
     const LONG_PRESS_MOVE_TOLERANCE = 10;
 
@@ -975,7 +975,7 @@
       modal.innerHTML = 
         '<div class="reactions-modal-card" role="dialog" aria-modal="true" aria-labelledby="reactionsModalTitle">'
         + '  <div class="reactions-modal-header">'
-        + '    <h3 class="reactions-modal-title" id="reactionsModalTitle">Message reactions</h3>'
+        + '    <h3 class="reactions-modal-title" id="reactionsModalTitle">Reactions</h3>'
         + '    <button type="button" class="reactions-modal-close" id="closeReactionsModalBtn" aria-label="Close">&times;</button>'
         + '  </div>'
         + '  <div class="reactions-modal-tabs-wrapper">'

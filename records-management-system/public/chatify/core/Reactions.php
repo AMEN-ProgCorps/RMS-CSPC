@@ -12,10 +12,10 @@
 
 class Reactions
 {
-    // The only 5 emoji a message can be reacted with. Keep this list and the
+    // The only 3 emoji a message can be reacted with. Keep this list and the
     // client-side picker (REACTION_EMOJIS in assets/js/app-part3.js) in sync —
     // react.php also rejects anything not in this list server-side.
-    public const ALLOWED = ['❤️', '😆', '😍', '😭', '😡'];
+    public const ALLOWED = ['❤️', '😆', '😍'];
 
     /**
      * Build the "<div class='msg-reactions'>...</div>" block rendered under a

@@ -446,6 +446,14 @@
               bubbleWrapper.insertBefore(label, bubbleWrapper.firstChild);
             }
           }
+        } else if (data.type === 'reaction_updated') {
+          // Another client (or our own second tab) toggled a reaction —
+          // patch that one message's badge row in place. No server fetch:
+          // the payload already carries the message's full, up-to-date
+          // emoji => [account_id, ...] map (see react.php).
+          if (typeof renderReactionsForMessage === 'function') {
+            renderReactionsForMessage(data.msg_uuid, data.reactions || {});
+          }
         } else if (data.type === 'message') {
           console.log('Received WebSocket real-time update notice:', data);
           // Deduplication: if message is already rendered in chatBox, skip fetching!

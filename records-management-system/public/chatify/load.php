@@ -234,7 +234,10 @@ foreach ($rawMessages as $msg) {
         $html .= "<div class='message-content'>{$contentEsc}</div>";
         $html .= "<div class='message-info'><span class='message-sender'>{$senderLabel}{$adminBadge}</span></div>";
         $html .= "</div>";
-        $html .= "</div>";
+        // Reactions sit BELOW the bubble, still inside .bubble-wrapper (see
+        // .msg-reactions in style.css) — never as a sibling of it.
+        $html .= Reactions::buildBadgesHtml($reactions[$msgId] ?? [], $myAccountId);
+        $html .= "</div>"; // .bubble-wrapper
         $html .= "</div>"; // .message-container
 
     } else {
@@ -357,6 +360,7 @@ foreach ($rawMessages as $msg) {
         $html .= "<div class='bubble-wrapper'>";
         $html .= "<div class='message-click-timestamp show-timestamp'>{$fullTimeDisplay}</div>";
         $html .= $uploadBodyHtml;
+        $html .= Reactions::buildBadgesHtml($reactions[$msgId] ?? [], $myAccountId);
         $html .= "</div>"; // .bubble-wrapper
         $html .= "</div>"; // .message-container
     }

@@ -624,6 +624,42 @@ class ConversationManager
         }
     }
 
+    /**
+     * Toggle a reaction on a private-conversation message.
+     * One emoji per user per message. Same emoji = remove; different = replace.
+     * Mirrors GlobalChatManager::toggleReaction(), scoped to this convId
+     * instead of the global channel, sharing the same upsert logic.
+     */
+    public static function toggleReaction(
+        string $convId,
+        string $msgId,
+        string $emoji,
+        int    $accountId,
+        array  $allowed
+    ): array {
+        if (!in_array($emoji, $allowed, true)) {
+            return ['ok' => false, 'action' => 'invalid_emoji'];
+        }
+
+        try {
+            $pdo = Database::getConnection();
+
+            // Verify message belongs to this conversation
+            $check = $pdo->prepare(
+                'SELECT msg_uuid FROM chat_messages WHERE msg_uuid = :uuid AND conv_id = :conv_id LIMIT 1'
+            );
+            $check->execute([':uuid' => $msgId, ':conv_id' => $convId]);
+            if (!$check->fetch()) {
+                return ['ok' => false, 'action' => 'message_not_found'];
+            }
+
+            return GlobalChatManager::upsertReaction($pdo, $msgId, $emoji, $accountId, $allowed);
+        } catch (PDOException $e) {
+            error_log('ConversationManager::toggleReaction() — ' . $e->getMessage());
+            return ['ok' => false, 'action' => 'db_error'];
+        }
+    }
+
     // -------------------------------------------------------------------------
     // Read Markers & Unread Counters
     // -------------------------------------------------------------------------

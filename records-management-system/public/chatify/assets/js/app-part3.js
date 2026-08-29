@@ -906,6 +906,409 @@
     chatBox.addEventListener('touchend', endSwipe, { passive: true });
     chatBox.addEventListener('touchcancel', endSwipe, { passive: true });
 
+    // ── Emoji Reactions ──────────────────────────────────────────────────
+    // Long-press (mobile) or right-click (desktop) a message bubble/media to
+    // open a small floating picker with the 5 allowed emoji. Tapping one
+    // saves the reaction (chat_reactions table, via react.php) and renders
+    // it as a badge under the bubble. Tapping an existing badge is a
+    // shortcut for the same emoji (re-tap removes it, same "one reaction
+    // per user per message" rule as the picker). Keep this list in sync
+    // with Reactions::ALLOWED in core/Reactions.php.
+    const REACTION_EMOJIS = ['❤️', '😆', '😍', '😭', '😡'];
+    const LONG_PRESS_MS = 450;
+    const LONG_PRESS_MOVE_TOLERANCE = 10;
+
+    const reactionPicker = document.createElement('div');
+    reactionPicker.className = 'reaction-picker';
+    reactionPicker.id = 'reactionPicker';
+    reactionPicker.innerHTML = REACTION_EMOJIS.map(function(e) {
+      return '<button type="button" class="reaction-picker-btn" data-emoji="' + e + '">' + e + '</button>';
+    }).join('');
+    document.body.appendChild(reactionPicker);
+
+    let reactionPickerContainer = null; // the .message-container currently targeted
+    let longPressTimer = null;
+    let longPressAnchorEl = null;
+    let longPressStartX = 0;
+    let longPressStartY = 0;
+
+    // ── Message Reactions Modal Plumbing ────────────────────────────────
+    let reactionsModalEl = null;
+    let reactionsModalData = null;
+    let activeReactionFilter = 'all';
+
+    function ensureReactionsModal() {
+      if (reactionsModalEl) return reactionsModalEl;
+
+      const modal = document.createElement('div');
+      modal.id = 'reactionsModal';
+      modal.className = 'reactions-modal-overlay';
+      modal.innerHTML = 
+        '<div class="reactions-modal-card" role="dialog" aria-modal="true" aria-labelledby="reactionsModalTitle">'
+        + '  <div class="reactions-modal-header">'
+        + '    <h3 class="reactions-modal-title" id="reactionsModalTitle">Message reactions</h3>'
+        + '    <button type="button" class="reactions-modal-close" id="closeReactionsModalBtn" aria-label="Close">&times;</button>'
+        + '  </div>'
+        + '  <div class="reactions-modal-tabs-wrapper">'
+        + '    <div class="reactions-modal-tabs" id="reactionsModalTabs"></div>'
+        + '    <div class="reactions-tab-indicator" id="reactionsTabIndicator"></div>'
+        + '  </div>'
+        + '  <div class="reactions-modal-body" id="reactionsModalBody"></div>'
+        + '</div>';
+
+      document.body.appendChild(modal);
+      reactionsModalEl = modal;
+
+      const closeBtn = modal.querySelector('#closeReactionsModalBtn');
+      if (closeBtn) {
+        closeBtn.addEventListener('click', closeReactionsModal);
+      }
+
+      modal.addEventListener('click', function(e) {
+        if (e.target === modal) {
+          closeReactionsModal();
+        }
+      });
+
+      return modal;
+    }
+
+    function closeReactionsModal() {
+      if (reactionsModalEl) {
+        reactionsModalEl.classList.remove('visible');
+      }
+    }
+
+    function openReactionsModal(msgUuid) {
+      const modal = ensureReactionsModal();
+      const bodyEl = modal.querySelector('#reactionsModalBody');
+      const tabsEl = modal.querySelector('#reactionsModalTabs');
+      const indicatorEl = modal.querySelector('#reactionsTabIndicator');
+
+      bodyEl.innerHTML = '<div class="reactions-loading"><div class="reactions-spinner"></div></div>';
+      tabsEl.innerHTML = '';
+      if (indicatorEl) indicatorEl.style.width = '0px';
+
+      modal.classList.add('visible');
+
+      fetch('get_reactions.php?msg_uuid=' + encodeURIComponent(msgUuid))
+        .then(function(res) { return res.json(); })
+        .then(function(data) {
+          if (!data || !data.success) {
+            bodyEl.innerHTML = '<div class="reactions-empty">Failed to load reactions.</div>';
+            return;
+          }
+          reactionsModalData = data;
+          renderReactionsModalContent('all');
+        })
+        .catch(function() {
+          bodyEl.innerHTML = '<div class="reactions-empty">Error loading reactions.</div>';
+        });
+    }
+
+    function renderReactionsModalContent(filterEmoji) {
+      if (!reactionsModalEl || !reactionsModalData) return;
+      activeReactionFilter = filterEmoji || 'all';
+
+      const tabsEl = reactionsModalEl.querySelector('#reactionsModalTabs');
+      const bodyEl = reactionsModalEl.querySelector('#reactionsModalBody');
+      const indicatorEl = reactionsModalEl.querySelector('#reactionsTabIndicator');
+
+      const reactions = reactionsModalData.reactions || [];
+      const totalCount = reactionsModalData.total_count || reactions.length;
+      const totalLabel = totalCount > 99 ? '100+' : totalCount;
+
+      const emojiCounts = {};
+      reactions.forEach(function(r) {
+        const e = (r.emoji === '❤' || r.emoji === '🖤' || r.emoji === '🤍') ? '❤️' : r.emoji;
+        emojiCounts[e] = (emojiCounts[e] || 0) + 1;
+      });
+
+      let tabsHtml = '<button type="button" class="reactions-tab' + (activeReactionFilter === 'all' ? ' active' : '') + '" data-filter="all">All ' + totalLabel + '</button>';
+
+      REACTION_EMOJIS.forEach(function(e) {
+        if (emojiCounts[e]) {
+          tabsHtml += '<button type="button" class="reactions-tab' + (activeReactionFilter === e ? ' active' : '') + '" data-filter="' + e + '">' + e + ' ' + emojiCounts[e] + '</button>';
+        }
+      });
+
+      tabsEl.innerHTML = tabsHtml;
+
+      const tabBtns = tabsEl.querySelectorAll('.reactions-tab');
+      tabBtns.forEach(function(btn) {
+        btn.addEventListener('click', function() {
+          const filter = btn.getAttribute('data-filter');
+          renderReactionsModalContent(filter);
+        });
+      });
+
+      const activeBtn = tabsEl.querySelector('.reactions-tab.active');
+      if (activeBtn && indicatorEl) {
+        const rect = activeBtn.getBoundingClientRect();
+        const parentRect = tabsEl.getBoundingClientRect();
+        indicatorEl.style.left = (rect.left - parentRect.left + tabsEl.scrollLeft) + 'px';
+        indicatorEl.style.width = rect.width + 'px';
+      }
+
+      const filteredReactions = reactions.filter(function(r) {
+        const e = (r.emoji === '❤' || r.emoji === '🖤' || r.emoji === '🤍') ? '❤️' : r.emoji;
+        return activeReactionFilter === 'all' || e === activeReactionFilter;
+      });
+
+      if (filteredReactions.length === 0) {
+        bodyEl.innerHTML = '<div class="reactions-empty">No reactions found.</div>';
+        return;
+      }
+
+      bodyEl.innerHTML = filteredReactions.map(function(r) {
+        const emoji = (r.emoji === '❤' || r.emoji === '🖤' || r.emoji === '🤍') ? '❤️' : r.emoji;
+        const initials = ((r.first_name ? r.first_name[0] : '') + (r.last_name ? r.last_name[0] : '')).toUpperCase() || '??';
+        let avatarHtml = initials;
+        if (r.avatar_url) {
+          avatarHtml = '<img src="' + r.avatar_url.replace(/"/g, '&quot;') + '" class="avatar-img" alt="" loading="lazy" referrerpolicy="no-referrer">';
+        }
+
+        return '<div class="reaction-user-item" data-account-id="' + r.account_id + '">'
+          + '  <div class="reaction-user-avatar">' + avatarHtml + '</div>'
+          + '  <div class="reaction-user-info">'
+          + '    <div class="reaction-user-name">' + escapeHtml(r.full_name) + '</div>'
+          + '    <div class="reaction-user-sub">Click to view profile</div>'
+          + '  </div>'
+          + '  <div class="reaction-user-emoji">' + emoji + '</div>'
+          + '</div>';
+      }).join('');
+
+      const userItems = bodyEl.querySelectorAll('.reaction-user-item');
+      userItems.forEach(function(item) {
+        item.addEventListener('click', function() {
+          const accId = Number(item.getAttribute('data-account-id'));
+          if (accId && accId !== wsConfig.accountId) {
+            closeReactionsModal();
+            if (typeof selectUser === 'function') {
+              selectUser(accId);
+            }
+          }
+        });
+      });
+    }
+
+    // Reactions are read-only in admin spy mode, and never apply to the
+    // transient optimistic "sending..."/"uploading..." placeholder bubbles.
+    function canReactToContainer(container) {
+      if (!container) return false;
+      if (isAdminAllChatsView || activeAdminConv) return false;
+      if (container.hasAttribute('data-sending-uid') || container.hasAttribute('data-upload-uid')) return false;
+      return !!container.getAttribute('data-msg-id');
+    }
+
+    function getReactionAnchorEl(container) {
+      return container.querySelector('.message-bubble, .message-media');
+    }
+
+    function closeReactionPicker() {
+      reactionPicker.classList.remove('visible');
+      reactionPickerContainer = null;
+      if (longPressAnchorEl) {
+        longPressAnchorEl.classList.remove('longpress-active');
+        longPressAnchorEl = null;
+      }
+    }
+
+    function openReactionPicker(container, x, y) {
+      reactionPickerContainer = container;
+      // Measure first (the picker is always display:flex, just invisible
+      // via opacity/transform until '.visible' is added, so offsetWidth/
+      // Height are accurate even before showing it).
+      const pw = reactionPicker.offsetWidth || 200;
+      const ph = reactionPicker.offsetHeight || 50;
+      let left = x - pw / 2;
+      let top = y - ph - 14; // prefer showing above the tap/click point
+      left = Math.max(8, Math.min(left, window.innerWidth - pw - 8));
+      if (top < 8) top = y + 18; // not enough room above — show below instead
+      reactionPicker.style.left = left + 'px';
+      reactionPicker.style.top = top + 'px';
+      reactionPicker.classList.add('visible');
+    }
+
+    // ── Render / re-render the badge row under one message ─────────────────
+    function renderReactionsForMessage(msgUuid, reactionMap) {
+      if (!msgUuid || !chatBox) return;
+      const container = chatBox.querySelector('.message-container[data-msg-id="' + msgUuid + '"]');
+      if (!container) return;
+
+      let wrap = container.querySelector('.msg-reactions');
+      if (!reactionMap) {
+        if (wrap) wrap.remove();
+        return;
+      }
+
+      let totalCount = 0;
+      const distinctEmojis = [];
+      let mine = false;
+
+      Object.keys(reactionMap).forEach(function(rawEmoji) {
+        const ids = reactionMap[rawEmoji] || [];
+        if (ids.length > 0) {
+          const emoji = (rawEmoji === '❤' || rawEmoji === '🖤' || rawEmoji === '🤍') ? '❤️' : rawEmoji;
+          if (distinctEmojis.indexOf(emoji) === -1) {
+            distinctEmojis.push(emoji);
+          }
+          totalCount += ids.length;
+          if (ids.some(function(id) { return Number(id) === wsConfig.accountId; })) {
+            mine = true;
+          }
+        }
+      });
+
+      const bubbleWrapper = container.querySelector('.bubble-wrapper');
+
+      if (totalCount === 0) {
+        if (wrap) wrap.remove();
+        if (bubbleWrapper) bubbleWrapper.classList.remove('has-reactions');
+        return;
+      }
+
+      if (bubbleWrapper) {
+        bubbleWrapper.classList.add('has-reactions');
+      }
+
+      if (!wrap) {
+        wrap = document.createElement('div');
+        wrap.className = 'msg-reactions';
+        (bubbleWrapper || container).appendChild(wrap);
+      }
+
+      const emojisStr = distinctEmojis.join('');
+      let countHtml = '';
+      if (totalCount >= 2) {
+        const countLabel = totalCount > 99 ? '99+' : totalCount;
+        countHtml = '<span class="reaction-total-count">' + countLabel + '</span>';
+      }
+
+      wrap.innerHTML = '<button type="button" class="msg-reactions-pill' + (mine ? ' mine' : '') + '" data-msg-reactions="1">'
+        + '<span class="reaction-emojis">' + emojisStr + '</span>'
+        + countHtml
+        + '</button>';
+    }
+
+    // ── Persist a toggle to the server ──────────────────────────────────────
+    function sendReaction(container, emoji) {
+      if (!container) return;
+      const msgUuid = container.getAttribute('data-msg-id');
+      if (!msgUuid) return;
+
+      const params = new URLSearchParams();
+      params.set('msg_uuid', msgUuid);
+      params.set('emoji', emoji);
+      if (isGlobalChat) {
+        params.set('chat_type', 'global');
+      } else if (activeDM) {
+        params.set('chat_type', 'private');
+        params.set('target_id', activeDMAccountId || 0);
+        params.set('target_user', activeDM);
+      } else {
+        return; // no active chat to react in (e.g. admin spy view)
+      }
+
+      fetch('react.php', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: params.toString()
+      })
+        .then(function(res) { return res.json(); })
+        .then(function(data) {
+          if (data && data.success) {
+            renderReactionsForMessage(data.msg_uuid, data.reactions || {});
+          }
+        })
+        .catch(function() { /* best-effort — a WS reconnect or next poll will reconcile */ });
+    }
+
+    // ── Trigger 1: right-click (desktop) ─────────────────────────────────
+    chatBox.addEventListener('contextmenu', function(e) {
+      const container = e.target.closest('.message-container[data-msg-id]');
+      if (!container || !canReactToContainer(container)) return;
+      e.preventDefault();
+      openReactionPicker(container, e.clientX, e.clientY);
+    });
+
+    // ── Trigger 2: long-press (mobile/touch) ─────────────────────────────
+    chatBox.addEventListener('touchstart', function(e) {
+      if (e.touches.length !== 1) return;
+      const container = e.target.closest('.message-container[data-msg-id]');
+      if (!container || !canReactToContainer(container)) return;
+
+      longPressStartX = e.touches[0].clientX;
+      longPressStartY = e.touches[0].clientY;
+      const touchX = longPressStartX;
+      const touchY = longPressStartY;
+
+      clearTimeout(longPressTimer);
+      longPressTimer = setTimeout(function() {
+        longPressTimer = null;
+        longPressAnchorEl = getReactionAnchorEl(container);
+        if (longPressAnchorEl) longPressAnchorEl.classList.add('longpress-active');
+        if (navigator.vibrate) { try { navigator.vibrate(15); } catch (err) {} }
+        openReactionPicker(container, touchX, touchY);
+      }, LONG_PRESS_MS);
+    }, { passive: true });
+
+    chatBox.addEventListener('touchmove', function(e) {
+      if (!longPressTimer || e.touches.length !== 1) return;
+      const dx = Math.abs(e.touches[0].clientX - longPressStartX);
+      const dy = Math.abs(e.touches[0].clientY - longPressStartY);
+      if (dx > LONG_PRESS_MOVE_TOLERANCE || dy > LONG_PRESS_MOVE_TOLERANCE) {
+        clearTimeout(longPressTimer);
+        longPressTimer = null;
+      }
+    }, { passive: true });
+
+    chatBox.addEventListener('touchend', function() {
+      clearTimeout(longPressTimer);
+      longPressTimer = null;
+    }, { passive: true });
+    chatBox.addEventListener('touchcancel', function() {
+      clearTimeout(longPressTimer);
+      longPressTimer = null;
+    }, { passive: true });
+
+    // ── Picker emoji tap ───────────────────────────────────────────────────
+    reactionPicker.addEventListener('click', function(e) {
+      const btn = e.target.closest('.reaction-picker-btn');
+      if (!btn || !reactionPickerContainer) return;
+      sendReaction(reactionPickerContainer, btn.getAttribute('data-emoji'));
+      closeReactionPicker();
+    });
+
+    // ── Tap reaction pill: open reaction details modal ────────────────────
+    chatBox.addEventListener('click', function(e) {
+      const pill = e.target.closest('.msg-reactions-pill, .msg-reactions');
+      if (!pill) return;
+      const container = pill.closest('.message-container[data-msg-id]');
+      if (!container) return;
+      const msgUuid = container.getAttribute('data-msg-id');
+      if (msgUuid) {
+        openReactionsModal(msgUuid);
+      }
+    });
+
+    // ── Dismiss the picker / modal ─────────────────────────────────────────
+    document.addEventListener('click', function(e) {
+      if (!reactionPicker.classList.contains('visible')) return;
+      if (e.target.closest('#reactionPicker')) return;
+      closeReactionPicker();
+    });
+    document.addEventListener('keydown', function(e) {
+      if (e.key === 'Escape') {
+        closeReactionPicker();
+        closeReactionsModal();
+      }
+    });
+    document.addEventListener('keydown', function(e) {
+      if (e.key === 'Escape') closeReactionPicker();
+    });
+    chatBox.addEventListener('scroll', closeReactionPicker, { passive: true });
+
     // Monitor scroll position
     chatBox.addEventListener('scroll', function() {
       const atBottom = isAtBottom();
@@ -2910,44 +3313,6 @@
           lastMsgEl.style.display = 'block';
         }
       }
-    }
-
-    function handleIncomingTypingPreview(data) {
-      const senderId = Number(data.sender_id);
-      if (!senderId || senderId === wsConfig.accountId) return;
-
-      const allowSeePreview = window.currentUserCommSettings
-        ? window.currentUserCommSettings.allow_see_typing_preview !== false
-        : true;
-      if (!allowSeePreview) {
-        clientActivePreviews.delete(senderId);
-        updateSidebarPreviewState(senderId, null);
-        return;
-      }
-
-      const previewText = (data.preview || '').trim();
-
-      if (!previewText) {
-        clientActivePreviews.delete(senderId);
-        updateSidebarPreviewState(senderId, null);
-      } else {
-        clientActivePreviews.set(senderId, { preview: previewText, isSent: false });
-        updateSidebarPreviewState(senderId, previewText);
-      }
-    }
-
-    function handleIncomingTypingPreviewCleared(data) {
-      const senderId = Number(data.sender_id);
-      if (!senderId) return;
-      clientActivePreviews.delete(senderId);
-      updateSidebarPreviewState(senderId, null);
-    }
-
-    function handleIncomingTypingPreviewSent(data) {
-      const senderId = Number(data.sender_id);
-      if (!senderId) return;
-      clientActivePreviews.set(senderId, { preview: '', isSent: true });
-      updateSidebarPreviewState(senderId, null);
     }
 
     // Immediately apply a comm setting change: update memory, broadcast via WS,

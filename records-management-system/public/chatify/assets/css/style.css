@@ -2905,13 +2905,16 @@
     .msg-reactions-pill {
       display: inline-flex !important;
       align-items: center !important;
-      gap: 4px !important;
-      padding: 3px 8px !important;
-      border-radius: 14px !important;
+      justify-content: center !important;
+      gap: 3px !important;
+      padding: 2px 6px !important;
+      min-height: 20px !important;
+      box-sizing: border-box !important;
+      border-radius: 12px !important;
       background-color: #ffffff !important;
       background: #ffffff !important;
-      border: 1px solid rgba(0, 0, 0, 0.15) !important;
-      box-shadow: none !important;
+      border: 1px solid rgba(0, 0, 0, 0.12) !important;
+      box-shadow: 0 1px 2px rgba(0, 0, 0, 0.06) !important;
       cursor: pointer !important;
       white-space: nowrap !important;
       user-select: none !important;
@@ -2924,7 +2927,7 @@
       transform: scale(1.05) !important;
       background-color: #f7f8fa !important;
       background: #f7f8fa !important;
-      box-shadow: none !important;
+      box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1) !important;
     }
     .msg-reactions-pill:active {
       transform: scale(0.95) !important;
@@ -2934,25 +2937,28 @@
       background-color: #242526 !important;
       background: #242526 !important;
       border-color: rgba(255, 255, 255, 0.18) !important;
-      box-shadow: none !important;
+      box-shadow: 0 1px 2px rgba(0, 0, 0, 0.2) !important;
     }
     [data-theme="dark"] .msg-reactions-pill:hover {
       background-color: #303031 !important;
       background: #303031 !important;
-      box-shadow: none !important;
+      box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3) !important;
     }
 
     .msg-reactions-pill .reaction-emojis {
-      font-size: 14px !important;
+      display: inline-flex !important;
+      align-items: center !important;
+      font-size: 13px !important;
       line-height: 1 !important;
-      letter-spacing: 0.5px !important;
+      letter-spacing: 1px !important;
+      margin-right: 4px !important;
     }
     .msg-reactions-pill .reaction-total-count {
-      font-size: 12px !important;
+      font-size: 11px !important;
       font-weight: 600 !important;
       color: #65676b !important;
       line-height: 1 !important;
-      margin-left: 2px !important;
+      margin-left: -5px !important;
     }
     [data-theme="dark"] .msg-reactions-pill .reaction-total-count {
       color: #b0b3b8 !important;

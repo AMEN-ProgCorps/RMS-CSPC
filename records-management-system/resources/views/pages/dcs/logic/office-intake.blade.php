@@ -333,6 +333,9 @@ class OfficeIntakeHelper
                     'created_at' => $now,
                     'updated_at' => $now,
                 ];
+                if (Schema::hasColumn('dcs_document_change_notice', 'brief_purpose')) {
+                    $row['brief_purpose'] = $data['dcnJustification'];
+                }
 
                 if (Schema::hasColumn('dcs_document_change_notice', 'brief_purpose')) {
                     $row['brief_purpose'] = $data['dcnJustification'];

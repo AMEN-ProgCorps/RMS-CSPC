@@ -231,6 +231,35 @@ class Auth
     }
 
     /**
+     * Mark a single account offline in the database, independent of any
+     * PHP session. Used by mark_offline.php, which the WS server calls
+     * the instant an account's last live socket disconnects — this is
+     * what keeps is_currently_online honest for users who simply close
+     * the tab/browser instead of clicking Logout (previously the flag
+     * only ever went back to 0 via destroy() below, so it could sit at
+     * 1 forever and cause a stale "online" flash on the next page load,
+     * until the WS presence_snapshot corrected it a moment later).
+     *
+     * @param int $accountId
+     */
+    public static function markOffline(int $accountId): void
+    {
+        if ($accountId <= 0) {
+            return;
+        }
+        try {
+            $pdo = Database::getConnection();
+            $stmt = $pdo->prepare('UPDATE account_details SET is_currently_online = 0, last_online_time = :now WHERE account_id = :id');
+            $stmt->execute([
+                ':now' => gmdate('Y-m-d H:i:s'),
+                ':id'  => $accountId
+            ]);
+        } catch (Throwable $e) {
+            // Non-fatal
+        }
+    }
+
+    /**
      * Destroy the current chat session.
      */
     public static function destroy(): void

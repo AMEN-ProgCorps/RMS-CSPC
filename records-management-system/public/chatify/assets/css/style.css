@@ -342,24 +342,27 @@
     }
     .status-dot.online { background-color: #31a24c; }
     .status-dot.offline { background-color: #8a8d91; }
+    .status-dot { transition: background-color 0.3s ease; }
     
     .user-info {
       flex: 1;
       min-width: 0;
+      display: flex;
+      flex-direction: column;
+      justify-content: flex-start;
+      padding-top: 1px;
+      height: 48px;
     }
     
     .user-name {
       font-weight: 600;
       color: var(--text-primary);
-      font-size: 15px;
-      margin-bottom: 4px;
+      font-size: 14px;
+      line-height: 1.2;
+      margin-bottom: 1px;
       white-space: nowrap;
       overflow: hidden;
       text-overflow: ellipsis;
-      /* Sized to content but free to shrink inside .user-name-row (a flex
-         row) so it truncates on its own instead of growing to fill the row
-         and clipping the verified-badge sibling that sits after it. Has no
-         effect where .user-name isn't inside a flex parent. */
       flex: 0 1 auto;
       min-width: 0;
     }
@@ -368,20 +371,23 @@
       font-size: 11px;
       color: #1b74e4;
       font-weight: 500;
-      margin-bottom: 2px;
+      line-height: 1.2;
+      margin-bottom: 1px;
       white-space: nowrap;
       overflow: hidden;
       text-overflow: ellipsis;
     }
     
     .user-last-msg {
-      font-size: 13px;
+      font-size: 12px;
       color: var(--text-secondary);
       white-space: nowrap;
       overflow: hidden;
       text-overflow: ellipsis;
-      min-height: 18px;
-      line-height: 18px;
+      min-height: 15px;
+      line-height: 15px;
+      height: 15px;
+      display: block !important;
     }
 
     /* Unread message badge in sidebar */
@@ -912,6 +918,95 @@
       min-width: 0;
       flex: 1 1 auto;
       overflow: hidden;
+    }
+
+    /* Name + live typing preview stacked vertically in the header,
+       top-aligned at a fixed position so the name never shifts */
+    .header-user-info {
+      display: flex;
+      flex-direction: column;
+      justify-content: flex-start;
+      padding-top: 2px;
+      min-width: 0;
+      flex: 1 1 auto;
+      overflow: hidden;
+      height: 38px;
+    }
+
+    .header-title-row {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      min-width: 0;
+      max-width: 100%;
+      height: 20px;
+    }
+
+    .header-user-info h1#chatHeaderTitle,
+    .header h1 {
+      font-size: 18px;
+      font-weight: 400;
+      line-height: 20px;
+      margin: 0;
+      padding: 0;
+      color: var(--text-header);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      max-width: 100%;
+      display: inline-block;
+    }
+
+    /* Single-line Header Title Alignment (Global Chat & Admin Spy Mode): Perfectly level/kapantay with back arrow horizontally & vertically */
+    .header.is-single-title .header-user-info,
+    .header.is-global-chat .header-user-info {
+      height: 20px;
+      padding-top: 0;
+      justify-content: center;
+      align-items: flex-start;
+    }
+
+    .header.is-single-title .header-title-row,
+    .header.is-global-chat .header-title-row {
+      height: 20px;
+      display: flex;
+      align-items: center;
+      justify-content: flex-start;
+      width: auto;
+    }
+
+    .header.is-single-title h1#chatHeaderTitle,
+    .header.is-global-chat h1#chatHeaderTitle {
+      line-height: 20px;
+      text-align: left;
+      display: flex;
+      align-items: center;
+    }
+
+    .header-title-row .verified-badge {
+      display: inline-flex;
+      align-items: center;
+      flex-shrink: 0;
+    }
+
+    /* Active Status below header name (e.g. "Active now", "Active 21 minutes ago") */
+    .header-active-status,
+    .header-typing-preview {
+      font-size: 12px;
+      font-weight: 400;
+      font-style: normal;
+      color: var(--text-secondary, #65676b);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      max-width: 100%;
+      line-height: 16px;
+      height: 16px;
+      margin-top: 1px;
+    }
+    [data-theme="dark"] .header-active-status,
+    [data-theme="dark"] .header-typing-preview {
+      color: #b0b3b8;
     }
 
     /* Small profile picture shown in the header, to the left of the DM

@@ -551,6 +551,10 @@
           handleIncomingTypingPreviewCleared(data);
         } else if (data.type === 'typing_preview_sent') {
           handleIncomingTypingPreviewSent(data);
+        } else if (data.type === 'presence' || data.type === 'user_online' || data.type === 'user_offline' || data.type === 'user_status') {
+          handlePresenceEvent(data);
+        } else if (data.type === 'presence_snapshot') {
+          handlePresenceSnapshot(data);
         } else if (data.type === 'message_read') {
           // The other participant just read up through data.last_msg_uuid —
           // update the Messenger-style "Seen" indicator instantly, no poll needed.
@@ -788,6 +792,212 @@
       };
     }
 
+    // Real-Time WebSocket Presence & Active Status Plumbing
+    const onlineAccountsSet = new Set();
+    let hasReceivedPresenceSnapshot = false;
+
+    function formatActiveStatus(isOnline, lastOnlineTime) {
+      if (isOnline) {
+        return 'Active now';
+      }
+      if (!lastOnlineTime) {
+        return 'Offline';
+      }
+
+      let ts = 0;
+      if (typeof lastOnlineTime === 'number') {
+        ts = lastOnlineTime;
+        if (ts > 2000000000) ts = Math.floor(ts / 1000);
+      } else if (typeof lastOnlineTime === 'string') {
+        const str = lastOnlineTime.trim();
+        if (/^\d+$/.test(str)) {
+          ts = parseInt(str, 10);
+          if (ts > 2000000000) ts = Math.floor(ts / 1000);
+        } else {
+          // SQL datetime string "YYYY-MM-DD HH:MM:SS" stored as UTC — must append Z
+          // so JS doesn't interpret it as local time (which is +08:00 here, causing
+          // an 8-hour offset making "just now" show as "8 hours ago").
+          let iso = str.replace(' ', 'T');
+          if (!iso.endsWith('Z') && !/[+\-]\d{2}:\d{2}$/.test(iso)) {
+            iso += 'Z';
+          }
+          const d = new Date(iso);
+          if (!isNaN(d.getTime())) {
+            ts = Math.floor(d.getTime() / 1000);
+          }
+        }
+      }
+
+      if (!ts) return 'Offline';
+
+      const now = Math.floor(Date.now() / 1000);
+      const diffSec = Math.max(0, now - ts);
+      const diffMin = Math.floor(diffSec / 60);
+      const diffHour = Math.floor(diffMin / 60);
+      const diffDay = Math.floor(diffHour / 24);
+
+      if (diffSec < 60) {
+        return `Active ${diffSec} ${diffSec === 1 ? 'second' : 'seconds'} ago`;
+      } else if (diffMin < 60) {
+        return `Active ${diffMin} ${diffMin === 1 ? 'minute' : 'minutes'} ago`;
+      } else if (diffHour < 24) {
+        return `Active ${diffHour} ${diffHour === 1 ? 'hour' : 'hours'} ago`;
+      } else {
+        return `Active ${diffDay} ${diffDay === 1 ? 'day' : 'days'} ago`;
+      }
+    }
+    window.formatActiveStatus = formatActiveStatus;
+
+    function updateHeaderActiveStatus(user) {
+      const el = document.getElementById('headerActiveStatus');
+      if (!el) return;
+
+      const headerEl = document.querySelector('.header');
+
+      if (isGlobalChat || activeAdminConv) {
+        el.textContent = '';
+        if (headerEl) {
+          if (isGlobalChat) headerEl.classList.add('is-global-chat');
+          if (activeAdminConv) headerEl.classList.add('is-single-title');
+        }
+        return;
+      }
+
+      if (headerEl) {
+        headerEl.classList.remove('is-single-title');
+        headerEl.classList.remove('is-global-chat');
+      }
+      if (!user && activeDMAccountId) {
+        user = allUsersData.find(u => Number(u.account_id) === Number(activeDMAccountId));
+      }
+      if (!user) {
+        el.textContent = '';
+        return;
+      }
+
+      const accId = Number(user.account_id);
+
+      // Fully WS-driven now — no fallback to the DB-fetched
+      // is_currently_online/last_online_time fields. Before the WS
+      // connection has delivered its first presence_snapshot we genuinely
+      // don't know this user's status yet, so say so rather than guessing
+      // from a value that (per the earlier bug) can be stale for anyone
+      // who didn't log out cleanly.
+      if (!hasReceivedPresenceSnapshot) {
+        el.textContent = 'Connecting…';
+        return;
+      }
+
+      const isOnline = onlineAccountsSet.has(accId);
+      // last-seen time also comes only from WS data now: either a
+      // presence:offline event received live this session, or the
+      // last_seen map handed over in presence_snapshot for someone who
+      // was already offline when we connected (see server.js).
+      const lastTime = wsLastOnlineTime.get(accId) || user.lastTimestamp;
+      el.textContent = formatActiveStatus(isOnline, lastTime);
+    }
+    window.updateHeaderActiveStatus = updateHeaderActiveStatus;
+
+    // Periodic ticker: refresh "Active X seconds/minutes ago" every second for real-time counting
+    setInterval(function() {
+      if (activeDM && activeDMAccountId) {
+        updateHeaderActiveStatus();
+      }
+    }, 1000);
+
+    function handlePresenceEvent(data) {
+      const accId = Number(data.account_id || data.sender_id || data.user_id);
+      if (!accId) return;
+
+      const isOnline = (data.status === 'online' || data.type === 'user_online');
+      if (isOnline) {
+        onlineAccountsSet.add(accId);
+      } else {
+        onlineAccountsSet.delete(accId);
+      }
+
+      const user = allUsersData.find(u => Number(u.account_id) === accId);
+      if (user) {
+        user.status = isOnline ? 'online' : 'offline';
+        user.is_currently_online = isOnline;
+        if (!isOnline && data.timestamp) {
+          user.last_online_time = data.timestamp;
+          user.lastTimestamp = data.timestamp;
+          // Persist in map so fetchUsers() re-fetches can't overwrite it
+          wsLastOnlineTime.set(accId, data.timestamp);
+        }
+        if (isOnline) {
+          wsLastOnlineTime.delete(accId);
+        }
+
+        const item = sidebarUserItems.get(user.username);
+        if (item) {
+          const dot = item.querySelector('.status-dot') || item.querySelector('.user-status-dot');
+          if (dot) {
+            if (isOnline) {
+              dot.classList.add('online');
+              dot.classList.remove('offline');
+            } else {
+              dot.classList.remove('online');
+              dot.classList.add('offline');
+            }
+          }
+        }
+      }
+
+      if (activeDM && Number(activeDMAccountId) === accId) {
+        updateHeaderActiveStatus(user);
+      }
+    }
+
+    function handlePresenceSnapshot(data) {
+      hasReceivedPresenceSnapshot = true;
+      onlineAccountsSet.clear();
+      if (Array.isArray(data.online_accounts)) {
+        data.online_accounts.forEach(id => onlineAccountsSet.add(Number(id)));
+      }
+
+      // Last-seen times for accounts that were ALREADY offline before this
+      // client connected — sourced entirely from the WS server's in-memory
+      // record (see server.js), not from the DB. Without this, someone who
+      // went offline before we connected would have no "Active X ago" data
+      // at all this session.
+      if (data.last_seen && typeof data.last_seen === 'object') {
+        Object.keys(data.last_seen).forEach(id => {
+          wsLastOnlineTime.set(Number(id), data.last_seen[id]);
+        });
+      }
+
+      allUsersData.forEach(user => {
+        const accId = Number(user.account_id);
+        const isOnline = onlineAccountsSet.has(accId);
+        user.status = isOnline ? 'online' : 'offline';
+        user.is_currently_online = isOnline;
+        if (!isOnline && wsLastOnlineTime.has(accId)) {
+          user.last_online_time = wsLastOnlineTime.get(accId);
+          user.lastTimestamp = wsLastOnlineTime.get(accId);
+        }
+
+        const item = sidebarUserItems.get(user.username);
+        if (item) {
+          const dot = item.querySelector('.status-dot') || item.querySelector('.user-status-dot');
+          if (dot) {
+            if (isOnline) {
+              dot.classList.add('online');
+              dot.classList.remove('offline');
+            } else {
+              dot.classList.remove('online');
+              dot.classList.add('offline');
+            }
+          }
+        }
+      });
+
+      if (activeDM && activeDMAccountId) {
+        updateHeaderActiveStatus();
+      }
+    }
+
     function sendTypingStatus(isTyping) {
       if (ws && ws.readyState === WebSocket.OPEN && activeDM && activeDMAccountId) {
         ws.send(JSON.stringify({
@@ -923,6 +1133,30 @@
     // is never populated while spy mode is active).
     let pendingRestoreDM = null;
 
+    // Stores WS-authoritative last-seen timestamps per account_id.
+    // Set when presence: offline event arrives. Preserved across fetchUsers() calls
+    // so the stale DB last_online_time can't overwrite the real WS value.
+    const wsLastOnlineTime = new Map();
+
+    function applyWsPresenceToAllUsers() {
+      if (!hasReceivedPresenceSnapshot) return;
+      allUsersData.forEach(user => {
+        const accId = Number(user.account_id);
+        const isOnline = onlineAccountsSet.has(accId);
+        user.status = isOnline ? 'online' : 'offline';
+        user.is_currently_online = isOnline;
+        // Last-seen time is WS-only from here on — either a live
+        // presence:offline event this session, or the last_seen map handed
+        // over in presence_snapshot. If neither has an entry (e.g. this
+        // account hasn't disconnected since the WS server last restarted),
+        // we deliberately have no last-seen time rather than falling back
+        // to the DB-fetched last_online_time, which is what used to cause
+        // stale/incorrect "Active X ago" text.
+        user.last_online_time = isOnline ? null : (wsLastOnlineTime.get(accId) || null);
+        user.lastTimestamp = user.last_online_time;
+      });
+    }
+
     function processUsersDmPayload(data) {
       if (Array.isArray(data)) {
         allUsersData = data;
@@ -932,6 +1166,25 @@
         userSearchHasMore = !!data.hasMore;
         serverIsAdmin = !!(data.currentUser && data.currentUser.is_admin);
       }
+
+      // Immediately strip whatever presence-ish fields the server response
+      // included — the active-status indicator no longer reads is_currently_online/
+      // last_online_time/status from a DB fetch at all, only from the WS
+      // layer (onlineAccountsSet / wsLastOnlineTime). Clearing them here
+      // means there's no leftover DB value anywhere in allUsersData for a
+      // pre-snapshot render to accidentally pick up.
+      allUsersData.forEach(user => {
+        delete user.is_currently_online;
+        delete user.last_online_time;
+        delete user.status;
+      });
+
+      // Re-apply WS presence state now that the fields above are gone —
+      // applyWsPresenceToAllUsers() is a no-op until hasReceivedPresenceSnapshot
+      // is true, at which point it's the only thing that ever sets
+      // status/is_currently_online/last_online_time again.
+      applyWsPresenceToAllUsers();
+
       if (activeDM) {
         const activeUser = (allUsersData || []).find(u => u.username === activeDM);
         if (activeUser) activeUser.unreadCount = 0;
@@ -1275,7 +1528,18 @@
           avatar.dataset.initials = u.name;
           avatar.dataset.avatarUrl = u.avatar_url || '';
         }
-        const newDotClass = 'status-dot ' + (u.status || 'offline');
+        if (hasReceivedPresenceSnapshot) {
+          const isWsOnline = onlineAccountsSet.has(Number(u.account_id));
+          u.status = isWsOnline ? 'online' : 'offline';
+          u.is_currently_online = isWsOnline;
+        }
+        // Fully WS-driven: before the first presence_snapshot arrives we
+        // don't actually know this user's status yet, so default the dot
+        // to offline rather than trusting whatever the DB-fetched payload
+        // said (that DB flag can be stale for anyone who didn't log out
+        // cleanly, which is what caused the old online-then-offline flash).
+        const effectiveStatus = hasReceivedPresenceSnapshot ? u.status : 'offline';
+        const newDotClass = 'status-dot ' + (effectiveStatus || 'offline');
         if (dot.className !== newDotClass) dot.className = newDotClass;
 
         if (nameEl.textContent !== u.name) nameEl.textContent = u.name;
@@ -1320,7 +1584,6 @@
           officeEl.style.display = 'block';
         }
 
-        // Preview line: only shows real-time typing preview, never past messages
         if (info) {
           let lastMsgEl = info.querySelector('.user-last-msg');
           if (!lastMsgEl) {
@@ -1333,12 +1596,14 @@
           const canSeeTyping = window.currentUserCommSettings && window.currentUserCommSettings.allow_see_typing_preview;
           if (canSeeTyping && activeDraft && activeDraft.preview) {
             lastMsgEl.textContent = activeDraft.preview;
+            lastMsgEl.style.display = 'block';
             lastMsgEl.style.fontStyle = 'italic';
             lastMsgEl.style.color = 'var(--primary-color, #1b74e4)';
           } else {
             lastMsgEl.textContent = '';
             lastMsgEl.style.fontStyle = '';
             lastMsgEl.style.color = '';
+            lastMsgEl.style.display = 'block';
           }
         }
 
@@ -2098,6 +2363,8 @@
       // Instant, lightweight feedback: highlight the clicked row right away,
       // without touching messages/scroll yet.
       isGlobalChat = false;
+      const _hEl = document.querySelector('.header');
+      if (_hEl) _hEl.classList.remove('is-global-chat');
       activeDM = u.username;
       activeDMAccountId = Number(u.account_id);
       activeAdminConv = null;
@@ -2120,6 +2387,8 @@
 
     function performSelectDM(u) {
       isGlobalChat = false;
+      const _hEl = document.querySelector('.header');
+      if (_hEl) _hEl.classList.remove('is-global-chat');
       activeDM = u.username;
       activeDMAccountId = Number(u.account_id);
       activeAdminConv = null;
@@ -2153,6 +2422,7 @@
       chatHeaderTitle.textContent = u.name;
       applyHeaderAdminBadge();
       applyHeaderAvatar(u);
+      updateHeaderActiveStatus(u);
       // Mirror selectGlobalChat's render flow exactly: blank the pane and do
       // a single, deterministic paint once the real data comes back. The old
       // approach (instant-paint from a cached snapshot, then reconcile again
@@ -2162,6 +2432,8 @@
       chatBox.innerHTML = '';
       removePaginationBtn();
       hideScrollIndicator();
+      const _htp = document.getElementById('headerTypingPreview');
+      if (_htp) { _htp.textContent = ''; _htp.classList.remove('active'); }
 
       dmCursor = '';
       dmHasMore = false;
@@ -2192,6 +2464,8 @@
 
     function selectGlobalChat() {
       isGlobalChat = true;
+      const _hEl = document.querySelector('.header');
+      if (_hEl) _hEl.classList.add('is-global-chat');
       activeDM = null;
       activeDMAccountId = null;
       activeAdminConv = null;
@@ -2201,9 +2475,12 @@
       gcViewingOlder = false;
       clearSendingOverlay(); // drop any pending-send bubbles from the previous conversation
       hideEditBanner();
+      updateHeaderActiveStatus();
       isFirstLoad = true;
       chatFullyLoaded = false; // suppress scroll buttons until global chat finishes loading
       hideScrollIndicator();
+      const _htpGc = document.getElementById('headerTypingPreview');
+      if (_htpGc) { _htpGc.textContent = ''; _htpGc.classList.remove('active'); }
       // Reset local typing indicator state
       if (localTypingTimeout) {
         clearTimeout(localTypingTimeout);
@@ -2504,6 +2781,15 @@
       messageInput.style.color = '';
       activeMentions = [];
       if (messageInputHighlight) messageInputHighlight.innerHTML = '';
+
+      const headerPreview = document.getElementById('headerTypingPreview');
+      if (headerPreview) {
+        headerPreview.textContent = '';
+        headerPreview.classList.remove('active');
+      }
+      if (typeof sendTypingPreview === 'function') {
+        sendTypingPreview();
+      }
     }
     window.resetMessageInputVisualState = resetMessageInputVisualState;
 
@@ -3142,6 +3428,8 @@
       activeDMAccountId = null;
       updateClearChatButtonVisibility();
       isGlobalChat = false; // must reset — otherwise polling/visibilitychange keep re-loading Global Chat over the spy view
+      const _hEl = document.querySelector('.header');
+      if (_hEl) _hEl.classList.remove('is-global-chat');
       
       adminConvCursor = '';
       adminConvHasMore = false;
@@ -3169,6 +3457,7 @@
       localStorage.setItem('activeSpyConv', c.convId);
 
       chatHeaderTitle.textContent = c.name1 + ' & ' + c.name2;
+      updateHeaderActiveStatus();
       applyHeaderAdminBadge(); // activeDMAccountId is null for spied conversations — clears any leftover badge
       applyHeaderAvatar(null); // two participants, no single avatar to show
       chatBox.innerHTML = '<div class="empty-chat"><p>Loading...</p></div>';
@@ -3225,6 +3514,11 @@
       activeDMAccountId = null;
       activeAdminConv = null;
       isGlobalChat = false;
+      const _hEl = document.querySelector('.header');
+      if (_hEl) {
+        _hEl.classList.remove('is-global-chat');
+        _hEl.classList.remove('is-single-title');
+      }
       
       updateClearChatButtonVisibility();
       
@@ -3251,6 +3545,8 @@
       if (chatHeaderTitle) {
         chatHeaderTitle.textContent = '';
       }
+      const _headerActiveStatus = document.getElementById('headerActiveStatus');
+      if (_headerActiveStatus) _headerActiveStatus.textContent = '';
       if (typeof applyHeaderAvatar === 'function') {
         applyHeaderAvatar(null);
       }

@@ -81,9 +81,13 @@ if ($searchQuery !== '') {
             'office_id'           => $user['office_id'],
             'office_name'         => $user['office_name'],
             'office_code'         => $user['office_code'],
-            'is_currently_online' => $user['is_currently_online'],
-            'last_online_time'    => $user['last_online_time'],
-            'status'              => ((bool) $user['is_currently_online']) ? 'online' : 'offline',
+            // Deliberately NOT sending is_currently_online / last_online_time /
+            // status here anymore. The active-status indicator is now fully
+            // WS-driven (see ws-server/server.js's presence_snapshot +
+            // assets/js/app-part1.js) — those DB columns could sit stale for
+            // anyone who closed the tab without a clean logout, which used to
+            // cause a brief incorrect "online" flash on page refresh before
+            // the WebSocket's presence data corrected it.
             'lastMessage'         => $lastMessageText,
             'lastTimestamp'       => $lastTimestamp,
             'unreadCount'         => $unreadCount,
@@ -134,9 +138,8 @@ if ($searchQuery !== '') {
             'office_id'           => $userInfo['office_id'],
             'office_name'         => $userInfo['office_name'],
             'office_code'         => $userInfo['office_code'],
-            'is_currently_online' => $userInfo['is_currently_online'],
-            'last_online_time'    => $userInfo['last_online_time'],
-            'status'              => ((bool) $userInfo['is_currently_online']) ? 'online' : 'offline',
+            // See note above — presence fields intentionally omitted;
+            // WS is the sole source for active status now.
             'lastMessage'         => $lastMessageText,
             'lastTimestamp'       => (int) ($conv['last_ts'] ?? 0),
             'unreadCount'         => (int) ($conv['unread_count'] ?? 0),

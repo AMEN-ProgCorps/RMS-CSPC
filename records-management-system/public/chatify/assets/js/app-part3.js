@@ -378,12 +378,34 @@
       });
     }
 
+    // Active user scroll tracking — prevents background polls / image loads
+    // from triggering scrollToBottom jumps while the user is actively scrolling.
+    let isUserScrollingOrTouching = false;
+    let userScrollTouchTimeout = null;
+
+    function markUserScrollingActive() {
+      isUserScrollingOrTouching = true;
+      if (userScrollTouchTimeout) clearTimeout(userScrollTouchTimeout);
+      userScrollTouchTimeout = setTimeout(function() {
+        isUserScrollingOrTouching = false;
+      }, 500);
+    }
+
+    if (chatBox) {
+      chatBox.addEventListener('touchstart', markUserScrollingActive, { passive: true });
+      chatBox.addEventListener('touchmove', markUserScrollingActive, { passive: true });
+      chatBox.addEventListener('wheel', markUserScrollingActive, { passive: true });
+    }
+
     // Enhanced scroll management
     function isAtBottom() {
-      return (chatBox.scrollHeight - chatBox.scrollTop - chatBox.clientHeight) <= 100;
+      return (chatBox.scrollHeight - chatBox.scrollTop - chatBox.clientHeight) <= 25;
     }
 
     function scrollToBottom(force = false, instant = false) {
+      // Never snap or jump scroll position while the user is actively touch-dragging or scrolling
+      if (isUserScrollingOrTouching && !force) return;
+
       if (force || shouldAutoScroll) {
         // Instant scroll — no animation (used on page load / refresh)
         if (instant) {
@@ -1447,11 +1469,12 @@
 
     // Ensure scroll position is maintained when images finish loading
     chatBox.addEventListener('load', function(event) {
+      if (isUserScrollingOrTouching) return;
       if (event.target.tagName === 'IMG') {
         const activeKey = isGlobalChat ? '__global__' : (activeDM || (activeAdminConv ? '__admin__' + activeAdminConv : null));
         if (activeKey) {
           const savedAtBottom = sessionStorage.getItem('chatScrollAtBottom_' + activeKey);
-          if (savedAtBottom === 'true' || shouldAutoScroll || isAtBottom()) {
+          if ((savedAtBottom === 'true' || shouldAutoScroll || isAtBottom()) && !userScrolledUp) {
             scrollToBottom(true, true);
           }
         }
@@ -1685,7 +1708,7 @@
     //     fetch for this chat is already in flight, or there's nothing left
     //     to load — so the common case (scrolling anywhere but the very top)
     //     costs almost nothing.
-    const AUTO_LOAD_OLDER_THRESHOLD_PX = 200;
+    const AUTO_LOAD_OLDER_THRESHOLD_PX = 40;
     let autoLoadOlderTicking = false;
 
     function currentChatHasOlderMessages() {

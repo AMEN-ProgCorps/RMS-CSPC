@@ -1199,8 +1199,8 @@
       overscroll-behavior-y: contain;
       position: relative;
       scroll-behavior: auto;
+      overflow-anchor: auto;
       transition: background-color 0.3s ease;
-      will-change: scroll-position;
       /* Hide scrollbar but keep scroll functionality */
       scrollbar-width: none; /* Firefox */
       -ms-overflow-style: none; /* IE/Edge */

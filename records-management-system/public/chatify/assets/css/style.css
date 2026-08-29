@@ -2820,26 +2820,23 @@
       height: 40px;
       border-radius: 50%;
       flex-shrink: 0;
-      transition: transform 0.2s cubic-bezier(0.175, 0.885, 0.32, 1.275) !important;
+      transform: scale(1) translateY(0);
+      transition: transform 0.15s ease !important;
+      touch-action: manipulation;
     }
-    .reaction-picker-btn:hover,
-    .reaction-picker-btn:focus,
+    @media (hover: hover) {
+      .reaction-picker-btn:hover {
+        transform: scale(1.25) translateY(-2px);
+      }
+    }
     .reaction-picker-btn:active {
-      transform: scale(1.4) translateY(-4px);
-      background: transparent !important;
-      background-color: transparent !important;
-      box-shadow: none !important;
-      text-shadow: none !important;
-      filter: none !important;
-      outline: none !important;
+      transform: scale(1.25) translateY(-2px);
     }
-    [data-theme="dark"] .reaction-picker-btn:hover,
-    [data-theme="dark"] .reaction-picker-btn:focus,
-    [data-theme="dark"] .reaction-picker-btn:active {
-      background: transparent !important;
-      background-color: transparent !important;
+    .reaction-picker-btn:focus,
+    .reaction-picker-btn:focus-visible {
+      transform: scale(1) translateY(0);
+      outline: none !important;
       box-shadow: none !important;
-      filter: none !important;
     }
     @media (max-width: 360px) {
       .reaction-picker-btn {

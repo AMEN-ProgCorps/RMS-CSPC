@@ -92,6 +92,8 @@ $responseData = [
     'action'    => $result['action'],
     'emoji'     => $emoji,
     'msg_uuid'  => $msgUuid,
+    'target_id' => $targetId,
+    'chat_type' => $chatType,
     'reactions' => $reactionMap,
 ];
 

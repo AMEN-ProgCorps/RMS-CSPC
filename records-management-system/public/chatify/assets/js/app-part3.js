@@ -1208,6 +1208,10 @@
       const distinctEmojis = [];
       let mine = false;
 
+      const myAccountId = (typeof wsConfig !== 'undefined' && wsConfig && wsConfig.accountId)
+        ? Number(wsConfig.accountId)
+        : (typeof currentUserId !== 'undefined' ? Number(currentUserId) : 0);
+
       Object.keys(reactionMap).forEach(function(rawEmoji) {
         const ids = reactionMap[rawEmoji] || [];
         if (ids.length > 0) {
@@ -1216,7 +1220,7 @@
             distinctEmojis.push(emoji);
           }
           totalCount += ids.length;
-          if (ids.some(function(id) { return Number(id) === wsConfig.accountId; })) {
+          if (ids.some(function(id) { return Number(id) === myAccountId; })) {
             mine = true;
           }
         }
@@ -1255,7 +1259,11 @@
         + '</button>';
     }
 
-    // ── Persist a toggle to the server ──────────────────────────────────────
+    // Expose renderReactionsForMessage globally so ws.onmessage in app-part1.js
+    // can immediately re-render reactions upon receiving WebSocket push events
+    window.renderReactionsForMessage = renderReactionsForMessage;
+
+    // ── Persist a toggle to the server & broadcast over WebSocket ───────────
     function sendReaction(container, emoji) {
       if (!container) return;
       const msgUuid = container.getAttribute('data-msg-id');
@@ -1282,7 +1290,23 @@
         .then(function(res) { return res.json(); })
         .then(function(data) {
           if (data && data.success) {
+            if (typeof dmMessageCache !== 'undefined') {
+              dmMessageCache.clear();
+            }
             renderReactionsForMessage(data.msg_uuid, data.reactions || {});
+
+            // Broadcast reaction in real-time over WebSocket, exactly like chat messages
+            if (typeof ws !== 'undefined' && ws && ws.readyState === WebSocket.OPEN) {
+              const recipId = activeDMAccountId || Number(data.target_id) || null;
+              ws.send(JSON.stringify({
+                type: 'reaction',
+                chat_type: isGlobalChat ? 'global' : 'private',
+                recipient_id: recipId,
+                msg_uuid: data.msg_uuid,
+                emoji: data.emoji,
+                reactions: data.reactions || {}
+              }));
+            }
           }
         })
         .catch(function() { /* best-effort — a WS reconnect or next poll will reconcile */ });
@@ -1927,6 +1951,7 @@
       const curKeys = currentMessages.map(getMessageKey);
 
       const rec = reconcilePoll(newMessages, currentMessages, newKeys, curKeys);
+      if (typeof syncReactionsFromNewHtml === 'function') syncReactionsFromNewHtml(newMessages);
 
       if (rec.type === 'nochange') {
         if (isFirstLoad) { isFirstLoad = false; handleFirstLoadScroll(); }
@@ -2190,6 +2215,7 @@
       const curKeys = currentMessages.map(getMessageKey);
 
       const rec = reconcilePoll(newMessages, currentMessages, newKeys, curKeys);
+      if (typeof syncReactionsFromNewHtml === 'function') syncReactionsFromNewHtml(newMessages);
 
       if (rec.type === 'nochange') {
         if (isFirstLoad) { isFirstLoad = false; handleFirstLoadScroll(); }

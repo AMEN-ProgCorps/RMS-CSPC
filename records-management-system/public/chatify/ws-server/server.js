@@ -756,6 +756,32 @@ wss.on('connection', (ws) => {
       return;
     }
 
+    // 2c. Handle Reaction Dispatched Event
+    if (data.type === 'reaction') {
+      if (isRateLimited(state.accountId, 'message')) return;
+
+      const { chat_type, recipient_id, msg_uuid, emoji, reactions } = data;
+      log(`Broadcasting reaction event: chat_type=${chat_type}, msg_uuid=${msg_uuid}, sender_id=${state.accountId}`);
+
+      const payloadObj = {
+        type: 'reaction_updated',
+        chat_type: chat_type || 'global',
+        msg_uuid: msg_uuid,
+        emoji: emoji,
+        reactions: reactions || {},
+        account_id: state.accountId
+      };
+      const payloadStr = JSON.stringify(payloadObj);
+
+      if (chat_type === 'global') {
+        broadcastToAll(payloadStr);
+      } else if (chat_type === 'private') {
+        // Recipient, sender's other tabs/sessions, and admin (1) for spy mode
+        broadcastToAccounts([Number(recipient_id), state.accountId, 1], payloadStr);
+      }
+      return;
+    }
+
     // 3. Handle Name Update Event
     if (data.type === 'update_name') {
       if (isRateLimited(state.accountId, 'control')) return;

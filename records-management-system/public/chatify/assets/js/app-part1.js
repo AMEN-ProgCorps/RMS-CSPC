@@ -441,11 +441,14 @@
           }
         } else if (data.type === 'reaction_updated') {
           // Another client (or our own second tab) toggled a reaction —
-          // patch that one message's badge row in place. No server fetch:
-          // the payload already carries the message's full, up-to-date
-          // emoji => [account_id, ...] map (see react.php).
-          if (typeof renderReactionsForMessage === 'function') {
-            renderReactionsForMessage(data.msg_uuid, data.reactions || {});
+          // invalidate cached snapshot so reopening any chat fetches fresh state,
+          // and patch that one message's badge row in place immediately.
+          if (typeof dmMessageCache !== 'undefined') {
+            dmMessageCache.clear();
+          }
+          const fn = window.renderReactionsForMessage || (typeof renderReactionsForMessage === 'function' ? renderReactionsForMessage : null);
+          if (fn && data.msg_uuid) {
+            fn(data.msg_uuid, data.reactions || {});
           }
         } else if (data.type === 'message') {
           console.log('Received WebSocket real-time update notice:', data);
@@ -2561,6 +2564,43 @@
       return { type: 'replace' };
     }
 
+    // Helper: synchronize reactions of visible messages with a freshly-fetched HTML payload
+    function syncReactionsFromNewHtml(newMessages) {
+      if (!chatBox || !newMessages) return;
+      newMessages.forEach(function(newEl) {
+        if (!newEl || typeof newEl.getAttribute !== 'function') return;
+        const msgId = newEl.getAttribute('data-msg-id');
+        if (!msgId) return;
+
+        const curEl = chatBox.querySelector('.message-container[data-msg-id="' + msgId + '"]');
+        if (!curEl) return;
+
+        const newReactions = newEl.querySelector('.msg-reactions');
+        const curReactions = curEl.querySelector('.msg-reactions');
+        const curBubbleWrapper = curEl.querySelector('.bubble-wrapper');
+
+        if (newReactions) {
+          if (curReactions) {
+            if (curReactions.innerHTML !== newReactions.innerHTML) {
+              curReactions.innerHTML = newReactions.innerHTML;
+              curReactions.className = newReactions.className;
+            }
+          } else {
+            const cloned = newReactions.cloneNode(true);
+            (curBubbleWrapper || curEl).appendChild(cloned);
+          }
+          if (curBubbleWrapper) curBubbleWrapper.classList.add('has-reactions');
+          curEl.classList.add('has-reactions');
+        } else {
+          if (curReactions) {
+            curReactions.remove();
+          }
+          if (curBubbleWrapper) curBubbleWrapper.classList.remove('has-reactions');
+          curEl.classList.remove('has-reactions');
+        }
+      });
+    }
+
     // Historical no-op kept so the many call sites that mark "older messages
     // are available for this chat" (gcHasMore/dmHasMore/adminConvHasMore are
     // what actually drive the auto-load-on-scroll-to-top behavior now — see
@@ -3358,6 +3398,7 @@
         const curKeys = currentMessages.map(getMessageKey);
 
         const rec = reconcilePoll(newMessages, currentMessages, newKeys, curKeys);
+        syncReactionsFromNewHtml(newMessages);
 
         if (rec.type === 'nochange') {
           if (isFirstLoad) { isFirstLoad = false; handleFirstLoadScroll(); }

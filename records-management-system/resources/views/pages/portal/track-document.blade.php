@@ -207,7 +207,19 @@ new #[Layout('layouts.portal')] #[Title('Track Document')] class extends Compone
                 <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24">
                     <path fill="currentColor" d="M9.5,3A6.5,6.5,0,1,0,16,9.5,6.51,6.51,0,0,0,9.5,3Zm0,11A4.5,4.5,0,1,1,14,9.5,4.51,4.51,0,0,1,9.5,14ZM20.71,19.29l-3.4-3.39a1,1,0,1,0-1.42,1.42l3.4,3.39a1,1,0,0,0,1.42-1.42Z" />
                 </svg>
-                <input wire:model="trackingNumber" type="text" placeholder="Enter Tracking Number" required>
+                <input wire:model="trackingNumber" id="tracking-input" type="text" placeholder="Enter Tracking Number" required>
+            </div>
+            <div class="search-btn-group">
+                <button type="button" id="open-public-scanner-btn" class="scan-btn" title="Scan QR Code">
+                    Scan QR
+                </button>
+                <button type="submit" class="search-btn" wire:loading.attr="disabled">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24">
+                        <path fill="currentColor" d="M9.5,3A6.5,6.5,0,1,0,16,9.5,6.51,6.51,0,0,0,9.5,3Zm0,11A4.5,4.5,0,1,1,14,9.5,4.51,4.51,0,0,1,9.5,14ZM20.71,19.29l-3.4-3.39a1,1,0,1,0-1.42,1.42l3.4,3.39a1,1,0,0,0,1.42-1.42Z" />
+                    </svg>
+                    <span wire:loading.remove wire:target="track">Track</span>
+                    <span wire:loading wire:target="track">Searching…</span>
+                </button>
             </div>
             <div id="status_indicator" wire:ignore>
                 <div class="si-phase"></div>
@@ -216,23 +228,340 @@ new #[Layout('layouts.portal')] #[Title('Track Document')] class extends Compone
             @error('trackingNumber')
                 <span class="form-error">{{ $message }}</span>
             @enderror
-            <button type="submit" class="search-btn" wire:loading.attr="disabled">
-                <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24">
-                    <path fill="currentColor" d="M9.5,3A6.5,6.5,0,1,0,16,9.5,6.51,6.51,0,0,0,9.5,3Zm0,11A4.5,4.5,0,1,1,14,9.5,4.51,4.51,0,0,1,9.5,14ZM20.71,19.29l-3.4-3.39a1,1,0,1,0-1.42,1.42l3.4,3.39a1,1,0,0,0,1.42-1.42Z" />
-                </svg>
-                <span wire:loading.remove wire:target="track">Track</span>
-                <span wire:loading wire:target="track">Searching…</span>
-            </button>
         </form>
     </div>
     <span class="Empty">
         Please Enter the tracking number to view your document transaction status. If you don't have a tracking number,<br>
         please contact the Records and Freedom of Information Office for assistance.
     </span>
+
+    <!-- Public QR Scanner Modal -->
+    <div id="public-scanner-modal" class="scanner-backdrop" style="display: none;" wire:ignore>
+        <div class="scanner-modal-card">
+            <div class="scanner-modal-header">
+                <div>
+                    <h3 class="scanner-modal-title">Scan Document QR Code</h3>
+                    <p class="scanner-modal-desc">Point your camera at the QR code or upload an image file</p>
+                </div>
+                <button type="button" id="close-public-scanner-btn" class="scanner-modal-close" aria-label="Close modal">&times;</button>
+            </div>
+
+            <div class="scanner-tabs">
+                <button type="button" id="tab-camera-btn" class="scanner-tab-btn active">Camera Scan</button>
+                <button type="button" id="tab-file-btn" class="scanner-tab-btn">Upload Image</button>
+            </div>
+
+            <!-- Camera Viewport Panel -->
+            <div id="scanner-camera-panel" class="scanner-panel">
+                <div class="scanner-viewport-wrapper">
+                    <div id="public-qr-preview"></div>
+                    <div id="public-camera-placeholder" class="scanner-placeholder">
+                        <div class="scanner-loading-spinner"></div>
+                        <span>Initializing Camera Feed...</span>
+                    </div>
+                </div>
+                <div class="scanner-camera-controls">
+                    <button type="button" id="scanner-switch-camera-btn" class="scanner-secondary-btn" style="display: none;">
+                        Switch Camera
+                    </button>
+                    <span id="scanner-camera-status" class="scanner-camera-status">Position QR code inside the frame</span>
+                </div>
+            </div>
+
+            <!-- Image File Upload Panel -->
+            <div id="scanner-file-panel" class="scanner-panel" style="display: none;">
+                <label for="public-qr-file-input" class="scanner-file-dropzone" id="scanner-dropzone">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="38" height="38" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                        <polyline points="17 8 12 3 7 8"></polyline>
+                        <line x1="12" y1="3" x2="12" y2="15"></line>
+                    </svg>
+                    <span class="dropzone-text">Click to choose or drag & drop QR code image</span>
+                    <span class="dropzone-hint">Supports PNG, JPG, JPEG, WEBP, BMP</span>
+                    <input type="file" id="public-qr-file-input" accept="image/*" style="display: none;">
+                </label>
+                <div id="scanner-file-status" class="scanner-file-status" style="display: none;"></div>
+            </div>
+        </div>
+    </div>
 </section>
 </div>
 
 @push('scripts')
+<script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
+<script>
+(function() {
+    let publicHtml5QrCode = null;
+    let availableCameras = [];
+    let currentCameraIndex = 0;
+
+    function getModal() { return document.getElementById('public-scanner-modal'); }
+    function getInput() { return document.getElementById('tracking-input'); }
+    function getForm() { return document.getElementById('track-form'); }
+
+    async function stopPublicScanner() {
+        if (publicHtml5QrCode) {
+            try {
+                if (publicHtml5QrCode.isScanning) {
+                    await publicHtml5QrCode.stop();
+                }
+                publicHtml5QrCode.clear();
+            } catch(e) {}
+            publicHtml5QrCode = null;
+        }
+    }
+
+    async function openScannerModal() {
+        const modal = getModal();
+        if (!modal) return;
+        modal.style.display = 'flex';
+        switchTab('camera');
+    }
+
+    async function closeScannerModal() {
+        const modal = getModal();
+        if (modal) modal.style.display = 'none';
+        await stopPublicScanner();
+        resetFileStatus();
+    }
+
+    function switchTab(tab) {
+        const camBtn = document.getElementById('tab-camera-btn');
+        const fileBtn = document.getElementById('tab-file-btn');
+        const camPanel = document.getElementById('scanner-camera-panel');
+        const filePanel = document.getElementById('scanner-file-panel');
+
+        if (tab === 'camera') {
+            if (camBtn) camBtn.classList.add('active');
+            if (fileBtn) fileBtn.classList.remove('active');
+            if (camPanel) camPanel.style.display = '';
+            if (filePanel) filePanel.style.display = 'none';
+            startCamera();
+        } else {
+            if (fileBtn) fileBtn.classList.add('active');
+            if (camBtn) camBtn.classList.remove('active');
+            if (filePanel) filePanel.style.display = '';
+            if (camPanel) camPanel.style.display = 'none';
+            stopPublicScanner();
+        }
+    }
+
+    async function startCamera(cameraId = null) {
+        const placeholder = document.getElementById('public-camera-placeholder');
+        const statusEl = document.getElementById('scanner-camera-status');
+        const switchBtn = document.getElementById('scanner-switch-camera-btn');
+
+        if (placeholder) {
+            placeholder.style.display = 'flex';
+            placeholder.innerHTML = '<div class="scanner-loading-spinner"></div><span>Starting camera feed...</span>';
+        }
+        if (statusEl) statusEl.textContent = 'Position QR code inside the frame';
+
+        await stopPublicScanner();
+
+        if (typeof Html5Qrcode === 'undefined') {
+            if (placeholder) placeholder.innerHTML = '⚠️ Scanner library loading... Please check your network connection.';
+            return;
+        }
+
+        try {
+            publicHtml5QrCode = new Html5Qrcode("public-qr-preview");
+
+            // Enumerate cameras if not already done
+            if (availableCameras.length === 0) {
+                try {
+                    const devices = await Html5Qrcode.getCameras();
+                    if (devices && devices.length > 0) {
+                        availableCameras = devices;
+                    }
+                } catch(e) {}
+            }
+
+            if (switchBtn) {
+                switchBtn.style.display = availableCameras.length > 1 ? 'inline-block' : 'none';
+            }
+
+            const qrConfig = {
+                fps: 20,
+                qrbox: function(viewfinderWidth, viewfinderHeight) {
+                    const minDimension = Math.min(viewfinderWidth, viewfinderHeight);
+                    let boxSize = Math.floor(minDimension * 0.75);
+                    if (boxSize < 200 && minDimension >= 200) boxSize = 200;
+                    return { width: boxSize, height: boxSize };
+                }
+            };
+
+            const cameraConfig = cameraId 
+                ? { deviceId: { exact: cameraId } } 
+                : { facingMode: "environment" };
+
+            await publicHtml5QrCode.start(
+                cameraConfig,
+                qrConfig,
+                (decodedText) => {
+                    handleSuccessfulScan(decodedText);
+                },
+                () => {}
+            );
+
+            if (placeholder) placeholder.style.display = 'none';
+        } catch (err) {
+            if (placeholder) {
+                placeholder.style.display = 'flex';
+                placeholder.innerHTML = '⚠️ Camera access unavailable or permission denied.<br><small style="margin-top:6px;opacity:0.8;">You can switch to the "Upload Image" tab to scan a QR image.</small>';
+            }
+            if (statusEl) statusEl.textContent = 'Camera unavailable';
+        }
+    }
+
+    async function switchCamera() {
+        if (availableCameras.length <= 1) return;
+        currentCameraIndex = (currentCameraIndex + 1) % availableCameras.length;
+        const targetCamera = availableCameras[currentCameraIndex];
+        await startCamera(targetCamera.id);
+    }
+
+    function handleSuccessfulScan(decodedText) {
+        const cleaned = decodedText ? decodedText.trim() : '';
+        if (!cleaned) return;
+
+        const input = getInput();
+        if (input) {
+            input.value = cleaned;
+            input.dispatchEvent(new Event('input', { bubbles: true }));
+        }
+
+        // Update Livewire model directly
+        if (typeof @this !== 'undefined' && @this.set) {
+            @this.set('trackingNumber', cleaned);
+        } else {
+            let livewireRoot = document.querySelector('.livewire-root');
+            let component = (typeof Livewire !== 'undefined' && livewireRoot) 
+                ? Livewire.find(livewireRoot.getAttribute('wire:id')) 
+                : null;
+            if (component) {
+                component.set('trackingNumber', cleaned);
+            }
+        }
+
+        closeScannerModal();
+
+        // Automatically trigger full tracking validation pipeline
+        setTimeout(() => {
+            const form = getForm();
+            if (form) {
+                form.dispatchEvent(new Event('submit', { cancelable: true, bubbles: true }));
+            }
+        }, 150);
+    }
+
+    function setFileStatus(msg, type) {
+        const el = document.getElementById('scanner-file-status');
+        if (!el) return;
+        el.className = 'scanner-file-status ' + (type || '');
+        el.textContent = msg;
+        el.style.display = 'block';
+    }
+
+    function resetFileStatus() {
+        const el = document.getElementById('scanner-file-status');
+        if (el) {
+            el.style.display = 'none';
+            el.textContent = '';
+        }
+        const fileInput = document.getElementById('public-qr-file-input');
+        if (fileInput) fileInput.value = '';
+    }
+
+    async function handleFileScan(file) {
+        if (!file || !file.type.startsWith('image/')) {
+            setFileStatus('Please select a valid image file (PNG, JPG, WEBP).', 'error');
+            return;
+        }
+
+        setFileStatus('Scanning image for QR code...', '');
+
+        if (typeof Html5Qrcode === 'undefined') {
+            setFileStatus('Scanner library not loaded yet.', 'error');
+            return;
+        }
+
+        try {
+            const tempScanner = new Html5Qrcode("public-qr-preview");
+            const decodedText = await tempScanner.scanFile(file, true);
+            setFileStatus('QR Code detected! Loading document...', 'success');
+            setTimeout(() => {
+                handleSuccessfulScan(decodedText);
+            }, 300);
+        } catch (err) {
+            setFileStatus('No QR code found in this image. Please try another image or use the camera.', 'error');
+        }
+    }
+
+    function setupPublicScanner() {
+        const openBtn = document.getElementById('open-public-scanner-btn');
+        const closeBtn = document.getElementById('close-public-scanner-btn');
+        const modal = getModal();
+        const tabCam = document.getElementById('tab-camera-btn');
+        const tabFile = document.getElementById('tab-file-btn');
+        const switchBtn = document.getElementById('scanner-switch-camera-btn');
+        const fileInput = document.getElementById('public-qr-file-input');
+        const dropzone = document.getElementById('scanner-dropzone');
+
+        if (openBtn) {
+            openBtn.onclick = (e) => { e.preventDefault(); openScannerModal(); };
+        }
+        if (closeBtn) {
+            closeBtn.onclick = (e) => { e.preventDefault(); closeScannerModal(); };
+        }
+        if (modal) {
+            modal.onclick = (e) => {
+                if (e.target === modal) closeScannerModal();
+            };
+        }
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape' && modal && modal.style.display === 'flex') {
+                closeScannerModal();
+            }
+        });
+
+        if (tabCam) tabCam.onclick = () => switchTab('camera');
+        if (tabFile) tabFile.onclick = () => switchTab('file');
+        if (switchBtn) switchBtn.onclick = () => switchCamera();
+
+        if (fileInput) {
+            fileInput.onchange = (e) => {
+                if (e.target.files && e.target.files[0]) {
+                    handleFileScan(e.target.files[0]);
+                }
+            };
+        }
+
+        if (dropzone) {
+            ['dragenter', 'dragover'].forEach(name => {
+                dropzone.addEventListener(name, (e) => {
+                    e.preventDefault();
+                    dropzone.classList.add('dragover');
+                });
+            });
+            ['dragleave', 'drop'].forEach(name => {
+                dropzone.addEventListener(name, (e) => {
+                    e.preventDefault();
+                    dropzone.classList.remove('dragover');
+                });
+            });
+            dropzone.addEventListener('drop', (e) => {
+                if (e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0]) {
+                    handleFileScan(e.dataTransfer.files[0]);
+                }
+            });
+        }
+    }
+
+    document.addEventListener('livewire:navigated', setupPublicScanner);
+    document.addEventListener('DOMContentLoaded', setupPublicScanner);
+})();
+</script>
 <script>
 (function () {
     const STORAGE_KEY  = 'rms_tracking_device';

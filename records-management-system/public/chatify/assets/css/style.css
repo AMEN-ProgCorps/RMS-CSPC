@@ -1594,11 +1594,11 @@
       word-wrap: break-word;
       box-shadow: 0 1px 2px var(--shadow-color);
       transition: background-color 0.3s ease, color 0.3s ease;
-      will-change: transform;
       -webkit-user-select: none;
       -moz-user-select: none;
       user-select: none;
       -webkit-touch-callout: none;
+      touch-action: manipulation; /* eliminates 300ms tap delay on mobile */
     }
 
     .sent .message-bubble {
@@ -1638,6 +1638,7 @@
       -moz-user-select: none;
       user-select: none;
       -webkit-touch-callout: none;
+      touch-action: manipulation; /* eliminates 300ms tap delay on mobile */
     }
 
     .sent .message-media {
@@ -2969,18 +2970,19 @@
       left: 0;
       right: 0;
       bottom: 0;
-      width: 100vw;
-      height: 100vh;
-      background: rgba(0, 0, 0, 0.5);
+      background-color: rgba(0, 0, 0, 0.5);
       z-index: 999999;
       display: flex;
       align-items: center;
       justify-content: center;
       opacity: 0;
       visibility: hidden;
-      transition: opacity 0.25s ease, visibility 0.25s ease;
+      transition: all 0.3s ease;
+      user-select: none;
+      touch-action: none; /* Block pinch-zoom on the modal backdrop (mobile) */
     }
-    .reactions-modal-overlay.visible {
+    .reactions-modal-overlay.visible,
+    .reactions-modal-overlay.active {
       opacity: 1;
       visibility: visible;
     }
@@ -2988,18 +2990,21 @@
     .reactions-modal-card {
       width: 90%;
       max-width: 400px;
-      max-height: 80vh;
+      min-width: 280px;
+      max-height: calc(100dvh - 40px);
       background-color: var(--bg-modal, #ffffff);
       border-radius: 12px;
-      box-shadow: 0 4px 16px var(--shadow-color, rgba(0,0,0,0.15));
+      box-shadow: 0 4px 12px var(--shadow-color, rgba(0,0,0,0.15));
       display: flex;
       flex-direction: column;
       overflow: hidden;
-      transform: translateY(-10px);
-      transition: transform 0.25s ease;
+      flex-shrink: 0;
+      transition: background-color 0.3s ease;
+      touch-action: pan-y; /* Allow vertical scroll inside modal (mobile) */
     }
-    .reactions-modal-overlay.visible .reactions-modal-card {
-      transform: translateY(0);
+    .reactions-modal-overlay.visible .reactions-modal-card,
+    .reactions-modal-overlay.active .reactions-modal-card {
+      animation: modalSlide 0.3s ease;
     }
 
     .reactions-modal-header {
@@ -3037,12 +3042,12 @@
     }
 
     .reactions-modal-tabs-wrapper {
-      position: relative;
       border-bottom: 1px solid var(--border-color, #e4e6eb);
       padding: 0 16px;
     }
 
     .reactions-modal-tabs {
+      position: relative;
       display: flex;
       align-items: center;
       gap: 8px;
@@ -3054,9 +3059,14 @@
     }
 
     .reactions-tab {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 4px;
       padding: 12px 10px;
       font-size: 14px;
       font-weight: 600;
+      line-height: 1;
       color: var(--text-secondary, #65676b);
       background: none;
       border: none;
@@ -3064,24 +3074,18 @@
       white-space: nowrap;
       transition: color 0.15s ease;
       position: relative;
+      vertical-align: middle;
+    }
+    .reactions-tab span {
+      display: inline-flex;
+      align-items: center;
+      line-height: 1;
     }
     .reactions-tab.active {
       color: #1877f2;
     }
     [data-theme="dark"] .reactions-tab.active {
       color: #4599ff;
-    }
-
-    .reactions-tab-indicator {
-      position: absolute;
-      bottom: 0;
-      height: 3px;
-      background: #1877f2;
-      border-radius: 3px 3px 0 0;
-      transition: left 0.2s ease, width 0.2s ease;
-    }
-    [data-theme="dark"] .reactions-tab-indicator {
-      background: #4599ff;
     }
 
     /* X close button vertically centered on the same row as emoji tabs */
@@ -3204,11 +3208,12 @@
       to { transform: rotate(360deg); }
     }
 
-    /* Long-press visual feedback — subtle highlight only, no scale/movement */
+    /* Long-press visual feedback — dim the bubble slightly.
+       opacity is GPU-composited and never triggers a layout or repaint. */
     .message-bubble.longpress-active,
     .message-media.longpress-active {
-      filter: none !important;
-      -webkit-tap-highlight-color: transparent !important;
+      opacity: 0.75;
+      transition: opacity 0.1s ease;
     }
 
     /* ── Hover Reaction Bar (desktop only) ── */

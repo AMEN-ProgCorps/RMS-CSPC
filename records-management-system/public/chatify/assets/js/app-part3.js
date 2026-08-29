@@ -541,6 +541,12 @@
     let clickTimeout = null;
     // Event delegation to smoothly toggle timestamp on click
     chatBox.addEventListener('click', function (e) {
+      // Suppress the synthetic 'click' that the browser generates after a
+      // long-press — the flag is set in the long-press timer and consumed
+      // (reset) in the document-level click handler below, so it is still
+      // true here when the synthetic click bubbles up through chatBox.
+      if (longPressJustFired) return;
+
       if (e.target.closest('a') && !e.target.closest('a').querySelector('img') && !e.target.closest('.message-media')) {
         return;
       }
@@ -915,7 +921,7 @@
     // per user per message" rule as the picker). Keep this list in sync
     // with Reactions::ALLOWED in core/Reactions.php.
     const REACTION_EMOJIS = ['❤️', '😆', '😍', '😭', '😡'];
-    const LONG_PRESS_MS = 450;
+    const LONG_PRESS_MS = 280;
     const LONG_PRESS_MOVE_TOLERANCE = 10;
 
     const reactionPicker = document.createElement('div');
@@ -951,7 +957,6 @@
         + '  </div>'
         + '  <div class="reactions-modal-tabs-wrapper">'
         + '    <div class="reactions-modal-tabs" id="reactionsModalTabs"></div>'
-        + '    <div class="reactions-tab-indicator" id="reactionsTabIndicator"></div>'
         + '  </div>'
         + '  <div class="reactions-modal-body" id="reactionsModalBody"></div>'
         + '</div>';
@@ -976,6 +981,7 @@
     function closeReactionsModal() {
       if (reactionsModalEl) {
         reactionsModalEl.classList.remove('visible');
+        reactionsModalEl.classList.remove('active');
       }
     }
 
@@ -990,6 +996,7 @@
       if (indicatorEl) indicatorEl.style.width = '0px';
 
       modal.classList.add('visible');
+      modal.classList.add('active');
 
       fetch('get_reactions.php?msg_uuid=' + encodeURIComponent(msgUuid))
         .then(function(res) { return res.json(); })
@@ -1012,7 +1019,6 @@
 
       const tabsEl = reactionsModalEl.querySelector('#reactionsModalTabs');
       const bodyEl = reactionsModalEl.querySelector('#reactionsModalBody');
-      const indicatorEl = reactionsModalEl.querySelector('#reactionsTabIndicator');
 
       const reactions = reactionsModalData.reactions || [];
       const totalCount = reactionsModalData.total_count || reactions.length;
@@ -1024,11 +1030,11 @@
         emojiCounts[e] = (emojiCounts[e] || 0) + 1;
       });
 
-      let tabsHtml = '<button type="button" class="reactions-tab' + (activeReactionFilter === 'all' ? ' active' : '') + '" data-filter="all">All ' + totalLabel + '</button>';
+      let tabsHtml = '<button type="button" class="reactions-tab' + (activeReactionFilter === 'all' ? ' active' : '') + '" data-filter="all"><span>All ' + totalLabel + '</span></button>';
 
       REACTION_EMOJIS.forEach(function(e) {
         if (emojiCounts[e]) {
-          tabsHtml += '<button type="button" class="reactions-tab' + (activeReactionFilter === e ? ' active' : '') + '" data-filter="' + e + '">' + e + ' ' + emojiCounts[e] + '</button>';
+          tabsHtml += '<button type="button" class="reactions-tab' + (activeReactionFilter === e ? ' active' : '') + '" data-filter="' + e + '"><span>' + e + '</span> <span>' + emojiCounts[e] + '</span></button>';
         }
       });
 
@@ -1041,14 +1047,6 @@
           renderReactionsModalContent(filter);
         });
       });
-
-      const activeBtn = tabsEl.querySelector('.reactions-tab.active');
-      if (activeBtn && indicatorEl) {
-        const rect = activeBtn.getBoundingClientRect();
-        const parentRect = tabsEl.getBoundingClientRect();
-        indicatorEl.style.left = (rect.left - parentRect.left + tabsEl.scrollLeft) + 'px';
-        indicatorEl.style.width = rect.width + 'px';
-      }
 
       const filteredReactions = reactions.filter(function(r) {
         const e = (r.emoji === '❤' || r.emoji === '🖤' || r.emoji === '🤍') ? '❤️' : r.emoji;
@@ -1113,17 +1111,43 @@
       }
     }
 
+    // Cached picker size — measured once on first open, reused forever.
+    // The picker always has the same 5 emoji buttons so its dimensions are
+    // stable. Caching eliminates the forced-reflow on every long-press that
+    // was causing the compositing-layer flicker on mobile.
+    let pickerDims = null;
+
     function openReactionPicker(container, x, y) {
       reactionPickerContainer = container;
       const anchorEl = getReactionAnchorEl(container) || container;
       const rect = anchorEl.getBoundingClientRect();
 
-      const pw = reactionPicker.offsetWidth || 230;
-      const ph = reactionPicker.offsetHeight || 50;
+      let pw, ph;
+      if (pickerDims) {
+        // Use cached size — no reflow needed
+        pw = pickerDims.w;
+        ph = pickerDims.h;
+      } else {
+        // First open: measure once, suppressing the CSS transition so no
+        // visual flash occurs. The picker is moved off-screen, made layout-
+        // visible, measured, then hidden again — all in a single frame.
+        reactionPicker.style.transition = 'none';
+        reactionPicker.style.visibility = 'hidden';
+        reactionPicker.style.left = '-9999px';
+        reactionPicker.style.top = '-9999px';
+        reactionPicker.classList.add('visible');
+        pw = reactionPicker.offsetWidth || 240;
+        ph = reactionPicker.offsetHeight || 52;
+        pickerDims = { w: pw, h: ph }; // cache for all future opens
+        reactionPicker.classList.remove('visible');
+        reactionPicker.style.visibility = '';
+        // Flush styles before re-enabling transition so the animation starts clean
+        reactionPicker.style.transition = '';
+      }
 
       // Position floating bubble centered horizontally over the message bubble
       let left = rect.left + (rect.width / 2) - (pw / 2);
-      let top = rect.top - ph - 10;
+      let top = rect.top - ph - 12;
 
       left = Math.max(12, Math.min(left, window.innerWidth - pw - 12));
       if (top < 12) {
@@ -1238,6 +1262,32 @@
     });
 
     // ── Trigger 2: long-press (mobile/touch) ─────────────────────────────
+    // Two problems we guard against:
+    //
+    // A) "Pre-click emoji" — after the 450 ms timer fires and the picker
+    //    opens, lifting the finger generates a synthetic 'click' at the
+    //    finger's coordinates.  If the picker happens to sit at those coords
+    //    (or close to them) the emoji button under the finger receives a
+    //    click and a reaction is sent without the user intending it.
+    //
+    // B) "Timestamp on long press" — the same synthetic click bubbles
+    //    through chatBox and triggers the timestamp-toggle handler.
+    //
+    // Fix A: time-based guard in the picker's own click listener.
+    //   We record the moment the picker opens; clicks that arrive within
+    //   PICKER_GUARD_MS are treated as the synthetic post-long-press click
+    //   and ignored.
+    //
+    // Fix B: longPressJustFired flag.
+    //   Set when the timer fires.  NOT reset in touchend (the synthetic
+    //   click hasn't fired yet at that point); instead consumed inside
+    //   document.click so both the timestamp handler and the dismiss
+    //   handler see it while it is still true.
+
+    let longPressJustFired = false;
+    let longPressPickerOpenTime = 0;
+    const PICKER_GUARD_MS = 400; // ignore picker clicks within this window of opening
+
     chatBox.addEventListener('touchstart', function(e) {
       if (e.touches.length !== 1) return;
       const container = e.target.closest('.message-container[data-msg-id]');
@@ -1251,6 +1301,8 @@
       clearTimeout(longPressTimer);
       longPressTimer = setTimeout(function() {
         longPressTimer = null;
+        longPressJustFired = true;       // suppress upcoming synthetic click
+        longPressPickerOpenTime = Date.now(); // time-guard for picker tap
         longPressAnchorEl = getReactionAnchorEl(container);
         if (longPressAnchorEl) longPressAnchorEl.classList.add('longpress-active');
         if (navigator.vibrate) { try { navigator.vibrate(15); } catch (err) {} }
@@ -1259,26 +1311,45 @@
     }, { passive: true });
 
     chatBox.addEventListener('touchmove', function(e) {
-      if (!longPressTimer || e.touches.length !== 1) return;
+      if (e.touches.length !== 1) return;
       const dx = Math.abs(e.touches[0].clientX - longPressStartX);
       const dy = Math.abs(e.touches[0].clientY - longPressStartY);
-      if (dx > LONG_PRESS_MOVE_TOLERANCE || dy > LONG_PRESS_MOVE_TOLERANCE) {
-        clearTimeout(longPressTimer);
-        longPressTimer = null;
+      const moved = dx > LONG_PRESS_MOVE_TOLERANCE || dy > LONG_PRESS_MOVE_TOLERANCE;
+      if (moved) {
+        // Cancel pending long-press if still waiting
+        if (longPressTimer) {
+          clearTimeout(longPressTimer);
+          longPressTimer = null;
+        }
+        // If picker already opened and finger moved significantly, close it
+        if (reactionPicker.classList.contains('visible') && (dx > 20 || dy > 20)) {
+          closeReactionPicker();
+          longPressJustFired = false;
+        }
       }
     }, { passive: true });
 
     chatBox.addEventListener('touchend', function() {
-      clearTimeout(longPressTimer);
-      longPressTimer = null;
+      // Only cancel the pending timer here.
+      // Do NOT reset longPressJustFired — it must still be true when the
+      // browser fires the synthetic 'click' event that follows touchend.
+      // The flag is consumed (reset to false) inside document.click below.
+      if (longPressTimer) {
+        clearTimeout(longPressTimer);
+        longPressTimer = null;
+      }
     }, { passive: true });
     chatBox.addEventListener('touchcancel', function() {
       clearTimeout(longPressTimer);
       longPressTimer = null;
+      longPressJustFired = false;
     }, { passive: true });
 
     // ── Picker emoji tap ───────────────────────────────────────────────────
+    // Secondary guard: ignore clicks that arrive within PICKER_GUARD_MS of
+    // the picker opening — those are the synthetic post-long-press clicks.
     reactionPicker.addEventListener('click', function(e) {
+      if (Date.now() - longPressPickerOpenTime < PICKER_GUARD_MS) return;
       const btn = e.target.closest('.reaction-picker-btn');
       if (!btn || !reactionPickerContainer) return;
       sendReaction(reactionPickerContainer, btn.getAttribute('data-emoji'));
@@ -1287,6 +1358,7 @@
 
     // ── Tap reaction pill: open reaction details modal ────────────────────
     chatBox.addEventListener('click', function(e) {
+      if (longPressJustFired) return; // synthetic click after long-press, skip
       const pill = e.target.closest('.msg-reactions-pill, .msg-reactions');
       if (!pill) return;
       const container = pill.closest('.message-container[data-msg-id]');
@@ -1298,7 +1370,22 @@
     });
 
     // ── Dismiss the picker / modal ─────────────────────────────────────────
+    // On mobile, 'click' can be delayed or swallowed; also listen on
+    // touchstart outside the picker for immediate, reliable dismissal.
+    document.addEventListener('touchstart', function(e) {
+      if (!reactionPicker.classList.contains('visible')) return;
+      if (longPressJustFired) return; // picker JUST opened — don't dismiss yet
+      if (e.target.closest('#reactionPicker')) return;
+      closeReactionPicker();
+    }, { passive: true });
     document.addEventListener('click', function(e) {
+      // Consume the synthetic post-long-press click here (primary guard for
+      // both fix A and fix B).  Reset the flag so subsequent real clicks
+      // are handled normally.
+      if (longPressJustFired) {
+        longPressJustFired = false;
+        return;
+      }
       if (!reactionPicker.classList.contains('visible')) return;
       if (e.target.closest('#reactionPicker')) return;
       closeReactionPicker();
@@ -1308,9 +1395,6 @@
         closeReactionPicker();
         closeReactionsModal();
       }
-    });
-    document.addEventListener('keydown', function(e) {
-      if (e.key === 'Escape') closeReactionPicker();
     });
     chatBox.addEventListener('scroll', closeReactionPicker, { passive: true });
 

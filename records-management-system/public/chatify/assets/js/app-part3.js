@@ -322,6 +322,7 @@
 
     // Open: delegated click on any rendered chat image.
     document.addEventListener('click', function(e) {
+      if (typeof longPressJustFired !== 'undefined' && longPressJustFired) return;
       const img = e.target.closest('.chat-viewable-image');
       if (!img) return;
       e.preventDefault();
@@ -1141,21 +1142,31 @@
         pickerDims = { w: pw, h: ph }; // cache for all future opens
         reactionPicker.classList.remove('visible');
         reactionPicker.style.visibility = '';
-        // Flush styles before re-enabling transition so the animation starts clean
-        reactionPicker.style.transition = '';
       }
 
       // Position floating bubble centered horizontally over the message bubble
       let left = rect.left + (rect.width / 2) - (pw / 2);
       let top = rect.top - ph - 12;
+      let isBelow = false;
 
       left = Math.max(12, Math.min(left, window.innerWidth - pw - 12));
       if (top < 12) {
         top = rect.bottom + 10;
+        isBelow = true;
       }
 
+      // Temporarily disable CSS transitions so updating left/top coordinates
+      // never causes the picker to visibly slide across the screen from a
+      // previous message's position.
+      reactionPicker.style.transition = 'none';
       reactionPicker.style.left = left + 'px';
       reactionPicker.style.top = top + 'px';
+      reactionPicker.style.transformOrigin = isBelow ? 'center top' : 'center bottom';
+      
+      // Force reflow so new coordinates and transform-origin are committed
+      void reactionPicker.offsetWidth;
+      reactionPicker.style.transition = '';
+
       reactionPicker.classList.add('visible');
     }
 

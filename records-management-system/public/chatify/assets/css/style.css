@@ -1631,11 +1631,31 @@
 
     /* Media (image / audio) — no bubble background */
     .message-media {
+      position: relative;
+      width: fit-content;
       max-width: 100%;
       -webkit-user-select: none;
       -moz-user-select: none;
       user-select: none;
       -webkit-touch-callout: none;
+    }
+
+    .sent .message-media {
+      align-self: flex-end;
+    }
+
+    .received .message-media {
+      align-self: flex-start;
+    }
+
+    .message-media .message-info {
+      padding: 0 !important;
+      margin: 0 !important;
+    }
+
+    .message-media .message-info:has(.verified-badge) {
+      padding: 3px 2px !important;
+      margin-top: 2px !important;
     }
 
     /* Chat images (thumbnails rendered by load.php/load_dm.php/

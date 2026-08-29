@@ -1072,7 +1072,6 @@
           + '  <div class="reaction-user-avatar">' + avatarHtml + '</div>'
           + '  <div class="reaction-user-info">'
           + '    <div class="reaction-user-name">' + escapeHtml(r.full_name) + '</div>'
-          + '    <div class="reaction-user-sub">Click to view profile</div>'
           + '  </div>'
           + '  <div class="reaction-user-emoji">' + emoji + '</div>'
           + '</div>';

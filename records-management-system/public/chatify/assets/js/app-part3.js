@@ -943,7 +943,7 @@
     // shortcut for the same emoji (re-tap removes it, same "one reaction
     // per user per message" rule as the picker). Keep this list in sync
     // with Reactions::ALLOWED in core/Reactions.php.
-    const REACTION_EMOJIS = ['❤️', '😆', '😍'];
+    const REACTION_EMOJIS = ['😆', '❤️', '😍'];
     const LONG_PRESS_MS = 280;
     const LONG_PRESS_MOVE_TOLERANCE = 10;
 

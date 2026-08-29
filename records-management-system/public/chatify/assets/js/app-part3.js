@@ -1205,12 +1205,14 @@
       if (totalCount === 0) {
         if (wrap) wrap.remove();
         if (bubbleWrapper) bubbleWrapper.classList.remove('has-reactions');
+        container.classList.remove('has-reactions');
         return;
       }
 
       if (bubbleWrapper) {
         bubbleWrapper.classList.add('has-reactions');
       }
+      container.classList.add('has-reactions');
 
       if (!wrap) {
         wrap = document.createElement('div');

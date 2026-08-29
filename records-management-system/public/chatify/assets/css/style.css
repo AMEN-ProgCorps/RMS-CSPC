@@ -2881,9 +2881,15 @@
       justify-content: flex-start;
     }
 
-    /* Add space under bubble wrapper when reactions are present */
+    /* Add space under bubble wrapper and match avatar margin when reactions are present */
     .bubble-wrapper:has(.msg-reactions),
     .bubble-wrapper.has-reactions {
+      margin-bottom: 14px !important;
+    }
+
+    .message-container:has(.msg-reactions) .message-avatar,
+    .message-container:has(.has-reactions) .message-avatar,
+    .message-container.has-reactions .message-avatar {
       margin-bottom: 14px !important;
     }
 

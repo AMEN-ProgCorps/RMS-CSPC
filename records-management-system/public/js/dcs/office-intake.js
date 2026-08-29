@@ -12,16 +12,102 @@
     // ── Source Unit (same behavior as Register createSourceUnitWidget) ──
     window.__sourceWidgets = window.__sourceWidgets || {};
 
+    function officeChipLabel(o, labelFormat) {
+        const code = String(o.office_code || '').trim();
+        if (labelFormat === 'code') {
+            return code || String(o.office_name || '').trim();
+        }
+        return String(o.office_name || '').trim();
+    }
+
+    function officeDropdownLabel(o, labelFormat) {
+        const code = String(o.office_code || '').trim();
+        const name = String(o.office_name || '').trim();
+        if (labelFormat === 'code' && code) {
+            return escapeHtml(code) + (name ? ' — ' + escapeHtml(name) : '');
+        }
+        const extra = code ? ' (' + escapeHtml(code) + ')' : '';
+        return escapeHtml(name) + extra;
+    }
+
     function filterOffices(list, q) {
         q = String(q || '').trim().toLowerCase();
         if (!q) return list.slice(0, 40);
-        return list
-            .filter(
-                (o) =>
-                    String(o.office_name || '').toLowerCase().includes(q) ||
-                    String(o.office_code || '').toLowerCase().includes(q)
-            )
-            .slice(0, 40);
+        const matched = list.filter(
+            (o) =>
+                String(o.office_name || '').toLowerCase().includes(q) ||
+                String(o.office_code || '').toLowerCase().includes(q)
+        );
+        matched.sort((a, b) => {
+            const aCode = String(a.office_code || '').toLowerCase();
+            const bCode = String(b.office_code || '').toLowerCase();
+            const aName = String(a.office_name || '').toLowerCase();
+            const bName = String(b.office_name || '').toLowerCase();
+            const aExactCode = aCode === q ? 0 : 1;
+            const bExactCode = bCode === q ? 0 : 1;
+            if (aExactCode !== bExactCode) return aExactCode - bExactCode;
+            const aStartsCode = aCode.startsWith(q) ? 0 : 1;
+            const bStartsCode = bCode.startsWith(q) ? 0 : 1;
+            if (aStartsCode !== bStartsCode) return aStartsCode - bStartsCode;
+            const aStartsName = aName.startsWith(q) ? 0 : 1;
+            const bStartsName = bName.startsWith(q) ? 0 : 1;
+            if (aStartsName !== bStartsName) return aStartsName - bStartsName;
+            return aName.localeCompare(bName);
+        });
+        return matched.slice(0, 40);
+    }
+
+    function officeChipHtml(item, opts, offices) {
+        const office = offices.find((o) => Number(o.office_id) === Number(item.id));
+        const name = office ? String(office.office_name || '').trim() : '';
+        const code = office ? String(office.office_code || '').trim() : '';
+        const removeBtn =
+            '<button type="button" class="ofi-office-chip-remove" title="Remove office" onclick="event.stopPropagation(); window.__sourceWidgets[\'' +
+            opts.key +
+            '\'].removeItem(\'office\',\'' +
+            escapeHtml(String(item.id)) +
+            '\')"><i class="fa-solid fa-xmark"></i></button>';
+
+        if (opts.labelFormat === 'code' && name) {
+            return (
+                '<div class="ofi-office-chip" title="' +
+                escapeHtml(name) +
+                '">' +
+                '<span class="ofi-office-chip-code">' +
+                escapeHtml(item.label) +
+                '</span>' +
+                '<span class="ofi-office-chip-name">' +
+                escapeHtml(name) +
+                '</span>' +
+                removeBtn +
+                '</div>'
+            );
+        }
+
+        if (name && code) {
+            return (
+                '<div class="ofi-office-chip" title="' +
+                escapeHtml(code) +
+                '">' +
+                '<span class="ofi-office-chip-code">' +
+                escapeHtml(name) +
+                '</span>' +
+                '<span class="ofi-office-chip-name">' +
+                escapeHtml(code) +
+                '</span>' +
+                removeBtn +
+                '</div>'
+            );
+        }
+
+        return (
+            '<div class="ofi-office-chip">' +
+            '<span class="ofi-office-chip-code">' +
+            escapeHtml(item.label) +
+            '</span>' +
+            removeBtn +
+            '</div>'
+        );
     }
 
     function createOfficeSourceWidget(opts) {
@@ -36,7 +122,7 @@
 
         function syncInputText() {
             const inputEl = document.getElementById(opts.inputId);
-            if (!inputEl) return;
+            if (!inputEl || opts.inlineChips) return;
             if (selected.length === 0) {
                 inputEl.value = '';
                 return;
@@ -44,6 +130,28 @@
             inputEl.value = selected.map((i) => i.label).join(', ') + ', ';
             const len = inputEl.value.length;
             inputEl.setSelectionRange(len, len);
+        }
+
+        function renderChipList() {
+            return selected
+                .map(function (item) {
+                    if (opts.inlineChips) {
+                        return officeChipHtml(item, opts, offices);
+                    }
+                    return (
+                        '<div class="reg-inline-chip">' +
+                        '<span>' +
+                        escapeHtml(item.label) +
+                        '</span>' +
+                        '<button type="button" onclick="event.stopPropagation(); window.__sourceWidgets[\'' +
+                        opts.key +
+                        '\'].removeItem(\'office\',\'' +
+                        escapeHtml(String(item.id)) +
+                        '\')"><i class="fa-solid fa-xmark"></i></button>' +
+                        '</div>'
+                    );
+                })
+                .join('');
         }
 
         function render() {
@@ -59,38 +167,76 @@
                 widget.appendChild(input);
             });
 
-            const chipsEl = document.getElementById(opts.chipsId);
+            const inlineEl = opts.inlineChipsId ? document.getElementById(opts.inlineChipsId) : null;
+            if (inlineEl) {
+                inlineEl.innerHTML = selected.length === 0 ? '' : renderChipList();
+                inlineEl.classList.toggle('is-empty', selected.length === 0);
+            }
+
+            const chipsEl = opts.chipsId ? document.getElementById(opts.chipsId) : null;
             if (chipsEl) {
                 chipsEl.innerHTML =
                     selected.length === 0
                         ? '<div class="reg-reldocs-empty">Nothing selected yet</div>'
-                        : selected
-                              .map(function (item) {
-                                  return (
-                                      '<div class="reg-inline-chip">' +
-                                      '<span>' +
-                                      escapeHtml(item.label) +
-                                      '</span>' +
-                                      '<button type="button" onclick="event.stopPropagation(); window.__sourceWidgets[\'' +
-                                      opts.key +
-                                      '\'].removeItem(\'office\',\'' +
-                                      escapeHtml(String(item.id)) +
-                                      '\')"><i class="fa-solid fa-xmark"></i></button>' +
-                                      '</div>'
-                                  );
-                              })
-                              .join('');
+                        : renderChipList();
             }
         }
 
         function getCurrentQuery(input) {
+            if (opts.inlineChips) {
+                return input.value.trim();
+            }
             const raw = input.value;
             const lastComma = raw.lastIndexOf(',');
             return (lastComma === -1 ? raw : raw.slice(lastComma + 1)).trim();
         }
 
-        function handleSearch(input) {
+        function ensureResultsDropdown() {
             const dropdown = document.getElementById(opts.resultsId);
+            if (!dropdown || !opts.inlineChips) {
+                return dropdown;
+            }
+            if (dropdown.parentElement !== document.body) {
+                document.body.appendChild(dropdown);
+            }
+            dropdown.classList.add('ofi-office-results-floating');
+            return dropdown;
+        }
+
+        function positionResultsDropdown(input, dropdown) {
+            if (!opts.inlineChips || !input || !dropdown) {
+                return;
+            }
+            const rect = input.getBoundingClientRect();
+            dropdown.style.position = 'fixed';
+            dropdown.style.left = rect.left + 'px';
+            dropdown.style.top = rect.bottom + 4 + 'px';
+            dropdown.style.width = Math.max(rect.width, 280) + 'px';
+            dropdown.style.right = 'auto';
+            dropdown.style.zIndex = '9999';
+        }
+
+        function bindResultsScroll(input) {
+            if (!opts.inlineChips) {
+                return;
+            }
+            if (scrollResizeHandler) {
+                window.removeEventListener('scroll', scrollResizeHandler, true);
+                window.removeEventListener('resize', scrollResizeHandler);
+            }
+            const dropdown = document.getElementById(opts.resultsId);
+            scrollResizeHandler = () => {
+                if (dropdown && dropdown.style.display === 'block') {
+                    positionResultsDropdown(input, dropdown);
+                }
+            };
+            window.addEventListener('scroll', scrollResizeHandler, true);
+            window.addEventListener('resize', scrollResizeHandler);
+        }
+
+        function handleSearch(input) {
+            const dropdown = ensureResultsDropdown() || document.getElementById(opts.resultsId);
+            if (!dropdown) return;
             const q = getCurrentQuery(input);
             if (q.length < 1) {
                 dropdown.style.display = 'none';
@@ -100,37 +246,52 @@
             if (filtered.length === 0) {
                 dropdown.innerHTML = '<div class="reg-reldocs-noresult">No matching offices found</div>';
                 dropdown.style.display = 'block';
+                if (opts.inlineChips) {
+                    positionResultsDropdown(input, dropdown);
+                    bindResultsScroll(input);
+                }
                 return;
             }
             dropdown.innerHTML = filtered
                 .map((o) => {
-                    const extra = o.office_code ? ' (' + escapeHtml(o.office_code) + ')' : '';
                     return (
                         '<div onmousedown="window.__sourceWidgets[\'' +
                         opts.key +
                         "'].pick(" +
                         o.office_id +
                         ')">' +
-                        escapeHtml(o.office_name) +
-                        extra +
+                        officeDropdownLabel(o, opts.labelFormat) +
                         '</div>'
                     );
                 })
                 .join('');
             dropdown.style.display = 'block';
+            if (opts.inlineChips) {
+                positionResultsDropdown(input, dropdown);
+                bindResultsScroll(input);
+            }
         }
 
         function addOffice(itemId) {
             const item = offices.find((o) => Number(o.office_id) === Number(itemId));
             if (!item || isSelected(itemId)) return;
-            selected.push({ type: 'office', id: item.office_id, label: item.office_name });
+            selected.push({
+                type: 'office',
+                id: item.office_id,
+                label: officeChipLabel(item, opts.labelFormat),
+            });
             render();
         }
 
         function pick(itemId) {
             addOffice(itemId);
             const inputEl = document.getElementById(opts.inputId);
-            if (inputEl) inputEl.focus();
+            if (inputEl) {
+                if (opts.inlineChips) {
+                    inputEl.value = '';
+                }
+                inputEl.focus();
+            }
             syncInputText();
             document.getElementById(opts.resultsId).style.display = 'none';
         }
@@ -166,18 +327,13 @@
                 window.addEventListener('scroll', scrollResizeHandler, true);
                 window.addEventListener('resize', scrollResizeHandler);
             } else {
-                chipsEl.style.display = 'none';
-                if (scrollResizeHandler) {
-                    window.removeEventListener('scroll', scrollResizeHandler, true);
-                    window.removeEventListener('resize', scrollResizeHandler);
-                    scrollResizeHandler = null;
-                }
+                closePanel();
             }
         }
 
         function closePanel() {
             panelOpen = false;
-            const chipsEl = document.getElementById(opts.chipsId);
+            const chipsEl = opts.chipsId ? document.getElementById(opts.chipsId) : null;
             if (chipsEl) chipsEl.style.display = 'none';
             if (scrollResizeHandler) {
                 window.removeEventListener('scroll', scrollResizeHandler, true);
@@ -187,14 +343,20 @@
         }
 
         const inputEl = document.getElementById(opts.inputId);
-        const arrowEl = document.getElementById(opts.arrowId);
-        if (!inputEl || !arrowEl) return null;
+        const arrowEl = opts.arrowId ? document.getElementById(opts.arrowId) : null;
+        if (!inputEl) return null;
+        if (!opts.inlineChips && !arrowEl) return null;
 
         inputEl.addEventListener('input', function () {
             closePanel();
             handleSearch(this);
         });
         inputEl.addEventListener('keydown', function (e) {
+            if (e.key === 'Backspace' && opts.inlineChips && this.value === '' && selected.length > 0) {
+                const last = selected[selected.length - 1];
+                removeItem('office', last.id);
+                return;
+            }
             if (e.key !== 'Enter' && e.key !== ',') return;
             e.preventDefault();
             const q = getCurrentQuery(this);
@@ -208,44 +370,75 @@
             if (exact) pick(exact.office_id);
         });
         function jumpCaretToEnd() {
+            if (opts.inlineChips) return;
             setTimeout(() => {
                 const len = inputEl.value.length;
                 inputEl.setSelectionRange(len, len);
             }, 0);
         }
-        inputEl.addEventListener('focus', jumpCaretToEnd);
+        inputEl.addEventListener('focus', function () {
+            if (opts.inlineChips && this.value.trim().length >= 1) {
+                handleSearch(this);
+                return;
+            }
+            jumpCaretToEnd();
+        });
         inputEl.addEventListener('click', jumpCaretToEnd);
-        arrowEl.addEventListener('click', togglePanel);
+        if (arrowEl) {
+            arrowEl.addEventListener('click', togglePanel);
+        }
 
         document.addEventListener('click', function (e) {
             const widget = document.getElementById(opts.widgetId);
-            const chipsEl = document.getElementById(opts.chipsId);
+            const chipsEl = opts.chipsId ? document.getElementById(opts.chipsId) : null;
+            const dropdown = document.getElementById(opts.resultsId);
             const insideWidget = widget && widget.contains(e.target);
             const insidePanel = chipsEl && chipsEl.contains(e.target);
-            if (!insideWidget && !insidePanel) {
-                document.getElementById(opts.resultsId).style.display = 'none';
+            const insideDropdown = dropdown && dropdown.contains(e.target);
+            if (!insideWidget && !insidePanel && !insideDropdown) {
+                if (dropdown) dropdown.style.display = 'none';
                 closePanel();
             }
         });
 
+        ensureResultsDropdown();
+
         const api = { pick, removeItem, get selected() { return selected; } };
         window.__sourceWidgets[opts.key] = api;
 
-        // Seed from old input / default office
-        const oldIds = Array.isArray(window.__ofiOldSource) ? window.__ofiOldSource.map(Number) : [];
+        // Seed from old input / optional default office
+        const oldIds = Array.isArray(opts.oldIds)
+            ? opts.oldIds.map(Number)
+            : Array.isArray(window.__ofiOldSource)
+              ? window.__ofiOldSource.map(Number)
+              : [];
         oldIds.forEach((id) => {
             const o = offices.find((x) => Number(x.office_id) === Number(id));
-            if (o) selected.push({ type: 'office', id: o.office_id, label: o.office_name });
+            if (o) {
+                selected.push({
+                    type: 'office',
+                    id: o.office_id,
+                    label: officeChipLabel(o, opts.labelFormat),
+                });
+            }
         });
         if (
             selected.length === 0 &&
+            opts.seedDefaultOffice !== false &&
             window.__ofiDefaultOffice &&
             window.__ofiDefaultOffice.office_id
         ) {
             selected.push({
                 type: 'office',
                 id: window.__ofiDefaultOffice.office_id,
-                label: window.__ofiDefaultOffice.office_name,
+                label: officeChipLabel(
+                    {
+                        office_id: window.__ofiDefaultOffice.office_id,
+                        office_name: window.__ofiDefaultOffice.office_name,
+                        office_code: window.__ofiDefaultOffice.office_code || '',
+                    },
+                    opts.labelFormat
+                ),
             });
         }
         render();
@@ -414,10 +607,16 @@
     window.ofiPickRevisionDocument = async function (key, idx) {
         const doc = (revSearchCache[key] || [])[idx];
         if (!doc) return;
+        closeRevSearchDropdown(key);
+
+        if (key.startsWith('dcnSingle_')) {
+            populateDcnDocumentFields(doc);
+            return;
+        }
+
         const uid = key.split('_')[0];
         const row = document.querySelector('#revisionTableBody tr[data-uid="' + uid + '"]');
         if (!row) return;
-        closeRevSearchDropdown(key);
 
         let revisions = [];
         try {
@@ -530,8 +729,31 @@
         if (first) bindRevisionRowSearch(first);
     }
 
+    function populateDcnDocumentFields(doc) {
+        if (!doc) return;
+        const noInput = document.getElementById('dcnDocumentNo');
+        const titleInput = document.getElementById('dcnDocumentTitle');
+        const linked = document.getElementById('dcnDocumentLinked');
+        const mlId = document.getElementById('dcnMasterlistId');
+        if (noInput) noInput.value = doc.doc_no || '';
+        if (titleInput) {
+            titleInput.value = doc.doc_title || '';
+            titleInput.readOnly = true;
+            titleInput.classList.add('reg-revrow-locked');
+        }
+        if (linked) linked.value = '1';
+        if (mlId) mlId.value = doc.masterlist_id || '';
+    }
+
+    function initDcnDocumentFields() {
+        const noInput = document.getElementById('dcnDocumentNo');
+        if (!noInput) return;
+        bindRevisionSearchInput(noInput, 'dcnSingle', 'no');
+    }
+
     document.addEventListener('DOMContentLoaded', () => {
         initSourceWidgets();
         initRevisionTable();
+        initDcnDocumentFields();
     });
 })();

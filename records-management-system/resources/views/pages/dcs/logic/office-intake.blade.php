@@ -2,6 +2,7 @@
 
 namespace App\Helpers;
 
+use App\Services\DocumentStorageService;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -175,20 +176,18 @@ class OfficeIntakeHelper
         $data = $request->validate([
             'drfNo' => 'required|string|max:100',
             'drfDate' => 'required|date',
-            'drfReceiptDate' => 'nullable|date',
-            'drfTime' => 'nullable|string|max:8',
             'drfTitle' => 'required|string|max:255',
-            'drfSourceUnit' => 'nullable|array',
-            'drfSourceUnit.*' => 'nullable|integer',
-            'drfFile' => 'nullable|file|mimes:pdf|max:20480',
+            'originatorName' => 'nullable|string|max:255',
+            'docTypeKind' => 'nullable|in:internal,external',
+            'descriptionReason' => 'nullable|string|max:5000',
+            'distributeToOffice' => 'nullable|array',
+            'distributeToOffice.*' => 'nullable|integer',
         ]);
 
-        $officeIds = array_values(array_filter(array_map('intval', $data['drfSourceUnit'] ?? [])));
-        if ($officeIds === []) {
-            $current = RegisterQueryHelper::currentOfficeId();
-            if ($current) {
-                $officeIds = [$current];
-            }
+        $officeIds = [];
+        $current = RegisterQueryHelper::currentOfficeId();
+        if ($current) {
+            $officeIds = [(int) $current];
         }
 
         $userId = (int) auth()->id();
@@ -198,14 +197,9 @@ class OfficeIntakeHelper
         $versionId = (int) (DB::table('dcs_version_type')->orderBy('id')->value('id') ?: 1);
 
         $drfFile = null;
-        if ($request->hasFile('drfFile')) {
-            $drfFile = $request->file('drfFile')->store('scans/drf', 'public');
-        }
-
-        $receiptTime = self::normalizeTime($data['drfTime'] ?? null);
 
         try {
-            $id = DB::transaction(function () use ($data, $officeIds, $userId, $now, $docTypeId, $versionId, $drfFile, $receiptTime) {
+            $id = DB::transaction(function () use ($data, $officeIds, $userId, $now, $docTypeId, $versionId, $drfFile) {
                 $requestId = DB::table('dcs_document_requests')->insertGetId([
                     'version_id' => $versionId,
                     'doc_type_id' => $docTypeId,
@@ -217,22 +211,34 @@ class OfficeIntakeHelper
                     'updated_at' => $now,
                 ]);
 
-                $row = [
+                $row = array_merge([
                     'request_id' => $requestId,
                     'drf_no' => $data['drfNo'],
                     'drf_date' => $data['drfDate'],
-                    'drf_receipt_date' => $data['drfReceiptDate'] ?? null,
-                    'drf_receipt_time' => $receiptTime,
+                    'drf_receipt_date' => null,
+                    'drf_receipt_time' => null,
                     'doc_title' => $data['drfTitle'],
-                    'scanned_drf' => $drfFile,
                     'created_by' => $userId,
                     'created_at' => $now,
                     'updated_at' => $now,
-                ];
+                ], RegisterPersistHelper::dcsScanFields('dcs_document_request_form', 'scanned_drf', $drfFile));
 
                 if (Schema::hasColumn('dcs_document_request_form', 'is_office_intake')) {
                     $row['is_office_intake'] = true;
                     $row['prepared_by_name'] = RegisterQueryHelper::currentUserDisplayName();
+                    $row['originator_name'] = trim((string) ($data['originatorName'] ?? ''))
+                        ?: RegisterQueryHelper::currentUserDisplayName();
+                    if (Schema::hasColumn('dcs_document_request_form', 'doc_type_kind')) {
+                        $row['doc_type_kind'] = $data['docTypeKind'] ?? null;
+                    }
+                    if (Schema::hasColumn('dcs_document_request_form', 'description_reason')) {
+                        $row['description_reason'] = trim((string) ($data['descriptionReason'] ?? '')) ?: null;
+                    }
+                    if (Schema::hasColumn('dcs_document_request_form', 'distribute_to')) {
+                        $row['distribute_to'] = self::encodeDistributeTo(
+                            self::officeCodesForIds($data['distributeToOffice'] ?? [])
+                        );
+                    }
                 }
 
                 $drfId = DB::table('dcs_document_request_form')->insertGetId($row);
@@ -253,7 +259,7 @@ class OfficeIntakeHelper
             });
         } catch (\Throwable $e) {
             if ($drfFile) {
-                Storage::disk('public')->delete($drfFile);
+                DocumentStorageService::deleteDcsScan($drfFile);
             }
             throw $e;
         }
@@ -270,69 +276,31 @@ class OfficeIntakeHelper
 
         $data = $request->validate([
             'dcnNumber' => 'required|string|max:100',
-            'noticeDate' => 'nullable|date',
-            'receiptDate' => 'nullable|date',
-            'receiptTime' => 'nullable|string|max:8',
+            'documentNo' => 'required|string|max:150',
+            'documentTitle' => 'nullable|string|max:255',
+            'changeFrom' => 'nullable|string|max:5000',
+            'changeTo' => 'nullable|string|max:5000',
             'dcnJustification' => 'required|string|max:5000',
-            'dcnSourceUnit' => 'nullable|array',
-            'dcnSourceUnit.*' => 'nullable|integer',
-            'dcnFile' => 'nullable|file|mimes:pdf|max:20480',
-            'documentNo' => 'required|array|min:1',
-            'documentNo.*' => 'nullable|string|max:150',
-            'documentTitle' => 'nullable|array',
-            'documentTitle.*' => 'nullable|string|max:255',
-            'effectiveDate' => 'nullable|array',
-            'effectiveDate.*' => 'nullable|date',
-            'revisionNo' => 'nullable|array',
-            'revisionNo.*' => 'nullable',
-            'revisionPurpose' => 'nullable|array',
-            'revisionPurpose.*' => 'nullable|string|max:5000',
-            'revisionScannedPath' => 'nullable|array',
-            'revisionScannedPath.*' => 'nullable|string|max:500',
-            'revisionMasterlistId' => 'nullable|array',
-            'revisionMasterlistId.*' => 'nullable|integer',
-            'revisionLinked' => 'nullable|array',
-            'revisionLinked.*' => 'nullable|in:1,0,true,false',
+            'originatorName' => 'nullable|string|max:255',
+            'departmentDate' => 'nullable|string|max:255',
+            'reviewedByDate' => 'nullable|string|max:255',
+            'revisionMasterlistId' => 'nullable|integer',
+            'revisionLinked' => 'nullable|in:1,0,true,false',
         ]);
 
-        $titles = $data['documentTitle'] ?? [];
-        $numbers = $data['documentNo'] ?? [];
-        $linkedFlags = $data['revisionLinked'] ?? [];
-        $masterlistIds = $data['revisionMasterlistId'] ?? [];
-        $totalRows = max(count($titles), count($numbers));
+        $docNo = trim((string) $data['documentNo']);
+        $docTitle = trim((string) ($data['documentTitle'] ?? ''));
+        $linked = filter_var($data['revisionLinked'] ?? false, FILTER_VALIDATE_BOOLEAN)
+            || (int) ($data['revisionMasterlistId'] ?? 0) > 0;
 
-        $rows = [];
-        for ($i = 0; $i < $totalRows; $i++) {
-            $title = trim((string) ($titles[$i] ?? ''));
-            $docNo = trim((string) ($numbers[$i] ?? ''));
-            if ($title === '' && $docNo === '') {
-                continue;
-            }
-            $linked = filter_var($linkedFlags[$i] ?? false, FILTER_VALIDATE_BOOLEAN)
-                || (int) ($masterlistIds[$i] ?? 0) > 0;
-            if (! $linked) {
-                throw ValidationException::withMessages([
-                    'documentNo' => 'Search and select the document being revised. Free-typed rows are not allowed.',
-                ]);
-            }
-            $mlId = (int) ($masterlistIds[$i] ?? 0);
-            self::assertRevisionOriginatorAllowed($docNo, $mlId);
-            $rows[] = $i;
-        }
-
-        if ($rows === []) {
+        if (! $linked) {
             throw ValidationException::withMessages([
-                'documentNo' => 'Select at least one document for revision.',
+                'documentNo' => 'Search and select the document being revised. Free-typed rows are not allowed.',
             ]);
         }
 
-        $officeIds = array_values(array_filter(array_map('intval', $data['dcnSourceUnit'] ?? [])));
-        if ($officeIds === []) {
-            $current = RegisterQueryHelper::currentOfficeId();
-            if ($current) {
-                $officeIds = [$current];
-            }
-        }
+        $mlId = (int) ($data['revisionMasterlistId'] ?? 0);
+        self::assertRevisionOriginatorAllowed($docNo, $mlId);
 
         $userId = (int) auth()->id();
         $now = now();
@@ -342,18 +310,8 @@ class OfficeIntakeHelper
             ?: DB::table('dcs_version_type')->orderByDesc('id')->value('id')
             ?: 2);
 
-        $dcnFile = null;
-        if ($request->hasFile('dcnFile')) {
-            $dcnFile = $request->file('dcnFile')->store('scans/dcn', 'public');
-        }
-
-        $uploadedFiles = [];
-        if ($dcnFile) {
-            $uploadedFiles[] = $dcnFile;
-        }
-
         try {
-            $id = DB::transaction(function () use ($request, $data, $rows, $officeIds, $userId, $now, $docTypeId, $versionId, $dcnFile, &$uploadedFiles) {
+            $id = DB::transaction(function () use ($data, $docNo, $docTitle, $userId, $now, $docTypeId, $versionId, $request) {
                 $requestId = DB::table('dcs_document_requests')->insertGetId([
                     'version_id' => $versionId,
                     'doc_type_id' => $docTypeId,
@@ -368,54 +326,51 @@ class OfficeIntakeHelper
                 $row = [
                     'request_id' => $requestId,
                     'dcn_no' => $data['dcnNumber'],
-                    'dcn_date' => $data['noticeDate'] ?? now()->toDateString(),
-                    'dcn_receipt_date' => $data['receiptDate'] ?? null,
-                    'dcn_receipt_time' => self::normalizeTime($data['receiptTime'] ?? null),
-                    'scanned_dcn' => $dcnFile,
+                    'dcn_date' => now()->toDateString(),
+                    'dcn_receipt_date' => null,
+                    'dcn_receipt_time' => null,
                     'created_by' => $userId,
                     'created_at' => $now,
                     'updated_at' => $now,
                 ];
+
                 if (Schema::hasColumn('dcs_document_change_notice', 'brief_purpose')) {
                     $row['brief_purpose'] = $data['dcnJustification'];
                 }
 
                 if (Schema::hasColumn('dcs_document_change_notice', 'is_office_intake')) {
                     $row['is_office_intake'] = true;
-                    $firstIdx = $rows[0];
-                    $row['document_no'] = trim((string) ($request->input('documentNo')[$firstIdx] ?? ''));
-                    $row['document_title'] = trim((string) ($request->input('documentTitle')[$firstIdx] ?? ''));
-                    $row['originator_name'] = RegisterQueryHelper::currentUserDisplayName();
-                    $row['department_date'] = RegisterQueryHelper::currentOfficeName() . ' / ' . now()->format('M d, Y');
+                    $row['document_no'] = $docNo !== '' ? $docNo : null;
+                    $row['document_title'] = $docTitle !== '' ? $docTitle : null;
+                    $row['change_from'] = trim((string) ($data['changeFrom'] ?? '')) ?: null;
+                    $row['change_to'] = trim((string) ($data['changeTo'] ?? '')) ?: null;
+                    $row['originator_name'] = trim((string) ($data['originatorName'] ?? ''))
+                        ?: RegisterQueryHelper::currentUserDisplayName();
+                    $row['department_date'] = trim((string) ($data['departmentDate'] ?? '')) ?: null;
+                    $row['reviewed_by_date'] = trim((string) ($data['reviewedByDate'] ?? '')) ?: null;
                 }
 
                 $dcnId = DB::table('dcs_document_change_notice')->insertGetId($row);
-                RegisterPersistHelper::saveDcnOfficesById($dcnId, $officeIds);
 
-                foreach ($rows as $i) {
-                    $title = trim((string) ($request->input('documentTitle')[$i] ?? ''));
-                    $docNo = trim((string) ($request->input('documentNo')[$i] ?? ''));
-                    $revRow = [
-                        'dcn_id' => $dcnId,
-                        'title' => $title !== '' ? $title : null,
-                        'document_no' => $docNo !== '' ? $docNo : null,
-                        'effectivity_date' => $request->input('effectiveDate')[$i] ?? null,
-                        'revision_no' => $request->input('revisionNo')[$i] ?? null,
-                        'scanned_copy' => RegisterPersistHelper::resolveRevisionScannedCopyPath($request, $i, $uploadedFiles),
-                        'created_at' => $now,
-                    ];
-                    if (Schema::hasColumn('dcs_doc_revision', 'brief_purpose')) {
-                        $revRow['brief_purpose'] = $request->input('revisionPurpose')[$i] ?? null;
-                    }
-                    DB::table('dcs_doc_revision')->insert($revRow);
+                $currentOfficeId = RegisterQueryHelper::currentOfficeId();
+                if ($currentOfficeId) {
+                    RegisterPersistHelper::saveDcnOfficesById($dcnId, [$currentOfficeId]);
                 }
+
+                $revRow = [
+                    'dcn_id' => $dcnId,
+                    'title' => $docTitle !== '' ? $docTitle : null,
+                    'document_no' => $docNo !== '' ? $docNo : null,
+                    'created_at' => $now,
+                ];
+                if (Schema::hasColumn('dcs_doc_revision', 'brief_purpose')) {
+                    $revRow['brief_purpose'] = $data['dcnJustification'];
+                }
+                DB::table('dcs_doc_revision')->insert($revRow);
 
                 return $dcnId;
             });
         } catch (\Throwable $e) {
-            foreach ($uploadedFiles as $path) {
-                Storage::disk('public')->delete($path);
-            }
             throw $e;
         }
 
@@ -475,5 +430,42 @@ class OfficeIntakeHelper
         $decoded = json_decode($json, true);
 
         return is_array($decoded) ? array_values($decoded) : [];
+    }
+
+    /** @param  array<int|string|null>  $officeIds */
+    public static function officeCodesForIds(array $officeIds): array
+    {
+        $ids = array_values(array_unique(array_filter(array_map('intval', $officeIds))));
+        if ($ids === []) {
+            return [];
+        }
+
+        $byId = DB::table('office')
+            ->whereIn('id', $ids)
+            ->get(['id', 'office_code', 'office_name'])
+            ->keyBy('id');
+
+        $codes = [];
+        foreach ($ids as $id) {
+            $row = $byId[$id] ?? null;
+            if (!$row) {
+                continue;
+            }
+            $code = trim((string) ($row->office_code ?? ''));
+            $label = $code !== '' ? $code : trim((string) ($row->office_name ?? ''));
+            if ($label !== '') {
+                $codes[] = $label;
+            }
+        }
+
+        return $codes;
+    }
+
+    /** @param  array<int, string>  $labels */
+    public static function encodeDistributeTo(array $labels): ?string
+    {
+        $labels = collect($labels)->map(fn ($v) => trim((string) $v))->filter()->values();
+
+        return $labels->isEmpty() ? null : json_encode($labels->all());
     }
 }

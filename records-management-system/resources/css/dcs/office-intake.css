@@ -50,7 +50,7 @@ html[data-dcs-sidebar-collapsed="1"] .ofi-page {
     justify-content: space-between;
     gap: 16px;
     flex-wrap: wrap;
-    margin-bottom: 16px;
+    margin-bottom: 20px;
 }
 .ofi-toolbar-hint {
     margin: 0;
@@ -62,7 +62,8 @@ html[data-dcs-sidebar-collapsed="1"] .ofi-page {
 .ofi-reg-actions {
     display: flex;
     justify-content: flex-end;
-    margin: 4px 0 24px;
+    margin: 8px 0 28px;
+    padding-top: 4px;
 }
 .ofi-page .reg-card {
     margin-bottom: 16px;
@@ -401,13 +402,402 @@ html[data-dcs-sidebar-collapsed="1"] .ofi-page {
 }
 .ofi-radio-row { display: flex; gap: 20px; font-size: 13px; color: #0f172a; }
 .ofi-radio-row label { display: inline-flex; align-items: center; gap: 6px; font-weight: 500; }
-.ofi-hint { font-size: 12px; color: #64748b; margin: 0 0 8px; }
+.ofi-hint { font-size: 12px; color: #64748b; margin: 0 0 10px; line-height: 1.5; }
+
+/* Office DRF create — match official form with comfortable vertical rhythm */
+.ofi-drf-form {
+    display: flex;
+    flex-direction: column;
+    gap: 22px;
+    padding: 28px 28px 32px;
+}
+.ofi-drf-form .reg-grid-2 {
+    margin: 0;
+    gap: 20px;
+}
+.ofi-drf-form .reg-field {
+    gap: 8px;
+}
+.ofi-drf-form .reg-field textarea {
+    width: 100%;
+    min-height: 112px;
+    padding: 11px 12px;
+    border: 1.5px solid #cbd5e1;
+    border-radius: 8px;
+    font-size: 0.85rem;
+    font-family: inherit;
+    color: #0f172a;
+    background: #fff;
+    resize: vertical;
+    line-height: 1.45;
+    transition: border-color 0.2s ease, box-shadow 0.2s ease;
+    box-sizing: border-box;
+}
+.ofi-drf-form .reg-field textarea:hover {
+    border-color: #b0b8d0;
+}
+.ofi-drf-form .reg-field textarea:focus {
+    outline: none;
+    border-color: #0d2a7a;
+    box-shadow: 0 0 0 3px rgba(13, 42, 122, 0.08);
+}
+.ofi-drf-form .reg-field textarea::placeholder {
+    color: #cbd5e1;
+}
+.ofi-drf-form .ofi-radio-row {
+    min-height: 40px;
+    align-items: center;
+    padding: 2px 0;
+}
+.ofi-drf-form .ofi-office-field .ofi-hint {
+    margin: 0 0 12px;
+}
+.ofi-drf-form .ofi-office-picker {
+    margin-top: 2px;
+}
+
+/* ── Office DCN form (CSPC-F-DCC-01) ── */
+.ofi-dcn-form {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+    padding: 24px 28px 28px;
+}
+.ofi-dcn-form > .reg-field {
+    gap: 6px;
+    margin: 0;
+}
+.ofi-dcn-form .reg-field textarea {
+    width: 100%;
+    min-height: 96px;
+    padding: 11px 12px;
+    border: 1.5px solid #cbd5e1;
+    border-radius: 8px;
+    font-size: 0.85rem;
+    font-family: inherit;
+    color: #0f172a;
+    background: #fff;
+    resize: vertical;
+    line-height: 1.45;
+    transition: border-color 0.2s ease, box-shadow 0.2s ease;
+    box-sizing: border-box;
+}
+.ofi-dcn-form .reg-field textarea:hover {
+    border-color: #b0b8d0;
+}
+.ofi-dcn-form .reg-field textarea:focus {
+    outline: none;
+    border-color: #0d2a7a;
+    box-shadow: 0 0 0 3px rgba(13, 42, 122, 0.08);
+}
+.ofi-dcn-box {
+    border: 1.5px solid #cbd5e1;
+    border-radius: 10px;
+    overflow: hidden;
+    background: #fff;
+    margin-top: 0;
+}
+.ofi-dcn-box-section {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    padding: 16px 18px;
+    border-bottom: 1px solid #e2e8f0;
+}
+.ofi-dcn-box-section:last-child {
+    border-bottom: none;
+}
+.ofi-dcn-box-section .reg-field {
+    gap: 6px;
+    margin: 0;
+}
+.ofi-dcn-box-section .reg-field .ofi-hint {
+    margin: 2px 0 0;
+    font-size: 11px;
+    line-height: 1.45;
+}
+.ofi-dcn-section-label {
+    display: block;
+    font-size: 0.82rem;
+    font-weight: 700;
+    color: #0f172a;
+    margin: 0;
+    line-height: 1.35;
+}
+.ofi-dcn-doc-fields {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+}
+.ofi-dcn-box-readonly .ofi-dcn-box-section .reg-field:last-child {
+    margin-bottom: 0;
+}
+.ofi-dcn-card .reg-card-header {
+    position: relative;
+}
+
+.ofi-hint-x {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 16px;
+    height: 16px;
+    border-radius: 4px;
+    background: #e2e8f0;
+    color: #475569;
+    font-size: 13px;
+    font-weight: 700;
+    line-height: 1;
+    vertical-align: middle;
+}
+.ofi-page .reg-reldocs {
+    position: relative;
+}
+.ofi-page .reg-reldocs-selected-panel {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    align-items: flex-start;
+}
+.ofi-office-field .reg-reldocs { position: relative; }
+.ofi-office-picker,
+.ofi-distribute-picker {
+    border: 1.5px solid #cbd5e1;
+    border-radius: 10px;
+    background: #fff;
+    overflow: visible;
+    transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+.ofi-office-field,
+.ofi-drf-form .reg-field.ofi-office-field {
+    overflow: visible;
+    z-index: 1;
+}
+.ofi-office-field:focus-within {
+    z-index: 20;
+}
+.ofi-office-picker:focus-within,
+.ofi-distribute-picker:focus-within {
+    border-color: #0d2a7a;
+    box-shadow: 0 0 0 3px rgba(13, 42, 122, 0.08);
+}
+.ofi-office-chips,
+.ofi-distribute-chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    min-height: 0;
+    padding: 10px 12px 0;
+}
+.ofi-office-chips.is-empty,
+.ofi-distribute-chips.is-empty {
+    display: none;
+}
+.ofi-office-search.reg-reldocs-inputwrap,
+.ofi-distribute-search.reg-reldocs-inputwrap {
+    height: 42px;
+    border: none;
+    border-radius: 0;
+    border-top: 1px solid #e2e8f0;
+    background: transparent;
+}
+.ofi-office-picker:not(:has(.ofi-office-chips:not(.is-empty))) .ofi-office-search.reg-reldocs-inputwrap,
+.ofi-distribute-picker:not(:has(.ofi-distribute-chips:not(.is-empty))) .ofi-distribute-search.reg-reldocs-inputwrap {
+    border-top: none;
+}
+.ofi-office-results.reg-reldocs-dropdown,
+.ofi-distribute-results.reg-reldocs-dropdown {
+    top: calc(100% + 4px);
+    z-index: 80;
+}
+.ofi-office-results-floating.reg-reldocs-dropdown {
+    position: fixed;
+    top: auto;
+    left: auto;
+    right: auto;
+    z-index: 9999;
+    max-height: 240px;
+    overflow-y: auto;
+}
+.ofi-drf-form .reg-card-body,
+.ofi-drf-form {
+    overflow: visible;
+}
+.ofi-office-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    max-width: 100%;
+    padding: 5px 6px 5px 10px;
+    border-radius: 999px;
+    background: #eff6ff;
+    border: 1px solid #bfdbfe;
+    color: #0d2a7a;
+    font-size: 12px;
+    font-weight: 600;
+    line-height: 1.2;
+}
+.ofi-office-chip-name {
+    font-weight: 500;
+    color: #475569;
+    font-size: 11px;
+    max-width: 180px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.ofi-office-chip-remove {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 20px;
+    height: 20px;
+    padding: 0;
+    border: none;
+    border-radius: 50%;
+    background: transparent;
+    color: #64748b;
+    cursor: pointer;
+    flex-shrink: 0;
+    transition: background 0.15s ease, color 0.15s ease;
+}
+.ofi-office-chip-remove:hover {
+    background: #dc2626;
+    color: #fff;
+}
+.ofi-readonly-chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+}
+.ofi-office-chip.is-readonly {
+    padding-right: 10px;
+    cursor: default;
+}
+.ofi-distribute-empty {
+    padding: 10px 12px 2px;
+    font-size: 12px;
+    color: #94a3b8;
+    font-style: italic;
+}
 .ofi-distribute-grid {
     display: grid;
     grid-template-columns: repeat(2, 1fr);
     gap: 8px;
 }
 .ofi-form-actions { margin-top: 8px; display: flex; justify-content: flex-end; }
+
+/* ── DRF / DCN read-only view ── */
+.ofi-show-toolbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    flex-wrap: wrap;
+    margin-bottom: 16px;
+}
+.ofi-show-card .reg-card-header {
+    position: relative;
+}
+.ofi-form-code-badge {
+    position: absolute;
+    right: 16px;
+    top: 50%;
+    transform: translateY(-50%);
+    font-size: 0.72rem;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    opacity: 0.9;
+}
+.ofi-show-form .reg-field label {
+    font-size: 0.78rem;
+    font-weight: 700;
+    color: #334155;
+    letter-spacing: 0.01em;
+}
+.ofi-show-form .ofi-show-value {
+    min-height: 40px;
+    padding: 10px 12px;
+    border: 1.5px solid #e2e8f0;
+    border-radius: 8px;
+    background: #f8fafc;
+    font-size: 0.85rem;
+    color: #0f172a;
+    line-height: 1.45;
+    word-break: break-word;
+}
+.ofi-show-form .ofi-show-value.is-multiline {
+    min-height: 112px;
+    white-space: pre-wrap;
+}
+.ofi-show-form .ofi-show-value.is-empty {
+    color: #94a3b8;
+}
+.ofi-doc-type-badges {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    min-height: 40px;
+}
+.ofi-doc-type-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 7px 14px;
+    border-radius: 999px;
+    border: 1.5px solid #e2e8f0;
+    background: #f8fafc;
+    font-size: 0.82rem;
+    font-weight: 600;
+    color: #94a3b8;
+}
+.ofi-doc-type-badge.is-active {
+    border-color: #93c5fd;
+    background: #eff6ff;
+    color: #1d4ed8;
+}
+.ofi-doc-type-badge.is-active::before {
+    content: '✓';
+    font-size: 0.72rem;
+    font-weight: 800;
+}
+.ofi-show-chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    padding: 10px 12px;
+    border: 1.5px solid #e2e8f0;
+    border-radius: 8px;
+    background: #f8fafc;
+    min-height: 40px;
+}
+.ofi-show-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    max-width: 100%;
+    padding: 5px 10px;
+    border-radius: 999px;
+    background: #eff6ff;
+    border: 1px solid #bfdbfe;
+    color: #0d2a7a;
+    font-size: 12px;
+    font-weight: 600;
+    line-height: 1.2;
+}
+.ofi-show-chip-code {
+    font-weight: 700;
+}
+.ofi-show-chip-name {
+    font-weight: 500;
+    color: #475569;
+    font-size: 11px;
+    max-width: 220px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
 .ofi-readonly .ofi-value {
     font-size: 14px;
     color: #0f172a;

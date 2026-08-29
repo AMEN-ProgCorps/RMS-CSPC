@@ -199,7 +199,7 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                                         <div class="st-files-group">
                                             @foreach($files as $file)
                                                 <div class="st-file-tag-wrap">
-                                                    <a href="/storage/{{ $file['path'] }}"
+                                                    <a href="{{ RegisterQueryHelper::scanUrl($file['path']) }}"
                                                        target="_blank"
                                                        rel="noopener"
                                                        class="st-file-tag st-file-{{ $file['cls'] }} {{ $file['stamped'] ? 'st-file-stamped' : '' }}"

@@ -278,7 +278,7 @@ window.__registerCatalog = @json($catalog);
                                         <td><input type="number" name="revisionNo[]" placeholder="—" value="{{ $rev->revision_no }}" readonly class="reg-revrow-locked" tabindex="-1"></td>
                                         <td class="reg-rev-scan-cell" style="text-align:center;">
                                             @if($rev->scanned_copy)
-                                                <a href="{{ asset('storage/' . $rev->scanned_copy) }}" target="_blank" class="reg-revrow-viewfile" title="View scanned copy">
+                                                <a href="{{ RegisterQueryHelper::scanUrl($rev->scanned_copy) }}" target="_blank" class="reg-revrow-viewfile" title="View scanned copy">
                                                     <i class="fa-solid fa-file-pdf"></i>
                                                 </a>
                                             @else
@@ -347,7 +347,7 @@ window.__registerCatalog = @json($catalog);
                                 <div class="reg-current-file">
                                     <i class="fa-solid fa-file-pdf"></i>
                                     <span>{{ basename($dcn->scanned_dcn) }}</span>
-                                    <a href="{{ asset('storage/' . $dcn->scanned_dcn) }}" target="_blank">View</a>
+                                    <a href="{{ RegisterQueryHelper::scanUrl($dcn->scanned_dcn) }}" target="_blank">View</a>
                                 </div>
                             @endif
                             <label class="reg-upload">
@@ -423,7 +423,7 @@ window.__registerCatalog = @json($catalog);
                             <div class="reg-current-file">
                                 <i class="fa-solid fa-file-pdf"></i>
                                 <span>{{ basename($drf->scanned_drf) }}</span>
-                                <a href="{{ asset('storage/' . $drf->scanned_drf) }}" target="_blank">View</a>
+                                <a href="{{ RegisterQueryHelper::scanUrl($drf->scanned_drf) }}" target="_blank">View</a>
                             </div>
                         @endif
                         <label class="reg-upload">
@@ -592,7 +592,7 @@ window.__registerCatalog = @json($catalog);
                             <div class="reg-current-file">
                                 <i class="fa-solid fa-file-pdf"></i>
                                 <span>{{ $mlScanLabel }}</span>
-                                <button type="button" class="reg-current-file-view" data-preview-url="{{ asset('storage/' . $masterlist->scanned_masterlist) }}" data-preview-title="{{ $mlScanLabel }}">View</button>
+                                <button type="button" class="reg-current-file-view" data-preview-url="{{ RegisterQueryHelper::scanUrl($masterlist->scanned_masterlist) }}" data-preview-title="{{ $mlScanLabel }}">View</button>
                             </div>
                         @endif
                         <label class="reg-upload">
@@ -644,7 +644,7 @@ window.__registerCatalog = @json($catalog);
                                 <div class="reg-current-file">
                                     <i class="fa-solid fa-file-pdf"></i>
                                     <span>{{ basename($retrieval->scanned_retrieval) }}</span>
-                                    <a href="{{ asset('storage/' . $retrieval->scanned_retrieval) }}" target="_blank">View</a>
+                                    <a href="{{ RegisterQueryHelper::scanUrl($retrieval->scanned_retrieval) }}" target="_blank">View</a>
                                 </div>
                             @endif
                             <label class="reg-upload">
@@ -781,7 +781,7 @@ window.__registerCatalog = @json($catalog);
                                 <div class="reg-current-file">
                                     <i class="fa-solid fa-file-pdf"></i>
                                     <span>{{ basename($distribution->scanned_distribution) }}</span>
-                                    <a href="{{ asset('storage/' . $distribution->scanned_distribution) }}" target="_blank">View</a>
+                                    <a href="{{ RegisterQueryHelper::scanUrl($distribution->scanned_distribution) }}" target="_blank">View</a>
                                 </div>
                             @endif
                             <label class="reg-upload">
@@ -4342,12 +4342,21 @@ function setVal(tr, name, value) {
     if (el) el.value = value;
 }
 
+function dcsScanHref(path) {
+    if (!path) return '#';
+    const normalized = String(path).replace(/^\/+/, '').replace(/^storage\//, '');
+    if (normalized.startsWith('scans/')) {
+        return '/storage/' + normalized;
+    }
+    return '/dcs/view-document?path=' + encodeURIComponent(normalized);
+}
+
 function showExistingSyllabiScannedFile(tr, path) {
     if (!tr || !path) return;
     const cell = tr.querySelector('.reg-upload-cell');
     if (!cell) return;
 
-    const url = '/storage/' + String(path).replace(/^\/+/, '').replace(/^storage\//, '');
+    const url = dcsScanHref(path);
     const ext = (String(path).split('.').pop() || '').toLowerCase();
     const isPdf = ext === 'pdf';
     const iconClass = isPdf ? 'fa-solid fa-file-pdf' : 'fa-solid fa-file-word';

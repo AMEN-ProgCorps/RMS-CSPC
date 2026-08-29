@@ -673,6 +673,8 @@ body {
 
 .rpt-table tbody tr:hover td { background: #f8f9fc; }
 .rpt-table .rpt-na { color: var(--rpt-text-subtle); }
+.rpt-table .rpt-doc-no,
+.rpt-doc-no { font-weight: 700; }
 .rpt-table a { color: var(--rpt-accent); text-decoration: none; font-weight: 600; font-size: 0.78rem; display: inline-flex; align-items: center; gap: 4px; }
 .rpt-table a:hover { text-decoration: underline; }
 

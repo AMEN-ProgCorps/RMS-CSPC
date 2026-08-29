@@ -380,6 +380,17 @@
                 ],
             ];
         }
+        // 6b. Manage Files (Drive registry debug)
+        elseif (request()->routeIs('dcs.manage-files')) {
+            $sectionTitle = 'Manage Files';
+            $tabs = [
+                [
+                    'label' => 'Manage Files',
+                    'url' => route('dcs.manage-files'),
+                    'active' => request()->routeIs('dcs.manage-files'),
+                ],
+            ];
+        }
         // 7. Settings
         elseif (request()->routeIs('dcs.settings.*')) {
             $sectionTitle = 'Settings';

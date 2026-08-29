@@ -492,6 +492,37 @@ Route::middleware(['auth'])
         Route::prefix('dcs')->name('dcs.')->group(function () {
             Volt::route('/dashboard', 'pages.dcs.index')->name('dashboard');
 
+            Route::get('/view-document', function (\Illuminate\Http\Request $request) {
+                $path = $request->query('path');
+                if (! is_string($path) || trim($path) === '' || str_contains($path, '..')) {
+                    abort(404);
+                }
+
+                $path = ltrim(str_replace(['\\'], '/', $path), '/');
+                $filename = basename($path) ?: 'document.pdf';
+
+                if (\App\Services\DocumentStorageService::isLegacyPublicScanPath($path)) {
+                    abort_unless(\Illuminate\Support\Facades\Storage::disk('public')->exists($path), 404);
+
+                    return response()->file(
+                        \Illuminate\Support\Facades\Storage::disk('public')->path($path),
+                        [
+                            'Content-Type' => 'application/pdf',
+                            'Content-Disposition' => 'inline; filename="' . $filename . '"',
+                        ]
+                    );
+                }
+
+                $content = \App\Services\DocumentStorageService::getDcsScanContent($path);
+                abort_unless($content, 404, 'Document file not found.');
+
+                $mime = \App\Services\DocumentStorageService::dcsFileMimeType($path);
+
+                return response($content, 200)
+                    ->header('Content-Type', $mime)
+                    ->header('Content-Disposition', 'inline; filename="' . $filename . '"');
+            })->name('view-document');
+
             // Office intake (RFIO full users + limited non-RFIO offices)
             Volt::route('/office/drf', 'pages.dcs.office.drf-index')->name('office.drf.index');
             Volt::route('/office/drf/create', 'pages.dcs.office.drf-create')->name('office.drf.create');
@@ -590,6 +621,7 @@ Route::middleware(['auth'])
                 Route::post('/stamp/preview', fn (Request $request) => app(StampService::class)->preview($request))->name('stamp.preview');
 
                 Volt::route('/database', 'pages.dcs.database.index')->name('database.index');
+                Volt::route('/manage-files', 'pages.dcs.manage-files')->name('manage-files');
                 Volt::route('/settings', 'pages.dcs.settings.index')->name('settings.index');
             });
         });

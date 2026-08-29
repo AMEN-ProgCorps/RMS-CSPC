@@ -47,7 +47,6 @@ new #[Layout('layouts.dcs')] #[Title('My DRF — CSPC DCS')] class extends Compo
                         <th>DRF No.</th>
                         <th>Date</th>
                         <th>Title</th>
-                        <th>Receipt</th>
                         <th style="width:160px;">Actions</th>
                     </tr>
                 </thead>
@@ -57,7 +56,6 @@ new #[Layout('layouts.dcs')] #[Title('My DRF — CSPC DCS')] class extends Compo
                             <td>{{ $row->drf_no ?: '—' }}</td>
                             <td>{{ $row->drf_date ? \Carbon\Carbon::parse($row->drf_date)->format('M d, Y') : '—' }}</td>
                             <td>{{ $row->doc_title ?: '—' }}</td>
-                            <td>{{ $row->drf_receipt_date ? \Carbon\Carbon::parse($row->drf_receipt_date)->format('M d, Y') : '—' }}</td>
                             <td class="ofi-actions">
                                 <a href="{{ route('dcs.office.drf.show', $row->id, absolute: false) }}" title="View"><i class="fa-solid fa-eye"></i></a>
                                 <a href="{{ route('dcs.office.drf.print', $row->id, absolute: false) }}" target="_blank" title="Print"><i class="fa-solid fa-print"></i></a>
@@ -65,7 +63,7 @@ new #[Layout('layouts.dcs')] #[Title('My DRF — CSPC DCS')] class extends Compo
                         </tr>
                     @empty
                         <tr>
-                            <td colspan="5" class="ofi-empty">No Document Request Forms yet. Create one to get started.</td>
+                            <td colspan="4" class="ofi-empty">No Document Request Forms yet. Create one to get started.</td>
                         </tr>
                     @endforelse
                 </tbody>

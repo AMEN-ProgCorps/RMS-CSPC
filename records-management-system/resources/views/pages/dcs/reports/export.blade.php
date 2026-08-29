@@ -170,6 +170,7 @@
         }
         .data-table tr:nth-child(even) td { background: #fff; }
         .rpt-na { color: #000; }
+        .rpt-doc-no { font-weight: 700; }
         .empty-msg { text-align: center; padding: 24px; color: #000; font-style: italic; font-size: 10pt; font-family: Arial, sans-serif; }
 
         /* ── Footer ── */
@@ -377,7 +378,15 @@
                                     ? ($row[$k] ?? null)
                                     : (is_object($row) ? ($row->{$k} ?? null) : null);
                             @endphp
-                            @if($v !== null && $v !== '')<td>{{ $v }}</td>@else<td class="rpt-na">&mdash;</td>@endif
+                            @if(in_array($k, ['item_no', 'no'], true) && ($v === null || $v === ''))
+                                <td></td>
+                            @elseif(in_array($k, ['doc_no', 'control_number', 'doc_number'], true) && $v !== null && $v !== '')
+                                <td class="rpt-doc-no"><strong>{{ $v }}</strong></td>
+                            @elseif($v !== null && $v !== '')
+                                <td>{{ $v }}</td>
+                            @else
+                                <td class="rpt-na">&mdash;</td>
+                            @endif
                         @endforeach
                     </tr>
                 @empty

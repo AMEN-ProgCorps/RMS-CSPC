@@ -1043,8 +1043,7 @@
       }
 
       if (isTyping && activeDM) {
-        // Show full name (First Name and Last Name) and cap length
-        textEl.textContent = `${truncateTypingName(senderName, 40)} is typing`;
+        textEl.textContent = 'typing';
         indicator.classList.add('active');
 
         // Auto-expire after 4 seconds as a safety cleanup

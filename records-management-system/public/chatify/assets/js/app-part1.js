@@ -269,15 +269,8 @@
 
       // Cap the DOM at MAX_WINDOW visible messages so real-time
       // WebSocket pushes never grow the chat window without bound.
-      // Only trim while actively viewing the live/latest window —
-      // never while the user has paged back into older history.
-      const viewingOlderNow = isGlobalChat ? gcViewingOlder : dmViewingOlder;
-      if (!viewingOlderNow) {
-        const trimmed = trimChatMessages(MAX_WINDOW);
-        // If we just removed messages from the top, update the pagination
-        // cursor so the auto-backread can re-fetch the trimmed messages.
-        if (trimmed) refreshCursorAfterTopTrim();
-      }
+      const trimmed = trimChatMessages(MAX_WINDOW);
+      if (trimmed) refreshCursorAfterTopTrim();
 
       applyAdminBadges();
       if (atBottomNow || isSentByMe) {
@@ -2615,35 +2608,31 @@
     // Keeps the chat window capped at maxCount messages by trimming the
     // trailing (newest/bottom) ones — used right after prepending an older
     // page so loading history swaps the window instead of growing it forever.
-    function trimWindowFromBottom(maxCount) {
-      if (!chatBox) return;
-      // Fast-path: childElementCount is O(1) — skip expensive querySelectorAll
-      if (chatBox.childElementCount <= maxCount) return;
-      const items = Array.from(chatBox.querySelectorAll('.message-container, .empty-chat'));
-      if (items.length <= maxCount) return;
+    function trimWindowFromBottom(maxCount = MAX_WINDOW) {
+      if (!chatBox) return false;
+      const items = Array.from(chatBox.querySelectorAll('.message-container'));
+      if (items.length <= maxCount) return false;
+
       const excess = items.length - maxCount;
       for (let i = 0; i < excess; i++) {
         const el = items[items.length - 1 - i];
-        if (el && el.parentNode) { unobserveImagesIn(el); el.parentNode.removeChild(el); }
+        if (el && el.parentNode) {
+          unobserveImagesIn(el);
+          const prev = el.previousElementSibling;
+          if (prev && prev.classList && prev.classList.contains('date-divider')) {
+            prev.remove();
+          }
+          el.parentNode.removeChild(el);
+        }
       }
+      return true;
     }
 
     // Keeps the chat window capped at maxCount messages by trimming the
     // leading (oldest/top) ones — used during normal poll / initial load
     // so the message list doesn't grow forever.
-    // Returns true if any messages were actually removed.
-    function trimWindowFromTop(maxCount) {
-      if (!chatBox) return false;
-      // Fast-path: childElementCount is O(1).
-      if (chatBox.childElementCount <= maxCount) return false;
-      const items = Array.from(chatBox.querySelectorAll('.message-container, .empty-chat'));
-      if (items.length <= maxCount) return false;
-      const excess = items.length - maxCount;
-      for (let i = 0; i < excess; i++) {
-        const el = items[i];
-        if (el && el.parentNode) { unobserveImagesIn(el); el.parentNode.removeChild(el); }
-      }
-      return true;
+    function trimWindowFromTop(maxCount = MAX_WINDOW) {
+      return trimChatMessages(maxCount);
     }
 
     // Reusable real-time trim helper: caps the number of visible
@@ -2652,22 +2641,30 @@
     // (the one that was just appended) stays visible.
     function trimChatMessages(maxMessages = MAX_WINDOW) {
       if (!chatBox) return false;
-      // Fast-path: childElementCount is O(1).
-      if (chatBox.childElementCount <= maxMessages) return false;
       const items = Array.from(chatBox.querySelectorAll('.message-container'));
-      const excess = items.length - maxMessages;
-      if (excess <= 0) return false;
+      if (items.length <= maxMessages) return false;
 
+      const excess = items.length - maxMessages;
       const prevScrollTop = chatBox.scrollTop;
       const prevScrollHeight = chatBox.scrollHeight;
 
       for (let i = 0; i < excess; i++) {
         const el = items[i];
-        if (el && el.parentNode) { unobserveImagesIn(el); el.parentNode.removeChild(el); }
+        if (el && el.parentNode) {
+          unobserveImagesIn(el);
+          const prev = el.previousElementSibling;
+          if (prev && prev.classList && prev.classList.contains('date-divider')) {
+            const next = el.nextElementSibling;
+            if (!next || (next.classList && next.classList.contains('date-divider'))) {
+              prev.remove();
+            }
+          }
+          el.parentNode.removeChild(el);
+        }
       }
 
       const scrollDelta = prevScrollHeight - chatBox.scrollHeight;
-      if (scrollDelta !== 0) {
+      if (scrollDelta !== 0 && chatBox.scrollTop > 0) {
         chatBox.scrollTop = Math.max(0, prevScrollTop - scrollDelta);
       }
       return true;

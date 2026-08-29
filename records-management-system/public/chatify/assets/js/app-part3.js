@@ -1949,9 +1949,7 @@
 
         if (toInsert.length === 0) {
           document.querySelectorAll('[data-sending-uid]').forEach(el => el.remove());
-          if (!gcViewingOlder) {
-            if (trimWindowFromTop(MAX_WINDOW)) refreshCursorAfterTopTrim();
-          }
+          if (trimWindowFromTop(MAX_WINDOW)) refreshCursorAfterTopTrim();
           applyAdminBadges(); applyEmojiOnly();
           if (gcHasMore && !document.getElementById('loadOlderBtn') && !document.getElementById('noMoreOlderNotice')) insertLoadOlderBtn();
           return;
@@ -1968,9 +1966,7 @@
           chatBox.appendChild(el);
         });
         document.querySelectorAll('[data-sending-uid]').forEach(el => el.remove());
-        if (!gcViewingOlder) {
-          if (trimWindowFromTop(MAX_WINDOW)) refreshCursorAfterTopTrim();
-        }
+        if (trimWindowFromTop(MAX_WINDOW)) refreshCursorAfterTopTrim();
 
         let revealedCount = 0;
         toInsert.forEach((el, i) => {
@@ -2221,9 +2217,7 @@
         const prevScrollHeight = chatBox.scrollHeight;
         const newScrollHeight = chatBox.scrollHeight;
         chatBox.scrollTop = Math.max(0, prevScrollTop + newScrollHeight - prevScrollHeight);
-        if (!dmViewingOlder) {
-          if (trimWindowFromTop(MAX_WINDOW)) refreshCursorAfterTopTrim();
-        }
+        if (trimWindowFromTop(MAX_WINDOW)) refreshCursorAfterTopTrim();
         if (isFirstLoad) { isFirstLoad = false; handleFirstLoadScroll(); }
         else if (!dmViewingOlder && wasAtBottom) requestAnimationFrame(() => requestAnimationFrame(() => scrollToBottom(true, false)));
         else showScrollIndicator(rec.items.filter(el => el.classList.contains('message-container')).length);

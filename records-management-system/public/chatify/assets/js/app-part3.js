@@ -1115,15 +1115,21 @@
 
     function openReactionPicker(container, x, y) {
       reactionPickerContainer = container;
-      // Measure first (the picker is always display:flex, just invisible
-      // via opacity/transform until '.visible' is added, so offsetWidth/
-      // Height are accurate even before showing it).
-      const pw = reactionPicker.offsetWidth || 200;
+      const anchorEl = getReactionAnchorEl(container) || container;
+      const rect = anchorEl.getBoundingClientRect();
+
+      const pw = reactionPicker.offsetWidth || 230;
       const ph = reactionPicker.offsetHeight || 50;
-      let left = x - pw / 2;
-      let top = y - ph - 14; // prefer showing above the tap/click point
-      left = Math.max(8, Math.min(left, window.innerWidth - pw - 8));
-      if (top < 8) top = y + 18; // not enough room above — show below instead
+
+      // Position floating bubble centered horizontally over the message bubble
+      let left = rect.left + (rect.width / 2) - (pw / 2);
+      let top = rect.top - ph - 10;
+
+      left = Math.max(12, Math.min(left, window.innerWidth - pw - 12));
+      if (top < 12) {
+        top = rect.bottom + 10;
+      }
+
       reactionPicker.style.left = left + 'px';
       reactionPicker.style.top = top + 'px';
       reactionPicker.classList.add('visible');

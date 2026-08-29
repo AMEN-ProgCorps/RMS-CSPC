@@ -243,6 +243,29 @@
     color: #9f1239;
 }
 
+/* Export Button Specifics */
+.rms-btn-export {
+    background-color: #1d4ed8;
+    color: #ffffff;
+    border: none;
+    padding: 6px 18px;
+    font-size: 0.8rem;
+    font-weight: 600;
+    border-radius: 20px;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    text-transform: uppercase;
+    box-shadow: 0 2px 4px rgba(29, 78, 216, 0.2);
+    transition: background-color 0.2s ease, transform 0.1s ease;
+}
+
+.rms-btn-export:hover {
+    background-color: #1e40af;
+    transform: translateY(-1px);
+}
+
 /* Dark Mode Overrides for DTS List Transactions */
 [data-theme="dark"] .rms-container {
     background-color: #131c2e !important;
@@ -291,4 +314,27 @@
 [data-theme="dark"] .rms-no-data {
     background-color: #131c2e !important;
     color: #94a3b8 !important;
+}
+
+[data-theme="dark"] .dts-export-modal-card {
+    background-color: #0f172a !important;
+    color: #f8fafc !important;
+    border: 1px solid #1e293b !important;
+}
+
+[data-theme="dark"] .dts-export-modal-card label {
+    color: #e2e8f0 !important;
+}
+
+/* Print Rules for in-page safety */
+@media print {
+    .navigation,
+    header,
+    .rms-toolbar,
+    .rms-pagination-wrap,
+    .dts-export-modal-backdrop,
+    #chatify-floating-bubble,
+    .chatify-widget-container {
+        display: none !important;
+    }
 }

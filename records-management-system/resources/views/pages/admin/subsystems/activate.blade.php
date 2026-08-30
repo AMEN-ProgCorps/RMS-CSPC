@@ -149,13 +149,13 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Active Subsystems')] cla
                             </td>
                             <td>
                                 <div class="log-timestamp">
-                                    {{ \Carbon\Carbon::parse($sub->created_at)->format('Y-m-d H:i:s') }}
+                                    <span class="log-date">{{ \Carbon\Carbon::parse($sub->created_at)->format('Y-m-d H:i:s') }}</span>
                                     <span class="time-ago">{{ \Carbon\Carbon::parse($sub->created_at)->diffForHumans() }}</span>
                                 </div>
                             </td>
                             <td>
                                 <div class="log-timestamp">
-                                    {{ \Carbon\Carbon::parse($sub->update_at)->format('Y-m-d H:i:s') }}
+                                    <span class="log-date">{{ \Carbon\Carbon::parse($sub->update_at)->format('Y-m-d H:i:s') }}</span>
                                     <span class="time-ago">{{ \Carbon\Carbon::parse($sub->update_at)->diffForHumans() }}</span>
                                 </div>
                             </td>

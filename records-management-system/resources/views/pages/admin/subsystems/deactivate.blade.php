@@ -133,23 +133,23 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Deactivated Subsystems')
                         <tr wire:key="sub-deactive-{{ $sub->subsystem_id }}">
                             <td>
                                 <div class="admin-name-cell">
-                                    <span class="name" style="color: #64748b;">{{ $sub->subsystem_name }}</span>
+                                    <span class="name">{{ $sub->subsystem_name }}</span>
                                 </div>
                             </td>
                             <td>
-                                <span class="subsystem-badge" style="background-color: #f1f5f9; color: #64748b; border-color: #e2e8f0;">
+                                <span class="subsystem-badge">
                                     <i class="fa-solid fa-code-branch" style="margin-right: 4px;"></i> v{{ $sub->subsystem_version }}
                                 </span>
                             </td>
                             <td>
                                 <div class="log-timestamp">
-                                    {{ \Carbon\Carbon::parse($sub->created_at)->format('Y-m-d H:i:s') }}
+                                    <span class="log-date">{{ \Carbon\Carbon::parse($sub->created_at)->format('Y-m-d H:i:s') }}</span>
                                     <span class="time-ago">{{ \Carbon\Carbon::parse($sub->created_at)->diffForHumans() }}</span>
                                 </div>
                             </td>
                             <td>
                                 <div class="log-timestamp">
-                                    {{ \Carbon\Carbon::parse($sub->update_at)->format('Y-m-d H:i:s') }}
+                                    <span class="log-date">{{ \Carbon\Carbon::parse($sub->update_at)->format('Y-m-d H:i:s') }}</span>
                                     <span class="time-ago">{{ \Carbon\Carbon::parse($sub->update_at)->diffForHumans() }}</span>
                                 </div>
                             </td>

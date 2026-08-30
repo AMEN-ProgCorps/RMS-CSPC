@@ -1478,6 +1478,73 @@ section{
     background-color: #1a253c !important;
 }
 
+/* Universal Timestamps, Dates, and Text Contrast in Dark Mode */
+[data-theme="dark"] .log-timestamp,
+[data-theme="dark"] .timestamp,
+[data-theme="dark"] .date-text,
+[data-theme="dark"] .time-text,
+[data-theme="dark"] .created-at,
+[data-theme="dark"] .updated-at,
+[data-theme="dark"] time {
+    color: #f8fafc !important;
+}
+
+[data-theme="dark"] .log-timestamp .log-date,
+[data-theme="dark"] .log-date {
+    color: #f8fafc !important;
+    font-weight: 600 !important;
+}
+
+[data-theme="dark"] .log-timestamp .log-time,
+[data-theme="dark"] .log-time {
+    color: #cbd5e1 !important;
+}
+
+[data-theme="dark"] .log-timestamp .time-ago,
+[data-theme="dark"] .time-ago,
+[data-theme="dark"] .timeago,
+[data-theme="dark"] .ago {
+    color: #94a3b8 !important;
+}
+
+[data-theme="dark"] .log-id {
+    color: #94a3b8 !important;
+    font-weight: 600 !important;
+}
+
+[data-theme="dark"] .text-muted,
+[data-theme="dark"] .text-secondary,
+[data-theme="dark"] .subtext,
+[data-theme="dark"] .caption,
+[data-theme="dark"] small {
+    color: #94a3b8 !important;
+}
+
+/* Fallback for hardcoded light/dark text colors */
+[data-theme="dark"] span[style*="color: #64748b"],
+[data-theme="dark"] span[style*="color:#64748b"],
+[data-theme="dark"] span[style*="color: #475569"],
+[data-theme="dark"] span[style*="color:#475569"],
+[data-theme="dark"] span[style*="color: #A2A2A2"],
+[data-theme="dark"] span[style*="color:#A2A2A2"],
+[data-theme="dark"] div[style*="color: #64748b"],
+[data-theme="dark"] div[style*="color:#64748b"],
+[data-theme="dark"] p[style*="color: #64748b"],
+[data-theme="dark"] p[style*="color:#64748b"] {
+    color: #94a3b8 !important;
+}
+
+[data-theme="dark"] span[style*="color: #0f172a"],
+[data-theme="dark"] span[style*="color:#0f172a"],
+[data-theme="dark"] span[style*="color: #1e293b"],
+[data-theme="dark"] span[style*="color:#1e293b"],
+[data-theme="dark"] div[style*="color: #0f172a"],
+[data-theme="dark"] div[style*="color:#0f172a"],
+[data-theme="dark"] div[style*="color: #1e293b"],
+[data-theme="dark"] div[style*="color:#1e293b"] {
+    color: #f8fafc !important;
+}
+
 [data-theme="dark"] .pagination,
 [data-theme="dark"] .pagination-container {
     background-color: #0f172a !important;

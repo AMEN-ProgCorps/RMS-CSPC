@@ -87,9 +87,9 @@
                                 <span class="dts-format-badge-excel">
                                     <i class="fa-solid fa-file-excel"></i>
                                 </span>
-                                Excel Spreadsheet
+                                Excel Spreadsheet (.xls)
                             </div>
-                            <div class="dts-export-format-desc">Universal .csv format ready for MS Excel analysis & archiving</div>
+                            <div class="dts-export-format-desc">Styled Excel workbook with institutional header, multi-tier flow grouping & auto column widths</div>
                         </div>
                     </label>
                 </div>
@@ -219,25 +219,23 @@
                 </div>
             </div>
 
-            <!-- 3. Signatories Options (for PDF / Printable Report) -->
-            @if($format === 'pdf')
-                <div class="dts-export-signatories-section">
-                    <label class="dts-export-step-label">
-                        <span class="dts-export-step-num">3</span>
-                        Report Signatories Configuration
-                    </label>
-                    <div class="dts-export-signatories-grid">
-                        <div class="dts-export-signatory-col">
-                            <span class="dts-export-signatory-label">Prepared by (Name):</span>
-                            <input type="text" wire:model="exportPreparedBy" placeholder="e.g. John Doe" class="dts-export-input">
-                        </div>
-                        <div class="dts-export-signatory-col">
-                            <span class="dts-export-signatory-label">Noted / Approved by:</span>
-                            <input type="text" wire:model="exportNotedBy" placeholder="e.g. Head of Office / Dean" class="dts-export-input">
-                        </div>
+            <!-- 3. Signatories Options -->
+            <div class="dts-export-signatories-section">
+                <label class="dts-export-step-label">
+                    <span class="dts-export-step-num">3</span>
+                    Report Signatories Configuration
+                </label>
+                <div class="dts-export-signatories-grid">
+                    <div class="dts-export-signatory-col">
+                        <span class="dts-export-signatory-label">Prepared by (Name):</span>
+                        <input type="text" wire:model="exportPreparedBy" placeholder="e.g. John Doe" class="dts-export-input">
+                    </div>
+                    <div class="dts-export-signatory-col">
+                        <span class="dts-export-signatory-label">Noted / Approved by:</span>
+                        <input type="text" wire:model="exportNotedBy" placeholder="e.g. Head of Office / Dean" class="dts-export-input">
                     </div>
                 </div>
-            @endif
+            </div>
 
         </div>
 
@@ -251,7 +249,7 @@
                     @if($format === 'pdf')
                         <i class="fa-solid fa-print"></i> Generate & Print Report
                     @else
-                        <i class="fa-solid fa-file-excel"></i> Download Excel (.csv)
+                        <i class="fa-solid fa-file-excel"></i> Download Excel (.xls)
                     @endif
                 </span>
                 <span wire:loading wire:target="executeExport" class="dts-export-btn-content">

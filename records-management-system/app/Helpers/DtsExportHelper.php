@@ -400,6 +400,230 @@ class DtsExportHelper
     }
 
     /**
+     * Resolve recommended column width for Excel worksheet
+     */
+    public static function getColumnWidth(string $colKey): int
+    {
+        return match (true) {
+            $colKey === 'item_no' => 45,
+            $colKey === 'control_number' => 125,
+            $colKey === 'qr_code' => 110,
+            $colKey === 'date_created' => 130,
+            $colKey === 'originated_office', $colKey === 'source_office', $colKey === 'current_office' => 150,
+            $colKey === 'subject' => 240,
+            $colKey === 'classification', $colKey === 'position_applied' => 130,
+            $colKey === 'status' => 80,
+            $colKey === 'elapsed_days' => 90,
+            str_contains($colKey, '_office') => 150,
+            str_contains($colKey, '_received') => 140,
+            str_contains($colKey, '_released') => 140,
+            str_contains($colKey, '_notes') => 200,
+            str_contains($colKey, '_elapsed_days') => 90,
+            str_contains($colKey, 'time') => 80,
+            str_contains($colKey, 'date') => 90,
+            default => 120,
+        };
+    }
+
+    /**
+     * Resolve cell style ID for Excel
+     */
+    /**
+     * Stream Professional Styled Excel Spreadsheet (.xls)
+     */
+    public static function exportExcel(
+        string $filename,
+        array $selectedColumns,
+        array $rows,
+        array $availableColumns,
+        array $meta = []
+    ): StreamedResponse {
+        $headers = [
+            'Content-Type'        => 'application/vnd.ms-excel; charset=UTF-8',
+            'Content-Disposition' => 'attachment; filename="' . $filename . '"',
+            'Cache-Control'       => 'no-cache, no-store, must-revalidate',
+            'Pragma'              => 'no-cache',
+            'Expires'             => '0',
+        ];
+
+        return new StreamedResponse(function () use ($selectedColumns, $rows, $availableColumns, $meta) {
+            $handle = fopen('php://output', 'w');
+
+            // UTF-8 BOM
+            fwrite($handle, "\xEF\xBB\xBF");
+
+            $colCount = max(1, count($selectedColumns));
+
+            // Detect flow groups
+            $flowGroups = [];
+            $allFlowKeys = [];
+            foreach ($selectedColumns as $colKey) {
+                if (preg_match('/^flow(\d+)_(.+)$/', $colKey, $matches)) {
+                    $fIndex = (int)$matches[1];
+                    $flowGroups[$fIndex][] = $colKey;
+                    $allFlowKeys[] = $colKey;
+                }
+            }
+            ksort($flowGroups);
+            $hasFlowGrouping = !empty($flowGroups);
+
+            fwrite($handle, '<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:x="urn:schemas-microsoft-com:office:excel" xmlns="http://www.w3.org/TR/REC-html40">' . "\n");
+            fwrite($handle, '<head>' . "\n");
+            fwrite($handle, '<meta http-equiv="Content-Type" content="text/html; charset=utf-8">' . "\n");
+            fwrite($handle, '<!--[if gte mso 9]>' . "\n");
+            fwrite($handle, '<xml>' . "\n");
+            fwrite($handle, ' <x:ExcelWorkbook>' . "\n");
+            fwrite($handle, '  <x:ExcelWorksheets>' . "\n");
+            fwrite($handle, '   <x:ExcelWorksheet>' . "\n");
+            fwrite($handle, '    <x:Name>Transactions</x:Name>' . "\n");
+            fwrite($handle, '    <x:WorksheetOptions>' . "\n");
+            fwrite($handle, '     <x:DisplayGridlines/>' . "\n");
+            fwrite($handle, '     <x:Layout x:Orientation="Landscape"/>' . "\n");
+            fwrite($handle, '    </x:WorksheetOptions>' . "\n");
+            fwrite($handle, '   </x:ExcelWorksheet>' . "\n");
+            fwrite($handle, '  </x:ExcelWorksheets>' . "\n");
+            fwrite($handle, ' </x:ExcelWorkbook>' . "\n");
+            fwrite($handle, '</xml>' . "\n");
+            fwrite($handle, '<![endif]-->' . "\n");
+            fwrite($handle, '<style>' . "\n");
+            fwrite($handle, '  body, table { font-family: Calibri, "Segoe UI", Arial, sans-serif; font-size: 10pt; }' . "\n");
+            fwrite($handle, '</style>' . "\n");
+            fwrite($handle, '</head>' . "\n");
+            fwrite($handle, '<body>' . "\n");
+
+            fwrite($handle, '<table border="1" style="border-collapse: collapse; font-family: Calibri, sans-serif; font-size: 10pt;">' . "\n");
+
+            // Column Widths
+            fwrite($handle, ' <colgroup>' . "\n");
+            foreach ($selectedColumns as $colKey) {
+                $w = self::getColumnWidth($colKey);
+                fwrite($handle, '  <col width="' . $w . '" style="width: ' . $w . 'pt;">' . "\n");
+            }
+            fwrite($handle, ' </colgroup>' . "\n");
+
+            // Header Banner Rows
+            fwrite($handle, ' <tr style="height: 20px;"><td colspan="' . $colCount . '" style="font-size: 9pt; font-weight: bold; color: #475569; text-align: center; border: none; padding: 4px 0;">Republic of the Philippines</td></tr>' . "\n");
+            fwrite($handle, ' <tr style="height: 26px;"><td colspan="' . $colCount . '" style="font-size: 13pt; font-weight: bold; color: #003699; text-align: center; border: none; padding: 4px 0;">CAMARINES SUR POLYTECHNIC COLLEGES</td></tr>' . "\n");
+            fwrite($handle, ' <tr style="height: 18px;"><td colspan="' . $colCount . '" style="font-size: 9pt; font-style: italic; color: #64748b; text-align: center; border: none; padding: 2px 0;">Nabua, Camarines Sur</td></tr>' . "\n");
+            $titleText = 'DOCUMENT TRACKING SYSTEM — ' . strtoupper($meta['title'] ?? 'LIST OF TRANSACTIONS');
+            fwrite($handle, ' <tr style="height: 24px;"><td colspan="' . $colCount . '" style="font-size: 11pt; font-weight: bold; color: #0f172a; text-align: center; border: none; padding: 4px 0;">' . htmlspecialchars($titleText) . '</td></tr>' . "\n");
+            
+            $metaLeft = 'Office: ' . ($meta['office_name'] ?? 'Records Management System') . '   |   Total Records: ' . count($rows) . '   |   Date Generated: ' . now()->format('F d, Y h:i A');
+            fwrite($handle, ' <tr style="height: 22px;"><td colspan="' . $colCount . '" style="font-size: 9pt; color: #334155; text-align: center; background-color: #f8fafc; border: 1px solid #e2e8f0; padding: 4px 8px;">' . htmlspecialchars($metaLeft) . '</td></tr>' . "\n");
+            fwrite($handle, ' <tr style="height: 10px;"><td colspan="' . $colCount . '" style="border: none; height: 10px;"></td></tr>' . "\n");
+
+            // Table Headers
+            if ($hasFlowGrouping) {
+                // Tier 1 (Super Headers for Flow Groups)
+                fwrite($handle, ' <tr style="height: 26px;">' . "\n");
+                $renderedFlowSupers = [];
+                foreach ($selectedColumns as $colKey) {
+                    if (preg_match('/^flow(\d+)_(.+)$/', $colKey, $matches)) {
+                        $fIndex = (int)$matches[1];
+                        if (!isset($renderedFlowSupers[$fIndex])) {
+                            $span = count($flowGroups[$fIndex]);
+                            $fTitle = ($fIndex === 1) ? 'Flow 1 (not the origin)' : "Flow {$fIndex}";
+                            fwrite($handle, '  <th colspan="' . $span . '" style="background-color: #e0f2fe; color: #0369a1; font-weight: bold; font-size: 10pt; text-align: center; vertical-align: middle; border: 1px solid #bae6fd; padding: 6px 8px;">' . htmlspecialchars($fTitle) . '</th>' . "\n");
+                            $renderedFlowSupers[$fIndex] = true;
+                        }
+                    } else {
+                        fwrite($handle, '  <th style="background-color: #003699; color: #ffffff; font-weight: bold; font-size: 9pt; text-align: center; vertical-align: middle; border: 1px solid #002266;">&nbsp;</th>' . "\n");
+                    }
+                }
+                fwrite($handle, ' </tr>' . "\n");
+
+                // Tier 2 (All Column Headers)
+                fwrite($handle, ' <tr style="height: 28px;">' . "\n");
+                foreach ($selectedColumns as $colKey) {
+                    if (in_array($colKey, $allFlowKeys)) {
+                        $sublbl = $availableColumns[$colKey]['sublabel'] ?? ($availableColumns[$colKey]['label'] ?? $colKey);
+                        fwrite($handle, '  <th style="background-color: #f1f5f9; color: #0f172a; font-weight: bold; font-size: 9.5pt; text-align: center; vertical-align: middle; border: 1px solid #cbd5e1; padding: 6px 8px;">' . htmlspecialchars($sublbl) . '</th>' . "\n");
+                    } else {
+                        $lbl = $availableColumns[$colKey]['label'] ?? ucfirst(str_replace('_', ' ', $colKey));
+                        fwrite($handle, '  <th style="background-color: #003699; color: #ffffff; font-weight: bold; font-size: 9.5pt; text-align: center; vertical-align: middle; border: 1px solid #002266; padding: 6px 8px;">' . htmlspecialchars($lbl) . '</th>' . "\n");
+                    }
+                }
+                fwrite($handle, ' </tr>' . "\n");
+            } else {
+                // Single Tier Header
+                fwrite($handle, ' <tr style="height: 28px;">' . "\n");
+                foreach ($selectedColumns as $colKey) {
+                    $lbl = $availableColumns[$colKey]['label'] ?? ucfirst(str_replace('_', ' ', $colKey));
+                    fwrite($handle, '  <th style="background-color: #003699; color: #ffffff; font-weight: bold; font-size: 9.5pt; text-align: center; vertical-align: middle; border: 1px solid #002266; padding: 6px 8px;">' . htmlspecialchars($lbl) . '</th>' . "\n");
+                }
+                fwrite($handle, ' </tr>' . "\n");
+            }
+
+            // Data Rows
+            foreach ($rows as $row) {
+                fwrite($handle, ' <tr style="height: 22px;">' . "\n");
+                foreach ($selectedColumns as $colKey) {
+                    $val = $row[$colKey] ?? '-';
+                    $cleanVal = htmlspecialchars((string)$val);
+
+                    if ($colKey === 'control_number') {
+                        fwrite($handle, '  <td style="font-family: Consolas, monospace; font-weight: bold; color: #003699; text-align: center; border: 1px solid #e2e8f0; padding: 5px 8px; mso-number-format: \'\\@\';">' . $cleanVal . '</td>' . "\n");
+                    } elseif ($colKey === 'item_no') {
+                        fwrite($handle, '  <td style="text-align: center; border: 1px solid #e2e8f0; padding: 5px 8px; font-weight: bold; color: #475569;">' . $cleanVal . '</td>' . "\n");
+                    } elseif (in_array($colKey, ['status', 'elapsed_days', 'qr_code', 'date_created', 'released_date', 'released_time', 'received_date', 'received_time'])) {
+                        fwrite($handle, '  <td style="text-align: center; border: 1px solid #e2e8f0; padding: 5px 8px; color: #1e293b; mso-number-format: \'\\@\';">' . $cleanVal . '</td>' . "\n");
+                    } elseif (str_contains($colKey, '_elapsed_days')) {
+                        fwrite($handle, '  <td style="background-color: #f0f9ff; color: #0369a1; font-weight: bold; text-align: center; border: 1px solid #bae6fd; padding: 5px 8px;">' . $cleanVal . '</td>' . "\n");
+                    } elseif (str_contains($colKey, '_notes')) {
+                        fwrite($handle, '  <td style="font-style: italic; color: #475569; font-size: 9pt; text-align: left; border: 1px solid #e2e8f0; padding: 5px 8px;">' . $cleanVal . '</td>' . "\n");
+                    } else {
+                        fwrite($handle, '  <td style="text-align: left; border: 1px solid #e2e8f0; padding: 5px 8px; color: #1e293b; mso-number-format: \'\\@\';">' . $cleanVal . '</td>' . "\n");
+                    }
+                }
+                fwrite($handle, ' </tr>' . "\n");
+            }
+
+            // Signatories Footer
+            if (!empty($meta['prepared_by']) || !empty($meta['noted_by'])) {
+                fwrite($handle, ' <tr style="height: 15px;"><td colspan="' . $colCount . '" style="border: none; height: 15px;"></td></tr>' . "\n");
+                fwrite($handle, ' <tr style="height: 15px;"><td colspan="' . $colCount . '" style="border: none; height: 15px;"></td></tr>' . "\n");
+
+                $halfCol = max(1, (int) floor($colCount / 2));
+                $restCol = max(1, $colCount - $halfCol);
+
+                // Signatory Labels
+                fwrite($handle, ' <tr>' . "\n");
+                if (!empty($meta['prepared_by'])) {
+                    fwrite($handle, '  <td colspan="' . $halfCol . '" style="font-weight: bold; color: #64748b; font-size: 9.5pt; border: none; padding: 4px 8px;">Prepared by:</td>' . "\n");
+                } else {
+                    fwrite($handle, '  <td colspan="' . $halfCol . '" style="border: none;"></td>' . "\n");
+                }
+                if (!empty($meta['noted_by'])) {
+                    fwrite($handle, '  <td colspan="' . $restCol . '" style="font-weight: bold; color: #64748b; font-size: 9.5pt; border: none; padding: 4px 8px;">Noted / Approved by:</td>' . "\n");
+                } else {
+                    fwrite($handle, '  <td colspan="' . $restCol . '" style="border: none;"></td>' . "\n");
+                }
+                fwrite($handle, ' </tr>' . "\n");
+
+                // Signatory Names
+                fwrite($handle, ' <tr>' . "\n");
+                if (!empty($meta['prepared_by'])) {
+                    fwrite($handle, '  <td colspan="' . $halfCol . '" style="font-weight: bold; color: #0f172a; font-size: 10pt; text-decoration: underline; border: none; padding: 4px 8px;">' . htmlspecialchars($meta['prepared_by']) . '</td>' . "\n");
+                } else {
+                    fwrite($handle, '  <td colspan="' . $halfCol . '" style="border: none;"></td>' . "\n");
+                }
+                if (!empty($meta['noted_by'])) {
+                    fwrite($handle, '  <td colspan="' . $restCol . '" style="font-weight: bold; color: #0f172a; font-size: 10pt; text-decoration: underline; border: none; padding: 4px 8px;">' . htmlspecialchars($meta['noted_by']) . '</td>' . "\n");
+                } else {
+                    fwrite($handle, '  <td colspan="' . $restCol . '" style="border: none;"></td>' . "\n");
+                }
+                fwrite($handle, ' </tr>' . "\n");
+            }
+
+            fwrite($handle, '</table>' . "\n");
+            fwrite($handle, '</body>' . "\n");
+            fwrite($handle, '</html>' . "\n");
+
+            fclose($handle);
+        }, 200, $headers);
+    }
+
+    /**
      * Stream Excel-compatible CSV download with UTF-8 BOM
      */
     public static function exportCsv(
@@ -416,7 +640,7 @@ class DtsExportHelper
             'Expires'             => '0',
         ];
 
-        return response()->stream(function () use ($selectedColumns, $rows, $availableColumns) {
+        return new StreamedResponse(function () use ($selectedColumns, $rows, $availableColumns) {
             $handle = fopen('php://output', 'w');
 
             // UTF-8 BOM so Excel properly opens with formatting & accents

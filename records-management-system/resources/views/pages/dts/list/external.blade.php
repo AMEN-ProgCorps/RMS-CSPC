@@ -159,9 +159,15 @@ new #[Layout('layouts.dts')] #[Title('DTS - External Transactions')] class exten
 
         if ($this->exportFormat === 'excel') {
             $rows = \App\Helpers\DtsExportHelper::fetchExportRecords('external', $filters, $this->selectedIds);
-            $filename = 'dts-external-transactions-' . now()->format('Y-m-d') . '.csv';
+            $filename = 'dts-external-transactions-' . now()->format('Y-m-d') . '.xls';
+            $meta = [
+                'title'       => \App\Helpers\DtsExportHelper::getCategoryTitle('external'),
+                'office_name' => auth()->user()?->details?->office?->office_name ?? 'Records Management System',
+                'prepared_by' => $this->exportPreparedBy,
+                'noted_by'    => $this->exportNotedBy,
+            ];
             $this->showExportModal = false;
-            return \App\Helpers\DtsExportHelper::exportCsv($filename, $colsToUse, $rows, $available);
+            return \App\Helpers\DtsExportHelper::exportExcel($filename, $colsToUse, $rows, $available, $meta);
         }
 
         // PDF / Print format

@@ -322,6 +322,7 @@
 
     // Open: delegated click on any rendered chat image.
     document.addEventListener('click', function(e) {
+      if (typeof longPressJustFired !== 'undefined' && longPressJustFired) return;
       const img = e.target.closest('.chat-viewable-image');
       if (!img) return;
       e.preventDefault();
@@ -377,12 +378,34 @@
       });
     }
 
+    // Active user scroll tracking — prevents background polls / image loads
+    // from triggering scrollToBottom jumps while the user is actively scrolling.
+    let isUserScrollingOrTouching = false;
+    let userScrollTouchTimeout = null;
+
+    function markUserScrollingActive() {
+      isUserScrollingOrTouching = true;
+      if (userScrollTouchTimeout) clearTimeout(userScrollTouchTimeout);
+      userScrollTouchTimeout = setTimeout(function() {
+        isUserScrollingOrTouching = false;
+      }, 500);
+    }
+
+    if (chatBox) {
+      chatBox.addEventListener('touchstart', markUserScrollingActive, { passive: true });
+      chatBox.addEventListener('touchmove', markUserScrollingActive, { passive: true });
+      chatBox.addEventListener('wheel', markUserScrollingActive, { passive: true });
+    }
+
     // Enhanced scroll management
     function isAtBottom() {
-      return (chatBox.scrollHeight - chatBox.scrollTop - chatBox.clientHeight) <= 100;
+      return (chatBox.scrollHeight - chatBox.scrollTop - chatBox.clientHeight) <= 25;
     }
 
     function scrollToBottom(force = false, instant = false) {
+      // Never snap or jump scroll position while the user is actively touch-dragging or scrolling
+      if (isUserScrollingOrTouching && !force) return;
+
       if (force || shouldAutoScroll) {
         // Instant scroll — no animation (used on page load / refresh)
         if (instant) {
@@ -541,6 +564,12 @@
     let clickTimeout = null;
     // Event delegation to smoothly toggle timestamp on click
     chatBox.addEventListener('click', function (e) {
+      // Suppress the synthetic 'click' that the browser generates after a
+      // long-press — the flag is set in the long-press timer and consumed
+      // (reset) in the document-level click handler below, so it is still
+      // true here when the synthetic click bubbles up through chatBox.
+      if (longPressJustFired) return;
+
       if (e.target.closest('a') && !e.target.closest('a').querySelector('img') && !e.target.closest('.message-media')) {
         return;
       }
@@ -906,6 +935,528 @@
     chatBox.addEventListener('touchend', endSwipe, { passive: true });
     chatBox.addEventListener('touchcancel', endSwipe, { passive: true });
 
+    // ── Emoji Reactions ──────────────────────────────────────────────────
+    // Long-press (mobile) or right-click (desktop) a message bubble/media to
+    // open a small floating picker with the 3 allowed emoji. Tapping one
+    // saves the reaction (chat_reactions table, via react.php) and renders
+    // it as a badge under the bubble. Tapping an existing badge is a
+    // shortcut for the same emoji (re-tap removes it, same "one reaction
+    // per user per message" rule as the picker). Keep this list in sync
+    // with Reactions::ALLOWED in core/Reactions.php.
+    const REACTION_EMOJIS = ['😆', '❤️', '😍'];
+    const LONG_PRESS_MS = 280;
+    const LONG_PRESS_MOVE_TOLERANCE = 10;
+
+    const reactionPicker = document.createElement('div');
+    reactionPicker.className = 'reaction-picker';
+    reactionPicker.id = 'reactionPicker';
+    reactionPicker.innerHTML = REACTION_EMOJIS.map(function(e) {
+      return '<button type="button" class="reaction-picker-btn" data-emoji="' + e + '">' + e + '</button>';
+    }).join('');
+    document.body.appendChild(reactionPicker);
+
+    let reactionPickerContainer = null; // the .message-container currently targeted
+    let longPressTimer = null;
+    let longPressAnchorEl = null;
+    let longPressStartX = 0;
+    let longPressStartY = 0;
+
+    // ── Message Reactions Modal Plumbing ────────────────────────────────
+    let reactionsModalEl = null;
+    let reactionsModalData = null;
+    let activeReactionFilter = 'all';
+
+    function ensureReactionsModal() {
+      if (reactionsModalEl) return reactionsModalEl;
+
+      const modal = document.createElement('div');
+      modal.id = 'reactionsModal';
+      modal.className = 'reactions-modal-overlay';
+      modal.innerHTML = 
+        '<div class="reactions-modal-card" role="dialog" aria-modal="true" aria-labelledby="reactionsModalTitle">'
+        + '  <div class="reactions-modal-header">'
+        + '    <h3 class="reactions-modal-title" id="reactionsModalTitle">Reactions</h3>'
+        + '    <button type="button" class="reactions-modal-close" id="closeReactionsModalBtn" aria-label="Close">&times;</button>'
+        + '  </div>'
+        + '  <div class="reactions-modal-tabs-wrapper">'
+        + '    <div class="reactions-modal-tabs" id="reactionsModalTabs"></div>'
+        + '  </div>'
+        + '  <div class="reactions-modal-body" id="reactionsModalBody"></div>'
+        + '</div>';
+
+      document.body.appendChild(modal);
+      reactionsModalEl = modal;
+
+      const closeBtn = modal.querySelector('#closeReactionsModalBtn');
+      if (closeBtn) {
+        closeBtn.addEventListener('click', closeReactionsModal);
+      }
+
+      modal.addEventListener('click', function(e) {
+        if (e.target === modal) {
+          closeReactionsModal();
+        }
+      });
+
+      return modal;
+    }
+
+    function closeReactionsModal() {
+      if (reactionsModalEl) {
+        reactionsModalEl.classList.remove('visible');
+        reactionsModalEl.classList.remove('active');
+      }
+    }
+
+    function openReactionsModal(msgUuid) {
+      const modal = ensureReactionsModal();
+      const bodyEl = modal.querySelector('#reactionsModalBody');
+      const tabsEl = modal.querySelector('#reactionsModalTabs');
+      const indicatorEl = modal.querySelector('#reactionsTabIndicator');
+
+      bodyEl.innerHTML = '<div class="reactions-loading"><div class="reactions-spinner"></div></div>';
+      tabsEl.innerHTML = '';
+      if (indicatorEl) indicatorEl.style.width = '0px';
+
+      modal.classList.add('visible');
+      modal.classList.add('active');
+
+      fetch('get_reactions.php?msg_uuid=' + encodeURIComponent(msgUuid))
+        .then(function(res) { return res.json(); })
+        .then(function(data) {
+          if (!data || !data.success) {
+            bodyEl.innerHTML = '<div class="reactions-empty">Failed to load reactions.</div>';
+            return;
+          }
+          reactionsModalData = data;
+          renderReactionsModalContent('all');
+        })
+        .catch(function() {
+          bodyEl.innerHTML = '<div class="reactions-empty">Error loading reactions.</div>';
+        });
+    }
+
+    function renderReactionsModalContent(filterEmoji) {
+      if (!reactionsModalEl || !reactionsModalData) return;
+      activeReactionFilter = filterEmoji || 'all';
+
+      const tabsEl = reactionsModalEl.querySelector('#reactionsModalTabs');
+      const bodyEl = reactionsModalEl.querySelector('#reactionsModalBody');
+
+      const reactions = reactionsModalData.reactions || [];
+      const totalCount = reactionsModalData.total_count || reactions.length;
+      const totalLabel = totalCount > 99 ? '99+' : totalCount;
+
+      const emojiCounts = {};
+      reactions.forEach(function(r) {
+        const e = (r.emoji === '❤' || r.emoji === '🖤' || r.emoji === '🤍') ? '❤️' : r.emoji;
+        emojiCounts[e] = (emojiCounts[e] || 0) + 1;
+      });
+
+      let tabsHtml = '<button type="button" class="reactions-tab' + (activeReactionFilter === 'all' ? ' active' : '') + '" data-filter="all"><span>All ' + totalLabel + '</span></button>';
+
+      REACTION_EMOJIS.forEach(function(e) {
+        if (emojiCounts[e]) {
+          tabsHtml += '<button type="button" class="reactions-tab' + (activeReactionFilter === e ? ' active' : '') + '" data-filter="' + e + '"><span>' + e + '</span> <span>' + emojiCounts[e] + '</span></button>';
+        }
+      });
+
+      tabsEl.innerHTML = tabsHtml;
+
+      const tabBtns = tabsEl.querySelectorAll('.reactions-tab');
+      tabBtns.forEach(function(btn) {
+        btn.addEventListener('click', function() {
+          const filter = btn.getAttribute('data-filter');
+          renderReactionsModalContent(filter);
+        });
+      });
+
+      const filteredReactions = reactions.filter(function(r) {
+        const e = (r.emoji === '❤' || r.emoji === '🖤' || r.emoji === '🤍') ? '❤️' : r.emoji;
+        return activeReactionFilter === 'all' || e === activeReactionFilter;
+      });
+
+      if (filteredReactions.length === 0) {
+        bodyEl.innerHTML = '<div class="reactions-empty">No reactions found.</div>';
+        return;
+      }
+
+      bodyEl.innerHTML = filteredReactions.map(function(r) {
+        const emoji = (r.emoji === '❤' || r.emoji === '🖤' || r.emoji === '🤍') ? '❤️' : r.emoji;
+        const initials = ((r.first_name ? r.first_name[0] : '') + (r.last_name ? r.last_name[0] : '')).toUpperCase() || '??';
+        let avatarHtml = initials;
+        if (r.avatar_url) {
+          avatarHtml = '<img src="' + r.avatar_url.replace(/"/g, '&quot;') + '" class="avatar-img" alt="" loading="lazy" referrerpolicy="no-referrer">';
+        }
+
+        return '<div class="reaction-user-item" data-account-id="' + r.account_id + '">'
+          + '  <div class="reaction-user-avatar">' + avatarHtml + '</div>'
+          + '  <div class="reaction-user-info">'
+          + '    <div class="reaction-user-name">' + escapeHtml(r.full_name) + '</div>'
+          + '  </div>'
+          + '  <div class="reaction-user-emoji">' + emoji + '</div>'
+          + '</div>';
+      }).join('');
+
+      const userItems = bodyEl.querySelectorAll('.reaction-user-item');
+      userItems.forEach(function(item) {
+        item.addEventListener('click', function() {
+          const accId = Number(item.getAttribute('data-account-id'));
+          if (accId && accId !== wsConfig.accountId) {
+            closeReactionsModal();
+            if (typeof selectUser === 'function') {
+              selectUser(accId);
+            }
+          }
+        });
+      });
+    }
+
+    // Reactions are read-only in admin spy mode, and never apply to the
+    // transient optimistic "sending..."/"uploading..." placeholder bubbles.
+    function canReactToContainer(container) {
+      if (!container) return false;
+      if (isAdminAllChatsView || activeAdminConv) return false;
+      if (container.hasAttribute('data-sending-uid') || container.hasAttribute('data-upload-uid')) return false;
+      return !!container.getAttribute('data-msg-id');
+    }
+
+    function getReactionAnchorEl(container) {
+      return container.querySelector('.message-bubble, .message-media');
+    }
+
+    function closeReactionPicker() {
+      reactionPicker.classList.remove('visible');
+      reactionPickerContainer = null;
+      if (longPressAnchorEl) {
+        longPressAnchorEl.classList.remove('longpress-active');
+        longPressAnchorEl = null;
+      }
+    }
+
+    // Cached picker size — measured once on first open, reused forever.
+    // The picker always has the same 5 emoji buttons so its dimensions are
+    // stable. Caching eliminates the forced-reflow on every long-press that
+    // was causing the compositing-layer flicker on mobile.
+    let pickerDims = null;
+
+    function openReactionPicker(container, x, y) {
+      reactionPickerContainer = container;
+      const anchorEl = getReactionAnchorEl(container) || container;
+      const rect = anchorEl.getBoundingClientRect();
+
+      let pw, ph;
+      if (pickerDims) {
+        // Use cached size — no reflow needed
+        pw = pickerDims.w;
+        ph = pickerDims.h;
+      } else {
+        // First open: measure once, suppressing the CSS transition so no
+        // visual flash occurs. The picker is moved off-screen, made layout-
+        // visible, measured, then hidden again — all in a single frame.
+        reactionPicker.style.transition = 'none';
+        reactionPicker.style.visibility = 'hidden';
+        reactionPicker.style.left = '-9999px';
+        reactionPicker.style.top = '-9999px';
+        reactionPicker.classList.add('visible');
+        pw = reactionPicker.offsetWidth || 240;
+        ph = reactionPicker.offsetHeight || 52;
+        pickerDims = { w: pw, h: ph }; // cache for all future opens
+        reactionPicker.classList.remove('visible');
+        reactionPicker.style.visibility = '';
+      }
+
+      // Position floating bubble centered horizontally over the message bubble
+      let left = rect.left + (rect.width / 2) - (pw / 2);
+      let top = rect.top - ph - 12;
+      let isBelow = false;
+
+      left = Math.max(12, Math.min(left, window.innerWidth - pw - 12));
+      if (top < 12) {
+        top = rect.bottom + 10;
+        isBelow = true;
+      }
+
+      // Temporarily disable CSS transitions so updating left/top coordinates
+      // never causes the picker to visibly slide across the screen from a
+      // previous message's position.
+      reactionPicker.style.transition = 'none';
+      reactionPicker.style.left = left + 'px';
+      reactionPicker.style.top = top + 'px';
+      reactionPicker.style.transformOrigin = isBelow ? 'center top' : 'center bottom';
+      
+      // Force reflow so new coordinates and transform-origin are committed
+      void reactionPicker.offsetWidth;
+      reactionPicker.style.transition = '';
+
+      reactionPicker.classList.add('visible');
+    }
+
+    // ── Render / re-render the badge row under one message ─────────────────
+    function renderReactionsForMessage(msgUuid, reactionMap) {
+      if (!msgUuid || !chatBox) return;
+      const container = chatBox.querySelector('.message-container[data-msg-id="' + msgUuid + '"]');
+      if (!container) return;
+
+      let wrap = container.querySelector('.msg-reactions');
+      if (!reactionMap) {
+        if (wrap) wrap.remove();
+        return;
+      }
+
+      let totalCount = 0;
+      const distinctEmojis = [];
+      let mine = false;
+
+      const myAccountId = (typeof wsConfig !== 'undefined' && wsConfig && wsConfig.accountId)
+        ? Number(wsConfig.accountId)
+        : (typeof currentUserId !== 'undefined' ? Number(currentUserId) : 0);
+
+      Object.keys(reactionMap).forEach(function(rawEmoji) {
+        const ids = reactionMap[rawEmoji] || [];
+        if (ids.length > 0) {
+          const emoji = (rawEmoji === '❤' || rawEmoji === '🖤' || rawEmoji === '🤍') ? '❤️' : rawEmoji;
+          if (distinctEmojis.indexOf(emoji) === -1) {
+            distinctEmojis.push(emoji);
+          }
+          totalCount += ids.length;
+          if (ids.some(function(id) { return Number(id) === myAccountId; })) {
+            mine = true;
+          }
+        }
+      });
+
+      const bubbleWrapper = container.querySelector('.bubble-wrapper');
+
+      if (totalCount === 0) {
+        if (wrap) wrap.remove();
+        if (bubbleWrapper) bubbleWrapper.classList.remove('has-reactions');
+        container.classList.remove('has-reactions');
+        return;
+      }
+
+      if (bubbleWrapper) {
+        bubbleWrapper.classList.add('has-reactions');
+      }
+      container.classList.add('has-reactions');
+
+      if (!wrap) {
+        wrap = document.createElement('div');
+        wrap.className = 'msg-reactions';
+        (bubbleWrapper || container).appendChild(wrap);
+      }
+
+      const emojisStr = distinctEmojis.join('');
+      let countHtml = '';
+      if (totalCount >= 2) {
+        const countLabel = totalCount > 99 ? '99+' : totalCount;
+        countHtml = '<span class="reaction-total-count">' + countLabel + '</span>';
+      }
+
+      wrap.innerHTML = '<button type="button" class="msg-reactions-pill' + (mine ? ' mine' : '') + '" data-msg-reactions="1">'
+        + '<span class="reaction-emojis">' + emojisStr + '</span>'
+        + countHtml
+        + '</button>';
+    }
+
+    // Expose renderReactionsForMessage globally so ws.onmessage in app-part1.js
+    // can immediately re-render reactions upon receiving WebSocket push events
+    window.renderReactionsForMessage = renderReactionsForMessage;
+
+    // ── Persist a toggle to the server & broadcast over WebSocket ───────────
+    function sendReaction(container, emoji) {
+      if (!container) return;
+      const msgUuid = container.getAttribute('data-msg-id');
+      if (!msgUuid) return;
+
+      const params = new URLSearchParams();
+      params.set('msg_uuid', msgUuid);
+      params.set('emoji', emoji);
+      if (isGlobalChat) {
+        params.set('chat_type', 'global');
+      } else if (activeDM) {
+        params.set('chat_type', 'private');
+        params.set('target_id', activeDMAccountId || 0);
+        params.set('target_user', activeDM);
+      } else {
+        return; // no active chat to react in (e.g. admin spy view)
+      }
+
+      fetch('react.php', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: params.toString()
+      })
+        .then(function(res) { return res.json(); })
+        .then(function(data) {
+          if (data && data.success) {
+            if (typeof dmMessageCache !== 'undefined') {
+              dmMessageCache.clear();
+            }
+            renderReactionsForMessage(data.msg_uuid, data.reactions || {});
+
+            // Broadcast reaction in real-time over WebSocket, exactly like chat messages
+            if (typeof ws !== 'undefined' && ws && ws.readyState === WebSocket.OPEN) {
+              const recipId = activeDMAccountId || Number(data.target_id) || null;
+              ws.send(JSON.stringify({
+                type: 'reaction',
+                chat_type: isGlobalChat ? 'global' : 'private',
+                recipient_id: recipId,
+                msg_uuid: data.msg_uuid,
+                emoji: data.emoji,
+                reactions: data.reactions || {}
+              }));
+            }
+          }
+        })
+        .catch(function() { /* best-effort — a WS reconnect or next poll will reconcile */ });
+    }
+
+    // ── Trigger 1: right-click (desktop) ─────────────────────────────────
+    chatBox.addEventListener('contextmenu', function(e) {
+      const container = e.target.closest('.message-container[data-msg-id]');
+      if (!container || !canReactToContainer(container)) return;
+      e.preventDefault();
+      openReactionPicker(container, e.clientX, e.clientY);
+    });
+
+    // ── Trigger 2: long-press (mobile/touch) ─────────────────────────────
+    // Two problems we guard against:
+    //
+    // A) "Pre-click emoji" — after the 450 ms timer fires and the picker
+    //    opens, lifting the finger generates a synthetic 'click' at the
+    //    finger's coordinates.  If the picker happens to sit at those coords
+    //    (or close to them) the emoji button under the finger receives a
+    //    click and a reaction is sent without the user intending it.
+    //
+    // B) "Timestamp on long press" — the same synthetic click bubbles
+    //    through chatBox and triggers the timestamp-toggle handler.
+    //
+    // Fix A: time-based guard in the picker's own click listener.
+    //   We record the moment the picker opens; clicks that arrive within
+    //   PICKER_GUARD_MS are treated as the synthetic post-long-press click
+    //   and ignored.
+    //
+    // Fix B: longPressJustFired flag.
+    //   Set when the timer fires.  NOT reset in touchend (the synthetic
+    //   click hasn't fired yet at that point); instead consumed inside
+    //   document.click so both the timestamp handler and the dismiss
+    //   handler see it while it is still true.
+
+    let longPressJustFired = false;
+    let longPressPickerOpenTime = 0;
+    const PICKER_GUARD_MS = 400; // ignore picker clicks within this window of opening
+
+    chatBox.addEventListener('touchstart', function(e) {
+      if (e.touches.length !== 1) return;
+      const container = e.target.closest('.message-container[data-msg-id]');
+      if (!container || !canReactToContainer(container)) return;
+
+      longPressStartX = e.touches[0].clientX;
+      longPressStartY = e.touches[0].clientY;
+      const touchX = longPressStartX;
+      const touchY = longPressStartY;
+
+      clearTimeout(longPressTimer);
+      longPressTimer = setTimeout(function() {
+        longPressTimer = null;
+        longPressJustFired = true;       // suppress upcoming synthetic click
+        longPressPickerOpenTime = Date.now(); // time-guard for picker tap
+        longPressAnchorEl = getReactionAnchorEl(container);
+        if (longPressAnchorEl) longPressAnchorEl.classList.add('longpress-active');
+        if (navigator.vibrate) { try { navigator.vibrate(15); } catch (err) {} }
+        openReactionPicker(container, touchX, touchY);
+      }, LONG_PRESS_MS);
+    }, { passive: true });
+
+    chatBox.addEventListener('touchmove', function(e) {
+      if (e.touches.length !== 1) return;
+      const dx = Math.abs(e.touches[0].clientX - longPressStartX);
+      const dy = Math.abs(e.touches[0].clientY - longPressStartY);
+      const moved = dx > LONG_PRESS_MOVE_TOLERANCE || dy > LONG_PRESS_MOVE_TOLERANCE;
+      if (moved) {
+        // Cancel pending long-press if still waiting
+        if (longPressTimer) {
+          clearTimeout(longPressTimer);
+          longPressTimer = null;
+        }
+        // If picker already opened and finger moved significantly, close it
+        if (reactionPicker.classList.contains('visible') && (dx > 20 || dy > 20)) {
+          closeReactionPicker();
+          longPressJustFired = false;
+        }
+      }
+    }, { passive: true });
+
+    chatBox.addEventListener('touchend', function() {
+      // Only cancel the pending timer here.
+      // Do NOT reset longPressJustFired — it must still be true when the
+      // browser fires the synthetic 'click' event that follows touchend.
+      // The flag is consumed (reset to false) inside document.click below.
+      if (longPressTimer) {
+        clearTimeout(longPressTimer);
+        longPressTimer = null;
+      }
+    }, { passive: true });
+    chatBox.addEventListener('touchcancel', function() {
+      clearTimeout(longPressTimer);
+      longPressTimer = null;
+      longPressJustFired = false;
+    }, { passive: true });
+
+    // ── Picker emoji tap ───────────────────────────────────────────────────
+    // Secondary guard: ignore clicks that arrive within PICKER_GUARD_MS of
+    // the picker opening — those are the synthetic post-long-press clicks.
+    reactionPicker.addEventListener('click', function(e) {
+      if (Date.now() - longPressPickerOpenTime < PICKER_GUARD_MS) return;
+      const btn = e.target.closest('.reaction-picker-btn');
+      if (!btn || !reactionPickerContainer) return;
+      sendReaction(reactionPickerContainer, btn.getAttribute('data-emoji'));
+      closeReactionPicker();
+    });
+
+    // ── Tap reaction pill: open reaction details modal ────────────────────
+    chatBox.addEventListener('click', function(e) {
+      if (longPressJustFired) return; // synthetic click after long-press, skip
+      const pill = e.target.closest('.msg-reactions-pill, .msg-reactions');
+      if (!pill) return;
+      const container = pill.closest('.message-container[data-msg-id]');
+      if (!container) return;
+      const msgUuid = container.getAttribute('data-msg-id');
+      if (msgUuid) {
+        openReactionsModal(msgUuid);
+      }
+    });
+
+    // ── Dismiss the picker / modal ─────────────────────────────────────────
+    // On mobile, 'click' can be delayed or swallowed; also listen on
+    // touchstart outside the picker for immediate, reliable dismissal.
+    document.addEventListener('touchstart', function(e) {
+      if (!reactionPicker.classList.contains('visible')) return;
+      if (longPressJustFired) return; // picker JUST opened — don't dismiss yet
+      if (e.target.closest('#reactionPicker')) return;
+      closeReactionPicker();
+    }, { passive: true });
+    document.addEventListener('click', function(e) {
+      // Consume the synthetic post-long-press click here (primary guard for
+      // both fix A and fix B).  Reset the flag so subsequent real clicks
+      // are handled normally.
+      if (longPressJustFired) {
+        longPressJustFired = false;
+        return;
+      }
+      if (!reactionPicker.classList.contains('visible')) return;
+      if (e.target.closest('#reactionPicker')) return;
+      closeReactionPicker();
+    });
+    document.addEventListener('keydown', function(e) {
+      if (e.key === 'Escape') {
+        closeReactionPicker();
+        closeReactionsModal();
+      }
+    });
+    chatBox.addEventListener('scroll', closeReactionPicker, { passive: true });
+
     // Monitor scroll position
     chatBox.addEventListener('scroll', function() {
       const atBottom = isAtBottom();
@@ -942,11 +1493,12 @@
 
     // Ensure scroll position is maintained when images finish loading
     chatBox.addEventListener('load', function(event) {
+      if (isUserScrollingOrTouching) return;
       if (event.target.tagName === 'IMG') {
         const activeKey = isGlobalChat ? '__global__' : (activeDM || (activeAdminConv ? '__admin__' + activeAdminConv : null));
         if (activeKey) {
           const savedAtBottom = sessionStorage.getItem('chatScrollAtBottom_' + activeKey);
-          if (savedAtBottom === 'true' || shouldAutoScroll || isAtBottom()) {
+          if ((savedAtBottom === 'true' || shouldAutoScroll || isAtBottom()) && !userScrolledUp) {
             scrollToBottom(true, true);
           }
         }
@@ -1180,7 +1732,7 @@
     //     fetch for this chat is already in flight, or there's nothing left
     //     to load — so the common case (scrolling anywhere but the very top)
     //     costs almost nothing.
-    const AUTO_LOAD_OLDER_THRESHOLD_PX = 200;
+    const AUTO_LOAD_OLDER_THRESHOLD_PX = 40;
     let autoLoadOlderTicking = false;
 
     function currentChatHasOlderMessages() {
@@ -1399,6 +1951,7 @@
       const curKeys = currentMessages.map(getMessageKey);
 
       const rec = reconcilePoll(newMessages, currentMessages, newKeys, curKeys);
+      if (typeof syncReactionsFromNewHtml === 'function') syncReactionsFromNewHtml(newMessages);
 
       if (rec.type === 'nochange') {
         if (isFirstLoad) { isFirstLoad = false; handleFirstLoadScroll(); }
@@ -1421,9 +1974,7 @@
 
         if (toInsert.length === 0) {
           document.querySelectorAll('[data-sending-uid]').forEach(el => el.remove());
-          if (!gcViewingOlder) {
-            if (trimWindowFromTop(MAX_WINDOW)) refreshCursorAfterTopTrim();
-          }
+          if (trimWindowFromTop(MAX_WINDOW)) refreshCursorAfterTopTrim();
           applyAdminBadges(); applyEmojiOnly();
           if (gcHasMore && !document.getElementById('loadOlderBtn') && !document.getElementById('noMoreOlderNotice')) insertLoadOlderBtn();
           return;
@@ -1440,9 +1991,7 @@
           chatBox.appendChild(el);
         });
         document.querySelectorAll('[data-sending-uid]').forEach(el => el.remove());
-        if (!gcViewingOlder) {
-          if (trimWindowFromTop(MAX_WINDOW)) refreshCursorAfterTopTrim();
-        }
+        if (trimWindowFromTop(MAX_WINDOW)) refreshCursorAfterTopTrim();
 
         let revealedCount = 0;
         toInsert.forEach((el, i) => {
@@ -1666,6 +2215,7 @@
       const curKeys = currentMessages.map(getMessageKey);
 
       const rec = reconcilePoll(newMessages, currentMessages, newKeys, curKeys);
+      if (typeof syncReactionsFromNewHtml === 'function') syncReactionsFromNewHtml(newMessages);
 
       if (rec.type === 'nochange') {
         if (isFirstLoad) { isFirstLoad = false; handleFirstLoadScroll(); }
@@ -1693,9 +2243,7 @@
         const prevScrollHeight = chatBox.scrollHeight;
         const newScrollHeight = chatBox.scrollHeight;
         chatBox.scrollTop = Math.max(0, prevScrollTop + newScrollHeight - prevScrollHeight);
-        if (!dmViewingOlder) {
-          if (trimWindowFromTop(MAX_WINDOW)) refreshCursorAfterTopTrim();
-        }
+        if (trimWindowFromTop(MAX_WINDOW)) refreshCursorAfterTopTrim();
         if (isFirstLoad) { isFirstLoad = false; handleFirstLoadScroll(); }
         else if (!dmViewingOlder && wasAtBottom) requestAnimationFrame(() => requestAnimationFrame(() => scrollToBottom(true, false)));
         else showScrollIndicator(rec.items.filter(el => el.classList.contains('message-container')).length);
@@ -2910,44 +3458,6 @@
           lastMsgEl.style.display = 'block';
         }
       }
-    }
-
-    function handleIncomingTypingPreview(data) {
-      const senderId = Number(data.sender_id);
-      if (!senderId || senderId === wsConfig.accountId) return;
-
-      const allowSeePreview = window.currentUserCommSettings
-        ? window.currentUserCommSettings.allow_see_typing_preview !== false
-        : true;
-      if (!allowSeePreview) {
-        clientActivePreviews.delete(senderId);
-        updateSidebarPreviewState(senderId, null);
-        return;
-      }
-
-      const previewText = (data.preview || '').trim();
-
-      if (!previewText) {
-        clientActivePreviews.delete(senderId);
-        updateSidebarPreviewState(senderId, null);
-      } else {
-        clientActivePreviews.set(senderId, { preview: previewText, isSent: false });
-        updateSidebarPreviewState(senderId, previewText);
-      }
-    }
-
-    function handleIncomingTypingPreviewCleared(data) {
-      const senderId = Number(data.sender_id);
-      if (!senderId) return;
-      clientActivePreviews.delete(senderId);
-      updateSidebarPreviewState(senderId, null);
-    }
-
-    function handleIncomingTypingPreviewSent(data) {
-      const senderId = Number(data.sender_id);
-      if (!senderId) return;
-      clientActivePreviews.set(senderId, { preview: '', isSent: true });
-      updateSidebarPreviewState(senderId, null);
     }
 
     // Immediately apply a comm setting change: update memory, broadcast via WS,

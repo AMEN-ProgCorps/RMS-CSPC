@@ -57,6 +57,8 @@
           chatHeaderTitle.textContent = '';
           applyHeaderAdminBadge(); // activeDMAccountId is null here — clears any leftover badge from the previous DM
           applyHeaderAvatar(null);
+          if (typeof updateHeaderActiveStatus === 'function') updateHeaderActiveStatus();
+          if (typeof renderSidebarUsers === 'function') renderSidebarUsers();
           removePaginationBtn();
           chatBox.innerHTML = '<div class="empty-chat"><p>Camarines Sur Polytechnic Colleges</p></div>';
 
@@ -91,6 +93,9 @@
           // Wipe chatBox innerHTML so reconcilePoll doesn't retain old spy-mode DOM nodes
           chatBox.innerHTML = '';
           isFirstLoad = true;
+
+          if (typeof updateHeaderActiveStatus === 'function') updateHeaderActiveStatus();
+          if (typeof renderSidebarUsers === 'function') renderSidebarUsers();
 
           applyAdminAllChatsView();
 

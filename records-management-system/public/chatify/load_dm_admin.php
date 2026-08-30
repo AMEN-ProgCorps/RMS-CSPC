@@ -44,6 +44,9 @@ if ($sinceUuid !== null) {
 // Cursor for the next "load older" request.
 $nextCursor = !empty($rawMessages) ? $rawMessages[0]['id'] : null;
 
+$pageUuids = array_column($rawMessages, 'id');
+$reactions = ConversationManager::loadReactions($convId, $pageUuids);
+
 $nameMap = [];
 
 $imageExts = ['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp', 'svg'];
@@ -290,6 +293,7 @@ foreach ($rawMessages as $msg) {
         $html .= "<div class='message-edited-label' style='font-size:10px;color:var(--text-secondary);opacity:0.8;margin-bottom:2px;font-style:italic;'>edited</div>";
     }
     $html .= $bodyHtml;
+    $html .= Reactions::buildBadgesHtml($reactions[$msgId] ?? [], Auth::accountId());
     $html .= "</div>"; // .bubble-wrapper
     $html .= "</div>"; // .message-container
 }

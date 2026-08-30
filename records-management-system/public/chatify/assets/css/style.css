@@ -1199,8 +1199,8 @@
       overscroll-behavior-y: contain;
       position: relative;
       scroll-behavior: auto;
+      overflow-anchor: auto;
       transition: background-color 0.3s ease;
-      will-change: scroll-position;
       /* Hide scrollbar but keep scroll functionality */
       scrollbar-width: none; /* Firefox */
       -ms-overflow-style: none; /* IE/Edge */
@@ -1594,11 +1594,11 @@
       word-wrap: break-word;
       box-shadow: 0 1px 2px var(--shadow-color);
       transition: background-color 0.3s ease, color 0.3s ease;
-      will-change: transform;
       -webkit-user-select: none;
       -moz-user-select: none;
       user-select: none;
       -webkit-touch-callout: none;
+      touch-action: manipulation; /* eliminates 300ms tap delay on mobile */
     }
 
     .sent .message-bubble {
@@ -1631,11 +1631,32 @@
 
     /* Media (image / audio) — no bubble background */
     .message-media {
+      position: relative;
+      width: fit-content;
       max-width: 100%;
       -webkit-user-select: none;
       -moz-user-select: none;
       user-select: none;
       -webkit-touch-callout: none;
+      touch-action: manipulation; /* eliminates 300ms tap delay on mobile */
+    }
+
+    .sent .message-media {
+      align-self: flex-end;
+    }
+
+    .received .message-media {
+      align-self: flex-start;
+    }
+
+    .message-media .message-info {
+      padding: 0 !important;
+      margin: 0 !important;
+    }
+
+    .message-media .message-info:has(.verified-badge) {
+      padding: 3px 2px !important;
+      margin-top: 2px !important;
     }
 
     /* Chat images (thumbnails rendered by load.php/load_dm.php/
@@ -2744,25 +2765,29 @@
       opacity: 1;
     }
 
-    /* ── Emoji Reaction Picker ── */
+    /* ── Floating Reaction Picker Bubble ── */
     .reaction-picker {
       position: fixed;
-      z-index: 9999;
+      z-index: 99999;
       display: flex;
       align-items: center;
-      gap: 2px;
-      background: var(--bg-secondary);
-      border-radius: 999px;
-      padding: 6px 10px;
-      box-shadow: 0 4px 24px rgba(0,0,0,0.22);
-      border: 1px solid var(--border-color);
+      gap: 4px;
+      background: var(--bg-modal, #ffffff);
+      border-radius: 30px;
+      padding: 6px 12px;
+      box-shadow: 0 4px 20px var(--shadow-color, rgba(0, 0, 0, 0.15));
+      border: 1px solid var(--border-color, rgba(0, 0, 0, 0.15));
+      backdrop-filter: blur(12px);
+      -webkit-backdrop-filter: blur(12px);
       opacity: 0;
-      transform: scale(0.7) translateY(6px);
+      transform: scale(0.4) translateY(12px);
       pointer-events: none;
-      transition: opacity 0.15s ease, transform 0.15s cubic-bezier(0.34,1.56,0.64,1);
+      transition: opacity 0.18s cubic-bezier(0.16, 1, 0.3, 1), transform 0.22s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+      will-change: opacity, transform;
+      backface-visibility: hidden;
+      -webkit-backface-visibility: hidden;
       user-select: none;
-      /* Mobile: never overflow the screen */
-      max-width: calc(100vw - 16px);
+      max-width: calc(100vw - 24px);
       box-sizing: border-box;
       flex-wrap: nowrap;
     }
@@ -2771,113 +2796,443 @@
       transform: scale(1) translateY(0);
       pointer-events: auto;
     }
+
+    [data-theme="dark"] .reaction-picker {
+      background: var(--bg-secondary, #242526);
+      border-color: rgba(255, 255, 255, 0.18);
+      box-shadow: none !important;
+    }
+
     .reaction-picker-btn {
-      font-size: 24px;
+      font-size: 26px;
       line-height: 1;
       cursor: pointer;
-      transition: transform 0.15s cubic-bezier(0.34,1.56,0.64,1);
       border: none;
-      background: transparent;
+      background: transparent !important;
+      background-color: transparent !important;
+      box-shadow: none !important;
+      text-shadow: none !important;
+      filter: none !important;
+      -webkit-tap-highlight-color: transparent !important;
+      outline: none !important;
       padding: 0;
       display: flex;
       align-items: center;
       justify-content: center;
-      width: 38px;
-      height: 38px;
+      width: 40px;
+      height: 40px;
       border-radius: 50%;
       flex-shrink: 0;
+      transform: scale(1) translateY(0);
+      transition: transform 0.15s ease !important;
+      touch-action: manipulation;
     }
-    .reaction-picker-btn:hover,
+    @media (hover: hover) {
+      .reaction-picker-btn:hover {
+        transform: scale(1.25) translateY(-2px);
+      }
+    }
     .reaction-picker-btn:active {
-      transform: scale(1.35);
+      transform: scale(1.25) translateY(-2px);
     }
-    /* On very small screens, shrink emoji buttons a bit (header size stays constant) */
+    .reaction-picker-btn:focus,
+    .reaction-picker-btn:focus-visible {
+      transform: scale(1) translateY(0);
+      outline: none !important;
+      box-shadow: none !important;
+    }
     @media (max-width: 360px) {
       .reaction-picker-btn {
-        font-size: 20px;
-        width: 32px;
-        height: 32px;
+        font-size: 22px;
+        width: 34px;
+        height: 34px;
       }
       .reaction-picker {
         padding: 4px 8px;
-        gap: 0px;
+        gap: 2px;
       }
     }
 
-    /* ── Reaction Badges on messages ── */
-    /* Reactions sit BELOW the bubble, inside bubble-wrapper */
+    /* ── Reaction Badges / Pill on messages ── */
+    /* Reactions sit at the bottom corner of the bubble as a solid mini chat bubble */
     .msg-reactions {
+      position: absolute;
+      bottom: -13px;
+      z-index: 10;
       display: flex;
-      flex-direction: row;
-      flex-wrap: wrap;
-      gap: 2px;
-      margin-top: 3px;
-      padding: 0 2px;
-      /* Reset any positioning from old layout */
-      order: unset;
-      align-self: unset;
-      flex-shrink: unset;
-      padding-bottom: unset;
+      align-items: center;
+      margin: 0;
+      padding: 0;
+      pointer-events: auto;
+      max-width: none;
     }
-    /* sent bubbles: reactions align to the right */
+
+    /* Sent messages (right side): reaction pill overlaps bottom-right corner */
     .sent .msg-reactions {
+      right: 2px;
+      left: auto;
       justify-content: flex-end;
-      margin-right: 0;
-      order: unset;
     }
-    /* received bubbles: reactions align to the left */
+
+    /* Received messages (left side): reaction pill overlaps bottom-left corner */
     .received .msg-reactions {
+      left: 2px;
+      right: auto;
       justify-content: flex-start;
-      margin-left: 0;
-      order: unset;
     }
-    /* If msg-reactions is a direct child of message-container (server-rendered),
-       force it to break onto its own row below the bubble-wrapper */
+
+    /* Add space under bubble wrapper and match avatar margin when reactions are present */
+    .bubble-wrapper:has(.msg-reactions),
+    .bubble-wrapper.has-reactions {
+      margin-bottom: 14px !important;
+    }
+
+    .message-container:has(.msg-reactions) .message-avatar,
+    .message-container:has(.has-reactions) .message-avatar,
+    .message-container.has-reactions .message-avatar {
+      margin-bottom: 14px !important;
+    }
+
     .message-container > .msg-reactions {
-      width: 100%;
-      order: 10;
+      position: relative;
+      bottom: auto;
+      right: auto;
+      left: auto;
+      margin-top: 4px;
     }
-    .sent.message-container > .msg-reactions {
-      justify-content: flex-end;
-      padding-right: 44px; /* offset for avatar width */
+
+    /* Solid mini chat bubble container for reactions */
+    .msg-reactions-pill {
+      display: inline-flex !important;
+      align-items: center !important;
+      justify-content: center !important;
+      gap: 3px !important;
+      padding: 2px 6px !important;
+      min-height: 20px !important;
+      box-sizing: border-box !important;
+      border-radius: 12px !important;
+      background-color: #ffffff !important;
+      background: #ffffff !important;
+      border: 1px solid rgba(0, 0, 0, 0.12) !important;
+      box-shadow: 0 1px 2px rgba(0, 0, 0, 0.06) !important;
+      cursor: pointer !important;
+      white-space: nowrap !important;
+      user-select: none !important;
+      opacity: 1 !important;
+      visibility: visible !important;
+      transition: transform 0.12s ease, background-color 0.12s ease !important;
+      line-height: 1 !important;
     }
-    .received.message-container > .msg-reactions {
-      justify-content: flex-start;
-      padding-left: 44px; /* offset for avatar width */
+    .msg-reactions-pill:hover {
+      transform: scale(1.05) !important;
+      background-color: #f7f8fa !important;
+      background: #f7f8fa !important;
+      box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1) !important;
     }
-    /* Pure emoji badge — no background, no border, no pill */
+    .msg-reactions-pill:active {
+      transform: scale(0.95) !important;
+    }
+
+    [data-theme="dark"] .msg-reactions-pill {
+      background-color: #242526 !important;
+      background: #242526 !important;
+      border-color: rgba(255, 255, 255, 0.18) !important;
+      box-shadow: 0 1px 2px rgba(0, 0, 0, 0.2) !important;
+    }
+    [data-theme="dark"] .msg-reactions-pill:hover {
+      background-color: #303031 !important;
+      background: #303031 !important;
+      box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3) !important;
+    }
+
+    .msg-reactions-pill .reaction-emojis {
+      display: inline-flex !important;
+      align-items: center !important;
+      font-size: 13px !important;
+      line-height: 1 !important;
+      letter-spacing: 1px !important;
+      margin-right: 4px !important;
+    }
+    .msg-reactions-pill .reaction-total-count {
+      font-size: 11px !important;
+      font-weight: 600 !important;
+      color: #65676b !important;
+      line-height: 1 !important;
+      margin-left: -5px !important;
+    }
+    [data-theme="dark"] .msg-reactions-pill .reaction-total-count {
+      color: #b0b3b8 !important;
+    }
+
+    /* Legacy fallback for individual badge */
     .reaction-badge {
       display: inline-flex;
       align-items: center;
-      justify-content: center;
+      gap: 3px;
       background: none;
       border: none;
-      border-radius: 0;
-      padding: 0;
-      font-size: 18px;
-      line-height: 1;
+      font-size: 16px;
       cursor: pointer;
-      transition: transform 0.15s cubic-bezier(0.34,1.56,0.64,1);
-      box-shadow: none;
+    }
+
+    /* ── Message Reactions Modal (Notification style) ── */
+    .reactions-modal-overlay {
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      background-color: rgba(0, 0, 0, 0.5);
+      z-index: 999999;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      opacity: 0;
+      visibility: hidden;
+      transition: all 0.3s ease;
       user-select: none;
-      /* hide the count number — emoji only */
+      touch-action: none; /* Block pinch-zoom on the modal backdrop (mobile) */
     }
-    .reaction-badge:hover {
-      transform: scale(1.3);
+    .reactions-modal-overlay.visible,
+    .reactions-modal-overlay.active {
+      opacity: 1;
+      visibility: visible;
     }
-    .reaction-badge:active {
-      transform: scale(0.85);
+
+    .reactions-modal-card {
+      width: 90%;
+      max-width: 400px;
+      min-width: 280px;
+      max-height: calc(100dvh - 40px);
+      background-color: var(--bg-modal, #ffffff);
+      border-radius: 12px;
+      box-shadow: 0 4px 12px var(--shadow-color, rgba(0,0,0,0.15));
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+      flex-shrink: 0;
+      transition: background-color 0.3s ease;
+      touch-action: pan-y; /* Allow vertical scroll inside modal (mobile) */
     }
-    /* hide the count text node — show only emoji */
-    .reaction-badge::after {
+    .reactions-modal-overlay.visible .reactions-modal-card,
+    .reactions-modal-overlay.active .reactions-modal-card {
+      animation: modalSlide 0.3s ease;
+    }
+
+    .reactions-modal-header {
+      padding: 16px 20px;
+      border-bottom: 1px solid var(--border-color, #e4e6eb);
+      position: relative;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+    .reactions-modal-title {
+      font-size: 18px;
+      font-weight: 600;
+      color: var(--text-primary, #050505);
+      margin: 0;
+    }
+    .reactions-modal-close {
+      width: 32px;
+      height: 32px;
+      border-radius: 50%;
+      background: var(--button-hover, #f0f2f5);
+      border: none;
+      font-size: 20px;
+      line-height: 1;
+      color: var(--text-primary, #050505);
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: background 0.15s ease;
+      flex-shrink: 0;
+    }
+    .reactions-modal-close:hover {
+      background: var(--border-color, #e4e6eb);
+    }
+
+    .reactions-modal-tabs-wrapper {
+      border-bottom: 1px solid var(--border-color, #e4e6eb);
+      padding: 0 16px;
+    }
+
+    .reactions-modal-tabs {
+      position: relative;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      overflow-x: auto;
+      scrollbar-width: none;
+    }
+    .reactions-modal-tabs::-webkit-scrollbar {
       display: none;
     }
 
-    /* Long-press visual feedback — subtle highlight only, no scale/movement */
+    .reactions-tab {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 4px;
+      padding: 12px 10px;
+      font-size: 14px;
+      font-weight: 600;
+      line-height: 1;
+      color: var(--text-secondary, #65676b);
+      background: none;
+      border: none;
+      cursor: pointer;
+      white-space: nowrap;
+      transition: color 0.15s ease;
+      position: relative;
+      vertical-align: middle;
+    }
+    .reactions-tab span {
+      display: inline-flex;
+      align-items: center;
+      line-height: 1;
+    }
+    .reactions-tab.active {
+      color: #1877f2;
+    }
+    [data-theme="dark"] .reactions-tab.active {
+      color: #4599ff;
+    }
+
+    /* X close button vertically centered on the same row as emoji tabs */
+    .reactions-modal-close {
+      width: 30px;
+      height: 30px;
+      border-radius: 50%;
+      background: var(--button-hover, #f0f2f5);
+      border: none;
+      font-size: 18px;
+      line-height: 1;
+      color: var(--text-primary, #050505);
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: background 0.15s ease;
+      flex-shrink: 0;
+    }
+    .reactions-modal-close:hover {
+      background: var(--border-color, #e4e6eb);
+    }
+
+    .reactions-modal-body {
+      flex: 1;
+      overflow-y: auto;
+      padding: 0;
+      max-height: 320px; /* Displays up to 5 users, then scrolls */
+      scrollbar-width: none; /* Firefox */
+      -ms-overflow-style: none; /* IE/Edge */
+    }
+    .reactions-modal-body::-webkit-scrollbar {
+      display: none; /* Chrome/Safari/Opera */
+    }
+
+    .reaction-user-item {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 12px 20px;
+      height: 64px;
+      box-sizing: border-box;
+      border-bottom: 1px solid var(--border-color, #e4e6eb);
+      cursor: pointer;
+      transition: background-color 0.15s ease;
+    }
+    .reaction-user-item:last-child {
+      border-bottom: none;
+    }
+    .reaction-user-item:hover,
+    .reaction-user-item:active {
+      background-color: var(--bg-drop-overlay, rgba(0, 0, 0, 0.04));
+    }
+
+    .reaction-user-avatar {
+      width: 40px;
+      height: 40px;
+      border-radius: 50%;
+      flex-shrink: 0;
+      overflow: hidden;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-weight: 600;
+      font-size: 15px;
+      background: var(--bg-avatar-sent, #1b74e4);
+      color: #ffffff;
+    }
+    .reaction-user-avatar img.avatar-img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+    }
+
+    .reaction-user-info {
+      flex: 1;
+      min-width: 0;
+      text-align: left;
+    }
+    .reaction-user-name {
+      font-size: 14px;
+      font-weight: 600;
+      color: var(--text-primary, #050505);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      margin: 0;
+    }
+
+    .reaction-user-emoji {
+      font-size: 22px;
+      margin-left: auto;
+      flex-shrink: 0;
+      line-height: 1;
+    }
+
+    .reactions-loading, .reactions-empty {
+      padding: 24px 20px;
+      text-align: center;
+      color: var(--text-secondary, #65676b);
+      font-size: 14px;
+    }
+
+    .reaction-user-emoji {
+      font-size: 24px;
+      margin-left: auto;
+      flex-shrink: 0;
+      line-height: 1;
+    }
+
+    .reactions-loading, .reactions-empty {
+      padding: 30px 20px;
+      text-align: center;
+      color: #65676b;
+      font-size: 14px;
+    }
+    .reactions-spinner {
+      width: 28px;
+      height: 28px;
+      border: 3px solid rgba(24, 119, 242, 0.2);
+      border-top-color: #1877f2;
+      border-radius: 50%;
+      animation: reactionsSpin 0.7s linear infinite;
+      margin: 0 auto;
+    }
+    @keyframes reactionsSpin {
+      to { transform: rotate(360deg); }
+    }
+
+    /* Long-press visual feedback — dim the bubble slightly.
+       opacity is GPU-composited and never triggers a layout or repaint. */
     .message-bubble.longpress-active,
     .message-media.longpress-active {
-      filter: brightness(0.92);
-      transition: filter 0.1s ease;
+      opacity: 0.75;
+      transition: opacity 0.1s ease;
     }
 
     /* ── Hover Reaction Bar (desktop only) ── */

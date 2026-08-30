@@ -25,6 +25,7 @@ require_once __DIR__ . '/core/ChatNotifier.php';
 require_once __DIR__ . '/core/ImageProcessor.php';
 require_once __DIR__ . '/core/GlobalChatManager.php';
 require_once __DIR__ . '/core/ConversationManager.php';
+require_once __DIR__ . '/core/Reactions.php';
 require_once __DIR__ . '/log_chat_action.php';
 
 // ── Never let the browser (or any proxy) cache dynamic chat responses ──────

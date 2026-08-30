@@ -269,15 +269,8 @@
 
       // Cap the DOM at MAX_WINDOW visible messages so real-time
       // WebSocket pushes never grow the chat window without bound.
-      // Only trim while actively viewing the live/latest window —
-      // never while the user has paged back into older history.
-      const viewingOlderNow = isGlobalChat ? gcViewingOlder : dmViewingOlder;
-      if (!viewingOlderNow) {
-        const trimmed = trimChatMessages(MAX_WINDOW);
-        // If we just removed messages from the top, update the pagination
-        // cursor so the auto-backread can re-fetch the trimmed messages.
-        if (trimmed) refreshCursorAfterTopTrim();
-      }
+      const trimmed = trimChatMessages(MAX_WINDOW);
+      if (trimmed) refreshCursorAfterTopTrim();
 
       applyAdminBadges();
       if (atBottomNow || isSentByMe) {
@@ -445,6 +438,17 @@
               label.textContent = 'edited';
               bubbleWrapper.insertBefore(label, bubbleWrapper.firstChild);
             }
+          }
+        } else if (data.type === 'reaction_updated') {
+          // Another client (or our own second tab) toggled a reaction —
+          // invalidate cached snapshot so reopening any chat fetches fresh state,
+          // and patch that one message's badge row in place immediately.
+          if (typeof dmMessageCache !== 'undefined') {
+            dmMessageCache.clear();
+          }
+          const fn = window.renderReactionsForMessage || (typeof renderReactionsForMessage === 'function' ? renderReactionsForMessage : null);
+          if (fn && data.msg_uuid) {
+            fn(data.msg_uuid, data.reactions || {});
           }
         } else if (data.type === 'message') {
           console.log('Received WebSocket real-time update notice:', data);
@@ -1035,8 +1039,7 @@
       }
 
       if (isTyping && activeDM) {
-        // Show full name (First Name and Last Name) and cap length
-        textEl.textContent = `${truncateTypingName(senderName, 40)} is typing`;
+        textEl.textContent = 'typing';
         indicator.classList.add('active');
 
         // Auto-expire after 4 seconds as a safety cleanup
@@ -2561,6 +2564,43 @@
       return { type: 'replace' };
     }
 
+    // Helper: synchronize reactions of visible messages with a freshly-fetched HTML payload
+    function syncReactionsFromNewHtml(newMessages) {
+      if (!chatBox || !newMessages) return;
+      newMessages.forEach(function(newEl) {
+        if (!newEl || typeof newEl.getAttribute !== 'function') return;
+        const msgId = newEl.getAttribute('data-msg-id');
+        if (!msgId) return;
+
+        const curEl = chatBox.querySelector('.message-container[data-msg-id="' + msgId + '"]');
+        if (!curEl) return;
+
+        const newReactions = newEl.querySelector('.msg-reactions');
+        const curReactions = curEl.querySelector('.msg-reactions');
+        const curBubbleWrapper = curEl.querySelector('.bubble-wrapper');
+
+        if (newReactions) {
+          if (curReactions) {
+            if (curReactions.innerHTML !== newReactions.innerHTML) {
+              curReactions.innerHTML = newReactions.innerHTML;
+              curReactions.className = newReactions.className;
+            }
+          } else {
+            const cloned = newReactions.cloneNode(true);
+            (curBubbleWrapper || curEl).appendChild(cloned);
+          }
+          if (curBubbleWrapper) curBubbleWrapper.classList.add('has-reactions');
+          curEl.classList.add('has-reactions');
+        } else {
+          if (curReactions) {
+            curReactions.remove();
+          }
+          if (curBubbleWrapper) curBubbleWrapper.classList.remove('has-reactions');
+          curEl.classList.remove('has-reactions');
+        }
+      });
+    }
+
     // Historical no-op kept so the many call sites that mark "older messages
     // are available for this chat" (gcHasMore/dmHasMore/adminConvHasMore are
     // what actually drive the auto-load-on-scroll-to-top behavior now — see
@@ -2608,35 +2648,31 @@
     // Keeps the chat window capped at maxCount messages by trimming the
     // trailing (newest/bottom) ones — used right after prepending an older
     // page so loading history swaps the window instead of growing it forever.
-    function trimWindowFromBottom(maxCount) {
-      if (!chatBox) return;
-      // Fast-path: childElementCount is O(1) — skip expensive querySelectorAll
-      if (chatBox.childElementCount <= maxCount) return;
-      const items = Array.from(chatBox.querySelectorAll('.message-container, .empty-chat'));
-      if (items.length <= maxCount) return;
+    function trimWindowFromBottom(maxCount = MAX_WINDOW) {
+      if (!chatBox) return false;
+      const items = Array.from(chatBox.querySelectorAll('.message-container'));
+      if (items.length <= maxCount) return false;
+
       const excess = items.length - maxCount;
       for (let i = 0; i < excess; i++) {
         const el = items[items.length - 1 - i];
-        if (el && el.parentNode) { unobserveImagesIn(el); el.parentNode.removeChild(el); }
+        if (el && el.parentNode) {
+          unobserveImagesIn(el);
+          const prev = el.previousElementSibling;
+          if (prev && prev.classList && prev.classList.contains('date-divider')) {
+            prev.remove();
+          }
+          el.parentNode.removeChild(el);
+        }
       }
+      return true;
     }
 
     // Keeps the chat window capped at maxCount messages by trimming the
     // leading (oldest/top) ones — used during normal poll / initial load
     // so the message list doesn't grow forever.
-    // Returns true if any messages were actually removed.
-    function trimWindowFromTop(maxCount) {
-      if (!chatBox) return false;
-      // Fast-path: childElementCount is O(1).
-      if (chatBox.childElementCount <= maxCount) return false;
-      const items = Array.from(chatBox.querySelectorAll('.message-container, .empty-chat'));
-      if (items.length <= maxCount) return false;
-      const excess = items.length - maxCount;
-      for (let i = 0; i < excess; i++) {
-        const el = items[i];
-        if (el && el.parentNode) { unobserveImagesIn(el); el.parentNode.removeChild(el); }
-      }
-      return true;
+    function trimWindowFromTop(maxCount = MAX_WINDOW) {
+      return trimChatMessages(maxCount);
     }
 
     // Reusable real-time trim helper: caps the number of visible
@@ -2645,22 +2681,30 @@
     // (the one that was just appended) stays visible.
     function trimChatMessages(maxMessages = MAX_WINDOW) {
       if (!chatBox) return false;
-      // Fast-path: childElementCount is O(1).
-      if (chatBox.childElementCount <= maxMessages) return false;
       const items = Array.from(chatBox.querySelectorAll('.message-container'));
-      const excess = items.length - maxMessages;
-      if (excess <= 0) return false;
+      if (items.length <= maxMessages) return false;
 
+      const excess = items.length - maxMessages;
       const prevScrollTop = chatBox.scrollTop;
       const prevScrollHeight = chatBox.scrollHeight;
 
       for (let i = 0; i < excess; i++) {
         const el = items[i];
-        if (el && el.parentNode) { unobserveImagesIn(el); el.parentNode.removeChild(el); }
+        if (el && el.parentNode) {
+          unobserveImagesIn(el);
+          const prev = el.previousElementSibling;
+          if (prev && prev.classList && prev.classList.contains('date-divider')) {
+            const next = el.nextElementSibling;
+            if (!next || (next.classList && next.classList.contains('date-divider'))) {
+              prev.remove();
+            }
+          }
+          el.parentNode.removeChild(el);
+        }
       }
 
       const scrollDelta = prevScrollHeight - chatBox.scrollHeight;
-      if (scrollDelta !== 0) {
+      if (scrollDelta !== 0 && chatBox.scrollTop > 0) {
         chatBox.scrollTop = Math.max(0, prevScrollTop - scrollDelta);
       }
       return true;
@@ -3008,12 +3052,24 @@
 
     function selectAdminSpyTargetUser(user) {
       adminSpyTargetUser = user;
+      activeAdminConv = null;
+      updateClearChatButtonVisibility();
+      chatHeaderTitle.textContent = '';
+      applyHeaderAdminBadge();
+      applyHeaderAvatar(null);
+      updateHeaderActiveStatus();
       adminSpyConvs = [];
       fetchAdminConvs('', 0, false, user.account_id);
     }
 
     function clearAdminSpyTargetUser() {
       adminSpyTargetUser = null;
+      activeAdminConv = null;
+      updateClearChatButtonVisibility();
+      chatHeaderTitle.textContent = '';
+      applyHeaderAdminBadge();
+      applyHeaderAvatar(null);
+      updateHeaderActiveStatus();
       adminSpyConvs = [];
       const query = adminSearchInput ? adminSearchInput.value.trim() : '';
       if (query !== '') {
@@ -3342,6 +3398,7 @@
         const curKeys = currentMessages.map(getMessageKey);
 
         const rec = reconcilePoll(newMessages, currentMessages, newKeys, curKeys);
+        syncReactionsFromNewHtml(newMessages);
 
         if (rec.type === 'nochange') {
           if (isFirstLoad) { isFirstLoad = false; handleFirstLoadScroll(); }

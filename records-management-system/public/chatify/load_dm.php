@@ -271,7 +271,10 @@ foreach ($rawMessages as $msg) {
         $msgBodyHtml .= "<div class='message-content'>{$contentEsc}</div>";
         $msgBodyHtml .= "<div class='message-info'><span class='message-sender'>{$senderLabel}{$adminBadge}</span></div>";
         $msgBodyHtml .= "</div>";
-        $msgBodyHtml .= "</div>";
+        // Reactions sit BELOW the bubble, still inside .bubble-wrapper (see
+        // .msg-reactions in style.css) — never as a sibling of it.
+        $msgBodyHtml .= Reactions::buildBadgesHtml($reactions[$msgId] ?? [], $myAccountId);
+        $msgBodyHtml .= "</div>"; // .bubble-wrapper
 
     } else {
         // Upload: decrypt payload — may be a single filename or a JSON array of filenames
@@ -376,7 +379,9 @@ foreach ($rawMessages as $msg) {
         }
 
         if ($uploadBodyHtml !== '') {
-            $msgBodyHtml = "<div class='bubble-wrapper'><div class='message-click-timestamp show-timestamp'>{$fullTimeDisplay}</div>{$uploadBodyHtml}</div>";
+            $msgBodyHtml = "<div class='bubble-wrapper'><div class='message-click-timestamp show-timestamp'>{$fullTimeDisplay}</div>{$uploadBodyHtml}"
+                . Reactions::buildBadgesHtml($reactions[$msgId] ?? [], $myAccountId)
+                . "</div>"; // .bubble-wrapper
         }
     }
 

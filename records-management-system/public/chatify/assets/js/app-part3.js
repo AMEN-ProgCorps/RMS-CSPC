@@ -842,6 +842,10 @@
 
     chatBox.addEventListener('touchstart', function(e) {
       if (e.touches.length !== 1) return;
+      // Admin spy mode is read-only — never start a swipe-to-reply gesture
+      // there. Mirrors the same guard already on the desktop hover-reply
+      // button above (mouseover/click); this touch path was missing it.
+      if (isAdminAllChatsView || activeAdminConv) return;
       const container = e.target.closest('.message-container[data-msg-id]');
       if (!container || container.hasAttribute('data-sending-uid') || container.hasAttribute('data-upload-uid')) return;
 
@@ -926,7 +930,9 @@
 
     function endSwipe() {
       if (!swipeContainer) return;
-      if (swipeLocked && swipeDx >= SWIPE_REPLY_TRIGGER_PX) {
+      // Redundant with the touchstart guard above, but covers the edge
+      // case of spy mode being toggled on mid-gesture.
+      if (swipeLocked && swipeDx >= SWIPE_REPLY_TRIGGER_PX && !isAdminAllChatsView && !activeAdminConv) {
         openReplyForContainer(swipeContainer);
       }
       resetSwipeVisual();

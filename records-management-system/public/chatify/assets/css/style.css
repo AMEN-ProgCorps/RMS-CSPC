@@ -2944,15 +2944,21 @@
       transform: scale(0.95) !important;
     }
 
+    /* #242526 used to live here, but it's nearly identical to --bg-chat
+       (#1a1a1a) that the pill floats over once it overlaps past the bubble's
+       edge — on real screens (esp. after phone/webp compression) that made
+       the "solid mini chat bubble" read as a bare outline/circle instead of
+       a filled badge. Use the received-bubble tone instead: it's already
+       proven to contrast against --bg-chat elsewhere in the app. */
     [data-theme="dark"] .msg-reactions-pill {
-      background-color: #242526 !important;
-      background: #242526 !important;
+      background-color: #3a3b3c !important;
+      background: #3a3b3c !important;
       border-color: rgba(255, 255, 255, 0.18) !important;
       box-shadow: none !important;
     }
     [data-theme="dark"] .msg-reactions-pill:hover {
-      background-color: #303031 !important;
-      background: #303031 !important;
+      background-color: #4a4b4c !important;
+      background: #4a4b4c !important;
       box-shadow: none !important;
     }
 

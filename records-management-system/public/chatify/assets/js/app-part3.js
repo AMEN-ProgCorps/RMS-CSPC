@@ -3109,7 +3109,7 @@
                   if (activeReply.snippet && activeReply.snippet.startsWith('image:')) {
                     const imgFile = activeReply.snippet.slice(6);
                     const imgSrc  = 'uploads/' + imgFile;
-                    return `<div class="reply-quote reply-quote-image-container"><img src="${imgSrc.replace(/"/g, '&quot;')}" class="reply-quote-image" alt="" referrerpolicy="no-referrer" draggable="false"></div>`;
+                    return `<div class="reply-quote reply-quote-image-container"><img src="${imgSrc.replace(/"/g, '&quot;')}" class="reply-quote-image" alt="" referrerpolicy="no-referrer" draggable="false" onerror="this.closest('.reply-quote-image-container,.reply-quote')?.remove()"></div>`;
                   }
                   return `<div class="reply-quote"><div class="reply-quote-text">${escapeHtml(truncateForReply(activeReply.snippet, 120))}</div></div>`;
                 })();

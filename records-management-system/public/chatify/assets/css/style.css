@@ -2906,9 +2906,9 @@
       display: inline-flex !important;
       align-items: center !important;
       justify-content: center !important;
-      gap: 3px !important;
-      padding: 2px 6px !important;
-      min-height: 20px !important;
+      gap: 2px !important;
+      padding: 1px 5px !important;
+      min-height: 18px !important;
       box-sizing: border-box !important;
       border-radius: 12px !important;
       background-color: #ffffff !important;
@@ -2948,10 +2948,10 @@
     .msg-reactions-pill .reaction-emojis {
       display: inline-flex !important;
       align-items: center !important;
-      font-size: 13px !important;
+      font-size: 12px !important;
       line-height: 1 !important;
       letter-spacing: 1px !important;
-      margin-right: 4px !important;
+      margin-right: 3px !important;
     }
     /* Single emoji, no count badge next to it — drop the count-spacing
        margin so the emoji sits centered in the pill instead of skewed left */
@@ -2959,11 +2959,11 @@
       margin-right: 0 !important;
     }
     .msg-reactions-pill .reaction-total-count {
-      font-size: 11px !important;
+      font-size: 10px !important;
       font-weight: 600 !important;
       color: #65676b !important;
       line-height: 1 !important;
-      margin-left: -5px !important;
+      margin-left: -4px !important;
     }
     [data-theme="dark"] .msg-reactions-pill .reaction-total-count {
       color: #b0b3b8 !important;

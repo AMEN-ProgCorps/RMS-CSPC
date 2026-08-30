@@ -132,148 +132,167 @@ function closeNavFlyout() {
 }
 window.closeNavFlyout = closeNavFlyout;
 
+function showNavFlyoutMenu(buttonContainer, section) {
+    closeNavFlyout();
+
+    const functionsContainer = section.querySelector('.functions-container');
+    const subButtons = functionsContainer ? functionsContainer.querySelectorAll('.function-button') : [];
+    if (!subButtons || subButtons.length === 0) return;
+
+    const rect = buttonContainer.getBoundingClientRect();
+    const titleSpan = buttonContainer.querySelector('.button-label span');
+    const titleText = titleSpan ? titleSpan.textContent.trim().toUpperCase() : 'SECTION';
+    const iconSvg = buttonContainer.querySelector('.button-icon svg');
+
+    const flyout = document.createElement('div');
+    flyout.className = 'nav-flyout-popover';
+    flyout.style.top = `${Math.max(10, rect.top)}px`;
+    flyout.style.left = `${rect.right + 12}px`;
+
+    const header = document.createElement('div');
+    header.className = 'flyout-header';
+
+    const iconContainer = document.createElement('div');
+    iconContainer.className = 'flyout-icon';
+    if (iconSvg) {
+        iconContainer.appendChild(iconSvg.cloneNode(true));
+    }
+
+    const titleEl = document.createElement('span');
+    titleEl.className = 'flyout-title';
+    titleEl.textContent = titleText;
+
+    header.appendChild(iconContainer);
+    header.appendChild(titleEl);
+
+    const menuList = document.createElement('div');
+    menuList.className = 'flyout-menu-list';
+
+    const treeGroups = functionsContainer ? functionsContainer.querySelectorAll('.nav-tree-group') : [];
+
+    if (treeGroups && treeGroups.length > 0) {
+        treeGroups.forEach(group => {
+            const groupTitleEl = group.querySelector('.nav-tree-title');
+            const groupName = group.dataset.groupName || (groupTitleEl ? groupTitleEl.textContent.trim() : '');
+            const groupButtons = group.querySelectorAll('.function-button');
+
+            if (groupButtons.length > 0) {
+                if (groupName) {
+                    const groupHeader = document.createElement('div');
+                    groupHeader.className = 'flyout-group-title';
+                    groupHeader.textContent = groupName.toUpperCase();
+                    menuList.appendChild(groupHeader);
+                }
+
+                groupButtons.forEach(sub => {
+                    const subText = sub.textContent.trim();
+                    const isActive = sub.classList.contains('force-active');
+                    const onclickAttr = sub.getAttribute('onclick') || '';
+
+                    const item = document.createElement('div');
+                    item.className = `flyout-item ${isActive ? 'force-active' : ''}`;
+                    item.textContent = subText;
+
+                    item.addEventListener('click', () => {
+                        closeNavFlyout();
+
+                        const urlMatch = onclickAttr.match(/proccedto\('([^']+)'\)/);
+                        if (urlMatch && urlMatch[1]) {
+                            proccedto(urlMatch[1]);
+                        }
+                    });
+
+                    menuList.appendChild(item);
+                });
+            }
+        });
+    } else {
+        subButtons.forEach(sub => {
+            const subText = sub.textContent.trim();
+            const isActive = sub.classList.contains('force-active');
+            const onclickAttr = sub.getAttribute('onclick') || '';
+
+            const item = document.createElement('div');
+            item.className = `flyout-item ${isActive ? 'force-active' : ''}`;
+            item.textContent = subText;
+
+            item.addEventListener('click', () => {
+                closeNavFlyout();
+
+                const urlMatch = onclickAttr.match(/proccedto\('([^']+)'\)/);
+                if (urlMatch && urlMatch[1]) {
+                    proccedto(urlMatch[1]);
+                }
+            });
+
+            menuList.appendChild(item);
+        });
+    }
+
+    flyout.appendChild(header);
+    flyout.appendChild(menuList);
+    document.body.appendChild(flyout);
+}
+
 function setupIconModeInteractions() {
     document.querySelectorAll('.button-section-container').forEach(section => {
         const buttonContainer = section.querySelector('.button-container');
         if (!buttonContainer || buttonContainer.dataset.iconEventsBound) return;
         buttonContainer.dataset.iconEventsBound = 'true';
 
-        // LEFT-CLICK HANDLER IN ICON MODE (Expands Nav)
+        // LEFT-CLICK: Direct Navigation (or flyout if no direct route)
         buttonContainer.addEventListener('click', (e) => {
             const navigation = document.getElementById('navigation');
             if (navigation && navigation.classList.contains('imdown')) {
-                e.preventDefault();
-                e.stopPropagation();
-                closeNavFlyout();
+                const onclickAttr = buttonContainer.getAttribute('onclick') || '';
 
-                // 1. Expand sidebar back to imup mode
-                toggleNavProperties();
-
-                // 2. Open section if it has sub-items
-                const sectionId = section.id;
-                if (sectionId) {
-                    showButtonSection(sectionId);
-                }
-            }
-        });
-
-        // RIGHT-CLICK HANDLER IN ICON MODE (Direct Link or Flyout Menu)
-        buttonContainer.addEventListener('contextmenu', (e) => {
-            const navigation = document.getElementById('navigation');
-            if (navigation && navigation.classList.contains('imdown')) {
-                e.preventDefault();
-                e.stopPropagation();
-                closeNavFlyout();
-
-                const functionsContainer = section.querySelector('.functions-container');
-                const subButtons = functionsContainer ? functionsContainer.querySelectorAll('.function-button') : [];
-
-                // CASE A: Single-page section (NO sub-items) -> Redirect directly
-                if (!subButtons || subButtons.length === 0) {
-                    const onclickAttr = buttonContainer.getAttribute('onclick');
-                    if (onclickAttr && onclickAttr.includes("proccedto('")) {
-                        const urlMatch = onclickAttr.match(/proccedto\('([^']+)'\)/);
-                        if (urlMatch && urlMatch[1]) {
-                            proccedto(urlMatch[1]);
-                        }
+                // CASE A: Direct Link with proccedto
+                if (onclickAttr.includes("proccedto('")) {
+                    closeNavFlyout();
+                    const urlMatch = onclickAttr.match(/proccedto\('([^']+)'\)/);
+                    if (urlMatch && urlMatch[1]) {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        proccedto(urlMatch[1]);
                     }
                     return;
                 }
 
-                // CASE B: Multi-page section (HAS sub-items) -> Show Popout Flyout Card!
-                const rect = buttonContainer.getBoundingClientRect();
-                const titleSpan = buttonContainer.querySelector('.button-label span');
-                const titleText = titleSpan ? titleSpan.textContent.trim().toUpperCase() : 'SECTION';
-                const iconSvg = buttonContainer.querySelector('.button-icon svg');
+                // CASE B: Has Sub-Items / Accordion -> Show Floating Flyout Menu
+                const functionsContainer = section.querySelector('.functions-container');
+                const subButtons = functionsContainer ? functionsContainer.querySelectorAll('.function-button') : [];
 
-                const flyout = document.createElement('div');
-                flyout.className = 'nav-flyout-popover';
-                flyout.style.top = `${Math.max(10, rect.top)}px`;
-                flyout.style.left = `${rect.right + 12}px`;
-
-                const header = document.createElement('div');
-                header.className = 'flyout-header';
-
-                const iconContainer = document.createElement('div');
-                iconContainer.className = 'flyout-icon';
-                if (iconSvg) {
-                    iconContainer.appendChild(iconSvg.cloneNode(true));
+                if (subButtons && subButtons.length > 0) {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    showNavFlyoutMenu(buttonContainer, section);
                 }
+            }
+        });
 
-                const titleEl = document.createElement('span');
-                titleEl.className = 'flyout-title';
-                titleEl.textContent = titleText;
+        // RIGHT-CLICK: Opens Flyout Menu for sections with sub-items; redirects directly for single items
+        buttonContainer.addEventListener('contextmenu', (e) => {
+            const navigation = document.getElementById('navigation');
+            if (navigation && navigation.classList.contains('imdown')) {
+                const functionsContainer = section.querySelector('.functions-container');
+                const subButtons = functionsContainer ? functionsContainer.querySelectorAll('.function-button') : [];
 
-                header.appendChild(iconContainer);
-                header.appendChild(titleEl);
-
-                const menuList = document.createElement('div');
-                menuList.className = 'flyout-menu-list';
-
-                const treeGroups = functionsContainer ? functionsContainer.querySelectorAll('.nav-tree-group') : [];
-
-                if (treeGroups && treeGroups.length > 0) {
-                    treeGroups.forEach(group => {
-                        const groupTitleEl = group.querySelector('.nav-tree-title');
-                        const groupName = group.dataset.groupName || (groupTitleEl ? groupTitleEl.textContent.trim() : '');
-                        const groupButtons = group.querySelectorAll('.function-button');
-
-                        if (groupButtons.length > 0) {
-                            if (groupName) {
-                                const groupHeader = document.createElement('div');
-                                groupHeader.className = 'flyout-group-title';
-                                groupHeader.textContent = groupName.toUpperCase();
-                                menuList.appendChild(groupHeader);
-                            }
-
-                            groupButtons.forEach(sub => {
-                                const subText = sub.textContent.trim();
-                                const isActive = sub.classList.contains('force-active');
-                                const onclickAttr = sub.getAttribute('onclick') || '';
-
-                                const item = document.createElement('div');
-                                item.className = `flyout-item ${isActive ? 'force-active' : ''}`;
-                                item.textContent = subText;
-
-                                item.addEventListener('click', () => {
-                                    closeNavFlyout();
-
-                                    const urlMatch = onclickAttr.match(/proccedto\('([^']+)'\)/);
-                                    if (urlMatch && urlMatch[1]) {
-                                        proccedto(urlMatch[1]);
-                                    }
-                                });
-
-                                menuList.appendChild(item);
-                            });
-                        }
-                    });
+                if (subButtons && subButtons.length > 0) {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    showNavFlyoutMenu(buttonContainer, section);
                 } else {
-                    subButtons.forEach(sub => {
-                        const subText = sub.textContent.trim();
-                        const isActive = sub.classList.contains('force-active');
-                        const onclickAttr = sub.getAttribute('onclick') || '';
-
-                        const item = document.createElement('div');
-                        item.className = `flyout-item ${isActive ? 'force-active' : ''}`;
-                        item.textContent = subText;
-
-                        item.addEventListener('click', () => {
+                    const onclickAttr = buttonContainer.getAttribute('onclick') || '';
+                    if (onclickAttr.includes("proccedto('")) {
+                        const urlMatch = onclickAttr.match(/proccedto\('([^']+)'\)/);
+                        if (urlMatch && urlMatch[1]) {
+                            e.preventDefault();
+                            e.stopPropagation();
                             closeNavFlyout();
-
-                            const urlMatch = onclickAttr.match(/proccedto\('([^']+)'\)/);
-                            if (urlMatch && urlMatch[1]) {
-                                proccedto(urlMatch[1]);
-                            }
-                        });
-
-                        menuList.appendChild(item);
-                    });
+                            proccedto(urlMatch[1]);
+                        }
+                    }
                 }
-
-                flyout.appendChild(header);
-                flyout.appendChild(menuList);
-                document.body.appendChild(flyout);
             }
         });
     });

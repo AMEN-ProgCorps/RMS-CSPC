@@ -40,13 +40,28 @@ class DtsExportHelper
     }
 
     /**
+     * Define the 5 standard routing columns for any dynamic Flow step $i
+     */
+    public static function getFlowColumnDefinitions(int $i): array
+    {
+        $flowTitle = ($i === 1) ? 'Flow 1 (not the origin)' : "Flow {$i}";
+        return [
+            "flow{$i}_office"       => ['label' => "Flow {$i}: Office Name", 'sublabel' => 'Office Name', 'default' => false, 'group' => "flow{$i}", 'flow_index' => $i, 'flow_title' => $flowTitle],
+            "flow{$i}_received"     => ['label' => "Flow {$i}: Received", 'sublabel' => 'Received', 'default' => false, 'group' => "flow{$i}", 'flow_index' => $i, 'flow_title' => $flowTitle],
+            "flow{$i}_released"     => ['label' => "Flow {$i}: Released", 'sublabel' => 'Released', 'default' => false, 'group' => "flow{$i}", 'flow_index' => $i, 'flow_title' => $flowTitle],
+            "flow{$i}_notes"        => ['label' => "Flow {$i}: Notes", 'sublabel' => 'Notes', 'default' => false, 'group' => "flow{$i}", 'flow_index' => $i, 'flow_title' => $flowTitle],
+            "flow{$i}_elapsed_days" => ['label' => "Flow {$i}: Elapsed Day", 'sublabel' => 'Elapsed Day', 'default' => false, 'group' => "flow{$i}", 'flow_index' => $i, 'flow_title' => $flowTitle],
+        ];
+    }
+
+    /**
      * Get list of available columns and their default inclusion state per category
      */
-    public static function getAvailableColumns(string $category): array
+    public static function getAvailableColumns(string $category, int $flowCount = 0): array
     {
         $category = str_replace('-', '_', $category);
 
-        return match ($category) {
+        $base = match ($category) {
             'internal' => [
                 // General Transaction Info (Default: Included)
                 'item_no'           => ['label' => 'Item No.', 'sublabel' => 'No.', 'default' => true, 'group' => 'general'],
@@ -58,12 +73,6 @@ class DtsExportHelper
                 'classification'    => ['label' => 'Priority / Classification', 'sublabel' => 'Classification', 'default' => true, 'group' => 'general'],
                 'elapsed_days'      => ['label' => 'Total Elapsed Days', 'sublabel' => 'Elapsed Days', 'default' => true, 'group' => 'general'],
                 'status'            => ['label' => 'Status', 'sublabel' => 'Status', 'default' => true, 'group' => 'general'],
-
-                // Flow 1 Group (Not the Origin) - Default: NOT Included (opt-in)
-                'flow1_office'       => ['label' => 'Flow 1: Office Name', 'sublabel' => 'Office Name', 'default' => false, 'group' => 'flow1', 'flow_title' => 'Flow 1 (not the origin)'],
-                'flow1_received'     => ['label' => 'Flow 1: Received', 'sublabel' => 'Received', 'default' => false, 'group' => 'flow1', 'flow_title' => 'Flow 1 (not the origin)'],
-                'flow1_released'     => ['label' => 'Flow 1: Released', 'sublabel' => 'Released', 'default' => false, 'group' => 'flow1', 'flow_title' => 'Flow 1 (not the origin)'],
-                'flow1_elapsed_days' => ['label' => 'Flow 1: Elapsed Day', 'sublabel' => 'Elapsed Day', 'default' => false, 'group' => 'flow1', 'flow_title' => 'Flow 1 (not the origin)'],
 
                 // Additional Metadata (Default: NOT Included)
                 'current_office'    => ['label' => 'Current Office', 'sublabel' => 'Current Office', 'default' => false, 'group' => 'additional'],
@@ -83,12 +92,6 @@ class DtsExportHelper
                 'classification'    => ['label' => 'Priority / Classification', 'sublabel' => 'Classification', 'default' => true, 'group' => 'general'],
                 'elapsed_days'      => ['label' => 'Total Elapsed Days', 'sublabel' => 'Elapsed Days', 'default' => true, 'group' => 'general'],
                 'status'            => ['label' => 'Status', 'sublabel' => 'Status', 'default' => true, 'group' => 'general'],
-
-                // Flow 1 Group (Not the Origin) - Default: NOT Included (opt-in)
-                'flow1_office'       => ['label' => 'Flow 1: Office Name', 'sublabel' => 'Office Name', 'default' => false, 'group' => 'flow1', 'flow_title' => 'Flow 1 (not the origin)'],
-                'flow1_received'     => ['label' => 'Flow 1: Received', 'sublabel' => 'Received', 'default' => false, 'group' => 'flow1', 'flow_title' => 'Flow 1 (not the origin)'],
-                'flow1_released'     => ['label' => 'Flow 1: Released', 'sublabel' => 'Released', 'default' => false, 'group' => 'flow1', 'flow_title' => 'Flow 1 (not the origin)'],
-                'flow1_elapsed_days' => ['label' => 'Flow 1: Elapsed Day', 'sublabel' => 'Elapsed Day', 'default' => false, 'group' => 'flow1', 'flow_title' => 'Flow 1 (not the origin)'],
 
                 // Additional Metadata
                 'requestor_position'=> ['label' => 'Requestor Position', 'sublabel' => 'Position', 'default' => false, 'group' => 'additional'],
@@ -116,12 +119,6 @@ class DtsExportHelper
                 'elapsed_days'      => ['label' => 'Total Elapsed Days', 'sublabel' => 'Elapsed Days', 'default' => true, 'group' => 'general'],
                 'status'            => ['label' => 'Status', 'sublabel' => 'Status', 'default' => true, 'group' => 'general'],
 
-                // Flow 1 Group (Not the Origin) - Default: NOT Included (opt-in)
-                'flow1_office'       => ['label' => 'Flow 1: Office Name', 'sublabel' => 'Office Name', 'default' => false, 'group' => 'flow1', 'flow_title' => 'Flow 1 (not the origin)'],
-                'flow1_received'     => ['label' => 'Flow 1: Received', 'sublabel' => 'Received', 'default' => false, 'group' => 'flow1', 'flow_title' => 'Flow 1 (not the origin)'],
-                'flow1_released'     => ['label' => 'Flow 1: Released', 'sublabel' => 'Released', 'default' => false, 'group' => 'flow1', 'flow_title' => 'Flow 1 (not the origin)'],
-                'flow1_elapsed_days' => ['label' => 'Flow 1: Elapsed Day', 'sublabel' => 'Elapsed Day', 'default' => false, 'group' => 'flow1', 'flow_title' => 'Flow 1 (not the origin)'],
-
                 // Additional Metadata
                 'subject'           => ['label' => 'Subject', 'sublabel' => 'Subject', 'default' => false, 'group' => 'additional'],
                 'current_office'    => ['label' => 'Current Office', 'sublabel' => 'Current Office', 'default' => false, 'group' => 'additional'],
@@ -139,12 +136,6 @@ class DtsExportHelper
                 'elapsed_days'      => ['label' => 'Total Elapsed Days', 'sublabel' => 'Elapsed Days', 'default' => true, 'group' => 'general'],
                 'status'            => ['label' => 'Status', 'sublabel' => 'Status', 'default' => true, 'group' => 'general'],
 
-                // Flow 1 Group (Not the Origin) - Default: NOT Included (opt-in)
-                'flow1_office'       => ['label' => 'Flow 1: Office Name', 'sublabel' => 'Office Name', 'default' => false, 'group' => 'flow1', 'flow_title' => 'Flow 1 (not the origin)'],
-                'flow1_received'     => ['label' => 'Flow 1: Received', 'sublabel' => 'Received', 'default' => false, 'group' => 'flow1', 'flow_title' => 'Flow 1 (not the origin)'],
-                'flow1_released'     => ['label' => 'Flow 1: Released', 'sublabel' => 'Released', 'default' => false, 'group' => 'flow1', 'flow_title' => 'Flow 1 (not the origin)'],
-                'flow1_elapsed_days' => ['label' => 'Flow 1: Elapsed Day', 'sublabel' => 'Elapsed Day', 'default' => false, 'group' => 'flow1', 'flow_title' => 'Flow 1 (not the origin)'],
-
                 // Additional Metadata
                 'routing_path_text' => ['label' => 'Routing Flow (Text)', 'sublabel' => 'Routing Flow', 'default' => false, 'group' => 'additional'],
                 'current_office'    => ['label' => 'Current Office', 'sublabel' => 'Current Office', 'default' => false, 'group' => 'additional'],
@@ -161,17 +152,56 @@ class DtsExportHelper
                 'status'            => ['label' => 'Status', 'sublabel' => 'Status', 'default' => true, 'group' => 'general'],
             ],
         };
+
+        $result = [];
+        // Add General Columns
+        foreach ($base as $k => $def) {
+            if (($def['group'] ?? '') === 'general') {
+                $result[$k] = $def;
+            }
+        }
+
+        // Add Flow Columns up to $flowCount
+        for ($i = 1; $i <= $flowCount; $i++) {
+            $result = array_merge($result, self::getFlowColumnDefinitions($i));
+        }
+
+        // Add Additional Columns
+        foreach ($base as $k => $def) {
+            if (($def['group'] ?? '') === 'additional') {
+                $result[$k] = $def;
+            }
+        }
+
+        return $result;
     }
 
     /**
-     * Fetch and transform export records based on category and filters / scope
+     * Resolve all columns including any dynamically referenced flow steps
+     */
+    public static function resolveAllColumns(string $category, array $selectedCols = []): array
+    {
+        $maxFlow = 0;
+        foreach ($selectedCols as $col) {
+            if (preg_match('/^flow(\d+)_/', $col, $m)) {
+                $maxFlow = max($maxFlow, (int)$m[1]);
+            }
+        }
+        return self::getAvailableColumns($category, $maxFlow);
+    }
+
+    /**
+     * Fetch and transform export records based on category and selected transaction IDs
      */
     public static function fetchExportRecords(
         string $category,
         array $filters = [],
-        array $selectedIds = [],
-        string $scope = 'all'
+        array $selectedIds = []
     ): array {
+        if (empty($selectedIds)) {
+            return [];
+        }
+
         $transType = self::resolveTransType($category);
         $user = Auth::user();
         $userOfficeCode = $user?->details?->office?->office_code 
@@ -185,59 +215,13 @@ class DtsExportHelper
             ->leftJoin('office as current_office', 'current_office.office_code', '=', 'dt.current_office')
             ->leftJoin('dts_transaction_flow as flow', 'flow.flow_code', '=', 'dtd.transaction_flow')
             ->leftJoin('document_data as doc', 'doc.document_path', '=', 'dt.doc_dir')
-            ->where('dt.trans_type', $transType);
+            ->where('dt.trans_type', $transType)
+            ->whereIn('dt.transaction_id', $selectedIds);
 
         // Office permission scope
         $canViewAll = $user?->permissions?->is_sadm || $user?->permissions?->can_dts_view_all_list;
         if (!$canViewAll) {
             $query->where('dtd.originated_from', $userOfficeCode);
-        }
-
-        // Scope filter
-        if ($scope === 'selected' && !empty($selectedIds)) {
-            $query->whereIn('dt.transaction_id', $selectedIds);
-        } else {
-            // Apply search & dropdown filters
-            if (!empty($filters['priority']) && $filters['priority'] !== 'all') {
-                $query->where('dtd.classification', $filters['priority']);
-            }
-
-            if (!empty($filters['status']) && $filters['status'] !== 'all') {
-                $query->where('dt.status', $filters['status']);
-            }
-
-            if (!empty($filters['search'])) {
-                $searchVal = trim($filters['search']);
-                $decoded = base64_decode($searchVal, true);
-                if ($decoded !== false && preg_match('/^[A-Z0-9-]+$/i', $decoded)) {
-                    $searchVal = $decoded;
-                }
-                $query->where(function ($q) use ($searchVal, $filters) {
-                    $q->where('dtd.control_number', 'like', '%' . $searchVal . '%')
-                      ->orWhere('dtd.subject', 'like', '%' . $filters['search'] . '%')
-                      ->orWhere('req.requestor_name', 'like', '%' . $filters['search'] . '%')
-                      ->orWhere('dt.qr_code', 'like', '%' . $searchVal . '%');
-                });
-            }
-
-            if (!empty($filters['date_from']) || !empty($filters['date_to'])) {
-                $from = !empty($filters['date_from']) ? Carbon::parse($filters['date_from'])->startOfDay() : null;
-                $to = !empty($filters['date_to']) ? Carbon::parse($filters['date_to'])->endOfDay() : null;
-
-                if ($from && $to && $from->gt($to)) {
-                    $temp = $from;
-                    $from = $to->copy()->startOfDay();
-                    $to = $temp->copy()->endOfDay();
-                }
-
-                if ($from && $to) {
-                    $query->whereBetween('dtd.date_created', [$from->toDateTimeString(), $to->toDateTimeString()]);
-                } elseif ($from) {
-                    $query->where('dtd.date_created', '>=', $from->toDateTimeString());
-                } elseif ($to) {
-                    $query->where('dtd.date_created', '<=', $to->toDateTimeString());
-                }
-            }
         }
 
         $sortDirection = (!empty($filters['sort_order']) && in_array(strtolower($filters['sort_order']), ['asc', 'desc'])) 
@@ -287,115 +271,12 @@ class DtsExportHelper
             $remarks = $latestLog && !empty($latestLog->notes) ? $latestLog->notes : '-';
             $receivedBy = $latestLog && $latestLog->first_name ? ($latestLog->first_name . ' ' . $latestLog->last_name) : '-';
 
-            // Extract Flow 1 (First destination office step that is NOT the origin)
+            // Filter non-origin destination logs for flow steps
             $originOfficeCode = $t->originated_from ?: ($firstLog?->office_code ?? '');
             $nonOriginLogs = $logs->filter(function ($l) use ($originOfficeCode) {
                 return !empty($l->office_code) && $l->office_code !== $originOfficeCode;
             })->values();
 
-            // Flow 1 Log (Step 1 after origin)
-            $flow1Log = $nonOriginLogs->get(0) ?? ($logs->count() > 1 ? $logs->get(1) : null);
-            
-            // Flow 1 Office Name & Code
-            $flow1Office = '-';
-            $flow1OfficeCode = '';
-            if ($flow1Log) {
-                $flow1Office = $flow1Log->office_name ?: $flow1Log->office_code;
-                $flow1OfficeCode = $flow1Log->office_code ?: '';
-            }
-
-            // Flow 1 Received Date/Time & Received By
-            $flow1RecDate = '-';
-            $flow1RecBy = '-';
-            if ($flow1Log && $flow1Log->date_in) {
-                $flow1RecDate = Carbon::parse($flow1Log->date_in)->format('Y-m-d h:i A');
-                $flow1RecBy = ($flow1Log->first_name || $flow1Log->last_name) 
-                    ? trim($flow1Log->first_name . ' ' . $flow1Log->last_name) 
-                    : 'Received';
-            } elseif ($flow1Log) {
-                $flow1RecDate = 'Pending Receive';
-            }
-
-            // Flow 1 Released Date/Time & Released By
-            $flow1RelDate = '-';
-            $flow1RelBy = '-';
-            if ($flow1Log && $flow1Log->date_out) {
-                $flow1RelDate = Carbon::parse($flow1Log->date_out)->format('Y-m-d h:i A');
-                $flow1RelBy = ($flow1Log->first_name || $flow1Log->last_name) 
-                    ? trim($flow1Log->first_name . ' ' . $flow1Log->last_name) 
-                    : 'Released';
-            } elseif ($flow1Log && $flow1Log->date_in) {
-                $flow1RelDate = 'In Progress';
-            }
-
-            // Flow 1 Elapsed Days (only counts the elapsed days)
-            $flow1ElapsedDays = '-';
-            if ($flow1Log && $flow1Log->date_in) {
-                $start = Carbon::parse($flow1Log->date_in);
-                $end = $flow1Log->date_out ? Carbon::parse($flow1Log->date_out) : now();
-                $diffDays = (int) abs($start->diffInDays($end));
-                $flow1ElapsedDays = $diffDays . ' day' . ($diffDays === 1 ? '' : 's');
-            }
-
-            // Flow 1 formatted text for CSV
-            $flow1RecText = ($flow1RecDate !== '-' && $flow1RecDate !== 'Pending Receive')
-                ? ($flow1RecDate . ($flow1RecBy !== '-' ? ' (' . $flow1RecBy . ')' : ''))
-                : $flow1RecDate;
-
-            $flow1RelText = ($flow1RelDate !== '-' && $flow1RelDate !== 'In Progress')
-                ? ($flow1RelDate . ($flow1RelBy !== '-' ? ' (' . $flow1RelBy . ')' : ''))
-                : $flow1RelDate;
-
-            // Flow 2 Log (Step 2 after origin if present)
-            $flow2Log = $nonOriginLogs->get(1) ?? ($logs->count() > 2 ? $logs->get(2) : null);
-            $flow2Office = $flow2Log ? ($flow2Log->office_name ?: $flow2Log->office_code) : '-';
-            $flow2OfficeCode = $flow2Log?->office_code ?: '';
-
-            $flow2RecDate = '-';
-            $flow2RecBy = '-';
-            if ($flow2Log && $flow2Log->date_in) {
-                $flow2RecDate = Carbon::parse($flow2Log->date_in)->format('Y-m-d h:i A');
-                $flow2RecBy = ($flow2Log->first_name || $flow2Log->last_name) 
-                    ? trim($flow2Log->first_name . ' ' . $flow2Log->last_name) 
-                    : 'Received';
-            } elseif ($flow2Log) {
-                $flow2RecDate = 'Pending Receive';
-            }
-
-            $flow2RelDate = '-';
-            $flow2RelBy = '-';
-            if ($flow2Log && $flow2Log->date_out) {
-                $flow2RelDate = Carbon::parse($flow2Log->date_out)->format('Y-m-d h:i A');
-                $flow2RelBy = ($flow2Log->first_name || $flow2Log->last_name) 
-                    ? trim($flow2Log->first_name . ' ' . $flow2Log->last_name) 
-                    : 'Released';
-            } elseif ($flow2Log && $flow2Log->date_in) {
-                $flow2RelDate = 'In Progress';
-            }
-
-            $flow2ElapsedDays = '-';
-            if ($flow2Log && $flow2Log->date_in) {
-                $start2 = Carbon::parse($flow2Log->date_in);
-                $end2 = $flow2Log->date_out ? Carbon::parse($flow2Log->date_out) : now();
-                $diffDays2 = (int) abs($start2->diffInDays($end2));
-                $flow2ElapsedDays = $diffDays2 . ' day' . ($diffDays2 === 1 ? '' : 's');
-            }
-
-            $flow2RecText = ($flow2RecDate !== '-' && $flow2RecDate !== 'Pending Receive')
-                ? ($flow2RecDate . ($flow2RecBy !== '-' ? ' (' . $flow2RecBy . ')' : ''))
-                : $flow2RecDate;
-
-            $flow2RelText = ($flow2RelDate !== '-' && $flow2RelDate !== 'In Progress')
-                ? ($flow2RelDate . ($flow2RelBy !== '-' ? ' (' . $flow2RelBy . ')' : ''))
-                : $flow2RelDate;
-
-            // Legacy Step 1 / Step 2 values for backwards compatibility
-            $step1Received = $firstLog && $firstLog->date_in ? Carbon::parse($firstLog->date_in)->format('Y-m-d H:i') : ($t->date_created ? Carbon::parse($t->date_created)->format('Y-m-d H:i') : '-');
-            $step1Released = $firstLog && $firstLog->date_out ? Carbon::parse($firstLog->date_out)->format('Y-m-d H:i') : ($logs->count() > 1 ? Carbon::parse($firstLog?->date_in ?? $t->date_created)->format('Y-m-d H:i') : '-');
-            $step2Received = $flow1RecDate;
-            $step2Released = $flow1RelDate;
-
-            // Released / Received date/time/by for Application Letters
             $relLog = $logs->first(fn($l) => !is_null($l->date_out));
             $recLog = $logs->first(fn($l) => !is_null($l->date_in));
 
@@ -427,7 +308,7 @@ class DtsExportHelper
             }
             $routingPathText = !empty($flowSteps) ? implode(' -> ', array_unique($flowSteps)) : '-';
 
-            $rows[] = [
+            $rowMap = [
                 'item_no'            => $itemNumber++,
                 'transaction_id'     => $t->transaction_id,
                 'control_number'     => $t->control_number,
@@ -442,35 +323,6 @@ class DtsExportHelper
                 'position_applied'   => $positionApplied,
                 'source_office'      => $t->s_office_name ?: ($t->source_office ?: ($t->originated_office_name ?: '-')),
                 'document_name'      => $t->document_name ?: '-',
-
-                // Flow 1 Columns (Not the Origin)
-                'flow1_office'       => $flow1Office,
-                'flow1_office_code'  => $flow1OfficeCode,
-                'flow1_received'     => $flow1RecText,
-                'flow1_received_date'=> $flow1RecDate,
-                'flow1_received_by'  => $flow1RecBy,
-                'flow1_released'     => $flow1RelText,
-                'flow1_released_date'=> $flow1RelDate,
-                'flow1_released_by'  => $flow1RelBy,
-                'flow1_elapsed_days' => $flow1ElapsedDays,
-
-                // Flow 2 Columns
-                'flow2_office'       => $flow2Office,
-                'flow2_office_code'  => $flow2OfficeCode,
-                'flow2_received'     => $flow2RecText,
-                'flow2_received_date'=> $flow2RecDate,
-                'flow2_received_by'  => $flow2RecBy,
-                'flow2_released'     => $flow2RelText,
-                'flow2_released_date'=> $flow2RelDate,
-                'flow2_released_by'  => $flow2RelBy,
-                'flow2_elapsed_days' => $flow2ElapsedDays,
-
-                // Legacy Step aliases
-                'step1_received'     => $step1Received,
-                'step1_released'     => $step1Released,
-                'step2_received'     => $step2Received,
-                'step2_released'     => $step2Released,
-
                 'released_date'      => $releasedDate,
                 'released_time'      => $releasedTime,
                 'released_by'        => $releasedBy,
@@ -482,6 +334,66 @@ class DtsExportHelper
                 'elapsed_days'       => $elapsedDays . ' day' . ($elapsedDays === 1 ? '' : 's'),
                 'status'             => ucfirst($t->status ?: 'Ongoing'),
             ];
+
+            // Dynamically populate flow steps 1 to 10
+            for ($i = 1; $i <= 10; $i++) {
+                $fLog = $nonOriginLogs->get($i - 1);
+                $fOffice = $fLog ? ($fLog->office_name ?: $fLog->office_code) : '-';
+                $fOfficeCode = $fLog?->office_code ?: '';
+
+                $fRecDate = '-';
+                $fRecBy = '-';
+                if ($fLog && $fLog->date_in) {
+                    $fRecDate = Carbon::parse($fLog->date_in)->format('Y-m-d h:i A');
+                    $fRecBy = ($fLog->first_name || $fLog->last_name)
+                        ? trim($fLog->first_name . ' ' . $fLog->last_name)
+                        : 'Received';
+                } elseif ($fLog) {
+                    $fRecDate = 'Pending Receive';
+                }
+
+                $fRelDate = '-';
+                $fRelBy = '-';
+                if ($fLog && $fLog->date_out) {
+                    $fRelDate = Carbon::parse($fLog->date_out)->format('Y-m-d h:i A');
+                    $fRelBy = ($fLog->first_name || $fLog->last_name)
+                        ? trim($fLog->first_name . ' ' . $fLog->last_name)
+                        : 'Released';
+                } elseif ($fLog && $fLog->date_in) {
+                    $fRelDate = 'In Progress';
+                }
+
+                $fElapsedDays = '-';
+                if ($fLog && $fLog->date_in) {
+                    $start = Carbon::parse($fLog->date_in);
+                    $end = $fLog->date_out ? Carbon::parse($fLog->date_out) : now();
+                    $diffDays = (int) abs($start->diffInDays($end));
+                    $fElapsedDays = $diffDays . ' day' . ($diffDays === 1 ? '' : 's');
+                }
+
+                $fRecText = ($fRecDate !== '-' && $fRecDate !== 'Pending Receive')
+                    ? ($fRecDate . ($fRecBy !== '-' ? ' (' . $fRecBy . ')' : ''))
+                    : $fRecDate;
+
+                $fRelText = ($fRelDate !== '-' && $fRelDate !== 'In Progress')
+                    ? ($fRelDate . ($fRelBy !== '-' ? ' (' . $fRelBy . ')' : ''))
+                    : $fRelDate;
+
+                $fNotes = ($fLog && !empty($fLog->notes)) ? $fLog->notes : '-';
+
+                $rowMap["flow{$i}_office"]        = $fOffice;
+                $rowMap["flow{$i}_office_code"]   = $fOfficeCode;
+                $rowMap["flow{$i}_received"]      = $fRecText;
+                $rowMap["flow{$i}_received_date"] = $fRecDate;
+                $rowMap["flow{$i}_received_by"]   = $fRecBy;
+                $rowMap["flow{$i}_released"]      = $fRelText;
+                $rowMap["flow{$i}_released_date"] = $fRelDate;
+                $rowMap["flow{$i}_released_by"]   = $fRelBy;
+                $rowMap["flow{$i}_notes"]         = $fNotes;
+                $rowMap["flow{$i}_elapsed_days"]  = $fElapsedDays;
+            }
+
+            $rows[] = $rowMap;
         }
 
         return $rows;

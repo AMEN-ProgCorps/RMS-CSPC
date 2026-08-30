@@ -434,15 +434,19 @@
         </div>
 
         @php
-            $flow1Keys = ['flow1_office', 'flow1_received', 'flow1_released', 'flow1_elapsed_days'];
-            $flow2Keys = ['flow2_office', 'flow2_received', 'flow2_released', 'flow2_elapsed_days'];
-            
-            $selectedFlow1 = array_values(array_intersect($selectedColumns, $flow1Keys));
-            $selectedFlow2 = array_values(array_intersect($selectedColumns, $flow2Keys));
-            
-            $hasFlowGrouping = count($selectedFlow1) > 0 || count($selectedFlow2) > 0;
-            $renderedFlow1Super = false;
-            $renderedFlow2Super = false;
+            // Group all flow columns dynamically: flow1, flow2, flow3, etc.
+            $flowGroups = [];
+            $allFlowKeys = [];
+            foreach ($selectedColumns as $colKey) {
+                if (preg_match('/^flow(\d+)_(.+)$/', $colKey, $matches)) {
+                    $fIndex = (int)$matches[1];
+                    $flowGroups[$fIndex][] = $colKey;
+                    $allFlowKeys[] = $colKey;
+                }
+            }
+            ksort($flowGroups);
+            $hasFlowGrouping = !empty($flowGroups);
+            $renderedFlowSupers = [];
         @endphp
 
         <!-- Data Table -->
@@ -452,19 +456,13 @@
                     <!-- Multi-tier Top Header Row -->
                     <tr>
                         @foreach($selectedColumns as $colKey)
-                            @if(in_array($colKey, $flow1Keys))
-                                @if(!$renderedFlow1Super)
-                                    <th colspan="{{ count($selectedFlow1) }}" class="flow-super-hdr">
-                                        Flow 1 (not the origin)
+                            @if(preg_match('/^flow(\d+)_(.+)$/', $colKey, $matches))
+                                @php $fIndex = (int)$matches[1]; @endphp
+                                @if(!isset($renderedFlowSupers[$fIndex]))
+                                    <th colspan="{{ count($flowGroups[$fIndex]) }}" class="flow-super-hdr">
+                                        {{ $fIndex === 1 ? 'Flow 1 (not the origin)' : "Flow {$fIndex}" }}
                                     </th>
-                                    @php $renderedFlow1Super = true; @endphp
-                                @endif
-                            @elseif(in_array($colKey, $flow2Keys))
-                                @if(!$renderedFlow2Super)
-                                    <th colspan="{{ count($selectedFlow2) }}" class="flow-super-hdr">
-                                        Flow 2
-                                    </th>
-                                    @php $renderedFlow2Super = true; @endphp
+                                    @php $renderedFlowSupers[$fIndex] = true; @endphp
                                 @endif
                             @else
                                 <th rowspan="2" class="{{ in_array($colKey, ['item_no', 'status', 'elapsed_days', 'released_time', 'received_time']) ? 'align-center' : '' }}">
@@ -477,8 +475,8 @@
                     <!-- Multi-tier Sub-Header Row for Flow Sub-Columns -->
                     <tr>
                         @foreach($selectedColumns as $colKey)
-                            @if(in_array($colKey, $flow1Keys) || in_array($colKey, $flow2Keys))
-                                <th class="flow-sub-hdr {{ in_array($colKey, ['flow1_elapsed_days', 'flow2_elapsed_days']) ? 'align-center' : '' }}">
+                            @if(in_array($colKey, $allFlowKeys))
+                                <th class="flow-sub-hdr {{ str_contains($colKey, 'elapsed_days') ? 'align-center' : '' }}">
                                     {{ $availableColumns[$colKey]['sublabel'] ?? ($availableColumns[$colKey]['label'] ?? $colKey) }}
                                 </th>
                             @endif
@@ -501,12 +499,12 @@
                         @foreach($selectedColumns as $colKey)
                             @php
                                 $val = $row[$colKey] ?? '-';
-                                $isCenter = in_array($colKey, ['item_no', 'status', 'elapsed_days', 'released_time', 'received_time', 'released_date', 'received_date', 'flow1_elapsed_days', 'flow2_elapsed_days']);
+                                $isCenter = in_array($colKey, ['item_no', 'status', 'elapsed_days', 'released_time', 'received_time', 'released_date', 'received_date']) || str_contains($colKey, 'elapsed_days');
                             @endphp
 
-                            @if($colKey === 'flow1_office' || $colKey === 'flow2_office')
+                            @if(preg_match('/^flow(\d+)_office$/', $colKey, $matches))
                                 @php
-                                    $codeKey = str_replace('office', 'office_code', $colKey);
+                                    $codeKey = "flow{$matches[1]}_office_code";
                                     $officeCode = $row[$codeKey] ?? '';
                                 @endphp
                                 <td>
@@ -516,9 +514,9 @@
                                     @endif
                                 </td>
 
-                            @elseif($colKey === 'flow1_received' || $colKey === 'flow2_received')
+                            @elseif(preg_match('/^flow(\d+)_received$/', $colKey, $matches))
                                 @php
-                                    $prefix = str_starts_with($colKey, 'flow1') ? 'flow1' : 'flow2';
+                                    $prefix = "flow{$matches[1]}";
                                     $recDate = $row[$prefix . '_received_date'] ?? '-';
                                     $recBy = $row[$prefix . '_received_by'] ?? '-';
                                 @endphp
@@ -537,9 +535,9 @@
                                     @endif
                                 </td>
 
-                            @elseif($colKey === 'flow1_released' || $colKey === 'flow2_released')
+                            @elseif(preg_match('/^flow(\d+)_released$/', $colKey, $matches))
                                 @php
-                                    $prefix = str_starts_with($colKey, 'flow1') ? 'flow1' : 'flow2';
+                                    $prefix = "flow{$matches[1]}";
                                     $relDate = $row[$prefix . '_released_date'] ?? '-';
                                     $relBy = $row[$prefix . '_released_by'] ?? '-';
                                 @endphp
@@ -558,7 +556,16 @@
                                     @endif
                                 </td>
 
-                            @elseif($colKey === 'flow1_elapsed_days' || $colKey === 'flow2_elapsed_days')
+                            @elseif(preg_match('/^flow(\d+)_notes$/', $colKey))
+                                <td>
+                                    @if(!empty($val) && $val !== '-')
+                                        <div style="font-size: 9px; color: #334155; line-height: 1.3; font-style: italic; max-width: 140px; word-break: break-word;">{{ $val }}</div>
+                                    @else
+                                        <span style="color: #94a3b8;">-</span>
+                                    @endif
+                                </td>
+
+                            @elseif(preg_match('/^flow(\d+)_elapsed_days$/', $colKey))
                                 <td class="align-center">
                                     @if(!empty($val) && $val !== '-')
                                         <span style="font-weight: 700; color: #0369a1; background: #e0f2fe; padding: 2px 6px; border-radius: 4px; font-size: 9px; border: 1px solid #bae6fd; white-space: nowrap;">

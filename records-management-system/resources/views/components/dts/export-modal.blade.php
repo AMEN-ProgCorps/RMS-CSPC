@@ -4,9 +4,8 @@
     'availableColumns' => [],
     'selectedColumns' => [],
     'format' => 'pdf',
-    'scope' => 'all',
     'selectedCount' => 0,
-    'totalCount' => 0,
+    'flowCount' => 0,
     'preparedBy' => '',
     'notedBy' => '',
 ])
@@ -14,11 +13,7 @@
 @if($show)
 @php
     $generalCols = collect($availableColumns)->filter(fn($c) => ($c['group'] ?? 'general') === 'general');
-    $flow1Cols = collect($availableColumns)->filter(fn($c) => ($c['group'] ?? '') === 'flow1');
     $additionalCols = collect($availableColumns)->filter(fn($c) => ($c['group'] ?? '') === 'additional');
-    
-    $flow1Keys = $flow1Cols->keys()->toArray();
-    $selectedFlow1Count = count(array_intersect($flow1Keys, $selectedColumns));
 @endphp
 <div class="dts-export-modal-backdrop" onclick="event.stopPropagation()">
     <div class="dts-export-modal-card" onclick="event.stopPropagation()">
@@ -45,6 +40,24 @@
         <!-- Modal Body (Scrollable) -->
         <div class="dts-export-modal-body">
             
+            <!-- Selected Records Banner -->
+            @if($selectedCount > 0)
+                <div style="background: #f0fdf4; border: 1.5px solid #bbf7d0; border-radius: 8px; padding: 10px 14px; display: flex; align-items: center; justify-content: space-between; color: #166534; font-size: 12.5px;">
+                    <div style="display: flex; align-items: center; gap: 8px;">
+                        <i class="fa-solid fa-circle-check" style="color: #16a34a; font-size: 14px;"></i>
+                        <span>Exporting <strong>{{ $selectedCount }}</strong> selected {{ Str::plural('transaction', $selectedCount) }}</span>
+                    </div>
+                    <span style="font-size: 11px; color: #15803d; background: #dcfce7; padding: 2px 8px; border-radius: 10px; font-weight: 700;">Numbered 1 to {{ $selectedCount }}</span>
+                </div>
+            @else
+                <div style="background: #fef2f2; border: 1.5px solid #fecaca; border-radius: 8px; padding: 10px 14px; display: flex; align-items: center; gap: 10px; color: #991b1b; font-size: 12.5px;">
+                    <i class="fa-solid fa-triangle-exclamation" style="font-size: 16px; color: #dc2626; flex-shrink: 0;"></i>
+                    <div>
+                        <strong>No transactions selected!</strong> Please check the checkbox next to at least one transaction on the table before exporting.
+                    </div>
+                </div>
+            @endif
+
             <!-- 1. Format Selection -->
             <div class="dts-export-section">
                 <label class="dts-export-step-label">
@@ -82,47 +95,11 @@
                 </div>
             </div>
 
-            <!-- 2. Scope Selection -->
-            <div class="dts-export-section">
-                <label class="dts-export-step-label">
-                    <span class="dts-export-step-num">2</span>
-                    Select Records Scope
-                </label>
-                <div class="dts-export-scope-grid">
-                    <!-- All Filtered Records -->
-                    <label class="dts-export-scope-card {{ $scope === 'all' ? 'active' : '' }}">
-                        <div class="dts-export-scope-left">
-                            <input type="radio" name="exportScope" value="all" wire:model.live="exportScope">
-                            <span class="dts-export-scope-name">All Filtered Records</span>
-                        </div>
-                        <span class="dts-export-count-pill primary">
-                            {{ $totalCount }} records
-                        </span>
-                    </label>
-
-                    <!-- Selected Records Only -->
-                    <label class="dts-export-scope-card {{ $scope === 'selected' ? 'active' : '' }} {{ $selectedCount === 0 ? 'disabled' : '' }}">
-                        <div class="dts-export-scope-left">
-                            <input type="radio" name="exportScope" value="selected" wire:model.live="exportScope" {{ $selectedCount === 0 ? 'disabled' : '' }}>
-                            <div>
-                                <span class="dts-export-scope-name">Selected Records Only</span>
-                                @if($selectedCount === 0)
-                                    <div class="dts-export-scope-warning">(No table rows selected)</div>
-                                @endif
-                            </div>
-                        </div>
-                        <span class="dts-export-count-pill success">
-                            {{ $selectedCount }} selected
-                        </span>
-                    </label>
-                </div>
-            </div>
-
-            <!-- 3. Customize Export Columns -->
+            <!-- 2. Customize Export Columns -->
             <div class="dts-export-section">
                 <div class="dts-export-columns-header">
                     <label class="dts-export-step-label">
-                        <span class="dts-export-step-num">3</span>
+                        <span class="dts-export-step-num">2</span>
                         Customize Included Columns
                     </label>
                     <div class="dts-export-columns-actions">
@@ -153,41 +130,72 @@
                         </div>
                     </div>
 
-                    <!-- Section B: Flow 1 Routing Steps (Not Origin) -->
-                    @if($flow1Cols->isNotEmpty())
-                        <div class="dts-export-flow1-section">
-                            <div class="dts-export-flow1-header">
-                                <div class="dts-export-flow1-title-group">
-                                    <span class="dts-export-flow1-title">
-                                        <i class="fa-solid fa-route"></i> Flow 1 (not the origin)
-                                    </span>
-                                    <span class="dts-export-flow1-badge">Forwarded Step 1</span>
-                                </div>
-                                <button type="button" wire:click="toggleFlow1ExportColumns" class="dts-export-flow1-btn">
-                                    @if($selectedFlow1Count === count($flow1Keys))
-                                        <i class="fa-solid fa-check-double"></i> Exclude Flow 1
-                                    @else
-                                        <i class="fa-solid fa-plus"></i> Include Flow 1 Columns
-                                    @endif
-                                </button>
+                    <!-- Section B: Dynamic Transaction Flow Steps -->
+                    <div class="dts-export-flow1-section" style="background: #f0f9ff; border: 1.5px solid #bae6fd; border-radius: 10px; padding: 14px;">
+                        <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; flex-wrap: wrap; gap: 8px;">
+                            <div style="display: flex; align-items: center; gap: 8px;">
+                                <span style="font-size: 12px; font-weight: 800; color: #0369a1; text-transform: uppercase; letter-spacing: 0.4px; display: flex; align-items: center; gap: 6px;">
+                                    <i class="fa-solid fa-route"></i> Transaction Flow Steps
+                                </span>
+                                <span style="font-size: 10.5px; font-weight: 700; background: #e0f2fe; color: #0284c7; padding: 2px 8px; border-radius: 12px; border: 1px solid #7dd3fc;">
+                                    {{ $flowCount }} {{ Str::plural('Flow', $flowCount) }} Added
+                                </span>
                             </div>
-                            
-                            <p class="dts-export-flow1-desc">
-                                Adds dedicated columns for the 1st destination office: <strong>Office Name</strong>, <strong>Received (Date/Time & Person)</strong>, <strong>Released (Date/Time & Person)</strong>, and <strong>Elapsed Day (Duration)</strong>.
-                            </p>
-
-                            <div class="dts-export-checkbox-grid nested">
-                                @foreach($flow1Cols as $colKey => $colDef)
-                                    <label class="dts-export-checkbox-item flow1">
-                                        <input type="checkbox" wire:model.live="exportColumns" value="{{ $colKey }}">
-                                        <span class="{{ in_array($colKey, $selectedColumns) ? 'selected' : '' }}">
-                                            {{ $colDef['sublabel'] ?? $colDef['label'] }}
-                                        </span>
-                                    </label>
-                                @endforeach
-                            </div>
+                            <button type="button" wire:click="addExportFlow" style="font-size: 11.5px; font-weight: 700; color: #ffffff; background: #0284c7; border: none; border-radius: 6px; padding: 5px 12px; cursor: pointer; display: inline-flex; align-items: center; gap: 5px; box-shadow: 0 1px 3px rgba(2,132,199,0.25); transition: background 0.15s ease;" onmouseover="this.style.background='#0369a1'" onmouseout="this.style.background='#0284c7'">
+                                <i class="fa-solid fa-plus"></i> Add Transaction Flow
+                            </button>
                         </div>
-                    @endif
+                        
+                        <p style="margin: 0 0 10px 0; font-size: 11px; color: #0369a1; line-height: 1.4;">
+                            Click <strong>Add Transaction Flow</strong> to include destination office routing columns (Office Name, Received, Released, Notes, Elapsed Day). You can add as many flows or remove them as needed.
+                        </p>
+
+                        @if($flowCount > 0)
+                            <div style="display: flex; flex-direction: column; gap: 10px;">
+                                @for($f = 1; $f <= $flowCount; $f++)
+                                    @php
+                                        $fCols = \App\Helpers\DtsExportHelper::getFlowColumnDefinitions($f);
+                                        $fKeys = array_keys($fCols);
+                                        $fSelectedCount = count(array_intersect($fKeys, $selectedColumns));
+                                        $fTitle = ($f === 1) ? 'Flow 1 (not the origin)' : "Flow {$f}";
+                                    @endphp
+                                    <div style="background: #ffffff; border: 1.5px solid #e0f2fe; border-radius: 8px; padding: 10px 12px;">
+                                        <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; padding-bottom: 6px; border-bottom: 1px solid #f1f5f9;">
+                                            <div style="display: flex; align-items: center; gap: 8px;">
+                                                <span style="font-size: 10.5px; font-weight: 800; background: #0284c7; color: #ffffff; padding: 2px 7px; border-radius: 4px;">Flow {{ $f }}</span>
+                                                <span style="font-size: 12px; font-weight: 700; color: #0f172a;">{{ $fTitle }}</span>
+                                            </div>
+                                            <div style="display: flex; align-items: center; gap: 10px;">
+                                                <button type="button" wire:click="toggleFlowStepColumns({{ $f }})" style="font-size: 11px; color: #0284c7; background: none; border: none; cursor: pointer; font-weight: 600; padding: 0;">
+                                                    {{ $fSelectedCount === count($fKeys) ? 'Deselect All' : 'Select All' }}
+                                                </button>
+                                                <span style="color: #cbd5e1;">•</span>
+                                                <button type="button" wire:click="removeExportFlow({{ $f }})" style="font-size: 11px; color: #dc2626; background: none; border: none; cursor: pointer; font-weight: 600; display: inline-flex; align-items: center; gap: 4px; padding: 0;" title="Remove Flow {{ $f }}">
+                                                    <i class="fa-solid fa-trash-can"></i> Remove
+                                                </button>
+                                            </div>
+                                        </div>
+
+                                        <div class="dts-export-checkbox-grid nested" style="background: transparent; padding: 0; border: none;">
+                                            @foreach($fCols as $colKey => $colDef)
+                                                <label class="dts-export-checkbox-item flow1">
+                                                    <input type="checkbox" wire:model.live="exportColumns" value="{{ $colKey }}">
+                                                    <span class="{{ in_array($colKey, $selectedColumns) ? 'selected' : '' }}">
+                                                        {{ $colDef['sublabel'] }}
+                                                    </span>
+                                                </label>
+                                            @endforeach
+                                        </div>
+                                    </div>
+                                @endfor
+                            </div>
+                        @else
+                            <div style="background: #ffffff; border: 1.5px dashed #cbd5e1; border-radius: 8px; padding: 14px; text-align: center; color: #64748b; font-size: 12px;">
+                                <i class="fa-solid fa-route" style="font-size: 18px; color: #94a3b8; margin-bottom: 4px; display: block;"></i>
+                                <span>No transaction flows added yet. Click <strong>"+ Add Transaction Flow"</strong> above to include destination office routing columns.</span>
+                            </div>
+                        @endif
+                    </div>
 
                     <!-- Section C: Additional Metadata -->
                     @if($additionalCols->isNotEmpty())
@@ -211,11 +219,11 @@
                 </div>
             </div>
 
-            <!-- 4. Signatories Options (for PDF / Printable Report) -->
+            <!-- 3. Signatories Options (for PDF / Printable Report) -->
             @if($format === 'pdf')
                 <div class="dts-export-signatories-section">
                     <label class="dts-export-step-label">
-                        <span class="dts-export-step-num">4</span>
+                        <span class="dts-export-step-num">3</span>
                         Report Signatories Configuration
                     </label>
                     <div class="dts-export-signatories-grid">
@@ -238,7 +246,7 @@
             <button type="button" wire:click="closeExportModal" class="dts-export-btn-cancel">
                 Cancel
             </button>
-            <button type="button" wire:click="executeExport" class="dts-export-btn-submit" wire:loading.attr="disabled">
+            <button type="button" wire:click="executeExport" class="dts-export-btn-submit" {{ $selectedCount === 0 ? 'disabled' : '' }} style="{{ $selectedCount === 0 ? 'opacity: 0.5; cursor: not-allowed;' : '' }}" wire:loading.attr="disabled">
                 <span wire:loading.remove wire:target="executeExport" class="dts-export-btn-content">
                     @if($format === 'pdf')
                         <i class="fa-solid fa-print"></i> Generate & Print Report

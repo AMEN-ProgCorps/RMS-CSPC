@@ -60,16 +60,16 @@ new #[Layout('layouts.dts')] #[Title('DTS - Issuances')] class extends Component
     // Export Modal Properties
     public bool $showExportModal = false;
     public string $exportFormat = 'pdf';
-    public string $exportScope = 'all';
     public array $exportColumns = [];
+    public int $exportFlowCount = 0;
     public string $exportPreparedBy = '';
     public string $exportNotedBy = '';
 
     public function openExportModal(): void
     {
-        $available = \App\Helpers\DtsExportHelper::getAvailableColumns('issuances');
+        $this->exportFlowCount = 0;
+        $available = \App\Helpers\DtsExportHelper::getAvailableColumns('issuances', 0);
         $this->exportColumns = array_keys(array_filter($available, fn($c) => $c['default']));
-        $this->exportScope = !empty($this->selectedIds) ? 'selected' : 'all';
         $user = auth()->user();
         $this->exportPreparedBy = $user?->details?->first_name ? ($user->details->first_name . ' ' . $user->details->last_name) : ($user?->name ?? '');
         $this->exportNotedBy = '';
@@ -81,15 +81,61 @@ new #[Layout('layouts.dts')] #[Title('DTS - Issuances')] class extends Component
         $this->showExportModal = false;
     }
 
+    public function addExportFlow(): void
+    {
+        $this->exportFlowCount++;
+        $newIndex = $this->exportFlowCount;
+        $newCols = array_keys(\App\Helpers\DtsExportHelper::getFlowColumnDefinitions($newIndex));
+        $this->exportColumns = array_values(array_unique(array_merge($this->exportColumns, $newCols)));
+    }
+
+    public function removeExportFlow(int $flowIndex): void
+    {
+        if ($flowIndex < 1 || $flowIndex > $this->exportFlowCount) {
+            return;
+        }
+
+        $updated = [];
+        foreach ($this->exportColumns as $col) {
+            if (preg_match('/^flow(\d+)_(.+)$/', $col, $matches)) {
+                $idx = (int)$matches[1];
+                $field = $matches[2];
+                if ($idx < $flowIndex) {
+                    $updated[] = $col;
+                } elseif ($idx > $flowIndex) {
+                    $newIdx = $idx - 1;
+                    $updated[] = "flow{$newIdx}_{$field}";
+                }
+            } else {
+                $updated[] = $col;
+            }
+        }
+
+        $this->exportColumns = $updated;
+        $this->exportFlowCount = max(0, $this->exportFlowCount - 1);
+    }
+
+    public function toggleFlowStepColumns(int $flowIndex): void
+    {
+        $fKeys = array_keys(\App\Helpers\DtsExportHelper::getFlowColumnDefinitions($flowIndex));
+        $hasAll = count(array_intersect($fKeys, $this->exportColumns)) === count($fKeys);
+        if ($hasAll) {
+            $this->exportColumns = array_values(array_diff($this->exportColumns, $fKeys));
+        } else {
+            $this->exportColumns = array_values(array_unique(array_merge($this->exportColumns, $fKeys)));
+        }
+    }
+
     public function selectAllExportColumns(): void
     {
-        $available = \App\Helpers\DtsExportHelper::getAvailableColumns('issuances');
+        $available = \App\Helpers\DtsExportHelper::getAvailableColumns('issuances', $this->exportFlowCount);
         $this->exportColumns = array_keys($available);
     }
 
     public function resetDefaultExportColumns(): void
     {
-        $available = \App\Helpers\DtsExportHelper::getAvailableColumns('issuances');
+        $this->exportFlowCount = 0;
+        $available = \App\Helpers\DtsExportHelper::getAvailableColumns('issuances', 0);
         $this->exportColumns = array_keys(array_filter($available, fn($c) => $c['default']));
     }
 
@@ -98,33 +144,21 @@ new #[Layout('layouts.dts')] #[Title('DTS - Issuances')] class extends Component
         $this->exportColumns = [];
     }
 
-    public function toggleFlow1ExportColumns(): void
-    {
-        $flow1Keys = ['flow1_office', 'flow1_received', 'flow1_released', 'flow1_elapsed_days'];
-        $hasAll = count(array_intersect($flow1Keys, $this->exportColumns)) === count($flow1Keys);
-        if ($hasAll) {
-            $this->exportColumns = array_values(array_diff($this->exportColumns, $flow1Keys));
-        } else {
-            $this->exportColumns = array_values(array_unique(array_merge($this->exportColumns, $flow1Keys)));
-        }
-    }
-
     public function executeExport()
     {
-        $available = \App\Helpers\DtsExportHelper::getAvailableColumns('issuances');
+        if (empty($this->selectedIds)) {
+            return;
+        }
+
+        $available = \App\Helpers\DtsExportHelper::resolveAllColumns('issuances', $this->exportColumns);
         $colsToUse = !empty($this->exportColumns) ? $this->exportColumns : array_keys(array_filter($available, fn($c) => $c['default']));
 
         $filters = [
-            'priority'   => $this->selectedPriority,
-            'status'     => $this->selectedStatus,
-            'search'     => $this->searchQuery,
-            'date_from'  => $this->dateFrom,
-            'date_to'    => $this->dateTo,
             'sort_order' => $this->sortOrder,
         ];
 
         if ($this->exportFormat === 'excel') {
-            $rows = \App\Helpers\DtsExportHelper::fetchExportRecords('issuances', $filters, $this->selectedIds, $this->exportScope);
+            $rows = \App\Helpers\DtsExportHelper::fetchExportRecords('issuances', $filters, $this->selectedIds);
             $filename = 'dts-issuances-transactions-' . now()->format('Y-m-d') . '.csv';
             $this->showExportModal = false;
             return \App\Helpers\DtsExportHelper::exportCsv($filename, $colsToUse, $rows, $available);
@@ -133,14 +167,8 @@ new #[Layout('layouts.dts')] #[Title('DTS - Issuances')] class extends Component
         // PDF / Print format
         $params = [
             'category'    => 'issuances',
-            'scope'       => $this->exportScope,
             'ids'         => implode(',', $this->selectedIds),
             'cols'        => implode(',', $colsToUse),
-            'priority'    => $this->selectedPriority,
-            'status'      => $this->selectedStatus,
-            'search'      => $this->searchQuery,
-            'date_from'   => $this->dateFrom,
-            'date_to'     => $this->dateTo,
             'sort_order'  => $this->sortOrder,
             'prepared_by' => $this->exportPreparedBy,
             'noted_by'    => $this->exportNotedBy,
@@ -2603,12 +2631,11 @@ new #[Layout('layouts.dts')] #[Title('DTS - Issuances')] class extends Component
     <x-dts.export-modal
         :show="$showExportModal"
         category="issuances"
-        :available-columns="\App\Helpers\DtsExportHelper::getAvailableColumns('issuances')"
+        :available-columns="\App\Helpers\DtsExportHelper::getAvailableColumns('issuances', $exportFlowCount)"
         :selected-columns="$exportColumns"
         :format="$exportFormat"
-        :scope="$exportScope"
         :selected-count="count($selectedIds)"
-        :total-count="$this->transactions->total()"
+        :flow-count="$exportFlowCount"
         :prepared-by="$exportPreparedBy"
         :noted-by="$exportNotedBy"
     />

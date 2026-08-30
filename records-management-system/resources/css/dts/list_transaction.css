@@ -923,13 +923,20 @@
     background: rgba(14, 165, 233, 0.08) !important;
     border-color: rgba(14, 165, 233, 0.3) !important;
 }
-[data-theme="dark"] .dts-export-flow1-title {
+[data-theme="dark"] .dts-export-flow1-section > div > div > span:first-child {
     color: #38bdf8 !important;
 }
-[data-theme="dark"] .dts-export-flow1-desc {
+[data-theme="dark"] .dts-export-flow1-section p {
     color: #94a3b8 !important;
 }
-[data-theme="dark"] .dts-export-flow1-desc strong {
+[data-theme="dark"] .dts-export-flow1-section p strong {
+    color: #f8fafc !important;
+}
+[data-theme="dark"] .dts-export-flow1-section div[style*="background: #ffffff"] {
+    background: #0f172a !important;
+    border-color: rgba(14, 165, 233, 0.25) !important;
+}
+[data-theme="dark"] .dts-export-flow1-section span[style*="color: #0f172a"] {
     color: #f8fafc !important;
 }
 [data-theme="dark"] .dts-export-checkbox-grid.nested {

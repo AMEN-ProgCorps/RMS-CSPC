@@ -474,44 +474,30 @@ Route::middleware(['auth'])
         // DTS List of Transactions Printable Export Route
         Route::get('/dts/list/print', function (\Illuminate\Http\Request $request) {
             $category = $request->query('category', 'internal');
-            $scope = $request->query('scope', 'all');
             $selectedIds = array_filter(explode(',', $request->query('ids', '')));
             $selectedColsParam = $request->query('cols', '');
 
-            $availableColumns = \App\Helpers\DtsExportHelper::getAvailableColumns($category);
-            $selectedColumns = !empty($selectedColsParam)
-                ? array_values(array_intersect(explode(',', $selectedColsParam), array_keys($availableColumns)))
+            $rawSelectedCols = !empty($selectedColsParam) ? explode(',', $selectedColsParam) : [];
+            $availableColumns = \App\Helpers\DtsExportHelper::resolveAllColumns($category, $rawSelectedCols);
+            $selectedColumns = !empty($rawSelectedCols)
+                ? array_values(array_intersect($rawSelectedCols, array_keys($availableColumns)))
                 : array_keys(array_filter($availableColumns, fn($c) => $c['default']));
 
             $filters = [
-                'search'     => $request->query('search', ''),
-                'priority'   => $request->query('priority', 'all'),
-                'status'     => $request->query('status', 'all'),
-                'date_from'  => $request->query('date_from', ''),
-                'date_to'    => $request->query('date_to', ''),
                 'sort_order' => $request->query('sort_order', 'desc'),
             ];
 
-            $rows = \App\Helpers\DtsExportHelper::fetchExportRecords($category, $filters, $selectedIds, $scope);
+            $rows = \App\Helpers\DtsExportHelper::fetchExportRecords($category, $filters, $selectedIds);
 
             $userOfficeName = auth()->user()?->details?->office?->office_name ?? 'Records and Freedom of Information Office';
-
-            $dateRangeLabel = '';
-            if (!empty($filters['date_from']) && !empty($filters['date_to'])) {
-                $dateRangeLabel = \Carbon\Carbon::parse($filters['date_from'])->format('M d, Y') . ' to ' . \Carbon\Carbon::parse($filters['date_to'])->format('M d, Y');
-            } elseif (!empty($filters['date_from'])) {
-                $dateRangeLabel = 'From ' . \Carbon\Carbon::parse($filters['date_from'])->format('M d, Y');
-            } elseif (!empty($filters['date_to'])) {
-                $dateRangeLabel = 'Until ' . \Carbon\Carbon::parse($filters['date_to'])->format('M d, Y');
-            }
 
             $meta = [
                 'title'            => \App\Helpers\DtsExportHelper::getCategoryTitle($category),
                 'office_name'      => $userOfficeName,
-                'scope_label'      => $scope === 'selected' ? ('Selected Records (' . count($rows) . ')') : ('All Matching Records (' . count($rows) . ')'),
-                'date_range_label' => $dateRangeLabel,
-                'status_label'     => $filters['status'],
-                'priority_label'   => $filters['priority'],
+                'scope_label'      => 'Selected Records (' . count($rows) . ')',
+                'date_range_label' => '',
+                'status_label'     => 'all',
+                'priority_label'   => 'all',
                 'prepared_by'      => $request->query('prepared_by', ''),
                 'noted_by'         => $request->query('noted_by', ''),
             ];

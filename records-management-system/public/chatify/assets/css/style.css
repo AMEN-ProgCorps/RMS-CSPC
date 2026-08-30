@@ -2901,6 +2901,17 @@
       margin-top: 4px;
     }
 
+    /* Emoji-only bubbles have no background and a taller line-height box
+       around the big 36px glyph (empty space the font reserves above/below
+       the visible emoji). The default -13px overlap is tuned for a real
+       bubble's padded corner, so on an emoji-only bubble it leaves the pill
+       floating with a visible gap below the emoji instead of tucking into
+       its corner. Pull it in so it sits snug against the emoji, matching
+       the same attached look reactions have on a normal chat bubble. */
+    .bubble-wrapper:has(.message-bubble.emoji-only) .msg-reactions {
+      bottom: -4px;
+    }
+
     /* Solid mini chat bubble container for reactions */
     .msg-reactions-pill {
       display: inline-flex !important;

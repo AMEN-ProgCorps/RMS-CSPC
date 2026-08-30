@@ -2909,6 +2909,7 @@
        its corner. Pull it in so it sits snug against the emoji, matching
        the same attached look reactions have on a normal chat bubble. */
     .bubble-wrapper:has(.message-bubble.emoji-only) .msg-reactions {
+      margin-right: -5px;
       bottom: -4px;
     }
 

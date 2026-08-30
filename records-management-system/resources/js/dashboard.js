@@ -31,6 +31,13 @@ function closeActionsDropdown() {
     }
 }
 
+function persistSidebarState(state) {
+    try {
+        localStorage.setItem('sidebarState', state);
+    } catch (e) {}
+    document.cookie = 'sidebarState=' + encodeURIComponent(state) + '; path=/; max-age=31536000; SameSite=Lax';
+}
+
 function toggleNavProperties() {
     const navigation = document.getElementById('navigation');
     const navMainIcon = document.getElementById('nav-main-icon');
@@ -38,20 +45,22 @@ function toggleNavProperties() {
     const toggleNavSection = window.assetPaths?.toggleNavSection ?? '/icons/toggle-nav-section.svg';
     const toggleNavDefault = window.assetPaths?.toggleNavDefault ?? '/icons/toggle-nav-default.svg';
 
+    if (!navigation || !articleContainer) return;
+
     if (navigation.classList.contains('imup')) {
         navigation.classList.remove('imup');
         navigation.classList.add('imdown');
         articleContainer.classList.remove('imdown');
         articleContainer.classList.add('imup');
         navMainIcon.src = toggleNavSection;
-        localStorage.setItem('sidebarState', 'imdown');
+        persistSidebarState('imdown');
     } else {
         navigation.classList.remove('imdown');
         navigation.classList.add('imup');
         articleContainer.classList.remove('imup');
         articleContainer.classList.add('imdown');
         navMainIcon.src = toggleNavDefault;
-        localStorage.setItem('sidebarState', 'imup');
+        persistSidebarState('imup');
     }
 }
 
@@ -61,12 +70,14 @@ function resetNavProperties() {
     const articleContainer = document.getElementById('article-container');
     const toggleNavDefault = window.assetPaths?.toggleNavDefault ?? '/icons/toggle-nav-default.svg';
 
+    if (!navigation || !articleContainer) return;
+
     navigation.classList.remove('imdown');
     navigation.classList.add('imup');
     articleContainer.classList.remove('imup');
     articleContainer.classList.add('imdown');
     navMainIcon.src = toggleNavDefault;
-    localStorage.setItem('sidebarState', 'imup');
+    persistSidebarState('imup');
 }
 
 function showButtonSection(button_target) {
@@ -279,7 +290,18 @@ function initializeSidebarState() {
     const toggleNavSection = window.assetPaths?.toggleNavSection ?? '/icons/toggle-nav-section.svg';
     const toggleNavDefault = window.assetPaths?.toggleNavDefault ?? '/icons/toggle-nav-default.svg';
 
-    const savedState = localStorage.getItem('sidebarState');
+    const getCookie = (name) => {
+        const match = document.cookie.match(new RegExp('(^|;\\s*)' + name + '=([^;]*)'));
+        return match ? decodeURIComponent(match[2]) : null;
+    };
+
+    let savedState = null;
+    try {
+        savedState = localStorage.getItem('sidebarState');
+    } catch (e) {}
+    if (!savedState) {
+        savedState = getCookie('sidebarState');
+    }
 
     if (savedState === 'imdown' || (window.innerWidth < 1024 && !savedState)) {
         // Keep closed / icon mode
@@ -288,6 +310,7 @@ function initializeSidebarState() {
         articleContainer.classList.remove('imdown');
         articleContainer.classList.add('imup');
         navMainIcon.src = toggleNavSection;
+        persistSidebarState('imdown');
     } else {
         // Keep open / expanded mode
         navigation.classList.remove('imdown');
@@ -295,6 +318,7 @@ function initializeSidebarState() {
         articleContainer.classList.remove('imup');
         articleContainer.classList.add('imdown');
         navMainIcon.src = toggleNavDefault;
+        persistSidebarState('imup');
     }
 }
 

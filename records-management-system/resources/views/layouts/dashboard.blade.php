@@ -7,11 +7,21 @@
         (function() {
             var theme = localStorage.getItem('rms-theme') || '{{ auth()->user()?->theme() ?? "light" }}';
             document.documentElement.setAttribute('data-theme', theme);
+            var sidebar = localStorage.getItem('sidebarState');
+            if (sidebar && !document.cookie.includes('sidebarState=')) {
+                document.cookie = 'sidebarState=' + encodeURIComponent(sidebar) + '; path=/; max-age=31536000; SameSite=Lax';
+            }
         })();
         window.assetPaths = {
             toggleNavSection: "{{ asset('icons/toggle-nav-section.svg') }}",
             toggleNavDefault: "{{ asset('icons/toggle-nav-default.svg') }}",
         };
+        function persistSidebarState(state) {
+            try {
+                localStorage.setItem('sidebarState', state);
+            } catch (e) {}
+            document.cookie = 'sidebarState=' + encodeURIComponent(state) + '; path=/; max-age=31536000; SameSite=Lax';
+        }
         function toggleDropdown() {
             const dropdownIcon = document.getElementById('dropdown-icon');
             const dropdown = document.getElementById('dropdown');
@@ -53,12 +63,14 @@
                 articleContainer.classList.remove('imdown');
                 articleContainer.classList.add('imup');
                 if (navMainIcon) navMainIcon.src = toggleNavSection;
+                persistSidebarState('imdown');
             } else {
                 navigation.classList.remove('imdown');
                 navigation.classList.add('imup');
                 articleContainer.classList.remove('imup');
                 articleContainer.classList.add('imdown');
                 if (navMainIcon) navMainIcon.src = toggleNavDefault;
+                persistSidebarState('imup');
             }
         }
         function resetNavProperties() {
@@ -72,6 +84,7 @@
             articleContainer.classList.remove('imup');
             articleContainer.classList.add('imdown');
             if (navMainIcon) navMainIcon.src = toggleNavDefault;
+            persistSidebarState('imup');
         }
         function showButtonSection(button_target) {
             const navigation = document.getElementById('navigation');
@@ -172,12 +185,16 @@
             </div>
         </div>
     </header>
+    @php
+        $sidebarState = request()->cookie('sidebarState', 'imup');
+        $isCollapsed = $sidebarState === 'imdown';
+    @endphp
     <section>
-        <div class="navigation imup" id="navigation">
+        <div class="navigation {{ $isCollapsed ? 'imdown' : 'imup' }}" id="navigation">
             <div class="nav">
                 <div class="nav-header-container">
                     <div class="toggle-btn" onclick="toggleNavProperties()">
-                        <img id="nav-main-icon" src="{{ asset('icons/toggle-nav-section.svg') }}" alt="Toggle Icon">
+                        <img id="nav-main-icon" src="{{ asset($isCollapsed ? 'icons/toggle-nav-section.svg' : 'icons/toggle-nav-default.svg') }}" alt="Toggle Icon">
                     </div>
                     <div id="nav-contexts" class="subsystem-indicator">
                         <div class="subsystem-name">{{ $subsystem }}</div>
@@ -195,7 +212,7 @@
                 </div>
             </div>
         </div>
-        <div id="article-container" class="article-container imdown">
+        <div id="article-container" class="article-container {{ $isCollapsed ? 'imup' : 'imdown' }}">
             {{ $slot }}
         </div>
     </section>

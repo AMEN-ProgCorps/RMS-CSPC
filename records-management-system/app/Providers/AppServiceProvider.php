@@ -23,6 +23,8 @@ class AppServiceProvider extends ServiceProvider
             resource_path('views'),
         ]);
 
+        \Illuminate\Cookie\Middleware\EncryptCookies::except('sidebarState');
+
         Blade::anonymousComponentPath(resource_path('views/layouts'), 'layouts');
     }
 }

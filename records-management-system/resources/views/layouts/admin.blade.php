@@ -8,6 +8,10 @@
         (function() {
             var theme = localStorage.getItem('rms-theme') || '{{ auth()->user()?->theme() ?? "light" }}';
             document.documentElement.setAttribute('data-theme', theme);
+            var sidebar = localStorage.getItem('sidebarState');
+            if (sidebar && !document.cookie.includes('sidebarState=')) {
+                document.cookie = 'sidebarState=' + encodeURIComponent(sidebar) + '; path=/; max-age=31536000; SameSite=Lax';
+            }
         })();
         window.assetPaths = {
             toggleNavSection: "{{ asset('icons/toggle-nav-section.svg') }}",
@@ -68,12 +72,16 @@
         <span class="office_name">{{ auth()->user()?->details?->office?->office_name ?? 'Records and Freedom of Information Office' }}</span>
         <x-actions.dropdown />
     </header>
+    @php
+        $sidebarState = request()->cookie('sidebarState', 'imup');
+        $isCollapsed = $sidebarState === 'imdown';
+    @endphp
     <section>
-        <div class="navigation imup" id="navigation">
+        <div class="navigation {{ $isCollapsed ? 'imdown' : 'imup' }}" id="navigation">
             <div class="nav">
                 <div class="nav-header-container">
                     <div class="toggle-btn" onclick="toggleNavProperties()">
-                        <img id="nav-main-icon" src="{{ asset('icons/toggle-nav-default.svg') }}" alt="Toggle Icon">
+                        <img id="nav-main-icon" src="{{ asset($isCollapsed ? 'icons/toggle-nav-section.svg' : 'icons/toggle-nav-default.svg') }}" alt="Toggle Icon">
                     </div>
                     <div id="nav-contexts" class="subsystem-indicator">
                         <div class="subsystem-name">Admin Console</div>
@@ -91,7 +99,7 @@
                 </div>
             </div>
         </div>
-        <div id="article-container" class="article-container imdown">
+        <div id="article-container" class="article-container {{ $isCollapsed ? 'imup' : 'imdown' }}">
             <x-nav.top-tabs system="admin" />
             {{ $slot }}
         </div>

@@ -882,7 +882,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Users')] class extends C
 
     <!-- Right Pane: User Details & Form (Only rendered when a user is selected or creating a new user) -->
     @if($selectedUserId)
-        <div class="details-panel">
+        <div class="details-panel" wire:key="user-details-panel-{{ $selectedUserId }}">
             @php
                 if ($selectedUserId > 0) {
                     $selectedUser = \App\Models\User::with('details')->find($selectedUserId);
@@ -1080,7 +1080,8 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Users')] class extends C
                     <i class="fa-solid fa-floppy-disk"></i> {{ $selectedUserId === -1 ? 'Create User' : 'Save Changes' }}
                 </button>
             </div>
-        @endif
+        </div>
+    @endif
     </div>
     @elseif($activeTab === 'requestors')
         <div class="admin-users-container {{ !$selectedRequestorId ? 'no-selection' : 'has-selection' }}" wire:key="tab-requestors-view">

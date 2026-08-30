@@ -57,6 +57,84 @@ new #[Layout('layouts.dts')] #[Title('DTS - Internal Transactions')] class exten
         }
     }
 
+    // Export Modal Properties
+    public bool $showExportModal = false;
+    public string $exportFormat = 'pdf';
+    public string $exportScope = 'all';
+    public array $exportColumns = [];
+    public string $exportPreparedBy = '';
+    public string $exportNotedBy = '';
+
+    public function openExportModal(): void
+    {
+        $available = \App\Helpers\DtsExportHelper::getAvailableColumns('internal');
+        $this->exportColumns = array_keys(array_filter($available, fn($c) => $c['default']));
+        $this->exportScope = !empty($this->selectedIds) ? 'selected' : 'all';
+        $user = auth()->user();
+        $this->exportPreparedBy = $user?->details?->first_name ? ($user->details->first_name . ' ' . $user->details->last_name) : ($user?->name ?? '');
+        $this->exportNotedBy = '';
+        $this->showExportModal = true;
+    }
+
+    public function closeExportModal(): void
+    {
+        $this->showExportModal = false;
+    }
+
+    public function selectAllExportColumns(): void
+    {
+        $available = \App\Helpers\DtsExportHelper::getAvailableColumns('internal');
+        $this->exportColumns = array_keys($available);
+    }
+
+    public function resetDefaultExportColumns(): void
+    {
+        $available = \App\Helpers\DtsExportHelper::getAvailableColumns('internal');
+        $this->exportColumns = array_keys(array_filter($available, fn($c) => $c['default']));
+    }
+
+    public function executeExport()
+    {
+        $available = \App\Helpers\DtsExportHelper::getAvailableColumns('internal');
+        $colsToUse = !empty($this->exportColumns) ? $this->exportColumns : array_keys(array_filter($available, fn($c) => $c['default']));
+
+        $filters = [
+            'priority'   => $this->selectedPriority,
+            'status'     => $this->selectedStatus,
+            'search'     => $this->searchQuery,
+            'date_from'  => $this->dateFrom,
+            'date_to'    => $this->dateTo,
+            'sort_order' => $this->sortOrder,
+        ];
+
+        if ($this->exportFormat === 'excel') {
+            $rows = \App\Helpers\DtsExportHelper::fetchExportRecords('internal', $filters, $this->selectedIds, $this->exportScope);
+            $filename = 'dts-internal-transactions-' . now()->format('Y-m-d') . '.csv';
+            $this->showExportModal = false;
+            return \App\Helpers\DtsExportHelper::exportCsv($filename, $colsToUse, $rows, $available);
+        }
+
+        // PDF / Print format
+        $params = [
+            'category'    => 'internal',
+            'scope'       => $this->exportScope,
+            'ids'         => implode(',', $this->selectedIds),
+            'cols'        => implode(',', $colsToUse),
+            'priority'    => $this->selectedPriority,
+            'status'      => $this->selectedStatus,
+            'search'      => $this->searchQuery,
+            'date_from'   => $this->dateFrom,
+            'date_to'     => $this->dateTo,
+            'sort_order'  => $this->sortOrder,
+            'prepared_by' => $this->exportPreparedBy,
+            'noted_by'    => $this->exportNotedBy,
+        ];
+
+        $printUrl = route('dts.list.print', $params);
+        $this->showExportModal = false;
+        $this->js("window.open('{$printUrl}', '_blank')");
+    }
+
     // Modal state properties
     public string $selectedTransactionId = '';
     public $selectedTransaction = null;
@@ -1325,8 +1403,8 @@ new #[Layout('layouts.dts')] #[Title('DTS - Internal Transactions')] class exten
                         Table
                     @endif
                 </button>
-                <button type="button" class="rms-btn-print" onclick="window.print()">
-                    <svg class="btn-icon" viewBox="0 0 16 16" xmlns="http://www.w3.org/2000/svg"><path d="M5 1a2 2 0 0 0-2 2v2H2a2 2 0 0 0-2 2v3a2 2 0 0 0 2 2h1v1a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2v-1h1a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2h-1V3a2 2 0 0 0-2-2H5zM4 3a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2H4V3zm1 9h6v2a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1v-2zm7-5a1 1 0 1 1-2 0 1 1 0 0 1 2 0z"/></svg> Print
+                <button type="button" class="rms-btn-export" wire:click="openExportModal">
+                    <svg class="btn-icon" viewBox="0 0 16 16" xmlns="http://www.w3.org/2000/svg"><path d="M.5 9.9a.5.5 0 0 1 .5.5v2.5a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-2.5a.5.5 0 0 1 1 0v2.5a2 2 0 0 1-2 2H2a2 2 0 0 1-2-2v-2.5a.5.5 0 0 1 .5-.5z"/><path d="M7.646 11.854a.5.5 0 0 0 .708 0l3-3a.5.5 0 0 0-.708-.708L8.5 10.293V1.5a.5.5 0 0 0-1 0v8.793L5.354 8.146a.5.5 0 1 0-.708.708l3 3z"/></svg> Export
                 </button>
             </div>
         </div>
@@ -2401,4 +2479,18 @@ new #[Layout('layouts.dts')] #[Title('DTS - Internal Transactions')] class exten
 
     <!-- Dynamic QR Code Print Modal -->
     @include('components.dts.qr-print-modal')
+
+    <!-- Export Modal -->
+    <x-dts.export-modal
+        :show="$showExportModal"
+        category="internal"
+        :available-columns="\App\Helpers\DtsExportHelper::getAvailableColumns('internal')"
+        :selected-columns="$exportColumns"
+        :format="$exportFormat"
+        :scope="$exportScope"
+        :selected-count="count($selectedIds)"
+        :total-count="$this->transactions->total()"
+        :prepared-by="$exportPreparedBy"
+        :noted-by="$exportNotedBy"
+    />
 </div>

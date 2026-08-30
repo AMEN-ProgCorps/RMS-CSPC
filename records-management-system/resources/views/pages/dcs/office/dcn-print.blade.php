@@ -44,6 +44,7 @@
             box-shadow: 0 4px 24px rgba(15, 23, 42, 0.12);
             font-family: Arial, sans-serif;
             font-size: 11pt;
+            font-weight: 400;
         }
         .hdr-table {
             width: 100%;
@@ -110,7 +111,7 @@
             font-weight: 400;
         }
         .form-box {
-            border: 1.5px solid #000;
+            border: 1px solid #000;
         }
         .box-section {
             border-bottom: 1px solid #000;
@@ -155,23 +156,21 @@
             min-width: 36px;
             padding-top: 2px;
         }
-        .ruled-area {
+        .text-area {
             flex: 1;
             min-height: calc(4 * 1.35em);
-            line-height: 1.35em;
+            line-height: 1.35;
             white-space: pre-wrap;
             word-break: break-word;
-            background-image: repeating-linear-gradient(
-                to bottom,
-                transparent 0,
-                transparent calc(1.35em - 1px),
-                #000 calc(1.35em - 1px),
-                #000 1.35em
-            );
-            background-size: 100% 1.35em;
+            text-decoration: none;
+            padding: 2px 0;
         }
-        .ruled-area.is-short {
+        .text-area.is-short {
             min-height: calc(3 * 1.35em);
+        }
+        .text-area.is-block {
+            flex: none;
+            width: 100%;
         }
         .sig-row {
             display: flex;
@@ -184,7 +183,9 @@
         .approvals-table {
             width: 100%;
             border-collapse: collapse;
+            font-family: Arial, sans-serif;
             font-size: 11pt;
+            font-weight: 400;
         }
         .approvals-table th,
         .approvals-table td {
@@ -192,14 +193,34 @@
             padding: 6px 8px;
             vertical-align: middle;
             text-align: center;
-            height: 32px;
+            font-family: Arial, sans-serif;
+            font-size: 11pt;
+            font-weight: 400;
         }
         .approvals-table th {
-            font-weight: 700;
             background: #fff;
+            height: 32px;
+            border-top: none;
+        }
+        .approvals-table tbody td {
+            border-top: none;
+            border-bottom: none;
+            border-left: 1px solid #000;
+            border-right: 1px solid #000;
+            height: 128px;
+            vertical-align: top;
+        }
+        .approvals-table thead th:first-child,
+        .approvals-table tbody td:first-child {
+            border-left: none;
+        }
+        .approvals-table thead th:last-child,
+        .approvals-table tbody td:last-child {
+            border-right: none;
         }
         .approvals-table .approvals-label {
             font-style: italic;
+            font-weight: 400;
             text-align: left;
             width: 18%;
         }
@@ -211,10 +232,13 @@
             display: flex;
             justify-content: space-between;
             align-items: center;
+            font-family: Arial, sans-serif;
+            font-size: 11pt;
+            font-weight: 400;
         }
         .footer strong {
-            font-size: 10pt;
-            font-weight: 700;
+            font-size: 11pt;
+            font-weight: 400;
         }
         @media print {
             body { background: #fff; }
@@ -227,6 +251,17 @@
                 padding: 0;
             }
             @page { size: A4 portrait; margin: 6mm 12mm 8mm 12mm; }
+            .uline {
+                border-bottom: 1px solid #000 !important;
+                text-decoration: none !important;
+            }
+            .text-area {
+                text-decoration: none !important;
+            }
+            .approvals-table tbody td {
+                border-top: none !important;
+                border-bottom: none !important;
+            }
         }
     </style>
 </head>
@@ -293,18 +328,18 @@
             <div class="change-block">
                 <div class="change-row">
                     <span class="lbl">From:</span>
-                    <div class="ruled-area">{{ $changeFrom }}</div>
+                    <div class="text-area">{{ $changeFrom }}</div>
                 </div>
                 <div class="change-row">
                     <span class="lbl">To:</span>
-                    <div class="ruled-area">{{ $changeTo }}</div>
+                    <div class="text-area">{{ $changeTo }}</div>
                 </div>
             </div>
         </div>
 
         <div class="box-section">
             <div class="section-label">Justification of Change:</div>
-            <div class="ruled-area is-short">{{ $justification }}</div>
+            <div class="text-area is-short is-block">{{ $justification }}</div>
         </div>
 
         <div class="box-section">
@@ -334,15 +369,13 @@
                     </tr>
                 </thead>
                 <tbody>
-                    @for($i = 0; $i < 4; $i++)
-                        <tr>
-                            <td></td>
-                            <td></td>
-                            <td></td>
-                            <td></td>
-                            <td></td>
-                        </tr>
-                    @endfor
+                    <tr>
+                        <td></td>
+                        <td></td>
+                        <td></td>
+                        <td></td>
+                        <td></td>
+                    </tr>
                 </tbody>
             </table>
         </div>

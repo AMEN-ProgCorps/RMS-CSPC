@@ -28,6 +28,8 @@ class CanAccessDcs
             return redirect()->route('portal');
         }
 
+        \App\Helpers\RegisterPersistHelper::logDcsAccess($request);
+
         return $next($request);
     }
 }

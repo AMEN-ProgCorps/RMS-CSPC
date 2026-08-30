@@ -45,6 +45,7 @@ class CalendarHelper
 
     public static function storeCategory(Request $request): JsonResponse
     {
+        RegisterQueryHelper::assertFullDcsUser();
         $data = $request->validate([
             'name' => 'required|string|max:80',
         ]);
@@ -70,11 +71,14 @@ class CalendarHelper
             'updated_at' => now(),
         ]);
 
+        RegisterPersistHelper::logAdminChange('Added calendar category — ' . $name);
+
         return response()->json(self::categoryRows()->firstWhere('id', $id));
     }
 
     public static function storeEvent(Request $request): JsonResponse
     {
+        RegisterQueryHelper::assertFullDcsUser();
         $data = self::validatedEvent($request);
 
         $id = DB::table('dcs_calendar_events')->insertGetId([
@@ -89,11 +93,16 @@ class CalendarHelper
             'updated_at' => now(),
         ]);
 
+        RegisterPersistHelper::logAdminChange(
+            'Added calendar event — ' . $data['title'] . ' (' . $data['date'] . ')'
+        );
+
         return response()->json(self::eventById($id), 201);
     }
 
     public static function updateEvent(Request $request, int $id): JsonResponse
     {
+        RegisterQueryHelper::assertFullDcsUser();
         $existing = DB::table('dcs_calendar_events')->where('id', $id)->first();
         if (!$existing) {
             abort(404);
@@ -111,14 +120,26 @@ class CalendarHelper
             'updated_at' => now(),
         ]);
 
+        RegisterPersistHelper::logAdminChange(
+            'Updated calendar event #' . $id . ' — ' . $data['title']
+        );
+
         return response()->json(self::eventById($id));
     }
 
     public static function destroyEvent(int $id): JsonResponse
     {
+        RegisterQueryHelper::assertFullDcsUser();
+        $event = DB::table('dcs_calendar_events')->where('id', $id)->first();
         $deleted = DB::table('dcs_calendar_events')->where('id', $id)->delete();
         if (!$deleted) {
             abort(404);
+        }
+
+        if ($event) {
+            RegisterPersistHelper::logAdminChange(
+                'Deleted calendar event #' . $id . ' — ' . ($event->title ?? 'Untitled')
+            );
         }
 
         return response()->json(['ok' => true]);
@@ -126,6 +147,7 @@ class CalendarHelper
 
     public static function destroyCategory(int $id): JsonResponse
     {
+        RegisterQueryHelper::assertFullDcsUser();
         $cat = DB::table('dcs_calendar_categories')->where('id', $id)->first();
         if (!$cat) {
             abort(404);
@@ -136,6 +158,10 @@ class CalendarHelper
         }
 
         DB::table('dcs_calendar_categories')->where('id', $id)->delete();
+
+        RegisterPersistHelper::logAdminChange(
+            'Deleted calendar category #' . $id . ' — ' . ($cat->name ?? 'Unknown')
+        );
 
         return response()->json(['ok' => true]);
     }

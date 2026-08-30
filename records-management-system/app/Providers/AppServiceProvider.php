@@ -15,6 +15,11 @@ class AppServiceProvider extends ServiceProvider
 
     public function boot(): void
     {
+        $compiledViews = env('VIEW_COMPILED_PATH');
+        if (is_string($compiledViews) && $compiledViews !== '') {
+            config(['view.compiled' => $compiledViews]);
+        }
+
         if (!app()->runningInConsole() && request()->hasHeader('Host')) {
             \Illuminate\Support\Facades\URL::forceRootUrl(request()->schemeAndHttpHost());
         }

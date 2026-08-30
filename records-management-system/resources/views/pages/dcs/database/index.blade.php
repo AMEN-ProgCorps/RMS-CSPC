@@ -133,6 +133,11 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
         $filename = 'dcs-inventory-' . now()->format('Y-m-d') . '.csv';
         $full = $this->exportAllColumns;
 
+        \App\Helpers\RegisterPersistHelper::logAdminChange(
+            'Exported document database — ' . count($list['data'] ?? []) . ' group(s)'
+            . ($full ? ' (all columns)' : ' (main columns)')
+        );
+
         return response()->streamDownload(function () use ($list, $headers, $full, $mainIndexes) {
             $handle = fopen('php://output', 'w');
             fwrite($handle, "\xEF\xBB\xBF");
@@ -177,7 +182,7 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
         try {
             $query = DB::table('dcs_document_requests as dr');
             // Include soft-deleted rows so the inventory can show them with deleted styling.
-            RegisterQueryHelper::applyOfficeScope($query, 'dr');
+            RegisterQueryHelper::applyRegisteredDocumentScope($query, 'dr');
 
             if ($this->docTypeId !== 'all' && $this->docTypeId !== '') {
                 $query->where('dr.doc_type_id', $this->docTypeId);

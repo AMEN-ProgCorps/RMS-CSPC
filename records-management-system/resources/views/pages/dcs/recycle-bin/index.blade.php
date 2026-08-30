@@ -51,6 +51,7 @@ new #[Layout('layouts.dcs')] #[Title('Recycle Bin — CSPC DCS')] class extends 
 
     public function restore(): void
     {
+        RegisterQueryHelper::assertFullDcsUser();
         if (!$this->restoreId) {
             return;
         }

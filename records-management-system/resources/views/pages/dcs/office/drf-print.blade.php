@@ -153,21 +153,16 @@
             display: block;
             margin-bottom: 4px;
         }
-        .desc-lines {
-            height: calc(4 * 1.35em);
-            line-height: 1.35em;
-            padding: 0 2px 1px;
-            white-space: pre-wrap;
+        .desc-line {
+            border-bottom: 1px solid #000;
+            min-height: 1.35em;
+            padding: 0 2px 2px;
+            line-height: 1.35;
             word-break: break-word;
-            overflow: hidden;
-            background-image: repeating-linear-gradient(
-                to bottom,
-                transparent 0,
-                transparent calc(1.35em - 1px),
-                #000 calc(1.35em - 1px),
-                #000 1.35em
-            );
-            background-size: 100% 1.35em;
+            text-decoration: none;
+        }
+        .desc-line + .desc-line {
+            margin-top: 0;
         }
         .dist-label {
             margin: 10px 0 6px;
@@ -241,6 +236,12 @@
                 padding: 0;
             }
             @page { size: A4 portrait; margin: 6mm 12mm 8mm 12mm; }
+            .desc-line,
+            .dist-line,
+            .uline {
+                border-bottom: 1px solid #000 !important;
+                text-decoration: none !important;
+            }
         }
     </style>
 </head>
@@ -254,6 +255,8 @@
     $isInternal = $kind === 'internal';
     $isExternal = $kind === 'external';
     $description = trim((string) ($drf->description_reason ?? ''));
+    $descLines = $description !== '' ? preg_split('/\R/', $description, 4) : [''];
+    $descLines = array_pad(array_slice($descLines, 0, 4), 4, '');
     $distribute = OfficeIntakeHelper::decodeDistributeTo($drf->distribute_to ?? null);
     $distribute = array_pad(array_slice($distribute, 0, 24), 24, '');
     $preparedName = trim((string) ($drf->prepared_by_name ?? ''));
@@ -317,7 +320,9 @@
 
     <div class="desc-block">
         <span class="lbl">Description/reason for request (define in detail):</span>
-        <div class="desc-lines">{{ $description }}</div>
+        @foreach($descLines as $line)
+            <div class="desc-line">{{ trim((string) $line) }}</div>
+        @endforeach
     </div>
 
     <div class="dist-label">Distribute document to (department/position):</div>

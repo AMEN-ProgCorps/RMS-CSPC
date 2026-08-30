@@ -470,7 +470,7 @@ class ReportHelper
             $q->select(DB::raw(1))->from('dcs_document_requests as dr')
                 ->whereColumn('dr.id', 'ml.request_id');
             RegisterQueryHelper::applyNotDeleted($q, 'dr');
-            RegisterQueryHelper::applyOfficeScope($q, 'dr');
+            RegisterQueryHelper::applyRegisteredDocumentScope($q, 'dr');
         });
 
         $query = $this->applyMasterlistCategoryFilter($query, $sub);
@@ -551,7 +551,7 @@ class ReportHelper
 
         $query = DB::table('dcs_document_requests as dr');
         RegisterQueryHelper::applyNotDeleted($query, 'dr');
-        RegisterQueryHelper::applyOfficeScope($query, 'dr');
+        RegisterQueryHelper::applyRegisteredDocumentScope($query, 'dr');
         $query->whereExists(function ($q) use ($docTypeName) {
             $q->select(DB::raw(1))->from('dcs_doc_types as dt')
                 ->whereColumn('dt.id', 'dr.doc_type_id')
@@ -738,7 +738,7 @@ class ReportHelper
     {
         $query = DB::table('dcs_document_requests as dr');
         RegisterQueryHelper::applyNotDeleted($query, 'dr');
-        RegisterQueryHelper::applyOfficeScope($query, 'dr');
+        RegisterQueryHelper::applyRegisteredDocumentScope($query, 'dr');
         $query->whereExists(function ($q) use ($docTypeName) {
             $q->select(DB::raw(1))->from('dcs_doc_types as dt')
                 ->whereColumn('dt.id', 'dr.doc_type_id')
@@ -908,8 +908,9 @@ class ReportHelper
             ->join('dcs_document_requests as dr', 'dr.id', '=', 'drf.request_id')
             ->leftJoin('dcs_doc_types as dt', 'dt.id', '=', 'dr.doc_type_id')
             ->select('drf.*', 'dt.doc_type_name');
+        RegisterQueryHelper::applyExcludeOfficeIntakeDrf($query, 'drf');
         RegisterQueryHelper::applyNotDeleted($query, 'dr');
-        RegisterQueryHelper::applyOfficeScope($query, 'dr');
+        RegisterQueryHelper::applyRegisteredDocumentScope($query, 'dr');
 
         if ($dateFrom) {
             $query->where('drf.drf_date', '>=', $dateFrom);
@@ -962,8 +963,9 @@ class ReportHelper
             ->join('dcs_document_requests as dr', 'dr.id', '=', 'dcn.request_id')
             ->leftJoin('dcs_doc_types as dt', 'dt.id', '=', 'dr.doc_type_id')
             ->select('dcn.*', 'dt.doc_type_name');
+        RegisterQueryHelper::applyExcludeOfficeIntakeDcn($query, 'dcn');
         RegisterQueryHelper::applyNotDeleted($query, 'dr');
-        RegisterQueryHelper::applyOfficeScope($query, 'dr');
+        RegisterQueryHelper::applyRegisteredDocumentScope($query, 'dr');
 
         if ($dateFrom) {
             $query->where('dcn.dcn_date', '>=', $dateFrom);
@@ -1289,7 +1291,7 @@ class ReportHelper
                 }
             });
         RegisterQueryHelper::applyNotDeleted($query, 'dr');
-        RegisterQueryHelper::applyOfficeScope($query, 'dr');
+        RegisterQueryHelper::applyRegisteredDocumentScope($query, 'dr');
 
         if ($docTypeNames) {
             $query->whereExists(function ($q) use ($docTypeNames) {
@@ -1396,6 +1398,10 @@ class ReportHelper
             DB::table('dcs_opcr_ratings')->insert($attrs + $values + ['created_at' => now()]);
         }
 
+        RegisterPersistHelper::logAdminChange(
+            'Saved OPCR ratings — request #' . $request->request_id . ' (' . $request->sub . ')'
+        );
+
         return response()->json(['success' => true]);
     }
 
@@ -1407,7 +1413,7 @@ class ReportHelper
     {
         $query = DB::table('dcs_document_requests as dr');
         RegisterQueryHelper::applyNotDeleted($query, 'dr');
-        RegisterQueryHelper::applyOfficeScope($query, 'dr');
+        RegisterQueryHelper::applyRegisteredDocumentScope($query, 'dr');
 
         if ($dateFrom || $dateTo) {
             $query->whereExists(function ($q) use ($dateFrom, $dateTo) {
@@ -1481,6 +1487,7 @@ class ReportHelper
 
     public function export(Request $request)
     {
+        RegisterQueryHelper::assertFullDcsUser();
         $category = $request->get('category');
         $sub      = $request->get('sub');
         [$dateFrom, $dateTo, $asOf, $period] = $this->resolveDateRange($request);
@@ -1492,6 +1499,12 @@ class ReportHelper
         if (!$category) {
             abort(400, 'Category is required.');
         }
+
+        RegisterPersistHelper::logAdminChange(
+            'Exported DCS report — ' . $category
+            . ($sub ? '/' . $sub : '')
+            . ' (' . $format . ')'
+        );
 
         $data = $this->fetchReportData($category, $sub, $dateFrom, $dateTo, $filters);
 

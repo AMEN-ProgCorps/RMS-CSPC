@@ -456,6 +456,7 @@ class StampService
 
     public function preview(Request $request)
     {
+        \App\Helpers\RegisterQueryHelper::assertFullDcsUser();
         @ini_set('memory_limit', '512M');
         @set_time_limit(600);
         $this->autoPlacementCache = [];
@@ -523,6 +524,7 @@ class StampService
 
     public function apply(Request $request)
     {
+        \App\Helpers\RegisterQueryHelper::assertFullDcsUser();
         @ini_set('memory_limit', '512M');
         @set_time_limit(600);
         $this->autoPlacementCache = [];
@@ -648,6 +650,35 @@ class StampService
                 . ')'
             );
 
+            $docNo = trim((string) ($validated['doc_no'] ?? ''));
+            if ($docNo !== '') {
+                $stamperName = \App\Helpers\RegisterQueryHelper::currentUserDisplayName();
+                $originOfficeCodes = DB::table('dcs_masterlist_source_offices as mso')
+                    ->join('dcs_masterlist_registration as ml', 'ml.id', '=', 'mso.masterlist_id')
+                    ->join('office as o', 'o.id', '=', 'mso.office_id')
+                    ->where('ml.request_id', $validated['request_id'])
+                    ->whereNotNull('o.office_code')
+                    ->where('o.office_code', '!=', '')
+                    ->pluck('o.office_code')
+                    ->map(fn ($code) => strtoupper(trim((string) $code)))
+                    ->unique()
+                    ->values();
+
+                $actorOffice = \App\Helpers\RegisterQueryHelper::currentOfficeCode();
+                foreach ($originOfficeCodes as $officeCode) {
+                    if ($actorOffice !== null && strcasecmp($officeCode, $actorOffice) === 0) {
+                        continue;
+                    }
+                    DcsNotificationService::notifyDocumentStamped(
+                        $officeCode,
+                        $stamperName,
+                        $docNo,
+                        (int) $validated['request_id'],
+                        $stampLabel
+                    );
+                }
+            }
+
             return response()->json([
                 'success' => true,
                 'message' => "Stamp {$action} — {$stampLabel}",
@@ -676,6 +707,7 @@ class StampService
 
     public function remove(Request $request)
     {
+        \App\Helpers\RegisterQueryHelper::assertFullDcsUser();
         $request->validate([
             'request_id' => 'required|integer|exists:dcs_document_requests,id',
             'file_key'   => ['required', 'string', 'max:50', 'in:masterlist'],
@@ -739,6 +771,7 @@ class StampService
 
     public function download(Request $request)
     {
+        \App\Helpers\RegisterQueryHelper::assertFullDcsUser();
         @ini_set('memory_limit', '512M');
         @set_time_limit(600);
         $this->autoPlacementCache = [];

@@ -362,6 +362,9 @@ class SyllabiMonitoringHelper
         if ($status === '') {
             if ($existing) {
                 DB::table('dcs_syllabi_monitoring_status')->where('id', $existing->id)->delete();
+                RegisterPersistHelper::logAdminChange(
+                    'Cleared syllabi monitoring — program #' . $programId . ' ' . $keys['section']
+                );
             }
             return;
         }
@@ -371,6 +374,9 @@ class SyllabiMonitoringHelper
                 'status' => $status,
                 'updated_at' => $now,
             ]);
+            RegisterPersistHelper::logAdminChange(
+                'Updated syllabi monitoring — program #' . $programId . ' ' . $keys['section'] . ': ' . $status
+            );
             return;
         }
 
@@ -379,6 +385,9 @@ class SyllabiMonitoringHelper
             'created_at' => $now,
             'updated_at' => $now,
         ]);
+        RegisterPersistHelper::logAdminChange(
+            'Set syllabi monitoring — program #' . $programId . ' ' . $keys['section'] . ': ' . $status
+        );
     }
 
     private static function savedStatuses(int $collegeId, int $schoolYearId, int $semesterId, int $programId, string $deadline): array

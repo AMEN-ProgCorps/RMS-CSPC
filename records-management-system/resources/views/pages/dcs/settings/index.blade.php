@@ -186,6 +186,7 @@ new #[Layout('layouts.dcs')] class extends Component {
 
     public function save(): void
     {
+        \App\Helpers\RegisterQueryHelper::assertFullDcsUser();
         match ($this->modalKind) {
             'versionType' => $this->saveVersionType(),
             'docType' => $this->saveDocType(),
@@ -202,6 +203,7 @@ new #[Layout('layouts.dcs')] class extends Component {
 
     public function destroy(): void
     {
+        \App\Helpers\RegisterQueryHelper::assertFullDcsUser();
         $kind = str_replace(':delete', '', $this->modalKind);
         $id = (int) $this->editingId;
 
@@ -658,6 +660,7 @@ new #[Layout('layouts.dcs')] class extends Component {
 
     private function done(string $message): void
     {
+        \App\Helpers\RegisterPersistHelper::logAdminChange('DCS settings: ' . $message);
         $this->closeModal();
         $this->flashToast($message, 'success');
     }

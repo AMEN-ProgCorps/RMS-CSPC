@@ -2914,7 +2914,7 @@
       background-color: #ffffff !important;
       background: #ffffff !important;
       border: 1px solid rgba(0, 0, 0, 0.12) !important;
-      box-shadow: 0 1px 2px rgba(0, 0, 0, 0.06) !important;
+      box-shadow: none !important;
       cursor: pointer !important;
       white-space: nowrap !important;
       user-select: none !important;
@@ -2927,7 +2927,7 @@
       transform: scale(1.05) !important;
       background-color: #f7f8fa !important;
       background: #f7f8fa !important;
-      box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1) !important;
+      box-shadow: none !important;
     }
     .msg-reactions-pill:active {
       transform: scale(0.95) !important;
@@ -2937,12 +2937,12 @@
       background-color: #242526 !important;
       background: #242526 !important;
       border-color: rgba(255, 255, 255, 0.18) !important;
-      box-shadow: 0 1px 2px rgba(0, 0, 0, 0.2) !important;
+      box-shadow: none !important;
     }
     [data-theme="dark"] .msg-reactions-pill:hover {
       background-color: #303031 !important;
       background: #303031 !important;
-      box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3) !important;
+      box-shadow: none !important;
     }
 
     .msg-reactions-pill .reaction-emojis {

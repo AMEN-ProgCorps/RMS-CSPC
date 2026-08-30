@@ -2621,6 +2621,26 @@
     // backreads to the top instead.
     function insertLoadOlderBtn() {}
 
+    // Backread top loader — shown for the duration of an auto-triggered
+    // older-history fetch so scrolling to the top gives visual feedback
+    // instead of the next batch just silently appearing once it lands.
+    // Absolutely positioned (see CSS) so it never becomes part of
+    // #chat-box's flow/scrollHeight, keeping every scroll-preserving
+    // calculation around the older-message insert untouched.
+    function showBackreadTopLoader() {
+      if (!chatBox || document.getElementById('backreadTopLoader')) return;
+      const el = document.createElement('div');
+      el.id = 'backreadTopLoader';
+      el.className = 'backread-top-loader';
+      el.innerHTML = '<span class="backread-spinner"></span>';
+      chatBox.insertBefore(el, chatBox.firstChild);
+    }
+
+    function hideBackreadTopLoader() {
+      const el = document.getElementById('backreadTopLoader');
+      if (el && el.parentNode) el.parentNode.removeChild(el);
+    }
+
     // After trimming oldest messages from the top of the DOM, update the
     // pagination cursor to the UUID of the new oldest visible message so
     // that "Load Older" correctly fetches the trimmed messages on the next
@@ -3357,6 +3377,7 @@
       xhr.onload = function() {
         isLoadingAdminConv = false;
         if (adminConvXhr === xhr) adminConvXhr = null;
+        if (loadOlderMode) hideBackreadTopLoader();
         if (this.status !== 200) return;
         if (requestedConv !== activeAdminConv) return; // stale response
         
@@ -3382,6 +3403,10 @@
           const btn = document.getElementById('loadOlderBtn');
           const firstChild = chatBox.firstChild;
           oldItems.reverse().forEach(el => {
+            if (el.classList.contains('message-container')) {
+              el.classList.add('msg-animate-older');
+              el.addEventListener('animationend', () => el.classList.remove('msg-animate-older'), { once: true });
+            }
             if (btn) chatBox.insertBefore(el, btn.nextSibling);
             else chatBox.insertBefore(el, firstChild);
           });
@@ -3486,7 +3511,7 @@
         adminConvViewingOlder = false;
         if (adminConvHasMore && !document.getElementById('loadOlderBtn') && !document.getElementById('noMoreOlderNotice')) insertLoadOlderBtn();
       };
-      xhr.onerror = function() { isLoadingAdminConv = false; adminConvXhr = null; };
+      xhr.onerror = function() { isLoadingAdminConv = false; adminConvXhr = null; if (loadOlderMode) hideBackreadTopLoader(); };
       xhr.send();
     }
 

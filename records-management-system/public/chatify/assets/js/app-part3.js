@@ -1926,6 +1926,10 @@
         const firstChild = chatBox.firstChild;
         const btn = document.getElementById('loadOlderBtn');
         oldItems.reverse().forEach(el => {
+          if (el.classList.contains('message-container')) {
+            el.classList.add('msg-animate-older');
+            el.addEventListener('animationend', () => el.classList.remove('msg-animate-older'), { once: true });
+          }
           if (btn) chatBox.insertBefore(el, btn.nextSibling);
           else chatBox.insertBefore(el, firstChild);
         });
@@ -2140,12 +2144,21 @@
                     + '&limit=' + limitParam, true);
       xhr.onload = function() {
         isLoadingGC = false;
+        if (loadOlderMode) hideBackreadTopLoader();
         if (this.status !== 200) return;
+        // Stale-response guard: without this, a fetch started while Global
+        // Chat was open — most easily triggered by a fast backread that's
+        // still in flight — lands and inserts Global Chat messages into
+        // whatever chat is now on screen if the user switched away (to a
+        // DM or Admin conv) before the response arrived. loadChat/
+        // loadAdminConv already guard this per-chat (requestedUser/
+        // requestedConv); this was the one path missing it.
+        if (!isGlobalChat) return;
         let data;
         try { data = JSON.parse(this.responseText); } catch(e) { return; }
         processGlobalChatData(data, loadOlderMode);
       };
-      xhr.onerror = function() { isLoadingGC = false; };
+      xhr.onerror = function() { isLoadingGC = false; if (loadOlderMode) hideBackreadTopLoader(); };
       xhr.send();
     }
 
@@ -2174,6 +2187,10 @@
         const btn = document.getElementById('loadOlderBtn');
         const firstChild = chatBox.firstChild;
         oldItems.reverse().forEach(el => {
+          if (el.classList.contains('message-container')) {
+            el.classList.add('msg-animate-older');
+            el.addEventListener('animationend', () => el.classList.remove('msg-animate-older'), { once: true });
+          }
           if (btn) chatBox.insertBefore(el, btn.nextSibling);
           else chatBox.insertBefore(el, firstChild);
         });
@@ -2337,19 +2354,24 @@
       xhr.onload = function () {
         isLoadingChat = false;
         if (chatXhr === xhr) chatXhr = null;
+        // Unconditional: covers the stale-response case too (user backread
+        // fast then switched chats before this landed) so the spinner never
+        // gets left stranded at the top of whatever chat is now open.
+        if (loadOlderMode) hideBackreadTopLoader();
         if (this.status !== 200) return;
         if (requestedUser !== activeDM) return;
         let data;
         try { data = JSON.parse(this.responseText); } catch(e) { return; }
         processChatData(data, requestedUser, loadOlderMode);
       };
-      xhr.onerror = function() { isLoadingChat = false; if (chatXhr === xhr) chatXhr = null; };
+      xhr.onerror = function() { isLoadingChat = false; if (chatXhr === xhr) chatXhr = null; if (loadOlderMode) hideBackreadTopLoader(); };
       xhr.send();
     }
 
     function loadOlderMessages() {
       shouldAutoScroll = false;
       userScrolledUp = true;
+      showBackreadTopLoader();
       if (activeAdminConv || isAdminAllChatsView) {
         if (activeAdminConv) loadAdminConv(activeAdminConv, false, true);
       } else if (isGlobalChat) {

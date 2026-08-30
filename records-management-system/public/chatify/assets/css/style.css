@@ -2953,6 +2953,11 @@
       letter-spacing: 1px !important;
       margin-right: 4px !important;
     }
+    /* Single emoji, no count badge next to it — drop the count-spacing
+       margin so the emoji sits centered in the pill instead of skewed left */
+    .msg-reactions-pill .reaction-emojis:only-child {
+      margin-right: 0 !important;
+    }
     .msg-reactions-pill .reaction-total-count {
       font-size: 11px !important;
       font-weight: 600 !important;

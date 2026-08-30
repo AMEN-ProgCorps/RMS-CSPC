@@ -2,6 +2,7 @@
 
 namespace App\Helpers;
 
+use App\Services\DocumentStorageService;
 use App\Services\StampBackupService;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -12,6 +13,14 @@ use Illuminate\Support\Facades\Storage;
 
 class RegisterUpdateHelper
 {
+    private static function storeDcsScanUpload($file, array &$uploadedFiles, string $category): string
+    {
+        $path = DocumentStorageService::storeDcsScan($file, auth()->user(), null, $category);
+        $uploadedFiles[] = $path;
+
+        return $path;
+    }
+
     /** Build a real RedirectResponse (avoid Livewire's redirect() Redirector). */
     private static function flashRedirect(string $route, string $type, string $message, array $params = []): RedirectResponse
     {
@@ -142,19 +151,17 @@ class RegisterUpdateHelper
                     if ($drfFile) {
                         $filesToDelete[] = $drfFile;
                     }
-                    $drfFile = $request->file('drfFile')->store('scans/drf', 'public');
-                    $uploadedFiles[] = $drfFile;
+                    $drfFile = self::storeDcsScanUpload($request->file('drfFile'), $uploadedFiles, 'drf');
                 }
                 $drfOfficeIds = array_values(array_filter($request->input('drfSourceUnit', [])));
-                $drfData = [
+                $drfData = array_merge([
                     'drf_no' => $request->drfNo,
                     'drf_date' => $request->drfDate,
                     'drf_receipt_date' => $request->drfReceiptDate,
                     'drf_receipt_time' => $request->drfTime,
                     'doc_title' => RegisterPersistHelper::syncedDocTitle($request) ?: $request->drfTitle,
-                    'scanned_drf' => $drfFile,
                     'updated_at' => $now,
-                ];
+                ], RegisterPersistHelper::dcsScanFields('dcs_document_request_form', 'scanned_drf', $drfFile));
                 if ($drf) {
                     DB::table('dcs_document_request_form')->where('id', $drf->id)->update($drfData);
                     $drfId = $drf->id;
@@ -188,18 +195,16 @@ class RegisterUpdateHelper
                     if ($dcnFile) {
                         $filesToDelete[] = $dcnFile;
                     }
-                    $dcnFile = $request->file('dcnFile')->store('scans/dcn', 'public');
-                    $uploadedFiles[] = $dcnFile;
+                    $dcnFile = self::storeDcsScanUpload($request->file('dcnFile'), $uploadedFiles, 'dcn');
                 }
                 $dcnOfficeIds = array_values(array_filter($request->input('dcnSourceUnit', [])));
-                $dcnData = [
+                $dcnData = array_merge([
                     'dcn_no' => $request->dcnNumber,
                     'dcn_date' => $request->noticeDate,
                     'dcn_receipt_date' => $request->receiptDate,
                     'dcn_receipt_time' => $request->receiptTime,
-                    'scanned_dcn' => $dcnFile,
                     'updated_at' => $now,
-                ];
+                ], RegisterPersistHelper::dcsScanFields('dcs_document_change_notice', 'scanned_dcn', $dcnFile));
                 if (Schema::hasColumn('dcs_document_change_notice', 'brief_purpose')) {
                     $dcnData['brief_purpose'] = $request->dcnJustification;
                 }
@@ -234,15 +239,15 @@ class RegisterUpdateHelper
                         if (empty($title) && empty($docNo)) {
                             continue;
                         }
-                        $revRow = [
+                        $revPath = RegisterPersistHelper::resolveRevisionScannedCopyPath($request, $i, $uploadedFiles, $allowedRevPaths);
+                        $revRow = array_merge([
                             'dcn_id' => $dcnId,
                             'title' => $title,
                             'document_no' => $docNo,
                             'effectivity_date' => $request->effectiveDate[$i] ?? null,
                             'revision_no' => $request->revisionNo[$i] ?? null,
-                            'scanned_copy' => RegisterPersistHelper::resolveRevisionScannedCopyPath($request, $i, $uploadedFiles, $allowedRevPaths),
                             'created_at' => $now,
-                        ];
+                        ], RegisterPersistHelper::dcsScanFields('dcs_doc_revision', 'scanned_copy', $revPath));
                         if (Schema::hasColumn('dcs_doc_revision', 'brief_purpose')) {
                             $revRow['brief_purpose'] = $request->revisionPurpose[$i] ?? null;
                         }
@@ -262,8 +267,7 @@ class RegisterUpdateHelper
                     if ($masterlistFile) {
                         $filesToDelete[] = $masterlistFile;
                     }
-                    $masterlistFile = $request->file('uploadScannedCopy')->store('scans/masterlist', 'public');
-                    $uploadedFiles[] = $masterlistFile;
+                    $masterlistFile = self::storeDcsScanUpload($request->file('uploadScannedCopy'), $uploadedFiles, 'masterlist');
                 }
                 $masterlistTimeSpent = null;
                 if ($request->filled('masterlistTimeSpent') && is_numeric($request->masterlistTimeSpent) && $request->masterlistTimeSpent >= 0) {
@@ -284,9 +288,12 @@ class RegisterUpdateHelper
                     'no_pages' => $request->masterlistNoOfPages,
                     'originator_name' => $originator['originator_name'],
                     'deadline' => $request->deadlineOfSubmission,
-                    'scanned_masterlist' => $masterlistFile,
                     'updated_at' => $now,
                 ];
+                $masterlistData = array_merge(
+                    $masterlistData,
+                    RegisterPersistHelper::dcsScanFields('dcs_masterlist_registration', 'scanned_masterlist', $masterlistFile)
+                );
                 RegisterPersistHelper::applyMasterlistOriginalName($masterlistData, $request);
                 if (Schema::hasColumn('dcs_masterlist_registration', 'originator_id')) {
                     $masterlistData['originator_id'] = $originator['originator_id'];
@@ -363,8 +370,7 @@ class RegisterUpdateHelper
                     if ($masterlistFile) {
                         $filesToDelete[] = $masterlistFile;
                     }
-                    $masterlistFile = $request->file('uploadScannedCopy')->store('scans/masterlist', 'public');
-                    $uploadedFiles[] = $masterlistFile;
+                    $masterlistFile = self::storeDcsScanUpload($request->file('uploadScannedCopy'), $uploadedFiles, 'masterlist');
                 }
                 $masterlistTimeSpent = null;
                 if ($request->filled('masterlistTimeSpent') && is_numeric($request->masterlistTimeSpent) && $request->masterlistTimeSpent >= 0) {
@@ -385,9 +391,12 @@ class RegisterUpdateHelper
                     'revise_no' => RegisterPersistHelper::resolveReviseNo($request, $masterlist?->revise_no),
                     'no_pages' => $totalPages,
                     'originator_name' => $originator['originator_name'],
-                    'scanned_masterlist' => $masterlistFile,
                     'updated_at' => $now,
                 ];
+                $masterlistData = array_merge(
+                    $masterlistData,
+                    RegisterPersistHelper::dcsScanFields('dcs_masterlist_registration', 'scanned_masterlist', $masterlistFile)
+                );
                 RegisterPersistHelper::applyMasterlistOriginalName($masterlistData, $request);
                 if (Schema::hasColumn('dcs_masterlist_registration', 'originator_id')) {
                     $masterlistData['originator_id'] = $originator['originator_id'];
@@ -433,23 +442,21 @@ class RegisterUpdateHelper
                     if ($retrievalFile) {
                         $filesToDelete[] = $retrievalFile;
                     }
-                    $retrievalFile = $request->file('scannedRet')->store('scans/retrieval', 'public');
-                    $uploadedFiles[] = $retrievalFile;
+                    $retrievalFile = self::storeDcsScanUpload($request->file('scannedRet'), $uploadedFiles, 'retrieval');
                 }
                 $retrievalTimeSpent = null;
                 if ($request->filled('retrievalTimeSpent') && is_numeric($request->retrievalTimeSpent) && $request->retrievalTimeSpent >= 0) {
                     $retrievalTimeSpent = intval($request->retrievalTimeSpent);
                 }
-                $retrievalData = [
+                $retrievalData = array_merge([
                     'doc_retrieval_date_actual' => $request->retrievalDate,
                     'doc_retrieval_time_actual' => $request->retrievalTime,
                     'doc_retrieval_date_file' => $request->retrievalFormDate,
                     'doc_retrieval_time_file' => $request->retrievalFormTime,
                     'time_spent' => $retrievalTimeSpent,
                     'remarks' => $request->retrievalRemarks,
-                    'scanned_retrieval' => $retrievalFile,
                     'updated_at' => $now,
-                ];
+                ], RegisterPersistHelper::dcsScanFields('dcs_document_retrieval', 'scanned_retrieval', $retrievalFile));
                 if ($retrieval) {
                     DB::table('dcs_document_retrieval')->where('id', $retrieval->id)->update($retrievalData);
                     $retrievalId = $retrieval->id;
@@ -491,23 +498,21 @@ class RegisterUpdateHelper
                     if ($distFile) {
                         $filesToDelete[] = $distFile;
                     }
-                    $distFile = $request->file('scanneddist')->store('scans/distribution', 'public');
-                    $uploadedFiles[] = $distFile;
+                    $distFile = self::storeDcsScanUpload($request->file('scanneddist'), $uploadedFiles, 'distribution');
                 }
                 $distTimeSpent = null;
                 if ($request->filled('distributionTimeSpent') && is_numeric($request->distributionTimeSpent) && $request->distributionTimeSpent >= 0) {
                     $distTimeSpent = intval($request->distributionTimeSpent);
                 }
-                $distData = [
+                $distData = array_merge([
                     'doc_distribution_date_actual' => $request->distributionDate,
                     'doc_distribution_time_actual' => $request->distributionTime,
                     'doc_distribution_date_file' => $request->distributionFormDate,
                     'doc_distribution_time_file' => $request->distributionFormTime,
                     'time_spent' => $distTimeSpent,
                     'remarks' => $request->distributionRemarks,
-                    'scanned_distribution' => $distFile,
                     'updated_at' => $now,
-                ];
+                ], RegisterPersistHelper::dcsScanFields('dcs_document_distribution', 'scanned_distribution', $distFile));
                 if ($distribution) {
                     DB::table('dcs_document_distribution')->where('id', $distribution->id)->update($distData);
                     $distributionId = $distribution->id;
@@ -554,7 +559,7 @@ class RegisterUpdateHelper
 
             DB::commit();
             foreach ($filesToDelete as $file) {
-                Storage::disk('public')->delete($file);
+                DocumentStorageService::deleteDcsScan($file);
             }
 
             RegisterPersistHelper::logAdminChange(
@@ -568,7 +573,7 @@ class RegisterUpdateHelper
         } catch (\Throwable $e) {
             DB::rollBack();
             foreach ($uploadedFiles as $file) {
-                Storage::disk('public')->delete($file);
+                DocumentStorageService::deleteDcsScan($file);
             }
             $refId = uniqid('err_');
             Log::error("Document update failed [{$refId}]: " . $e->getMessage());
@@ -814,7 +819,7 @@ class RegisterUpdateHelper
             StampBackupService::pruneOrphans();
 
             foreach ($filesToDelete as $file) {
-                Storage::disk('public')->delete($file);
+                DocumentStorageService::deleteDcsScan($file);
             }
 
             if (!$redirect) {

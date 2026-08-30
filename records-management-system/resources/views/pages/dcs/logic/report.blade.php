@@ -2,6 +2,7 @@
 
 namespace App\Helpers;
 
+use App\Services\DocumentStorageService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
@@ -130,6 +131,17 @@ class ReportHelper
             'annually'  => 'Annually',
             'all'       => 'All time',
             default     => 'Custom',
+        };
+    }
+
+    /** CSPC form code shown on the report letterhead (right of blue rule). */
+    private function letterNumberForReport(?string $category, ?string $sub): string
+    {
+        return match ($sub) {
+            'drf' => 'CSPC-F-DCC-06',
+            'dcn' => 'CSPC-F-DCC-01',
+            'internal_docs' => 'CSPC-F-DCC-03',
+            default => 'CSPC-F-DCC-03',
         };
     }
 
@@ -419,6 +431,32 @@ class ReportHelper
         })->values();
     }
 
+    private function isObsoleteMasterlist(?object $ml): bool
+    {
+        if ($ml === null) {
+            return false;
+        }
+
+        return strtolower(trim((string) ($ml->revision_status ?? ''))) === 'obsolete';
+    }
+
+    /**
+     * Sequential row/item number.
+     * Obsolete rows are unnumbered in mixed/all reports; obsolete-only reports number every row.
+     */
+    private function reportRowNumber(?object $ml, int &$counter, array $filters = []): int|string
+    {
+        $obsoleteOnly = ($filters['revision_status'] ?? 'all') === 'obsolete';
+
+        if ($this->isObsoleteMasterlist($ml) && ! $obsoleteOnly) {
+            return '';
+        }
+
+        $counter++;
+
+        return $counter;
+    }
+
     // ════════════════════════════════════════════
     // MASTERLIST REPORT
     // ════════════════════════════════════════════
@@ -442,11 +480,12 @@ class ReportHelper
 
         $records = RegisterQueryHelper::hydrateMasterlists($query->orderByDesc('ml.id')->get());
 
-        $rows = $records->map(function ($ml, $index) {
+        $counter = 0;
+        $rows = $records->map(function ($ml) use (&$counter, $filters) {
             $doc = $ml->request;
 
             return [
-                'item_no'          => $index + 1,
+                'item_no'          => $this->reportRowNumber($ml, $counter, $filters),
                 'doc_no'           => $ml->doc_no,
                 'rev_no'           => (int) ($ml->revise_no ?? 0),
                 'doc_title'        => $ml->doc_title,
@@ -459,18 +498,18 @@ class ReportHelper
                 'type_key'         => (int) ($doc?->doc_type_id ?? $ml->doc_type_id ?? 0)
                     . '|' . (int) ($doc?->sub_type_id ?? 0),
                 'pdf_path'         => $ml->scanned_masterlist
-                    ? '/storage/' . $ml->scanned_masterlist : null,
+                    ? RegisterQueryHelper::scanUrl($ml->scanned_masterlist) : null,
             ];
         })->values();
 
         $columns = [
-            'item_no'          => 'ITEM NO.',
-            'doc_no'           => 'DOCUMENT NO.',
-            'rev_no'           => 'REV.',
-            'doc_title'        => 'DOCUMENT TITLE',
-            'effectivity_date' => 'EFFECTIVITY DATE',
-            'originator'       => 'ORIGINATOR',
-            'no_pages'         => 'PAGES',
+            'item_no'          => 'Item<br>No.',
+            'doc_no'           => 'Doc. No.',
+            'rev_no'           => 'Rev<br>No.',
+            'doc_title'        => 'Document Title',
+            'effectivity_date' => 'Effectivity<br>Date',
+            'originator'       => 'Originator',
+            'no_pages'         => 'No.<br>of pages',
             'pdf_path'         => 'PDF FILE',
         ];
 
@@ -539,7 +578,8 @@ class ReportHelper
         $docs = RegisterQueryHelper::hydrateRequests($query->orderByDesc('dr.id')->get());
         $docs = $this->filterRequestsByRevisionStatus($docs, $filters);
 
-        $rows = $docs->map(function ($doc, $index) {
+        $counter = 0;
+        $rows = $docs->map(function ($doc) use (&$counter, $filters) {
             $ml  = $doc->masterlistRegistration;
             $drf = $doc->documentRequestForm;
             $dcn = $doc->documentChangeNotice;
@@ -612,7 +652,7 @@ class ReportHelper
             $remarks = $dcn && $dcn->dcn_no ? 'DCN: ' . $dcn->dcn_no : null;
 
             return [
-                'no'            => $index + 1,
+                'no'            => $this->reportRowNumber($ml, $counter, $filters),
                 'date_received' => $dateReceived,
                 'time_received' => $timeReceived,
                 'source'        => $source,
@@ -628,7 +668,7 @@ class ReportHelper
                 'forwarded_drr' => $forwardedDRR,
                 'remarks'       => $remarks,
                 'pdf_path'      => $ml && $ml->scanned_masterlist
-                    ? '/storage/' . $ml->scanned_masterlist : null,
+                    ? RegisterQueryHelper::scanUrl($ml->scanned_masterlist) : null,
             ];
         })->values();
 
@@ -725,7 +765,8 @@ class ReportHelper
         $docs = RegisterQueryHelper::hydrateRequests($query->orderByDesc('dr.id')->get());
         $docs = $this->filterRequestsByRevisionStatus($docs, $filters);
 
-        $rows = $docs->map(function ($doc, $index) {
+        $counter = 0;
+        $rows = $docs->map(function ($doc) use (&$counter, $filters) {
             $ml  = $doc->masterlistRegistration;
             $drf = $doc->documentRequestForm;
             $dcn = $doc->documentChangeNotice;
@@ -785,7 +826,7 @@ class ReportHelper
             }
 
             return [
-                'no'               => $index + 1,
+                'no'               => $this->reportRowNumber($ml, $counter, $filters),
                 'drf_no'           => $drfRef,
                 'date_received'    => $dateReceived,
                 'time_received'    => $timeReceived,
@@ -804,7 +845,7 @@ class ReportHelper
                 'days_spent'       => $daysSpent,
                 'remarks'          => $dcn && $dcn->dcn_no ? 'DCN: ' . $dcn->dcn_no : null,
                 'pdf_path'         => $ml && $ml->scanned_masterlist
-                    ? '/storage/' . $ml->scanned_masterlist : null,
+                    ? RegisterQueryHelper::scanUrl($ml->scanned_masterlist) : null,
             ];
         })->values();
 
@@ -892,7 +933,7 @@ class ReportHelper
                     ? $this->formatTime($drf->drf_receipt_time) : null,
                 'doc_type'         => $drf->doc_type_name ?: 'N/A',
                 'pdf_path'         => $drf->scanned_drf
-                    ? '/storage/' . $drf->scanned_drf : null,
+                    ? RegisterQueryHelper::scanUrl($drf->scanned_drf) : null,
             ];
         })->values();
 
@@ -951,7 +992,7 @@ class ReportHelper
                 'doc_type'         => $dcn->doc_type_name ?: 'N/A',
                 'revision_count'   => $revisions->count(),
                 'pdf_path'         => $dcn->scanned_dcn
-                    ? '/storage/' . $dcn->scanned_dcn : null,
+                    ? RegisterQueryHelper::scanUrl($dcn->scanned_dcn) : null,
             ];
         })->values();
 
@@ -1026,7 +1067,8 @@ class ReportHelper
             default => 'date_only', // issuance_internal, issuance_external, control_internal_forms
         };
 
-        $rows = $docs->map(function ($doc, $index) use ($ratingsByRequest, $layout) {
+        $counter = 0;
+        $rows = $docs->map(function ($doc) use ($ratingsByRequest, $layout, &$counter, $filters) {
             $ml = $doc->masterlistRegistration;
             $dist = $doc->documentDistribution;
             $drf = $doc->documentRequestForm;
@@ -1103,7 +1145,7 @@ class ReportHelper
                 : null;
 
             $row = [
-                'no'             => $index + 1,
+                'no'             => $this->reportRowNumber($ml, $counter, $filters),
                 'request_id'     => $doc->id,
                 'control_number' => $docNo,
                 'doc_number'     => $docNo,
@@ -1117,7 +1159,7 @@ class ReportHelper
                 'remarks'        => $remarksOverride,
                 'remarks_override' => $remarksOverride,
                 'pdf_path'       => $ml && $ml->scanned_masterlist
-                    ? '/storage/' . $ml->scanned_masterlist : null,
+                    ? RegisterQueryHelper::scanUrl($ml->scanned_masterlist) : null,
             ];
 
             if ($layout === 'masterlist') {
@@ -1386,7 +1428,8 @@ class ReportHelper
         $docs = RegisterQueryHelper::hydrateRequests($query->orderByDesc('dr.id')->get());
         $docs = $this->filterRequestsByRevisionStatus($docs, $filters);
 
-        $rows = $docs->map(function ($doc, $index) {
+        $counter = 0;
+        $rows = $docs->map(function ($doc) use (&$counter, $filters) {
             $ml  = $doc->masterlistRegistration;
             $drf = $doc->documentRequestForm;
             $dcn = $doc->documentChangeNotice;
@@ -1399,7 +1442,7 @@ class ReportHelper
             if ($ml)  $checklists->push('Masterlist');
 
             return [
-                'item_no'         => $index + 1,
+                'item_no'         => $this->reportRowNumber($ml, $counter, $filters),
                 'request_id'      => $doc->id,
                 'doc_no'          => $ml ? $ml->doc_no : 'N/A',
                 'doc_title'       => $ml ? $ml->doc_title : ($drf ? $drf->doc_title : 'N/A'),
@@ -1507,7 +1550,7 @@ class ReportHelper
             'republic'           => 'Republic of the Philippines',
             'institutionName'    => 'Camarines Sur Polytechnic Colleges',
             'institutionAddress' => 'Nabua, Camarines Sur',
-            'letterNumber'       => 'CSPC-QA-F001',
+            'letterNumber'       => $this->letterNumberForReport($category, $sub),
             'footerLeft'         => 'Effectivity Date:',
             'footerCenter'       => 'Rev.',
             'footerRight'        => '',
@@ -1515,12 +1558,14 @@ class ReportHelper
 
         // ── CSV ──
         if ($format === 'xlsx' || $format === 'csv') {
-            return $this->generateCsv(
-                $data['columns'],
-                $rows,
-                $filename . '.csv',
-                $data['group_headers'] ?? []
-            );
+            $csvContent = $this->buildCsvContent($data['columns'], $rows, $data['group_headers'] ?? []);
+            $this->archiveGeneratedReport($csvContent, 'csv', $category, $sub, $data, $rows, $dateFrom, $dateTo, $period, $filters);
+
+            return response($csvContent, 200, [
+                'Content-Type'        => 'text/csv; charset=UTF-8',
+                'Content-Disposition' => 'attachment; filename="' . $filename . '.csv"',
+                'Cache-Control'       => 'no-cache, no-store, must-revalidate',
+            ]);
         }
 
  
@@ -1533,7 +1578,7 @@ class ReportHelper
             $options = new \Dompdf\Options();
             $options->set('isHtml5ParserEnabled', true);
             $options->set('isRemoteEnabled', false);
-            $options->set('defaultFont', 'DejaVu Sans');
+            $options->set('defaultFont', 'Helvetica');
             $options->set('dpi', 96);
             $options->set('isPhpEnabled', false);
 
@@ -1546,7 +1591,7 @@ class ReportHelper
                         // ── Footer via canvas ──
             $canvas  = $dompdf->getCanvas();
             $fm      = $dompdf->getFontMetrics();
-            $font    = $fm->getFont('DejaVu Sans');
+            $font    = $fm->getFont('Helvetica');
             $w       = $canvas->get_width();
             $h       = $canvas->get_height();
 
@@ -1567,6 +1612,7 @@ class ReportHelper
             // Right
             $canvas->page_text($w - 130, $footerY, 'Page {PAGE_NUM} of {PAGE_COUNT}', $font, 9, [0, 0, 0], 0, 1, '');
             $output = $dompdf->output();
+            $this->archiveGeneratedReport($output, 'pdf', $category, $sub, $data, $rows, $dateFrom, $dateTo, $period, $filters);
 
             // OPCR / print: open blank window with embedded PDF so Chrome headers don't show the export URL
             if ($request->boolean('autoPrint')) {
@@ -1665,6 +1711,115 @@ HTML;
         ];
     }
 
+    private function archiveGeneratedReport(
+        string $content,
+        string $format,
+        string $category,
+        ?string $sub,
+        array $data,
+        $rows,
+        $dateFrom,
+        $dateTo,
+        ?string $period,
+        array $filters
+    ): void {
+        if (trim($content) === '') {
+            return;
+        }
+
+        $categories = $this->getReportCategories();
+        $catLabel = $categories[$category]['label'] ?? ucfirst($category);
+        $subLabel = ($sub && isset($categories[$category]['subs'][$sub]))
+            ? $categories[$category]['subs'][$sub]
+            : '';
+
+        try {
+            DocumentStorageService::storeGeneratedReport($content, $format, [
+                'category'     => $category,
+                'sub_category' => $sub,
+                'title'        => trim(($data['title'] ?? $catLabel) . ($subLabel ? ' — ' . $subLabel : '')),
+                'row_count'    => collect($rows)->count(),
+                'filters'      => $filters,
+                'date_from'    => $dateFrom,
+                'date_to'      => $dateTo,
+                'period'       => $period,
+            ]);
+        } catch (\Throwable $e) {
+            // Never block report download if archiving fails (e.g. Drive or cache unavailable).
+            try {
+                logger()->warning('Failed to archive generated DCS report: ' . $e->getMessage());
+            } catch (\Throwable) {
+            }
+        }
+    }
+
+    private function buildCsvContent(array $columns, $rows, array $groupHeaders = []): string
+    {
+        $colKeys = array_keys($columns);
+
+        if ($rows instanceof \Illuminate\Support\Collection) {
+            $rows = $rows->toArray();
+        }
+
+        $handle = fopen('php://temp', 'r+');
+        fprintf($handle, chr(0xEF) . chr(0xBB) . chr(0xBF));
+
+        $hasGroups = collect($groupHeaders)->contains(fn ($g) => $g !== null && $g !== '');
+        if ($hasGroups) {
+            $top = [];
+            $i = 0;
+            $n = count($colKeys);
+            while ($i < $n) {
+                $key = $colKeys[$i];
+                $group = $groupHeaders[$key] ?? null;
+                if ($group === null || $group === '') {
+                    $top[] = $columns[$key];
+                    $i++;
+                    continue;
+                }
+                $span = 1;
+                while ($i + $span < $n && ($groupHeaders[$colKeys[$i + $span]] ?? null) === $group) {
+                    $span++;
+                }
+                for ($s = 0; $s < $span; $s++) {
+                    $top[] = $s === 0 ? $group : '';
+                }
+                $i += $span;
+            }
+            fputcsv($handle, $top);
+
+            $sub = [];
+            foreach ($colKeys as $key) {
+                $group = $groupHeaders[$key] ?? null;
+                $sub[] = ($group !== null && $group !== '') ? $columns[$key] : '';
+            }
+            fputcsv($handle, $sub);
+        } else {
+            fputcsv($handle, array_map(
+                fn ($h) => trim(preg_replace('/\s+/', ' ', strip_tags(str_replace(['<br>', '<br/>', '<br />'], ' ', (string) $h)))),
+                array_values($columns)
+            ));
+        }
+
+        foreach ($rows as $row) {
+            $line = [];
+            foreach ($colKeys as $key) {
+                $val = is_array($row) ? ($row[$key] ?? '') : ($row->$key ?? '');
+                if ($key === 'pdf_path' && $val) {
+                    $val = 'View File';
+                }
+                $line[] = $val;
+            }
+            fputcsv($handle, $line);
+        }
+
+        rewind($handle);
+        $content = stream_get_contents($handle) ?: '';
+        fclose($handle);
+
+        return $content;
+    }
+
     private function generateCsv(array $columns, $rows, string $filename, array $groupHeaders = []): \Symfony\Component\HttpFoundation\StreamedResponse
     {
         $colKeys = array_keys($columns);
@@ -1710,7 +1865,10 @@ HTML;
                 }
                 fputcsv($handle, $sub);
             } else {
-                fputcsv($handle, array_values($columns));
+                fputcsv($handle, array_map(
+                    fn ($h) => trim(preg_replace('/\s+/', ' ', strip_tags(str_replace(['<br>', '<br/>', '<br />'], ' ', (string) $h)))),
+                    array_values($columns)
+                ));
             }
 
             foreach ($rows as $row) {

@@ -3,13 +3,13 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title></title>
+    <title>{{ empty($embed) ? (($title ?? 'Distribution and Retrieval') . ' — ' . ($letterNumber ?? 'CSPC-F-DCC-05')) : '' }}</title>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         html, body { min-height: 100%; }
         body {
             font-family: Arial, Helvetica, sans-serif;
-            font-size: 11px;
+            font-size: 11pt;
             color: #000;
             background: #fff;
             -webkit-print-color-adjust: exact;
@@ -45,32 +45,67 @@
             position: relative;
             z-index: 1;
         }
-        .hdr-table { width: 100%; border-collapse: collapse; }
-        .hdr-table td { padding: 0; vertical-align: middle; }
-        .hdr-logo { width: 72px; height: 72px; object-fit: contain; display: block; }
-        .hdr-republic,
-        .hdr-name,
-        .hdr-location {
-            font-family: Arial, Helvetica, sans-serif;
-            font-size: 11px;
+        .hdr-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-bottom: 10px;
+        }
+        .hdr-table, .hdr-table tr, .hdr-table td { border: none !important; background: none !important; }
+        .hdr-table td { padding: 0; text-align: left; }
+        .hdr-brand-row td { vertical-align: middle; }
+        .hdr-logo-cell {
+            width: 1%;
+            white-space: nowrap;
+            padding-right: 8px;
+            line-height: 1.25;
+        }
+        .hdr-text-cell { line-height: 1.25; }
+        .hdr-logo {
+            height: 70pt;
+            width: auto;
+            object-fit: contain;
+            object-position: center center;
+            display: block;
+        }
+        .hdr-republic {
+            font-family: Verdana, Geneva, sans-serif;
+            font-size: 10pt;
             color: #000;
             line-height: 1.25;
         }
-        .hdr-name { font-weight: 700; text-transform: uppercase; margin: 1px 0; }
+        .hdr-name {
+            font-family: 'Arial Rounded MT Bold', 'Arial Rounded MT', Arial, sans-serif;
+            font-size: 10pt;
+            font-weight: 700;
+            text-transform: uppercase;
+            color: #000;
+            line-height: 1.25;
+            margin: 1px 0;
+        }
+        .hdr-location {
+            font-family: Verdana, Geneva, sans-serif;
+            font-size: 10pt;
+            color: #000;
+            line-height: 1.25;
+        }
+        .hdr-line-row td {
+            padding-top: 2px;
+            vertical-align: top;
+        }
         .hdr-line {
             position: relative;
-            margin: 6px 0 14px;
+            margin: 0 0 10px;
             border-top: 2px solid #0071BC;
             height: 0;
         }
         .hdr-line span {
             position: absolute;
             right: 0;
-            top: -0.65em;
+            top: -0.6em;
             background: #fff;
             padding-left: 8px;
             font-family: Arial, Helvetica, sans-serif;
-            font-size: 11px;
+            font-size: 10pt;
             font-weight: 700;
             color: #000;
             line-height: 1;
@@ -81,8 +116,8 @@
             margin: 0 0 14px;
         }
         .rpt-title h2 {
-            font-family: Arial, Helvetica, sans-serif;
-            font-size: 11px;
+            font-family: 'Arial Narrow', Arial, sans-serif;
+            font-size: 12pt;
             font-weight: 700;
             color: #000;
             text-transform: uppercase;
@@ -93,13 +128,13 @@
             align-items: baseline;
             gap: 4px;
             margin: 0 0 12px;
-            font-family: Arial, Helvetica, sans-serif;
-            font-size: 11px;
+            font-family: 'Arial Narrow', Arial, sans-serif;
+            font-size: 12pt;
             line-height: 1.3;
             color: #000;
         }
         .doc-title-row .label {
-            font-weight: 700;
+            font-weight: 400;
             white-space: nowrap;
         }
         .doc-title-row .value {
@@ -114,7 +149,7 @@
             border-collapse: collapse;
             border: 1px solid #000;
             font-family: Arial, Helvetica, sans-serif;
-            font-size: 11px;
+            font-size: 11pt;
             table-layout: fixed;
             background: #fff;
         }
@@ -131,13 +166,21 @@
             text-align: center;
             vertical-align: middle;
             font-family: Arial, Helvetica, sans-serif;
-            font-size: 11px;
+            font-size: 11pt;
+            font-weight: 400;
             color: #000;
             word-wrap: break-word;
             overflow-wrap: break-word;
         }
-        .data-table thead th {
+        .data-table thead tr.group-header th {
             font-weight: 700;
+            background: #fff;
+            height: 22px;
+            vertical-align: middle;
+            white-space: nowrap;
+        }
+        .data-table thead tr.sub-header th {
+            font-weight: 400;
             background: #fff;
             height: 22px;
             vertical-align: middle;
@@ -150,7 +193,7 @@
         }
         .data-table tbody td {
             height: 24px;
-            font-weight: 700;
+            font-weight: 400;
         }
         .data-table tbody td.col-dept,
         .data-table thead th.col-dept {
@@ -159,7 +202,6 @@
             padding-right: 4px;
         }
         .data-table tbody td.col-dept {
-            font-weight: 700;
             text-align: left;
         }
         .rpt-footer {
@@ -177,13 +219,13 @@
         .rpt-footer-inner {
             padding: 4px 36px 10px;
             font-family: Arial, Helvetica, sans-serif;
-            font-size: 11px;
+            font-size: 10pt;
             color: #000;
         }
         .ft-table { width: 100%; border-collapse: collapse; }
         .ft-table td {
             font-family: Arial, Helvetica, sans-serif;
-            font-size: 11px;
+            font-size: 10pt;
             color: #000;
             vertical-align: middle;
             padding: 0;
@@ -202,22 +244,39 @@
         }
         body.has-letterhead .form-header { display: none; }
         body.has-letterhead .rpt-footer { display: none; }
+        body.is-embed .print-container { padding: 12px 20px 48px; }
         @media print {
+            @page {
+                size: A4 portrait;
+                margin: 0;
+            }
             .print-toolbar { display: none !important; }
-            .print-container { padding: 12px 20px 48px; max-width: none; }
+            html, body {
+                height: auto;
+                margin: 0;
+                padding: 0;
+            }
+            .print-container {
+                padding: 12mm 10mm 14mm;
+                max-width: none;
+            }
             .rpt-footer { position: fixed; bottom: 0; }
-            .rpt-footer-line { margin: 0 20px; }
-            .rpt-footer-inner { padding: 4px 20px 8px; }
-            @page { size: A4; margin: 12mm 10mm; }
+            .rpt-footer-line { margin: 0 10mm; }
+            .rpt-footer-inner { padding: 4px 10mm 8mm; }
             body.has-letterhead .print-container { padding: 210px 48px 110px; }
         }
     </style>
 </head>
-<body class="{{ !empty($letterheadUrl) ? 'has-letterhead' : '' }}">
+<body class="{{ trim(implode(' ', array_filter([
+    !empty($letterheadUrl) ? 'has-letterhead' : null,
+    !empty($embed) ? 'is-embed' : null,
+]))) }}">
+    @if(empty($embed))
     <div class="print-toolbar" id="toolbar">
         <button class="btn-print" type="button" id="btnPrint">Print</button>
         <button class="btn-close" type="button" onclick="window.close()">Close</button>
     </div>
+    @endif
 
     @php
         $rows = collect($offices ?? [])->values();
@@ -230,21 +289,25 @@
 
     <div class="print-container">
         <div class="form-header">
-            <table class="hdr-table">
-                <tr>
-                    <td style="width:84px; padding-right:10px;">
+            <table class="hdr-table" cellpadding="0" cellspacing="0" border="0" width="100%">
+                <tr class="hdr-brand-row">
+                    <td class="hdr-logo-cell" valign="middle">
                         @if(!empty($logoSrc))
-                            <img src="{{ $logoSrc }}" alt="" class="hdr-logo">
+                            <img src="{{ $logoSrc }}" alt="" class="hdr-logo" height="70">
                         @endif
                     </td>
-                    <td>
+                    <td class="hdr-text-cell" valign="middle">
                         <div class="hdr-republic">{{ $republic }}</div>
                         <div class="hdr-name">{{ $institutionName }}</div>
                         <div class="hdr-location">{{ $institutionAddress }}</div>
                     </td>
                 </tr>
+                <tr class="hdr-line-row">
+                    <td colspan="2">
+                        <div class="hdr-line"><span>{{ $letterNumber }}</span></div>
+                    </td>
+                </tr>
             </table>
-            <div class="hdr-line"><span>{{ $letterNumber }}</span></div>
             <div class="rpt-title"><h2>{{ $title }}</h2></div>
         </div>
 
@@ -263,11 +326,11 @@
                 <col class="col-ret-date">
             </colgroup>
             <thead>
-                <tr>
+                <tr class="group-header">
                     <th colspan="4">DISTRIBUTION</th>
                     <th colspan="2">RETRIEVAL</th>
                 </tr>
-                <tr>
+                <tr class="sub-header">
                     <th class="col-dept">Department</th>
                     <th>Signature</th>
                     <th>Date</th>
@@ -310,19 +373,12 @@
 
     <script>
         document.addEventListener('DOMContentLoaded', function () {
+            @if(empty($embed))
             document.getElementById('toolbar')?.classList.add('visible');
             document.getElementById('btnPrint')?.addEventListener('click', function () {
-                var markup = document.documentElement.outerHTML
-                    .replace(/<title>[^<]*<\/title>/i, '<title></title>')
-                    .replace('print-toolbar visible', 'print-toolbar');
-                var w = window.open('', '_blank');
-                if (!w) { window.print(); return; }
-                w.document.open();
-                w.document.write(markup);
-                w.document.close();
-                w.focus();
-                setTimeout(function () { w.print(); }, 400);
+                window.print();
             });
+            @endif
         });
     </script>
 </body>

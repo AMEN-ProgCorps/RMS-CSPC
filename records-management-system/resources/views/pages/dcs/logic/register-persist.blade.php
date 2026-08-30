@@ -8,6 +8,7 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Facades\Storage;
+use App\Services\DocumentStorageService;
 
 /**
  * Register writes via DB::table(). Real PK is always `id`.
@@ -285,14 +286,27 @@ class RegisterPersistHelper
     public static function isKnownPublicScanPath(string $path, array $extraAllowed = []): bool
     {
         $path = ltrim(str_replace(['../', '..\\'], '', $path), '/');
-        if ($path === '' || str_contains($path, '..') || !str_starts_with($path, 'scans/')) {
+        if ($path === '' || str_contains($path, '..')) {
             return false;
         }
         if ($extraAllowed === [] || !in_array($path, $extraAllowed, true)) {
             return false;
         }
 
-        return Storage::disk('public')->exists($path);
+        return DocumentStorageService::dcsScanExists($path);
+    }
+
+    private static function storeDcsScanUpload($file, array &$uploadedFiles, string $category): string
+    {
+        $path = DocumentStorageService::storeDcsScan($file, auth()->user(), null, $category);
+        $uploadedFiles[] = $path;
+
+        return $path;
+    }
+
+    public static function dcsScanFields(string $table, string $pathColumn, ?string $path): array
+    {
+        return DocumentStorageService::dcsScanFields($table, $pathColumn, $path);
     }
 
     public static function saveDistributionOffices(int $distributionId, Request $request): void
@@ -478,24 +492,22 @@ class RegisterPersistHelper
             if (in_array(1, $checkedChecklists, true)) {
                 $drfFile = null;
                 if ($request->hasFile('drfFile')) {
-                    $drfFile = $request->file('drfFile')->store('scans/drf', 'public');
-                    $uploadedFiles[] = $drfFile;
+                    $drfFile = self::storeDcsScanUpload($request->file('drfFile'), $uploadedFiles, 'drf');
                 }
 
                 $drfOfficeIds = array_values(array_filter($request->input('drfSourceUnit', [])));
 
-                $drfId = DB::table('dcs_document_request_form')->insertGetId([
+                $drfId = DB::table('dcs_document_request_form')->insertGetId(array_merge([
                     'request_id' => $requestId,
                     'drf_no' => $request->drfNo,
                     'drf_date' => $request->drfDate,
                     'drf_receipt_date' => $request->drfReceiptDate,
                     'drf_receipt_time' => $request->drfTime,
                     'doc_title' => self::syncedDocTitle($request) ?: $request->drfTitle,
-                    'scanned_drf' => $drfFile,
                     'created_by' => $userId,
                     'created_at' => $now,
                     'updated_at' => $now,
-                ]);
+                ], self::dcsScanFields('dcs_document_request_form', 'scanned_drf', $drfFile)));
 
                 foreach ($drfOfficeIds as $officeId) {
                     $id = (int) $officeId;
@@ -514,23 +526,22 @@ class RegisterPersistHelper
             if (in_array(2, $checkedChecklists, true)) {
                 $dcnFile = null;
                 if ($request->hasFile('dcnFile')) {
-                    $dcnFile = $request->file('dcnFile')->store('scans/dcn', 'public');
+                    $dcnFile = self::storeDcsScanUpload($request->file('dcnFile'), $uploadedFiles, 'dcn');
                     $uploadedFiles[] = $dcnFile;
                 }
 
                 $dcnOfficeIds = array_values(array_filter($request->input('dcnSourceUnit', [])));
 
-                $dcnRow = [
+                $dcnRow = array_merge([
                     'request_id' => $requestId,
                     'dcn_no' => $request->dcnNumber,
                     'dcn_date' => $request->noticeDate,
                     'dcn_receipt_date' => $request->receiptDate,
                     'dcn_receipt_time' => $request->receiptTime,
-                    'scanned_dcn' => $dcnFile,
                     'created_by' => $userId,
                     'created_at' => $now,
                     'updated_at' => $now,
-                ];
+                ], self::dcsScanFields('dcs_document_change_notice', 'scanned_dcn', $dcnFile));
                 if (Schema::hasColumn('dcs_document_change_notice', 'brief_purpose')) {
                     $dcnRow['brief_purpose'] = $request->dcnJustification;
                 }
@@ -549,15 +560,15 @@ class RegisterPersistHelper
                             continue;
                         }
 
-                        $revRow = [
+                        $revPath = self::resolveRevisionScannedCopyPath($request, $i, $uploadedFiles);
+                        $revRow = array_merge([
                             'dcn_id' => $dcnId,
                             'title' => $title,
                             'document_no' => $docNo,
                             'effectivity_date' => $request->effectiveDate[$i] ?? null,
                             'revision_no' => $request->revisionNo[$i] ?? null,
-                            'scanned_copy' => self::resolveRevisionScannedCopyPath($request, $i, $uploadedFiles),
                             'created_at' => $now,
-                        ];
+                        ], self::dcsScanFields('dcs_doc_revision', 'scanned_copy', $revPath));
                         if (Schema::hasColumn('dcs_doc_revision', 'brief_purpose')) {
                             $revRow['brief_purpose'] = $request->revisionPurpose[$i] ?? null;
                         }
@@ -569,7 +580,7 @@ class RegisterPersistHelper
             if (in_array(3, $checkedChecklists, true) && !$isSyllabi) {
                 $masterlistFile = null;
                 if ($request->hasFile('uploadScannedCopy')) {
-                    $masterlistFile = $request->file('uploadScannedCopy')->store('scans/masterlist', 'public');
+                    $masterlistFile = self::storeDcsScanUpload($request->file('uploadScannedCopy'), $uploadedFiles, 'masterlist');
                     $uploadedFiles[] = $masterlistFile;
                 }
 
@@ -579,7 +590,7 @@ class RegisterPersistHelper
                 }
 
                 $originator = self::resolveOriginator($request->masterlistOriginator);
-                $masterlistRow = [
+                $masterlistRow = array_merge([
                     'request_id' => $requestId,
                     'doc_type_id' => $docTypeId,
                     'doc_no' => $request->masterlistDocNo,
@@ -594,11 +605,10 @@ class RegisterPersistHelper
                     'no_pages' => $request->masterlistNoOfPages,
                     'originator_name' => $originator['originator_name'],
                     'deadline' => $request->deadlineOfSubmission,
-                    'scanned_masterlist' => $masterlistFile,
                     'created_by' => $userId,
                     'created_at' => $now,
                     'updated_at' => $now,
-                ];
+                ], self::dcsScanFields('dcs_masterlist_registration', 'scanned_masterlist', $masterlistFile));
                 self::applyMasterlistOriginalName($masterlistRow, $request);
                 if (RegisterQueryHelper::supportsRevisionStatus()) {
                     $masterlistRow['revision_status'] = 'latest';
@@ -645,7 +655,7 @@ class RegisterPersistHelper
                     if ($masterlistFile) {
                         $filesToDelete[] = $masterlistFile;
                     }
-                    $masterlistFile = $request->file('uploadScannedCopy')->store('scans/masterlist', 'public');
+                    $masterlistFile = self::storeDcsScanUpload($request->file('uploadScannedCopy'), $uploadedFiles, 'masterlist');
                     $uploadedFiles[] = $masterlistFile;
                 }
 
@@ -669,9 +679,12 @@ class RegisterPersistHelper
                     'revise_no' => self::resolveReviseNo($request),
                     'no_pages' => $totalPages,
                     'originator_name' => $originator['originator_name'],
-                    'scanned_masterlist' => $masterlistFile,
                     'updated_at' => $now,
                 ];
+                $masterlistData = array_merge(
+                    $masterlistData,
+                    self::dcsScanFields('dcs_masterlist_registration', 'scanned_masterlist', $masterlistFile)
+                );
                 self::applyMasterlistOriginalName($masterlistData, $request);
                 if (RegisterQueryHelper::supportsRevisionStatus()) {
                     $masterlistData['revision_status'] = 'latest';
@@ -720,7 +733,7 @@ class RegisterPersistHelper
             if (in_array(4, $checkedChecklists, true)) {
                 $retrievalFile = null;
                 if ($request->hasFile('scannedRet')) {
-                    $retrievalFile = $request->file('scannedRet')->store('scans/retrieval', 'public');
+                    $retrievalFile = self::storeDcsScanUpload($request->file('scannedRet'), $uploadedFiles, 'retrieval');
                     $uploadedFiles[] = $retrievalFile;
                 }
 
@@ -729,7 +742,7 @@ class RegisterPersistHelper
                     $retrievalTimeSpent = intval($request->retrievalTimeSpent);
                 }
 
-                $retrievalId = DB::table('dcs_document_retrieval')->insertGetId([
+                $retrievalId = DB::table('dcs_document_retrieval')->insertGetId(array_merge([
                     'request_id' => $requestId,
                     'doc_retrieval_date_actual' => $request->retrievalDate,
                     'doc_retrieval_time_actual' => $request->retrievalTime,
@@ -737,11 +750,10 @@ class RegisterPersistHelper
                     'doc_retrieval_time_file' => $request->retrievalFormTime,
                     'time_spent' => $retrievalTimeSpent,
                     'remarks' => $request->retrievalRemarks,
-                    'scanned_retrieval' => $retrievalFile,
                     'created_by' => $userId,
                     'created_at' => $now,
                     'updated_at' => $now,
-                ]);
+                ], self::dcsScanFields('dcs_document_retrieval', 'scanned_retrieval', $retrievalFile)));
 
                 if ($request->has('retrievalOffice')) {
                     foreach ($request->retrievalOffice as $i => $officeId) {
@@ -768,7 +780,7 @@ class RegisterPersistHelper
             if (in_array(5, $checkedChecklists, true)) {
                 $distFile = null;
                 if ($request->hasFile('scanneddist')) {
-                    $distFile = $request->file('scanneddist')->store('scans/distribution', 'public');
+                    $distFile = self::storeDcsScanUpload($request->file('scanneddist'), $uploadedFiles, 'distribution');
                     $uploadedFiles[] = $distFile;
                 }
 
@@ -777,7 +789,7 @@ class RegisterPersistHelper
                     $distTimeSpent = intval($request->distributionTimeSpent);
                 }
 
-                $distributionId = DB::table('dcs_document_distribution')->insertGetId([
+                $distributionId = DB::table('dcs_document_distribution')->insertGetId(array_merge([
                     'request_id' => $requestId,
                     'doc_distribution_date_actual' => $request->distributionDate,
                     'doc_distribution_time_actual' => $request->distributionTime,
@@ -785,11 +797,10 @@ class RegisterPersistHelper
                     'doc_distribution_time_file' => $request->distributionFormTime,
                     'time_spent' => $distTimeSpent,
                     'remarks' => $request->distributionRemarks,
-                    'scanned_distribution' => $distFile,
                     'created_by' => $userId,
                     'created_at' => $now,
                     'updated_at' => $now,
-                ]);
+                ], self::dcsScanFields('dcs_document_distribution', 'scanned_distribution', $distFile)));
 
                 if ($request->has('distOffice')) {
                     self::saveDistributionOffices($distributionId, $request);
@@ -840,7 +851,7 @@ class RegisterPersistHelper
 
             foreach ($filesToDelete as $file) {
                 if ($file) {
-                    Storage::disk('public')->delete($file);
+                    DocumentStorageService::deleteDcsScan($file);
                 }
             }
 
@@ -857,7 +868,7 @@ class RegisterPersistHelper
             DB::rollBack();
 
             foreach ($uploadedFiles as $file) {
-                Storage::disk('public')->delete($file);
+                DocumentStorageService::deleteDcsScan($file);
             }
 
             $refId = uniqid('err_');
@@ -1055,8 +1066,7 @@ class RegisterPersistHelper
     public static function resolveRevisionScannedCopyPath(Request $request, int $i, array &$uploadedFiles, array $allowedPaths = []): ?string
     {
         if ($request->hasFile('scannedCopy') && isset($request->file('scannedCopy')[$i])) {
-            $path = $request->file('scannedCopy')[$i]->store('scans/revisions', 'public');
-            $uploadedFiles[] = $path;
+            $path = self::storeDcsScanUpload($request->file('scannedCopy')[$i], $uploadedFiles, 'revisions');
 
             return $path;
         }
@@ -1071,10 +1081,10 @@ class RegisterPersistHelper
             return null;
         }
 
-        $ext = strtolower(pathinfo($source, PATHINFO_EXTENSION));
-        $dest = 'scans/revisions/' . uniqid('rev_', true) . ($ext !== '' ? '.' . $ext : '');
-        Storage::disk('public')->copy($source, $dest);
-        $uploadedFiles[] = $dest;
+        $dest = DocumentStorageService::duplicateDcsScan($source, auth()->user());
+        if ($dest) {
+            $uploadedFiles[] = $dest;
+        }
 
         return $dest;
     }
@@ -1279,7 +1289,7 @@ class RegisterPersistHelper
                         }
                     }
 
-                    DB::table('dcs_syllabi_drf')->insert([
+                    DB::table('dcs_syllabi_drf')->insert(array_merge([
                         'syllabi_id' => $syllabiId,
                         'faculty_id' => $facultyId,
                         'faculty_name' => $facultyName,
@@ -1287,10 +1297,9 @@ class RegisterPersistHelper
                         'drf_no' => $drfNoArr[$rowIdx] ?? null,
                         'drf_date' => $drfDateArr[$rowIdx] ?? null,
                         'drf_received_date' => $drfRecvArr[$rowIdx] ?? null,
-                        'scanned_drf' => $scannedDrf,
                         'created_at' => $now,
                         'updated_at' => $now,
-                    ]);
+                    ], self::dcsScanFields('dcs_syllabi_drf', 'scanned_drf', $scannedDrf)));
                 }
             }
 
@@ -1324,7 +1333,12 @@ class RegisterPersistHelper
 
         $file = $request->file($inputName)[$index];
 
-        return $file->store($directory, 'public');
+        return DocumentStorageService::storeDcsScan(
+            $file,
+            auth()->user(),
+            null,
+            DocumentStorageService::normalizeDcsCategory($directory)
+        );
     }
 
     public static function syncRevisionStatusForMasterlist(int $masterlistId): void

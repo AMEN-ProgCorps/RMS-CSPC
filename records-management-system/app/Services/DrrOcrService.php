@@ -11,6 +11,8 @@ class DrrOcrService
 {
     public const MAX_PAGES_PER_REQUEST = 3;
 
+    private static ?string $resolvedTempPdf = null;
+
     public static function ocrPages(Request $request): array
     {
         $request->validate([
@@ -55,6 +57,10 @@ class DrrOcrService
             if ($tempOwned) {
                 Storage::disk('local')->delete($tempOwned);
             }
+            if (self::$resolvedTempPdf && is_file(self::$resolvedTempPdf)) {
+                @unlink(self::$resolvedTempPdf);
+                self::$resolvedTempPdf = null;
+            }
         }
     }
 
@@ -72,11 +78,21 @@ class DrrOcrService
             return Storage::disk('public')->path($path);
         }
 
-        // Absolute public URL path → relative storage path
         if (preg_match('#/storage/(.+)$#', $storagePath, $m)) {
             $rel = $m[1];
             if (!str_contains($rel, '..') && Storage::disk('public')->exists($rel)) {
                 return Storage::disk('public')->path($rel);
+            }
+        }
+
+        if (DocumentStorageService::dcsScanExists($path)) {
+            $content = DocumentStorageService::getDcsScanContent($path);
+            if ($content !== null && $content !== '') {
+                $tempRel = 'temp/drr-ocr/' . uniqid('drive_', true) . '.pdf';
+                Storage::disk('local')->put($tempRel, $content);
+                self::$resolvedTempPdf = Storage::disk('local')->path($tempRel);
+
+                return self::$resolvedTempPdf;
             }
         }
 

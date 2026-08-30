@@ -360,6 +360,8 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - System Settings')] class
     {
         try {
             $offices = \DB::table('folder_data')->get();
+            $hasDcsColumns = \Illuminate\Support\Facades\Schema::hasColumn('folder_data', 'is_dcs_available');
+
             foreach ($offices as $office) {
                 $dtsSize = \DB::table('document_data')
                     ->where('user_office', $office->office_name)
@@ -371,12 +373,23 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - System Settings')] class
                     ->where('document_path', 'like', '%rdp%')
                     ->sum(\DB::raw('COALESCE(CAST(NULLIF(file_size, \'\') AS BIGINT), 0)'));
 
-                \DB::table('folder_data')->where('id', $office->id)->update([
+                $dcsSize = 0;
+                if ($hasDcsColumns) {
+                    $dcsSize = \App\Services\DocumentStorageService::sumDcsBytesForOffice($office->office_name);
+                }
+
+                $update = [
                     'current_dts_size'  => $dtsSize,
                     'current_rdp_size'  => $rdpSize,
-                    'total_folder_size' => $dtsSize + $rdpSize,
+                    'total_folder_size' => $dtsSize + $rdpSize + $dcsSize,
                     'updated_at'        => now(),
-                ]);
+                ];
+
+                if ($hasDcsColumns) {
+                    $update['current_dcs_size'] = $dcsSize;
+                }
+
+                \DB::table('folder_data')->where('id', $office->id)->update($update);
             }
 
             $this->successMessage = 'Google Drive storage metrics successfully recalculated and synchronized!';
@@ -457,16 +470,23 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - System Settings')] class
 
         // 1. Local cache directories
         try {
-            \Illuminate\Support\Facades\Storage::disk('local')->makeDirectory("private/uploads/{$officeName}/DTS");
-            \Illuminate\Support\Facades\Storage::disk('local')->makeDirectory("private/uploads/{$officeName}/RDP");
+            \Illuminate\Support\Facades\Storage::disk('local')->makeDirectory("uploads/{$officeName}/DTS");
+            \Illuminate\Support\Facades\Storage::disk('local')->makeDirectory("uploads/{$officeName}/RDP");
+            foreach (\App\Services\DocumentStorageService::DCS_CATEGORIES as $dcsCategory) {
+                \Illuminate\Support\Facades\Storage::disk('local')->makeDirectory("uploads/{$officeName}/DCS/{$dcsCategory}");
+            }
         } catch (\Throwable $e) {}
 
         // 2. Google Drive directories
-        $this->preloadLogs[] = "- Attempting to verify / create [{$officeName}], [{$officeName}/DTS], and [{$officeName}/RDP] on Google Drive...";
+        $this->preloadLogs[] = "- Attempting to verify / create [{$officeName}], [{$officeName}/DTS], [{$officeName}/RDP], and structured [{$officeName}/DCS/*] on Google Drive...";
         try {
             \Illuminate\Support\Facades\Storage::disk('google')->makeDirectory($officeName);
             \Illuminate\Support\Facades\Storage::disk('google')->makeDirectory("{$officeName}/DTS");
             \Illuminate\Support\Facades\Storage::disk('google')->makeDirectory("{$officeName}/RDP");
+            \Illuminate\Support\Facades\Storage::disk('google')->makeDirectory("{$officeName}/DCS");
+            foreach (\App\Services\DocumentStorageService::DCS_CATEGORIES as $dcsCategory) {
+                \Illuminate\Support\Facades\Storage::disk('google')->makeDirectory("{$officeName}/DCS/{$dcsCategory}");
+            }
         } catch (\Throwable $e) {
             logger()->warning("Preload notice for {$officeName}: " . $e->getMessage());
         }
@@ -491,6 +511,17 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - System Settings')] class
                 'is_rdp_available' => true,
                 'updated_at'        => now(),
             ]);
+        }
+
+        // 4. DCS folder_data flags (additive; does not alter DTS/RDP insert/update above)
+        if (\Illuminate\Support\Facades\Schema::hasColumn('folder_data', 'is_dcs_available')) {
+            $dcsRecord = \DB::table('folder_data')->where('office_name', $officeName)->first();
+            if ($dcsRecord && !($dcsRecord->is_dcs_available ?? false)) {
+                \DB::table('folder_data')->where('office_name', $officeName)->update([
+                    'is_dcs_available' => true,
+                    'updated_at'       => now(),
+                ]);
+            }
         }
 
         $this->preloadLogs[] = "- Creation & DB verification success for [{$officeName}]!";

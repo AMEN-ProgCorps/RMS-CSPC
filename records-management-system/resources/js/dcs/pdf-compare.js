@@ -545,14 +545,14 @@ async function renderPdfPage(doc, pageNumber, width, marks, frameClass) {
         return wrap;
     }
     const page = await doc.getPage(pageNumber);
-    const base = page.getViewport({ scale: 1 });
-    const viewport = page.getViewport({ scale: width / base.width });
-    const canvas = document.createElement('canvas');
-    canvas.className = 'drr-pdf-canvas reg-compare-pdf-canvas';
-    canvas.width = viewport.width;
-    canvas.height = viewport.height;
-    const ctx = canvas.getContext('2d');
-    await page.render({ canvasContext: ctx, viewport }).promise;
+        const base = page.getViewport({ scale: 1 });
+        const viewport = page.getViewport({ scale: width / base.width });
+        const canvas = document.createElement('canvas');
+        canvas.className = 'drr-pdf-canvas reg-compare-pdf-canvas';
+        canvas.width = viewport.width;
+        canvas.height = viewport.height;
+        const ctx = canvas.getContext('2d');
+        await page.render({ canvasContext: ctx, viewport }).promise;
 
     const list = marks || [];
     if (list.length) {
@@ -797,12 +797,12 @@ export async function runPdfCompare(root, options = {}) {
         showStagePlaceholder(leftStage, 'Loading previous PDF…');
         showStagePlaceholder(rightStage, 'Loading latest PDF…');
 
-        let leftDoc = null;
-        let rightDoc = null;
+    let leftDoc = null;
+    let rightDoc = null;
         let leftLoadError = null;
         let rightLoadError = null;
 
-        try {
+    try {
             leftDoc = await pdfjsLib.getDocument({ url: leftUrl }).promise;
         } catch (err) {
             leftLoadError = err;
@@ -871,8 +871,8 @@ export async function runPdfCompare(root, options = {}) {
 
         if (root.__drrAbort) {
             setStatus(root, 'Comparison cancelled.', 'info');
-            return;
-        }
+        return;
+    }
 
         setStatus(root, 'Aligning pages by content…', 'loading');
         if (leftStage) leftStage.innerHTML = '';

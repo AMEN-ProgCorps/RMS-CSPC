@@ -6,6 +6,7 @@ use App\Models\User;
 use App\Services\DocumentStorageService;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Facades\Storage;
 
 class TestOrganizedUpload extends Command
@@ -98,12 +99,43 @@ class TestOrganizedUpload extends Command
         }
 
         // Verify local file caching
-        $localExists = Storage::disk('local')->exists("private/uploads/" . $dtsResult['document_path']);
+        $localExists = Storage::disk('local')->exists(\App\Services\DocumentStorageService::localUploadsPath($dtsResult['document_path']));
         $this->info("\nLocal File Cached: " . ($localExists ? 'YES ✅' : 'NO ❌'));
 
         // Verify document_data DB insertion
         $docDataRecord = DB::table('document_data')->where('document_id', $dtsResult['document_id'])->first();
         $this->info("document_data DB Record Found: " . ($docDataRecord ? 'YES ✅' : 'NO ❌'));
+
+        // Test 3: Upload DCS Document (masterlist category)
+        $this->info("\n--- TEST 3: Uploading DCS Document (masterlist) ---");
+        $dcsFileContent = "Sample DCS Masterlist Scan Content - " . date('Y-m-d H:i:s');
+        $dcsPath = DocumentStorageService::storeDcsScan(
+            $dcsFileContent,
+            $user,
+            'masterlist_test_' . time() . '.pdf',
+            'masterlist'
+        );
+        $dcsDocumentId = DocumentStorageService::dcsDocumentIdFromPath($dcsPath);
+
+        $this->info("DCS Upload Result:");
+        $this->line(" - Document ID (from filename): " . ($dcsDocumentId ?: '(none)'));
+        $this->line(" - Relative Path: " . $dcsPath);
+        $this->line(" - Category folder: masterlist");
+
+        $dcsFolderRecord = DB::table('folder_data')->where('office_name', strtoupper($officeCode))->first();
+        if ($dcsFolderRecord && Schema::hasColumn('folder_data', 'is_dcs_available')) {
+            $this->info("\n[folder_data] DCS State:");
+            $this->line(" - DCS Available: " . (($dcsFolderRecord->is_dcs_available ?? false) ? 'TRUE' : 'FALSE'));
+            $this->line(" - DCS Current Size: " . ($dcsFolderRecord->current_dcs_size ?? 0) . " bytes");
+        }
+
+        $dcsInDocumentData = $dcsDocumentId
+            ? DB::table('document_data')->where('document_id', $dcsDocumentId)->exists()
+            : false;
+        $this->info("DCS excluded from document_data: " . ($dcsInDocumentData ? 'NO ❌' : 'YES ✅'));
+
+        $dcsLocalExists = Storage::disk('local')->exists(\App\Services\DocumentStorageService::localUploadsPath($dcsPath));
+        $this->info("DCS Local File Cached: " . ($dcsLocalExists ? 'YES ✅' : 'NO ❌'));
 
         $this->info("\n🎉 All Tests Completed Successfully!");
         return Command::SUCCESS;

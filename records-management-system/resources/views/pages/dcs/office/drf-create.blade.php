@@ -15,9 +15,12 @@ new #[Layout('layouts.dcs')] #[Title('New DRF — CSPC DCS')] class extends Comp
     public function with(): array
     {
         return [
-            'defaultOfficeId' => RegisterQueryHelper::currentOfficeId(),
-            'defaultOfficeName' => RegisterQueryHelper::currentOfficeName(),
+            'defaultOriginator' => RegisterQueryHelper::currentUserDisplayName(),
             'offices' => RegisterQueryHelper::jsCatalog()['offices'] ?? [],
+            'oldDistributeOfficeIds' => array_values(array_filter(array_map(
+                'intval',
+                (array) old('distributeToOffice', [])
+            ))),
         ];
     }
 }; ?>
@@ -28,7 +31,7 @@ new #[Layout('layouts.dcs')] #[Title('New DRF — CSPC DCS')] class extends Comp
             <a href="{{ route('dcs.office.drf.index', absolute: false) }}" class="reg-btn reg-btn-cancel">
                 <i class="fa-solid fa-arrow-left"></i> Back to list
             </a>
-            <p class="ofi-toolbar-hint">After saving, this form cannot be edited — only viewed and printed.</p>
+            <p class="ofi-toolbar-hint">Fill in the form, save, then print and submit the signed copy to RFIO. Scanned DRF uploads are handled by RFIO during document registration.</p>
         </div>
 
         @if($errors->any())
@@ -37,57 +40,59 @@ new #[Layout('layouts.dcs')] #[Title('New DRF — CSPC DCS')] class extends Comp
             </div>
         @endif
 
-        <form method="POST" action="{{ route('dcs.office.drf.store', absolute: false) }}" enctype="multipart/form-data" id="ofiDrfForm">
+        <form method="POST" action="{{ route('dcs.office.drf.store', absolute: false) }}" id="ofiDrfForm">
             @csrf
             <section class="reg-card" id="section-1">
                 <div class="reg-card-header">
                     <span>Document Request Form</span>
                 </div>
-                <div class="reg-card-body">
-                    <div class="reg-grid-3">
+                <div class="reg-card-body ofi-drf-form">
+                    <div class="reg-grid-2">
                         <div class="reg-field">
-                            <label>DRF No.</label>
-                            <input type="text" id="drfNo" name="drfNo" value="{{ old('drfNo') }}" required maxlength="100" placeholder="Enter DRF No.">
+                            <label>Request #</label>
+                            <input type="text" id="drfNo" name="drfNo" value="{{ old('drfNo') }}" required maxlength="100" placeholder="Enter request number">
                         </div>
                         <div class="reg-field">
-                            <label>DRF Date</label>
+                            <label>Date</label>
                             <input type="date" id="drfDate" name="drfDate" value="{{ old('drfDate', now()->toDateString()) }}" required>
-                        </div>
-                        <div class="reg-field">
-                            <label>Date Receipt</label>
-                            <div class="reg-dual">
-                                <input type="date" id="drfReceiptDate" name="drfReceiptDate" value="{{ old('drfReceiptDate') }}">
-                                <input type="time" id="drfTime" name="drfTime" value="{{ old('drfTime') }}">
-                            </div>
-                        </div>
-                    </div>
-                    <div class="reg-grid-2-1">
-                        <div class="reg-field">
-                            <label>Document Title</label>
-                            <input type="text" id="drfTitle" name="drfTitle" value="{{ old('drfTitle') }}" required maxlength="255" placeholder="Enter document title">
-                        </div>
-                        <div class="reg-field">
-                            <label>Source Unit</label>
-                            <div class="reg-reldocs" id="drfSourceUnitWidget">
-                                <div class="reg-reldocs-inputwrap">
-                                    <input type="text" id="drfSourceUnitSearch" class="reg-reldocs-input"
-                                        placeholder="Type to search offices..." autocomplete="off">
-                                    <button type="button" class="reg-reldocs-arrow-btn" id="drfSourceArrowBtn">
-                                        <i class="fa-solid fa-chevron-down"></i>
-                                    </button>
-                                </div>
-                                <div id="drfSourceResults" class="reg-reldocs-dropdown" style="display:none;"></div>
-                                <div id="drfSourceInlineChips" class="reg-reldocs-dropdown reg-reldocs-selected-panel" style="display:none;"></div>
-                            </div>
                         </div>
                     </div>
                     <div class="reg-field">
-                        <label>Upload Scanned DRF</label>
-                        <label class="reg-upload">
-                            <input type="file" id="drfFile" name="drfFile" accept=".pdf,application/pdf">
-                            <i class="fa-solid fa-cloud-arrow-up"></i>
-                            <span>Choose scanned PDF</span>
-                        </label>
+                        <label>Originator</label>
+                        <input type="text" name="originatorName" value="{{ old('originatorName', $defaultOriginator) }}" maxlength="255" placeholder="Name of originator">
+                    </div>
+                    <div class="reg-field">
+                        <label>Document Title</label>
+                        <input type="text" id="drfTitle" name="drfTitle" value="{{ old('drfTitle') }}" required maxlength="255" placeholder="Enter document title">
+                    </div>
+                    <div class="reg-field">
+                        <label>Type of document</label>
+                        <div class="ofi-radio-row">
+                            <label class="ofi-radio"><input type="radio" name="docTypeKind" value="internal" @checked(old('docTypeKind', 'internal') === 'internal')> Internal</label>
+                            <label class="ofi-radio"><input type="radio" name="docTypeKind" value="external" @checked(old('docTypeKind') === 'external')> External</label>
+                        </div>
+                    </div>
+                    <div class="reg-field">
+                        <label>Description/reason for request (define in detail)</label>
+                        <textarea name="descriptionReason" rows="4" maxlength="5000" placeholder="Define in detail…">{{ old('descriptionReason') }}</textarea>
+                    </div>
+                    <div class="reg-field">
+                        <label>Distribute document to (department/position)</label>
+                        <p class="ofi-hint">
+                            Search by office name or code — office <strong>code</strong> prints on the form.
+                            Click the <i class="fa-solid fa-chevron-down ofi-hint-icon"></i> arrow to view or remove selected offices.
+                        </p>
+                        <div class="reg-reldocs" id="drfDistributeWidget">
+                            <div class="reg-reldocs-inputwrap">
+                                <input type="text" id="drfDistributeSearch" class="reg-reldocs-input"
+                                    placeholder="Type to search offices..." autocomplete="off">
+                                <button type="button" class="reg-reldocs-arrow-btn" id="drfDistributeArrowBtn" title="View selected offices">
+                                    <i class="fa-solid fa-chevron-down"></i>
+                                </button>
+                            </div>
+                            <div id="drfDistributeResults" class="reg-reldocs-dropdown" style="display:none;"></div>
+                            <div id="drfDistributeInlineChips" class="reg-reldocs-dropdown reg-reldocs-selected-panel" style="display:none;"></div>
+                        </div>
                     </div>
                 </div>
             </section>
@@ -103,21 +108,20 @@ new #[Layout('layouts.dcs')] #[Title('New DRF — CSPC DCS')] class extends Comp
 
 <script>
 window.__ofiOffices = @json($offices);
-window.__ofiDefaultOffice = @json([
-    'office_id' => $defaultOfficeId,
-    'office_name' => $defaultOfficeName,
-]);
-window.__ofiOldSource = @json(array_values(array_filter(array_map('intval', (array) old('drfSourceUnit', $defaultOfficeId ? [$defaultOfficeId] : [])))));
+window.__ofiOldDistribute = @json($oldDistributeOfficeIds);
 window.__ofiSourceConfigs = [
     {
-        key: 'drf',
-        widgetId: 'drfSourceUnitWidget',
-        inputId: 'drfSourceUnitSearch',
-        arrowId: 'drfSourceArrowBtn',
-        resultsId: 'drfSourceResults',
-        chipsId: 'drfSourceInlineChips',
-        officeFieldName: 'drfSourceUnit[]',
-    }
+        key: 'distribute',
+        widgetId: 'drfDistributeWidget',
+        inputId: 'drfDistributeSearch',
+        arrowId: 'drfDistributeArrowBtn',
+        resultsId: 'drfDistributeResults',
+        chipsId: 'drfDistributeInlineChips',
+        officeFieldName: 'distributeToOffice[]',
+        oldIds: window.__ofiOldDistribute,
+        seedDefaultOffice: false,
+        labelFormat: 'code',
+    },
 ];
 </script>
 <script src="{{ asset('js/dcs/office-intake.js') }}"></script>

@@ -47,6 +47,7 @@ export default defineConfig({
                 'resources/css/dcs/reports.css',
                 'resources/css/dcs/stamping.css',
                 'resources/css/dcs/database.css',
+                'resources/css/dcs/manage-files.css',
             ],
             refresh: true,
         }),

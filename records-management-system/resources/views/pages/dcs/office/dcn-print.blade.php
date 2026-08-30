@@ -7,8 +7,8 @@
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body {
-            font-family: Arial, Helvetica, sans-serif;
-            font-size: 12px;
+            font-family: Arial, sans-serif;
+            font-size: 11pt;
             color: #000;
             background: #e2e8f0;
             -webkit-print-color-adjust: exact;
@@ -40,148 +40,319 @@
             min-height: 297mm;
             margin: 16px auto;
             background: #fff;
-            padding: 16mm 16mm 14mm;
+            padding: 6mm 14mm 10mm;
             box-shadow: 0 4px 24px rgba(15, 23, 42, 0.12);
+            font-family: Arial, sans-serif;
+            font-size: 11pt;
         }
-        .hdr {
-            display: flex;
-            align-items: flex-start;
-            justify-content: space-between;
-            gap: 12px;
-            margin-bottom: 6px;
+        .hdr-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 0 0 4px;
         }
-        .hdr-left { display: flex; align-items: center; gap: 12px; }
-        .hdr-logo { width: 72px; height: 72px; object-fit: contain; }
-        .hdr-text { line-height: 1.25; }
-        .hdr-text .rep { font-size: 11px; }
-        .hdr-text .org { font-size: 14px; font-weight: 700; text-transform: uppercase; }
-        .hdr-text .loc { font-size: 11px; }
-        .hdr-code { font-size: 13px; font-weight: 700; white-space: nowrap; padding-top: 4px; }
-        .blue-rule { height: 2.5px; background: #0071BC; margin: 6px 0 12px; }
+        .hdr-table, .hdr-table tr, .hdr-table td { border: none !important; background: none !important; }
+        .hdr-table td { padding: 0; vertical-align: middle; }
+        .hdr-logo {
+            height: 68pt;
+            width: auto;
+            object-fit: contain;
+            display: block;
+        }
+        .hdr-republic,
+        .hdr-location,
+        .hdr-name {
+            font-family: Arial, sans-serif;
+            font-size: 11pt;
+            line-height: 1.25;
+        }
+        .hdr-name {
+            font-weight: 700;
+            text-transform: uppercase;
+            margin: 1px 0;
+        }
+        .hdr-line {
+            position: relative;
+            border-top: 2px solid #0071BC;
+            height: 0;
+            margin: 4px 0 12px;
+        }
+        .hdr-line span {
+            position: absolute;
+            right: 0;
+            top: -0.65em;
+            background: #fff;
+            padding-left: 8px;
+            font-family: Arial, sans-serif;
+            font-size: 11pt;
+            font-weight: 700;
+            white-space: nowrap;
+        }
         .form-title {
+            font-family: Arial, sans-serif;
             text-align: center;
-            font-size: 16px;
+            font-size: 12pt;
             font-weight: 700;
             margin-bottom: 10px;
         }
-        .dcn-no { margin-bottom: 10px; font-weight: 600; }
-        .dcn-no span { font-weight: 400; border-bottom: 1px solid #000; padding: 0 8px 2px; min-width: 160px; display: inline-block; }
-        .meta { margin-bottom: 12px; }
-        .meta div { margin-bottom: 6px; }
-        .lbl { font-weight: 600; }
-        .val { border-bottom: 1px solid #000; display: inline-block; min-width: 40%; padding: 0 4px 2px; }
-        table.rev {
+        .dcn-no-row {
+            display: flex;
+            align-items: baseline;
+            gap: 6px;
+            margin-bottom: 10px;
+            font-weight: 700;
+        }
+        .dcn-no-row .uline {
+            flex: 1;
+            max-width: 220px;
+            border-bottom: 1px solid #000;
+            min-height: 1.2em;
+            padding: 0 2px 1px;
+            font-weight: 400;
+        }
+        .form-box {
+            border: 1.5px solid #000;
+        }
+        .box-section {
+            border-bottom: 1px solid #000;
+            padding: 8px 10px;
+        }
+        .box-section:last-child {
+            border-bottom: none;
+        }
+        .doc-id-row {
+            margin-bottom: 6px;
+            display: flex;
+            align-items: baseline;
+            gap: 6px;
+        }
+        .doc-id-row.title-row {
+            padding-left: 72px;
+        }
+        .lbl { white-space: nowrap; }
+        .uline {
+            border-bottom: 1px solid #000;
+            min-height: 1.2em;
+            flex: 1;
+            padding: 0 2px 1px;
+            word-break: break-word;
+        }
+        .section-label {
+            font-weight: 700;
+            margin-bottom: 6px;
+        }
+        .change-block {
+            margin-top: 4px;
+        }
+        .change-row {
+            display: flex;
+            align-items: flex-start;
+            gap: 8px;
+            margin-bottom: 8px;
+        }
+        .change-row:last-child { margin-bottom: 0; }
+        .change-row .lbl {
+            font-weight: 700;
+            min-width: 36px;
+            padding-top: 2px;
+        }
+        .ruled-area {
+            flex: 1;
+            min-height: calc(4 * 1.35em);
+            line-height: 1.35em;
+            white-space: pre-wrap;
+            word-break: break-word;
+            background-image: repeating-linear-gradient(
+                to bottom,
+                transparent 0,
+                transparent calc(1.35em - 1px),
+                #000 calc(1.35em - 1px),
+                #000 1.35em
+            );
+            background-size: 100% 1.35em;
+        }
+        .ruled-area.is-short {
+            min-height: calc(3 * 1.35em);
+        }
+        .sig-row {
+            display: flex;
+            align-items: baseline;
+            gap: 6px;
+            margin-bottom: 8px;
+        }
+        .sig-row:last-child { margin-bottom: 0; }
+        .sig-row .uline { flex: 1; }
+        .approvals-table {
             width: 100%;
             border-collapse: collapse;
-            margin: 8px 0 14px;
-            font-size: 11px;
+            font-size: 11pt;
         }
-        table.rev th, table.rev td {
+        .approvals-table th,
+        .approvals-table td {
             border: 1px solid #000;
-            padding: 6px 5px;
-            text-align: left;
-            vertical-align: top;
+            padding: 6px 8px;
+            vertical-align: middle;
+            text-align: center;
+            height: 32px;
         }
-        table.rev th { font-weight: 700; background: #f8fafc; }
-        .block {
-            border: 1.5px solid #000;
-            padding: 10px;
-            margin-bottom: 12px;
-            min-height: 48px;
-            white-space: pre-wrap;
+        .approvals-table th {
+            font-weight: 700;
+            background: #fff;
+        }
+        .approvals-table .approvals-label {
+            font-style: italic;
+            text-align: left;
+            width: 18%;
+        }
+        .footer-rule {
+            border-top: 2px solid #0071BC;
+            margin: 10px 0 6px;
         }
         .footer {
             display: flex;
             justify-content: space-between;
             align-items: center;
-            font-size: 11px;
-            font-weight: 600;
-            margin-top: 8px;
+        }
+        .footer strong {
+            font-size: 10pt;
+            font-weight: 700;
         }
         @media print {
             body { background: #fff; }
             .print-toolbar { display: none !important; }
-            .sheet { box-shadow: none; margin: 0; width: auto; min-height: auto; padding: 10mm 12mm; }
-            @page { size: A4 portrait; margin: 10mm; }
+            .sheet {
+                box-shadow: none;
+                margin: 0;
+                width: auto;
+                min-height: auto;
+                padding: 0;
+            }
+            @page { size: A4 portrait; margin: 6mm 12mm 8mm 12mm; }
         }
     </style>
 </head>
 <body>
 @php
-    $revs = $revisions ?? collect();
-    $sources = $sourceOffices ?? collect();
-    $sourceText = $sources->pluck('office_name')->filter()->implode(', ');
+    $docNo = trim((string) ($dcn->document_no ?? ''));
+    $docTitle = trim((string) ($dcn->document_title ?? ''));
+    if ($docNo === '' || $docTitle === '') {
+        $firstRev = ($revisions ?? collect())->first();
+        if ($firstRev) {
+            $docNo = $docNo ?: trim((string) ($firstRev->document_no ?? ''));
+            $docTitle = $docTitle ?: trim((string) ($firstRev->title ?? ''));
+        }
+    }
+    $changeFrom = trim((string) ($dcn->change_from ?? ''));
+    $changeTo = trim((string) ($dcn->change_to ?? ''));
+    $justification = trim((string) ($dcn->brief_purpose ?? ''));
+    $originator = trim((string) ($dcn->originator_name ?? ''));
+    $departmentDate = trim((string) ($dcn->department_date ?? ''));
+    $reviewedByDate = trim((string) ($dcn->reviewed_by_date ?? ''));
 @endphp
 <div class="print-toolbar">
     <button type="button" class="btn-print" onclick="window.print()">Print</button>
     <button type="button" class="btn-close" onclick="window.close()">Close</button>
 </div>
 <div class="sheet">
-    <div class="hdr">
-        <div class="hdr-left">
-            @if(!empty($logoSrc))
-                <img src="{{ $logoSrc }}" alt="" class="hdr-logo">
-            @endif
-            <div class="hdr-text">
-                <div class="rep">Republic of the Philippines</div>
-                <div class="org">Camarines Sur Polytechnic Colleges</div>
-                <div class="loc">Nabua, Camarines Sur</div>
+    <table class="hdr-table">
+        <tr>
+            <td style="width:1%; white-space:nowrap; padding-right:10px;">
+                @if(!empty($logoSrc))
+                    <img src="{{ $logoSrc }}" alt="" class="hdr-logo">
+                @endif
+            </td>
+            <td>
+                <div class="hdr-republic">Republic of the Philippines</div>
+                <div class="hdr-name">Camarines Sur Polytechnic Colleges</div>
+                <div class="hdr-location">Nabua, Camarines Sur</div>
+            </td>
+        </tr>
+    </table>
+    <div class="hdr-line"><span>CSPC-F-DCC-01</span></div>
+
+    <div class="form-title">Document Change Notice</div>
+
+    <div class="dcn-no-row">
+        <span>DCN #</span>
+        <span class="uline">{{ $dcn->dcn_no }}</span>
+    </div>
+
+    <div class="form-box">
+        <div class="box-section">
+            <div class="doc-id-row">
+                <span class="lbl">Document no:</span>
+                <span class="uline">{{ $docNo }}</span>
+            </div>
+            <div class="doc-id-row title-row">
+                <span class="lbl">Title:</span>
+                <span class="uline">{{ $docTitle }}</span>
             </div>
         </div>
-        <div class="hdr-code">CSPC-F-DCC-01</div>
-    </div>
-    <div class="blue-rule"></div>
-    <div class="form-title">Document Change Notice</div>
-    <div class="dcn-no">DCN # <span>{{ $dcn->dcn_no }}</span></div>
 
-    <div class="meta">
-        <div><span class="lbl">DCN Date:</span> <span class="val">{{ $dcn->dcn_date ? \Carbon\Carbon::parse($dcn->dcn_date)->format('F d, Y') : '' }}</span></div>
-        <div>
-            <span class="lbl">DCN Receipt:</span>
-            <span class="val">
-                {{ $dcn->dcn_receipt_date ? \Carbon\Carbon::parse($dcn->dcn_receipt_date)->format('F d, Y') : '' }}
-                @if($dcn->dcn_receipt_time)
-                    {{ \Illuminate\Support\Str::of($dcn->dcn_receipt_time)->substr(0, 5) }}
-                @endif
-            </span>
+        <div class="box-section">
+            <div class="section-label">Detailed Description of Change:</div>
+            <div class="change-block">
+                <div class="change-row">
+                    <span class="lbl">From:</span>
+                    <div class="ruled-area">{{ $changeFrom }}</div>
+                </div>
+                <div class="change-row">
+                    <span class="lbl">To:</span>
+                    <div class="ruled-area">{{ $changeTo }}</div>
+                </div>
+            </div>
         </div>
-        <div><span class="lbl">Source Unit:</span> <span class="val" style="min-width:60%;">{{ $sourceText }}</span></div>
+
+        <div class="box-section">
+            <div class="section-label">Justification of Change:</div>
+            <div class="ruled-area is-short">{{ $justification }}</div>
+        </div>
+
+        <div class="box-section">
+            <div class="sig-row">
+                <span class="lbl">Originator/ Signature:</span>
+                <span class="uline">{{ $originator }}</span>
+            </div>
+            <div class="sig-row">
+                <span class="lbl">Department/ Date:</span>
+                <span class="uline">{{ $departmentDate }}</span>
+            </div>
+            <div class="sig-row">
+                <span class="lbl">Reviewed by/ Date:</span>
+                <span class="uline">{{ $reviewedByDate }}</span>
+            </div>
+        </div>
+
+        <div class="box-section" style="padding:0;">
+            <table class="approvals-table">
+                <thead>
+                    <tr>
+                        <th class="approvals-label"><em>Approvals:</em></th>
+                        <th>Position</th>
+                        <th>Names</th>
+                        <th>Signature</th>
+                        <th>Date</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @for($i = 0; $i < 4; $i++)
+                        <tr>
+                            <td></td>
+                            <td></td>
+                            <td></td>
+                            <td></td>
+                            <td></td>
+                        </tr>
+                    @endfor
+                </tbody>
+            </table>
+        </div>
     </div>
 
-    <div class="lbl" style="margin-bottom:6px;">Documents for Revision</div>
-    <table class="rev">
-        <thead>
-            <tr>
-                <th>Document No.</th>
-                <th>Document Title</th>
-                <th>Effectivity</th>
-                <th>Rev No.</th>
-                <th>Brief Purpose</th>
-            </tr>
-        </thead>
-        <tbody>
-            @forelse($revs as $rev)
-                <tr>
-                    <td>{{ $rev->document_no }}</td>
-                    <td>{{ $rev->title }}</td>
-                    <td>{{ $rev->effectivity_date ? \Carbon\Carbon::parse($rev->effectivity_date)->format('M d, Y') : '' }}</td>
-                    <td>{{ $rev->revision_no }}</td>
-                    <td>{{ $rev->brief_purpose }}</td>
-                </tr>
-            @empty
-                <tr><td colspan="5">—</td></tr>
-            @endforelse
-        </tbody>
-    </table>
-
-    <div class="lbl" style="margin-bottom:6px;">Justification</div>
-    <div class="block">{{ $dcn->brief_purpose }}</div>
-
-    <div class="blue-rule"></div>
+    <div class="footer-rule"></div>
     <div class="footer">
         <span>Effectivity Date: January 2018</span>
-        <span>Rev. 1</span>
-        <span>Page <strong>1</strong> of <strong>1</strong></span>
+        <span>Rev. <strong>1</strong></span>
+        <span>Page: <strong>1</strong> of <strong>1</strong></span>
     </div>
 </div>
 </body>

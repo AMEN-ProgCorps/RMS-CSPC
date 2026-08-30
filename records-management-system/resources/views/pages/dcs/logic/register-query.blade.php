@@ -2,6 +2,7 @@
 
 namespace App\Helpers;
 
+use App\Services\DocumentStorageService;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Support\Collection;
@@ -20,6 +21,11 @@ class RegisterQueryHelper
     public static function recycleBinExpiresAt(\DateTimeInterface|string $deletedAt): Carbon
     {
         return Carbon::parse($deletedAt)->addYears(self::RECYCLE_BIN_RETENTION_YEARS);
+    }
+
+    public static function scanUrl(?string $path): ?string
+    {
+        return DocumentStorageService::dcsScanUrl($path);
     }
 
     public static function pgBool(mixed $val): bool
@@ -2619,7 +2625,7 @@ class RegisterQueryHelper
 
         return [
             'scan_path' => $path,
-            'scan_url' => Storage::disk('public')->url($path),
+            'scan_url' => self::scanUrl($path),
         ];
     }
 
@@ -3057,7 +3063,7 @@ class RegisterQueryHelper
                 'brief_purpose' => null,
                 'originator_name' => $m->originator_name ?? null,
                 'keywords' => $m->keywords ?? null,
-                'scanned_copy_url' => $m->scanned_masterlist ? Storage::disk('public')->url($m->scanned_masterlist) : null,
+                'scanned_copy_url' => $m->scanned_masterlist ? self::scanUrl($m->scanned_masterlist) : null,
                 'scanned_copy_path' => $m->scanned_masterlist,
                 'label' => $docNo . ' — ' . $title . ' (Rev ' . (int) $m->revise_no . ')'
                     . ($isObsolete ? ' (Obsolete)' : ''),
@@ -3986,7 +3992,7 @@ class RegisterQueryHelper
                 'revise_no' => (int) $row->revise_no,
                 'doc_no' => (string) $row->doc_no,
                 'scanned_copy_url' => $row->scanned_masterlist
-                    ? Storage::disk('public')->url($row->scanned_masterlist)
+                    ? self::scanUrl($row->scanned_masterlist)
                     : null,
             ])
             ->all();
@@ -4090,7 +4096,7 @@ class RegisterQueryHelper
                 : null,
             'brief_purpose' => $row->brief_purpose ?? null,
             'scanned_copy_url' => $row->scanned_masterlist
-                ? Storage::disk('public')->url($row->scanned_masterlist)
+                ? self::scanUrl($row->scanned_masterlist)
                 : null,
             'scanned_copy_path' => $row->scanned_masterlist,
             'label' => ($row->doc_no ?: 'No number') . ' — Rev ' . (int) $row->revise_no
@@ -4553,7 +4559,7 @@ class RegisterQueryHelper
                     'taken_revs' => $familyRevs,
                     'revision_scans' => $revisionScans,
                     'latest_scanned_copy_url' => $latest->scanned_masterlist
-                        ? Storage::disk('public')->url($latest->scanned_masterlist)
+                        ? self::scanUrl($latest->scanned_masterlist)
                         : null,
                     'latest_title' => $latest->doc_title,
                     'latest_originator' => $latest->originator_name,

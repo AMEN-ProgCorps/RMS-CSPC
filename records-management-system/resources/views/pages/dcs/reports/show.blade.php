@@ -642,6 +642,10 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                                                             x-on:change="$wire.saveRatingField({{ (int) $row['request_id'] }}, 'remarks', $event.target.value)"
                                                             x-on:blur="$wire.saveRatingField({{ (int) $row['request_id'] }}, 'remarks', $event.target.value)">
                                                     </td>
+                                                @elseif(in_array($key, ['item_no', 'no'], true))
+                                                    <td>{{ ($row[$key] ?? '') !== '' && ($row[$key] ?? null) !== null ? $row[$key] : '' }}</td>
+                                                @elseif(in_array($key, ['doc_no', 'control_number', 'doc_number'], true))
+                                                    <td class="rpt-doc-no"><strong>{{ $row[$key] ?: '—' }}</strong></td>
                                                 @else
                                                     <td>{{ $row[$key] ?: '—' }}</td>
                                                 @endif

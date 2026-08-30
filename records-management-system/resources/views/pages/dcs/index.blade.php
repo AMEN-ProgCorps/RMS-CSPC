@@ -497,15 +497,15 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                                 <template x-if="filteredUpcoming.length === 0">
                                     <div class="upcoming-empty">
                                         <i class="fa-regular fa-calendar-check"></i>
-                                        <span>No events in the next 14 days</span>
+                                        <span x-text="eventCategoryFilter ? 'No events in this category' : 'No events yet'"></span>
                                     </div>
                                 </template>
                                 <template x-for="ev in filteredUpcoming" :key="ev.id">
-                                    <div class="upcoming-item" x-on:click="openDay(ev.date)">
+                                    <div class="upcoming-item" :class="{ 'is-past': isPastEvent(ev) }" x-on:click="openDay(ev.date)">
                                         <div class="upcoming-event-dot" :style="'background-color:' + (ev.color || '#0d2a7a')"></div>
                                         <div class="upcoming-info">
                                             <div class="title" x-text="ev.title"></div>
-                                            <div class="time" x-text="(ev.category_name ? ev.category_name + ' · ' : '') + formatTime(ev.startTime) + ' — ' + formatTime(ev.endTime)"></div>
+                                            <div class="time" x-text="eventListMeta(ev)"></div>
                                         </div>
                                     </div>
                                 </template>
@@ -915,6 +915,20 @@ document.addEventListener('alpine:init', () => {
         displayDate(iso) {
             return new Date(iso + 'T00:00:00').toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' });
         },
+        displayDateShort(iso) {
+            return new Date(iso + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+        },
+        isPastEvent(ev) {
+            const d = String(ev.date || '').slice(0, 10);
+            return d !== '' && d < this.todayIso();
+        },
+        eventListMeta(ev) {
+            const d = String(ev.date || '').slice(0, 10);
+            const t = this.todayIso();
+            const datePart = d === t ? 'Today' : this.displayDateShort(d);
+            const cat = ev.category_name ? ev.category_name + ' · ' : '';
+            return cat + datePart + ' · ' + this.formatTime(ev.startTime) + ' — ' + this.formatTime(ev.endTime);
+        },
         changeMonth(dir) {
             this.month += dir;
             if (this.month > 11) { this.month = 0; this.year += 1; }
@@ -938,29 +952,17 @@ document.addEventListener('alpine:init', () => {
             return out;
         },
         get dayEvents() { return this.events.filter(ev => this.occursOn(ev, this.activeIso)); },
-        get upcoming() {
-            const t = this.todayIso();
-            const end = new Date();
-            end.setDate(end.getDate() + 14);
-            const endIso = this.toIso(end.getFullYear(), end.getMonth(), end.getDate());
+        get allEventsList() {
             return this.events
-                .filter(ev => {
-                    if (ev.readonly) return false;
-                    const d = String(ev.date || '').slice(0, 10);
-                    return d >= t && d <= endIso;
-                })
+                .filter(ev => !ev.readonly)
                 .sort((a, b) => {
-                    const da = String(a.date || '').slice(0, 10).localeCompare(String(b.date || '').slice(0, 10));
+                    const da = String(b.date || '').slice(0, 10).localeCompare(String(a.date || '').slice(0, 10));
                     if (da !== 0) return da;
-                    return (a.startTime || '').localeCompare(b.startTime || '');
-                })
-                .map(ev => {
-                    const d = String(ev.date || '').slice(0, 10);
-                    return { ...ev, when: d === t ? 'today' : d };
+                    return (b.startTime || '').localeCompare(a.startTime || '');
                 });
         },
         get filteredUpcoming() {
-            const list = this.upcoming;
+            const list = this.allEventsList;
             if (!this.eventCategoryFilter) return list;
             return list.filter(ev => String(ev.category_id) === String(this.eventCategoryFilter));
         },

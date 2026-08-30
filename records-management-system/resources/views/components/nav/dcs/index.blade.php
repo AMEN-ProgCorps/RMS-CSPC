@@ -133,6 +133,13 @@
                     <span class="tooltip">Database</span>
                 </a>
             </li>
+            <li class="nav-item {{ request()->routeIs('dcs.manage-files') ? 'active' : '' }}">
+                <a href="{{ route('dcs.manage-files', absolute: false) }}">
+                    <i class="fa-solid fa-folder-open"></i>
+                    <span>Manage Files</span>
+                    <span class="tooltip">Browse DCS scans on Google Drive</span>
+                </a>
+            </li>
             <li data-page="settings" class="nav-item {{ request()->routeIs('dcs.settings.*') ? 'active' : '' }}">
                 <a href="{{ route('dcs.settings.index', absolute: false) }}">
                     <i class="fa-solid fa-gear"></i>

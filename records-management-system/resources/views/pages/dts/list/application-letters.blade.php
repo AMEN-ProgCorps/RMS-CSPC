@@ -93,6 +93,22 @@ new #[Layout('layouts.dts')] #[Title('DTS - Application Letters')] class extends
         $this->exportColumns = array_keys(array_filter($available, fn($c) => $c['default']));
     }
 
+    public function deselectAllExportColumns(): void
+    {
+        $this->exportColumns = [];
+    }
+
+    public function toggleFlow1ExportColumns(): void
+    {
+        $flow1Keys = ['flow1_office', 'flow1_received', 'flow1_released', 'flow1_elapsed_days'];
+        $hasAll = count(array_intersect($flow1Keys, $this->exportColumns)) === count($flow1Keys);
+        if ($hasAll) {
+            $this->exportColumns = array_values(array_diff($this->exportColumns, $flow1Keys));
+        } else {
+            $this->exportColumns = array_values(array_unique(array_merge($this->exportColumns, $flow1Keys)));
+        }
+    }
+
     public function executeExport()
     {
         $available = \App\Helpers\DtsExportHelper::getAvailableColumns('application_letters');

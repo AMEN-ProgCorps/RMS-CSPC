@@ -17,7 +17,7 @@
 
         body {
             font-family: 'Inter', Arial, Helvetica, sans-serif;
-            font-size: 11px;
+            font-size: 10.5px;
             color: #0f172a;
             background: #f1f5f9;
             -webkit-print-color-adjust: exact;
@@ -46,7 +46,7 @@
         .print-toolbar .title-area h2 {
             font-size: 14px;
             font-weight: 700;
-            color: #1e40af;
+            color: #003699;
             margin: 0;
         }
 
@@ -69,13 +69,13 @@
         }
 
         .btn-print {
-            background: #1e40af;
+            background: #003699;
             color: #ffffff;
-            border: 1px solid #1e40af;
+            border: 1px solid #003699;
         }
 
         .btn-print:hover {
-            background: #1d4ed8;
+            background: #002873;
         }
 
         .btn-close {
@@ -89,8 +89,8 @@
         }
 
         .sheet {
-            width: 96%;
-            max-width: 1400px;
+            width: 98%;
+            max-width: 1550px;
             margin: 20px auto;
             background: #ffffff;
             padding: 24px 28px;
@@ -103,7 +103,7 @@
             display: flex;
             align-items: center;
             justify-content: space-between;
-            border-bottom: 2px solid #1e40af;
+            border-bottom: 2px solid #003699;
             padding-bottom: 14px;
             margin-bottom: 16px;
             gap: 16px;
@@ -147,7 +147,7 @@
         .hdr-text .subsys {
             font-size: 12px;
             font-weight: 700;
-            color: #1e40af;
+            color: #003699;
             margin-top: 2px;
         }
 
@@ -197,27 +197,51 @@
             width: 100%;
             border-collapse: collapse;
             margin-bottom: 24px;
-            font-size: 10.5px;
+            font-size: 10px;
+        }
+
+        .report-table thead {
+            display: table-header-group;
         }
 
         .report-table th {
             background-color: #f1f5f9;
             color: #1e293b;
             font-weight: 700;
-            padding: 8px 6px;
+            padding: 7px 6px;
             border: 1px solid #cbd5e1;
             text-align: left;
             text-transform: uppercase;
-            font-size: 9.5px;
+            font-size: 9px;
             letter-spacing: 0.3px;
+            vertical-align: middle;
+        }
+
+        .report-table th.flow-super-hdr {
+            background-color: #e0f2fe;
+            color: #0369a1;
+            text-align: center;
+            font-size: 10px;
+            font-weight: 800;
+            letter-spacing: 0.5px;
+            border-bottom: 1.5px solid #7dd3fc;
+            padding: 6px 8px;
+        }
+
+        .report-table th.flow-sub-hdr {
+            background-color: #f0f9ff;
+            color: #0369a1;
+            font-size: 8.5px;
+            text-align: left;
+            border-top: none;
         }
 
         .report-table td {
-            padding: 8px 6px;
+            padding: 7px 6px;
             border: 1px solid #cbd5e1;
             color: #1e293b;
             vertical-align: top;
-            line-height: 1.35;
+            line-height: 1.3;
         }
 
         .report-table tr:nth-child(even) td {
@@ -236,10 +260,11 @@
             display: inline-block;
             padding: 2px 6px;
             border-radius: 4px;
-            font-size: 9px;
+            font-size: 8.5px;
             font-weight: 700;
             text-transform: uppercase;
             border: 1px solid transparent;
+            white-space: nowrap;
         }
 
         .status-completed { background: #d1fae5; color: #065f46; border-color: #a7f3d0; }
@@ -259,13 +284,14 @@
         }
 
         .signatory-box {
-            width: 240px;
+            width: 260px;
         }
 
         .signatory-box .role-label {
             font-size: 11px;
             color: #64748b;
             margin-bottom: 36px;
+            font-weight: 500;
         }
 
         .signatory-box .sig-line {
@@ -289,12 +315,12 @@
         @media print {
             @page {
                 size: landscape;
-                margin: 10mm 12mm;
+                margin: 8mm 10mm;
             }
 
             body {
                 background: #ffffff !important;
-                font-size: 9.5pt;
+                font-size: 9pt;
                 color: #000000;
             }
 
@@ -323,6 +349,11 @@
                 background-color: #f1f5f9 !important;
                 color: #000000 !important;
                 border: 1px solid #94a3b8 !important;
+            }
+
+            .report-table th.flow-super-hdr {
+                background-color: #e0f2fe !important;
+                color: #000000 !important;
             }
 
             .report-table td {
@@ -402,16 +433,67 @@
             </div>
         </div>
 
+        @php
+            $flow1Keys = ['flow1_office', 'flow1_received', 'flow1_released', 'flow1_elapsed_days'];
+            $flow2Keys = ['flow2_office', 'flow2_received', 'flow2_released', 'flow2_elapsed_days'];
+            
+            $selectedFlow1 = array_values(array_intersect($selectedColumns, $flow1Keys));
+            $selectedFlow2 = array_values(array_intersect($selectedColumns, $flow2Keys));
+            
+            $hasFlowGrouping = count($selectedFlow1) > 0 || count($selectedFlow2) > 0;
+            $renderedFlow1Super = false;
+            $renderedFlow2Super = false;
+        @endphp
+
         <!-- Data Table -->
         <table class="report-table">
             <thead>
-                <tr>
-                    @foreach($selectedColumns as $colKey)
-                        <th class="{{ in_array($colKey, ['item_no', 'status', 'elapsed_days', 'released_time', 'received_time']) ? 'align-center' : '' }}">
-                            {{ $availableColumns[$colKey]['label'] ?? ucfirst(str_replace('_', ' ', $colKey)) }}
-                        </th>
-                    @endforeach
-                </tr>
+                @if($hasFlowGrouping)
+                    <!-- Multi-tier Top Header Row -->
+                    <tr>
+                        @foreach($selectedColumns as $colKey)
+                            @if(in_array($colKey, $flow1Keys))
+                                @if(!$renderedFlow1Super)
+                                    <th colspan="{{ count($selectedFlow1) }}" class="flow-super-hdr">
+                                        Flow 1 (not the origin)
+                                    </th>
+                                    @php $renderedFlow1Super = true; @endphp
+                                @endif
+                            @elseif(in_array($colKey, $flow2Keys))
+                                @if(!$renderedFlow2Super)
+                                    <th colspan="{{ count($selectedFlow2) }}" class="flow-super-hdr">
+                                        Flow 2
+                                    </th>
+                                    @php $renderedFlow2Super = true; @endphp
+                                @endif
+                            @else
+                                <th rowspan="2" class="{{ in_array($colKey, ['item_no', 'status', 'elapsed_days', 'released_time', 'received_time']) ? 'align-center' : '' }}">
+                                    {{ $availableColumns[$colKey]['label'] ?? ucfirst(str_replace('_', ' ', $colKey)) }}
+                                </th>
+                            @endif
+                        @endforeach
+                    </tr>
+
+                    <!-- Multi-tier Sub-Header Row for Flow Sub-Columns -->
+                    <tr>
+                        @foreach($selectedColumns as $colKey)
+                            @if(in_array($colKey, $flow1Keys) || in_array($colKey, $flow2Keys))
+                                <th class="flow-sub-hdr {{ in_array($colKey, ['flow1_elapsed_days', 'flow2_elapsed_days']) ? 'align-center' : '' }}">
+                                    {{ $availableColumns[$colKey]['sublabel'] ?? ($availableColumns[$colKey]['label'] ?? $colKey) }}
+                                </th>
+                            @endif
+                        @endforeach
+                    </tr>
+                @else
+                    <!-- Standard Single-tier Header Row -->
+                    <tr>
+                        @foreach($selectedColumns as $colKey)
+                            <th class="{{ in_array($colKey, ['item_no', 'status', 'elapsed_days', 'released_time', 'received_time']) ? 'align-center' : '' }}">
+                                {{ $availableColumns[$colKey]['label'] ?? ucfirst(str_replace('_', ' ', $colKey)) }}
+                            </th>
+                        @endforeach
+                    </tr>
+                @endif
             </thead>
             <tbody>
                 @forelse($rows as $row)
@@ -419,20 +501,97 @@
                         @foreach($selectedColumns as $colKey)
                             @php
                                 $val = $row[$colKey] ?? '-';
-                                $isCenter = in_array($colKey, ['item_no', 'status', 'elapsed_days', 'released_time', 'received_time', 'released_date', 'received_date']);
+                                $isCenter = in_array($colKey, ['item_no', 'status', 'elapsed_days', 'released_time', 'received_time', 'released_date', 'received_date', 'flow1_elapsed_days', 'flow2_elapsed_days']);
                             @endphp
-                            <td class="{{ $isCenter ? 'align-center' : '' }}">
-                                @if($colKey === 'status')
-                                    @php
-                                        $st = strtolower(trim((string)$val));
-                                    @endphp
+
+                            @if($colKey === 'flow1_office' || $colKey === 'flow2_office')
+                                @php
+                                    $codeKey = str_replace('office', 'office_code', $colKey);
+                                    $officeCode = $row[$codeKey] ?? '';
+                                @endphp
+                                <td>
+                                    <div style="font-weight: 700; color: #0f172a; font-size: 10px; line-height: 1.25;">{{ $val }}</div>
+                                    @if(!empty($officeCode) && $officeCode !== $val && $val !== '-')
+                                        <div style="font-size: 8.5px; color: #64748b; margin-top: 1px; font-weight: 600;">Code: {{ $officeCode }}</div>
+                                    @endif
+                                </td>
+
+                            @elseif($colKey === 'flow1_received' || $colKey === 'flow2_received')
+                                @php
+                                    $prefix = str_starts_with($colKey, 'flow1') ? 'flow1' : 'flow2';
+                                    $recDate = $row[$prefix . '_received_date'] ?? '-';
+                                    $recBy = $row[$prefix . '_received_by'] ?? '-';
+                                @endphp
+                                <td class="{{ $recDate === '-' ? 'align-center' : '' }}">
+                                    @if($recDate !== '-' && $recDate !== 'Pending Receive')
+                                        <div style="font-weight: 600; color: #0f172a; font-size: 10px; line-height: 1.25;">{{ $recDate }}</div>
+                                        @if(!empty($recBy) && $recBy !== '-')
+                                            <div style="font-size: 8.5px; color: #0369a1; margin-top: 2px; line-height: 1.2; font-weight: 500;">
+                                                <span style="color: #64748b;">By:</span> {{ $recBy }}
+                                            </div>
+                                        @endif
+                                    @elseif($recDate === 'Pending Receive')
+                                        <span style="font-size: 8.5px; font-weight: 600; color: #d97706; background: #fef3c7; padding: 2px 5px; border-radius: 4px; border: 1px solid #fde68a;">Pending</span>
+                                    @else
+                                        <span style="color: #94a3b8;">-</span>
+                                    @endif
+                                </td>
+
+                            @elseif($colKey === 'flow1_released' || $colKey === 'flow2_released')
+                                @php
+                                    $prefix = str_starts_with($colKey, 'flow1') ? 'flow1' : 'flow2';
+                                    $relDate = $row[$prefix . '_released_date'] ?? '-';
+                                    $relBy = $row[$prefix . '_released_by'] ?? '-';
+                                @endphp
+                                <td class="{{ $relDate === '-' ? 'align-center' : '' }}">
+                                    @if($relDate !== '-' && $relDate !== 'In Progress')
+                                        <div style="font-weight: 600; color: #0f172a; font-size: 10px; line-height: 1.25;">{{ $relDate }}</div>
+                                        @if(!empty($relBy) && $relBy !== '-')
+                                            <div style="font-size: 8.5px; color: #166534; margin-top: 2px; line-height: 1.2; font-weight: 500;">
+                                                <span style="color: #64748b;">By:</span> {{ $relBy }}
+                                            </div>
+                                        @endif
+                                    @elseif($relDate === 'In Progress')
+                                        <span style="font-size: 8.5px; font-weight: 600; color: #0284c7; background: #e0f2fe; padding: 2px 5px; border-radius: 4px; border: 1px solid #bae6fd;">In Progress</span>
+                                    @else
+                                        <span style="color: #94a3b8;">-</span>
+                                    @endif
+                                </td>
+
+                            @elseif($colKey === 'flow1_elapsed_days' || $colKey === 'flow2_elapsed_days')
+                                <td class="align-center">
+                                    @if(!empty($val) && $val !== '-')
+                                        <span style="font-weight: 700; color: #0369a1; background: #e0f2fe; padding: 2px 6px; border-radius: 4px; font-size: 9px; border: 1px solid #bae6fd; white-space: nowrap;">
+                                            {{ $val }}
+                                        </span>
+                                    @else
+                                        <span style="color: #94a3b8;">-</span>
+                                    @endif
+                                </td>
+
+                            @elseif($colKey === 'status')
+                                @php
+                                    $st = strtolower(trim((string)$val));
+                                @endphp
+                                <td class="align-center">
                                     <span class="status-pill status-{{ $st }}">{{ $val }}</span>
-                                @elseif($colKey === 'control_number')
-                                    <strong style="color: #1e40af;">{{ $val }}</strong>
-                                @else
+                                </td>
+
+                            @elseif($colKey === 'control_number')
+                                <td>
+                                    <strong style="color: #003699; font-size: 10px; letter-spacing: 0.2px;">{{ $val }}</strong>
+                                </td>
+
+                            @elseif($colKey === 'elapsed_days')
+                                <td class="align-center">
+                                    <span style="font-weight: 600; color: #334155; font-size: 9.5px;">{{ $val }}</span>
+                                </td>
+
+                            @else
+                                <td class="{{ $isCenter ? 'align-center' : '' }}">
                                     {{ $val }}
-                                @endif
-                            </td>
+                                </td>
+                            @endif
                         @endforeach
                     </tr>
                 @empty

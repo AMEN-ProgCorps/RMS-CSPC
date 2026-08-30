@@ -76,13 +76,27 @@ Route::get('/auth/google/callback', function () use ($resolveGoogleSsoCredential
         // Lookup account in account_details by email
         $accountDetail = \Illuminate\Support\Facades\DB::table('account_details')->whereRaw('LOWER(email) = ?', [$email])->first();
 
+        // Safe security log helper
+        $logSecurityEvent = function ($statusId, $accountId = null) {
+            try {
+                if (\Illuminate\Support\Facades\Schema::hasTable('security_status')) {
+                    if (!\Illuminate\Support\Facades\DB::table('security_status')->where('status_id', $statusId)->exists()) {
+                        (new \App\Services\BackupService())->ensureEssentialLookups();
+                    }
+                }
+                \Illuminate\Support\Facades\DB::table('security_logs')->insert([
+                    'status'      => $statusId,
+                    'account'     => $accountId,
+                    'user_ipaddr' => \App\Helpers\NetworkHelper::getClientIp(),
+                    'time'        => now(),
+                ]);
+            } catch (\Throwable $e) {
+                \Illuminate\Support\Facades\Log::warning('Security log insert notice: ' . $e->getMessage());
+            }
+        };
+
         if (!$accountDetail) {
-            \Illuminate\Support\Facades\DB::table('security_logs')->insert([
-                'status'      => 2, // Failed Login
-                'account'     => null,
-                'user_ipaddr' => \App\Helpers\NetworkHelper::getClientIp(),
-                'time'        => now(),
-            ]);
+            $logSecurityEvent(2, null); // Failed Login
 
             return redirect('/')->with('error', "No registered RMS account found for '{$email}'. Please contact your administrator.");
         }
@@ -90,12 +104,7 @@ Route::get('/auth/google/callback', function () use ($resolveGoogleSsoCredential
         // Verify account is active
         $account = \Illuminate\Support\Facades\DB::table('account')->where('id', $accountDetail->account_id)->first();
         if (!$account || !$account->account_active) {
-            \Illuminate\Support\Facades\DB::table('security_logs')->insert([
-                'status'      => 2, // Failed Login
-                'account'     => $accountDetail->account_id,
-                'user_ipaddr' => \App\Helpers\NetworkHelper::getClientIp(),
-                'time'        => now(),
-            ]);
+            $logSecurityEvent(2, $accountDetail->account_id); // Failed Login
 
             return redirect('/')->with('error', 'Your account is deactivated. Please contact your administrator.');
         }
@@ -105,12 +114,7 @@ Route::get('/auth/google/callback', function () use ($resolveGoogleSsoCredential
         session()->regenerate();
 
         // Log successful login
-        \Illuminate\Support\Facades\DB::table('security_logs')->insert([
-            'status'      => 1, // Login Successful
-            'account'     => $accountDetail->account_id,
-            'user_ipaddr' => \App\Helpers\NetworkHelper::getClientIp(),
-            'time'        => now(),
-        ]);
+        $logSecurityEvent(1, $accountDetail->account_id); // Login Successful
 
         // Auto-sync Google Cloud CDN Avatar URL & Names (Approach 1)
         $avatarUrl = $googleUser->getAvatar();

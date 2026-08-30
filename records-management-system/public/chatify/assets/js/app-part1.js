@@ -188,6 +188,16 @@
       const emptyNotice = chatBox.querySelector('.empty-chat');
       if (emptyNotice) emptyNotice.remove();
 
+      // Captured BEFORE the new message is appended below — checking after
+      // appendChild is wrong because scrollHeight has already grown by the
+      // incoming message's own height at that point, so a taller message
+      // (e.g. a reply, which stacks an extra quoted bubble on top of the
+      // real one) can push the computed gap past isAtBottom()'s threshold
+      // even though the user hadn't scrolled away at all. That made replies
+      // specifically prone to silently skipping the auto-scroll and just
+      // showing the "new message" indicator instead.
+      const wasAtBottom = isAtBottom();
+
       const isSentByMe = Number(msgData.sender_id) === wsConfig.accountId;
       const container = document.createElement('div');
       container.className = 'message-container ' + (isSentByMe ? 'sent' : 'received') + ' msg-animate-' + (isSentByMe ? 'sent' : 'received');
@@ -265,15 +275,13 @@
         applyReadMoreToElement(contentEl);
       }
 
-      const atBottomNow = isAtBottom();
-
       // Cap the DOM at MAX_WINDOW visible messages so real-time
       // WebSocket pushes never grow the chat window without bound.
       const trimmed = trimChatMessages(MAX_WINDOW);
       if (trimmed) refreshCursorAfterTopTrim();
 
       applyAdminBadges();
-      if (atBottomNow || isSentByMe) {
+      if (wasAtBottom || isSentByMe) {
         scrollToBottom(true, true);
       } else {
         showScrollIndicator(1);
@@ -302,6 +310,11 @@
 
       const emptyNotice = chatBox.querySelector('.empty-chat');
       if (emptyNotice) emptyNotice.remove();
+
+      // Captured BEFORE appendChild below — see the matching comment in
+      // renderAndAppendWsMessage() above for why checking after append is
+      // wrong (a taller incoming reply bubble skews the result).
+      const wasAtBottom = isAtBottom();
 
       // Admin spy view always renders every message "received"-style,
       // regardless of who sent it — matches load_dm_admin.php's renderer.
@@ -369,8 +382,6 @@
         applyReadMoreToElement(contentEl);
       }
 
-      const atBottomNow = isAtBottom();
-
       // Same MAX_WINDOW cap as DM/Global Chat — only trim while looking at the
       // live/latest window, never while paged back into older history.
       if (!adminConvViewingOlder) {
@@ -379,7 +390,7 @@
       }
 
       applyAdminBadges();
-      if (atBottomNow) {
+      if (wasAtBottom) {
         scrollToBottom(true, true);
       } else {
         showScrollIndicator(1);

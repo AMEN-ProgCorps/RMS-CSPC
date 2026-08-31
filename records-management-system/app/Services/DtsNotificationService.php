@@ -14,7 +14,8 @@ class DtsNotificationService
     {
         static $subsystemId = null;
         if ($subsystemId === null) {
-            $subsystemId = DB::table('subsystems')
+            $subsystemsTbl = \Illuminate\Support\Facades\Schema::hasTable('sys_subsystems') ? 'sys_subsystems' : 'subsystems';
+            $subsystemId = DB::table($subsystemsTbl)
                 ->where('subsystem_name', 'Document Tracking System')
                 ->value('subsystem_id') ?? 1;
         }
@@ -37,15 +38,17 @@ class DtsNotificationService
 
         try {
             $subsystemId = static::getDtsSubsystemId();
+            $notifContentTbl = \Illuminate\Support\Facades\Schema::hasTable('sys_notif_content') ? 'sys_notif_content' : 'notif_content';
+            $notificationsTbl = \Illuminate\Support\Facades\Schema::hasTable('sys_notifications') ? 'sys_notifications' : 'notifications';
 
-            $contentId = DB::table('notif_content')->insertGetId([
+            $contentId = DB::table($notifContentTbl)->insertGetId([
                 'system'       => $subsystemId,
                 'content'      => $message,
                 'redirect_url' => $redirectUrl ?: '/dts',
                 'created_at'   => now(),
             ]);
 
-            DB::table('notifications')->insert([
+            DB::table($notificationsTbl)->insert([
                 'office'     => $officeCode,
                 'contents'   => $contentId,
                 'created_at' => now(),
@@ -108,7 +111,8 @@ class DtsNotificationService
         if (empty($originOfficeCode) || $originOfficeCode === $recipientOfficeCode) {
             return;
         }
-        $recipientName = DB::table('office')->where('office_code', $recipientOfficeCode)->value('office_name') ?: $recipientOfficeCode;
+        $officeTbl = \Illuminate\Support\Facades\Schema::hasTable('sys_office') ? 'sys_office' : 'office';
+        $recipientName = DB::table($officeTbl)->where('office_code', $recipientOfficeCode)->value('office_name') ?: $recipientOfficeCode;
         $message = "{$recipientName} ({$recipientOfficeCode}) has received Transaction {$controlNumber}.";
         $url = '/dts?open=' . urlencode($transactionId);
         static::createNotification($originOfficeCode, $message, $url);
@@ -122,7 +126,8 @@ class DtsNotificationService
         if (empty($originOfficeCode) || $originOfficeCode === $recipientOfficeCode) {
             return;
         }
-        $recipientName = DB::table('office')->where('office_code', $recipientOfficeCode)->value('office_name') ?: $recipientOfficeCode;
+        $officeTbl = \Illuminate\Support\Facades\Schema::hasTable('sys_office') ? 'sys_office' : 'office';
+        $recipientName = DB::table($officeTbl)->where('office_code', $recipientOfficeCode)->value('office_name') ?: $recipientOfficeCode;
         $name = !empty(trim($userFirstName ?? '')) ? (' by ' . trim($userFirstName)) : '';
         $message = "{$recipientName} ({$recipientOfficeCode}) has completed and forwarded Transaction {$controlNumber} to {$originOfficeCode}{$name}.";
         $url = '/dts?open=' . urlencode($transactionId);

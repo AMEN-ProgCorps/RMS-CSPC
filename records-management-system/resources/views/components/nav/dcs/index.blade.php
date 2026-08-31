@@ -15,7 +15,7 @@
             </div>
             <span class="collapse-text">
                 <span class="collapse-label">Document Control System</span>
-                <span class="collapse-version">Version: {{ \DB::table('subsystems')->where('subsystem_name', 'Document Control System')->value('subsystem_version') ?? 'N/A' }}</span>
+                <span class="collapse-version">Version: {{ \DB::table(\Illuminate\Support\Facades\Schema::hasTable('sys_subsystems') ? 'sys_subsystems' : 'subsystems')->where('subsystem_name', 'Document Control System')->value('subsystem_version') ?? 'N/A' }}</span>
             </span>
         </div>
         <div class="collapse-indicator">

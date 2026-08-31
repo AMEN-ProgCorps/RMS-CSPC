@@ -109,8 +109,8 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Receive Transac
         $transaction = DB::table('dts_transactions as dt')
             ->join('dts_transaction_details as dtd', 'dtd.id', '=', 'dt.transaction_id')
             ->leftJoin('dts_requestor_history as req', 'req.id', '=', 'dtd.requestor_id')
-            ->leftJoin('office as originated_office', 'originated_office.office_code', '=', 'dtd.originated_from')
-            ->leftJoin('document_data as doc', 'doc.document_path', '=', 'dt.doc_dir')
+            ->leftJoin((\Illuminate\Support\Facades\Schema::hasTable('sys_office') ? 'sys_office' : 'office') . ' as originated_office', 'originated_office.office_code', '=', 'dtd.originated_from')
+            ->leftJoin((\Illuminate\Support\Facades\Schema::hasTable('sys_document_data') ? 'sys_document_data' : 'document_data') . ' as doc', 'doc.document_path', '=', 'dt.doc_dir')
             ->where('dt.qr_code', $code)
             ->select(
                 'dt.transaction_id',
@@ -163,7 +163,7 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Receive Transac
         $isFreeFlow = ($transaction->transaction_flow === 'FLOW-FREE-FLOW' || str_starts_with($transaction->transaction_flow, 'FLOW-FREE-FLOW'));
 
         // Check if already received at current office
-        $currentLog = DB::table('sub_document_tracking_system_logs')
+        $currentLog = DB::table(\Illuminate\Support\Facades\Schema::hasTable('dts_transaction_logs') ? 'dts_transaction_logs' : 'sub_document_tracking_system_logs')
             ->where('transaction_id', $transaction->transaction_id)
             ->where('office_code', $userOfficeCode)
             ->orderBy('id', 'desc')
@@ -188,15 +188,15 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Receive Transac
                     if ($nextCode === 'ORIGIN') {
                         $nextCode = $transaction->originated_from;
                     } elseif ($nextCode === '[H]') {
-                        $originOffice = DB::table('office')->where('office_code', $transaction->originated_from)->first();
+                        $originOffice = DB::table(\Illuminate\Support\Facades\Schema::hasTable('sys_office') ? 'sys_office' : 'office')->where('office_code', $transaction->originated_from)->first();
                         if ($originOffice && $originOffice->cluster) {
-                            $cluster = DB::table('cluster')->where('cluster_code', $originOffice->cluster)->first();
+                            $cluster = DB::table(\Illuminate\Support\Facades\Schema::hasTable('sys_cluster') ? 'sys_cluster' : 'cluster')->where('cluster_code', $originOffice->cluster)->first();
                             if ($cluster && $cluster->cluster_head) {
                                 $nextCode = $cluster->cluster_head;
                             }
                         }
                     }
-                    $nextOfficeName = DB::table('office')->where('office_code', $nextCode)->value('office_name') ?: $nextCode;
+                    $nextOfficeName = DB::table(\Illuminate\Support\Facades\Schema::hasTable('sys_office') ? 'sys_office' : 'office')->where('office_code', $nextCode)->value('office_name') ?: $nextCode;
                 } else {
                     $nextOfficeName = 'End of Flow (Complete)';
                 }
@@ -228,14 +228,14 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Receive Transac
 
         try {
             DB::transaction(function () use ($userOfficeCode) {
-                $log = DB::table('sub_document_tracking_system_logs')
+                $log = DB::table(\Illuminate\Support\Facades\Schema::hasTable('dts_transaction_logs') ? 'dts_transaction_logs' : 'sub_document_tracking_system_logs')
                     ->where('transaction_id', $this->activeTransaction['transaction_id'])
                     ->where('office_code', $userOfficeCode)
                     ->orderBy('id', 'desc')
                     ->first();
 
                 if ($log) {
-                    DB::table('sub_document_tracking_system_logs')
+                    DB::table(\Illuminate\Support\Facades\Schema::hasTable('dts_transaction_logs') ? 'dts_transaction_logs' : 'sub_document_tracking_system_logs')
                         ->where('id', $log->id)
                         ->update([
                             'type' => 'received',
@@ -243,7 +243,7 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Receive Transac
                             'performed_by' => auth()->id(),
                         ]);
                 } else {
-                    DB::table('sub_document_tracking_system_logs')->insert([
+                    DB::table(\Illuminate\Support\Facades\Schema::hasTable('dts_transaction_logs') ? 'dts_transaction_logs' : 'sub_document_tracking_system_logs')->insert([
                         'transaction_id' => $this->activeTransaction['transaction_id'],
                         'office_code' => $userOfficeCode,
                         'type' => 'received',
@@ -270,7 +270,7 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Receive Transac
                 }
 
                 $userFirstName = auth()->user()?->details?->first_name 
-                    ?: DB::table('account_details')->where('account_id', auth()->id())->value('first_name')
+                    ?: DB::table(\Illuminate\Support\Facades\Schema::hasTable('sys_account_details') ? 'sys_account_details' : 'account_details')->where('account_id', auth()->id())->value('first_name')
                     ?: auth()->user()?->username 
                     ?: 'User';
 
@@ -364,7 +364,7 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Receive Transac
                     ]);
 
                 // Update sub_document_tracking_system_logs completion of current step
-                DB::table('sub_document_tracking_system_logs')
+                DB::table(\Illuminate\Support\Facades\Schema::hasTable('dts_transaction_logs') ? 'dts_transaction_logs' : 'sub_document_tracking_system_logs')
                     ->where('transaction_id', $this->activeTransaction['transaction_id'])
                     ->where('office_code', $userOfficeCode)
                     ->whereNull('date_out')
@@ -387,9 +387,9 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Receive Transac
                     if ($destOfficeCode === 'ORIGIN') {
                         $destOfficeCode = $this->activeTransaction['originated_from'];
                     } elseif ($destOfficeCode === '[H]') {
-                        $originOffice = DB::table('office')->where('office_code', $this->activeTransaction['originated_from'])->first();
+                        $originOffice = DB::table(\Illuminate\Support\Facades\Schema::hasTable('sys_office') ? 'sys_office' : 'office')->where('office_code', $this->activeTransaction['originated_from'])->first();
                         if ($originOffice && $originOffice->cluster) {
-                            $cluster = DB::table('cluster')->where('cluster_code', $originOffice->cluster)->first();
+                            $cluster = DB::table(\Illuminate\Support\Facades\Schema::hasTable('sys_cluster') ? 'sys_cluster' : 'cluster')->where('cluster_code', $originOffice->cluster)->first();
                             if ($cluster && $cluster->cluster_head) {
                                 $destOfficeCode = $cluster->cluster_head;
                             }
@@ -406,7 +406,7 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Receive Transac
                         ]);
 
                     // Create log for next office (date_in remains null until received at next office)
-                    DB::table('sub_document_tracking_system_logs')->insert([
+                    DB::table(\Illuminate\Support\Facades\Schema::hasTable('dts_transaction_logs') ? 'dts_transaction_logs' : 'sub_document_tracking_system_logs')->insert([
                         'transaction_id' => $this->activeTransaction['transaction_id'],
                         'office_code' => $destOfficeCode,
                         'type' => 'forwarded',
@@ -417,7 +417,7 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Receive Transac
                     ]);
 
                     $userFirstName = auth()->user()?->details?->first_name 
-                        ?: DB::table('account_details')->where('account_id', auth()->id())->value('first_name')
+                        ?: DB::table(\Illuminate\Support\Facades\Schema::hasTable('sys_account_details') ? 'sys_account_details' : 'account_details')->where('account_id', auth()->id())->value('first_name')
                         ?: auth()->user()?->username 
                         ?: 'User';
 

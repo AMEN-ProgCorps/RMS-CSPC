@@ -289,10 +289,10 @@ new #[Layout('layouts.dts')] #[Title('DTS - Internal Transactions')] class exten
 
         $query = DB::table('dts_transactions as dt')
             ->join('dts_transaction_details as dtd', 'dtd.id', '=', 'dt.transaction_id')
-            ->leftJoin('office as originated_office', 'originated_office.office_code', '=', 'dtd.originated_from')
-            ->leftJoin('office as current_office', 'current_office.office_code', '=', 'dt.current_office')
+            ->leftJoin((\Illuminate\Support\Facades\Schema::hasTable('sys_office') ? 'sys_office' : 'office') . ' as originated_office', 'originated_office.office_code', '=', 'dtd.originated_from')
+            ->leftJoin((\Illuminate\Support\Facades\Schema::hasTable('sys_office') ? 'sys_office' : 'office') . ' as current_office', 'current_office.office_code', '=', 'dt.current_office')
             ->leftJoin('dts_transaction_flow as flow', 'flow.flow_code', '=', 'dtd.transaction_flow')
-            ->leftJoin('document_data as doc', 'doc.document_path', '=', 'dt.doc_dir')
+            ->leftJoin((\Illuminate\Support\Facades\Schema::hasTable('sys_document_data') ? 'sys_document_data' : 'document_data') . ' as doc', 'doc.document_path', '=', 'dt.doc_dir')
             ->where('dt.trans_type', 'internal');
 
         $canViewAll = auth()->user()?->permissions?->is_sadm || auth()->user()?->permissions?->can_dts_view_all_list;
@@ -362,8 +362,8 @@ new #[Layout('layouts.dts')] #[Title('DTS - Internal Transactions')] class exten
 
         // Map Step 1 (Origin) and Step 2 (Current) Received/Released logs and Elapsed Days
         $list->getCollection()->transform(function ($t) {
-            $logs = DB::table('sub_document_tracking_system_logs as log')
-                ->leftJoin('account_details as ad', 'ad.account_id', '=', 'log.performed_by')
+            $logs = DB::table((\Illuminate\Support\Facades\Schema::hasTable('dts_transaction_logs') ? 'dts_transaction_logs' : 'sub_document_tracking_system_logs') . ' as log')
+                ->leftJoin((\Illuminate\Support\Facades\Schema::hasTable('sys_account_details') ? 'sys_account_details' : 'account_details') . ' as ad', 'ad.account_id', '=', 'log.performed_by')
                 ->where('log.transaction_id', $t->transaction_id)
                 ->orderBy('log.id', 'asc')
                 ->select('log.*', 'ad.first_name', 'ad.last_name')
@@ -389,8 +389,8 @@ new #[Layout('layouts.dts')] #[Title('DTS - Internal Transactions')] class exten
             $t->elapsed_days = $createdDateRaw ? (int) abs(now()->diffInDays(\Carbon\Carbon::parse($createdDateRaw))) : 0;
 
             // Previous office (from office)
-            $prevLog = DB::table('sub_document_tracking_system_logs as log')
-                ->leftJoin('office', 'office.office_code', '=', 'log.office_code')
+            $prevLog = DB::table((\Illuminate\Support\Facades\Schema::hasTable('dts_transaction_logs') ? 'dts_transaction_logs' : 'sub_document_tracking_system_logs') . ' as log')
+                ->leftJoin((\Illuminate\Support\Facades\Schema::hasTable('sys_office') ? 'sys_office' : 'office'), 'office.office_code', '=', 'log.office_code')
                 ->where('log.transaction_id', $t->transaction_id)
                 ->whereNotNull('log.date_out')
                 ->orderBy('log.id', 'desc')
@@ -412,7 +412,7 @@ new #[Layout('layouts.dts')] #[Title('DTS - Internal Transactions')] class exten
                         ->where('sequence_ranking', $t->sequence + 1)
                         ->first();
                     if ($nextSequence) {
-                        $nextOffice = DB::table('office')
+                        $nextOffice = DB::table(\Illuminate\Support\Facades\Schema::hasTable('sys_office') ? 'sys_office' : 'office')
                             ->where('office_code', $nextSequence->office_code)
                             ->first();
                         $t->next_office_name = $nextOffice ? $nextOffice->office_name : 'N/A';
@@ -435,9 +435,9 @@ new #[Layout('layouts.dts')] #[Title('DTS - Internal Transactions')] class exten
             return collect();
         }
 
-        return DB::table('sub_document_tracking_system_logs as log')
-            ->leftJoin('office', 'office.office_code', '=', 'log.office_code')
-            ->leftJoin('sub_document_tracking_system_logs_types as lt', 'lt.type_id', '=', 'log.type')
+        return DB::table((\Illuminate\Support\Facades\Schema::hasTable('dts_transaction_logs') ? 'dts_transaction_logs' : 'sub_document_tracking_system_logs') . ' as log')
+            ->leftJoin((\Illuminate\Support\Facades\Schema::hasTable('sys_office') ? 'sys_office' : 'office'), 'office.office_code', '=', 'log.office_code')
+            ->leftJoin((\Illuminate\Support\Facades\Schema::hasTable('dts_transaction_log_types') ? 'dts_transaction_log_types' : 'sub_document_tracking_system_logs_types') . ' as lt', 'lt.type_id', '=', 'log.type')
             ->where('log.transaction_id', $this->selectedTransactionId)
             ->select('log.*', 'office.office_name', 'lt.description')
             ->orderBy('log.id', 'asc')
@@ -464,16 +464,16 @@ new #[Layout('layouts.dts')] #[Title('DTS - Internal Transactions')] class exten
         }
 
         $originOfficeCode = $this->selectedTransaction->originated_from;
-        $originOffice = DB::table('office')->where('office_code', $originOfficeCode)->first();
+        $originOffice = DB::table(\Illuminate\Support\Facades\Schema::hasTable('sys_office') ? 'sys_office' : 'office')->where('office_code', $originOfficeCode)->first();
         $originOfficeName = $originOffice ? $originOffice->office_name : 'Originated Office';
         
         $clusterHeadCode = $originOfficeCode;
         $clusterHeadName = $originOfficeName;
         if ($originOffice && $originOffice->cluster) {
-            $cluster = DB::table('cluster')->where('cluster_code', $originOffice->cluster)->first();
+            $cluster = DB::table(\Illuminate\Support\Facades\Schema::hasTable('sys_cluster') ? 'sys_cluster' : 'cluster')->where('cluster_code', $originOffice->cluster)->first();
             if ($cluster && $cluster->cluster_head) {
                 $clusterHeadCode = $cluster->cluster_head;
-                $headOffice = DB::table('office')->where('office_code', $cluster->cluster_head)->first();
+                $headOffice = DB::table(\Illuminate\Support\Facades\Schema::hasTable('sys_office') ? 'sys_office' : 'office')->where('office_code', $cluster->cluster_head)->first();
                 if ($headOffice) {
                     $clusterHeadName = $headOffice->office_name;
                 }
@@ -481,11 +481,11 @@ new #[Layout('layouts.dts')] #[Title('DTS - Internal Transactions')] class exten
         }
 
         return DB::table('dts_sequence_list as seq')
-            ->join('office', 'office.office_code', '=', 'seq.office_code')
-            ->leftJoin('account_details as r_ad', 'r_ad.account_id', '=', 'seq.account_received')
-            ->leftJoin('account as r_acc', 'r_acc.id', '=', 'seq.account_received')
-            ->leftJoin('account_details as f_ad', 'f_ad.account_id', '=', 'seq.account_forwarded')
-            ->leftJoin('account as f_acc', 'f_acc.id', '=', 'seq.account_forwarded')
+            ->join((\Illuminate\Support\Facades\Schema::hasTable('sys_office') ? 'sys_office' : 'office'), 'office.office_code', '=', 'seq.office_code')
+            ->leftJoin((\Illuminate\Support\Facades\Schema::hasTable('sys_account_details') ? 'sys_account_details' : 'account_details') . ' as r_ad', 'r_ad.account_id', '=', 'seq.account_received')
+            ->leftJoin((\Illuminate\Support\Facades\Schema::hasTable('sys_account') ? 'sys_account' : 'account') . ' as r_acc', 'r_acc.id', '=', 'seq.account_received')
+            ->leftJoin((\Illuminate\Support\Facades\Schema::hasTable('sys_account_details') ? 'sys_account_details' : 'account_details') . ' as f_ad', 'f_ad.account_id', '=', 'seq.account_forwarded')
+            ->leftJoin((\Illuminate\Support\Facades\Schema::hasTable('sys_account') ? 'sys_account' : 'account') . ' as f_acc', 'f_acc.id', '=', 'seq.account_forwarded')
             ->where('seq.control_id', $flow->id)
             ->select(
                 'seq.sequence_ranking', 
@@ -867,10 +867,10 @@ new #[Layout('layouts.dts')] #[Title('DTS - Internal Transactions')] class exten
         $this->selectedTransaction = DB::table('dts_transactions as dt')
             ->join('dts_transaction_details as dtd', 'dtd.id', '=', 'dt.transaction_id')
             ->leftJoin('dts_requestor_history as req', 'req.id', '=', 'dtd.requestor_id')
-            ->leftJoin('office as originated_office', 'originated_office.office_code', '=', 'dtd.originated_from')
+            ->leftJoin((\Illuminate\Support\Facades\Schema::hasTable('sys_office') ? 'sys_office' : 'office') . ' as originated_office', 'originated_office.office_code', '=', 'dtd.originated_from')
             ->leftJoin('dts_email_access as dea', 'dea.id', '=', 'dtd.email_access')
-            ->leftJoin('account_details as creator_ad', 'creator_ad.account_id', '=', 'dtd.created_by')
-            ->leftJoin('account as creator_acc', 'creator_acc.id', '=', 'dtd.created_by')
+            ->leftJoin((\Illuminate\Support\Facades\Schema::hasTable('sys_account_details') ? 'sys_account_details' : 'account_details') . ' as creator_ad', 'creator_ad.account_id', '=', 'dtd.created_by')
+            ->leftJoin((\Illuminate\Support\Facades\Schema::hasTable('sys_account') ? 'sys_account' : 'account') . ' as creator_acc', 'creator_acc.id', '=', 'dtd.created_by')
             ->where('dt.transaction_id', $this->selectedTransactionId)
             ->select(
                 'dt.*',
@@ -886,7 +886,7 @@ new #[Layout('layouts.dts')] #[Title('DTS - Internal Transactions')] class exten
 
         $this->attachedDocName = '';
         if ($this->selectedTransaction && !empty($this->selectedTransaction->doc_dir)) {
-            $docData = DB::table('document_data')->where('document_path', $this->selectedTransaction->doc_dir)->first();
+            $docData = DB::table(\Illuminate\Support\Facades\Schema::hasTable('sys_document_data') ? 'sys_document_data' : 'document_data')->where('document_path', $this->selectedTransaction->doc_dir)->first();
             $this->attachedDocName = $docData->document_name ?? basename($this->selectedTransaction->doc_dir);
         }
 
@@ -1066,7 +1066,7 @@ new #[Layout('layouts.dts')] #[Title('DTS - Internal Transactions')] class exten
     {
         $this->uploadErrorMessage = '';
 
-        $requiredUpload = DB::table('system_settings')->where('key', 'dts_required_upload_file')->value('value') === 'true';
+        $requiredUpload = DB::table(\Illuminate\Support\Facades\Schema::hasTable('sys_system_settings') ? 'sys_system_settings' : 'system_settings')->where('key', 'dts_required_upload_file')->value('value') === 'true';
         if ($requiredUpload && !$this->uploadedFile) {
             $this->uploadErrorMessage = 'Please select a PDF file to upload.';
             return;
@@ -1149,7 +1149,7 @@ new #[Layout('layouts.dts')] #[Title('DTS - Internal Transactions')] class exten
                     'current_office' => $effectiveOffice,
                 ]);
 
-            DB::table('sub_document_tracking_system_logs')->insert([
+            DB::table(\Illuminate\Support\Facades\Schema::hasTable('dts_transaction_logs') ? 'dts_transaction_logs' : 'sub_document_tracking_system_logs')->insert([
                 'transaction_id' => $this->selectedTransactionId,
                 'office_code' => $userOfficeCode ?: $effectiveOffice,
                 'type' => 'received',
@@ -1251,7 +1251,7 @@ new #[Layout('layouts.dts')] #[Title('DTS - Internal Transactions')] class exten
                     'total_time_completed' => null,
                 ]);
 
-            DB::table('sub_document_tracking_system_logs')->insert([
+            DB::table(\Illuminate\Support\Facades\Schema::hasTable('dts_transaction_logs') ? 'dts_transaction_logs' : 'sub_document_tracking_system_logs')->insert([
                 'transaction_id' => $this->selectedTransactionId,
                 'office_code' => $this->selectedTransaction->originated_from,
                 'type' => 'returned',
@@ -1269,7 +1269,7 @@ new #[Layout('layouts.dts')] #[Title('DTS - Internal Transactions')] class exten
                 ->first();
 
             // Also update the sub_document_tracking_system_logs completion of current step
-            DB::table('sub_document_tracking_system_logs')
+            DB::table(\Illuminate\Support\Facades\Schema::hasTable('dts_transaction_logs') ? 'dts_transaction_logs' : 'sub_document_tracking_system_logs')
                 ->where('transaction_id', $this->selectedTransactionId)
                 ->where('office_code', $userOfficeCode)
                 ->whereNull('date_out')
@@ -1287,9 +1287,9 @@ new #[Layout('layouts.dts')] #[Title('DTS - Internal Transactions')] class exten
                 if ($destOfficeCode === 'ORIGIN') {
                     $destOfficeCode = $originatedFrom;
                 } elseif ($destOfficeCode === '[H]') {
-                    $originOffice = DB::table('office')->where('office_code', $originatedFrom)->first();
+                    $originOffice = DB::table(\Illuminate\Support\Facades\Schema::hasTable('sys_office') ? 'sys_office' : 'office')->where('office_code', $originatedFrom)->first();
                     if ($originOffice && $originOffice->cluster) {
-                        $cluster = DB::table('cluster')->where('cluster_code', $originOffice->cluster)->first();
+                        $cluster = DB::table(\Illuminate\Support\Facades\Schema::hasTable('sys_cluster') ? 'sys_cluster' : 'cluster')->where('cluster_code', $originOffice->cluster)->first();
                         if ($cluster && $cluster->cluster_head) {
                             $destOfficeCode = $cluster->cluster_head;
                         }
@@ -1318,7 +1318,7 @@ new #[Layout('layouts.dts')] #[Title('DTS - Internal Transactions')] class exten
                     ]);
 
                 // Create next pending log (date_in remains null until received at next office)
-                DB::table('sub_document_tracking_system_logs')->insert([
+                DB::table(\Illuminate\Support\Facades\Schema::hasTable('dts_transaction_logs') ? 'dts_transaction_logs' : 'sub_document_tracking_system_logs')->insert([
                     'transaction_id' => $this->selectedTransactionId,
                     'office_code' => $destOfficeCode,
                     'type' => 'forwarded',
@@ -1344,7 +1344,7 @@ new #[Layout('layouts.dts')] #[Title('DTS - Internal Transactions')] class exten
                         'total_time_completed' => $duration ?: 'less than a minute',
                     ]);
                 
-                DB::table('sub_document_tracking_system_logs')->insert([
+                DB::table(\Illuminate\Support\Facades\Schema::hasTable('dts_transaction_logs') ? 'dts_transaction_logs' : 'sub_document_tracking_system_logs')->insert([
                     'transaction_id' => $this->selectedTransactionId,
                     'office_code' => $userOfficeCode,
                     'type' => 'completed',
@@ -1786,7 +1786,7 @@ new #[Layout('layouts.dts')] #[Title('DTS - Internal Transactions')] class exten
                             <div style="display: flex; gap: 8px; margin-bottom: 12px; align-items: center; max-width: 500px;">
                                 <select class="receive-field-input" style="flex: 1; height: 38px; border: 1px solid #cbd5e1; border-radius: 6px; padding: 0 10px;" wire:model="selectedCfOfficeToAdd">
                                     <option value="">-- Select Office to Add --</option>
-                                    @foreach(DB::table('office')->where('is_active', true)->whereNotIn('office_code', ['ORIGIN', '[H]'])->orderBy('office_name', 'asc')->get() as $off)
+                                    @foreach(DB::table(\Illuminate\Support\Facades\Schema::hasTable('sys_office') ? 'sys_office' : 'office')->where('is_active', true)->whereNotIn('office_code', ['ORIGIN', '[H]'])->orderBy('office_name', 'asc')->get() as $off)
                                         <option value="{{ $off->office_code }}">{{ $off->office_name }} ({{ $off->office_code }})</option>
                                     @endforeach
                                 </select>
@@ -1811,7 +1811,7 @@ new #[Layout('layouts.dts')] #[Title('DTS - Internal Transactions')] class exten
                                 <tbody>
                                     @php
                                         $cfOfficeDetails = collect($cfSelectedOffices)->map(function($code) {
-                                            $off = DB::table('office')->where('office_code', $code)->first();
+                                            $off = DB::table(\Illuminate\Support\Facades\Schema::hasTable('sys_office') ? 'sys_office' : 'office')->where('office_code', $code)->first();
                                             return (object)[
                                                 'code' => $code,
                                                 'name' => $off ? $off->office_name : 'Unknown Office'
@@ -1856,7 +1856,7 @@ new #[Layout('layouts.dts')] #[Title('DTS - Internal Transactions')] class exten
                         @if ($editingAll)
                             <div style="display: flex; gap: 8px; align-items: center; margin-bottom: 12px; max-width: 500px;">
                                 @php
-                                    $allSystemOffices = DB::table('office')
+                                    $allSystemOffices = DB::table(\Illuminate\Support\Facades\Schema::hasTable('sys_office') ? 'sys_office' : 'office')
                                         ->where('is_active', true)
                                         ->whereNotIn('office_code', ['ORIGIN', '[H]'])
                                         ->orderBy('office_name', 'asc')
@@ -2162,7 +2162,7 @@ new #[Layout('layouts.dts')] #[Title('DTS - Internal Transactions')] class exten
 
                         <!-- COMPLETED / REAFFIRM / UPLOAD -->
                         @php
-                            $allowManualComplete = \DB::table('system_settings')->where('key', 'dts_allow_manual_completion_button')->value('value') === 'true';
+                            $allowManualComplete = \DB::table(\Illuminate\Support\Facades\Schema::hasTable('sys_system_settings') ? 'sys_system_settings' : 'system_settings')->where('key', 'dts_allow_manual_completion_button')->value('value') === 'true';
                             $effectiveCurrentOffice = ($selectedTransaction->current_office === 'ORIGIN') ? $selectedTransaction->originated_from : $selectedTransaction->current_office;
                             $isUserOffice = ($effectiveCurrentOffice === auth()->user()?->details?->office?->office_code);
                         @endphp

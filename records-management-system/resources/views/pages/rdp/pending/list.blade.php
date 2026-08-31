@@ -73,8 +73,8 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Pending List
         if ($formType === 'nap2' || $formType === 'NAP Form 2') {
             $cluster = DB::table('rdp_pending_record_series')
                 ->leftJoin('rdp_pending_status', 'rdp_pending_record_series.status_id', '=', 'rdp_pending_status.id')
-                ->leftJoin('office', 'rdp_pending_record_series.office', '=', 'office.office_code')
-                ->leftJoin('account_details', 'rdp_pending_record_series.created_by', '=', 'account_details.account_id')
+                ->leftJoin((\Illuminate\Support\Facades\Schema::hasTable('sys_office') ? 'sys_office' : 'office'), 'rdp_pending_record_series.office', '=', 'office.office_code')
+                ->leftJoin((\Illuminate\Support\Facades\Schema::hasTable('sys_account_details') ? 'sys_account_details' : 'account_details'), 'rdp_pending_record_series.created_by', '=', 'account_details.account_id')
                 ->where('rdp_pending_record_series.cluster_id', $clusterId)
                 ->select([
                     'rdp_pending_record_series.cluster_id',
@@ -109,8 +109,8 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Pending List
         } else {
             $cluster = DB::table('rdp_pending_record')
                 ->leftJoin('rdp_pending_status', 'rdp_pending_record.status_id', '=', 'rdp_pending_status.id')
-                ->leftJoin('office', 'rdp_pending_record.office', '=', 'office.office_code')
-                ->leftJoin('account_details', 'rdp_pending_record.created_by', '=', 'account_details.account_id')
+                ->leftJoin((\Illuminate\Support\Facades\Schema::hasTable('sys_office') ? 'sys_office' : 'office'), 'rdp_pending_record.office', '=', 'office.office_code')
+                ->leftJoin((\Illuminate\Support\Facades\Schema::hasTable('sys_account_details') ? 'sys_account_details' : 'account_details'), 'rdp_pending_record.created_by', '=', 'account_details.account_id')
                 ->where('rdp_pending_record.cluster_id', $clusterId)
                 ->select([
                     'rdp_pending_record.cluster_id',
@@ -210,23 +210,27 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Pending List
             || (bool)($perms?->rdp_view_all_files ?? false);
         $userOffice = $user?->details?->office_code ?? null;
 
+        $mainPendingTbl = \Illuminate\Support\Facades\Schema::hasTable('rdp_main_pending_id') ? 'rdp_main_pending_id' : 'main_pending_id';
+        $officeTbl = \Illuminate\Support\Facades\Schema::hasTable('sys_office') ? 'sys_office' : 'office';
+        $accDetailsTbl = \Illuminate\Support\Facades\Schema::hasTable('sys_account_details') ? 'sys_account_details' : 'account_details';
+
         // 1. Fetch NAP Form 2 Series Clusters if tab is 'all' or 'nap2'
         if ($this->activeTab === 'all' || $this->activeTab === 'nap2') {
-            $qSeries = DB::table('main_pending_id')
-                ->join('rdp_pending_record_series', 'main_pending_id.id', '=', 'rdp_pending_record_series.cluster_id')
+            $qSeries = DB::table($mainPendingTbl)
+                ->join('rdp_pending_record_series', "{$mainPendingTbl}.id", '=', 'rdp_pending_record_series.cluster_id')
                 ->leftJoin('rdp_pending_status', 'rdp_pending_record_series.status_id', '=', 'rdp_pending_status.id')
-                ->leftJoin('office', 'rdp_pending_record_series.office', '=', 'office.office_code')
-                ->leftJoin('account_details', 'rdp_pending_record_series.created_by', '=', 'account_details.account_id')
+                ->leftJoin($officeTbl, 'rdp_pending_record_series.office', '=', "{$officeTbl}.office_code")
+                ->leftJoin($accDetailsTbl, 'rdp_pending_record_series.created_by', '=', "{$accDetailsTbl}.account_id")
                 ->select([
-                    'main_pending_id.id as main_id',
+                    "{$mainPendingTbl}.id as main_id",
                     'rdp_pending_record_series.cluster_id',
                     'rdp_pending_record_series.cluster_name',
                     'rdp_pending_record_series.status_id',
                     'rdp_pending_record_series.office',
                     'rdp_pending_record_series.created_at',
                     'rdp_pending_status.status_name',
-                    'office.office_name',
-                    DB::raw("CONCAT(account_details.first_name, ' ', account_details.last_name) as submitter_name"),
+                    "{$officeTbl}.office_name",
+                    DB::raw("CONCAT({$accDetailsTbl}.first_name, ' ', {$accDetailsTbl}.last_name) as submitter_name"),
                     DB::raw("'NAP Form 2' as form_label"),
                     DB::raw("'nap2' as form_code"),
                     DB::raw("(SELECT COUNT(*) FROM rdp_grouped_record_series WHERE group_head = rdp_pending_record_series.cluster_id) as total_items")
@@ -242,9 +246,9 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Pending List
 
             if (!empty(trim($this->search))) {
                 $term = '%' . trim($this->search) . '%';
-                $qSeries->where(function($q) use ($term) {
+                $qSeries->where(function($q) use ($term, $officeTbl) {
                     $q->where('rdp_pending_record_series.cluster_name', 'ILIKE', $term)
-                      ->orWhere('office.office_name', 'ILIKE', $term);
+                      ->orWhere("{$officeTbl}.office_name", 'ILIKE', $term);
                 });
             }
 
@@ -253,13 +257,13 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Pending List
 
         // 2. Fetch Pending Record Clusters (NAP Form 1 or 3) if tab is 'all', 'nap1', or 'nap3'
         if ($this->activeTab === 'all' || $this->activeTab === 'nap1' || $this->activeTab === 'nap3') {
-            $qRec = DB::table('main_pending_id')
-                ->join('rdp_pending_record', 'main_pending_id.id', '=', 'rdp_pending_record.cluster_id')
+            $qRec = DB::table($mainPendingTbl)
+                ->join('rdp_pending_record', "{$mainPendingTbl}.id", '=', 'rdp_pending_record.cluster_id')
                 ->leftJoin('rdp_pending_status', 'rdp_pending_record.status_id', '=', 'rdp_pending_status.id')
-                ->leftJoin('office', 'rdp_pending_record.office', '=', 'office.office_code')
-                ->leftJoin('account_details', 'rdp_pending_record.created_by', '=', 'account_details.account_id')
+                ->leftJoin($officeTbl, 'rdp_pending_record.office', '=', "{$officeTbl}.office_code")
+                ->leftJoin($accDetailsTbl, 'rdp_pending_record.created_by', '=', "{$accDetailsTbl}.account_id")
                 ->select([
-                    'main_pending_id.id as main_id',
+                    "{$mainPendingTbl}.id as main_id",
                     'rdp_pending_record.cluster_id',
                     'rdp_pending_record.cluster_name',
                     'rdp_pending_record.status_id',

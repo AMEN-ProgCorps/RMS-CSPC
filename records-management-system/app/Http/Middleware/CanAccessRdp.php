@@ -22,7 +22,8 @@ class CanAccessRdp
         }
 
         // Check if Records Disposition Program is active globally
-        $isActive = \DB::table('subsystems')
+        $subsystemsTbl = \Illuminate\Support\Facades\Schema::hasTable('sys_subsystems') ? 'sys_subsystems' : 'subsystems';
+        $isActive = \DB::table($subsystemsTbl)
             ->where('subsystem_name', 'Records Disposition Program')
             ->value('is_active');
 

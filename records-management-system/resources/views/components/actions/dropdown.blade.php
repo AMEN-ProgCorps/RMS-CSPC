@@ -1,5 +1,5 @@
 @php
-    $activeSubsystems = \DB::table('subsystems')
+    $activeSubsystems = \DB::table(\Illuminate\Support\Facades\Schema::hasTable('sys_subsystems') ? 'sys_subsystems' : 'subsystems')
         ->where('is_active', true)
         ->pluck('subsystem_name')
         ->toArray();

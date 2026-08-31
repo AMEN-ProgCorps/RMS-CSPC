@@ -119,7 +119,7 @@ new #[Layout('layouts.dcs')] class extends Component {
         if ($this->modalKind !== 'college' || ! $value) {
             return;
         }
-        $office = $value ? DB::table('office')->where('id', (int) $value)->first() : null;
+        $office = $value ? DB::table(\Illuminate\Support\Facades\Schema::hasTable('sys_office') ? 'sys_office' : 'office')->where('id', (int) $value)->first() : null;
         $this->collegeName = $office->office_name ?? '';
     }
 
@@ -346,7 +346,7 @@ new #[Layout('layouts.dcs')] class extends Component {
         ]);
 
         $officeId = $this->officeId !== '' ? (int) $this->officeId : null;
-        $office = $officeId ? DB::table('office')->where('id', $officeId)->first() : null;
+        $office = $officeId ? DB::table(\Illuminate\Support\Facades\Schema::hasTable('sys_office') ? 'sys_office' : 'office')->where('id', $officeId)->first() : null;
 
         if ($officeId && ! $office) {
             $this->fail('That office no longer exists.');
@@ -681,7 +681,7 @@ new #[Layout('layouts.dcs')] class extends Component {
         $docTypeSubs = DB::table('dcs_doc_types')->whereNotNull('parent_id')->orderBy('doc_type_name')->get(['id', 'doc_type_name', 'parent_id'])
             ->groupBy(fn ($row) => (string) $row->parent_id);
         $colleges = DB::table('dcs_colleges as c')
-            ->leftJoin('office as o', 'o.id', '=', 'c.office_id')
+            ->leftJoin((\Illuminate\Support\Facades\Schema::hasTable('sys_office') ? 'sys_office' : 'office') . ' as o', 'o.id', '=', 'c.office_id')
             ->orderBy('c.college_code')
             ->get(['c.id', 'c.college_code', 'c.college_name', 'c.office_id', 'o.office_name as office_name', 'o.office_code as office_code']);
         $linkedOfficeIds = $colleges->pluck('office_id')->filter()->map(fn ($id) => (int) $id);
@@ -689,7 +689,7 @@ new #[Layout('layouts.dcs')] class extends Component {
             $currentOfficeId = (int) (optional($colleges->firstWhere('id', $this->editingId))->office_id ?? 0);
             $linkedOfficeIds = $linkedOfficeIds->reject(fn ($id) => $id === $currentOfficeId);
         }
-        $collegeOfficesQuery = DB::table('office')->where('is_active', true);
+        $collegeOfficesQuery = DB::table(\Illuminate\Support\Facades\Schema::hasTable('sys_office') ? 'sys_office' : 'office')->where('is_active', true);
         if ($linkedOfficeIds->isNotEmpty()) {
             $collegeOfficesQuery->whereNotIn('id', $linkedOfficeIds->values()->all());
         }
@@ -697,7 +697,7 @@ new #[Layout('layouts.dcs')] class extends Component {
             ->orderBy('office_name')
             ->get(['id', 'office_name', 'office_code']);
         if ($this->modalKind === 'college' && $this->officeId !== '') {
-            $selectedOffice = DB::table('office')->where('id', (int) $this->officeId)->first(['id', 'office_name', 'office_code']);
+            $selectedOffice = DB::table(\Illuminate\Support\Facades\Schema::hasTable('sys_office') ? 'sys_office' : 'office')->where('id', (int) $this->officeId)->first(['id', 'office_name', 'office_code']);
             if ($selectedOffice && ! $collegeOffices->contains('id', $selectedOffice->id)) {
                 $collegeOffices = $collegeOffices->prepend($selectedOffice);
             }

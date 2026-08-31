@@ -13,7 +13,8 @@ new class extends Component {
             return;
         }
 
-        DB::table('account_details')
+        $accDetailsTbl = \Illuminate\Support\Facades\Schema::hasTable('sys_account_details') ? 'sys_account_details' : 'account_details';
+        DB::table($accDetailsTbl)
             ->where('account_id', $user->id)
             ->update([
                 'is_currently_online' => true,
@@ -30,14 +31,17 @@ new class extends Component {
     {
         $user = Auth::user();
         if ($user) {
-            DB::table('security_logs')->insert([
+            $secLogsTbl = \Illuminate\Support\Facades\Schema::hasTable('sys_security_logs') ? 'sys_security_logs' : 'security_logs';
+            $accDetailsTbl = \Illuminate\Support\Facades\Schema::hasTable('sys_account_details') ? 'sys_account_details' : 'account_details';
+
+            DB::table($secLogsTbl)->insert([
                 'status' => 3,
                 'account' => $user->id,
                 'user_ipaddr' => NetworkHelper::getClientIp(),
                 'time' => now(),
             ]);
 
-            DB::table('account_details')
+            DB::table($accDetailsTbl)
                 ->where('account_id', $user->id)
                 ->update([
                     'is_currently_online' => false,

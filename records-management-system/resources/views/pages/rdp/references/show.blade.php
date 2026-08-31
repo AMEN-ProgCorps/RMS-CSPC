@@ -151,7 +151,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Reference Se
             ->leftJoin('rdp_retention_period', 'rdp_record_series.retention_period', '=', 'rdp_retention_period.id')
             ->leftJoin('rdp_record_series as parent', 'rdp_record_series.parent_id', '=', 'parent.id')
             ->leftJoin('rdp_record_series_brackets', 'rdp_record_series.bracket_id', '=', 'rdp_record_series_brackets.id')
-            ->leftJoin('office', 'rdp_record_series.recorded_at_office', '=', 'office.office_code')
+            ->leftJoin((\Illuminate\Support\Facades\Schema::hasTable('sys_office') ? 'sys_office' : 'office'), 'rdp_record_series.recorded_at_office', '=', 'office.office_code')
             ->where('rdp_record_series.series_type', $typeId)
             ->where('rdp_record_series.is_verified', true)
             ->where('rdp_record_series.is_active', true)
@@ -171,7 +171,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Reference Se
             // 1. Find direct matching record IDs
             $matchedIds = DB::table('rdp_record_series')
                 ->leftJoin('rdp_record_series_brackets', 'rdp_record_series.bracket_id', '=', 'rdp_record_series_brackets.id')
-                ->leftJoin('office', 'rdp_record_series.recorded_at_office', '=', 'office.office_code')
+                ->leftJoin((\Illuminate\Support\Facades\Schema::hasTable('sys_office') ? 'sys_office' : 'office'), 'rdp_record_series.recorded_at_office', '=', 'office.office_code')
                 ->where('rdp_record_series.series_type', $typeId)
                 ->where('rdp_record_series.is_verified', true)
                 ->where('rdp_record_series.is_active', true)

@@ -76,7 +76,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Recycle Bin')] class ext
 
                 $office->update(['is_active' => true]);
 
-                \DB::table('admin_logs')->insert([
+                \DB::table(\Illuminate\Support\Facades\Schema::hasTable('sys_admin_logs') ? 'sys_admin_logs' : 'admin_logs')->insert([
                     'changes' => "Restored office from Recycle Bin: {$office->office_name} ({$office->office_code})",
                     'admin_id' => auth()->id(),
                     'what_system' => 3,
@@ -103,7 +103,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Recycle Bin')] class ext
 
                 $cluster->update(['is_active' => true]);
 
-                \DB::table('admin_logs')->insert([
+                \DB::table(\Illuminate\Support\Facades\Schema::hasTable('sys_admin_logs') ? 'sys_admin_logs' : 'admin_logs')->insert([
                     'changes' => "Restored cluster from Recycle Bin: {$cluster->cluster_name} ({$cluster->cluster_code})",
                     'admin_id' => auth()->id(),
                     'what_system' => 3,
@@ -133,7 +133,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Recycle Bin')] class ext
                     'date_updated' => now(),
                 ]);
 
-                \DB::table('admin_logs')->insert([
+                \DB::table(\Illuminate\Support\Facades\Schema::hasTable('sys_admin_logs') ? 'sys_admin_logs' : 'admin_logs')->insert([
                     'changes' => "Restored role from Recycle Bin: {$role->key_name}",
                     'admin_id' => auth()->id(),
                     'what_system' => 3,
@@ -160,7 +160,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Recycle Bin')] class ext
 
                 $user->update(['account_active' => true]);
 
-                \DB::table('admin_logs')->insert([
+                \DB::table(\Illuminate\Support\Facades\Schema::hasTable('sys_admin_logs') ? 'sys_admin_logs' : 'admin_logs')->insert([
                     'changes' => "Restored user from Recycle Bin: {$user->username} (" . ($user->details ? $user->details->first_name . ' ' . $user->details->last_name : 'N/A') . ")",
                     'admin_id' => auth()->id(),
                     'what_system' => 3,
@@ -191,7 +191,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Recycle Bin')] class ext
 
                 \DB::table('dts_transaction_flow')->where('id', $id)->update(['is_active' => true]);
 
-                \DB::table('admin_logs')->insert([
+                \DB::table(\Illuminate\Support\Facades\Schema::hasTable('sys_admin_logs') ? 'sys_admin_logs' : 'admin_logs')->insert([
                     'changes' => "Restored transaction flow from Recycle Bin: {$flow->flow_name} ({$flow->flow_code})",
                     'admin_id' => auth()->id(),
                     'what_system' => 3,
@@ -319,7 +319,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Recycle Bin')] class ext
                         $names = $records->pluck('office_name')->implode(', ');
                         \App\Models\office::whereIn('id', $records->pluck('id')->toArray())->update(['is_active' => true]);
                         
-                        \DB::table('admin_logs')->insert([
+                        \DB::table(\Illuminate\Support\Facades\Schema::hasTable('sys_admin_logs') ? 'sys_admin_logs' : 'admin_logs')->insert([
                             'changes' => \Str::limit("Bulk restored " . $records->count() . " office(s) from Recycle Bin: {$names}", 245),
                             'admin_id' => auth()->id(),
                             'what_system' => 3,
@@ -332,7 +332,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Recycle Bin')] class ext
                         $names = $records->pluck('cluster_name')->implode(', ');
                         \App\Models\Cluster::whereIn('id', $records->pluck('id')->toArray())->update(['is_active' => true]);
 
-                        \DB::table('admin_logs')->insert([
+                        \DB::table(\Illuminate\Support\Facades\Schema::hasTable('sys_admin_logs') ? 'sys_admin_logs' : 'admin_logs')->insert([
                             'changes' => \Str::limit("Bulk restored " . $records->count() . " cluster(s) from Recycle Bin: {$names}", 245),
                             'admin_id' => auth()->id(),
                             'what_system' => 3,
@@ -348,7 +348,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Recycle Bin')] class ext
                             'date_updated' => now(),
                         ]);
 
-                        \DB::table('admin_logs')->insert([
+                        \DB::table(\Illuminate\Support\Facades\Schema::hasTable('sys_admin_logs') ? 'sys_admin_logs' : 'admin_logs')->insert([
                             'changes' => \Str::limit("Bulk restored " . $records->count() . " role(s) from Recycle Bin: {$names}", 245),
                             'admin_id' => auth()->id(),
                             'what_system' => 3,
@@ -361,7 +361,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Recycle Bin')] class ext
                         $names = $records->pluck('flow_name')->implode(', ');
                         \DB::table('dts_transaction_flow')->whereIn('id', $this->selectedIds)->update(['is_active' => true]);
 
-                        \DB::table('admin_logs')->insert([
+                        \DB::table(\Illuminate\Support\Facades\Schema::hasTable('sys_admin_logs') ? 'sys_admin_logs' : 'admin_logs')->insert([
                             'changes' => \Str::limit("Bulk restored " . $records->count() . " transaction flow(s) from Recycle Bin: {$names}", 245),
                             'admin_id' => auth()->id(),
                             'what_system' => 3,
@@ -374,7 +374,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Recycle Bin')] class ext
                         $names = $records->map(fn($r) => $r->username)->implode(', ');
                         \App\Models\User::whereIn('id', $records->pluck('id')->toArray())->update(['account_active' => true]);
 
-                        \DB::table('admin_logs')->insert([
+                        \DB::table(\Illuminate\Support\Facades\Schema::hasTable('sys_admin_logs') ? 'sys_admin_logs' : 'admin_logs')->insert([
                             'changes' => \Str::limit("Bulk restored " . $records->count() . " user(s) from Recycle Bin: {$names}", 245),
                             'admin_id' => auth()->id(),
                             'what_system' => 3,

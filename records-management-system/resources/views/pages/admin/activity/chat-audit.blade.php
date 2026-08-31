@@ -73,8 +73,8 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Chat Audit Trail')] clas
     {
         // ── Audit Log tab ────────────────────────────────────────────────────
         $query = \DB::table('chatify_audit_logs as cal')
-            ->leftJoin('account as a', 'cal.account_id', '=', 'a.id')
-            ->leftJoin('account_details as ad', 'a.id', '=', 'ad.account_id')
+            ->leftJoin((\Illuminate\Support\Facades\Schema::hasTable('sys_account') ? 'sys_account' : 'account') . ' as a', 'cal.account_id', '=', 'a.id')
+            ->leftJoin((\Illuminate\Support\Facades\Schema::hasTable('sys_account_details') ? 'sys_account_details' : 'account_details') . ' as ad', 'a.id', '=', 'ad.account_id')
             ->select([
                 'cal.id', 'cal.account_id', 'cal.action',
                 'cal.target_id', 'cal.meta', 'cal.ip_address', 'cal.created_at',
@@ -119,8 +119,8 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Chat Audit Trail')] clas
         $backupSessions = collect();
         try {
             $backupSessions = \DB::table('chatify_chat_backup as b')
-                ->leftJoin('account_details as ad', 'b.archived_by', '=', 'ad.account_id')
-                ->leftJoin('account as acc', 'b.archived_by', '=', 'acc.id')
+                ->leftJoin((\Illuminate\Support\Facades\Schema::hasTable('sys_account_details') ? 'sys_account_details' : 'account_details') . ' as ad', 'b.archived_by', '=', 'ad.account_id')
+                ->leftJoin((\Illuminate\Support\Facades\Schema::hasTable('sys_account') ? 'sys_account' : 'account') . ' as acc', 'b.archived_by', '=', 'acc.id')
                 ->selectRaw("
                     DATE_TRUNC('minute', b.archived_at) AS session_time,
                     b.archived_by,

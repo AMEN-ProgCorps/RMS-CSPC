@@ -135,7 +135,8 @@ new #[Layout('layouts.rdp')] #[Title('Draft Records and Disposition Schedule')] 
             $series = DB::table('rdp_record_series')->where('id', $seriesId)->first();
             if (!$series) return;
 
-            $clusterId = DB::table('main_pending_id')->insertGetId([
+            $mainPendingTbl = \Illuminate\Support\Facades\Schema::hasTable('rdp_main_pending_id') ? 'rdp_main_pending_id' : 'main_pending_id';
+            $clusterId = DB::table($mainPendingTbl)->insertGetId([
                 'status'     => 'UNUSED',
                 'is_active'  => true,
                 'created_at' => now(),

@@ -43,7 +43,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Active Subsystems')] cla
     {
         $this->clearMessages();
 
-        $subsystem = \DB::table('subsystems')->where('subsystem_id', $id)->first();
+        $subsystem = \DB::table(\Illuminate\Support\Facades\Schema::hasTable('sys_subsystems') ? 'sys_subsystems' : 'subsystems')->where('subsystem_id', $id)->first();
         if (!$subsystem) {
             $this->errorMessage = 'Subsystem not found.';
             return;
@@ -58,7 +58,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Active Subsystems')] cla
         try {
             \DB::transaction(function () use ($subsystem, $id) {
                 // Update status
-                \DB::table('subsystems')
+                \DB::table(\Illuminate\Support\Facades\Schema::hasTable('sys_subsystems') ? 'sys_subsystems' : 'subsystems')
                     ->where('subsystem_id', $id)
                     ->update([
                         'is_active' => false,
@@ -66,7 +66,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Active Subsystems')] cla
                     ]);
 
                 // Log to admin changes logs
-                \DB::table('admin_logs')->insert([
+                \DB::table(\Illuminate\Support\Facades\Schema::hasTable('sys_admin_logs') ? 'sys_admin_logs' : 'admin_logs')->insert([
                     'changes' => "Deactivated subsystem: {$subsystem->subsystem_name} (Halting application access)",
                     'admin_id' => auth()->id(),
                     'what_system' => 3, // Admin Console
@@ -85,7 +85,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Active Subsystems')] cla
      */
     public function with(): array
     {
-        $activeSubsystems = \DB::table('subsystems')
+        $activeSubsystems = \DB::table(\Illuminate\Support\Facades\Schema::hasTable('sys_subsystems') ? 'sys_subsystems' : 'subsystems')
             ->where('is_active', true)
             ->orderBy('subsystem_name')
             ->get();

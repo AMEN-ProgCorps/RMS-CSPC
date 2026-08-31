@@ -18,7 +18,7 @@ class role_list extends Model
     use HasFactory, Notifiable;
 
     /** @var string Maps to the 'condition_key' table */
-    protected $table = 'condition_key';
+    protected $table = 'sys_condition_key';
 
     /** @var string Primary key configuration */
     protected $primaryKey = 'id';

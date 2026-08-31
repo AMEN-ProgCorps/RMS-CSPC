@@ -189,7 +189,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Landing Page
         }
 
         // Audit Log
-        DB::table('admin_logs')->insert([
+        DB::table(\Illuminate\Support\Facades\Schema::hasTable('sys_admin_logs') ? 'sys_admin_logs' : 'admin_logs')->insert([
             'admin_id'    => auth()->id() ?? 1,
             'changes'     => 'Added new Record Series via RDP Landing Page: "' . $parentTitle . '"',
             'what_system' => 2,
@@ -255,7 +255,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Landing Page
         $temporaryPercent = $totalSeries > 0 ? round(($temporarySeries / $totalSeries) * 100) : 0;
 
         // Total managed document files
-        $totalFiles = DB::table('document_data')->count();
+        $totalFiles = DB::table(\Illuminate\Support\Facades\Schema::hasTable('sys_document_data') ? 'sys_document_data' : 'document_data')->count();
 
         // Parent options for create modal
         $parentOptions = DB::table('rdp_record_series')

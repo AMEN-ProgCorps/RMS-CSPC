@@ -81,16 +81,16 @@ new #[Layout('layouts.dts')] #[Title('DTS - Internal Transactions History')] cla
         $query = DB::table('dts_transactions as dt')
             ->join('dts_transaction_details as dtd', 'dtd.id', '=', 'dt.transaction_id')
             ->leftJoin('dts_requestor_history as req', 'req.id', '=', 'dtd.requestor_id')
-            ->leftJoin('office as originated_office', 'originated_office.office_code', '=', 'dtd.originated_from')
-            ->leftJoin('office as current_office', 'current_office.office_code', '=', 'dt.current_office')
+            ->leftJoin((\Illuminate\Support\Facades\Schema::hasTable('sys_office') ? 'sys_office' : 'office') . ' as originated_office', 'originated_office.office_code', '=', 'dtd.originated_from')
+            ->leftJoin((\Illuminate\Support\Facades\Schema::hasTable('sys_office') ? 'sys_office' : 'office') . ' as current_office', 'current_office.office_code', '=', 'dt.current_office')
             ->leftJoin('dts_transaction_flow as flow', 'flow.flow_code', '=', 'dtd.transaction_flow')
-            ->leftJoin('document_data as doc', 'doc.document_path', '=', 'dt.doc_dir')
+            ->leftJoin((\Illuminate\Support\Facades\Schema::hasTable('sys_document_data') ? 'sys_document_data' : 'document_data') . ' as doc', 'doc.document_path', '=', 'dt.doc_dir')
             ->where('dt.trans_type', 'internal')
             ->where('dtd.is_active', 1)
             ->where('dtd.originated_from', '!=', $userOfficeCode)
             ->whereExists(function($q) use ($userOfficeCode) {
                 $q->select(DB::raw(1))
-                  ->from('sub_document_tracking_system_logs as log')
+                  ->from((\Illuminate\Support\Facades\Schema::hasTable('dts_transaction_logs') ? 'dts_transaction_logs' : 'sub_document_tracking_system_logs') . ' as log')
                   ->whereColumn('log.transaction_id', 'dt.transaction_id')
                   ->where('log.office_code', $userOfficeCode)
                   ->where(function($sub) {
@@ -171,7 +171,7 @@ new #[Layout('layouts.dts')] #[Title('DTS - Internal Transactions History')] cla
             'originated_office.office_name as originated_office_name',
             'current_office.office_name as current_office_name',
             'doc.document_name',
-            DB::raw("(SELECT MAX(COALESCE(log.date_in, log.date_out)) FROM sub_document_tracking_system_logs as log WHERE log.transaction_id = dt.transaction_id AND log.office_code = " . DB::getPdo()->quote($userOfficeCode) . ") as office_activity_date")
+            DB::raw("(SELECT MAX(COALESCE(log.date_in, log.date_out)) FROM " . (\Illuminate\Support\Facades\Schema::hasTable('dts_transaction_logs') ? 'dts_transaction_logs' : 'sub_document_tracking_system_logs') . " as log WHERE log.transaction_id = dt.transaction_id AND log.office_code = " . DB::getPdo()->quote($userOfficeCode) . ") as office_activity_date")
         )
         ->orderBy('dtd.date_created', $sortDirection)
         ->paginate($this->perPage);

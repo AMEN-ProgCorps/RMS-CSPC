@@ -209,7 +209,7 @@ new #[Layout('layouts.portal')] #[Title('Track Document — Results')] class ext
         };
 
         try {
-            DB::table('tracking_devices_log')->insert([
+            DB::table('sys_tracking_devices_log')->insert([
                 'tracked_id'        => null,
                 'device_id'         => $deviceId,
                 'email'             => $this->email ?: null,

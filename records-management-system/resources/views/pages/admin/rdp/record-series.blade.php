@@ -207,7 +207,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Record Series')] class e
                 'updated_at'   => now(),
             ]);
 
-            DB::table('admin_logs')->insert([
+            DB::table(\Illuminate\Support\Facades\Schema::hasTable('sys_admin_logs') ? 'sys_admin_logs' : 'admin_logs')->insert([
                 'changes'      => "Registered new Record Series Type: \"{$typeName}\" ({$shortCode})",
                 'admin_id'     => auth()->id(),
                 'what_system'  => 2,
@@ -255,7 +255,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Record Series')] class e
         }
 
         // 1. Check exact or ILIKE match on office_code or office_name in office table
-        $existing = DB::table('office')
+        $existing = DB::table(\Illuminate\Support\Facades\Schema::hasTable('sys_office') ? 'sys_office' : 'office')
             ->where('is_active', true)
             ->where(function($q) use ($input) {
                 $q->where('office_code', 'ilike', $input)
@@ -512,7 +512,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Record Series')] class e
 
             DB::commit();
 
-            DB::table('admin_logs')->insert([
+            DB::table(\Illuminate\Support\Facades\Schema::hasTable('sys_admin_logs') ? 'sys_admin_logs' : 'admin_logs')->insert([
                 'changes'      => "Added Record Series: \"{$parentTitle}\"",
                 'admin_id'     => auth()->id(),
                 'what_system'  => 2,
@@ -617,7 +617,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Record Series')] class e
         ]);
 
         // Log admin action
-        DB::table('admin_logs')->insert([
+        DB::table(\Illuminate\Support\Facades\Schema::hasTable('sys_admin_logs') ? 'sys_admin_logs' : 'admin_logs')->insert([
             'changes'      => "Updated Record Series: \"{$title}\"",
             'admin_id'     => auth()->id(),
             'what_system'  => 2,
@@ -921,7 +921,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Record Series')] class e
 
             $flushPending();
 
-            DB::table('admin_logs')->insert([
+            DB::table(\Illuminate\Support\Facades\Schema::hasTable('sys_admin_logs') ? 'sys_admin_logs' : 'admin_logs')->insert([
                 'changes'      => "Imported {$importedCount} Record Series entries from text file",
                 'admin_id'     => auth()->id(),
                 'what_system'  => 2,
@@ -952,7 +952,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Record Series')] class e
 
         $statusText = $newStatus ? 'Activated' : 'Deactivated';
 
-        DB::table('admin_logs')->insert([
+        DB::table(\Illuminate\Support\Facades\Schema::hasTable('sys_admin_logs') ? 'sys_admin_logs' : 'admin_logs')->insert([
             'changes'      => "{$statusText} Record Series: \"{$series->series_title}\"",
             'admin_id'     => auth()->id(),
             'what_system'  => 2,
@@ -992,7 +992,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Record Series')] class e
             }
         }
 
-        DB::table('admin_logs')->insert([
+        DB::table(\Illuminate\Support\Facades\Schema::hasTable('sys_admin_logs') ? 'sys_admin_logs' : 'admin_logs')->insert([
             'changes'      => "Deleted Record Series: \"{$series->series_title}\"",
             'admin_id'     => auth()->id(),
             'what_system'  => 2,
@@ -1009,7 +1009,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Record Series')] class e
             ->orderBy('id', 'asc')
             ->get();
 
-        $offices = DB::table('office')
+        $offices = DB::table(\Illuminate\Support\Facades\Schema::hasTable('sys_office') ? 'sys_office' : 'office')
             ->where('is_active', true)
             ->orderBy('office_name', 'asc')
             ->get();
@@ -1036,7 +1036,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Record Series')] class e
 
         $parentSuggestionsQuery = DB::table('rdp_record_series')
             ->leftJoin('rdp_record_series_type', 'rdp_record_series.series_type', '=', 'rdp_record_series_type.id')
-            ->leftJoin('office', 'rdp_record_series.recorded_at_office', '=', 'office.office_code')
+            ->leftJoin((\Illuminate\Support\Facades\Schema::hasTable('sys_office') ? 'sys_office' : 'office'), 'rdp_record_series.recorded_at_office', '=', 'office.office_code')
             ->select([
                 'rdp_record_series.id',
                 'rdp_record_series.series_title',
@@ -1082,7 +1082,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Record Series')] class e
             ->leftJoin('rdp_retention_period', 'rdp_record_series.retention_period', '=', 'rdp_retention_period.id')
             ->leftJoin('rdp_record_series as parent', 'rdp_record_series.parent_id', '=', 'parent.id')
             ->leftJoin('rdp_record_series_brackets', 'rdp_record_series.bracket_id', '=', 'rdp_record_series_brackets.id')
-            ->leftJoin('office', 'rdp_record_series.recorded_at_office', '=', 'office.office_code')
+            ->leftJoin((\Illuminate\Support\Facades\Schema::hasTable('sys_office') ? 'sys_office' : 'office'), 'rdp_record_series.recorded_at_office', '=', 'office.office_code')
             ->where('rdp_record_series.is_verified', true)
             ->select([
                 'rdp_record_series.*',
@@ -1107,7 +1107,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Record Series')] class e
 
             $matchedQuery = DB::table('rdp_record_series')
                 ->leftJoin('rdp_record_series_brackets', 'rdp_record_series.bracket_id', '=', 'rdp_record_series_brackets.id')
-                ->leftJoin('office', 'rdp_record_series.recorded_at_office', '=', 'office.office_code')
+                ->leftJoin((\Illuminate\Support\Facades\Schema::hasTable('sys_office') ? 'sys_office' : 'office'), 'rdp_record_series.recorded_at_office', '=', 'office.office_code')
                 ->where('rdp_record_series.is_verified', true);
 
             if ($this->activeTab === 'unregistered') {

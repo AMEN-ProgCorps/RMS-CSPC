@@ -339,7 +339,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Roles')] class extends C
                     $role->save();
                     
                     // Audit Log: created role
-                    \DB::table('admin_logs')->insert([
+                    \DB::table(\Illuminate\Support\Facades\Schema::hasTable('sys_admin_logs') ? 'sys_admin_logs' : 'admin_logs')->insert([
                         'changes' => "Created role: {$this->keyName}",
                         'admin_id' => auth()->id(),
                         'what_system' => 3, // Admin Console
@@ -369,7 +369,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Roles')] class extends C
                     $perms->save();
 
                     // Audit Log: updated details
-                    \DB::table('admin_logs')->insert([
+                    \DB::table(\Illuminate\Support\Facades\Schema::hasTable('sys_admin_logs') ? 'sys_admin_logs' : 'admin_logs')->insert([
                         'changes' => "Updated permissions/details for role: {$this->keyName}",
                         'admin_id' => auth()->id(),
                         'what_system' => 3, // Admin Console
@@ -378,7 +378,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Roles')] class extends C
 
                     // Audit Log: status changed
                     if ($statusChanged) {
-                        \DB::table('admin_logs')->insert([
+                        \DB::table(\Illuminate\Support\Facades\Schema::hasTable('sys_admin_logs') ? 'sys_admin_logs' : 'admin_logs')->insert([
                             'changes' => "Toggled active status (Value: " . ($this->isActive ? '1' : '0') . ") for role: {$this->keyName}",
                             'admin_id' => auth()->id(),
                             'what_system' => 3, // Admin Console
@@ -428,7 +428,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Roles')] class extends C
                 ]);
 
                 // Audit Log: soft-deleted role
-                \DB::table('admin_logs')->insert([
+                \DB::table(\Illuminate\Support\Facades\Schema::hasTable('sys_admin_logs') ? 'sys_admin_logs' : 'admin_logs')->insert([
                     'changes' => "Soft-deleted role (Deactivated for transparency): {$role->key_name}",
                     'admin_id' => auth()->id(),
                     'what_system' => 3, // Admin Console

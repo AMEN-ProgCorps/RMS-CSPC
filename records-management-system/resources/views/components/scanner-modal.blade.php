@@ -108,9 +108,9 @@ new class extends Component {
         $transaction = DB::table('dts_transactions as dt')
             ->join('dts_transaction_details as dtd', 'dtd.id', '=', 'dt.transaction_id')
             ->leftJoin('dts_requestor_history as req', 'req.id', '=', 'dtd.requestor_id')
-            ->leftJoin('office as originated_office', 'originated_office.office_code', '=', 'dtd.originated_from')
-            ->leftJoin('office as current_office_tb', 'current_office_tb.office_code', '=', 'dt.current_office')
-            ->leftJoin('document_data as doc', 'doc.document_path', '=', 'dt.doc_dir')
+            ->leftJoin((\Illuminate\Support\Facades\Schema::hasTable('sys_office') ? 'sys_office' : 'office') . ' as originated_office', 'originated_office.office_code', '=', 'dtd.originated_from')
+            ->leftJoin((\Illuminate\Support\Facades\Schema::hasTable('sys_office') ? 'sys_office' : 'office') . ' as current_office_tb', 'current_office_tb.office_code', '=', 'dt.current_office')
+            ->leftJoin((\Illuminate\Support\Facades\Schema::hasTable('sys_document_data') ? 'sys_document_data' : 'document_data') . ' as doc', 'doc.document_path', '=', 'dt.doc_dir')
             ->where('dt.qr_code', $code)
             ->select(
                 'dt.transaction_id',
@@ -168,7 +168,7 @@ new class extends Component {
             return;
         }
 
-        $lastLog = DB::table('sub_document_tracking_system_logs')
+        $lastLog = DB::table('dts_transaction_logs')
             ->where('transaction_id', $transaction->transaction_id)
             ->where('office_code', $userOfficeCode)
             ->orderBy('id', 'desc')
@@ -187,7 +187,7 @@ new class extends Component {
                     ->first();
                 if ($nextSeq) {
                     $nextOfficeCode = $nextSeq->office_code;
-                    $nextOfficeName = DB::table('office')->where('office_code', $nextOfficeCode)->value('office_name') ?: $nextOfficeCode;
+                    $nextOfficeName = DB::table('sys_office')->where('office_code', $nextOfficeCode)->value('office_name') ?: $nextOfficeCode;
                 }
             }
         }
@@ -257,14 +257,14 @@ new class extends Component {
 
                 // Case 1: Receive incoming transaction
                 if (!$isReceived) {
-                    $currentLog = DB::table('sub_document_tracking_system_logs')
+                    $currentLog = DB::table('dts_transaction_logs')
                         ->where('transaction_id', $transId)
                         ->where('office_code', $userOfficeCode)
                         ->orderBy('id', 'desc')
                         ->first();
 
                     if ($currentLog) {
-                        DB::table('sub_document_tracking_system_logs')
+                        DB::table('dts_transaction_logs')
                             ->where('id', $currentLog->id)
                             ->update([
                                 'type' => 'received',
@@ -272,7 +272,7 @@ new class extends Component {
                                 'performed_by' => auth()->id(),
                             ]);
                     } else {
-                        DB::table('sub_document_tracking_system_logs')->insert([
+                        DB::table('dts_transaction_logs')->insert([
                             'transaction_id' => $transId,
                             'office_code' => $userOfficeCode,
                             'type' => 'received',
@@ -296,8 +296,9 @@ new class extends Component {
                         }
                     }
 
+                    $accDetailsTbl = \Illuminate\Support\Facades\Schema::hasTable('sys_account_details') ? 'sys_account_details' : 'account_details';
                     $userFirstName = auth()->user()?->details?->first_name 
-                        ?: DB::table('account_details')->where('account_id', auth()->id())->value('first_name')
+                        ?: DB::table($accDetailsTbl)->where('account_id', auth()->id())->value('first_name')
                         ?: auth()->user()?->username 
                         ?: 'User';
 
@@ -323,7 +324,7 @@ new class extends Component {
                         $originatedFrom = $transDb?->originated_from ?? 'ORIGIN';
 
                         // Update date_out for user office
-                        DB::table('sub_document_tracking_system_logs')
+                        DB::table('dts_transaction_logs')
                             ->where('transaction_id', $transId)
                             ->where('office_code', $userOfficeCode)
                             ->whereNull('date_out')
@@ -387,7 +388,7 @@ new class extends Component {
                             }
                         }
 
-                        DB::table('sub_document_tracking_system_logs')->insert([
+                        DB::table('dts_transaction_logs')->insert([
                             'transaction_id' => $transId,
                             'office_code' => $originatedFrom,
                             'type' => 'returned',
@@ -404,7 +405,8 @@ new class extends Component {
                             '/dts?open=' . urlencode($transId)
                         );
 
-                        $originatedOfficeName = DB::table('office')->where('office_code', $originatedFrom)->value('office_name') ?: $originatedFrom;
+                        $officeTbl = \Illuminate\Support\Facades\Schema::hasTable('sys_office') ? 'sys_office' : 'office';
+                        $originatedOfficeName = DB::table($officeTbl)->where('office_code', $originatedFrom)->value('office_name') ?: $originatedFrom;
                         $this->successMessage = "Transaction '{$this->activeTransaction['control_number']}' returned for revision to {$originatedOfficeName}!";
                     } else {
                         // Check if transaction is in revision status (fresh from revision at Originator)
@@ -485,7 +487,7 @@ new class extends Component {
                             ? ($this->resubmitTarget === 'requestor' ? 'Resubmitted directly to ' : 'Resubmitted to ') . $nextOfficeCode
                             : ($this->notes ?: 'Forwarded via Global Scanner');
 
-                        DB::table('sub_document_tracking_system_logs')
+                        DB::table('dts_transaction_logs')
                             ->where('transaction_id', $transId)
                             ->where('office_code', $userOfficeCode)
                             ->whereNull('date_out')
@@ -533,7 +535,7 @@ new class extends Component {
                                     'action_needed' => $this->actionNeeded,
                                 ]);
 
-                            DB::table('sub_document_tracking_system_logs')->insert([
+                            DB::table('dts_transaction_logs')->insert([
                                 'transaction_id' => $transId,
                                 'office_code' => $nextOfficeCode,
                                 'type' => 'forwarded',
@@ -542,11 +544,14 @@ new class extends Component {
                                 'performed_by' => auth()->id(),
                             ]);
 
-                            $destOfficeName = DB::table('office')->where('office_code', $nextOfficeCode)->value('office_name') ?: $nextOfficeCode;
+                            $officeTbl = \Illuminate\Support\Facades\Schema::hasTable('sys_office') ? 'sys_office' : 'office';
+                            $accDetailsTbl = \Illuminate\Support\Facades\Schema::hasTable('sys_account_details') ? 'sys_account_details' : 'account_details';
+
+                            $destOfficeName = DB::table($officeTbl)->where('office_code', $nextOfficeCode)->value('office_name') ?: $nextOfficeCode;
                             $this->successMessage = "Transaction '{$this->activeTransaction['control_number']}' forwarded successfully to {$destOfficeName}!";
 
                             $userFirstName = auth()->user()?->details?->first_name 
-                                ?: DB::table('account_details')->where('account_id', auth()->id())->value('first_name')
+                                ?: DB::table($accDetailsTbl)->where('account_id', auth()->id())->value('first_name')
                                 ?: auth()->user()?->username 
                                 ?: 'User';
 

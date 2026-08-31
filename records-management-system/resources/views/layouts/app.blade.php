@@ -77,7 +77,7 @@
                 });
             });
         </script>
-        @if(\DB::table('system_settings')->where('key', 'page_prewarming_enabled')->value('value') === 'true')
+        @if(\DB::table(\Illuminate\Support\Facades\Schema::hasTable('sys_system_settings') ? 'sys_system_settings' : 'system_settings')->where('key', 'page_prewarming_enabled')->value('value') === 'true')
             @php
                 $prewarmUrls = ['/portal', '/profile', '/profile/security-logs', '/profile/notification-manager'];
                 $perms = auth()->user()?->permissions;

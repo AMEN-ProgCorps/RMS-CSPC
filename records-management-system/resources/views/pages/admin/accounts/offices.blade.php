@@ -174,8 +174,8 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Offices & Clusters')] cl
             }
 
             $userOfficeCode = auth()->user()?->details?->office?->office_code;
-            if (!$userOfficeCode || !\DB::table('office')->where('office_code', $userOfficeCode)->exists()) {
-                $userOfficeCode = \DB::table('office')->where('is_active', true)->whereNotIn('office_code', ['ORIGIN', '[H]', '[HUB]', 'HUB'])->value('office_code') ?: 'ORIGIN';
+            if (!$userOfficeCode || !\DB::table('sys_office')->where('office_code', $userOfficeCode)->exists()) {
+                $userOfficeCode = \DB::table('sys_office')->where('is_active', true)->whereNotIn('office_code', ['ORIGIN', '[H]', '[HUB]', 'HUB'])->value('office_code') ?: 'ORIGIN';
             }
 
             \DB::table('dts_source_office')->insert([
@@ -187,7 +187,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Offices & Clusters')] cl
                 'updated_at' => now(),
             ]);
 
-            \DB::table('admin_logs')->insert([
+            \DB::table('sys_admin_logs')->insert([
                 'changes' => "Created external source office: {$name} ({$code})",
                 'admin_id' => auth()->id(),
                 'what_system' => 3,
@@ -215,7 +215,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Offices & Clusters')] cl
                     'updated_at' => now(),
                 ]);
 
-            \DB::table('admin_logs')->insert([
+            \DB::table('sys_admin_logs')->insert([
                 'changes' => "Updated external source office: {$name} ({$code})",
                 'admin_id' => auth()->id(),
                 'what_system' => 3,
@@ -362,7 +362,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Offices & Clusters')] cl
                                     
                                     // A cluster code must end with semicolon and exist in cluster database
                                     if (str_ends_with($fourthLine['text'], ';')) {
-                                        $clusterExists = \DB::table('cluster')->where('cluster_code', $fourthVal)->exists();
+                                        $clusterExists = \DB::table('sys_cluster')->where('cluster_code', $fourthVal)->exists();
                                         if ($clusterExists) {
                                             $officeClusterVal = $fourthVal;
                                             $advanceCount = 4;
@@ -373,7 +373,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Offices & Clusters')] cl
                         } else {
                             // 3rd line is not boolean, so it must be cluster code
                             if (str_ends_with($thirdLine['text'], ';')) {
-                                $clusterExists = \DB::table('cluster')->where('cluster_code', $thirdVal)->exists();
+                                $clusterExists = \DB::table('sys_cluster')->where('cluster_code', $thirdVal)->exists();
                                 if ($clusterExists) {
                                     $officeClusterVal = $thirdVal;
                                     $advanceCount = 3;
@@ -392,8 +392,8 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Offices & Clusters')] cl
                 }
 
                 // 3. Check database existence and conflict matching
-                $officeByCode = \DB::table('office')->where('office_code', $officeCode)->first();
-                $officeByName = \DB::table('office')->where('office_name', $officeName)->first();
+                $officeByCode = \DB::table('sys_office')->where('office_code', $officeCode)->first();
+                $officeByName = \DB::table('sys_office')->where('office_name', $officeName)->first();
 
                 if ($officeByCode || $officeByName) {
                     // Check if it is a perfect match (both name and code point to the same existing record)
@@ -451,7 +451,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Offices & Clusters')] cl
                     $office->save();
 
                     // Insert admin log entry
-                    \DB::table('admin_logs')->insert([
+                    \DB::table('sys_admin_logs')->insert([
                         'changes' => "Imported office via text file: {$officeData['name']} ({$officeData['code']})",
                         'admin_id' => auth()->id(),
                         'what_system' => 3, // Admin Console
@@ -556,7 +556,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Offices & Clusters')] cl
                             'is_active' => true,
                         ]);
 
-                        \DB::table('admin_logs')->insert([
+                        \DB::table('sys_admin_logs')->insert([
                             'changes' => "Reactivated previously soft-deleted office: {$this->officeName} ({$this->officeCode})",
                             'admin_id' => auth()->id(),
                             'what_system' => 3,
@@ -573,7 +573,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Offices & Clusters')] cl
                         $office->is_active = true;
                         $office->save();
 
-                        \DB::table('admin_logs')->insert([
+                        \DB::table('sys_admin_logs')->insert([
                             'changes' => "Created office: {$this->officeName} ({$this->officeCode})",
                             'admin_id' => auth()->id(),
                             'what_system' => 3,
@@ -603,7 +603,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Offices & Clusters')] cl
                     ]);
 
                     // Audit Log: updated details
-                    \DB::table('admin_logs')->insert([
+                    \DB::table('sys_admin_logs')->insert([
                         'changes' => "Updated office details for: {$this->officeName}",
                         'admin_id' => auth()->id(),
                         'what_system' => 3, // Admin Console
@@ -612,7 +612,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Offices & Clusters')] cl
 
                     // Audit Log: status changed
                     if ($statusChanged) {
-                        \DB::table('admin_logs')->insert([
+                        \DB::table('sys_admin_logs')->insert([
                             'changes' => "Toggled active status (Value: " . ($this->isActive ? '1' : '0') . ") for office: {$this->officeName}",
                             'admin_id' => auth()->id(),
                             'what_system' => 3, // Admin Console
@@ -652,7 +652,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Offices & Clusters')] cl
                 ]);
 
                 // Audit Log: soft-deleted office
-                \DB::table('admin_logs')->insert([
+                \DB::table('sys_admin_logs')->insert([
                     'changes' => "Soft-deleted office (Deactivated for transparency): {$office->office_name}",
                     'admin_id' => auth()->id(),
                     'what_system' => 3, // Admin Console
@@ -730,7 +730,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Offices & Clusters')] cl
                 \App\Models\office::whereIn('id', $offices->pluck('id')->toArray())
                     ->update(['is_active' => false]);
 
-                \DB::table('admin_logs')->insert([
+                \DB::table('sys_admin_logs')->insert([
                     'changes' => \Str::limit("Bulk soft-deleted " . $offices->count() . " office(s): {$names}", 245),
                     'admin_id' => auth()->id(),
                     'what_system' => 3,
@@ -857,7 +857,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Offices & Clusters')] cl
                             'is_active' => true,
                         ]);
 
-                        \DB::table('admin_logs')->insert([
+                        \DB::table('sys_admin_logs')->insert([
                             'changes' => "Reactivated previously soft-deleted cluster: {$this->clusterName} ({$this->clusterCode})",
                             'admin_id' => auth()->id(),
                             'what_system' => 3,
@@ -874,7 +874,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Offices & Clusters')] cl
                         $cluster->is_active = true;
                         $cluster->save();
 
-                        \DB::table('admin_logs')->insert([
+                        \DB::table('sys_admin_logs')->insert([
                             'changes' => "Created cluster: {$this->clusterName} ({$this->clusterCode})",
                             'admin_id' => auth()->id(),
                             'what_system' => 3,
@@ -896,12 +896,12 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Offices & Clusters')] cl
                     ]);
 
                     if ($oldCode !== $this->clusterCode) {
-                        \DB::table('office')
+                        \DB::table('sys_office')
                             ->where('cluster', $oldCode)
                             ->update(['cluster' => $this->clusterCode]);
                     }
 
-                    \DB::table('admin_logs')->insert([
+                    \DB::table('sys_admin_logs')->insert([
                         'changes' => "Updated cluster details for: {$this->clusterName} ({$this->clusterCode})",
                         'admin_id' => auth()->id(),
                         'what_system' => 3,
@@ -928,7 +928,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Offices & Clusters')] cl
             \DB::transaction(function () {
                 $cluster = \App\Models\Cluster::findOrFail($this->selectedClusterId);
 
-                \DB::table('office')
+                \DB::table('sys_office')
                     ->where('cluster', $cluster->cluster_code)
                     ->update(['cluster' => null]);
 
@@ -937,7 +937,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Offices & Clusters')] cl
                     'is_active' => false,
                 ]);
 
-                \DB::table('admin_logs')->insert([
+                \DB::table('sys_admin_logs')->insert([
                     'changes' => "Soft-deleted cluster (Deactivated for transparency): {$cluster->cluster_name} ({$cluster->cluster_code})",
                     'admin_id' => auth()->id(),
                     'what_system' => 3,
@@ -1009,14 +1009,14 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Offices & Clusters')] cl
                 $names = $clusters->pluck('cluster_name')->implode(', ');
 
                 // Set associated offices cluster to null
-                \DB::table('office')
+                \DB::table('sys_office')
                     ->whereIn('cluster', $clusters->pluck('cluster_code')->toArray())
                     ->update(['cluster' => null]);
 
                 \App\Models\Cluster::whereIn('id', $clusters->pluck('id')->toArray())
                     ->update(['is_active' => false]);
 
-                \DB::table('admin_logs')->insert([
+                \DB::table('sys_admin_logs')->insert([
                     'changes' => \Str::limit("Bulk soft-deleted " . $clusters->count() . " cluster(s): {$names}", 245),
                     'admin_id' => auth()->id(),
                     'what_system' => 3,
@@ -1120,7 +1120,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Offices & Clusters')] cl
                             $advanceCount = 3;
                         } else {
                             if (str_ends_with($thirdLine['text'], ';')) {
-                                $office = \DB::table('office')
+                                $office = \DB::table('sys_office')
                                     ->where('office_code', $val)
                                     ->orWhere('office_name', $val)
                                     ->first();
@@ -1164,8 +1164,8 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Offices & Clusters')] cl
                 $tempNames[] = $cName;
                 $tempCodes[] = $cCode;
 
-                $existingByName = \DB::table('cluster')->where('cluster_name', $cName)->first();
-                $existingByCode = \DB::table('cluster')->where('cluster_code', $cCode)->first();
+                $existingByName = \DB::table('sys_cluster')->where('cluster_name', $cName)->first();
+                $existingByCode = \DB::table('sys_cluster')->where('cluster_code', $cCode)->first();
 
                 if ($existingByName || $existingByCode) {
                     if ($existingByName && $existingByCode && $existingByName->id === $existingByCode->id) {
@@ -1200,7 +1200,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Offices & Clusters')] cl
                     $cluster->is_active = $cData['is_active'];
                     $cluster->save();
 
-                    \DB::table('admin_logs')->insert([
+                    \DB::table('sys_admin_logs')->insert([
                         'changes' => "Imported cluster via text file: {$cData['name']} ({$cData['code']})",
                         'admin_id' => auth()->id(),
                         'what_system' => 3,
@@ -1258,7 +1258,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Offices & Clusters')] cl
         }
 
         $otherOfficeQuery = \DB::table('dts_source_office as so')
-            ->leftJoin('office as creator', 'creator.office_code', '=', 'so.created_by_office')
+            ->leftJoin((\Illuminate\Support\Facades\Schema::hasTable('sys_office') ? 'sys_office' : 'office') . ' as creator', 'creator.office_code', '=', 'so.created_by_office')
             ->select('so.*', 'creator.office_name as creator_office_name')
             ->where('so.is_active', true);
         if ($this->otherOfficeSearch !== '') {

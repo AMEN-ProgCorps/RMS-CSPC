@@ -17,7 +17,7 @@ class User extends Authenticatable
     /**
      * Explicitly point to your custom table name.
      */
-    protected $table = 'account';
+    protected $table = 'sys_account';
 
     /**
      * Since your schema uses 'id' via increments(), it defaults to auto-incrementing.

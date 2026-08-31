@@ -20,7 +20,8 @@ class CanAccessDcs
             return redirect()->route('portal');
         }
 
-        $isActive = \DB::table('subsystems')
+        $subsystemsTbl = \Illuminate\Support\Facades\Schema::hasTable('sys_subsystems') ? 'sys_subsystems' : 'subsystems';
+        $isActive = \DB::table($subsystemsTbl)
             ->where('subsystem_name', 'Document Control System')
             ->value('is_active');
 

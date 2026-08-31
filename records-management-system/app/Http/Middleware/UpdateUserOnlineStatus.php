@@ -19,17 +19,20 @@ class UpdateUserOnlineStatus
      */
     public function handle(Request $request, Closure $next): Response
     {
+        $sysSettingsTbl = \Illuminate\Support\Facades\Schema::hasTable('sys_system_settings') ? 'sys_system_settings' : 'system_settings';
+        $accDetailsTbl = \Illuminate\Support\Facades\Schema::hasTable('sys_account_details') ? 'sys_account_details' : 'account_details';
+
         // 1. Determine configured session inactivity / tab-close timeout (Default: 15 minutes)
         $timeoutMinutes = 15;
         try {
-            $settingVal = DB::table('system_settings')->where('key', 'tab_close_idle_timeout_minutes')->value('value');
+            $settingVal = DB::table($sysSettingsTbl)->where('key', 'tab_close_idle_timeout_minutes')->value('value');
             if ($settingVal !== null && is_numeric($settingVal) && (int) $settingVal > 0) {
                 $timeoutMinutes = (int) $settingVal;
             }
         } catch (\Throwable) {}
 
         if ($user = Auth::user()) {
-            $details = DB::table('account_details')->where('account_id', $user->id)->first();
+            $details = DB::table($accDetailsTbl)->where('account_id', $user->id)->first();
             $now = now();
 
             // Helper to build appropriate logout response depending on request type (AJAX vs Chatify iframe vs Main page)
@@ -61,7 +64,7 @@ class UpdateUserOnlineStatus
 
             // A. Check if Admin modified account (Forced Logout)
             if ($details && $details->force_logout_at !== null) {
-                DB::table('account_details')
+                DB::table($accDetailsTbl)
                     ->where('account_id', $user->id)
                     ->update([
                         'force_logout_at' => null,
@@ -79,7 +82,7 @@ class UpdateUserOnlineStatus
             if ($details && $details->last_online_time !== null) {
                 $lastOnline = \Carbon\Carbon::parse($details->last_online_time);
                 if ($lastOnline->diffInMinutes($now) >= $timeoutMinutes) {
-                    DB::table('account_details')
+                    DB::table($accDetailsTbl)
                         ->where('account_id', $user->id)
                         ->update(['is_currently_online' => false]);
 
@@ -92,7 +95,7 @@ class UpdateUserOnlineStatus
             }
 
             // C. Update current user activity
-            DB::table('account_details')
+            DB::table($accDetailsTbl)
                 ->where('account_id', $user->id)
                 ->update([
                     'is_currently_online' => true,
@@ -101,10 +104,12 @@ class UpdateUserOnlineStatus
         }
 
         // 2. Mark users who haven't made a request in $timeoutMinutes as offline
-        DB::table('account_details')
-            ->where('is_currently_online', true)
-            ->where('last_online_time', '<', now()->subMinutes($timeoutMinutes))
-            ->update(['is_currently_online' => false]);
+        try {
+            DB::table($accDetailsTbl)
+                ->where('is_currently_online', true)
+                ->where('last_online_time', '<', now()->subMinutes($timeoutMinutes))
+                ->update(['is_currently_online' => false]);
+        } catch (\Throwable) {}
 
         return $next($request);
     }

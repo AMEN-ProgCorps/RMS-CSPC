@@ -217,7 +217,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - DTS Transaction Flows')]
 
     public function selectAllHubOffices(): void
     {
-        $allActive = \DB::table('office')
+        $allActive = \DB::table('sys_office')
             ->where('is_active', true)
             ->whereNotIn('office_code', ['ORIGIN', '[H]', '[HUB]'])
             ->orderBy('office_name')
@@ -304,7 +304,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - DTS Transaction Flows')]
             $this->customSelectedCfOffice = '';
 
             // Load custom predefined HUB offices
-            $this->customHubOffices = \DB::table('hub_flow_datas')
+            $this->customHubOffices = \DB::table('dts_hub_flow_datas')
                 ->where('flow_owner', $flow->id)
                 ->pluck('offices_hub')
                 ->toArray();
@@ -410,7 +410,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - DTS Transaction Flows')]
 
     public function selectAllCustomHubOffices(): void
     {
-        $allActive = \DB::table('office')
+        $allActive = \DB::table('sys_office')
             ->where('is_active', true)
             ->whereNotIn('office_code', ['ORIGIN', '[H]', '[HUB]'])
             ->orderBy('office_name')
@@ -521,10 +521,10 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - DTS Transaction Flows')]
                 }
 
                 // Sync Custom HUB Receiving Offices
-                \DB::table('hub_flow_datas')->where('flow_owner', $flowId)->delete();
+                \DB::table('dts_hub_flow_datas')->where('flow_owner', $flowId)->delete();
                 if (in_array('[HUB]', $this->customFlowOffices) && count($this->customHubOffices) > 0) {
                     foreach ($this->customHubOffices as $hubOffice) {
-                        \DB::table('hub_flow_datas')->insert([
+                        \DB::table('dts_hub_flow_datas')->insert([
                             'flow_owner' => $flowId,
                             'offices_hub' => $hubOffice,
                             'created_at' => now(),
@@ -603,7 +603,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - DTS Transaction Flows')]
                     ->whereIn('id', $this->selectedCustomFlowIds)
                     ->update(['is_active' => false]);
 
-                \DB::table('admin_logs')->insert([
+                \DB::table('sys_admin_logs')->insert([
                     'changes' => \Str::limit("Bulk soft-deleted " . $flows->count() . " custom transaction flow(s): {$names}", 245),
                     'admin_id' => auth()->id(),
                     'what_system' => 3,
@@ -682,7 +682,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - DTS Transaction Flows')]
             $this->selectedCfOffice = '';
 
             // Load predefined HUB offices
-            $this->hubOffices = \DB::table('hub_flow_datas')
+            $this->hubOffices = \DB::table('dts_hub_flow_datas')
                 ->where('flow_owner', $flow->id)
                 ->pluck('offices_hub')
                 ->toArray();
@@ -831,7 +831,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - DTS Transaction Flows')]
                             'date_added' => now(),
                         ]);
 
-                        \DB::table('admin_logs')->insert([
+                        \DB::table('sys_admin_logs')->insert([
                             'changes' => "Reactivated previously soft-deleted predefined transaction flow: " . trim($this->flowName) . " (" . strtoupper(trim($this->flowCode)) . ")",
                             'admin_id' => auth()->id(),
                             'what_system' => 3,
@@ -856,7 +856,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - DTS Transaction Flows')]
                         ]);
 
                         // Insert admin log
-                        \DB::table('admin_logs')->insert([
+                        \DB::table('sys_admin_logs')->insert([
                             'changes' => "Created predefined transaction flow: " . trim($this->flowName) . " (" . strtoupper(trim($this->flowCode)) . ")",
                             'admin_id' => auth()->id(),
                             'what_system' => 3,
@@ -879,7 +879,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - DTS Transaction Flows')]
                     ]);
 
                     // Insert admin log
-                    \DB::table('admin_logs')->insert([
+                    \DB::table('sys_admin_logs')->insert([
                         'changes' => "Updated predefined transaction flow: {$flow->flow_name}",
                         'admin_id' => auth()->id(),
                         'what_system' => 3, // Admin Console
@@ -925,10 +925,10 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - DTS Transaction Flows')]
                 }
 
                 // Update Predefined HUB Receiving Offices list
-                \DB::table('hub_flow_datas')->where('flow_owner', $flowId)->delete();
+                \DB::table('dts_hub_flow_datas')->where('flow_owner', $flowId)->delete();
                 if (in_array('[HUB]', $this->flowOffices) && count($this->hubOffices) > 0) {
                     foreach ($this->hubOffices as $hubOffice) {
-                        \DB::table('hub_flow_datas')->insert([
+                        \DB::table('dts_hub_flow_datas')->insert([
                             'flow_owner' => $flowId,
                             'offices_hub' => $hubOffice,
                             'created_at' => now(),
@@ -974,7 +974,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - DTS Transaction Flows')]
                 ]);
 
                 // Audit log
-                \DB::table('admin_logs')->insert([
+                \DB::table('sys_admin_logs')->insert([
                     'changes' => "Soft-deleted predefined transaction flow (Deactivated for transparency): {$flow->flow_name} ({$flow->flow_code})",
                     'admin_id' => auth()->id(),
                     'what_system' => 3, // Admin Console
@@ -1059,7 +1059,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - DTS Transaction Flows')]
                     ->whereIn('id', $this->selectedFlowIds)
                     ->update(['is_active' => false]);
 
-                \DB::table('admin_logs')->insert([
+                \DB::table('sys_admin_logs')->insert([
                     'changes' => \Str::limit("Bulk soft-deleted " . $flows->count() . " predefined transaction flow(s): {$names}", 245),
                     'admin_id' => auth()->id(),
                     'what_system' => 3,
@@ -1237,7 +1237,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - DTS Transaction Flows')]
                     }
 
                     // Query by code or name
-                    $office = \DB::table('office')
+                    $office = \DB::table('sys_office')
                         ->where('is_active', true)
                         ->where(function($q) use ($node) {
                             $q->where('office_code', $node)
@@ -1301,7 +1301,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - DTS Transaction Flows')]
                             $cfNodes = array_filter(array_map('trim', $cfNodes));
                             
                             foreach ($cfNodes as $node) {
-                                $office = \DB::table('office')
+                                $office = \DB::table('sys_office')
                                     ->where('is_active', true)
                                     ->where(function($q) use ($node) {
                                         $q->where('office_code', $node)
@@ -1385,7 +1385,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - DTS Transaction Flows')]
                     }
 
                     // Insert admin log entry
-                    \DB::table('admin_logs')->insert([
+                    \DB::table('sys_admin_logs')->insert([
                         'changes' => "Imported predefined transaction flow via text file: {$flowData['name']} ({$flowData['code']})",
                         'admin_id' => auth()->id(),
                         'what_system' => 3, // Admin Console
@@ -1410,7 +1410,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - DTS Transaction Flows')]
     public function with(): array
     {
         // Fetch active offices for sequence selection
-        $activeOffices = \DB::table('office')
+        $activeOffices = \DB::table('sys_office')
             ->where('is_active', true)
             ->orderBy('office_name')
             ->get();
@@ -1439,8 +1439,8 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - DTS Transaction Flows')]
         $customFlows = collect();
         if ($this->activeTab === 'custom') {
             $customQuery = \DB::table('dts_transaction_flow')
-                ->leftJoin('account_details', 'dts_transaction_flow.added_by', '=', 'account_details.account_id')
-                ->leftJoin('office', 'account_details.office_id', '=', 'office.id')
+                ->leftJoin((\Illuminate\Support\Facades\Schema::hasTable('sys_account_details') ? 'sys_account_details' : 'account_details'), 'dts_transaction_flow.added_by', '=', 'account_details.account_id')
+                ->leftJoin((\Illuminate\Support\Facades\Schema::hasTable('sys_office') ? 'sys_office' : 'office'), 'account_details.office_id', '=', 'office.id')
                 ->where('dts_transaction_flow.flow_code', 'like', 'FLOW-CUSTOM-%')
                 ->whereNull('dts_transaction_flow.referenced_flow')
                 ->where('dts_transaction_flow.flow_name', 'not like', 'Flow for %')
@@ -2453,8 +2453,8 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - DTS Transaction Flows')]
                             @if($selectedCustom !== 'new')
                                 @php
                                     $curFlow = \DB::table('dts_transaction_flow')
-                                        ->leftJoin('account_details', 'dts_transaction_flow.added_by', '=', 'account_details.account_id')
-                                        ->leftJoin('office', 'account_details.office_id', '=', 'office.id')
+                                        ->leftJoin((\Illuminate\Support\Facades\Schema::hasTable('sys_account_details') ? 'sys_account_details' : 'account_details'), 'dts_transaction_flow.added_by', '=', 'account_details.account_id')
+                                        ->leftJoin((\Illuminate\Support\Facades\Schema::hasTable('sys_office') ? 'sys_office' : 'office'), 'account_details.office_id', '=', 'office.id')
                                         ->where('dts_transaction_flow.id', (int) $selectedCustom)
                                         ->select(['account_details.first_name', 'account_details.last_name', 'office.office_name', 'office.office_code', 'dts_transaction_flow.date_added'])
                                         ->first();

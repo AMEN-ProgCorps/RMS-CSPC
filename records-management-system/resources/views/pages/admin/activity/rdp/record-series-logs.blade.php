@@ -40,9 +40,9 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Record Series Audit Logs
 
     public function with(): array
     {
-        $query = DB::table('admin_logs')
-            ->leftJoin('account', 'admin_logs.admin_id', '=', 'account.id')
-            ->leftJoin('account_details', 'account.id', '=', 'account_details.account_id')
+        $query = DB::table(\Illuminate\Support\Facades\Schema::hasTable('sys_admin_logs') ? 'sys_admin_logs' : 'admin_logs')
+            ->leftJoin((\Illuminate\Support\Facades\Schema::hasTable('sys_account') ? 'sys_account' : 'account'), 'admin_logs.admin_id', '=', 'account.id')
+            ->leftJoin((\Illuminate\Support\Facades\Schema::hasTable('sys_account_details') ? 'sys_account_details' : 'account_details'), 'account.id', '=', 'account_details.account_id')
             ->where('admin_logs.what_system', 2) // RDP Subsystem
             ->where(function ($q) {
                 $q->where('admin_logs.changes', 'like', '%Series%')
@@ -69,10 +69,10 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Record Series Audit Logs
             $query->whereDate('admin_logs.when_changes', $this->dateFilter);
         }
 
-        $totalSeriesLogs = DB::table('admin_logs')->where('what_system', 2)->where('changes', 'like', '%Series%')->count();
-        $addedSeriesLogs = DB::table('admin_logs')->where('what_system', 2)->where('changes', 'like', '%Added Record Series%')->count();
-        $updatedSeriesLogs = DB::table('admin_logs')->where('what_system', 2)->where('changes', 'like', '%Updated Record Series%')->count();
-        $recent24hLogs = DB::table('admin_logs')->where('what_system', 2)->where('changes', 'like', '%Series%')->where('when_changes', '>=', now()->subHours(24))->count();
+        $totalSeriesLogs = DB::table(\Illuminate\Support\Facades\Schema::hasTable('sys_admin_logs') ? 'sys_admin_logs' : 'admin_logs')->where('what_system', 2)->where('changes', 'like', '%Series%')->count();
+        $addedSeriesLogs = DB::table(\Illuminate\Support\Facades\Schema::hasTable('sys_admin_logs') ? 'sys_admin_logs' : 'admin_logs')->where('what_system', 2)->where('changes', 'like', '%Added Record Series%')->count();
+        $updatedSeriesLogs = DB::table(\Illuminate\Support\Facades\Schema::hasTable('sys_admin_logs') ? 'sys_admin_logs' : 'admin_logs')->where('what_system', 2)->where('changes', 'like', '%Updated Record Series%')->count();
+        $recent24hLogs = DB::table(\Illuminate\Support\Facades\Schema::hasTable('sys_admin_logs') ? 'sys_admin_logs' : 'admin_logs')->where('what_system', 2)->where('changes', 'like', '%Series%')->where('when_changes', '>=', now()->subHours(24))->count();
 
         return [
             'logs'              => $query->orderBy('admin_logs.when_changes', 'desc')->paginate(15),

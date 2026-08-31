@@ -47,10 +47,10 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - DTS Flow Logs')] class e
      */
     public function with(): array
     {
-        $query = \DB::table('admin_logs')
-            ->leftJoin('account', 'admin_logs.admin_id', '=', 'account.id')
-            ->leftJoin('account_details', 'account.id', '=', 'account_details.account_id')
-            ->leftJoin('condition_key', 'account.account_role', '=', 'condition_key.id')
+        $query = \DB::table(\Illuminate\Support\Facades\Schema::hasTable('sys_admin_logs') ? 'sys_admin_logs' : 'admin_logs')
+            ->leftJoin((\Illuminate\Support\Facades\Schema::hasTable('sys_account') ? 'sys_account' : 'account'), 'admin_logs.admin_id', '=', 'account.id')
+            ->leftJoin((\Illuminate\Support\Facades\Schema::hasTable('sys_account_details') ? 'sys_account_details' : 'account_details'), 'account.id', '=', 'account_details.account_id')
+            ->leftJoin((\Illuminate\Support\Facades\Schema::hasTable('sys_condition_key') ? 'sys_condition_key' : 'condition_key'), 'account.account_role', '=', 'condition_key.id')
             ->select([
                 'admin_logs.id',
                 'admin_logs.changes',

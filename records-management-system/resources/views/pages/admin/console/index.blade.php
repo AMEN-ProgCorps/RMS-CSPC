@@ -50,14 +50,14 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Dashboard')] class exten
         $activeUsers = \App\Models\User::where('account_active', true)->count();
         
         // Summarize all activities (security logs + admin changes logs)
-        $totalActivities = \DB::table('security_logs')->count() + \DB::table('admin_logs')->count();
+        $totalActivities = \DB::table(\Illuminate\Support\Facades\Schema::hasTable('sys_security_logs') ? 'sys_security_logs' : 'security_logs')->count() + \DB::table(\Illuminate\Support\Facades\Schema::hasTable('sys_admin_logs') ? 'sys_admin_logs' : 'admin_logs')->count();
 
         // 2. Fetch union of security logs and admin logs, sorted by time
-        $securityQuery = \DB::table('security_logs')
-            ->leftJoin('security_status', 'security_logs.status', '=', 'security_status.status_id')
-            ->leftJoin('account', 'security_logs.account', '=', 'account.id')
-            ->leftJoin('account_details', 'account.id', '=', 'account_details.account_id')
-            ->leftJoin('condition_key', 'account.account_role', '=', 'condition_key.id')
+        $securityQuery = \DB::table(\Illuminate\Support\Facades\Schema::hasTable('sys_security_logs') ? 'sys_security_logs' : 'security_logs')
+            ->leftJoin((\Illuminate\Support\Facades\Schema::hasTable('sys_security_status') ? 'sys_security_status' : 'security_status'), 'security_logs.status', '=', 'security_status.status_id')
+            ->leftJoin((\Illuminate\Support\Facades\Schema::hasTable('sys_account') ? 'sys_account' : 'account'), 'security_logs.account', '=', 'account.id')
+            ->leftJoin((\Illuminate\Support\Facades\Schema::hasTable('sys_account_details') ? 'sys_account_details' : 'account_details'), 'account.id', '=', 'account_details.account_id')
+            ->leftJoin((\Illuminate\Support\Facades\Schema::hasTable('sys_condition_key') ? 'sys_condition_key' : 'condition_key'), 'account.account_role', '=', 'condition_key.id')
             ->select([
                 'security_logs.time as time',
                 'security_status.status_name as action_name',
@@ -67,10 +67,10 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Dashboard')] class exten
                 'condition_key.key_name as role_name',
             ]);
 
-        $adminQuery = \DB::table('admin_logs')
-            ->leftJoin('account', 'admin_logs.admin_id', '=', 'account.id')
-            ->leftJoin('account_details', 'account.id', '=', 'account_details.account_id')
-            ->leftJoin('condition_key', 'account.account_role', '=', 'condition_key.id')
+        $adminQuery = \DB::table(\Illuminate\Support\Facades\Schema::hasTable('sys_admin_logs') ? 'sys_admin_logs' : 'admin_logs')
+            ->leftJoin((\Illuminate\Support\Facades\Schema::hasTable('sys_account') ? 'sys_account' : 'account'), 'admin_logs.admin_id', '=', 'account.id')
+            ->leftJoin((\Illuminate\Support\Facades\Schema::hasTable('sys_account_details') ? 'sys_account_details' : 'account_details'), 'account.id', '=', 'account_details.account_id')
+            ->leftJoin((\Illuminate\Support\Facades\Schema::hasTable('sys_condition_key') ? 'sys_condition_key' : 'condition_key'), 'account.account_role', '=', 'condition_key.id')
             ->select([
                 'admin_logs.when_changes as time',
                 'admin_logs.changes as action_name',

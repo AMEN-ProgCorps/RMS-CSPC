@@ -61,8 +61,8 @@ new #[Layout('layouts.dts')] #[Title('My Transactions - Document Tracking System
         $query = DB::table('dts_transactions as dt')
             ->join('dts_transaction_details as dtd', 'dtd.id', '=', 'dt.transaction_id')
             ->leftJoin('dts_requestor_history as req', 'req.id', '=', 'dtd.requestor_id')
-            ->leftJoin('office as originated_office', 'originated_office.office_code', '=', 'dtd.originated_from')
-            ->leftJoin('office as current_office', 'current_office.office_code', '=', 'dt.current_office')
+            ->leftJoin((\Illuminate\Support\Facades\Schema::hasTable('sys_office') ? 'sys_office' : 'office') . ' as originated_office', 'originated_office.office_code', '=', 'dtd.originated_from')
+            ->leftJoin((\Illuminate\Support\Facades\Schema::hasTable('sys_office') ? 'sys_office' : 'office') . ' as current_office', 'current_office.office_code', '=', 'dt.current_office')
             ->leftJoin('dts_transaction_flow as flow', 'flow.flow_code', '=', 'dtd.transaction_flow')
             ->where('dtd.is_active', 1)
             ->where(function($q) use ($userOfficeCode) {
@@ -169,12 +169,12 @@ new #[Layout('layouts.dts')] #[Title('My Transactions - Document Tracking System
             $clusterHeadCode = $originOfficeCode;
             $clusterHeadName = $originOfficeName;
             if (!empty($originOfficeCode)) {
-                $offRec = DB::table('office')->where('office_code', $originOfficeCode)->first();
+                $offRec = DB::table(\Illuminate\Support\Facades\Schema::hasTable('sys_office') ? 'sys_office' : 'office')->where('office_code', $originOfficeCode)->first();
                 if ($offRec && $offRec->cluster) {
-                    $cluster = DB::table('cluster')->where('cluster_code', $offRec->cluster)->first();
+                    $cluster = DB::table(\Illuminate\Support\Facades\Schema::hasTable('sys_cluster') ? 'sys_cluster' : 'cluster')->where('cluster_code', $offRec->cluster)->first();
                     if ($cluster && $cluster->cluster_head) {
                         $clusterHeadCode = $cluster->cluster_head;
-                        $headOffice = DB::table('office')->where('office_code', $cluster->cluster_head)->first();
+                        $headOffice = DB::table(\Illuminate\Support\Facades\Schema::hasTable('sys_office') ? 'sys_office' : 'office')->where('office_code', $cluster->cluster_head)->first();
                         if ($headOffice) {
                             $clusterHeadName = $headOffice->office_name;
                         }
@@ -185,7 +185,7 @@ new #[Layout('layouts.dts')] #[Title('My Transactions - Document Tracking System
             $steps = collect();
             if ($flowControlId) {
                 $steps = DB::table('dts_sequence_list as seq')
-                    ->leftJoin('office', 'office.office_code', '=', 'seq.office_code')
+                    ->leftJoin((\Illuminate\Support\Facades\Schema::hasTable('sys_office') ? 'sys_office' : 'office'), 'office.office_code', '=', 'seq.office_code')
                     ->where('seq.control_id', $flowControlId)
                     ->select('seq.*', 'office.office_name')
                     ->orderBy('seq.sequence_ranking', 'asc')
@@ -204,13 +204,13 @@ new #[Layout('layouts.dts')] #[Title('My Transactions - Document Tracking System
                             $cfRecord = DB::table('dts_copy_filled_transaction')->where('control_num', $t->control_number)->first();
                             $hubOffices = $cfRecord ? DB::table('dts_copy_filled_to_office')->where('control_id', $cfRecord->assign_offices_id)->pluck('office_code')->toArray() : [];
                             
-                            $receivedCount = DB::table('sub_document_tracking_system_logs')
+                            $receivedCount = DB::table(\Illuminate\Support\Facades\Schema::hasTable('dts_transaction_logs') ? 'dts_transaction_logs' : 'sub_document_tracking_system_logs')
                                 ->where('transaction_id', $t->transaction_id)
                                 ->whereIn('office_code', $hubOffices)
                                 ->whereNotNull('date_in')
                                 ->count();
 
-                            $forwardedCount = DB::table('sub_document_tracking_system_logs')
+                            $forwardedCount = DB::table(\Illuminate\Support\Facades\Schema::hasTable('dts_transaction_logs') ? 'dts_transaction_logs' : 'sub_document_tracking_system_logs')
                                 ->where('transaction_id', $t->transaction_id)
                                 ->whereIn('office_code', $hubOffices)
                                 ->whereNotNull('date_out')
@@ -229,7 +229,7 @@ new #[Layout('layouts.dts')] #[Title('My Transactions - Document Tracking System
                                 $step->date_out = now();
                             }
                         } elseif (empty($step->office_name)) {
-                            $off = DB::table('office')->where('office_code', $step->office_code)->first();
+                            $off = DB::table(\Illuminate\Support\Facades\Schema::hasTable('sys_office') ? 'sys_office' : 'office')->where('office_code', $step->office_code)->first();
                             $step->office_name = $off ? $off->office_name : $step->office_code;
                         }
 
@@ -259,8 +259,8 @@ new #[Layout('layouts.dts')] #[Title('My Transactions - Document Tracking System
 
             // Fallback to transaction logs if sequence_list has no steps
             if ($steps->isEmpty()) {
-                $logs = DB::table('sub_document_tracking_system_logs as log')
-                    ->leftJoin('office', 'office.office_code', '=', 'log.office_code')
+                $logs = DB::table((\Illuminate\Support\Facades\Schema::hasTable('dts_transaction_logs') ? 'dts_transaction_logs' : 'sub_document_tracking_system_logs') . ' as log')
+                    ->leftJoin((\Illuminate\Support\Facades\Schema::hasTable('sys_office') ? 'sys_office' : 'office'), 'office.office_code', '=', 'log.office_code')
                     ->where('log.transaction_id', $t->transaction_id)
                     ->select('log.*', 'office.office_name')
                     ->orderBy('log.id', 'asc')
@@ -287,7 +287,7 @@ new #[Layout('layouts.dts')] #[Title('My Transactions - Document Tracking System
             // Load child transactions if any exist for this root control number
             $childBranches = DB::table('dts_transactions as dt')
                 ->join('dts_transaction_details as dtd', 'dtd.id', '=', 'dt.transaction_id')
-                ->leftJoin('office as current_office', 'current_office.office_code', '=', 'dt.current_office')
+                ->leftJoin((\Illuminate\Support\Facades\Schema::hasTable('sys_office') ? 'sys_office' : 'office') . ' as current_office', 'current_office.office_code', '=', 'dt.current_office')
                 ->where('dtd.control_number', 'like', $t->control_number . '-%')
                 ->where('dtd.is_active', 1)
                 ->whereNotIn('dt.status', ['cancelled'])
@@ -307,8 +307,8 @@ new #[Layout('layouts.dts')] #[Title('My Transactions - Document Tracking System
                 ->get();
 
             $childBranches->transform(function ($child) {
-                $childLogs = DB::table('sub_document_tracking_system_logs as log')
-                    ->leftJoin('office', 'office.office_code', '=', 'log.office_code')
+                $childLogs = DB::table((\Illuminate\Support\Facades\Schema::hasTable('dts_transaction_logs') ? 'dts_transaction_logs' : 'sub_document_tracking_system_logs') . ' as log')
+                    ->leftJoin((\Illuminate\Support\Facades\Schema::hasTable('sys_office') ? 'sys_office' : 'office'), 'office.office_code', '=', 'log.office_code')
                     ->where('log.transaction_id', $child->transaction_id)
                     ->select('log.*', 'office.office_name')
                     ->orderBy('log.id', 'asc')

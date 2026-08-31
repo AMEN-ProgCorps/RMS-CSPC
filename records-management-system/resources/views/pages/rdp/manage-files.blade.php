@@ -93,7 +93,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Cockpit File
 
         $offices = [];
         if ($canViewAll) {
-            $offices = DB::table('office')
+            $offices = DB::table(\Illuminate\Support\Facades\Schema::hasTable('sys_office') ? 'sys_office' : 'office')
                 ->select('office_code', 'office_name')
                 ->where('is_active', true)
                 ->whereNotIn('office_code', ['ORIGIN', '[H]'])
@@ -101,16 +101,16 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Cockpit File
                 ->get();
         }
 
-        $totalFilesCount = DB::table('document_data')->count();
+        $totalFilesCount = DB::table(\Illuminate\Support\Facades\Schema::hasTable('sys_document_data') ? 'sys_document_data' : 'document_data')->count();
         
-        $dtsFilesCount = DB::table('document_data')
+        $dtsFilesCount = DB::table(\Illuminate\Support\Facades\Schema::hasTable('sys_document_data') ? 'sys_document_data' : 'document_data')
             ->where(function ($q) {
                 $q->whereIn('document_id', function ($sub) {
                     $sub->select('document_id')->from('dts_sequence_list');
                 })->orWhere('document_path', 'like', '%dts%');
             })->count();
 
-        $rdpFilesCount = DB::table('document_data')
+        $rdpFilesCount = DB::table(\Illuminate\Support\Facades\Schema::hasTable('sys_document_data') ? 'sys_document_data' : 'document_data')
             ->where(function ($q) {
                 $q->whereIn('document_id', function ($sub) {
                     $sub->select('upload_doc_id_handler')->from('rdp_record')->whereNotNull('upload_doc_id_handler');
@@ -119,7 +119,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Cockpit File
                 })->orWhere('document_path', 'like', '%rdp%');
             })->count();
 
-        $sharedFilesCount = DB::table('document_data')
+        $sharedFilesCount = DB::table(\Illuminate\Support\Facades\Schema::hasTable('sys_document_data') ? 'sys_document_data' : 'document_data')
             ->where(function ($q) {
                 $q->whereIn('document_id', function ($sub) {
                     $sub->select('upload_doc_id_handler')
@@ -132,9 +132,9 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Cockpit File
                 });
             })->count();
 
-        $query = DB::table('document_data')
-            ->leftJoin('office', 'document_data.user_office', '=', 'office.office_code')
-            ->leftJoin('account_details', 'document_data.uploaded_by', '=', 'account_details.account_id')
+        $query = DB::table(\Illuminate\Support\Facades\Schema::hasTable('sys_document_data') ? 'sys_document_data' : 'document_data')
+            ->leftJoin((\Illuminate\Support\Facades\Schema::hasTable('sys_office') ? 'sys_office' : 'office'), 'document_data.user_office', '=', 'office.office_code')
+            ->leftJoin((\Illuminate\Support\Facades\Schema::hasTable('sys_account_details') ? 'sys_account_details' : 'account_details'), 'document_data.uploaded_by', '=', 'account_details.account_id')
             ->select(
                 'document_data.*',
                 'office.office_name',
@@ -207,9 +207,9 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Cockpit File
 
         $selectedFile = null;
         if ($this->selectedFileId) {
-            $selectedFile = DB::table('document_data')
-                ->leftJoin('office', 'document_data.user_office', '=', 'office.office_code')
-                ->leftJoin('account_details', 'document_data.uploaded_by', '=', 'account_details.account_id')
+            $selectedFile = DB::table(\Illuminate\Support\Facades\Schema::hasTable('sys_document_data') ? 'sys_document_data' : 'document_data')
+                ->leftJoin((\Illuminate\Support\Facades\Schema::hasTable('sys_office') ? 'sys_office' : 'office'), 'document_data.user_office', '=', 'office.office_code')
+                ->leftJoin((\Illuminate\Support\Facades\Schema::hasTable('sys_account_details') ? 'sys_account_details' : 'account_details'), 'document_data.uploaded_by', '=', 'account_details.account_id')
                 ->select(
                     'document_data.*',
                     'office.office_name',

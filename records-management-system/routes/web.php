@@ -25,15 +25,16 @@ Route::post('/', fn () => redirect()->route('login'));
 // Google OAuth SSO
 // Helper closure to resolve SSO credentials from DB (Admin Console) → config → env
 $resolveGoogleSsoCredentials = function () {
-    $clientId = \Illuminate\Support\Facades\DB::table('system_settings')->where('key', 'google_sso_client_id')->value('value')
+    $sysSettingsTbl = \Illuminate\Support\Facades\Schema::hasTable('sys_system_settings') ? 'sys_system_settings' : 'system_settings';
+    $clientId = \Illuminate\Support\Facades\DB::table($sysSettingsTbl)->where('key', 'google_sso_client_id')->value('value')
         ?: config('services.google.client_id')
         ?: env('GOOGLE_CLIENT_ID');
 
-    $clientSecret = \Illuminate\Support\Facades\DB::table('system_settings')->where('key', 'google_sso_client_secret')->value('value')
+    $clientSecret = \Illuminate\Support\Facades\DB::table($sysSettingsTbl)->where('key', 'google_sso_client_secret')->value('value')
         ?: config('services.google.client_secret')
         ?: env('GOOGLE_CLIENT_SECRET');
 
-    $dbRedirect = \Illuminate\Support\Facades\DB::table('system_settings')->where('key', 'google_sso_redirect_uri')->value('value');
+    $dbRedirect = \Illuminate\Support\Facades\DB::table($sysSettingsTbl)->where('key', 'google_sso_redirect_uri')->value('value');
     $envRedirect = $dbRedirect ?: env('GOOGLE_REDIRECT_URI');
     $redirectUrl = (!empty($envRedirect) && $envRedirect !== 'dynamic')
         ? $envRedirect
@@ -73,18 +74,23 @@ Route::get('/auth/google/callback', function () use ($resolveGoogleSsoCredential
         )->stateless()->user();
         $email = strtolower(trim($googleUser->getEmail()));
 
-        // Lookup account in account_details by email
-        $accountDetail = \Illuminate\Support\Facades\DB::table('account_details')->whereRaw('LOWER(email) = ?', [$email])->first();
+        // Lookup account in sys_account_details by email
+        $accDetailsTbl = \Illuminate\Support\Facades\Schema::hasTable('sys_account_details') ? 'sys_account_details' : 'account_details';
+        $secStatusTbl = \Illuminate\Support\Facades\Schema::hasTable('sys_security_status') ? 'sys_security_status' : 'security_status';
+        $secLogsTbl = \Illuminate\Support\Facades\Schema::hasTable('sys_security_logs') ? 'sys_security_logs' : 'security_logs';
+        $accountTbl = \Illuminate\Support\Facades\Schema::hasTable('sys_account') ? 'sys_account' : 'account';
+
+        $accountDetail = \Illuminate\Support\Facades\DB::table($accDetailsTbl)->whereRaw('LOWER(email) = ?', [$email])->first();
 
         // Safe security log helper
-        $logSecurityEvent = function ($statusId, $accountId = null) {
+        $logSecurityEvent = function ($statusId, $accountId = null) use ($secStatusTbl, $secLogsTbl) {
             try {
-                if (\Illuminate\Support\Facades\Schema::hasTable('security_status')) {
-                    if (!\Illuminate\Support\Facades\DB::table('security_status')->where('status_id', $statusId)->exists()) {
+                if (\Illuminate\Support\Facades\Schema::hasTable($secStatusTbl)) {
+                    if (!\Illuminate\Support\Facades\DB::table($secStatusTbl)->where('status_id', $statusId)->exists()) {
                         (new \App\Services\BackupService())->ensureEssentialLookups();
                     }
                 }
-                \Illuminate\Support\Facades\DB::table('security_logs')->insert([
+                \Illuminate\Support\Facades\DB::table($secLogsTbl)->insert([
                     'status'      => $statusId,
                     'account'     => $accountId,
                     'user_ipaddr' => \App\Helpers\NetworkHelper::getClientIp(),
@@ -102,7 +108,7 @@ Route::get('/auth/google/callback', function () use ($resolveGoogleSsoCredential
         }
 
         // Verify account is active
-        $account = \Illuminate\Support\Facades\DB::table('account')->where('id', $accountDetail->account_id)->first();
+        $account = \Illuminate\Support\Facades\DB::table($accountTbl)->where('id', $accountDetail->account_id)->first();
         if (!$account || !$account->account_active) {
             $logSecurityEvent(2, $accountDetail->account_id); // Failed Login
 
@@ -146,7 +152,7 @@ Route::get('/auth/google/callback', function () use ($resolveGoogleSsoCredential
             }
         }
 
-        \Illuminate\Support\Facades\DB::table('account_details')
+        \Illuminate\Support\Facades\DB::table($accDetailsTbl)
             ->where('account_id', $accountDetail->account_id)
             ->update($updateData);
 
@@ -160,25 +166,26 @@ Route::get('/auth/google/callback', function () use ($resolveGoogleSsoCredential
 
 // ── Google OAuth SSO for Public Document Tracking ───────────────────────────
 $resolveGoogleTrackingSsoCredentials = function () {
-    $clientId = \Illuminate\Support\Facades\DB::table('system_settings')->where('key', 'google_tracking_sso_client_id')->value('value')
+    $sysSettingsTbl = \Illuminate\Support\Facades\Schema::hasTable('sys_system_settings') ? 'sys_system_settings' : 'system_settings';
+    $clientId = \Illuminate\Support\Facades\DB::table($sysSettingsTbl)->where('key', 'google_tracking_sso_client_id')->value('value')
         ?: config('services.google_tracking.client_id')
         ?: env('GOOGLE_TRACKING_CLIENT_ID')
-        ?: \Illuminate\Support\Facades\DB::table('system_settings')->where('key', 'google_sso_client_id')->value('value')
+        ?: \Illuminate\Support\Facades\DB::table($sysSettingsTbl)->where('key', 'google_sso_client_id')->value('value')
         ?: config('services.google.client_id')
         ?: env('GOOGLE_CLIENT_ID');
 
-    $clientSecret = \Illuminate\Support\Facades\DB::table('system_settings')->where('key', 'google_tracking_sso_client_secret')->value('value')
+    $clientSecret = \Illuminate\Support\Facades\DB::table($sysSettingsTbl)->where('key', 'google_tracking_sso_client_secret')->value('value')
         ?: config('services.google_tracking.client_secret')
         ?: env('GOOGLE_TRACKING_CLIENT_SECRET')
-        ?: \Illuminate\Support\Facades\DB::table('system_settings')->where('key', 'google_sso_client_secret')->value('value')
+        ?: \Illuminate\Support\Facades\DB::table($sysSettingsTbl)->where('key', 'google_sso_client_secret')->value('value')
         ?: config('services.google.client_secret')
         ?: env('GOOGLE_CLIENT_SECRET');
 
-    $dbRedirect = \Illuminate\Support\Facades\DB::table('system_settings')->where('key', 'google_tracking_sso_redirect_uri')->value('value');
+    $dbRedirect = \Illuminate\Support\Facades\DB::table($sysSettingsTbl)->where('key', 'google_tracking_sso_redirect_uri')->value('value');
     $envRedirect = $dbRedirect ?: env('GOOGLE_TRACKING_REDIRECT_URI');
     $redirectUrl = (!empty($envRedirect) && $envRedirect !== 'dynamic')
         ? $envRedirect
-        : url('/auth/google/track/callback');
+        : url('/auth/google/tracking/callback');
 
     return compact('clientId', 'clientSecret', 'redirectUrl');
 };
@@ -277,10 +284,17 @@ Route::middleware(['auth'])
         // 2. RMS Office & System notifications unread count
         $systemUnread = 0;
         try {
-            $office = \Illuminate\Support\Facades\DB::table('account_details')
-                ->join('office', 'account_details.office_id', '=', 'office.id')
-                ->where('account_details.account_id', $userId)
-                ->select('office.office_code')
+            $accDetailsTbl = \Illuminate\Support\Facades\Schema::hasTable('sys_account_details') ? 'sys_account_details' : 'account_details';
+            $officeTbl = \Illuminate\Support\Facades\Schema::hasTable('sys_office') ? 'sys_office' : 'office';
+            $notifTbl = \Illuminate\Support\Facades\Schema::hasTable('sys_notifications') ? 'sys_notifications' : 'notifications';
+            $notifContentTbl = \Illuminate\Support\Facades\Schema::hasTable('sys_notif_content') ? 'sys_notif_content' : 'notif_content';
+            $subsystemsTbl = \Illuminate\Support\Facades\Schema::hasTable('sys_subsystems') ? 'sys_subsystems' : 'subsystems';
+            $notifDivTbl = \Illuminate\Support\Facades\Schema::hasTable('sys_notification_div') ? 'sys_notification_div' : 'notification_div';
+
+            $office = \Illuminate\Support\Facades\DB::table($accDetailsTbl)
+                ->join($officeTbl, "{$accDetailsTbl}.office_id", '=', "{$officeTbl}.id")
+                ->where("{$accDetailsTbl}.account_id", $userId)
+                ->select("{$officeTbl}.office_code")
                 ->first();
 
             if ($office) {
@@ -305,22 +319,22 @@ Route::middleware(['auth'])
                     }
                 }
 
-                $systemUnread = (int) \Illuminate\Support\Facades\DB::table('notifications')
-                    ->join('notif_content', 'notifications.contents', '=', 'notif_content.id')
-                    ->join('subsystems', 'notif_content.system', '=', 'subsystems.subsystem_id')
-                    ->leftJoin('notification_div', function ($join) use ($userId) {
-                        $join->on('notifications.id', '=', 'notification_div.id')
-                             ->where('notification_div.account_rec', '=', $userId);
+                $systemUnread = (int) \Illuminate\Support\Facades\DB::table($notifTbl)
+                    ->join($notifContentTbl, "{$notifTbl}.contents", '=', "{$notifContentTbl}.id")
+                    ->join($subsystemsTbl, "{$notifContentTbl}.system", '=', "{$subsystemsTbl}.subsystem_id")
+                    ->leftJoin($notifDivTbl, function ($join) use ($userId, $notifTbl, $notifDivTbl) {
+                        $join->on("{$notifTbl}.id", '=', "{$notifDivTbl}.id")
+                             ->where("{$notifDivTbl}.account_rec", '=', $userId);
                     })
-                    ->where('notifications.office', $office->office_code)
-                    ->whereIn('subsystems.subsystem_name', $allowedSubsystems)
-                    ->where(function ($query) {
-                        $query->whereNull('notification_div.is_in_user_list')
-                              ->orWhere('notification_div.is_in_user_list', 1);
+                    ->where("{$notifTbl}.office", $office->office_code)
+                    ->whereIn("{$subsystemsTbl}.subsystem_name", $allowedSubsystems)
+                    ->where(function ($query) use ($notifDivTbl) {
+                        $query->whereNull("{$notifDivTbl}.is_in_user_list")
+                              ->orWhere("{$notifDivTbl}.is_in_user_list", 1);
                     })
-                    ->where(function ($query) {
-                        $query->whereNull('notification_div.status')
-                              ->orWhere('notification_div.status', 'unread');
+                    ->where(function ($query) use ($notifDivTbl) {
+                        $query->whereNull("{$notifDivTbl}.status")
+                              ->orWhere("{$notifDivTbl}.status", 'unread');
                     })
                     ->count();
             }
@@ -341,7 +355,8 @@ Route::middleware(['auth'])
     // Session Heartbeat & Tab Closure Beacon
     Route::post('/api/session/ping', function () {
         if ($user = Auth::user()) {
-            \Illuminate\Support\Facades\DB::table('account_details')
+            $accDetailsTbl = \Illuminate\Support\Facades\Schema::hasTable('sys_account_details') ? 'sys_account_details' : 'account_details';
+            \Illuminate\Support\Facades\DB::table($accDetailsTbl)
                 ->where('account_id', $user->id)
                 ->update([
                     'is_currently_online' => true,
@@ -353,7 +368,8 @@ Route::middleware(['auth'])
 
     Route::post('/api/session/tab-closed', function () {
         if ($user = Auth::user()) {
-            \Illuminate\Support\Facades\DB::table('account_details')
+            $accDetailsTbl = \Illuminate\Support\Facades\Schema::hasTable('sys_account_details') ? 'sys_account_details' : 'account_details';
+            \Illuminate\Support\Facades\DB::table($accDetailsTbl)
                 ->where('account_id', $user->id)
                 ->update([
                     'is_currently_online' => false,
@@ -677,14 +693,17 @@ Route::get('/logout', function () {
     $user = Auth::user();
     if ($user) {
         // Log Logout
-        \Illuminate\Support\Facades\DB::table('security_logs')->insert([
+        $secLogsTbl = \Illuminate\Support\Facades\Schema::hasTable('sys_security_logs') ? 'sys_security_logs' : 'security_logs';
+        $accDetailsTbl = \Illuminate\Support\Facades\Schema::hasTable('sys_account_details') ? 'sys_account_details' : 'account_details';
+
+        \Illuminate\Support\Facades\DB::table($secLogsTbl)->insert([
             'status'      => 3, // Logout
             'account'     => $user->id,
             'user_ipaddr' => \App\Helpers\NetworkHelper::getClientIp(),
             'time'        => now(),
         ]);
 
-        \Illuminate\Support\Facades\DB::table('account_details')
+        \Illuminate\Support\Facades\DB::table($accDetailsTbl)
             ->where('account_id', $user->id)
             ->update([
                 'is_currently_online' => false,

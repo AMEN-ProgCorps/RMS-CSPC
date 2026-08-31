@@ -149,7 +149,8 @@ class RegisterScanService
     private static function matchSourceOffice(string $raw): ?array
     {
         $tokens = preg_split('/[,;\/|]+/', $raw) ?: [$raw];
-        $offices = DB::table('office')
+        $officeTbl = \Illuminate\Support\Facades\Schema::hasTable('sys_office') ? 'sys_office' : 'office';
+        $offices = DB::table($officeTbl)
             ->where('is_active', true)
             ->get(['id', 'office_name', 'office_code']);
 

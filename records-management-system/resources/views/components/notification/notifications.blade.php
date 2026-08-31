@@ -41,11 +41,18 @@ new class extends Component {
         $user = Auth::user();
         $perms = $user?->permissions;
 
+        $accDetailsTbl = \Illuminate\Support\Facades\Schema::hasTable('sys_account_details') ? 'sys_account_details' : 'account_details';
+        $officeTbl = \Illuminate\Support\Facades\Schema::hasTable('sys_office') ? 'sys_office' : 'office';
+        $notifTbl = \Illuminate\Support\Facades\Schema::hasTable('sys_notifications') ? 'sys_notifications' : 'notifications';
+        $notifContentTbl = \Illuminate\Support\Facades\Schema::hasTable('sys_notif_content') ? 'sys_notif_content' : 'notif_content';
+        $subsystemsTbl = \Illuminate\Support\Facades\Schema::hasTable('sys_subsystems') ? 'sys_subsystems' : 'subsystems';
+        $notifDivTbl = \Illuminate\Support\Facades\Schema::hasTable('sys_notification_div') ? 'sys_notification_div' : 'notification_div';
+
         // Get user's office details to restrict notifications scoping
-        $office = DB::table('account_details')
-            ->join('office', 'account_details.office_id', '=', 'office.id')
-            ->where('account_details.account_id', $userId)
-            ->select('office.office_code')
+        $office = DB::table($accDetailsTbl)
+            ->join($officeTbl, "{$accDetailsTbl}.office_id", '=', "{$officeTbl}.id")
+            ->where("{$accDetailsTbl}.account_id", $userId)
+            ->select("{$officeTbl}.office_code")
             ->first();
 
         if (!$office) {
@@ -80,27 +87,27 @@ new class extends Component {
         }
 
         // Fetch notifications list, combining with read/unread statuses in notification_div table
-        $this->notifications = DB::table('notifications')
-            ->join('notif_content', 'notifications.contents', '=', 'notif_content.id')
-            ->join('subsystems', 'notif_content.system', '=', 'subsystems.subsystem_id')
-            ->leftJoin('notification_div', function ($join) use ($userId) {
-                $join->on('notifications.id', '=', 'notification_div.id')
-                     ->where('notification_div.account_rec', '=', $userId);
+        $this->notifications = DB::table($notifTbl)
+            ->join($notifContentTbl, "{$notifTbl}.contents", '=', "{$notifContentTbl}.id")
+            ->join($subsystemsTbl, "{$notifContentTbl}.system", '=', "{$subsystemsTbl}.subsystem_id")
+            ->leftJoin($notifDivTbl, function ($join) use ($userId, $notifTbl, $notifDivTbl) {
+                $join->on("{$notifTbl}.id", '=', "{$notifDivTbl}.id")
+                     ->where("{$notifDivTbl}.account_rec", '=', $userId);
             })
-            ->where('notifications.office', $office->office_code)
-            ->whereIn('subsystems.subsystem_name', $allowedSubsystems)
-            ->where(function ($query) {
-                $query->whereNull('notification_div.is_in_user_list')
-                      ->orWhere('notification_div.is_in_user_list', 1);
+            ->where("{$notifTbl}.office", $office->office_code)
+            ->whereIn("{$subsystemsTbl}.subsystem_name", $allowedSubsystems)
+            ->where(function ($query) use ($notifDivTbl) {
+                $query->whereNull("{$notifDivTbl}.is_in_user_list")
+                      ->orWhere("{$notifDivTbl}.is_in_user_list", 1);
             })
-            ->orderBy('notifications.created_at', 'desc')
+            ->orderBy("{$notifTbl}.created_at", 'desc')
             ->select(
-                'notifications.id',
-                'subsystems.subsystem_name',
-                'notif_content.content',
-                'notif_content.redirect_url',
-                'notifications.created_at',
-                DB::raw("COALESCE(notification_div.status, 'unread') as status")
+                "{$notifTbl}.id",
+                "{$subsystemsTbl}.subsystem_name",
+                "{$notifContentTbl}.content",
+                "{$notifContentTbl}.redirect_url",
+                "{$notifTbl}.created_at",
+                DB::raw("COALESCE({$notifDivTbl}.status, 'unread') as status")
             )
             ->get();
 
@@ -112,10 +119,13 @@ new class extends Component {
      */
     public function handleNotificationClick($notificationId)
     {
-        $notification = DB::table('notifications')
-            ->join('notif_content', 'notifications.contents', '=', 'notif_content.id')
-            ->where('notifications.id', $notificationId)
-            ->select('notif_content.redirect_url')
+        $notifTbl = \Illuminate\Support\Facades\Schema::hasTable('sys_notifications') ? 'sys_notifications' : 'notifications';
+        $notifContentTbl = \Illuminate\Support\Facades\Schema::hasTable('sys_notif_content') ? 'sys_notif_content' : 'notif_content';
+
+        $notification = DB::table($notifTbl)
+            ->join($notifContentTbl, "{$notifTbl}.contents", '=', "{$notifContentTbl}.id")
+            ->where("{$notifTbl}.id", $notificationId)
+            ->select("{$notifContentTbl}.redirect_url")
             ->first();
 
         // 1. Mark notification as read
@@ -134,14 +144,17 @@ new class extends Component {
      */
     public function markAsRead($notificationId)
     {
-        $exists = DB::table('notifications')->where('id', $notificationId)->exists();
+        $notifTbl = \Illuminate\Support\Facades\Schema::hasTable('sys_notifications') ? 'sys_notifications' : 'notifications';
+        $notifDivTbl = \Illuminate\Support\Facades\Schema::hasTable('sys_notification_div') ? 'sys_notification_div' : 'notification_div';
+
+        $exists = DB::table($notifTbl)->where('id', $notificationId)->exists();
         if (!$exists) {
             $this->loadNotifications();
             return;
         }
 
         $userId = Auth::id();
-        DB::table('notification_div')->updateOrInsert(
+        DB::table($notifDivTbl)->updateOrInsert(
             [
                 'id' => $notificationId,
                 'account_rec' => $userId
@@ -160,13 +173,16 @@ new class extends Component {
      */
     public function markAllAsRead()
     {
+        $notifTbl = \Illuminate\Support\Facades\Schema::hasTable('sys_notifications') ? 'sys_notifications' : 'notifications';
+        $notifDivTbl = \Illuminate\Support\Facades\Schema::hasTable('sys_notification_div') ? 'sys_notification_div' : 'notification_div';
+
         $userId = Auth::id();
         $unreadItems = $this->notifications->where('status', 'unread');
         
         foreach ($unreadItems as $item) {
-            $exists = DB::table('notifications')->where('id', $item->id)->exists();
+            $exists = DB::table($notifTbl)->where('id', $item->id)->exists();
             if ($exists) {
-                DB::table('notification_div')->updateOrInsert(
+                DB::table($notifDivTbl)->updateOrInsert(
                     [
                         'id' => $item->id,
                         'account_rec' => $userId
@@ -189,14 +205,17 @@ new class extends Component {
      */
     public function deleteNotification($notificationId)
     {
-        $exists = DB::table('notifications')->where('id', $notificationId)->exists();
+        $notifTbl = \Illuminate\Support\Facades\Schema::hasTable('sys_notifications') ? 'sys_notifications' : 'notifications';
+        $notifDivTbl = \Illuminate\Support\Facades\Schema::hasTable('sys_notification_div') ? 'sys_notification_div' : 'notification_div';
+
+        $exists = DB::table($notifTbl)->where('id', $notificationId)->exists();
         if (!$exists) {
             $this->loadNotifications();
             return;
         }
 
         $userId = Auth::id();
-        DB::table('notification_div')->updateOrInsert(
+        DB::table($notifDivTbl)->updateOrInsert(
             [
                 'id' => $notificationId,
                 'account_rec' => $userId

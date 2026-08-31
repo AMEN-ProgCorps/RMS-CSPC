@@ -211,10 +211,10 @@ class DtsExportHelper
             ->join('dts_transaction_details as dtd', 'dtd.id', '=', 'dt.transaction_id')
             ->leftJoin('dts_requestor_history as req', 'req.id', '=', 'dtd.requestor_id')
             ->leftJoin('dts_source_office as src', 'src.s_office_code', '=', 'dtd.source_office')
-            ->leftJoin('office as originated_office', 'originated_office.office_code', '=', 'dtd.originated_from')
-            ->leftJoin('office as current_office', 'current_office.office_code', '=', 'dt.current_office')
+            ->leftJoin('sys_office as originated_office', 'originated_office.office_code', '=', 'dtd.originated_from')
+            ->leftJoin('sys_office as current_office', 'current_office.office_code', '=', 'dt.current_office')
             ->leftJoin('dts_transaction_flow as flow', 'flow.flow_code', '=', 'dtd.transaction_flow')
-            ->leftJoin('document_data as doc', 'doc.document_path', '=', 'dt.doc_dir')
+            ->leftJoin('sys_document_data as doc', 'doc.document_path', '=', 'dt.doc_dir')
             ->where('dt.trans_type', $transType)
             ->whereIn('dt.transaction_id', $selectedIds);
 
@@ -256,10 +256,14 @@ class DtsExportHelper
         $rows = [];
         $itemNumber = 1;
 
+        $logsTbl = \Illuminate\Support\Facades\Schema::hasTable('dts_transaction_logs') ? 'dts_transaction_logs' : 'sub_document_tracking_system_logs';
+        $accDetailsTbl = \Illuminate\Support\Facades\Schema::hasTable('sys_account_details') ? 'sys_account_details' : 'account_details';
+        $officeTbl = \Illuminate\Support\Facades\Schema::hasTable('sys_office') ? 'sys_office' : 'office';
+
         foreach ($records as $t) {
-            $logs = DB::table('sub_document_tracking_system_logs as log')
-                ->leftJoin('account_details as ad', 'ad.account_id', '=', 'log.performed_by')
-                ->leftJoin('office as o', 'o.office_code', '=', 'log.office_code')
+            $logs = DB::table("{$logsTbl} as log")
+                ->leftJoin("{$accDetailsTbl} as ad", 'ad.account_id', '=', 'log.performed_by')
+                ->leftJoin("{$officeTbl} as o", 'o.office_code', '=', 'log.office_code')
                 ->where('log.transaction_id', $t->transaction_id)
                 ->orderBy('log.id', 'asc')
                 ->select('log.*', 'ad.first_name', 'ad.last_name', 'o.office_name')

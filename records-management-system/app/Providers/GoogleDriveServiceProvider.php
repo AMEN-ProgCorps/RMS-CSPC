@@ -35,11 +35,11 @@ class GoogleDriveServiceProvider extends ServiceProvider
                 $dbVerifySsl    = null;
 
                 try {
-                    $dbClientId     = \Illuminate\Support\Facades\DB::table('system_settings')->where('key', 'google_drive_client_id')->value('value');
-                    $dbClientSecret = \Illuminate\Support\Facades\DB::table('system_settings')->where('key', 'google_drive_client_secret')->value('value');
-                    $dbRefreshToken = \Illuminate\Support\Facades\DB::table('system_settings')->where('key', 'google_drive_refresh_token')->value('value');
-                    $dbFolderId     = \Illuminate\Support\Facades\DB::table('system_settings')->where('key', 'google_drive_folder_id')->value('value');
-                    $dbVerifySsl    = \Illuminate\Support\Facades\DB::table('system_settings')->where('key', 'google_drive_verify_ssl')->value('value');
+                    $dbClientId     = \Illuminate\Support\Facades\DB::table(\Illuminate\Support\Facades\Schema::hasTable('sys_system_settings') ? 'sys_system_settings' : 'system_settings')->where('key', 'google_drive_client_id')->value('value');
+                    $dbClientSecret = \Illuminate\Support\Facades\DB::table(\Illuminate\Support\Facades\Schema::hasTable('sys_system_settings') ? 'sys_system_settings' : 'system_settings')->where('key', 'google_drive_client_secret')->value('value');
+                    $dbRefreshToken = \Illuminate\Support\Facades\DB::table(\Illuminate\Support\Facades\Schema::hasTable('sys_system_settings') ? 'sys_system_settings' : 'system_settings')->where('key', 'google_drive_refresh_token')->value('value');
+                    $dbFolderId     = \Illuminate\Support\Facades\DB::table(\Illuminate\Support\Facades\Schema::hasTable('sys_system_settings') ? 'sys_system_settings' : 'system_settings')->where('key', 'google_drive_folder_id')->value('value');
+                    $dbVerifySsl    = \Illuminate\Support\Facades\DB::table(\Illuminate\Support\Facades\Schema::hasTable('sys_system_settings') ? 'sys_system_settings' : 'system_settings')->where('key', 'google_drive_verify_ssl')->value('value');
 
                     if (!empty($dbClientId))     $config['clientId']     = $dbClientId;
                     if (!empty($dbClientSecret)) $config['clientSecret'] = $dbClientSecret;

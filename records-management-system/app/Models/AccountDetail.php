@@ -13,7 +13,7 @@ class AccountDetail extends Model
     /**
      * Explicitly point to your custom table name.
      */
-    protected $table = 'account_details';
+    protected $table = 'sys_account_details';
 
     protected $primaryKey = 'account_id';
     public $incrementing = false;

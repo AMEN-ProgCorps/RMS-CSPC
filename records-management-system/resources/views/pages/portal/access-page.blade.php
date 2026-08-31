@@ -61,7 +61,7 @@ new #[Layout('layouts.portal')] #[Title('RMS CSPC Portal')] class extends Compon
     {
         $user = Auth::user();
         if ($user) {
-            \Illuminate\Support\Facades\DB::table('account_details')
+            \Illuminate\Support\Facades\DB::table(\Illuminate\Support\Facades\Schema::hasTable('sys_account_details') ? 'sys_account_details' : 'account_details')
                 ->where('account_id', $user->id)
                 ->update([
                     'is_currently_online' => false,
@@ -77,7 +77,7 @@ new #[Layout('layouts.portal')] #[Title('RMS CSPC Portal')] class extends Compon
 
     public function with(): array
     {
-        $activeSubsystems = \DB::table('subsystems')
+        $activeSubsystems = \DB::table(\Illuminate\Support\Facades\Schema::hasTable('sys_subsystems') ? 'sys_subsystems' : 'subsystems')
             ->where('is_active', true)
             ->pluck('subsystem_name')
             ->toArray();
@@ -151,7 +151,7 @@ new #[Layout('layouts.portal')] #[Title('RMS CSPC Portal')] class extends Compon
 
         // Dynamic subsystems in DB
         $knownNames = ['Document Tracking System', 'Records Disposition Program', 'Document Control System', 'Admin Console', 'Chatify', 'Profile Manager'];
-        $extraSubsystems = \DB::table('subsystems')
+        $extraSubsystems = \DB::table(\Illuminate\Support\Facades\Schema::hasTable('sys_subsystems') ? 'sys_subsystems' : 'subsystems')
             ->where('is_active', true)
             ->whereNotIn('subsystem_name', $knownNames)
             ->get();

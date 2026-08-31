@@ -170,7 +170,7 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
         return [
             'docTypes' => DB::table('dcs_doc_types')->whereNull('parent_id')->get(),
             'subTypes' => DB::table('dcs_doc_types')->whereNotNull('parent_id')->orderBy('doc_type_name')->get(),
-            'offices' => DB::table('office')->where('is_active', true)->orderBy('office_name')->get(),
+            'offices' => DB::table(\Illuminate\Support\Facades\Schema::hasTable('sys_office') ? 'sys_office' : 'office')->where('is_active', true)->orderBy('office_name')->get(),
             'originators' => Schema::hasTable('dcs_originators')
                 ? DB::table('dcs_originators')->orderBy('originator_name')->get()
                 : collect(),

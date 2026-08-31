@@ -67,8 +67,8 @@ new #[Layout('layouts.profile')] #[Title('Profile Manager - Notification Manager
         $perms = $user?->permissions;
 
         // Get user's office details to restrict notifications scoping
-        $office = DB::table('account_details')
-            ->join('office', 'account_details.office_id', '=', 'office.id')
+        $office = DB::table(\Illuminate\Support\Facades\Schema::hasTable('sys_account_details') ? 'sys_account_details' : 'account_details')
+            ->join((\Illuminate\Support\Facades\Schema::hasTable('sys_office') ? 'sys_office' : 'office'), 'account_details.office_id', '=', 'office.id')
             ->where('account_details.account_id', $userId)
             ->select('office.office_code', 'office.office_name')
             ->first();
@@ -108,10 +108,10 @@ new #[Layout('layouts.profile')] #[Title('Profile Manager - Notification Manager
         }
 
         // Fetch notifications list, combining with read/unread statuses in notification_div table
-        $this->notifications = DB::table('notifications')
-            ->join('notif_content', 'notifications.contents', '=', 'notif_content.id')
-            ->join('subsystems', 'notif_content.system', '=', 'subsystems.subsystem_id')
-            ->leftJoin('notification_div', function ($join) use ($userId) {
+        $this->notifications = DB::table(\Illuminate\Support\Facades\Schema::hasTable('sys_notifications') ? 'sys_notifications' : 'notifications')
+            ->join((\Illuminate\Support\Facades\Schema::hasTable('sys_notif_content') ? 'sys_notif_content' : 'notif_content'), 'notifications.contents', '=', 'notif_content.id')
+            ->join((\Illuminate\Support\Facades\Schema::hasTable('sys_subsystems') ? 'sys_subsystems' : 'subsystems'), 'notif_content.system', '=', 'subsystems.subsystem_id')
+            ->leftJoin((\Illuminate\Support\Facades\Schema::hasTable('sys_notification_div') ? 'sys_notification_div' : 'notification_div'), function ($join) use ($userId) {
                 $join->on('notifications.id', '=', 'notification_div.id')
                      ->where('notification_div.account_rec', '=', $userId);
             })
@@ -140,14 +140,14 @@ new #[Layout('layouts.profile')] #[Title('Profile Manager - Notification Manager
      */
     public function markAsRead($notificationId)
     {
-        $exists = DB::table('notifications')->where('id', $notificationId)->exists();
+        $exists = DB::table(\Illuminate\Support\Facades\Schema::hasTable('sys_notifications') ? 'sys_notifications' : 'notifications')->where('id', $notificationId)->exists();
         if (!$exists) {
             $this->loadNotifications();
             return;
         }
 
         $userId = Auth::id();
-        DB::table('notification_div')->updateOrInsert(
+        DB::table(\Illuminate\Support\Facades\Schema::hasTable('sys_notification_div') ? 'sys_notification_div' : 'notification_div')->updateOrInsert(
             [
                 'id' => $notificationId,
                 'account_rec' => $userId
@@ -169,14 +169,14 @@ new #[Layout('layouts.profile')] #[Title('Profile Manager - Notification Manager
      */
     public function dismiss($notificationId)
     {
-        $exists = DB::table('notifications')->where('id', $notificationId)->exists();
+        $exists = DB::table(\Illuminate\Support\Facades\Schema::hasTable('sys_notifications') ? 'sys_notifications' : 'notifications')->where('id', $notificationId)->exists();
         if (!$exists) {
             $this->loadNotifications();
             return;
         }
 
         $userId = Auth::id();
-        DB::table('notification_div')->updateOrInsert(
+        DB::table(\Illuminate\Support\Facades\Schema::hasTable('sys_notification_div') ? 'sys_notification_div' : 'notification_div')->updateOrInsert(
             [
                 'id' => $notificationId,
                 'account_rec' => $userId

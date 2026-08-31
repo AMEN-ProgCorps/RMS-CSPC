@@ -52,8 +52,8 @@ new #[Layout('layouts.dts')] #[Title('Forwarded Transactions - Document Tracking
         $query = DB::table('dts_transactions as dt')
             ->join('dts_transaction_details as dtd', 'dtd.id', '=', 'dt.transaction_id')
             ->leftJoin('dts_requestor_history as req', 'req.id', '=', 'dtd.requestor_id')
-            ->leftJoin('office as originated_office', 'originated_office.office_code', '=', 'dtd.originated_from')
-            ->leftJoin('office as current_office', 'current_office.office_code', '=', 'dt.current_office')
+            ->leftJoin((\Illuminate\Support\Facades\Schema::hasTable('sys_office') ? 'sys_office' : 'office') . ' as originated_office', 'originated_office.office_code', '=', 'dtd.originated_from')
+            ->leftJoin((\Illuminate\Support\Facades\Schema::hasTable('sys_office') ? 'sys_office' : 'office') . ' as current_office', 'current_office.office_code', '=', 'dt.current_office')
             ->leftJoin('dts_transaction_flow as flow', 'flow.flow_code', '=', 'dtd.transaction_flow')
             ->where('dtd.is_active', 1)
             ->where('dt.current_office', '!=', $userOfficeCode)
@@ -90,7 +90,7 @@ new #[Layout('layouts.dts')] #[Title('Forwarded Transactions - Document Tracking
         // Include only transactions where user office sent it and destination office hasn't received yet
         $forwardedPending = $items->filter(function($t) use ($userOfficeCode) {
             // Check if user's office logged a date_out / forwarded step for this transaction
-            $userLog = DB::table('sub_document_tracking_system_logs')
+            $userLog = DB::table(\Illuminate\Support\Facades\Schema::hasTable('dts_transaction_logs') ? 'dts_transaction_logs' : 'sub_document_tracking_system_logs')
                 ->where('transaction_id', $t->transaction_id)
                 ->where('office_code', $userOfficeCode)
                 ->whereNotNull('date_out')
@@ -101,7 +101,7 @@ new #[Layout('layouts.dts')] #[Title('Forwarded Transactions - Document Tracking
             }
 
             // Check if destination office has received it
-            $destLog = DB::table('sub_document_tracking_system_logs')
+            $destLog = DB::table(\Illuminate\Support\Facades\Schema::hasTable('dts_transaction_logs') ? 'dts_transaction_logs' : 'sub_document_tracking_system_logs')
                 ->where('transaction_id', $t->transaction_id)
                 ->where('office_code', $t->current_office)
                 ->orderBy('id', 'desc')

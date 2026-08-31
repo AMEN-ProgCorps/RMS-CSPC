@@ -168,42 +168,42 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Backup & Recovery Manage
                 'description' => 'User login accounts, profiles, security logs, tracking devices & security keys',
                 'icon' => 'fa-solid fa-users',
                 'color' => '#2563eb',
-                'tables' => ['account', 'account_details', 'security_logs', 'security_status', 'tracking_devices_log'],
+                'tables' => ['sys_account', 'sys_account_details', 'sys_security_logs', 'sys_security_status', 'sys_tracking_devices_log'],
             ],
             'offices' => [
                 'name' => 'Offices & Organizational Structure',
-                'description' => 'Campus offices, units, clusters, cluster heads & external source offices',
+                'description' => 'Campus offices, units, clusters & external source offices',
                 'icon' => 'fa-solid fa-building-columns',
                 'color' => '#0891b2',
-                'tables' => ['office', 'cluster', 'cluster_head', 'dts_source_office'],
+                'tables' => ['sys_office', 'sys_cluster', 'dts_source_office'],
             ],
             'roles' => [
                 'name' => 'Roles, Clearances & System Settings',
                 'description' => 'Role clearances, subsystem versions, global system config & personal settings',
                 'icon' => 'fa-solid fa-sliders',
                 'color' => '#7c3aed',
-                'tables' => ['condition_key', 'condition_details', 'condition_defaults', 'subsystems', 'subsystem_versions_log', 'system_settings', 'personal_settings'],
+                'tables' => ['sys_condition_key', 'sys_condition_details', 'sys_condition_defaults', 'sys_subsystems', 'sys_subsystem_versions_log', 'sys_system_settings', 'sys_personal_settings'],
             ],
             'flows' => [
                 'name' => 'Transaction Flows',
                 'description' => 'DTS routing flows, sequence rankings, hub predefined data, action options & email access configs',
                 'icon' => 'fa-solid fa-route',
                 'color' => '#d97706',
-                'tables' => ['dts_transaction_flow', 'dts_sequence_list', 'hub_flow_datas', 'dts_action_options', 'dts_email_access'],
+                'tables' => ['dts_transaction_flow', 'dts_sequence_list', 'dts_hub_flow_datas', 'dts_action_options', 'dts_email_access'],
             ],
             'dts' => [
                 'name' => 'Document Tracking System (DTS)',
                 'description' => 'Transactions, document trans, copy-furnished targets, QR codes, revisions & logs',
                 'icon' => 'fa-solid fa-file-contract',
                 'color' => '#059669',
-                'tables' => ['dts_transactions', 'dts_transaction_details', 'dts_document_trans', 'document_data', 'dts_copy_filled_transaction', 'dts_copy_filled_to_office', 'dts_qr_code', 'dts_transaction_version', 'dts_requestor_history', 'sub_document_tracking_system_logs', 'sub_document_tracking_system_logs_types'],
+                'tables' => ['dts_transactions', 'dts_transaction_details', 'dts_document_trans', 'sys_document_data', 'dts_copy_filled_transaction', 'dts_copy_filled_to_office', 'dts_qr_code', 'dts_transaction_version', 'dts_requestor_history', 'dts_transaction_logs', 'dts_transaction_log_types'],
             ],
             'rdp' => [
                 'name' => 'Records Disposition Package (RDP)',
                 'description' => 'Archival records, document records, retention periods, series brackets & folder configs',
                 'icon' => 'fa-solid fa-box-archive',
                 'color' => '#475569',
-                'tables' => ['rdp_record', 'rdp_record_series', 'rdp_record_series_brackets', 'rdp_record_series_type', 'rdp_recorded_value', 'rdp_frequence_use', 'rdp_restriction_type', 'rdp_utility_medium', 'rdp_time_value', 'rdp_volume_value', 'rdp_volume_conversion', 'rdp_document_record', 'rdp_duplication_section', 'rdp_grouped_record', 'rdp_grouped_record_series', 'rdp_pending_record', 'rdp_pending_record_series', 'rdp_pending_status', 'rdp_period_covered', 'rdp_retention_period', 'rdp_utility_manager', 'folder_data', 'main_pending_id'],
+                'tables' => ['rdp_record', 'rdp_record_series', 'rdp_record_series_brackets', 'rdp_record_series_type', 'rdp_recorded_value', 'rdp_frequence_use', 'rdp_restriction_type', 'rdp_utility_medium', 'rdp_time_value', 'rdp_volume_value', 'rdp_volume_conversion', 'rdp_document_record', 'rdp_duplication_section', 'rdp_grouped_record', 'rdp_grouped_record_series', 'rdp_pending_record', 'rdp_pending_record_series', 'rdp_pending_status', 'rdp_period_covered', 'rdp_retention_period', 'rdp_utility_manager', 'sys_folder_data', 'rdp_main_pending_id'],
             ],
             'dcs' => [
                 'name' => 'Document Control System (DCS)',
@@ -236,7 +236,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Backup & Recovery Manage
                 'description' => 'Admin action history, security login logs, chat audit logs, notifications & system tracking logs',
                 'icon' => 'fa-solid fa-clipboard-list',
                 'color' => '#4b5563',
-                'tables' => ['admin_logs', 'security_logs', 'chatify_audit_logs', 'notifications', 'notification_div', 'notif_content', 'sub_document_tracking_system_logs'],
+                'tables' => ['sys_admin_logs', 'sys_security_logs', 'chatify_audit_logs', 'sys_notifications', 'sys_notification_div', 'sys_notif_content', 'dts_transaction_logs'],
             ],
         ];
     }
@@ -415,8 +415,9 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Backup & Recovery Manage
                     if (isset($categoriesDef[$catKey])) {
                         $categoriesIncluded[] = $categoriesDef[$catKey]['name'];
                         foreach ($categoriesDef[$catKey]['tables'] as $tbl) {
-                            if (in_array($tbl, $allDbTables)) {
-                                $tablesToBackup[] = $tbl;
+                            $resolvedTbl = \App\Services\BackupService::resolveTargetTableName($tbl);
+                            if ($resolvedTbl && in_array($resolvedTbl, $allDbTables)) {
+                                $tablesToBackup[] = $resolvedTbl;
                             }
                         }
                     }
@@ -471,7 +472,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Backup & Recovery Manage
                             $q->whereNull('flow_name')
                               ->orWhere('flow_name', 'not like', 'Flow for %');
                         });
-                    } elseif (($table === 'dts_sequence_list' || $table === 'hub_flow_datas') && !$isDtsIncluded) {
+                    } elseif (($table === 'dts_sequence_list' || $table === 'dts_hub_flow_datas' || $table === 'hub_flow_datas') && !$isDtsIncluded) {
                         $masterFlowIds = \DB::table('dts_transaction_flow')
                             ->where(function ($q) {
                                 $q->whereNull('flow_code')
@@ -487,7 +488,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Backup & Recovery Manage
                             })
                             ->pluck('id');
 
-                        $colName = ($table === 'hub_flow_datas') ? 'flow_owner' : 'control_id';
+                        $colName = ($table === 'dts_hub_flow_datas' || $table === 'hub_flow_datas') ? 'flow_owner' : 'control_id';
                         $query->whereIn($colName, $masterFlowIds);
                     }
 
@@ -522,7 +523,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Backup & Recovery Manage
 
             $typeLabel = ($this->backupMode === 'selective') ? "Selective Backup (" . count($categoriesIncluded) . " categories)" : "Full System Backup";
 
-            \DB::table('admin_logs')->insert([
+            \DB::table(\Illuminate\Support\Facades\Schema::hasTable('sys_admin_logs') ? 'sys_admin_logs' : 'admin_logs')->insert([
                 'changes' => "Created {$typeLabel} [{$filename}] ({$totalRecords} records across " . count($tablesToBackup) . " tables). Saved to " . ($driveSaved ? "Google Drive & Local" : "Local Storage"),
                 'admin_id' => auth()->id(),
                 'what_system' => 3,
@@ -609,7 +610,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Backup & Recovery Manage
                 $driveSaved = \Illuminate\Support\Facades\Storage::disk('google')->put("backup/{$cleanName}", $rawJson);
             } catch (\Throwable) {}
 
-            \DB::table('admin_logs')->insert([
+            \DB::table(\Illuminate\Support\Facades\Schema::hasTable('sys_admin_logs') ? 'sys_admin_logs' : 'admin_logs')->insert([
                 'changes' => "Imported external backup file [{$cleanName}] to storage inventory (" . count($decoded['tables']) . " tables payload)",
                 'admin_id' => auth()->id(),
                 'what_system' => 3,
@@ -679,7 +680,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Backup & Recovery Manage
             $adminId = auth()->id();
             if ($adminId && \Schema::hasTable('admin_logs')) {
                 try {
-                    \DB::table('admin_logs')->insert([
+                    \DB::table(\Illuminate\Support\Facades\Schema::hasTable('sys_admin_logs') ? 'sys_admin_logs' : 'admin_logs')->insert([
                         'changes' => "EMERGENCY REVERT PERFORMED: System database restored to target backup [{$filename}]",
                         'admin_id' => $adminId,
                         'what_system' => 3,
@@ -726,7 +727,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Backup & Recovery Manage
                 \Illuminate\Support\Facades\Storage::disk('google')->delete($googlePath);
             }
 
-            \DB::table('admin_logs')->insert([
+            \DB::table(\Illuminate\Support\Facades\Schema::hasTable('sys_admin_logs') ? 'sys_admin_logs' : 'admin_logs')->insert([
                 'changes' => "Deleted backup file [{$filename}] from Google Drive & Local storage",
                 'admin_id' => auth()->id(),
                 'what_system' => 3,

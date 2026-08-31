@@ -138,8 +138,8 @@ new #[Layout('layouts.dts')] #[Title('Advanced Scanner Console - DTS')] class ex
         $query = DB::table('dts_transactions as dt')
             ->join('dts_transaction_details as dtd', 'dtd.id', '=', 'dt.transaction_id')
             ->leftJoin('dts_requestor_history as req', 'req.id', '=', 'dtd.requestor_id')
-            ->leftJoin('office as originated_office', 'originated_office.office_code', '=', 'dtd.originated_from')
-            ->leftJoin('office as current_office_tb', 'current_office_tb.office_code', '=', 'dt.current_office')
+            ->leftJoin((\Illuminate\Support\Facades\Schema::hasTable('sys_office') ? 'sys_office' : 'office') . ' as originated_office', 'originated_office.office_code', '=', 'dtd.originated_from')
+            ->leftJoin((\Illuminate\Support\Facades\Schema::hasTable('sys_office') ? 'sys_office' : 'office') . ' as current_office_tb', 'current_office_tb.office_code', '=', 'dt.current_office')
             ->whereNotIn('dt.status', ['completed', 'cancelled']);
 
         if (!auth()->user()?->permissions?->is_sadm) {
@@ -177,7 +177,7 @@ new #[Layout('layouts.dts')] #[Title('Advanced Scanner Console - DTS')] class ex
 
         return $transactions->map(function($t) use ($userOfficeCode) {
             $checkOffice = $userOfficeCode ?: $t->current_office;
-            $lastLog = DB::table('sub_document_tracking_system_logs')
+            $lastLog = DB::table(\Illuminate\Support\Facades\Schema::hasTable('dts_transaction_logs') ? 'dts_transaction_logs' : 'sub_document_tracking_system_logs')
                 ->where('transaction_id', $t->transaction_id)
                 ->where('office_code', $checkOffice)
                 ->orderBy('id', 'desc')
@@ -222,7 +222,7 @@ new #[Layout('layouts.dts')] #[Title('Advanced Scanner Console - DTS')] class ex
 
         foreach ($allRows as $row) {
             $checkOffice = $userOfficeCode ?: $row->current_office;
-            $lastLog = DB::table('sub_document_tracking_system_logs')
+            $lastLog = DB::table(\Illuminate\Support\Facades\Schema::hasTable('dts_transaction_logs') ? 'dts_transaction_logs' : 'sub_document_tracking_system_logs')
                 ->where('transaction_id', $row->transaction_id)
                 ->where('office_code', $checkOffice)
                 ->orderBy('id', 'desc')
@@ -296,9 +296,9 @@ new #[Layout('layouts.dts')] #[Title('Advanced Scanner Console - DTS')] class ex
         $transaction = DB::table('dts_transactions as dt')
             ->join('dts_transaction_details as dtd', 'dtd.id', '=', 'dt.transaction_id')
             ->leftJoin('dts_requestor_history as req', 'req.id', '=', 'dtd.requestor_id')
-            ->leftJoin('office as originated_office', 'originated_office.office_code', '=', 'dtd.originated_from')
-            ->leftJoin('office as current_office_tb', 'current_office_tb.office_code', '=', 'dt.current_office')
-            ->leftJoin('document_data as doc', 'doc.document_path', '=', 'dt.doc_dir')
+            ->leftJoin((\Illuminate\Support\Facades\Schema::hasTable('sys_office') ? 'sys_office' : 'office') . ' as originated_office', 'originated_office.office_code', '=', 'dtd.originated_from')
+            ->leftJoin((\Illuminate\Support\Facades\Schema::hasTable('sys_office') ? 'sys_office' : 'office') . ' as current_office_tb', 'current_office_tb.office_code', '=', 'dt.current_office')
+            ->leftJoin((\Illuminate\Support\Facades\Schema::hasTable('sys_document_data') ? 'sys_document_data' : 'document_data') . ' as doc', 'doc.document_path', '=', 'dt.doc_dir')
             ->where('dt.qr_code', $code)
             ->select(
                 'dt.transaction_id',
@@ -364,7 +364,7 @@ new #[Layout('layouts.dts')] #[Title('Advanced Scanner Console - DTS')] class ex
             return;
         }
 
-        $lastLog = DB::table('sub_document_tracking_system_logs')
+        $lastLog = DB::table(\Illuminate\Support\Facades\Schema::hasTable('dts_transaction_logs') ? 'dts_transaction_logs' : 'sub_document_tracking_system_logs')
             ->where('transaction_id', $transaction->transaction_id)
             ->where('office_code', $userOfficeCode)
             ->orderBy('id', 'desc')
@@ -386,7 +386,7 @@ new #[Layout('layouts.dts')] #[Title('Advanced Scanner Console - DTS')] class ex
                     if ($nextOfficeCode === 'ORIGIN') {
                         $nextOfficeCode = $transaction->originated_from;
                     }
-                    $nextOfficeName = DB::table('office')->where('office_code', $nextOfficeCode)->value('office_name') ?: $nextOfficeCode;
+                    $nextOfficeName = DB::table(\Illuminate\Support\Facades\Schema::hasTable('sys_office') ? 'sys_office' : 'office')->where('office_code', $nextOfficeCode)->value('office_name') ?: $nextOfficeCode;
                 }
             }
         }
@@ -467,14 +467,14 @@ new #[Layout('layouts.dts')] #[Title('Advanced Scanner Console - DTS')] class ex
             DB::transaction(function () use ($userOfficeCode) {
                 $transId = $this->activeTransaction['id'];
 
-                $currentLog = DB::table('sub_document_tracking_system_logs')
+                $currentLog = DB::table(\Illuminate\Support\Facades\Schema::hasTable('dts_transaction_logs') ? 'dts_transaction_logs' : 'sub_document_tracking_system_logs')
                     ->where('transaction_id', $transId)
                     ->where('office_code', $userOfficeCode)
                     ->orderBy('id', 'desc')
                     ->first();
 
                 if ($currentLog) {
-                    DB::table('sub_document_tracking_system_logs')
+                    DB::table(\Illuminate\Support\Facades\Schema::hasTable('dts_transaction_logs') ? 'dts_transaction_logs' : 'sub_document_tracking_system_logs')
                         ->where('id', $currentLog->id)
                         ->update([
                             'type' => 'received',
@@ -483,7 +483,7 @@ new #[Layout('layouts.dts')] #[Title('Advanced Scanner Console - DTS')] class ex
                             'performed_by' => auth()->id(),
                         ]);
                 } else {
-                    DB::table('sub_document_tracking_system_logs')->insert([
+                    DB::table(\Illuminate\Support\Facades\Schema::hasTable('dts_transaction_logs') ? 'dts_transaction_logs' : 'sub_document_tracking_system_logs')->insert([
                         'transaction_id' => $transId,
                         'office_code' => $userOfficeCode,
                         'type' => 'received',
@@ -508,7 +508,7 @@ new #[Layout('layouts.dts')] #[Title('Advanced Scanner Console - DTS')] class ex
                 }
 
                 $userFirstName = auth()->user()?->details?->first_name 
-                    ?: DB::table('account_details')->where('account_id', auth()->id())->value('first_name')
+                    ?: DB::table(\Illuminate\Support\Facades\Schema::hasTable('sys_account_details') ? 'sys_account_details' : 'account_details')->where('account_id', auth()->id())->value('first_name')
                     ?: auth()->user()?->username 
                     ?: 'User';
 
@@ -641,7 +641,7 @@ new #[Layout('layouts.dts')] #[Title('Advanced Scanner Console - DTS')] class ex
                     ? ($this->resubmitTarget === 'requestor' ? 'Resubmitted directly to ' : 'Resubmitted to ') . $nextOfficeCode
                     : ($this->notes ?: 'Forwarded via Advanced Scanner');
 
-                DB::table('sub_document_tracking_system_logs')
+                DB::table(\Illuminate\Support\Facades\Schema::hasTable('dts_transaction_logs') ? 'dts_transaction_logs' : 'sub_document_tracking_system_logs')
                     ->where('transaction_id', $transId)
                     ->where('office_code', $userOfficeCode)
                     ->whereNull('date_out')
@@ -687,7 +687,7 @@ new #[Layout('layouts.dts')] #[Title('Advanced Scanner Console - DTS')] class ex
                             'action_needed' => $this->actionNeeded,
                         ]);
 
-                    DB::table('sub_document_tracking_system_logs')->insert([
+                    DB::table(\Illuminate\Support\Facades\Schema::hasTable('dts_transaction_logs') ? 'dts_transaction_logs' : 'sub_document_tracking_system_logs')->insert([
                         'transaction_id' => $transId,
                         'office_code' => $nextOfficeCode,
                         'type' => 'forwarded',
@@ -696,11 +696,11 @@ new #[Layout('layouts.dts')] #[Title('Advanced Scanner Console - DTS')] class ex
                         'performed_by' => auth()->id(),
                     ]);
 
-                    $destOfficeName = DB::table('office')->where('office_code', $nextOfficeCode)->value('office_name') ?: $nextOfficeCode;
+                    $destOfficeName = DB::table(\Illuminate\Support\Facades\Schema::hasTable('sys_office') ? 'sys_office' : 'office')->where('office_code', $nextOfficeCode)->value('office_name') ?: $nextOfficeCode;
                     $this->successMessage = "Document '{$this->activeTransaction['control_number']}' forwarded successfully to {$destOfficeName}!";
 
                     $userFirstName = auth()->user()?->details?->first_name 
-                        ?: DB::table('account_details')->where('account_id', auth()->id())->value('first_name')
+                        ?: DB::table(\Illuminate\Support\Facades\Schema::hasTable('sys_account_details') ? 'sys_account_details' : 'account_details')->where('account_id', auth()->id())->value('first_name')
                         ?: auth()->user()?->username 
                         ?: 'User';
 
@@ -778,7 +778,7 @@ new #[Layout('layouts.dts')] #[Title('Advanced Scanner Console - DTS')] class ex
                 $transDb = DB::table('dts_transaction_details')->where('id', $transId)->first();
                 $originatedFrom = $transDb?->originated_from ?? 'ORIGIN';
 
-                DB::table('sub_document_tracking_system_logs')
+                DB::table(\Illuminate\Support\Facades\Schema::hasTable('dts_transaction_logs') ? 'dts_transaction_logs' : 'sub_document_tracking_system_logs')
                     ->where('transaction_id', $transId)
                     ->where('office_code', $userOfficeCode)
                     ->whereNull('date_out')
@@ -838,7 +838,7 @@ new #[Layout('layouts.dts')] #[Title('Advanced Scanner Console - DTS')] class ex
                     }
                 }
 
-                DB::table('sub_document_tracking_system_logs')->insert([
+                DB::table(\Illuminate\Support\Facades\Schema::hasTable('dts_transaction_logs') ? 'dts_transaction_logs' : 'sub_document_tracking_system_logs')->insert([
                     'transaction_id' => $transId,
                     'office_code' => $originatedFrom,
                     'type' => 'returned',
@@ -856,7 +856,7 @@ new #[Layout('layouts.dts')] #[Title('Advanced Scanner Console - DTS')] class ex
                 );
             });
 
-            $originatedOfficeName = DB::table('office')->where('office_code', $this->activeTransaction['originated_office_code'])->value('office_name') ?: $this->activeTransaction['originated_office_code'];
+            $originatedOfficeName = DB::table(\Illuminate\Support\Facades\Schema::hasTable('sys_office') ? 'sys_office' : 'office')->where('office_code', $this->activeTransaction['originated_office_code'])->value('office_name') ?: $this->activeTransaction['originated_office_code'];
             $this->successMessage = "Document '{$this->activeTransaction['control_number']}' returned for revision to {$originatedOfficeName}!";
             $this->dispatch('scanner-audio-action');
             $this->logSessionScan($this->activeTransaction['qr_code'], 'Returned for Revision', 'warning');

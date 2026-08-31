@@ -31,7 +31,7 @@ class RegisterPersistHelper
             }
 
             $systemId = once(static function () {
-                return (int) DB::table('subsystems')
+                return (int) DB::table(\Illuminate\Support\Facades\Schema::hasTable('sys_subsystems') ? 'sys_subsystems' : 'subsystems')
                     ->where('subsystem_name', 'Document Control System')
                     ->value('subsystem_id');
             });
@@ -44,7 +44,7 @@ class RegisterPersistHelper
                 $changes = self::appendOfficeContext($changes);
             }
 
-            DB::table('admin_logs')->insert([
+            DB::table(\Illuminate\Support\Facades\Schema::hasTable('sys_admin_logs') ? 'sys_admin_logs' : 'admin_logs')->insert([
                 'changes' => $changes,
                 'admin_id' => $adminId,
                 'what_system' => $systemId,
@@ -255,7 +255,7 @@ class RegisterPersistHelper
             return null;
         }
 
-        $inactive = DB::table('office')
+        $inactive = DB::table(\Illuminate\Support\Facades\Schema::hasTable('sys_office') ? 'sys_office' : 'office')
             ->whereIn('id', $ids)
             ->where('is_active', false)
             ->orderBy('office_name')

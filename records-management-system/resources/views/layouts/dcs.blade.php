@@ -11,6 +11,10 @@
         (function() {
             var theme = localStorage.getItem('rms-theme') || '{{ auth()->user()?->theme() ?? "light" }}';
             document.documentElement.setAttribute('data-theme', theme);
+            var modalCloseKey = localStorage.getItem('rms-modal-close-key') || '{{ auth()->user()?->modalCloseKey() ?? "Escape" }}';
+            window.RMS_MODAL_CLOSE_KEY = modalCloseKey;
+            var sidebarToggleKey = localStorage.getItem('rms-sidebar-toggle-key') || '{{ auth()->user()?->sidebarToggleKey() ?? "" }}';
+            window.RMS_SIDEBAR_TOGGLE_KEY = sidebarToggleKey;
             if (localStorage.getItem('dcs-sidebar-collapsed') === '1') {
                 document.documentElement.setAttribute('data-dcs-sidebar-collapsed', '1');
             }

@@ -361,9 +361,263 @@ document.addEventListener('contextmenu', (e) => {
         closeNavFlyout();
     }
 });
+/* ==========================================================================
+   RMS Universal Configurable Modal Closer Engine
+   ========================================================================== */
+function getRMSModalCloseKey() {
+    if (window.RMS_MODAL_CLOSE_KEY !== undefined && window.RMS_MODAL_CLOSE_KEY !== null) {
+        if (window.RMS_MODAL_CLOSE_KEY === '' || window.RMS_MODAL_CLOSE_KEY.toLowerCase() === 'none') {
+            return '';
+        }
+        return window.RMS_MODAL_CLOSE_KEY;
+    }
+    try {
+        const stored = localStorage.getItem('rms-modal-close-key');
+        if (stored !== null) {
+            if (stored === '' || stored.toLowerCase() === 'none') return '';
+            return stored;
+        }
+    } catch (e) {}
+    return 'Escape';
+}
+window.getRMSModalCloseKey = getRMSModalCloseKey;
+
+function isModalKeyMatch(event, targetKey) {
+    if (!targetKey) return false;
+    const normTarget = targetKey.trim().toLowerCase();
+    const eventKey = (event.key || '').trim().toLowerCase();
+    const eventCode = (event.code || '').trim().toLowerCase();
+
+    if (normTarget === 'escape' || normTarget === 'esc') {
+        return eventKey === 'escape' || eventKey === 'esc' || eventCode === 'escape';
+    }
+
+    if (eventKey === normTarget || eventCode === normTarget) {
+        return true;
+    }
+
+    // Handle alphanumeric and function keys, e.g., 'f2', 'q', 'x', '1', '`'
+    if (eventCode === 'key' + normTarget || eventCode === 'digit' + normTarget) {
+        return true;
+    }
+    if (normTarget.startsWith('key') && eventKey === normTarget.substring(3)) {
+        return true;
+    }
+    if (normTarget === 'backquote' && (eventKey === '`' || eventKey === '~')) {
+        return true;
+    }
+
+    return false;
+}
+
+function isExemptedModalElement(element) {
+    if (!element) return false;
+    // Exempt: Action container dropdown, Notification center, and Chatify widget
+    return !!element.closest(
+        '.actions-container, #dropdown, .notification-container, .notif-wrapper, .notif-dropdown, #chatify-global-widget, #chatify-widget-card, .chatify-widget, [id^="chatify"], .nav-flyout-popover'
+    );
+}
+
+function isElementVisibleForModal(el) {
+    if (!el) return false;
+    if (el.style && el.style.display === 'none') return false;
+    try {
+        const style = window.getComputedStyle(el);
+        if (style.display === 'none' || style.visibility === 'hidden' || style.opacity === '0') {
+            return false;
+        }
+        const rect = el.getBoundingClientRect();
+        return (rect.width > 0 && rect.height > 0) || (style.position === 'fixed' || style.position === 'absolute');
+    } catch (e) {
+        return false;
+    }
+}
+
+function handleUniversalModalClose(event) {
+    const configuredKey = getRMSModalCloseKey();
+    if (!isModalKeyMatch(event, configuredKey)) {
+        return false;
+    }
+
+    // Safety guard: if configured key is a printable character (not Escape/F-key),
+    // do not trigger modal close if user is currently typing in an input, textarea, or contenteditable
+    const isEscapeKey = isModalKeyMatch(event, 'Escape');
+    const activeEl = document.activeElement;
+    if (!isEscapeKey && activeEl) {
+        const tagName = activeEl.tagName ? activeEl.tagName.toLowerCase() : '';
+        if (tagName === 'input' || tagName === 'textarea' || tagName === 'select' || activeEl.isContentEditable) {
+            return false;
+        }
+    }
+
+    // 1. Dynamic QR Print Modal
+    const dynamicQrPrintModal = document.getElementById('dynamicQrPrintModal');
+    if (dynamicQrPrintModal && dynamicQrPrintModal.style.display !== 'none' && !isExemptedModalElement(dynamicQrPrintModal)) {
+        if (typeof window.closeDynamicPrintModal === 'function') {
+            window.closeDynamicPrintModal();
+            event.preventDefault();
+            event.stopPropagation();
+            return true;
+        }
+    }
+
+    // 2. DTS QR View Modal
+    const dtsQrViewModal = document.getElementById('dts-qr-view-modal');
+    if (dtsQrViewModal && dtsQrViewModal.style.display !== 'none' && !isExemptedModalElement(dtsQrViewModal)) {
+        if (typeof window.closeQrViewModal === 'function') {
+            window.closeQrViewModal();
+            event.preventDefault();
+            event.stopPropagation();
+            return true;
+        }
+    }
+
+    // 3. DTS Scanner Modal
+    const scannerBackdrop = document.querySelector('.global-scanner-backdrop');
+    if (scannerBackdrop && isElementVisibleForModal(scannerBackdrop) && !isExemptedModalElement(scannerBackdrop)) {
+        const closeBtn = scannerBackdrop.querySelector('button[wire\\:click*="closeModal"], button[wire\\:click*="close"]');
+        if (closeBtn) {
+            closeBtn.click();
+            event.preventDefault();
+            event.stopPropagation();
+            return true;
+        }
+        if (window.Livewire) {
+            window.Livewire.dispatch('close-scanner-modal');
+            event.preventDefault();
+            event.stopPropagation();
+            return true;
+        }
+    }
+
+    // 4. DTS Export Modal
+    const exportModalBackdrop = document.querySelector('.dts-export-modal-backdrop');
+    if (exportModalBackdrop && isElementVisibleForModal(exportModalBackdrop) && !isExemptedModalElement(exportModalBackdrop)) {
+        const closeBtn = exportModalBackdrop.querySelector('.dts-export-modal-close-btn, .dts-export-btn-cancel, button[wire\\:click="closeExportModal"]');
+        if (closeBtn) {
+            closeBtn.click();
+            event.preventDefault();
+            event.stopPropagation();
+            return true;
+        }
+    }
+
+    // 5. Query all open modal overlays/cards on the page
+    const modalCandidates = Array.from(document.querySelectorAll(
+        '.modal-backdrop, .global-scanner-backdrop, .dts-export-modal-backdrop, .ars-modal-overlay, .rdp-modal-backdrop, .inactivity-modal, [role="dialog"], .modal, div[class*="modal-backdrop"], div[class*="modal-overlay"], div[class*="modal-card"], div[class*="-modal"], div[class*="-drawer"]'
+    )).filter(el => !isExemptedModalElement(el) && isElementVisibleForModal(el));
+
+    if (modalCandidates.length > 0) {
+        // Pick the topmost active modal (last in DOM)
+        const topModal = modalCandidates[modalCandidates.length - 1];
+
+        // Search for the closest close or cancel button inside this modal
+        const closeSelectors = [
+            'button.modal-close-btn',
+            'button.modal-close',
+            'button.dts-export-modal-close-btn',
+            'button.ars-modal-close',
+            'button.rdp-modal-close',
+            'button.ev-modal-close',
+            'button.dash-cl-modal-close',
+            'button.mf-drawer-close',
+            'button.rpt-filter-close',
+            'button[wire\\:click*="close" i]',
+            'button[wire\\:click*="cancel" i]',
+            'button[wire\\:click*="toggle" i]',
+            'button[aria-label="Close" i]',
+            'button[title="Close" i]',
+            'button[title="Cancel" i]',
+            'button.btn-cancel',
+            'button.ars-btn-secondary',
+            'button.dts-export-btn-cancel',
+            'button.upd-modal-cancel',
+            'button.rb-modal-cancel',
+            'button.btn-delete',
+            'button[onclick*="close" i]',
+            'button[onclick*="toggle" i]',
+            'button[x-on\\:click*="close" i]',
+            'button[@click*="close" i]',
+            'button.btn-close',
+            '[data-dismiss="modal"]'
+        ];
+
+        for (const sel of closeSelectors) {
+            const btn = topModal.querySelector(sel);
+            if (btn && isElementVisibleForModal(btn) && !btn.disabled) {
+                btn.click();
+                event.preventDefault();
+                event.stopPropagation();
+                return true;
+            }
+        }
+
+        // If modal backdrop itself has a click handler (e.g. wire:click="closeTransaction")
+        if (topModal.hasAttribute('wire:click') || topModal.hasAttribute('onclick') || topModal.hasAttribute('@click') || topModal.hasAttribute('x-on:click')) {
+            topModal.click();
+            event.preventDefault();
+            event.stopPropagation();
+            return true;
+        }
+    }
+
+    return false;
+}
+window.handleUniversalModalClose = handleUniversalModalClose;
+
+function getRMSSidebarToggleKey() {
+    if (window.RMS_SIDEBAR_TOGGLE_KEY !== undefined && window.RMS_SIDEBAR_TOGGLE_KEY !== null && window.RMS_SIDEBAR_TOGGLE_KEY !== '') {
+        return window.RMS_SIDEBAR_TOGGLE_KEY;
+    }
+    try {
+        const stored = localStorage.getItem('rms-sidebar-toggle-key');
+        if (stored && stored !== 'none') return stored;
+    } catch (e) {}
+    return '';
+}
+window.getRMSSidebarToggleKey = getRMSSidebarToggleKey;
+
+function handleSidebarToggleShortcut(event) {
+    const targetKey = getRMSSidebarToggleKey();
+    if (!targetKey || targetKey.toLowerCase() === 'none') {
+        return false;
+    }
+
+    if (!isModalKeyMatch(event, targetKey)) {
+        return false;
+    }
+
+    // Do not trigger if user is actively typing in an input, textarea, select, or contenteditable
+    const activeEl = document.activeElement;
+    if (activeEl) {
+        const tagName = activeEl.tagName ? activeEl.tagName.toLowerCase() : '';
+        if (tagName === 'input' || tagName === 'textarea' || tagName === 'select' || activeEl.isContentEditable) {
+            return false;
+        }
+    }
+
+    // Do not toggle sidebar if a modal is actively open
+    const modalCandidates = Array.from(document.querySelectorAll(
+        '.modal-backdrop, .global-scanner-backdrop, .dts-export-modal-backdrop, .ars-modal-overlay, .rdp-modal-backdrop, .inactivity-modal, [role="dialog"], .modal'
+    )).filter(el => !isExemptedModalElement(el) && isElementVisibleForModal(el));
+    if (modalCandidates.length > 0) {
+        return false;
+    }
+
+    toggleNavProperties();
+    event.preventDefault();
+    event.stopPropagation();
+    return true;
+}
+window.handleSidebarToggleShortcut = handleSidebarToggleShortcut;
+
 document.addEventListener('keydown', (e) => {
     if (e.key === 'Escape') {
         closeNavFlyout();
+    }
+    const handledModal = handleUniversalModalClose(e);
+    if (!handledModal) {
+        handleSidebarToggleShortcut(e);
     }
 });
 window.addEventListener('resize', () => {
@@ -371,6 +625,19 @@ window.addEventListener('resize', () => {
     const navigation = document.getElementById('navigation');
     if (navigation && window.innerWidth < 1024 && navigation.classList.contains('imup')) {
         initializeSidebarState();
+    }
+});
+
+window.addEventListener('rms-modal-key-changed', (e) => {
+    if (e && e.detail) {
+        window.RMS_MODAL_CLOSE_KEY = typeof e.detail === 'string' ? e.detail : (e.detail.key || 'Escape');
+    }
+});
+
+window.addEventListener('rms-sidebar-key-changed', (e) => {
+    if (e) {
+        const keyVal = typeof e.detail === 'string' ? e.detail : (e.detail?.key || '');
+        window.RMS_SIDEBAR_TOGGLE_KEY = (keyVal === 'none' || !keyVal) ? '' : keyVal;
     }
 });
 
@@ -410,6 +677,12 @@ window.setupIconModeInteractions = setupIconModeInteractions;
             if (!document.querySelector('meta[name="rms-portal"]')) {
                 document.documentElement.setAttribute('data-theme', e.newValue);
             }
+        }
+        if (e.key === 'rms-modal-close-key' && e.newValue) {
+            window.RMS_MODAL_CLOSE_KEY = e.newValue;
+        }
+        if (e.key === 'rms-sidebar-toggle-key') {
+            window.RMS_SIDEBAR_TOGGLE_KEY = (e.newValue === 'none' || !e.newValue) ? '' : e.newValue;
         }
         if (e.key === STORAGE_KEY && e.newValue) {
             try {

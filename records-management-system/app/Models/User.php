@@ -112,7 +112,27 @@ class User extends Authenticatable
     public function theme(): string
     {
         $setting = $this->personalSetting;
-        return $setting ? ($setting->theme ?? 'light') : 'light';
+        if ($setting && !empty($setting->theme)) {
+            return $setting->theme;
+        }
+        if (request()->cookie('dark_mode') === 'enabled' || request()->cookie('rms_theme') === 'dark') {
+            return 'dark';
+        }
+        return 'light';
+    }
+
+    public function modalCloseKey(): ?string
+    {
+        $setting = $this->personalSetting;
+        if (!$setting) return 'Escape';
+        if ($setting->modal_close_key === 'none') return null;
+        return $setting->modal_close_key;
+    }
+
+    public function sidebarToggleKey(): ?string
+    {
+        $setting = $this->personalSetting;
+        return $setting ? $setting->sidebar_toggle_key : null;
     }
 
     public function permissions(): HasOneThrough

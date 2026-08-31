@@ -11,6 +11,10 @@
         (function() {
             // Outside pages (Login, Track Document, etc.) always remain in light mode
             document.documentElement.setAttribute('data-theme', 'light');
+            var modalCloseKey = localStorage.getItem('rms-modal-close-key') || '{{ auth()->user()?->modalCloseKey() ?? "Escape" }}';
+            window.RMS_MODAL_CLOSE_KEY = modalCloseKey;
+            var sidebarToggleKey = localStorage.getItem('rms-sidebar-toggle-key') || '{{ auth()->user()?->sidebarToggleKey() ?? "" }}';
+            window.RMS_SIDEBAR_TOGGLE_KEY = sidebarToggleKey;
         })();
     </script>
 

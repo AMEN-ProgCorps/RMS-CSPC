@@ -1977,60 +1977,28 @@
       }
 
       if (rec.type === 'append') {
-        const toInsert = [];
         rec.items.forEach(el => {
           if (el.classList.contains('message-container')) {
             const msgId = el.getAttribute('data-msg-id');
             if (msgId && chatBox.querySelector(`.message-container[data-msg-id="${msgId}"]`)) {
-              return; // Deduplicate: already in DOM
+              return;
             }
-          }
-          toInsert.push(el);
-        });
-
-        if (toInsert.length === 0) {
-          document.querySelectorAll('[data-sending-uid]').forEach(el => el.remove());
-          if (trimWindowFromTop(MAX_WINDOW)) refreshCursorAfterTopTrim();
-          applyAdminBadges(); applyEmojiOnly();
-          if (gcHasMore && !document.getElementById('loadOlderBtn') && !document.getElementById('noMoreOlderNotice')) insertLoadOlderBtn();
-          return;
-        }
-
-        const STAGGER_MS = 90;      // gap between each message appearing
-        const MAX_STAGGER = 8;      // cap: beyond this many messages, no extra delay
-        const useStagger = !isFirstLoad && toInsert.length > 1;
-
-        toInsert.forEach(el => {
-          if (useStagger && el.classList.contains('message-container')) {
-            el.classList.add('gc-msg-pending');
+            const animClass = el.classList.contains('sent') ? 'msg-animate-sent' : 'msg-animate-received';
+            el.classList.add(animClass);
+            el.addEventListener('animationend', () => el.classList.remove(animClass), { once: true });
           }
           chatBox.appendChild(el);
         });
-        document.querySelectorAll('[data-sending-uid]').forEach(el => el.remove());
+        const prevScrollTop = chatBox.scrollTop;
+        const prevScrollHeight = chatBox.scrollHeight;
+        const newScrollHeight = chatBox.scrollHeight;
+        chatBox.scrollTop = Math.max(0, prevScrollTop + newScrollHeight - prevScrollHeight);
         if (trimWindowFromTop(MAX_WINDOW)) refreshCursorAfterTopTrim();
-
-        let revealedCount = 0;
-        toInsert.forEach((el, i) => {
-          const delay = useStagger ? Math.min(i, MAX_STAGGER) * STAGGER_MS : 0;
-          setTimeout(() => {
-            revealedCount++;
-            if (el.isConnected) {
-              el.classList.remove('gc-msg-pending');
-              if (el.classList.contains('message-container')) {
-                const animClass = el.classList.contains('sent') ? 'msg-animate-sent' : 'msg-animate-received';
-                el.classList.add(animClass);
-                el.addEventListener('animationend', () => el.classList.remove(animClass), { once: true });
-              }
-            }
-            if (revealedCount === toInsert.length) {
-              if (isFirstLoad) { isFirstLoad = false; handleFirstLoadScroll(); }
-              else if (!gcViewingOlder && wasAtBottom) requestAnimationFrame(() => requestAnimationFrame(() => scrollToBottom(true, false)));
-              else showScrollIndicator(toInsert.filter(el => el.classList.contains('message-container')).length);
-              applyAdminBadges(); applyEmojiOnly(); attachImageLoadListeners();
-              if (gcHasMore && !document.getElementById('loadOlderBtn') && !document.getElementById('noMoreOlderNotice')) insertLoadOlderBtn();
-            }
-          }, delay);
-        });
+        if (isFirstLoad) { isFirstLoad = false; handleFirstLoadScroll(); }
+        else if (!gcViewingOlder && wasAtBottom) requestAnimationFrame(() => requestAnimationFrame(() => scrollToBottom(true, false)));
+        else showScrollIndicator(rec.items.filter(el => el.classList.contains('message-container')).length);
+        applyAdminBadges(); applyEmojiOnly(); attachImageLoadListeners();
+        if (gcHasMore && !document.getElementById('loadOlderBtn') && !document.getElementById('noMoreOlderNotice')) insertLoadOlderBtn();
         return;
       }
 
@@ -2055,7 +2023,6 @@
         chatBox.appendChild(el);
       });
       
-      document.querySelectorAll('[data-sending-uid]').forEach(el => el.remove());
       chatBox.scrollTop = Math.max(0, prevST + chatBox.scrollHeight - prevSH);
       if (isFirstLoad) { isFirstLoad = false; handleFirstLoadScroll(); }
       else if (!gcViewingOlder && (wasAtBottom || isFirstLoad)) requestAnimationFrame(() => requestAnimationFrame(() => scrollToBottom(true, false)));
@@ -2138,7 +2105,9 @@
           globalChatPrefetchedData = null;
           processGlobalChatData(data, false);
         } else if (gcPrefetchPromise) {
-          gcPrefetchPromise.then(function(data) {
+          const p = gcPrefetchPromise;
+          gcPrefetchPromise = null;
+          p.then(function(data) {
             if (data && isGlobalChat) {
               processGlobalChatData(data, false);
             }
@@ -3190,6 +3159,9 @@
                   scrollToBottom(true, true);
                   updateSeenIndicator();
                 }
+              } else {
+                // If confirmedMsg is missing or invalid, remove the optimistic sending bubble so it doesn't float stuck!
+                if (sendingBubble.parentNode) sendingBubble.parentNode.removeChild(sendingBubble);
               }
             }
           }
@@ -3229,6 +3201,7 @@
 
           // Fallback only if confirmedMsg missing (optimistic bubble already converted above)
           if (!confirmedMsg) {
+            if (typeof clearSendingOverlay === 'function') clearSendingOverlay();
             if (isGlobalChat) { isLoadingGC = false; loadGlobalChat(false); }
             else loadChatForced();
           }

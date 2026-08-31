@@ -473,11 +473,20 @@
               catchUpMissedNotifications();
             }
             if (isGlobalChat) {
-              if (data.has_upload) {
-                isLoadingGC = false;
-                loadGlobalChat(false);
+              const sender = Number(data.sender_id);
+              if (sender !== wsConfig.accountId) {
+                if (data.has_upload) {
+                  isLoadingGC = false;
+                  loadGlobalChat(false);
+                } else {
+                  renderAndAppendWsMessage(data);
+                }
               } else {
-                renderAndAppendWsMessage(data);
+                // Echo of our own sent message — XHR optimistic path already rendered it in place.
+                if (data.has_upload) {
+                  isLoadingGC = false;
+                  loadGlobalChat(false);
+                }
               }
             }
           } else if (data.chat_type === 'private') {

@@ -846,7 +846,7 @@ window.setupIconModeInteractions = setupIconModeInteractions;
                     dcsToggle.checked = shouldCollapse;
                     dcsToggle.dispatchEvent(new Event('change'));
                 }
-            } else if (typeof initializeSidebarState === 'function') {
+            } else {
                 initializeSidebarState();
             }
         }

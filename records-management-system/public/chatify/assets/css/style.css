@@ -1519,6 +1519,57 @@
       }
     }
 
+    /* Backread top loader — small pinned spinner shown while an older-
+       history page is being fetched. Absolutely positioned so it never
+       joins #chat-box's normal flow / scrollHeight (it must not interfere
+       with the scroll-preserving math around older-message inserts). Without
+       this, a fast scroll-to-top fetch had zero visual feedback, so the
+       batch just silently popped into place once it arrived. */
+    .backread-top-loader {
+      position: absolute;
+      top: 6px;
+      left: 0;
+      right: 0;
+      display: flex;
+      justify-content: center;
+      pointer-events: none;
+      z-index: 5;
+      animation: backreadLoaderFade 0.15s ease-out forwards;
+    }
+
+    .backread-spinner {
+      width: 20px;
+      height: 20px;
+      border: 2px solid rgba(0, 0, 0, 0.12);
+      border-top-color: var(--primary-color, #1b74e4);
+      border-radius: 50%;
+      animation: backreadSpin 0.6s linear infinite;
+    }
+
+    @keyframes backreadLoaderFade {
+      from { opacity: 0; transform: translateY(-4px); }
+      to   { opacity: 1; transform: translateY(0); }
+    }
+
+    @keyframes backreadSpin {
+      to { transform: rotate(360deg); }
+    }
+
+    /* Older-history batch entrance — a single calm group fade+settle so a
+       backread page reads as "grew from the top" instead of snapping/
+       dumping into place all at once. Deliberately gentler than the bouncy
+       new-message pop-in above, since up to BACKREAD_BATCH messages land
+       simultaneously here (a per-message bounce on 50 items at once would
+       look chaotic, not smooth). */
+    .message-container.msg-animate-older {
+      animation: msgOlderFadeIn 0.32s ease-out forwards;
+    }
+
+    @keyframes msgOlderFadeIn {
+      from { opacity: 0; transform: translateY(-6px); }
+      to   { opacity: 1; transform: translateY(0); }
+    }
+
     /* Optimistic "sending" bubble — snappy entrance, then a gentle
        breathing pulse for as long as it stays pending. */
     .message-bubble.sending-bubble {

@@ -1219,7 +1219,7 @@
 
     /* Message Container */
     .message-container {
-      margin-bottom: 8px;
+      margin-bottom: 12px;
       display: flex;
       align-items: flex-end;
       flex-wrap: nowrap; /* Keep avatar + bubble on same row at all times */
@@ -1230,7 +1230,7 @@
          position:absolute and needs to be visible outside its stacking
          context during the swipe animation. */
       contain: layout style;
-      overflow: hidden;  /* Clip bubble if viewport is narrower than avatar + bubble */
+      overflow: visible;  /* Allow reaction badges and swipe icons to render outside bounds without clipping */
       position: relative; /* anchors the swipe-to-reply icon revealed underneath the bubble */
     }
 
@@ -1637,6 +1637,7 @@
       flex-shrink: 0;   /* Never shrink */
       text-transform: uppercase;
       transition: background-color 0.3s ease;
+      position: relative;
     }
 
     .received .message-avatar {
@@ -1654,6 +1655,28 @@
       color: transparent !important;
       border: none !important;
       box-shadow: none !important;
+    }
+
+    .seen-indicator {
+      display: flex;
+      justify-content: flex-end;
+      width: 100%;
+      padding-right: 8px;
+      margin-top: 2px;
+      margin-bottom: 4px;
+      box-sizing: border-box;
+      pointer-events: none;
+    }
+
+    .seen-indicator-text {
+      width: 32px;
+      text-align: center;
+      font-size: 10px;
+      font-weight: 500;
+      color: var(--text-secondary);
+      text-transform: none;
+      opacity: 0.85;
+      line-height: 1;
     }
 
     /* Message Bubble */
@@ -2928,7 +2951,7 @@
     /* Reactions sit at the bottom corner of the bubble as a solid mini chat bubble */
     .msg-reactions {
       position: absolute;
-      bottom: -13px;
+      bottom: -8px;
       z-index: 10;
       display: flex;
       align-items: center;
@@ -2952,16 +2975,13 @@
       justify-content: flex-start;
     }
 
-    /* Add space under bubble wrapper and match avatar margin when reactions are present */
+    /* Stable margin under bubble wrapper — no layout shifts when reactions are toggled */
     .bubble-wrapper:has(.msg-reactions),
-    .bubble-wrapper.has-reactions {
-      margin-bottom: 14px !important;
-    }
-
+    .bubble-wrapper.has-reactions,
     .message-container:has(.msg-reactions) .message-avatar,
     .message-container:has(.has-reactions) .message-avatar,
     .message-container.has-reactions .message-avatar {
-      margin-bottom: 14px !important;
+      margin-bottom: 0 !important;
     }
 
     .message-container > .msg-reactions {

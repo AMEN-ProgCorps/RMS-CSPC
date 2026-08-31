@@ -2328,10 +2328,8 @@
 
       const indicator = document.createElement('div');
       indicator.className = 'seen-indicator';
-      indicator.textContent = 'Seen';
-      indicator.style.cssText = 'font-size:11px;color:var(--text-secondary);text-align:right;padding:2px 4px 2px 0;opacity:0.85;';
-      const anchorEl = target.querySelector('.message-bubble') || target.querySelector('.message-media') || target;
-      anchorEl.insertAdjacentElement('afterend', indicator);
+      indicator.innerHTML = '<span class="seen-indicator-text">seen</span>';
+      target.insertAdjacentElement('afterend', indicator);
     }
 
 

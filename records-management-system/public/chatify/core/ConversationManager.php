@@ -900,10 +900,10 @@ class ConversationManager
                      o2.office_name AS u2_office_name,
                      o2.office_code AS u2_office_code
                  FROM chat_conversations c
-                 LEFT JOIN ' . Database::t('account_details') . ' ad1 ON ad1.account_id = c.user_1
-                 LEFT JOIN ' . Database::t('office') . ' o1 ON o1.id = ad1.office_id
-                 LEFT JOIN ' . Database::t('account_details') . ' ad2 ON ad2.account_id = c.user_2
-                 LEFT JOIN ' . Database::t('office') . ' o2 ON o2.id = ad2.office_id
+                 LEFT JOIN " . Database::t('account_details') . " ad1 ON ad1.account_id = c.user_1
+                 LEFT JOIN " . Database::t('office') . " o1 ON o1.id = ad1.office_id
+                 LEFT JOIN " . Database::t('account_details') . " ad2 ON ad2.account_id = c.user_2
+                 LEFT JOIN " . Database::t('office') . " o2 ON o2.id = ad2.office_id
                  {$whereClause}
                  ORDER BY c.last_message_time DESC
                  LIMIT :lim OFFSET :off";
@@ -1004,10 +1004,10 @@ class ConversationManager
                      o2.office_name AS u2_office_name,
                      o2.office_code AS u2_office_code
                  FROM chat_conversations c
-                 LEFT JOIN ' . Database::t('account_details') . ' ad1 ON ad1.account_id = c.user_1
-                 LEFT JOIN ' . Database::t('office') . ' o1 ON o1.id = ad1.office_id
-                 LEFT JOIN ' . Database::t('account_details') . ' ad2 ON ad2.account_id = c.user_2
-                 LEFT JOIN ' . Database::t('office') . ' o2 ON o2.id = ad2.office_id
+                 LEFT JOIN " . Database::t('account_details') . " ad1 ON ad1.account_id = c.user_1
+                 LEFT JOIN " . Database::t('office') . " o1 ON o1.id = ad1.office_id
+                 LEFT JOIN " . Database::t('account_details') . " ad2 ON ad2.account_id = c.user_2
+                 LEFT JOIN " . Database::t('office') . " o2 ON o2.id = ad2.office_id
                  WHERE (c.user_1 = :target_id OR c.user_2 = :target_id)
                    AND COALESCE(c.msg_count, 0) > 0
                    AND c.is_active = true

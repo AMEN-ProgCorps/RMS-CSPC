@@ -26,9 +26,12 @@ new #[Layout('layouts.profile')] #[Title('Profile Manager - Security Logs')] cla
     {
         $userId = Auth::id(); // Get the authenticated user's ID
         
+        $secLogsTable = \Illuminate\Support\Facades\Schema::hasTable('sys_security_logs') ? 'sys_security_logs' : 'security_logs';
+        $secStatusTable = \Illuminate\Support\Facades\Schema::hasTable('sys_security_status') ? 'sys_security_status' : 'security_status';
+
         // Fetch security audit logs combined with security status names/descriptions
-        $this->securityLogs = DB::table(\Illuminate\Support\Facades\Schema::hasTable('sys_security_logs') ? 'sys_security_logs' : 'security_logs')
-            ->join((\Illuminate\Support\Facades\Schema::hasTable('sys_security_status') ? 'sys_security_status' : 'security_status'), 'security_logs.status', '=', 'security_status.status_id')
+        $this->securityLogs = DB::table($secLogsTable . ' as security_logs')
+            ->join($secStatusTable . ' as security_status', 'security_logs.status', '=', 'security_status.status_id')
             ->where('security_logs.account', $userId)
             ->orderBy('security_logs.time', 'desc')
             ->select(

@@ -367,6 +367,10 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Users')] class extends C
             return;
         }
 
+        $accDetailsTbl = \Illuminate\Support\Facades\Schema::hasTable('sys_account_details') ? 'sys_account_details' : 'account_details';
+        $condKeyTbl = \Illuminate\Support\Facades\Schema::hasTable('sys_condition_key') ? 'sys_condition_key' : 'condition_key';
+        $officeTbl = \Illuminate\Support\Facades\Schema::hasTable('sys_office') ? 'sys_office' : 'office';
+
         // 1. Validation Rules
         if ($this->selectedUserId === -1) {
             // Create mode validation rules (Email-First registration: First & Last Name are optional and auto-sync on 1st login)
@@ -374,9 +378,9 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Users')] class extends C
                 'firstName' => 'nullable|string|max:255',
                 'lastName' => 'nullable|string|max:255',
                 'middleName' => 'nullable|string|max:255',
-                'email' => 'required|email|max:255|unique:account_details,email',
-                'roleId' => 'required|exists:condition_key,id',
-                'officeId' => 'nullable|exists:office,id',
+                'email' => "required|email|max:255|unique:{$accDetailsTbl},email",
+                'roleId' => "required|exists:{$condKeyTbl},id",
+                'officeId' => "nullable|exists:{$officeTbl},id",
             ]);
         } else {
             // Edit mode validation rules
@@ -384,9 +388,9 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Users')] class extends C
                 'firstName' => 'required|string|max:255',
                 'lastName' => 'required|string|max:255',
                 'middleName' => 'nullable|string|max:255',
-                'email' => 'required|email|max:255|unique:account_details,email,' . $this->selectedUserId . ',account_id',
-                'roleId' => 'required|exists:condition_key,id',
-                'officeId' => 'nullable|exists:office,id',
+                'email' => "required|email|max:255|unique:{$accDetailsTbl},email,{$this->selectedUserId},account_id",
+                'roleId' => "required|exists:{$condKeyTbl},id",
+                'officeId' => "nullable|exists:{$officeTbl},id",
             ]);
         }
 
@@ -599,6 +603,11 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Users')] class extends C
             });
         }
 
+        $accDetailsTbl = \Illuminate\Support\Facades\Schema::hasTable('sys_account_details') ? 'sys_account_details' : 'account_details';
+        $condKeyTbl = \Illuminate\Support\Facades\Schema::hasTable('sys_condition_key') ? 'sys_condition_key' : 'condition_key';
+        $officeTbl = \Illuminate\Support\Facades\Schema::hasTable('sys_office') ? 'sys_office' : 'office';
+        $accountTbl = \Illuminate\Support\Facades\Schema::hasTable('sys_account') ? 'sys_account' : 'account';
+
         // Handle Sorting Options using subquery ordering
         switch ($this->sortBy) {
             case 'username':
@@ -606,13 +615,13 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Users')] class extends C
                 break;
             case 'role':
                 $query->orderBy(
-                    \DB::raw('(select key_name from condition_key where condition_key.id = account.account_role)'),
+                    \DB::raw("(select key_name from {$condKeyTbl} where {$condKeyTbl}.id = {$accountTbl}.account_role)"),
                     $this->sortDir
                 );
                 break;
             case 'office':
                 $query->orderBy(
-                    \DB::raw('(select office_name from office join account_details on account_details.office_id = office.id where account_details.account_id = account.id)'),
+                    \DB::raw("(select office_name from {$officeTbl} join {$accDetailsTbl} on {$accDetailsTbl}.office_id = {$officeTbl}.id where {$accDetailsTbl}.account_id = {$accountTbl}.id)"),
                     $this->sortDir
                 );
                 break;
@@ -622,10 +631,10 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Users')] class extends C
             case 'name':
             default:
                 $query->orderBy(
-                    \DB::raw('(select last_name from account_details where account_details.account_id = account.id)'),
+                    \DB::raw("(select last_name from {$accDetailsTbl} where {$accDetailsTbl}.account_id = {$accountTbl}.id)"),
                     $this->sortDir
                 )->orderBy(
-                    \DB::raw('(select first_name from account_details where account_details.account_id = account.id)'),
+                    \DB::raw("(select first_name from {$accDetailsTbl} where {$accDetailsTbl}.account_id = {$accountTbl}.id)"),
                     $this->sortDir
                 );
                 break;

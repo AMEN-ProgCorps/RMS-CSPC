@@ -40,9 +40,13 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Volume Conversion Logs')
 
     public function with(): array
     {
-        $query = DB::table(\Illuminate\Support\Facades\Schema::hasTable('sys_admin_logs') ? 'sys_admin_logs' : 'admin_logs')
-            ->leftJoin((\Illuminate\Support\Facades\Schema::hasTable('sys_account') ? 'sys_account' : 'account'), 'admin_logs.admin_id', '=', 'account.id')
-            ->leftJoin((\Illuminate\Support\Facades\Schema::hasTable('sys_account_details') ? 'sys_account_details' : 'account_details'), 'account.id', '=', 'account_details.account_id')
+        $adminLogsTable = \Illuminate\Support\Facades\Schema::hasTable('sys_admin_logs') ? 'sys_admin_logs' : 'admin_logs';
+        $accountTable = \Illuminate\Support\Facades\Schema::hasTable('sys_account') ? 'sys_account' : 'account';
+        $accountDetailsTable = \Illuminate\Support\Facades\Schema::hasTable('sys_account_details') ? 'sys_account_details' : 'account_details';
+
+        $query = DB::table($adminLogsTable . ' as admin_logs')
+            ->leftJoin($accountTable . ' as account', 'admin_logs.admin_id', '=', 'account.id')
+            ->leftJoin($accountDetailsTable . ' as account_details', 'account.id', '=', 'account_details.account_id')
             ->where('admin_logs.what_system', 2) // RDP Subsystem
             ->select([
                 'admin_logs.*',

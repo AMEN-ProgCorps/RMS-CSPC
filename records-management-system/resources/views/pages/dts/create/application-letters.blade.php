@@ -728,12 +728,14 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create Applicat
             $this->generateRandomSeq();
         }
 
+        $officeTbl = \Illuminate\Support\Facades\Schema::hasTable('sys_office') ? 'sys_office' : 'office';
+
         $this->validate([
             'seq_number' => 'required|string|max:50',
             'type_of_document' => 'required|string|max:255',
             'applicant_name' => 'required|string|max:255',
             'position' => 'required|string|max:255',
-            'unit_college' => 'required|string|exists:office,office_code',
+            'unit_college' => "required|string|exists:{$officeTbl},office_code",
             'transaction_flow' => 'required|string|exists:dts_transaction_flow,flow_code',
             'copy_furnished' => 'required|string|in:Yes,No',
             'cf_selected_offices' => 'nullable|array',

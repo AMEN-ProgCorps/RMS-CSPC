@@ -337,8 +337,10 @@ new #[Layout('layouts.dcs')] class extends Component {
 
     private function saveCollege(): void
     {
+        $officeTbl = \Illuminate\Support\Facades\Schema::hasTable('sys_office') ? 'sys_office' : 'office';
+
         $this->validate([
-            'officeId' => 'nullable|integer|exists:office,id',
+            'officeId' => "nullable|integer|exists:{$officeTbl},id",
             'collegeName' => [
                 'required', 'string', 'max:255',
                 Rule::unique('dcs_colleges', 'college_name')->ignore($this->editingId, 'id'),

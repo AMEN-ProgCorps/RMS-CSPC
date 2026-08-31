@@ -731,8 +731,10 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create Internal
             $this->generateRandomSeq();
         }
 
+        $officeTbl = \Illuminate\Support\Facades\Schema::hasTable('sys_office') ? 'sys_office' : 'office';
+
         $this->validate([
-            'unit_college' => 'required|string|exists:office,office_code',
+            'unit_college' => "required|string|exists:{$officeTbl},office_code",
             'seq_number' => 'required|string|max:50',
             'requestor_name' => 'required|string|max:255',
             'requestor_label' => 'nullable|string|max:255',

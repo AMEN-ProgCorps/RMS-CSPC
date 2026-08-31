@@ -53,11 +53,18 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Dashboard')] class exten
         $totalActivities = \DB::table(\Illuminate\Support\Facades\Schema::hasTable('sys_security_logs') ? 'sys_security_logs' : 'security_logs')->count() + \DB::table(\Illuminate\Support\Facades\Schema::hasTable('sys_admin_logs') ? 'sys_admin_logs' : 'admin_logs')->count();
 
         // 2. Fetch union of security logs and admin logs, sorted by time
-        $securityQuery = \DB::table(\Illuminate\Support\Facades\Schema::hasTable('sys_security_logs') ? 'sys_security_logs' : 'security_logs')
-            ->leftJoin((\Illuminate\Support\Facades\Schema::hasTable('sys_security_status') ? 'sys_security_status' : 'security_status'), 'security_logs.status', '=', 'security_status.status_id')
-            ->leftJoin((\Illuminate\Support\Facades\Schema::hasTable('sys_account') ? 'sys_account' : 'account'), 'security_logs.account', '=', 'account.id')
-            ->leftJoin((\Illuminate\Support\Facades\Schema::hasTable('sys_account_details') ? 'sys_account_details' : 'account_details'), 'account.id', '=', 'account_details.account_id')
-            ->leftJoin((\Illuminate\Support\Facades\Schema::hasTable('sys_condition_key') ? 'sys_condition_key' : 'condition_key'), 'account.account_role', '=', 'condition_key.id')
+        $securityLogsTable = \Illuminate\Support\Facades\Schema::hasTable('sys_security_logs') ? 'sys_security_logs' : 'security_logs';
+        $securityStatusTable = \Illuminate\Support\Facades\Schema::hasTable('sys_security_status') ? 'sys_security_status' : 'security_status';
+        $accountTable = \Illuminate\Support\Facades\Schema::hasTable('sys_account') ? 'sys_account' : 'account';
+        $accountDetailsTable = \Illuminate\Support\Facades\Schema::hasTable('sys_account_details') ? 'sys_account_details' : 'account_details';
+        $conditionKeyTable = \Illuminate\Support\Facades\Schema::hasTable('sys_condition_key') ? 'sys_condition_key' : 'condition_key';
+        $adminLogsTable = \Illuminate\Support\Facades\Schema::hasTable('sys_admin_logs') ? 'sys_admin_logs' : 'admin_logs';
+
+        $securityQuery = \DB::table($securityLogsTable . ' as security_logs')
+            ->leftJoin($securityStatusTable . ' as security_status', 'security_logs.status', '=', 'security_status.status_id')
+            ->leftJoin($accountTable . ' as account', 'security_logs.account', '=', 'account.id')
+            ->leftJoin($accountDetailsTable . ' as account_details', 'account.id', '=', 'account_details.account_id')
+            ->leftJoin($conditionKeyTable . ' as condition_key', 'account.account_role', '=', 'condition_key.id')
             ->select([
                 'security_logs.time as time',
                 'security_status.status_name as action_name',
@@ -67,10 +74,10 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Dashboard')] class exten
                 'condition_key.key_name as role_name',
             ]);
 
-        $adminQuery = \DB::table(\Illuminate\Support\Facades\Schema::hasTable('sys_admin_logs') ? 'sys_admin_logs' : 'admin_logs')
-            ->leftJoin((\Illuminate\Support\Facades\Schema::hasTable('sys_account') ? 'sys_account' : 'account'), 'admin_logs.admin_id', '=', 'account.id')
-            ->leftJoin((\Illuminate\Support\Facades\Schema::hasTable('sys_account_details') ? 'sys_account_details' : 'account_details'), 'account.id', '=', 'account_details.account_id')
-            ->leftJoin((\Illuminate\Support\Facades\Schema::hasTable('sys_condition_key') ? 'sys_condition_key' : 'condition_key'), 'account.account_role', '=', 'condition_key.id')
+        $adminQuery = \DB::table($adminLogsTable . ' as admin_logs')
+            ->leftJoin($accountTable . ' as account', 'admin_logs.admin_id', '=', 'account.id')
+            ->leftJoin($accountDetailsTable . ' as account_details', 'account.id', '=', 'account_details.account_id')
+            ->leftJoin($conditionKeyTable . ' as condition_key', 'account.account_role', '=', 'condition_key.id')
             ->select([
                 'admin_logs.when_changes as time',
                 'admin_logs.changes as action_name',

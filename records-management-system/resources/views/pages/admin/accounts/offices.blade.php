@@ -519,23 +519,26 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Offices & Clusters')] cl
             $codeExcludeId = $deactivatedByCode ? $deactivatedByCode->id : null;
         }
 
+        $officeTbl = \Illuminate\Support\Facades\Schema::hasTable('sys_office') ? 'sys_office' : 'office';
+        $clusterTbl = \Illuminate\Support\Facades\Schema::hasTable('sys_cluster') ? 'sys_cluster' : 'cluster';
+
         // Validation rules: unique check excludes selected record if updating, or deactivated record if creating
         $uniqueNameRule = $this->selectedOfficeId > 0
-            ? 'unique:office,office_name,' . $this->selectedOfficeId . ',id'
+            ? "unique:{$officeTbl},office_name," . $this->selectedOfficeId . ',id'
             : ($nameExcludeId
-                ? 'unique:office,office_name,' . $nameExcludeId . ',id'
-                : 'unique:office,office_name');
+                ? "unique:{$officeTbl},office_name," . $nameExcludeId . ',id'
+                : "unique:{$officeTbl},office_name");
 
         $uniqueCodeRule = $this->selectedOfficeId > 0
-            ? 'unique:office,office_code,' . $this->selectedOfficeId . ',id'
+            ? "unique:{$officeTbl},office_code," . $this->selectedOfficeId . ',id'
             : ($codeExcludeId
-                ? 'unique:office,office_code,' . $codeExcludeId . ',id'
-                : 'unique:office,office_code');
+                ? "unique:{$officeTbl},office_code," . $codeExcludeId . ',id'
+                : "unique:{$officeTbl},office_code");
 
         $this->validate([
             'officeName' => 'required|string|max:255|' . $uniqueNameRule,
             'officeCode' => 'required|string|max:50|' . $uniqueCodeRule,
-            'officeCluster' => 'nullable|string|exists:cluster,cluster_code',
+            'officeCluster' => "nullable|string|exists:{$clusterTbl},cluster_code",
         ]);
 
         try {
@@ -821,23 +824,26 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Offices & Clusters')] cl
             $codeExcludeId = $deactivatedByCode ? $deactivatedByCode->id : null;
         }
 
+        $officeTbl = \Illuminate\Support\Facades\Schema::hasTable('sys_office') ? 'sys_office' : 'office';
+        $clusterTbl = \Illuminate\Support\Facades\Schema::hasTable('sys_cluster') ? 'sys_cluster' : 'cluster';
+
         // Validation rules: unique check excludes selected record if updating, or deactivated record if creating
         $uniqueNameRule = $this->selectedClusterId > 0 
-            ? 'unique:cluster,cluster_name,' . $this->selectedClusterId . ',id'
+            ? "unique:{$clusterTbl},cluster_name," . $this->selectedClusterId . ',id'
             : ($nameExcludeId
-                ? 'unique:cluster,cluster_name,' . $nameExcludeId . ',id'
-                : 'unique:cluster,cluster_name');
+                ? "unique:{$clusterTbl},cluster_name," . $nameExcludeId . ',id'
+                : "unique:{$clusterTbl},cluster_name");
 
         $uniqueCodeRule = $this->selectedClusterId > 0 
-            ? 'unique:cluster,cluster_code,' . $this->selectedClusterId . ',id'
+            ? "unique:{$clusterTbl},cluster_code," . $this->selectedClusterId . ',id'
             : ($codeExcludeId
-                ? 'unique:cluster,cluster_code,' . $codeExcludeId . ',id'
-                : 'unique:cluster,cluster_code');
+                ? "unique:{$clusterTbl},cluster_code," . $codeExcludeId . ',id'
+                : "unique:{$clusterTbl},cluster_code");
 
         $this->validate([
             'clusterName' => 'required|string|max:255|' . $uniqueNameRule,
             'clusterCode' => 'required|string|max:50|' . $uniqueCodeRule,
-            'clusterHead' => 'nullable|string|exists:office,office_code',
+            'clusterHead' => "nullable|string|exists:{$officeTbl},office_code",
         ]);
 
         try {

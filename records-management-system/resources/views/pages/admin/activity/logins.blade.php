@@ -47,10 +47,15 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Logins')] class extends 
 
     public function with(): array
     {
-        $query = \DB::table(\Illuminate\Support\Facades\Schema::hasTable('sys_security_logs') ? 'sys_security_logs' : 'security_logs')
-            ->leftJoin((\Illuminate\Support\Facades\Schema::hasTable('sys_security_status') ? 'sys_security_status' : 'security_status'), 'security_logs.status', '=', 'security_status.status_id')
-            ->leftJoin((\Illuminate\Support\Facades\Schema::hasTable('sys_account') ? 'sys_account' : 'account'), 'security_logs.account', '=', 'account.id')
-            ->leftJoin((\Illuminate\Support\Facades\Schema::hasTable('sys_account_details') ? 'sys_account_details' : 'account_details'), 'account.id', '=', 'account_details.account_id')
+        $secLogsTable = \Illuminate\Support\Facades\Schema::hasTable('sys_security_logs') ? 'sys_security_logs' : 'security_logs';
+        $secStatusTable = \Illuminate\Support\Facades\Schema::hasTable('sys_security_status') ? 'sys_security_status' : 'security_status';
+        $accountTable = \Illuminate\Support\Facades\Schema::hasTable('sys_account') ? 'sys_account' : 'account';
+        $accountDetailsTable = \Illuminate\Support\Facades\Schema::hasTable('sys_account_details') ? 'sys_account_details' : 'account_details';
+
+        $query = \DB::table($secLogsTable . ' as security_logs')
+            ->leftJoin($secStatusTable . ' as security_status', 'security_logs.status', '=', 'security_status.status_id')
+            ->leftJoin($accountTable . ' as account', 'security_logs.account', '=', 'account.id')
+            ->leftJoin($accountDetailsTable . ' as account_details', 'account.id', '=', 'account_details.account_id')
             ->select([
                 'security_logs.id',
                 'security_logs.time',

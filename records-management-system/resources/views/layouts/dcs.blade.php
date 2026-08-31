@@ -21,7 +21,17 @@
             window.RMS_NOTIF_TOGGLE_KEY = notifToggleKey;
             var chatifyToggleKey = localStorage.getItem('rms-chatify-toggle-key') || '{{ auth()->user()?->chatifyToggleKey() ?? "" }}';
             window.RMS_CHATIFY_TOGGLE_KEY = chatifyToggleKey;
-            if (localStorage.getItem('dcs-sidebar-collapsed') === '1') {
+            var sidebar = localStorage.getItem('sidebarState');
+            if (!sidebar) {
+                var legacyDcs = localStorage.getItem('dcs-sidebar-collapsed');
+                if (legacyDcs !== null) {
+                    sidebar = legacyDcs === '1' ? 'imdown' : 'imup';
+                }
+            }
+            if (sidebar && !document.cookie.includes('sidebarState=')) {
+                document.cookie = 'sidebarState=' + encodeURIComponent(sidebar) + '; path=/; max-age=31536000; SameSite=Lax';
+            }
+            if (sidebar === 'imdown') {
                 document.documentElement.setAttribute('data-dcs-sidebar-collapsed', '1');
             }
         })();
@@ -103,17 +113,38 @@
     @livewireStyles
 </head>
 <body>
+    @php
+        $sidebarState = request()->cookie('sidebarState', 'imup');
+        $isCollapsed = $sidebarState === 'imdown';
+    @endphp
     <input type="checkbox" id="dcs-nav-open" class="dcs-chrome-toggle">
-    <input type="checkbox" id="dcs-sidebar-collapsed" class="dcs-chrome-toggle">
+    <input type="checkbox" id="dcs-sidebar-collapsed" class="dcs-chrome-toggle" {{ $isCollapsed ? 'checked' : '' }}>
     <script>
         (function () {
-            var KEY = 'dcs-sidebar-collapsed';
+            function persistState(isCollapsed) {
+                var state = isCollapsed ? 'imdown' : 'imup';
+                try {
+                    localStorage.setItem('sidebarState', state);
+                    localStorage.setItem('dcs-sidebar-collapsed', isCollapsed ? '1' : '0');
+                } catch (e) {}
+                document.cookie = 'sidebarState=' + encodeURIComponent(state) + '; path=/; max-age=31536000; SameSite=Lax';
+            }
+
             function syncSidebarCollapse() {
                 var el = document.getElementById('dcs-sidebar-collapsed');
                 if (!el) return;
-                var collapsed = localStorage.getItem(KEY) === '1';
-                el.checked = collapsed;
-                if (collapsed) {
+                var storedState = localStorage.getItem('sidebarState');
+                var isCollapsed;
+                if (storedState) {
+                    isCollapsed = storedState === 'imdown';
+                } else if (localStorage.getItem('dcs-sidebar-collapsed') !== null) {
+                    isCollapsed = localStorage.getItem('dcs-sidebar-collapsed') === '1';
+                } else {
+                    var match = document.cookie.match(/(?:^|;\s*)sidebarState=([^;]*)/);
+                    isCollapsed = match ? decodeURIComponent(match[1]) === 'imdown' : false;
+                }
+                el.checked = isCollapsed;
+                if (isCollapsed) {
                     document.documentElement.setAttribute('data-dcs-sidebar-collapsed', '1');
                 } else {
                     document.documentElement.removeAttribute('data-dcs-sidebar-collapsed');
@@ -121,7 +152,7 @@
             }
             syncSidebarCollapse();
             document.getElementById('dcs-sidebar-collapsed')?.addEventListener('change', function () {
-                localStorage.setItem(KEY, this.checked ? '1' : '0');
+                persistState(this.checked);
                 if (this.checked) {
                     document.documentElement.setAttribute('data-dcs-sidebar-collapsed', '1');
                 } else {

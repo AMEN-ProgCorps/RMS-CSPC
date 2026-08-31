@@ -311,10 +311,12 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Roles')] class extends C
             return;
         }
 
+        $condKeyTbl = \Illuminate\Support\Facades\Schema::hasTable('sys_condition_key') ? 'sys_condition_key' : 'condition_key';
+
         // Validation rules: unique check excludes selected record if updating
         $uniqueRule = $this->selectedRoleId > 0 
-            ? 'unique:condition_key,key_name,' . $this->selectedRoleId . ',id'
-            : 'unique:condition_key,key_name';
+            ? "unique:{$condKeyTbl},key_name," . $this->selectedRoleId . ',id'
+            : "unique:{$condKeyTbl},key_name";
 
         $this->validate([
             'keyName' => 'required|string|max:255|' . $uniqueRule,

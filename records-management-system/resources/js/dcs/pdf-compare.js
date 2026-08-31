@@ -17,13 +17,18 @@ const FILL = {
     chg: 'rgba(253, 230, 138, 0.5)',
 };
 
-const CHUNK_SIZE = 40;
+const CHUNK_SIZE = 25;
 const OCR_BATCH = 1;
 const OCR_CONCURRENCY = 3;
-const TOKEN_CAP = 1500;
+const TOKEN_CAP = 4000;
 /** When content alignment finds nothing but docs share vocabulary, pair by page index. */
 const DOC_SIMILARITY_INDEX_FALLBACK = 0.18;
-const CACHE_VERSION = 14;
+const CACHE_VERSION = 15;
+/** Pixel diff below this ⇒ treat page pair as visually unchanged (skip OCR). */
+const VISUAL_UNCHANGED_THRESHOLD = 0.015;
+/** Token overlap above this ⇒ suppress highlight noise on near-identical pages. */
+const PAGE_SIMILARITY_SKIP = 0.97;
+const LARGE_DOC_PAGES = 12;
 
 const ROMAN_TO_ARABIC = {
     i: '1', ii: '2', iii: '3', iv: '4', v: '5', vi: '6', vii: '7', viii: '8', ix: '9', x: '10',
@@ -528,19 +533,22 @@ async function harmonizeCompareTokens(leftPages, rightPages, leftMeta, rightMeta
     const shared = Math.min(leftPages.length, rightPages.length);
 
     for (let i = 0; i < shared; i++) {
+        if (leftPages[i]?.unchanged && rightPages[i]?.unchanged) continue;
         if (pageNeedsOcrForCompare(leftPages[i], rightPages[i])) {
             leftOcr.add(leftPages[i].page);
         }
-        if (pageNeedsOcrForCompare(rightPages[i], rightPages[i])) {
+        if (pageNeedsOcrForCompare(rightPages[i], leftPages[i])) {
             rightOcr.add(rightPages[i].page);
         }
     }
     for (let i = shared; i < leftPages.length; i++) {
+        if (leftPages[i]?.unchanged) continue;
         if (!pageHasPaintableTokens(leftPages[i])) {
             leftOcr.add(leftPages[i].page);
         }
     }
     for (let i = shared; i < rightPages.length; i++) {
+        if (rightPages[i]?.unchanged) continue;
         if (!pageHasPaintableTokens(rightPages[i])) {
             rightOcr.add(rightPages[i].page);
         }
@@ -658,19 +666,23 @@ async function ocrPageBatch({ file, storagePath, pages }, attempt = 0) {
 
 async function ensurePageTexts(doc, sideMeta, setStatus, options = {}) {
     const forceOcr = options.forceOcr === true;
+    const unchangedPages = options.unchangedPages || new Set();
     const pages = [];
     const missing = [];
     const warnings = [];
 
     for (let p = 1; p <= doc.numPages; p++) {
+        const unchanged = unchangedPages.has(p);
+
         if (forceOcr) {
             pages.push({
                 page: p,
                 tokens: [],
                 usedOcr: false,
                 hasText: false,
+                unchanged,
             });
-            missing.push(p);
+            if (!unchanged) missing.push(p);
             continue;
         }
 
@@ -680,9 +692,10 @@ async function ensurePageTexts(doc, sideMeta, setStatus, options = {}) {
             tokens: items,
             usedOcr: false,
             hasText: items.length > 0,
+            unchanged,
         };
         pages.push(entry);
-        if (!entry.hasText) {
+        if (!unchanged && !entry.hasText) {
             missing.push(p);
         }
     }
@@ -756,7 +769,6 @@ function wordDiffMarksFrequency(leftTokens, rightTokens) {
         rightBuckets.get(t.norm).push(t);
     }
 
-    const leftMarks = [];
     const leftUnmatched = [];
 
     for (const lt of left) {
@@ -771,27 +783,59 @@ function wordDiffMarksFrequency(leftTokens, rightTokens) {
         }
     }
 
-    const rightMarks = [];
+    const rightSurplus = [];
     for (const bucket of rightBuckets.values()) {
         while (bucket.length) {
-            const t = bucket.pop();
-            const rm = markFromToken('ins', t);
-            if (rm) rightMarks.push(rm);
+            rightSurplus.push(bucket.pop());
         }
     }
 
+    return pairUnmatchedTokens(leftUnmatched, rightSurplus);
+}
+
+/** Pair leftover tokens as del/ins or fuzzy chg (yellow on both sides). */
+function pairUnmatchedTokens(leftUnmatched, rightSurplus) {
+    const leftMarks = [];
+    const rightMarks = [];
+    const usedRight = new Set();
+    let del = 0;
+    let ins = 0;
+    let chg = 0;
+
     for (const lt of leftUnmatched) {
-        const lm = markFromToken('del', lt);
-        if (lm) leftMarks.push(lm);
+        let bestIdx = -1;
+        for (let ri = 0; ri < rightSurplus.length; ri++) {
+            if (usedRight.has(ri)) continue;
+            if (tokensEqual(lt, rightSurplus[ri])) {
+                bestIdx = ri;
+                break;
+            }
+        }
+        if (bestIdx >= 0) {
+            const rt = rightSurplus[bestIdx];
+            usedRight.add(bestIdx);
+            if (lt.norm !== rt.norm) {
+                const lm = markFromToken('chg', lt);
+                const rm = markFromToken('chg', rt);
+                if (lm) leftMarks.push(lm);
+                if (rm) rightMarks.push(rm);
+                chg++;
+            }
+        } else {
+            const lm = markFromToken('del', lt);
+            if (lm) leftMarks.push(lm);
+            del++;
+        }
     }
 
-    return {
-        leftMarks,
-        rightMarks,
-        del: leftUnmatched.length,
-        ins: rightMarks.length,
-        chg: 0,
-    };
+    for (let ri = 0; ri < rightSurplus.length; ri++) {
+        if (usedRight.has(ri)) continue;
+        const rm = markFromToken('ins', rightSurplus[ri]);
+        if (rm) rightMarks.push(rm);
+        ins++;
+    }
+
+    return { leftMarks, rightMarks, del, ins, chg };
 }
 
 /** Word LCS → marks painted on both old and new PDF canvases. */
@@ -835,6 +879,10 @@ function wordDiffMarks(leftTokens, rightTokens, slot = null) {
     const left = ensureHighlightTokens(leftTokens);
     const right = ensureHighlightTokens(rightTokens);
 
+    if (slot?.left?.unchanged && slot?.right?.unchanged) {
+        return { leftMarks: [], rightMarks: [], del: 0, ins: 0, chg: 0 };
+    }
+
     if (!left.length && !right.length) {
         return { leftMarks: [], rightMarks: [], del: 0, ins: 0, chg: 0 };
     }
@@ -847,6 +895,10 @@ function wordDiffMarks(leftTokens, rightTokens, slot = null) {
         return { leftMarks, rightMarks: [], del: leftMarks.length, ins: 0, chg: 0 };
     }
 
+    if (pageTextSimilarity(left, right) >= PAGE_SIMILARITY_SKIP) {
+        return { leftMarks: [], rightMarks: [], del: 0, ins: 0, chg: 0 };
+    }
+
     const ocrHeavy = (slot?.left?.usedOcr || slot?.right?.usedOcr)
         || left.some((t) => t.ocr)
         || right.some((t) => t.ocr);
@@ -855,6 +907,291 @@ function wordDiffMarks(leftTokens, rightTokens, slot = null) {
         return wordDiffMarksFrequency(left, right);
     }
     return wordDiffMarksSequential(left, right);
+}
+
+function pageTextSimilarity(leftTokens, rightTokens) {
+    const left = prepareTokensForDiff(leftTokens);
+    const right = prepareTokensForDiff(rightTokens);
+    if (!left.length && !right.length) return 1;
+    if (!left.length || !right.length) return 0;
+
+    const rightCounts = new Map();
+    for (const t of right) {
+        rightCounts.set(t.norm, (rightCounts.get(t.norm) || 0) + 1);
+    }
+    let matched = 0;
+    for (const t of left) {
+        const c = rightCounts.get(t.norm) || 0;
+        if (c > 0) {
+            matched++;
+            rightCounts.set(t.norm, c - 1);
+        }
+    }
+    return matched / Math.max(left.length, right.length, 1);
+}
+
+async function pageVisualHash(doc, pageNum) {
+    const page = await doc.getPage(pageNum);
+    const base = page.getViewport({ scale: 1 });
+    const targetW = 24;
+    const scale = targetW / base.width;
+    const viewport = page.getViewport({ scale });
+    const w = Math.max(8, Math.floor(viewport.width));
+    const h = Math.max(8, Math.floor(viewport.height));
+    const canvas = document.createElement('canvas');
+    canvas.width = w;
+    canvas.height = h;
+    const ctx = canvas.getContext('2d', { willReadFrequently: true });
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(0, 0, w, h);
+    await page.render({ canvasContext: ctx, viewport }).promise;
+    const data = ctx.getImageData(0, 0, w, h).data;
+    const bins = new Uint8Array(w * h);
+    for (let i = 0, p = 0; i < data.length; i += 4, p++) {
+        bins[p] = (data[i] * 0.299 + data[i + 1] * 0.587 + data[i + 2] * 0.114) > 140 ? 1 : 0;
+    }
+    return bins;
+}
+
+function visualHashDiff(a, b) {
+    if (!a || !b || a.length !== b.length) return 1;
+    let diff = 0;
+    for (let i = 0; i < a.length; i++) {
+        if (a[i] !== b[i]) diff++;
+    }
+    return diff / a.length;
+}
+
+/** Quick visual scan — unchanged pairs skip expensive OCR on large documents. */
+async function findUnchangedPagePairs(leftDoc, rightDoc, onProgress) {
+    const pairs = [];
+    const total = Math.min(leftDoc.numPages, rightDoc.numPages);
+    const batch = 6;
+
+    for (let start = 1; start <= total; start += batch) {
+        const end = Math.min(start + batch - 1, total);
+        if (onProgress) onProgress(end, total);
+
+        const jobs = [];
+        for (let p = start; p <= end; p++) {
+            jobs.push(
+                Promise.all([
+                    pageVisualHash(leftDoc, p),
+                    pageVisualHash(rightDoc, p),
+                    pageItems(leftDoc, p),
+                    pageItems(rightDoc, p),
+                ]).then(([lh, rh, leftItems, rightItems]) => {
+                    if (visualHashDiff(lh, rh) > VISUAL_UNCHANGED_THRESHOLD) {
+                        return;
+                    }
+                    const lt = tokensFromItems(leftItems);
+                    const rt = tokensFromItems(rightItems);
+                    if (lt.length && rt.length && pageTextSimilarity(lt, rt) < PAGE_SIMILARITY_SKIP) {
+                        return;
+                    }
+                    pairs.push({ leftPage: p, rightPage: p });
+                })
+            );
+        }
+        await Promise.all(jobs);
+        await new Promise((r) => setTimeout(r, 0));
+    }
+
+    return pairs;
+}
+
+function computeSlotDiff(slot) {
+    if (slot.type === 'match') {
+        return wordDiffMarks(slot.left?.tokens || [], slot.right?.tokens || [], slot);
+    }
+    if (slot.type === 'removed') {
+        const leftMarks = allTokenMarks(ensureHighlightTokens(slot.left?.tokens || []), 'del');
+        return { leftMarks, rightMarks: [], del: leftMarks.length, ins: 0, chg: 0 };
+    }
+    const rightMarks = allTokenMarks(ensureHighlightTokens(slot.right?.tokens || []), 'ins');
+    return { leftMarks: [], rightMarks, del: 0, ins: rightMarks.length, chg: 0 };
+}
+
+function slotHasChanges(slot, stats) {
+    if (slot.type === 'removed' || slot.type === 'added') return true;
+    if (!stats) return false;
+    return (stats.del + stats.ins + stats.chg) > 0;
+}
+
+function analyzeAlignmentChanges(alignment) {
+    const changedRows = [];
+    const rowStats = [];
+    let edited = 0;
+    let added = 0;
+    let removed = 0;
+
+    for (let i = 0; i < alignment.length; i++) {
+        const slot = alignment[i];
+        const stats = computeSlotDiff(slot);
+        rowStats[i] = stats;
+        if (slot.type === 'added') {
+            added++;
+            changedRows.push(i);
+        } else if (slot.type === 'removed') {
+            removed++;
+            changedRows.push(i);
+        } else if (slotHasChanges(slot, stats)) {
+            edited++;
+            changedRows.push(i);
+        }
+    }
+
+    return {
+        changedRows,
+        rowStats,
+        stats: {
+            edited,
+            added,
+            removed,
+            unchanged: alignment.length - changedRows.length,
+            total: alignment.length,
+            changed: changedRows.length,
+        },
+    };
+}
+
+function scrollToChangeRow(leftStage, rightStage, rowIndex) {
+    const sel = `[data-compare-row="${rowIndex}"]`;
+    const leftEl = leftStage?.querySelector(sel);
+    const rightEl = rightStage?.querySelector(sel);
+    const target = leftEl || rightEl;
+    if (!target || !leftStage) return;
+    const top = target.offsetTop - leftStage.offsetTop - 8;
+    leftStage.scrollTop = Math.max(0, top);
+    if (rightStage) rightStage.scrollTop = Math.max(0, top);
+}
+
+function applyChangedOnlyFilter(root, leftStage, rightStage, showChangedOnly) {
+    root.classList.toggle('drr-show-changed-only', showChangedOnly);
+    const rows = new Set(root.__drrChangedRows || []);
+    [leftStage, rightStage].forEach((stage) => {
+        if (!stage) return;
+        stage.querySelectorAll('[data-compare-row]').forEach((el) => {
+            const row = Number(el.dataset.compareRow);
+            const changed = rows.has(row);
+            el.classList.toggle('drr-page-unchanged', !changed);
+            el.style.display = showChangedOnly && !changed ? 'none' : '';
+        });
+    });
+}
+
+function setupChangeNavigator(root, analysis, alignment, leftStage, rightStage, fullyRendered = false) {
+    const section = root.closest('.drr-section') || root.parentElement;
+    if (!section) return;
+
+    let nav = section.querySelector('[data-drr-change-nav]');
+    if (!nav) {
+        nav = document.createElement('div');
+        nav.className = 'drr-change-nav';
+        nav.dataset.drrChangeNav = '1';
+        section.insertBefore(nav, root);
+    }
+
+    root.__drrChangedRows = analysis.changedRows;
+    root.__drrChangeStats = analysis.stats;
+
+    const { changedRows, stats } = analysis;
+    if (stats.total < 4 || changedRows.length === 0) {
+        nav.style.display = 'none';
+        return;
+    }
+
+    nav.style.display = '';
+    const defaultHide = fullyRendered
+        && stats.total >= LARGE_DOC_PAGES
+        && changedRows.length < stats.total * 0.85;
+    let cursor = 0;
+    let showChangedOnly = root.__drrShowChangedOnly ?? defaultHide;
+
+    const summaryParts = [];
+    if (stats.edited) summaryParts.push(`${stats.edited} edited`);
+    if (stats.added) summaryParts.push(`${stats.added} new page${stats.added > 1 ? 's' : ''}`);
+    if (stats.removed) summaryParts.push(`${stats.removed} removed`);
+    const summaryText = summaryParts.length
+        ? summaryParts.join(' · ')
+        : `${stats.changed} page${stats.changed > 1 ? 's' : ''} with changes`;
+
+    nav.innerHTML = '';
+
+    const summary = document.createElement('div');
+    summary.className = 'drr-change-nav-summary';
+    summary.innerHTML = `<strong>${stats.changed}</strong> of ${stats.total} pages differ`
+        + `<span class="drr-change-nav-detail">${summaryText}</span>`;
+
+    const controls = document.createElement('div');
+    controls.className = 'drr-change-nav-controls';
+
+    const toggleLabel = document.createElement('label');
+    toggleLabel.className = 'drr-change-nav-toggle';
+    const toggle = document.createElement('input');
+    toggle.type = 'checkbox';
+    toggle.checked = showChangedOnly;
+    toggleLabel.appendChild(toggle);
+    toggleLabel.append(' Show changed pages only');
+
+    const prevBtn = document.createElement('button');
+    prevBtn.type = 'button';
+    prevBtn.className = 'drr-change-nav-btn';
+    prevBtn.innerHTML = '<i class="fa-solid fa-chevron-up"></i> Prev change';
+
+    const jump = document.createElement('select');
+    jump.className = 'drr-change-nav-jump';
+    changedRows.forEach((rowIdx) => {
+        const slot = alignment[rowIdx];
+        const opt = document.createElement('option');
+        opt.value = String(rowIdx);
+        const pageNo = slot?.leftPage || slot?.rightPage || rowIdx + 1;
+        const kind = slot?.type === 'added' ? ' (new)' : slot?.type === 'removed' ? ' (removed)' : '';
+        opt.textContent = `Page ${pageNo}${kind}`;
+        jump.appendChild(opt);
+    });
+
+    const nextBtn = document.createElement('button');
+    nextBtn.type = 'button';
+    nextBtn.className = 'drr-change-nav-btn';
+    nextBtn.innerHTML = 'Next change <i class="fa-solid fa-chevron-down"></i>';
+
+    controls.appendChild(toggleLabel);
+    controls.appendChild(prevBtn);
+    controls.appendChild(jump);
+    controls.appendChild(nextBtn);
+
+    nav.appendChild(summary);
+    nav.appendChild(controls);
+
+    const goTo = (index) => {
+        if (!changedRows.length) return;
+        cursor = ((index % changedRows.length) + changedRows.length) % changedRows.length;
+        const row = changedRows[cursor];
+        jump.value = String(row);
+        const rendered = leftStage?.querySelector(`[data-compare-row="${row}"]`);
+        if (!rendered) return;
+        scrollToChangeRow(leftStage, rightStage, row);
+    };
+
+    toggle.addEventListener('change', () => {
+        showChangedOnly = toggle.checked;
+        root.__drrShowChangedOnly = showChangedOnly;
+        applyChangedOnlyFilter(root, leftStage, rightStage, showChangedOnly);
+    });
+
+    prevBtn.addEventListener('click', () => goTo(cursor - 1));
+    nextBtn.addEventListener('click', () => goTo(cursor + 1));
+    jump.addEventListener('change', () => {
+        const idx = changedRows.indexOf(Number(jump.value));
+        if (idx >= 0) goTo(idx);
+    });
+
+    applyChangedOnlyFilter(root, leftStage, rightStage, showChangedOnly);
+
+    if (changedRows.length && fullyRendered) {
+        requestAnimationFrame(() => goTo(0));
+    }
 }
 
 function scrollToCompareStart(leftStage, rightStage) {
@@ -1127,6 +1464,18 @@ async function paintCached(root, cached, cacheKey = '') {
 
     if (leftNote) leftNote.textContent = cached.leftNote || '';
     if (rightNote) rightNote.textContent = cached.rightNote || '';
+
+    if (cached.changedRows?.length && cached.alignment?.length) {
+        const analysis = {
+            changedRows: cached.changedRows,
+            stats: cached.changeStats || {
+                changed: cached.changedRows.length,
+                total: cached.alignment.length,
+            },
+        };
+        setupChangeNavigator(root, analysis, cached.alignment, leftStage, rightStage);
+    }
+
     return true;
 }
 
@@ -1275,14 +1624,22 @@ export async function runPdfCompare(root, options = {}) {
             return;
         }
 
-        setStatus(root, 'Reading text (OCR scanned pages if needed)…', 'loading');
+        setStatus(root, 'Scanning for changed pages…', 'loading');
+        const unchangedPairs = await findUnchangedPagePairs(leftDoc, rightDoc, (cur, tot) => {
+            setStatus(root, `Scanning pages ${cur}/${tot} for changes…`, 'loading');
+        });
+        const skipLeft = new Set(unchangedPairs.map((p) => p.leftPage));
+        const skipRight = new Set(unchangedPairs.map((p) => p.rightPage));
+        const skipCount = unchangedPairs.length;
+
+        setStatus(root, 'Reading text (OCR only on changed pages)…', 'loading');
         showStagePlaceholder(leftStage, 'Reading previous PDF…');
         showStagePlaceholder(rightStage, 'Reading latest PDF…');
 
         const statusFn = (t, kind = 'loading') => setStatus(root, t, kind);
         const [leftPages, rightPages] = await Promise.all([
-            ensurePageTexts(leftDoc, leftMeta, statusFn),
-            ensurePageTexts(rightDoc, rightMeta, statusFn),
+            ensurePageTexts(leftDoc, leftMeta, statusFn, { unchangedPages: skipLeft }),
+            ensurePageTexts(rightDoc, rightMeta, statusFn, { unchangedPages: skipRight }),
         ]);
         if (root.__drrAbort) {
             setStatus(root, 'Comparison cancelled.', 'info');
@@ -1322,15 +1679,17 @@ export async function runPdfCompare(root, options = {}) {
         }
 
         const { alignment, mode: alignMode, similarity: docSimilarity } = alignPagesSmart(leftPages, rightPages);
+        const changeAnalysis = analyzeAlignmentChanges(alignment);
         const width = Math.max(leftStage?.clientWidth || rightStage?.clientWidth || 480, 280);
 
         const leftBlobs = [];
         const rightBlobs = [];
         let ocrUsed = false;
-        let removedCount = 0;
-        let addedCount = 0;
+        const removedCount = changeAnalysis.stats.removed;
+        const addedCount = changeAnalysis.stats.added;
         let renderErrors = 0;
-        let highlightRows = 0;
+        let highlightRows = changeAnalysis.stats.changed;
+        const changedRowSet = new Set(changeAnalysis.changedRows);
 
         const matchCount = countAlignmentMatches(alignment);
 
@@ -1372,21 +1731,10 @@ export async function runPdfCompare(root, options = {}) {
                 if (root.__drrAbort) return;
                 const slot = alignment[i];
 
-                let stats = null;
-                let leftMarks = [];
-                let rightMarks = [];
-
-                if (slot.type === 'match') {
-                    stats = wordDiffMarks(slot.left.tokens || [], slot.right.tokens || [], slot);
-                    leftMarks = stats.leftMarks;
-                    rightMarks = stats.rightMarks;
-                } else if (slot.type === 'removed') {
-                    removedCount++;
-                    leftMarks = allTokenMarks(ensureHighlightTokens(slot.left?.tokens || []), 'del');
-                } else {
-                    addedCount++;
-                    rightMarks = allTokenMarks(ensureHighlightTokens(slot.right?.tokens || []), 'ins');
-                }
+                const stats = changeAnalysis.rowStats[i];
+                const leftMarks = stats?.leftMarks || [];
+                const rightMarks = stats?.rightMarks || [];
+                const isChanged = changedRowSet.has(i);
 
                 if (slot.left?.usedOcr || slot.right?.usedOcr) ocrUsed = true;
 
@@ -1431,6 +1779,8 @@ export async function runPdfCompare(root, options = {}) {
 
                 if (leftStage) {
                     if (leftWrap && slot.leftPage) {
+                        leftWrap.classList.toggle('drr-page-changed', isChanged);
+                        leftWrap.classList.toggle('drr-page-unchanged', !isChanged);
                         leftWrap.prepend(cap.cloneNode(true));
                         if (sumLeft.textContent) leftWrap.appendChild(sumLeft);
                         leftWrap.dataset.compareRow = String(i);
@@ -1450,6 +1800,8 @@ export async function runPdfCompare(root, options = {}) {
 
                 if (rightStage) {
                     if (rightWrap && slot.rightPage) {
+                        rightWrap.classList.toggle('drr-page-changed', isChanged);
+                        rightWrap.classList.toggle('drr-page-unchanged', !isChanged);
                         rightWrap.prepend(cap);
                         if (sumRight.textContent) rightWrap.appendChild(sumRight);
                         rightWrap.dataset.compareRow = String(i);
@@ -1468,10 +1820,6 @@ export async function runPdfCompare(root, options = {}) {
                 }
 
                 balanceCompareRow(leftRowWrap, rightRowWrap);
-
-                if (leftMarks.length || rightMarks.length) {
-                    highlightRows++;
-                }
             }
 
             setupCompareScrollSync(leftStage, rightStage);
@@ -1483,20 +1831,27 @@ export async function runPdfCompare(root, options = {}) {
             loadMoreBtn.style.display = offset < total ? 'inline-flex' : 'none';
             loadMoreBtn.textContent = `Load more pages (${offset}/${total})`;
 
+            if (!root.__drrNavReady || offset >= total) {
+                setupChangeNavigator(root, changeAnalysis, alignment, leftStage, rightStage, offset >= total);
+                root.__drrNavReady = true;
+            }
+
             const ocrWarnings = [
                 ...(leftPages.__ocrWarnings || []),
                 ...(rightPages.__ocrWarnings || []),
             ];
 
             const leftMsg = [
-                `${matchCount} page pairs`,
+                `${changeAnalysis.stats.changed} page${changeAnalysis.stats.changed === 1 ? '' : 's'} with changes`,
+                skipCount ? `${skipCount} unchanged (OCR skipped)` : '',
                 removedCount ? `${removedCount} previous-only` : '',
-                ocrUsed ? 'OCR used on some pages' : '',
+                ocrUsed ? 'OCR on changed pages' : '',
             ].filter(Boolean).join(' · ');
             const rightMsg = [
-                `${matchCount} page pairs`,
+                `${changeAnalysis.stats.changed} page${changeAnalysis.stats.changed === 1 ? '' : 's'} with changes`,
+                skipCount ? `${skipCount} unchanged (OCR skipped)` : '',
                 addedCount ? `${addedCount} current-only` : '',
-                ocrUsed ? 'OCR used on some pages' : '',
+                ocrUsed ? 'OCR on changed pages' : '',
             ].filter(Boolean).join(' · ');
             if (leftNote) leftNote.textContent = leftMsg;
             if (rightNote) rightNote.textContent = rightMsg;
@@ -1547,14 +1902,15 @@ export async function runPdfCompare(root, options = {}) {
                         totalPages: total,
                         version: CACHE_VERSION,
                         hasHighlights: highlightRows > 0,
+                        changedRows: changeAnalysis.changedRows,
+                        changeStats: changeAnalysis.stats,
                     });
                     if (saved) {
                         setStatus(
                             root,
-                            `Comparison complete · saved locally · ${matchCount} page pairs`
-                                + (removedCount ? `, ${removedCount} previous-only` : '')
-                                + (addedCount ? `, ${addedCount} current-only` : '')
-                                + '.',
+                            `Comparison complete · ${changeAnalysis.stats.changed} page${changeAnalysis.stats.changed === 1 ? '' : 's'} with changes`
+                                + (skipCount ? ` · ${skipCount} unchanged pages skipped OCR` : '')
+                                + ' · saved locally.',
                             'success'
                         );
                         return;
@@ -1591,10 +1947,11 @@ export async function runPdfCompare(root, options = {}) {
                 }
                 setStatus(
                     root,
-                    `Comparison complete · ${matchCount} page pairs`
-                        + (removedCount ? `, ${removedCount} previous-only` : '')
-                        + (addedCount ? `, ${addedCount} current-only` : '')
-                        + '.',
+                    `Comparison complete · ${changeAnalysis.stats.changed} page${changeAnalysis.stats.changed === 1 ? '' : 's'} with changes`
+                        + (skipCount ? ` · ${skipCount} unchanged pages skipped OCR` : '')
+                        + (removedCount ? ` · ${removedCount} previous-only` : '')
+                        + (addedCount ? ` · ${addedCount} current-only` : '')
+                        + '. Use Prev/Next change to jump between edits.',
                     'success'
                 );
             }
@@ -1623,5 +1980,5 @@ export async function runPdfCompare(root, options = {}) {
 }
 
 export async function buildCompareCacheKey(leftId, rightId) {
-    return 'drr-v14:' + await hashString(String(leftId) + '||' + String(rightId));
+    return 'drr-v15:' + await hashString(String(leftId) + '||' + String(rightId));
 }

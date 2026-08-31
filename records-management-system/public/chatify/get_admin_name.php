@@ -19,7 +19,7 @@ if ($_current_account_id <= 0) {
 
 try {
     $pdo  = Database::getConnection();
-    $stmt = $pdo->prepare('SELECT first_name, last_name FROM account_details WHERE account_id = ? LIMIT 1');
+    $stmt = $pdo->prepare('SELECT first_name, last_name FROM ' . Database::t('account_details') . ' WHERE account_id = ? LIMIT 1');
     $stmt->execute([$_current_account_id]);
     $row = $stmt->fetch();
 

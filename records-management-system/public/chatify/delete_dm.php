@@ -75,7 +75,7 @@ if (empty($convId)) {
     if ($targetId <= 0 && !empty($_POST['target_user'])) {
         try {
             $pdo  = Database::getConnection();
-            $stmt = $pdo->prepare('SELECT account_id FROM account_details WHERE email = :e LIMIT 1');
+            $stmt = $pdo->prepare('SELECT account_id FROM ' . Database::t('account_details') . ' WHERE email = :e LIMIT 1');
             $stmt->execute([':e' => trim($_POST['target_user'])]);
             $row = $stmt->fetch();
             if ($row) $targetId = (int) $row['account_id'];

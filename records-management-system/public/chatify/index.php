@@ -76,7 +76,7 @@ $_SESSION['is_admin'] = $is_admin;
 $verified_account_ids = [];
 try {
     $pdo  = Database::getConnection();
-    $stmt = $pdo->query('SELECT account_id FROM account_details WHERE is_chatify_verified = TRUE');
+    $stmt = $pdo->query('SELECT account_id FROM ' . Database::t('account_details') . ' WHERE is_chatify_verified = TRUE');
     $rows = $stmt->fetchAll(PDO::FETCH_COLUMN);
     $verified_account_ids = array_map('intval', $rows);
 } catch (Throwable $e) {
@@ -89,7 +89,7 @@ try {
 // value can otherwise go stale until they log out and log back in.
 try {
     $pdo  = Database::getConnection();
-    $stmt = $pdo->prepare('SELECT first_name, last_name, avatar_url FROM account_details WHERE account_id = ? LIMIT 1');
+    $stmt = $pdo->prepare('SELECT first_name, last_name, avatar_url FROM ' . Database::t('account_details') . ' WHERE account_id = ? LIMIT 1');
     $stmt->execute([$_current_account_id]);
     $ownRow = $stmt->fetch();
     if ($ownRow) {
@@ -113,7 +113,7 @@ $user_comm_settings = [
 ];
 try {
     $pdo = Database::getConnection();
-    $stmt = $pdo->prepare('SELECT allow_typing_preview, allow_see_typing_preview FROM account_details WHERE account_id = ? LIMIT 1');
+    $stmt = $pdo->prepare('SELECT allow_typing_preview, allow_see_typing_preview FROM ' . Database::t('account_details') . ' WHERE account_id = ? LIMIT 1');
     $stmt->execute([$_current_account_id]);
     $cRow = $stmt->fetch();
     if ($cRow) {

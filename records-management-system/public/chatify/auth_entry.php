@@ -8,7 +8,7 @@
 //
 // This file:
 //   1. Validates the HMAC token (timing-safe, expiry checked)
-//   2. Fetches the user's row from account_details
+//   2. Fetches the user's row from ' . Database::t('account_details') . '
 //   3. Creates a PHP session with account_id, names, office_id
 //   4. Redirects to index.php (the chat UI)
 //
@@ -47,7 +47,7 @@ if (!Auth::validateToken($accountId, $expires, $token)) {
 }
 
 // ------------------------------------------------------------------
-// Fetch user from account_details
+// Fetch user from ' . Database::t('account_details') . '
 // ------------------------------------------------------------------
 try {
     $pdo  = Database::getConnection();
@@ -55,7 +55,7 @@ try {
         'SELECT account_id, first_name, last_name, middle_name, office_id,
                 email, contact_number, is_currently_online, last_online_time,
                 avatar_url
-         FROM account_details
+         FROM ' . Database::t('account_details') . '
          WHERE account_id = :id
          LIMIT 1'
     );
@@ -82,7 +82,7 @@ Auth::createSession($userRow);
 // ------------------------------------------------------------------
 try {
     $upd = $pdo->prepare(
-        'UPDATE account_details
+        'UPDATE ' . Database::t('account_details') . '
             SET is_currently_online = 1,
                 last_online_time    = :now
           WHERE account_id = :id'

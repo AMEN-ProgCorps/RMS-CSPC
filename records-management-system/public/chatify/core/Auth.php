@@ -43,7 +43,7 @@ class Auth
             if (!isset($_SESSION['chat_authenticated']) || $_SESSION['chat_authenticated'] !== true || (int)$_SESSION['account_id'] !== $laravelUserId) {
                 try {
                     $pdo = Database::getConnection();
-                    $stmt = $pdo->prepare('SELECT account_id, first_name, last_name, email, office_id, avatar_url FROM account_details WHERE account_id = :id LIMIT 1');
+                    $stmt = $pdo->prepare('SELECT account_id, first_name, last_name, email, office_id, avatar_url FROM ' . Database::t('account_details') . ' WHERE account_id = :id LIMIT 1');
                     $stmt->execute([':id' => $laravelUserId]);
                     $userRow = $stmt->fetch();
                     if ($userRow) {
@@ -203,7 +203,7 @@ class Auth
         // Update is_currently_online status in database
         try {
             $pdo = Database::getConnection();
-            $stmt = $pdo->prepare('UPDATE account_details SET is_currently_online = 1, last_online_time = :now WHERE account_id = :id');
+            $stmt = $pdo->prepare('UPDATE ' . Database::t('account_details') . ' SET is_currently_online = 1, last_online_time = :now WHERE account_id = :id');
             $stmt->execute([
                 ':now' => gmdate('Y-m-d H:i:s'),
                 ':id'  => (int) $userRow['account_id']
@@ -249,7 +249,7 @@ class Auth
         }
         try {
             $pdo = Database::getConnection();
-            $stmt = $pdo->prepare('UPDATE account_details SET is_currently_online = 0, last_online_time = :now WHERE account_id = :id');
+            $stmt = $pdo->prepare('UPDATE ' . Database::t('account_details') . ' SET is_currently_online = 0, last_online_time = :now WHERE account_id = :id');
             $stmt->execute([
                 ':now' => gmdate('Y-m-d H:i:s'),
                 ':id'  => $accountId
@@ -268,7 +268,7 @@ class Auth
         if ($accountId) {
             try {
                 $pdo = Database::getConnection();
-                $stmt = $pdo->prepare('UPDATE account_details SET is_currently_online = 0, last_online_time = :now WHERE account_id = :id');
+                $stmt = $pdo->prepare('UPDATE ' . Database::t('account_details') . ' SET is_currently_online = 0, last_online_time = :now WHERE account_id = :id');
                 $stmt->execute([
                     ':now' => gmdate('Y-m-d H:i:s'),
                     ':id'  => $accountId

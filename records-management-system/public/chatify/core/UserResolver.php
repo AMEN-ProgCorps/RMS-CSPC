@@ -1,6 +1,6 @@
 <?php
 // =============================================================================
-// core/UserResolver.php — Resolves account_id → display data from account_details
+// core/UserResolver.php — Resolves account_id → display data from ' . Database::t('account_details') . '
 // =============================================================================
 // Caches all users in a single query per request to avoid N+1 DB lookups.
 // The cache lives for the duration of the PHP request only (no persistent cache).
@@ -36,7 +36,7 @@ class UserResolver
         try {
             $pdo = Database::getConnection();
             $stmt = $pdo->prepare(
-                'SELECT account_id FROM account_details
+                'SELECT account_id FROM ' . Database::t('account_details') . '
                  WHERE LOWER(email) = LOWER(:val)
                     OR LOWER(first_name || \' \' || last_name) = LOWER(:val)
                     OR account_id::text = :val
@@ -135,7 +135,7 @@ class UserResolver
     }
 
     /**
-     * Return all users from account_details EXCEPT the given account_id.
+     * Return all users from ' . Database::t('account_details') . ' EXCEPT the given account_id.
      * Result is alphabetically sorted by last_name, first_name.
      *
      * @return array<int, array> Indexed array of user info arrays.
@@ -225,8 +225,8 @@ class UserResolver
                         COALESCE(ad.allow_typing_preview, TRUE) AS allow_typing_preview,
                         COALESCE(ad.allow_see_typing_preview, TRUE) AS allow_see_typing_preview,
                         COALESCE(ad.is_chatify_verified, FALSE) AS is_chatify_verified
-                 FROM account_details ad
-                 LEFT JOIN office o ON o.id = ad.office_id
+                 FROM ' . Database::t('account_details') . ' ad
+                 LEFT JOIN ' . Database::t('office') . ' o ON o.id = ad.office_id
                  WHERE ad.account_id IN ($placeholders)"
             );
             $stmt->execute(array_values($missing));
@@ -320,8 +320,8 @@ class UserResolver
                         ad.last_online_time,
                         ad.avatar_url,
                         COALESCE(ad.is_chatify_verified, FALSE) AS is_chatify_verified
-                 FROM account_details ad
-                 LEFT JOIN office o ON o.id = ad.office_id
+                 FROM ' . Database::t('account_details') . ' ad
+                 LEFT JOIN ' . Database::t('office') . ' o ON o.id = ad.office_id
                  WHERE (:exclude = 0 OR ad.account_id != :exclude)
                    AND (
                          ad.first_name ILIKE :q1
@@ -455,8 +455,8 @@ class UserResolver
                         COALESCE(ad.allow_typing_preview, TRUE) AS allow_typing_preview,
                         COALESCE(ad.allow_see_typing_preview, TRUE) AS allow_see_typing_preview,
                         COALESCE(ad.is_chatify_verified, FALSE) AS is_chatify_verified
-                 FROM account_details ad
-                 LEFT JOIN office o ON o.id = ad.office_id
+                 FROM ' . Database::t('account_details') . ' ad
+                 LEFT JOIN ' . Database::t('office') . ' o ON o.id = ad.office_id
                  WHERE ad.account_id = :id
                  LIMIT 1'
             );
@@ -489,8 +489,8 @@ class UserResolver
                         COALESCE(ad.allow_typing_preview, TRUE) AS allow_typing_preview,
                         COALESCE(ad.allow_see_typing_preview, TRUE) AS allow_see_typing_preview,
                         COALESCE(ad.is_chatify_verified, FALSE) AS is_chatify_verified
-                 FROM account_details ad
-                 LEFT JOIN office o ON o.id = ad.office_id
+                 FROM ' . Database::t('account_details') . ' ad
+                 LEFT JOIN ' . Database::t('office') . ' o ON o.id = ad.office_id
                  ORDER BY ad.last_name, ad.first_name'
             );
             while ($row = $stmt->fetch()) {

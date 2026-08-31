@@ -36,7 +36,7 @@ if ($targetAccountId <= 0) {
 try {
     $pdo  = Database::getConnection();
     $stmt = $pdo->prepare(
-        'UPDATE account_details SET is_chatify_verified = :v WHERE account_id = :id'
+        'UPDATE ' . Database::t('account_details') . ' SET is_chatify_verified = :v WHERE account_id = :id'
     );
     $stmt->bindValue(':v',   $isVerified, PDO::PARAM_BOOL);
     $stmt->bindValue(':id',  $targetAccountId, PDO::PARAM_INT);

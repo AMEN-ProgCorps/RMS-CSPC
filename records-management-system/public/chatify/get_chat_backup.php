@@ -49,10 +49,10 @@ try {
                     ad_recv.last_name      AS receiver_last,
                     acc_recv.username      AS receiver_username
                FROM chatify_chat_backup b
-               LEFT JOIN account_details ad_sender   ON b.sender_id   = ad_sender.account_id
-               LEFT JOIN account         acc_sender   ON b.sender_id   = acc_sender.id
-               LEFT JOIN account_details ad_recv      ON b.receiver_id = ad_recv.account_id
-               LEFT JOIN account         acc_recv      ON b.receiver_id = acc_recv.id';
+               LEFT JOIN ' . Database::t('account_details') . ' ad_sender   ON b.sender_id   = ad_sender.account_id
+               LEFT JOIN ' . Database::t('account') . '         acc_sender   ON b.sender_id   = acc_sender.id
+               LEFT JOIN ' . Database::t('account_details') . ' ad_recv      ON b.receiver_id = ad_recv.account_id
+               LEFT JOIN ' . Database::t('account') . '         acc_recv      ON b.receiver_id = acc_recv.id';
     $params = [];
 
     if ($archived) {

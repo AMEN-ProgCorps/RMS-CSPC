@@ -649,16 +649,26 @@
     border-color: #334155 !important;
 }
 
+[data-theme="dark"] .log-timestamp {
+    color: #f8fafc !important;
+}
+
 [data-theme="dark"] .log-timestamp .log-date {
     color: #f8fafc !important;
 }
 
 [data-theme="dark"] .log-timestamp .log-time {
-    color: #94a3b8 !important;
+    color: #cbd5e1 !important;
 }
 
 [data-theme="dark"] .log-timestamp .time-ago {
-    color: #64748b !important;
+    color: #94a3b8 !important;
+}
+
+[data-theme="dark"] .subsystem-badge {
+    background: rgba(37, 99, 235, 0.15) !important;
+    color: #60a5fa !important;
+    border: 1px solid rgba(37, 99, 235, 0.3) !important;
 }
 
 [data-theme="dark"] .empty-state h3 {

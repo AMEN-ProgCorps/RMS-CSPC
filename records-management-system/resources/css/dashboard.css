@@ -187,7 +187,7 @@ section{
     display: flex;
     height: calc(100% - 70px);
     width: 100%;
-    --nav-width: 345px;
+    --nav-width: 300px;
 }
     .navigation{
         user-select: none;
@@ -209,41 +209,46 @@ section{
             height: 100%;
             box-sizing: border-box;
             background-color: #FFFFFF;
-            padding: 20px;
+            padding: 8px;
             display: flex;
             flex-direction: column;
-            gap: 20px;
+            gap: 4px;
             overflow: hidden;
             transition: padding 0.35s cubic-bezier(0.4, 0, 0.2, 1), background-color 0.35s cubic-bezier(0.4, 0, 0.2, 1), box-shadow 0.35s cubic-bezier(0.4, 0, 0.2, 1);
         }
         .nav .nav-header-container{
             width: 100%;
             display: flex;
-            align-items: flex-start;
+            align-items: center;
             gap: 10px;
+            padding: 8px;
             flex-shrink: 0;
             transition: gap 0.35s cubic-bezier(0.4, 0, 0.2, 1);
+            min-height: 48px;
+            box-sizing: border-box;
         }
             .nav-header-container .toggle-btn{
                 position: relative;
-                width: 30px;
-                height: 30px;
+                width: 32px;
+                height: 32px;
+                min-width: 32px;
                 flex-shrink: 0;
-                font-size: 20px;
+                font-size: 18px;
                 cursor: pointer;
                 display: flex;
                 align-items: center;
                 justify-content: center;
-                margin-top: 2px;
+                border-radius: 6px;
             }
                 .nav-header-container .toggle-btn img{
                     position: absolute;
                     left: 0;
-                    height: 40px;
+                    height: 24px;
+                    width: 24px;
                     transition: transform 0.35s cubic-bezier(0.4, 0, 0.2, 1), left 0.35s cubic-bezier(0.4, 0, 0.2, 1);
                 }
                 .nav-header-container .toggle-btn:hover img{
-                    left: 4px;
+                    left: 2px;
                 }
             .nav-header-container .subsystem-indicator{
                 position: relative;
@@ -252,7 +257,7 @@ section{
                 gap: 2px;
                 flex: 1;
                 min-width: 0px;
-                max-width: 280px;
+                max-width: 240px;
                 white-space: nowrap;
                 opacity: 1;
                 transform: translateX(0);
@@ -262,29 +267,30 @@ section{
                     position: relative;
                     width: 100%;
                     white-space: nowrap;
-                    font-family: Roboto, sans-serif;
+                    font-family: 'Inter', system-ui, sans-serif;
                     font-weight: 600;
-                    font-style: SemiBold;
-                    font-size: 17px;
-                    line-height: 1.25;
+                    font-size: 0.82rem;
+                    line-height: 1.2;
                     letter-spacing: 0%;
                     color: #043899;
                     overflow: hidden;
                     text-overflow: ellipsis;
                 }
                 .subsystem-indicator .subsystem-version{
-                    font-family: Roboto, sans-serif;
-                    font-weight: 400;
-                    font-size: 13px;
-                    line-height: 1.25;
-                    color: #646464;
+                    font-family: 'Inter', system-ui, sans-serif;
+                    font-weight: 500;
+                    font-size: 0.68rem;
+                    line-height: 1.2;
+                    color: #64748b;
                     white-space: nowrap;
                     overflow: hidden;
                     text-overflow: ellipsis;
                 }
         .nav hr{
-            color: #A2A2A2;
-            width: 100%;
+            border: none;
+            border-top: 1px solid #e2e8f0;
+            width: calc(100% - 16px);
+            margin: 2px 8px 6px 8px;
             flex-shrink: 0;
         }
         .nav .nav-list-container{
@@ -292,15 +298,15 @@ section{
             min-height: 0;
             display: flex;
             flex-direction: column;
-            gap: 20px;
+            gap: 2px;
             overflow-y: auto;
             overflow-x: hidden;
-            padding-bottom: 15px;
+            padding: 0 4px 10px 4px;
         }
             .nav-list-container .button-section-container{
                 display: flex;
                 flex-direction: column;
-                gap: 10px;
+                gap: 2px;
             }
                 .button-section-container .button-container{
                     position: relative;
@@ -313,8 +319,9 @@ section{
                     width: 100%;
                     text-align: left;
                     border: none;
-                    border-radius: 10px;
-                    padding: 8px 12px;
+                    border-radius: 8px;
+                    padding: 8px 10px;
+                    min-height: 38px;
                     box-sizing: border-box;
                     transition: background-color 0.2s ease, transform 0.2s ease, gap 0.35s cubic-bezier(0.4, 0, 0.2, 1);
                 }
@@ -323,21 +330,22 @@ section{
                 }
                 .button-container .button-icon{
                     position: relative;
-                    width: 30px;
-                    height: 30px;
+                    width: 32px;
+                    height: 32px;
+                    min-width: 32px;
                     flex-shrink: 0;
-                    font-size: 20px;
-                    padding: 3px;
                     display: flex;
                     justify-content: center;
                     align-items: center;
                 }
                     .button-container .button-icon svg{
-                        width: 100%;
-                        height: 100%;
-                        position: absolute;
-                        top: 0;
-                        left: 0;
+                        width: 18px !important;
+                        height: 18px !important;
+                        max-width: 18px !important;
+                        max-height: 18px !important;
+                        position: relative !important;
+                        top: auto !important;
+                        left: auto !important;
                         transition: transform 0.3s ease;
                     }
                     .button-container .button-icon:hover svg{
@@ -346,11 +354,10 @@ section{
                 .button-container .button-label{
                     display: flex;
                     align-items: center;
-                    font-family: Roboto, sans-serif;
-                    font-weight: 600;
-                    font-style: Regular;
-                    font-size: 15px;
-                    line-height: 117%;
+                    font-family: 'Inter', system-ui, sans-serif;
+                    font-weight: 500;
+                    font-size: 0.875rem;
+                    line-height: 1.25;
                     letter-spacing: 0%;
                     white-space: nowrap;
                     flex: 1;
@@ -490,7 +497,7 @@ section{
     .nav-tooltip {
         display: none;
         position: absolute;
-        left: 80px;
+        left: 68px;
         top: 50%;
         transform: translateY(-50%) translateX(-4px);
         background-color: #1e293b;
@@ -520,12 +527,12 @@ section{
 
     /* Expanded Navigation State (.navigation.imup) */
     .navigation.imup .nav{
-        padding: 20px;
+        padding: 16px 14px;
         background-color: #FFFFFF;
-        box-shadow: rgba(0, 0, 0, 0.35) 0px 5px 15px;
+        box-shadow: rgba(0, 0, 0, 0.12) 0px 4px 16px;
     }
     .navigation.imup .nav .nav-list-container::-webkit-scrollbar {
-        width: 6px;
+        width: 4px;
     }
     .navigation.imup .nav .nav-list-container::-webkit-scrollbar-track {
         background: transparent;
@@ -540,17 +547,21 @@ section{
 
     /* Collapsed Navigation State (.navigation.imdown) */
     .navigation.imdown {
-        --nav-width: 80px;
+        --nav-width: 68px;
         overflow: visible !important;
         z-index: 100 !important;
     }
     .navigation.imdown .nav {
-        padding: 20px 15px;
+        padding: 16px 8px;
         z-index: 100 !important;
         overflow: visible !important;
     }
     .navigation.imdown .nav .nav-header-container {
         gap: 0 !important;
+        justify-content: center !important;
+    }
+    .navigation.imdown .nav .nav-header-container .toggle-btn {
+        margin: 0 auto;
     }
     .navigation.imdown .nav .nav-header-container .subsystem-indicator,
     .navigation.imdown .nav .nav-header-container .subsystem-indicator * {
@@ -569,6 +580,8 @@ section{
         gap: 0 !important;
         position: relative !important;
         overflow: visible !important;
+        justify-content: center !important;
+        padding: 6px 0 !important;
     }
     .navigation.imdown .nav .nav-list-container .button-section-container .button-container .button-label,
     .navigation.imdown .nav .nav-list-container .button-section-container .button-container .button-label *,
@@ -626,7 +639,7 @@ section{
     }
     .navigation.imdown .button-container:hover {
         background-color: #EEF2FF !important;
-        border-radius: 10px !important;
+        border-radius: 8px !important;
     }
     .navigation.imdown .button-container:hover .button-icon svg path {
         fill: #043899 !important;
@@ -1150,7 +1163,7 @@ section{
 
 [data-theme="dark"] .button-container:hover {
     background-color: #1e293b !important;
-    border-radius: 10px !important;
+    border-radius: 8px !important;
 }
 
 [data-theme="dark"] .button-container:hover .button-label,
@@ -1173,7 +1186,7 @@ section{
 [data-theme="dark"] .button-container.force-active,
 [data-theme="dark"] .button-container.active {
     background-color: rgba(37, 99, 235, 0.22) !important;
-    border-radius: 10px !important;
+    border-radius: 8px !important;
 }
 
 [data-theme="dark"] .button-section-container.show > .button-container .button-label,
@@ -1185,7 +1198,7 @@ section{
 [data-theme="dark"] .button-container.active .button-label,
 [data-theme="dark"] .button-container.active .button-label span {
     color: #60a5fa !important;
-    font-weight: 700 !important;
+    font-weight: 600 !important;
 }
 
 [data-theme="dark"] .button-section-container.show > .button-container .button-icon svg,
@@ -1463,6 +1476,73 @@ section{
 [data-theme="dark"] table tbody tr:hover td,
 [data-theme="dark"] .dts-table tbody tr:hover td {
     background-color: #1a253c !important;
+}
+
+/* Universal Timestamps, Dates, and Text Contrast in Dark Mode */
+[data-theme="dark"] .log-timestamp,
+[data-theme="dark"] .timestamp,
+[data-theme="dark"] .date-text,
+[data-theme="dark"] .time-text,
+[data-theme="dark"] .created-at,
+[data-theme="dark"] .updated-at,
+[data-theme="dark"] time {
+    color: #f8fafc !important;
+}
+
+[data-theme="dark"] .log-timestamp .log-date,
+[data-theme="dark"] .log-date {
+    color: #f8fafc !important;
+    font-weight: 600 !important;
+}
+
+[data-theme="dark"] .log-timestamp .log-time,
+[data-theme="dark"] .log-time {
+    color: #cbd5e1 !important;
+}
+
+[data-theme="dark"] .log-timestamp .time-ago,
+[data-theme="dark"] .time-ago,
+[data-theme="dark"] .timeago,
+[data-theme="dark"] .ago {
+    color: #94a3b8 !important;
+}
+
+[data-theme="dark"] .log-id {
+    color: #94a3b8 !important;
+    font-weight: 600 !important;
+}
+
+[data-theme="dark"] .text-muted,
+[data-theme="dark"] .text-secondary,
+[data-theme="dark"] .subtext,
+[data-theme="dark"] .caption,
+[data-theme="dark"] small {
+    color: #94a3b8 !important;
+}
+
+/* Fallback for hardcoded light/dark text colors */
+[data-theme="dark"] span[style*="color: #64748b"],
+[data-theme="dark"] span[style*="color:#64748b"],
+[data-theme="dark"] span[style*="color: #475569"],
+[data-theme="dark"] span[style*="color:#475569"],
+[data-theme="dark"] span[style*="color: #A2A2A2"],
+[data-theme="dark"] span[style*="color:#A2A2A2"],
+[data-theme="dark"] div[style*="color: #64748b"],
+[data-theme="dark"] div[style*="color:#64748b"],
+[data-theme="dark"] p[style*="color: #64748b"],
+[data-theme="dark"] p[style*="color:#64748b"] {
+    color: #94a3b8 !important;
+}
+
+[data-theme="dark"] span[style*="color: #0f172a"],
+[data-theme="dark"] span[style*="color:#0f172a"],
+[data-theme="dark"] span[style*="color: #1e293b"],
+[data-theme="dark"] span[style*="color:#1e293b"],
+[data-theme="dark"] div[style*="color: #0f172a"],
+[data-theme="dark"] div[style*="color:#0f172a"],
+[data-theme="dark"] div[style*="color: #1e293b"],
+[data-theme="dark"] div[style*="color:#1e293b"] {
+    color: #f8fafc !important;
 }
 
 [data-theme="dark"] .pagination,

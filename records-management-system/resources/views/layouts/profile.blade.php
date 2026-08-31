@@ -8,6 +8,20 @@
         (function() {
             var theme = localStorage.getItem('rms-theme') || '{{ auth()->user()?->theme() ?? "light" }}';
             document.documentElement.setAttribute('data-theme', theme);
+            var modalCloseKey = localStorage.getItem('rms-modal-close-key') || '{{ auth()->user()?->modalCloseKey() ?? "Escape" }}';
+            window.RMS_MODAL_CLOSE_KEY = modalCloseKey;
+            var sidebarToggleKey = localStorage.getItem('rms-sidebar-toggle-key') || '{{ auth()->user()?->sidebarToggleKey() ?? "" }}';
+            window.RMS_SIDEBAR_TOGGLE_KEY = sidebarToggleKey;
+            var actionToggleKey = localStorage.getItem('rms-action-toggle-key') || '{{ auth()->user()?->actionToggleKey() ?? "" }}';
+            window.RMS_ACTION_TOGGLE_KEY = actionToggleKey;
+            var notifToggleKey = localStorage.getItem('rms-notif-toggle-key') || '{{ auth()->user()?->notificationToggleKey() ?? "" }}';
+            window.RMS_NOTIF_TOGGLE_KEY = notifToggleKey;
+            var chatifyToggleKey = localStorage.getItem('rms-chatify-toggle-key') || '{{ auth()->user()?->chatifyToggleKey() ?? "" }}';
+            window.RMS_CHATIFY_TOGGLE_KEY = chatifyToggleKey;
+            var sidebar = localStorage.getItem('sidebarState');
+            if (sidebar && !document.cookie.includes('sidebarState=')) {
+                document.cookie = 'sidebarState=' + encodeURIComponent(sidebar) + '; path=/; max-age=31536000; SameSite=Lax';
+            }
         })();
         window.assetPaths = {
             toggleNavSection: "{{ asset('icons/toggle-nav-section.svg') }}",
@@ -48,7 +62,7 @@
             }
         }
     </style>
-
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css">
     @vite(['resources/css/dashboard.css', 'resources/css/notifications.css', 'resources/js/dashboard.js'])
     <title>CSPC - Profile Manager</title>
     @stack('styles')
@@ -68,12 +82,16 @@
         <span class="office_name">{{ auth()->user()?->details?->office?->office_name ?? 'Records and Freedom of Information Office' }}</span>
         <x-actions.dropdown />
     </header>
+    @php
+        $sidebarState = request()->cookie('sidebarState', 'imup');
+        $isCollapsed = $sidebarState === 'imdown';
+    @endphp
     <section>
-        <div class="navigation imup" id="navigation">
+        <div class="navigation {{ $isCollapsed ? 'imdown' : 'imup' }}" id="navigation">
             <div class="nav">
                 <div class="nav-header-container">
                     <div class="toggle-btn" onclick="toggleNavProperties()">
-                        <img id="nav-main-icon" src="{{ asset('icons/toggle-nav-default.svg') }}" alt="Toggle Icon">
+                        <img id="nav-main-icon" src="{{ asset($isCollapsed ? 'icons/toggle-nav-section.svg' : 'icons/toggle-nav-default.svg') }}" alt="Toggle Icon">
                     </div>
                     <div id="nav-contexts" class="subsystem-indicator">
                         <div class="subsystem-name">Profile Manager</div>
@@ -91,7 +109,7 @@
                 </div>
             </div>
         </div>
-        <div id="article-container" class="article-container imdown">
+        <div id="article-container" class="article-container {{ $isCollapsed ? 'imup' : 'imdown' }}">
             {{ $slot }}
         </div>
     </section>

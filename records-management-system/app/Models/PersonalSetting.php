@@ -18,6 +18,11 @@ class PersonalSetting extends Model
         'notification_sound_alert',
         'enable_top_tabs',
         'theme',
+        'modal_close_key',
+        'sidebar_toggle_key',
+        'action_toggle_key',
+        'notification_toggle_key',
+        'chatify_toggle_key',
     ];
 
     protected $casts = [

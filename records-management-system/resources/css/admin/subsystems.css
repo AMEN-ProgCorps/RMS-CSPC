@@ -169,3 +169,49 @@
     color: #f8fafc !important;
 }
 
+[data-theme="dark"] .alert-success {
+    background-color: rgba(16, 185, 129, 0.15) !important;
+    color: #34d399 !important;
+    border-color: rgba(16, 185, 129, 0.3) !important;
+}
+
+[data-theme="dark"] .alert-error {
+    background-color: rgba(239, 68, 68, 0.15) !important;
+    color: #f87171 !important;
+    border-color: rgba(239, 68, 68, 0.3) !important;
+}
+
+[data-theme="dark"] .btn-action-deactivate {
+    background: rgba(225, 29, 72, 0.15) !important;
+    color: #fb7185 !important;
+    border-color: rgba(225, 29, 72, 0.3) !important;
+}
+
+[data-theme="dark"] .btn-action-deactivate:hover:not(:disabled) {
+    background: rgba(225, 29, 72, 0.25) !important;
+    border-color: rgba(225, 29, 72, 0.5) !important;
+}
+
+[data-theme="dark"] .btn-action-deactivate:disabled {
+    background: rgba(148, 163, 184, 0.1) !important;
+    color: #64748b !important;
+    border-color: rgba(148, 163, 184, 0.2) !important;
+}
+
+[data-theme="dark"] .btn-action-activate {
+    background: rgba(22, 163, 74, 0.15) !important;
+    color: #4ade80 !important;
+    border-color: rgba(22, 163, 74, 0.3) !important;
+}
+
+[data-theme="dark"] .btn-action-activate:hover {
+    background: rgba(22, 163, 74, 0.25) !important;
+    border-color: rgba(22, 163, 74, 0.5) !important;
+}
+
+[data-theme="dark"] .subsystem-badge {
+    background: rgba(37, 99, 235, 0.15) !important;
+    color: #60a5fa !important;
+    border: 1px solid rgba(37, 99, 235, 0.3) !important;
+}
+

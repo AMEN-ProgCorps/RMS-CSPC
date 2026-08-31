@@ -2393,6 +2393,8 @@
       applyHeaderAvatar(u);
       renderSidebarUsers();
       document.getElementById('globalChatItem').classList.remove('active');
+      hideEditBanner();
+      if (typeof hideReplyBanner === 'function') hideReplyBanner();
 
       if (selectDMDebounceTimer) clearTimeout(selectDMDebounceTimer);
       selectDMDebounceTimer = setTimeout(function() {
@@ -2418,6 +2420,7 @@
       updateClearChatButtonVisibility();
       clearSendingOverlay(); // drop any pending-send bubbles from the previous conversation
       hideEditBanner();
+      if (typeof hideReplyBanner === 'function') hideReplyBanner();
       
       // Reset local typing indicator state
       if (localTypingTimeout) {
@@ -2491,6 +2494,7 @@
       gcViewingOlder = false;
       clearSendingOverlay(); // drop any pending-send bubbles from the previous conversation
       hideEditBanner();
+      if (typeof hideReplyBanner === 'function') hideReplyBanner();
       updateHeaderActiveStatus();
       isFirstLoad = true;
       chatFullyLoaded = false; // suppress scroll buttons until global chat finishes loading
@@ -3601,6 +3605,7 @@
       adminConvViewingOlder = false;
       clearSendingOverlay(); // drop any pending-send bubbles from the previous conversation
       hideEditBanner();
+      if (typeof hideReplyBanner === 'function') hideReplyBanner();
       isFirstLoad = true;
 
       // Reset local typing indicator state
@@ -3686,6 +3691,8 @@
       }
       
       updateClearChatButtonVisibility();
+      hideEditBanner();
+      if (typeof hideReplyBanner === 'function') hideReplyBanner();
       
       // Reset local typing indicator state
       if (localTypingTimeout) {

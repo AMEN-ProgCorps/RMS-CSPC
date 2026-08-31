@@ -52,6 +52,8 @@
           isGlobalChat = false;
           activeAdminConv = null;
           updateClearChatButtonVisibility();
+          if (typeof hideEditBanner === 'function') hideEditBanner();
+          if (typeof hideReplyBanner === 'function') hideReplyBanner();
           localStorage.removeItem('activeSpyConv');
           
           chatHeaderTitle.textContent = '';
@@ -77,6 +79,8 @@
           localStorage.setItem('__adminAllChatsView__', '0');
           activeAdminConv = null;
           updateClearChatButtonVisibility();
+          if (typeof hideEditBanner === 'function') hideEditBanner();
+          if (typeof hideReplyBanner === 'function') hideReplyBanner();
           localStorage.removeItem('activeSpyConv');
 
           // Reset all admin spy mode state & search inputs fully

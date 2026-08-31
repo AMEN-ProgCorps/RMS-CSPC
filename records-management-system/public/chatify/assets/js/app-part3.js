@@ -3143,13 +3143,23 @@
                 sendingBubble.className = 'message-container sent';
                 const emojiOnlyClass = isEmojiOnly(msgContent) ? ' emoji-only' : '';
                 const replyQuoteHtml = (() => {
-                  if (!activeReply) return '';
-                  if (activeReply.snippet && activeReply.snippet.startsWith('image:')) {
-                    const imgFile = activeReply.snippet.slice(6);
+                  const replyUuid = (confirmedMsg && confirmedMsg.reply_to_msg_uuid) ? confirmedMsg.reply_to_msg_uuid : (activeReply ? activeReply.msgId : null);
+                  let snippetText = (confirmedMsg && (confirmedMsg.reply_snippet || confirmedMsg.reply_message))
+                    ? (confirmedMsg.reply_snippet || confirmedMsg.reply_message)
+                    : (activeReply && activeReply.snippet ? activeReply.snippet : '');
+                  if (!snippetText && replyUuid) {
+                    const targetContainer = chatBox.querySelector(`.message-container[data-msg-id="${replyUuid}"]`);
+                    if (targetContainer && typeof getReplySnippet === 'function') {
+                      snippetText = getReplySnippet(targetContainer);
+                    }
+                  }
+                  if (!replyUuid || !snippetText) return '';
+                  if (String(snippetText).startsWith('image:')) {
+                    const imgFile = String(snippetText).slice(6);
                     const imgSrc  = 'uploads/' + imgFile;
                     return `<div class="reply-quote reply-quote-image-container"><img src="${imgSrc.replace(/"/g, '&quot;')}" class="reply-quote-image" alt="" referrerpolicy="no-referrer" draggable="false" onerror="this.closest('.reply-quote-image-container,.reply-quote')?.remove()"></div>`;
                   }
-                  return `<div class="reply-quote"><div class="reply-quote-text">${escapeHtml(truncateForReply(activeReply.snippet, 120))}</div></div>`;
+                  return `<div class="reply-quote"><div class="reply-quote-text">${escapeHtml(truncateForReply(snippetText, 120))}</div></div>`;
                 })();
                 sendingBubble.innerHTML = `
                   <div class="message-avatar">${avatarInnerHtml(wsConfig.avatarUrl, getInitials(name))}</div>
@@ -3185,18 +3195,6 @@
           }
 
           // Broadcast notification via WebSocket so other clients patch DOM.
-          // NOTE: only 'message_edited' is sent manually here — a plain new
-          // 'message' is NOT re-broadcast from the client anymore. send.php /
-          // send_dm.php already push an authoritative WS 'message' event
-          // server-side (via WsPush) right after the DB insert succeeds, and
-          // that push reaches the same audience (recipient, sender's other
-          // tabs, admin spy). Re-sending an identical 'message' event here on
-          // top of that authoritative push made every text/DM send arrive
-          // twice for the recipient, doubling the sidebar's unread counter
-          // (2, 4, 6, 8... instead of 1, 2, 3, 4) since the "already
-          // rendered" dedup check in ws.onmessage only catches it when the
-          // recipient already has that chat open — not while it's sitting
-          // unread in the sidebar.
           if (ws && ws.readyState === WebSocket.OPEN) {
             const wasEditing = !!capturedEditingMsgId;
             if (wasEditing) {
@@ -3211,6 +3209,10 @@
               const mentionedIds = (typeof activeMentions !== 'undefined' && Array.isArray(activeMentions))
                 ? activeMentions.map(m => m.account_id)
                 : [];
+              const replyToUuid = (confirmedMsg && confirmedMsg.reply_to_msg_uuid)
+                ? confirmedMsg.reply_to_msg_uuid
+                : (activeReply ? activeReply.msgId : null);
+              const replySnippet = activeReply ? activeReply.snippet : null;
               ws.send(JSON.stringify({
                 type: 'message',
                 chat_type: isGlobalChat ? 'global' : 'private',
@@ -3218,6 +3220,8 @@
                 msg_uuid: (confirmedMsg && confirmedMsg.id) ? confirmedMsg.id : null,
                 message: message,
                 mentioned_ids: mentionedIds,
+                reply_to_msg_uuid: replyToUuid,
+                reply_snippet: replySnippet,
                 created_at: new Date().toISOString()
               }));
             }

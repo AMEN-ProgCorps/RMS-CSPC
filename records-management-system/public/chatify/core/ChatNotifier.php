@@ -141,7 +141,7 @@ class ChatNotifier
     private static function pushLegacyChain(PDO $pdo, string $senderName, int $recipientId, int $senderId, ?string $message): void
     {
         try {
-            $subsystemStmt = $pdo->prepare("SELECT subsystem_id FROM ' . Database::t('subsystems') . ' WHERE subsystem_name = 'Chatify' LIMIT 1");
+            $subsystemStmt = $pdo->prepare("SELECT subsystem_id FROM " . Database::t('subsystems') . " WHERE subsystem_name = 'Chatify' LIMIT 1");
             $subsystemStmt->execute();
             $subsystem = $subsystemStmt->fetch();
 
@@ -183,7 +183,7 @@ class ChatNotifier
             $notificationId = (int) $pdo->lastInsertId();
 
             $divStmt = $pdo->prepare(
-                "INSERT INTO ' . Database::t('notification_div') . ' (id, account_rec, status, processed_on, is_in_user_list)
+                "INSERT INTO " . Database::t('notification_div') . " (id, account_rec, status, processed_on, is_in_user_list)
                  VALUES (:id, :account_rec, 'unread', NOW(), 1)"
             );
             $divStmt->execute([

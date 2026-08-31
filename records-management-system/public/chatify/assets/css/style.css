@@ -1199,7 +1199,7 @@
       overscroll-behavior-y: contain;
       position: relative;
       scroll-behavior: auto;
-      overflow-anchor: auto;
+      overflow-anchor: none;
       transition: background-color 0.3s ease;
       /* Hide scrollbar but keep scroll functionality */
       scrollbar-width: none; /* Firefox */
@@ -1647,6 +1647,13 @@
     .sent .message-avatar {
       background-color: var(--bg-avatar-sent);
       color: white;
+    }
+
+    .message-avatar.empty {
+      background-color: transparent !important;
+      color: transparent !important;
+      border: none !important;
+      box-shadow: none !important;
     }
 
     /* Message Bubble */

@@ -161,8 +161,8 @@
           wsReconnectTimer = null;
         }
 
-        // Stop fallback polling on successful connection
-        stopPollingFallback();
+        // Keep hybrid background polling running as safety net
+        startPollingFallback();
 
         // Authenticate connection
         ws.send(JSON.stringify({
@@ -469,6 +469,9 @@
             return;
           }
           if (data.chat_type === 'global') {
+            if (Array.isArray(data.mentioned_ids) && data.mentioned_ids.map(Number).includes(Number(wsConfig.accountId))) {
+              catchUpMissedNotifications();
+            }
             if (isGlobalChat) {
               if (data.has_upload) {
                 isLoadingGC = false;
@@ -1064,18 +1067,18 @@
 
     function startPollingFallback() {
       if (wsPollInterval) return;
-      if (document.hidden) return; // don't poll while tab is in background
-      console.log('Starting backup message polling...');
+      console.log('Starting hybrid message polling...');
       wsPollInterval = setInterval(function() {
         if (document.hidden) return; // skip each tick while hidden
         if (isGlobalChat) {
           loadGlobalChat(true);
         } else if (activeDM) {
           loadChat(true);
-        } else if (activeAdminConv) {
+        }
+        if (activeAdminConv) {
           loadAdminConv(activeAdminConv, true);
         }
-      }, 3000);
+      }, 4000);
     }
 
     function stopPollingFallback() {
@@ -1800,7 +1803,7 @@
       notificationPollInterval = setInterval(function() {
         if (document.hidden) return;
         catchUpMissedNotifications();
-      }, 10000);
+      }, 2500);
     }
 
     // Max characters to show in the toast preview before truncating with "..."
@@ -2217,7 +2220,7 @@
     // text as the inner content of a .user-avatar / .message-avatar circle.
     function avatarInnerHtml(avatarUrl, initials) {
       if (avatarUrl) {
-        return `<img src="${escapeHtml(avatarUrl)}" class="avatar-img" alt="" loading="lazy" referrerpolicy="no-referrer">`;
+        return `<img src="${escapeHtml(avatarUrl)}" class="avatar-img" alt="" loading="eager" referrerpolicy="no-referrer">`;
       }
       return escapeHtml(initials);
     }
@@ -2326,8 +2329,9 @@
       const indicator = document.createElement('div');
       indicator.className = 'seen-indicator';
       indicator.textContent = 'Seen';
-      indicator.style.cssText = 'font-size:11px;color:var(--text-secondary);text-align:right;padding:2px 12px 6px 0;opacity:0.85;';
-      target.insertAdjacentElement('afterend', indicator);
+      indicator.style.cssText = 'font-size:11px;color:var(--text-secondary);text-align:right;padding:2px 4px 2px 0;opacity:0.85;';
+      const anchorEl = target.querySelector('.message-bubble') || target.querySelector('.message-media') || target;
+      anchorEl.insertAdjacentElement('afterend', indicator);
     }
 
 
@@ -2674,6 +2678,64 @@
     function unobserveImagesIn(el) {
       if (typeof scrollAnchorObserver === 'undefined' || !scrollAnchorObserver || !el || !el.querySelectorAll) return;
       el.querySelectorAll('img').forEach(img => scrollAnchorObserver.unobserve(img));
+    }
+
+    // ── Messenger-Style Scroll Anchor Lock ────────────────────────────────────
+    // Captures the current topmost visible message node and its relative offset
+    // inside #chat-box before inserting older history.
+    function captureScrollAnchor() {
+      if (!chatBox) return null;
+      const boxRect = chatBox.getBoundingClientRect();
+      const messages = Array.from(chatBox.querySelectorAll('.message-container'));
+      if (messages.length === 0) return null;
+
+      let anchorEl = null;
+      for (let i = 0; i < messages.length; i++) {
+        const rect = messages[i].getBoundingClientRect();
+        if (rect.bottom >= boxRect.top + 5) {
+          anchorEl = messages[i];
+          break;
+        }
+      }
+      if (!anchorEl) anchorEl = messages[0];
+
+      const anchorTop = anchorEl.getBoundingClientRect().top - boxRect.top;
+      return { el: anchorEl, offsetTop: anchorTop };
+    }
+
+    // Restores scroll position so anchorEl remains at the exact pixel offset,
+    // and attaches image load listeners to prepended media to compensate for
+    // layout shifts as images load.
+    function restoreScrollAnchor(anchorInfo, prependedItems) {
+      if (!chatBox || !anchorInfo || !anchorInfo.el || !anchorInfo.el.parentNode) return;
+
+      const boxRect = chatBox.getBoundingClientRect();
+      const currentTop = anchorInfo.el.getBoundingClientRect().top - boxRect.top;
+      const shift = currentTop - anchorInfo.offsetTop;
+      if (Math.abs(shift) > 0.5) {
+        chatBox.scrollTop += shift;
+      }
+
+      if (prependedItems && prependedItems.length > 0) {
+        prependedItems.forEach(item => {
+          if (!item.querySelectorAll) return;
+          item.querySelectorAll('img').forEach(img => {
+            if (!img.complete && !img.dataset.anchorBound) {
+              img.dataset.anchorBound = '1';
+              img.addEventListener('load', function() {
+                if (anchorInfo.el && anchorInfo.el.parentNode) {
+                  const curBoxRect = chatBox.getBoundingClientRect();
+                  const nowTop = anchorInfo.el.getBoundingClientRect().top - curBoxRect.top;
+                  const imgShift = nowTop - anchorInfo.offsetTop;
+                  if (Math.abs(imgShift) > 0.5) {
+                    chatBox.scrollTop += imgShift;
+                  }
+                }
+              }, { once: true });
+            }
+          });
+        });
+      }
     }
 
     // Keeps the chat window capped at maxCount messages by trimming the
@@ -3396,7 +3458,9 @@
           userScrolledUp = true;
           adminConvCursor = data.nextCursor || '';
           adminConvViewingOlder = true;
-          const prev = chatBox.scrollHeight;
+
+          const anchor = captureScrollAnchor();
+
           const temp = document.createElement('div');
           temp.innerHTML = newHtml;
           const oldItems = Array.from(temp.querySelectorAll('.message-container, .empty-chat'));
@@ -3410,12 +3474,22 @@
             if (btn) chatBox.insertBefore(el, btn.nextSibling);
             else chatBox.insertBefore(el, firstChild);
           });
-          chatBox.scrollTop += chatBox.scrollHeight - prev;
+
           trimWindowFromBottom(MAX_WINDOW);
+          restoreScrollAnchor(anchor, oldItems);
+
           if (!adminConvHasMore) showNoMoreOlderNotice(); else if (!document.getElementById('loadOlderBtn')) insertLoadOlderBtn();
           applyAdminBadges();
           applyEmojiOnly();
           attachImageLoadListeners();
+
+          if (adminConvHasMore && chatBox.scrollTop <= AUTO_LOAD_OLDER_THRESHOLD_PX) {
+            requestAnimationFrame(function() {
+              if (typeof maybeAutoLoadOlderMessages === 'function') {
+                maybeAutoLoadOlderMessages();
+              }
+            });
+          }
           return;
         }
 

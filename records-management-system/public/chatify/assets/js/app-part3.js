@@ -1924,8 +1924,9 @@
         userScrolledUp = true;
         gcCursor = data.nextCursor || '';
         gcViewingOlder = true;
-        // Prepend older messages
-        const prev = chatBox.scrollHeight;
+
+        const anchor = captureScrollAnchor();
+
         const temp = document.createElement('div');
         temp.innerHTML = newHtml;
         const oldItems = Array.from(temp.querySelectorAll('.message-container, .empty-chat'));
@@ -1939,15 +1940,20 @@
           if (btn) chatBox.insertBefore(el, btn.nextSibling);
           else chatBox.insertBefore(el, firstChild);
         });
-        // Maintain scroll position
-        chatBox.scrollTop += chatBox.scrollHeight - prev;
-        // Swap the window: drop the newest messages off the bottom so the
-        // total on screen stays capped at MAX_WINDOW instead of growing forever.
+
         trimWindowFromBottom(MAX_WINDOW);
+        restoreScrollAnchor(anchor, oldItems);
+
         if (!gcHasMore) showNoMoreOlderNotice(); else if (!document.getElementById('loadOlderBtn')) insertLoadOlderBtn();
         applyAdminBadges();
         applyEmojiOnly();
         attachImageLoadListeners();
+
+        if (gcHasMore && chatBox.scrollTop <= AUTO_LOAD_OLDER_THRESHOLD_PX) {
+          requestAnimationFrame(function() {
+            maybeAutoLoadOlderMessages();
+          });
+        }
         return;
       }
 
@@ -2186,7 +2192,9 @@
         // re-placed correctly when the next normal poll lands.
         const existingSeen = chatBox.querySelector('.seen-indicator');
         if (existingSeen) existingSeen.remove();
-        const prev = chatBox.scrollHeight;
+
+        const anchor = captureScrollAnchor();
+
         const temp = document.createElement('div');
         temp.innerHTML = newHtml;
         const oldItems = Array.from(temp.querySelectorAll('.message-container, .empty-chat'));
@@ -2200,17 +2208,19 @@
           if (btn) chatBox.insertBefore(el, btn.nextSibling);
           else chatBox.insertBefore(el, firstChild);
         });
-        chatBox.scrollTop += chatBox.scrollHeight - prev;
+
         trimWindowFromBottom(MAX_WINDOW);
+        restoreScrollAnchor(anchor, oldItems);
+
         if (!dmHasMore) showNoMoreOlderNotice(); else if (!document.getElementById('loadOlderBtn')) insertLoadOlderBtn();
         applyAdminBadges(); applyEmojiOnly();
         attachImageLoadListeners();
-        // NOTE: updateSeenIndicator() intentionally NOT called here.
-        // In loadOlderMode the seen state (dmReadUpTo) is unchanged — the
-        // user is just scrolling back through history. Calling it after
-        // trimWindowFromBottom() would make the indicator jump to a
-        // mid-history sent message because the newest sent messages were
-        // just trimmed off the bottom of the DOM.
+
+        if (dmHasMore && chatBox.scrollTop <= AUTO_LOAD_OLDER_THRESHOLD_PX) {
+          requestAnimationFrame(function() {
+            maybeAutoLoadOlderMessages();
+          });
+        }
         return;
       }
 
@@ -3197,10 +3207,23 @@
                 chat_type: isGlobalChat ? 'global' : 'private',
                 recipient_id: activeDMAccountId || null
               }));
+            } else {
+              const mentionedIds = (typeof activeMentions !== 'undefined' && Array.isArray(activeMentions))
+                ? activeMentions.map(m => m.account_id)
+                : [];
+              ws.send(JSON.stringify({
+                type: 'message',
+                chat_type: isGlobalChat ? 'global' : 'private',
+                recipient_id: activeDMAccountId || null,
+                msg_uuid: (confirmedMsg && confirmedMsg.id) ? confirmedMsg.id : null,
+                message: message,
+                mentioned_ids: mentionedIds,
+                created_at: new Date().toISOString()
+              }));
             }
           }
 
-          // Fallback only if confirmedMsg missing
+          // Fallback only if confirmedMsg missing (optimistic bubble already converted above)
           if (!confirmedMsg) {
             if (isGlobalChat) { isLoadingGC = false; loadGlobalChat(false); }
             else loadChatForced();
@@ -4591,19 +4614,22 @@
           setTimeout(closeUploadingModal, 300);
 
           if (this.status === 200) {
-            // NOTE: no client-side ws.send('message', ...) re-broadcast here.
-            // send.php / send_dm.php ALREADY push an authoritative WS 'message'
-            // event (with has_upload correctly set) server-side once the DB
-            // insert succeeds — that single push reaches the recipient, the
-            // sender's other tabs, and admin spy sessions. Re-broadcasting it
-            // again from here made every attachment fire the sidebar's
-            // unread-count bump TWICE (2, 4, 6, 8... instead of 1, 2, 3, 4)
-            // for the recipient, since the client-sent duplicate isn't caught
-            // by the "already rendered" dedup check when they're not actively
-            // viewing that chat. The server push alone is sufficient.
+            let resData = null;
+            try { resData = JSON.parse(this.responseText); } catch(e) {}
+            const msgObj = (resData && resData.message) ? resData.message : null;
 
-            // Force a fresh chat load so the grid/image renders immediately
-            // for the SENDER's own view (independent of any WS broadcast).
+            if (ws && ws.readyState === WebSocket.OPEN) {
+              ws.send(JSON.stringify({
+                type: 'message',
+                chat_type: isGlobalChat ? 'global' : 'private',
+                recipient_id: activeDMAccountId || null,
+                msg_uuid: msgObj ? msgObj.id : null,
+                message: '',
+                has_upload: true,
+                created_at: new Date().toISOString()
+              }));
+            }
+
             if (isGlobalChat) {
               isLoadingGC = false;
               loadGlobalChat(false);

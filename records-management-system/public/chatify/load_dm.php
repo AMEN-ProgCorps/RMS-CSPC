@@ -206,12 +206,16 @@ function dmInitials2(string $name): string
 // ── Render messages ───────────────────────────────────────────────────────────
 $html = '';
 
-foreach ($rawMessages as $msg) {
+$msgCount = count($rawMessages);
+for ($i = 0; $i < $msgCount; $i++) {
+    $msg = $rawMessages[$i];
     if (!isset($msg['sender_id'], $msg['timestamp'])) {
         continue;
     }
 
     $senderId    = (int) $msg['sender_id'];
+    $nextMsg     = $rawMessages[$i + 1] ?? null;
+    $isLastInGroup = ($nextMsg === null || !isset($nextMsg['sender_id']) || (int)$nextMsg['sender_id'] !== $senderId);
     $msgId       = htmlspecialchars($msg['id'] ?? '', ENT_QUOTES);
     $isSent      = ($senderId === $myAccountId);
     $msgClass    = $isSent ? 'sent' : 'received';

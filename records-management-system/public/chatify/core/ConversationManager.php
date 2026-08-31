@@ -1105,15 +1105,15 @@ class ConversationManager
 
         try {
             $pdo = Database::getConnection();
-            $stmt = $pdo->prepare("SELECT value FROM ' . Database::t('system_settings') . ' WHERE key = 'chat_delete_secret_key' LIMIT 1");
+            $stmt = $pdo->prepare("SELECT value FROM " . Database::t('system_settings') . " WHERE key = 'chat_delete_secret_key' LIMIT 1");
             $stmt->execute();
             $row = $stmt->fetch();
 
             if (!$row || empty($row['value'])) {
-                // Seed default hashed key ('boss') into ' . Database::t('system_settings') . '
+                // Seed default hashed key ('boss') into system_settings table
                 $defaultHash = password_hash('boss', PASSWORD_DEFAULT);
                 $pdo->prepare(
-                    "INSERT INTO ' . Database::t('system_settings') . ' (key, value, created_at, updated_at)
+                    "INSERT INTO " . Database::t('system_settings') . " (key, value, created_at, updated_at)
                      VALUES ('chat_delete_secret_key', :val, NOW(), NOW())
                      ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = NOW()"
                 )->execute([':val' => $defaultHash]);
@@ -1154,7 +1154,7 @@ class ConversationManager
             $hashed = password_hash($newKey, PASSWORD_DEFAULT);
 
             $stmt = $pdo->prepare(
-                "INSERT INTO ' . Database::t('system_settings') . ' (key, value, created_at, updated_at)
+                "INSERT INTO " . Database::t('system_settings') . " (key, value, created_at, updated_at)
                  VALUES ('chat_delete_secret_key', :val, NOW(), NOW())
                  ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = NOW()"
             );

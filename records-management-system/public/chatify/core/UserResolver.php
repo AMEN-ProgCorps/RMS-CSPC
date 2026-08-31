@@ -131,7 +131,7 @@ class UserResolver
         if ($url === null) {
             return $initialsHtml;
         }
-        return '<img src="' . htmlspecialchars($url, ENT_QUOTES) . '" class="avatar-img" alt="" loading="lazy" referrerpolicy="no-referrer">';
+        return '<img src="' . htmlspecialchars($url, ENT_QUOTES) . '" class="avatar-img" alt="" loading="eager" referrerpolicy="no-referrer">';
     }
 
     /**
@@ -225,8 +225,8 @@ class UserResolver
                         COALESCE(ad.allow_typing_preview, TRUE) AS allow_typing_preview,
                         COALESCE(ad.allow_see_typing_preview, TRUE) AS allow_see_typing_preview,
                         COALESCE(ad.is_chatify_verified, FALSE) AS is_chatify_verified
-                 FROM ' . Database::t('account_details') . ' ad
-                 LEFT JOIN ' . Database::t('office') . ' o ON o.id = ad.office_id
+                 FROM " . Database::t('account_details') . " ad
+                 LEFT JOIN " . Database::t('office') . " o ON o.id = ad.office_id
                  WHERE ad.account_id IN ($placeholders)"
             );
             $stmt->execute(array_values($missing));
@@ -320,8 +320,8 @@ class UserResolver
                         ad.last_online_time,
                         ad.avatar_url,
                         COALESCE(ad.is_chatify_verified, FALSE) AS is_chatify_verified
-                 FROM ' . Database::t('account_details') . ' ad
-                 LEFT JOIN ' . Database::t('office') . ' o ON o.id = ad.office_id
+                 FROM " . Database::t('account_details') . " ad
+                 LEFT JOIN " . Database::t('office') . " o ON o.id = ad.office_id
                  WHERE (:exclude = 0 OR ad.account_id != :exclude)
                    AND (
                          ad.first_name ILIKE :q1

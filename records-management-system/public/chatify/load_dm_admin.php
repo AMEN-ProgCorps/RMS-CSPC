@@ -136,12 +136,16 @@ function adminBuildReplyQuoteHtml(?string $encryptedReplyMessage, string $replyT
 }
 
 $html = '';
-foreach ($rawMessages as $msg) {
+$msgCount = count($rawMessages);
+for ($i = 0; $i < $msgCount; $i++) {
+    $msg = $rawMessages[$i];
     if (!isset($msg['sender_id'], $msg['timestamp'])) {
         continue;
     }
 
     $senderId   = (int) $msg['sender_id'];
+    $nextMsg    = $rawMessages[$i + 1] ?? null;
+    $isLastInGroup = ($nextMsg === null || !isset($nextMsg['sender_id']) || (int)$nextMsg['sender_id'] !== $senderId);
     $msgId      = htmlspecialchars($msg['id'] ?? '', ENT_QUOTES);
     $type       = $msg['type'] ?? 'text';
     if (!isset($nameMap[$senderId])) {

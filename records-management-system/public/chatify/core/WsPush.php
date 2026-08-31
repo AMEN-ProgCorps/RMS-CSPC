@@ -128,11 +128,12 @@ class WsPush
         ]);
 
         try {
-            @file_get_contents(WS_INTERNAL_PUSH_URL, false, $context);
+            $res = file_get_contents(WS_INTERNAL_PUSH_URL, false, $context);
+            if ($res === false) {
+                error_log('WsPush::send() failed pushing payload to ' . WS_INTERNAL_PUSH_URL);
+            }
         } catch (Throwable $e) {
-            // Non-fatal — the socket will still be caught by the
-            // token-expiry sweep on the ws-server side (worst case, a few
-            // minutes later) even if this immediate push fails.
+            error_log('WsPush::send() exception: ' . $e->getMessage());
         }
     }
 }

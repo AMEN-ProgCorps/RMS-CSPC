@@ -3360,7 +3360,10 @@
           const nameDisplay = c.name1 + ' ↔ ' + c.name2;
           if (nameEl.textContent !== nameDisplay) nameEl.textContent = nameDisplay;
 
-          const newMsg = (c.msgCount || 1) + ' msg' + (c.msgCount !== 1 ? 's' : '') + (c.lastMessage ? ' · ' + c.lastMessage : '');
+          const count = c.msgCount || 1;
+          const newMsg = (count > 99)
+            ? '99+ messages'
+            : (count + ' msg' + (count !== 1 ? 's' : '') + (c.lastMessage ? ' · ' + c.lastMessage : ''));
           if (msgEl.textContent !== newMsg) msgEl.textContent = newMsg;
 
           list.appendChild(item);

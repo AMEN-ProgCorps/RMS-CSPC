@@ -358,7 +358,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 2')
             $missingParents = DB::table('rdp_record_series')
                 ->leftJoin('rdp_retention_period', 'rdp_record_series.retention_period', '=', 'rdp_retention_period.id')
                 ->leftJoin('rdp_record_series as parent', 'rdp_record_series.parent_id', '=', 'parent.id')
-                ->leftJoin((\Illuminate\Support\Facades\Schema::hasTable('sys_office') ? 'sys_office' : 'office'), 'rdp_record_series.recorded_at_office', '=', 'office.office_code')
+                ->leftJoin((\Illuminate\Support\Facades\Schema::hasTable('sys_office') ? 'sys_office' : 'office') . ' as office', 'rdp_record_series.recorded_at_office', '=', 'office.office_code')
                 ->select([
                     'rdp_record_series.*',
                     'rdp_retention_period.active_period',
@@ -414,7 +414,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 2')
         $query = DB::table('rdp_record_series')
             ->leftJoin('rdp_retention_period', 'rdp_record_series.retention_period', '=', 'rdp_retention_period.id')
             ->leftJoin('rdp_record_series as parent', 'rdp_record_series.parent_id', '=', 'parent.id')
-            ->leftJoin((\Illuminate\Support\Facades\Schema::hasTable('sys_office') ? 'sys_office' : 'office'), 'rdp_record_series.recorded_at_office', '=', 'office.office_code')
+            ->leftJoin((\Illuminate\Support\Facades\Schema::hasTable('sys_office') ? 'sys_office' : 'office') . ' as office', 'rdp_record_series.recorded_at_office', '=', 'office.office_code')
             ->select([
                 'rdp_record_series.*',
                 'rdp_retention_period.active_period',
@@ -445,7 +445,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 2')
                 $q->where('rdp_record_series.series_title', 'ilike', '%' . $this->search . '%')
                   ->orWhere('rdp_record_series.remarks', 'ilike', '%' . $this->search . '%')
                   ->orWhere('parent.series_title', 'ilike', '%' . $this->search . '%')
-                  ->orWhereCast('rdp_record_series.item_number', 'text', 'like', '%' . $this->search . '%');
+                  ->orWhere(DB::raw("CAST(rdp_record_series.item_number AS TEXT)"), 'ilike', '%' . $this->search . '%');
             });
         }
 

@@ -363,7 +363,7 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
 
             // Previous office (from office)
             $prevLog = DB::table((\Illuminate\Support\Facades\Schema::hasTable('dts_transaction_logs') ? 'dts_transaction_logs' : 'sub_document_tracking_system_logs') . ' as log')
-                ->leftJoin((\Illuminate\Support\Facades\Schema::hasTable('sys_office') ? 'sys_office' : 'office'), 'office.office_code', '=', 'log.office_code')
+                ->leftJoin((\Illuminate\Support\Facades\Schema::hasTable('sys_office') ? 'sys_office' : 'office') . ' as office', 'office.office_code', '=', 'log.office_code')
                 ->where('log.transaction_id', $t->transaction_id)
                 ->whereNotNull('log.date_out')
                 ->orderBy('log.id', 'desc')
@@ -424,7 +424,7 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
             $steps = collect();
             if ($flowControlId) {
                 $steps = DB::table('dts_sequence_list as seq')
-                    ->leftJoin((\Illuminate\Support\Facades\Schema::hasTable('sys_office') ? 'sys_office' : 'office'), 'office.office_code', '=', 'seq.office_code')
+                    ->leftJoin((\Illuminate\Support\Facades\Schema::hasTable('sys_office') ? 'sys_office' : 'office') . ' as office', 'office.office_code', '=', 'seq.office_code')
                     ->where('seq.control_id', $flowControlId)
                     ->select('seq.*', 'office.office_name')
                     ->orderBy('seq.sequence_ranking', 'asc')
@@ -468,7 +468,7 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
             // Fallback to transaction logs if sequence_list has no steps
             if ($steps->isEmpty()) {
                 $logs = DB::table((\Illuminate\Support\Facades\Schema::hasTable('dts_transaction_logs') ? 'dts_transaction_logs' : 'sub_document_tracking_system_logs') . ' as log')
-                    ->leftJoin((\Illuminate\Support\Facades\Schema::hasTable('sys_office') ? 'sys_office' : 'office'), 'office.office_code', '=', 'log.office_code')
+                    ->leftJoin((\Illuminate\Support\Facades\Schema::hasTable('sys_office') ? 'sys_office' : 'office') . ' as office', 'office.office_code', '=', 'log.office_code')
                     ->where('log.transaction_id', $t->transaction_id)
                     ->select('log.*', 'office.office_name')
                     ->orderBy('log.id', 'asc')
@@ -529,7 +529,7 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
 
             $childBranches->transform(function ($child) use ($t) {
                 $childLogs = DB::table((\Illuminate\Support\Facades\Schema::hasTable('dts_transaction_logs') ? 'dts_transaction_logs' : 'sub_document_tracking_system_logs') . ' as log')
-                    ->leftJoin((\Illuminate\Support\Facades\Schema::hasTable('sys_office') ? 'sys_office' : 'office'), 'office.office_code', '=', 'log.office_code')
+                    ->leftJoin((\Illuminate\Support\Facades\Schema::hasTable('sys_office') ? 'sys_office' : 'office') . ' as office', 'office.office_code', '=', 'log.office_code')
                     ->where('log.transaction_id', $child->transaction_id)
                     ->select('log.*', 'office.office_name')
                     ->orderBy('log.id', 'asc')
@@ -613,7 +613,7 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
         }
 
         return DB::table((\Illuminate\Support\Facades\Schema::hasTable('dts_transaction_logs') ? 'dts_transaction_logs' : 'sub_document_tracking_system_logs') . ' as log')
-            ->leftJoin((\Illuminate\Support\Facades\Schema::hasTable('sys_office') ? 'sys_office' : 'office'), 'office.office_code', '=', 'log.office_code')
+            ->leftJoin((\Illuminate\Support\Facades\Schema::hasTable('sys_office') ? 'sys_office' : 'office') . ' as office', 'office.office_code', '=', 'log.office_code')
             ->leftJoin((\Illuminate\Support\Facades\Schema::hasTable('dts_transaction_log_types') ? 'dts_transaction_log_types' : 'sub_document_tracking_system_logs_types') . ' as lt', 'lt.type_id', '=', 'log.type')
             ->where('log.transaction_id', $this->selectedTransactionId)
             ->select('log.*', 'office.office_name', 'lt.description')
@@ -734,7 +734,7 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
 
         // PART 1: Historical steps from logs (the actual journey so far)
         $logs = DB::table((\Illuminate\Support\Facades\Schema::hasTable('dts_transaction_logs') ? 'dts_transaction_logs' : 'sub_document_tracking_system_logs') . ' as log')
-            ->leftJoin((\Illuminate\Support\Facades\Schema::hasTable('sys_office') ? 'sys_office' : 'office'), 'office.office_code', '=', 'log.office_code')
+            ->leftJoin((\Illuminate\Support\Facades\Schema::hasTable('sys_office') ? 'sys_office' : 'office') . ' as office', 'office.office_code', '=', 'log.office_code')
             ->leftJoin((\Illuminate\Support\Facades\Schema::hasTable('sys_account_details') ? 'sys_account_details' : 'account_details') . ' as perf_ad', 'perf_ad.account_id', '=', 'log.performed_by')
             ->leftJoin((\Illuminate\Support\Facades\Schema::hasTable('sys_account') ? 'sys_account' : 'account') . ' as perf_acc', 'perf_acc.id', '=', 'log.performed_by')
             ->where('log.transaction_id', $this->selectedTransactionId)
@@ -818,7 +818,7 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
         if ($flow && !in_array($this->selectedTransaction->status, ['completed', 'cancelled'])) {
             $currentSeq = $this->selectedTransaction->sequence;
             $remaining = DB::table('dts_sequence_list as seq')
-                ->leftJoin((\Illuminate\Support\Facades\Schema::hasTable('sys_office') ? 'sys_office' : 'office'), 'office.office_code', '=', 'seq.office_code')
+                ->leftJoin((\Illuminate\Support\Facades\Schema::hasTable('sys_office') ? 'sys_office' : 'office') . ' as office', 'office.office_code', '=', 'seq.office_code')
                 ->where('seq.control_id', $flow->id)
                 ->where('seq.sequence_ranking', '>', $currentSeq)
                 ->select('seq.*', 'office.office_name')

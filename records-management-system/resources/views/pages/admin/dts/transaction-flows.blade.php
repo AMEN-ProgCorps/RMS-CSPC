@@ -1439,8 +1439,8 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - DTS Transaction Flows')]
         $customFlows = collect();
         if ($this->activeTab === 'custom') {
             $customQuery = \DB::table('dts_transaction_flow')
-                ->leftJoin((\Illuminate\Support\Facades\Schema::hasTable('sys_account_details') ? 'sys_account_details' : 'account_details'), 'dts_transaction_flow.added_by', '=', 'account_details.account_id')
-                ->leftJoin((\Illuminate\Support\Facades\Schema::hasTable('sys_office') ? 'sys_office' : 'office'), 'account_details.office_id', '=', 'office.id')
+                ->leftJoin((\Illuminate\Support\Facades\Schema::hasTable('sys_account_details') ? 'sys_account_details' : 'account_details') . ' as account_details', 'dts_transaction_flow.added_by', '=', 'account_details.account_id')
+                ->leftJoin((\Illuminate\Support\Facades\Schema::hasTable('sys_office') ? 'sys_office' : 'office') . ' as office', 'account_details.office_id', '=', 'office.id')
                 ->where('dts_transaction_flow.flow_code', 'like', 'FLOW-CUSTOM-%')
                 ->whereNull('dts_transaction_flow.referenced_flow')
                 ->where('dts_transaction_flow.flow_name', 'not like', 'Flow for %')
@@ -2453,8 +2453,8 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - DTS Transaction Flows')]
                             @if($selectedCustom !== 'new')
                                 @php
                                     $curFlow = \DB::table('dts_transaction_flow')
-                                        ->leftJoin((\Illuminate\Support\Facades\Schema::hasTable('sys_account_details') ? 'sys_account_details' : 'account_details'), 'dts_transaction_flow.added_by', '=', 'account_details.account_id')
-                                        ->leftJoin((\Illuminate\Support\Facades\Schema::hasTable('sys_office') ? 'sys_office' : 'office'), 'account_details.office_id', '=', 'office.id')
+                                        ->leftJoin((\Illuminate\Support\Facades\Schema::hasTable('sys_account_details') ? 'sys_account_details' : 'account_details') . ' as account_details', 'dts_transaction_flow.added_by', '=', 'account_details.account_id')
+                                        ->leftJoin((\Illuminate\Support\Facades\Schema::hasTable('sys_office') ? 'sys_office' : 'office') . ' as office', 'account_details.office_id', '=', 'office.id')
                                         ->where('dts_transaction_flow.id', (int) $selectedCustom)
                                         ->select(['account_details.first_name', 'account_details.last_name', 'office.office_name', 'office.office_code', 'dts_transaction_flow.date_added'])
                                         ->first();

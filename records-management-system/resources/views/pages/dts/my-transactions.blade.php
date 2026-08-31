@@ -185,7 +185,7 @@ new #[Layout('layouts.dts')] #[Title('My Transactions - Document Tracking System
             $steps = collect();
             if ($flowControlId) {
                 $steps = DB::table('dts_sequence_list as seq')
-                    ->leftJoin((\Illuminate\Support\Facades\Schema::hasTable('sys_office') ? 'sys_office' : 'office'), 'office.office_code', '=', 'seq.office_code')
+                    ->leftJoin((\Illuminate\Support\Facades\Schema::hasTable('sys_office') ? 'sys_office' : 'office') . ' as office', 'office.office_code', '=', 'seq.office_code')
                     ->where('seq.control_id', $flowControlId)
                     ->select('seq.*', 'office.office_name')
                     ->orderBy('seq.sequence_ranking', 'asc')
@@ -260,7 +260,7 @@ new #[Layout('layouts.dts')] #[Title('My Transactions - Document Tracking System
             // Fallback to transaction logs if sequence_list has no steps
             if ($steps->isEmpty()) {
                 $logs = DB::table((\Illuminate\Support\Facades\Schema::hasTable('dts_transaction_logs') ? 'dts_transaction_logs' : 'sub_document_tracking_system_logs') . ' as log')
-                    ->leftJoin((\Illuminate\Support\Facades\Schema::hasTable('sys_office') ? 'sys_office' : 'office'), 'office.office_code', '=', 'log.office_code')
+                    ->leftJoin((\Illuminate\Support\Facades\Schema::hasTable('sys_office') ? 'sys_office' : 'office') . ' as office', 'office.office_code', '=', 'log.office_code')
                     ->where('log.transaction_id', $t->transaction_id)
                     ->select('log.*', 'office.office_name')
                     ->orderBy('log.id', 'asc')
@@ -308,7 +308,7 @@ new #[Layout('layouts.dts')] #[Title('My Transactions - Document Tracking System
 
             $childBranches->transform(function ($child) {
                 $childLogs = DB::table((\Illuminate\Support\Facades\Schema::hasTable('dts_transaction_logs') ? 'dts_transaction_logs' : 'sub_document_tracking_system_logs') . ' as log')
-                    ->leftJoin((\Illuminate\Support\Facades\Schema::hasTable('sys_office') ? 'sys_office' : 'office'), 'office.office_code', '=', 'log.office_code')
+                    ->leftJoin((\Illuminate\Support\Facades\Schema::hasTable('sys_office') ? 'sys_office' : 'office') . ' as office', 'office.office_code', '=', 'log.office_code')
                     ->where('log.transaction_id', $child->transaction_id)
                     ->select('log.*', 'office.office_name')
                     ->orderBy('log.id', 'asc')

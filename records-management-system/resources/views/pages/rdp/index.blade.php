@@ -285,7 +285,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Landing Page
                 $q->where('rdp_record_series.series_title', 'ilike', '%' . $this->search . '%')
                   ->orWhere('rdp_record_series.remarks', 'ilike', '%' . $this->search . '%')
                   ->orWhere('parent.series_title', 'ilike', '%' . $this->search . '%')
-                  ->orWhereCast('rdp_record_series.item_number', 'text', 'like', '%' . $this->search . '%');
+                  ->orWhere(DB::raw("CAST(rdp_record_series.item_number AS TEXT)"), 'ilike', '%' . $this->search . '%');
             });
         }
 

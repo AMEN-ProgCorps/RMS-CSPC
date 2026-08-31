@@ -82,8 +82,8 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Pending For 
         if ($formType === 'nap2' || $formType === 'NAP Form 2') {
             $cluster = DB::table('rdp_pending_record_series')
                 ->leftJoin('rdp_pending_status', 'rdp_pending_record_series.status_id', '=', 'rdp_pending_status.id')
-                ->leftJoin((\Illuminate\Support\Facades\Schema::hasTable('sys_office') ? 'sys_office' : 'office'), 'rdp_pending_record_series.office', '=', 'office.office_code')
-                ->leftJoin((\Illuminate\Support\Facades\Schema::hasTable('sys_account_details') ? 'sys_account_details' : 'account_details'), 'rdp_pending_record_series.created_by', '=', 'account_details.account_id')
+                ->leftJoin((\Illuminate\Support\Facades\Schema::hasTable('sys_office') ? 'sys_office' : 'office') . ' as office', 'rdp_pending_record_series.office', '=', 'office.office_code')
+                ->leftJoin((\Illuminate\Support\Facades\Schema::hasTable('sys_account_details') ? 'sys_account_details' : 'account_details') . ' as account_details', 'rdp_pending_record_series.created_by', '=', 'account_details.account_id')
                 ->where('rdp_pending_record_series.cluster_id', $clusterId)
                 ->select([
                     'rdp_pending_record_series.cluster_id',
@@ -117,8 +117,8 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Pending For 
         } else {
             $cluster = DB::table('rdp_pending_record')
                 ->leftJoin('rdp_pending_status', 'rdp_pending_record.status_id', '=', 'rdp_pending_status.id')
-                ->leftJoin((\Illuminate\Support\Facades\Schema::hasTable('sys_office') ? 'sys_office' : 'office'), 'rdp_pending_record.office', '=', 'office.office_code')
-                ->leftJoin((\Illuminate\Support\Facades\Schema::hasTable('sys_account_details') ? 'sys_account_details' : 'account_details'), 'rdp_pending_record.created_by', '=', 'account_details.account_id')
+                ->leftJoin((\Illuminate\Support\Facades\Schema::hasTable('sys_office') ? 'sys_office' : 'office') . ' as office', 'rdp_pending_record.office', '=', 'office.office_code')
+                ->leftJoin((\Illuminate\Support\Facades\Schema::hasTable('sys_account_details') ? 'sys_account_details' : 'account_details') . ' as account_details', 'rdp_pending_record.created_by', '=', 'account_details.account_id')
                 ->where('rdp_pending_record.cluster_id', $clusterId)
                 ->select([
                     'rdp_pending_record.cluster_id',

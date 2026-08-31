@@ -132,9 +132,9 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Cockpit File
                 });
             })->count();
 
-        $query = DB::table(\Illuminate\Support\Facades\Schema::hasTable('sys_document_data') ? 'sys_document_data' : 'document_data')
-            ->leftJoin((\Illuminate\Support\Facades\Schema::hasTable('sys_office') ? 'sys_office' : 'office'), 'document_data.user_office', '=', 'office.office_code')
-            ->leftJoin((\Illuminate\Support\Facades\Schema::hasTable('sys_account_details') ? 'sys_account_details' : 'account_details'), 'document_data.uploaded_by', '=', 'account_details.account_id')
+        $query = DB::table((\Illuminate\Support\Facades\Schema::hasTable('sys_document_data') ? 'sys_document_data' : 'document_data') . ' as document_data')
+            ->leftJoin((\Illuminate\Support\Facades\Schema::hasTable('sys_office') ? 'sys_office' : 'office') . ' as office', 'document_data.user_office', '=', 'office.office_code')
+            ->leftJoin((\Illuminate\Support\Facades\Schema::hasTable('sys_account_details') ? 'sys_account_details' : 'account_details') . ' as account_details', 'document_data.uploaded_by', '=', 'account_details.account_id')
             ->select(
                 'document_data.*',
                 'office.office_name',
@@ -207,9 +207,9 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Cockpit File
 
         $selectedFile = null;
         if ($this->selectedFileId) {
-            $selectedFile = DB::table(\Illuminate\Support\Facades\Schema::hasTable('sys_document_data') ? 'sys_document_data' : 'document_data')
-                ->leftJoin((\Illuminate\Support\Facades\Schema::hasTable('sys_office') ? 'sys_office' : 'office'), 'document_data.user_office', '=', 'office.office_code')
-                ->leftJoin((\Illuminate\Support\Facades\Schema::hasTable('sys_account_details') ? 'sys_account_details' : 'account_details'), 'document_data.uploaded_by', '=', 'account_details.account_id')
+            $selectedFile = DB::table((\Illuminate\Support\Facades\Schema::hasTable('sys_document_data') ? 'sys_document_data' : 'document_data') . ' as document_data')
+                ->leftJoin((\Illuminate\Support\Facades\Schema::hasTable('sys_office') ? 'sys_office' : 'office') . ' as office', 'document_data.user_office', '=', 'office.office_code')
+                ->leftJoin((\Illuminate\Support\Facades\Schema::hasTable('sys_account_details') ? 'sys_account_details' : 'account_details') . ' as account_details', 'document_data.uploaded_by', '=', 'account_details.account_id')
                 ->select(
                     'document_data.*',
                     'office.office_name',

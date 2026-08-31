@@ -643,122 +643,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Backup & Recovery Manage
 
     public function getTablePriorityMap(): array
     {
-        return [
-            // Priority Tier 1: Lookups & Independent Parent Tables
-            'condition_key' => 1,
-            'condition_details' => 2,
-            'condition_defaults' => 3,
-            'subsystems' => 4,
-            'subsystem_versions_log' => 5,
-            'system_settings' => 6,
-            'office' => 8,
-            'cluster' => 9,
-            'security_status' => 10,
-            'sub_document_tracking_system_logs_types' => 11,
-            'document_data' => 12,
-            'dts_qr_code' => 13,
-            'notif_content' => 14,
-            'rdp_record_series_type' => 15,
-            'rdp_recorded_value' => 16,
-            'rdp_frequence_use' => 17,
-            'rdp_restriction_type' => 18,
-            'rdp_utility_medium' => 19,
-            'rdp_time_value' => 20,
-            'rdp_volume_value' => 21,
-            'rdp_volume_conversion' => 22,
-            'rdp_pending_status' => 23,
-            'rdp_record_series' => 24,
-            'rdp_record_series_brackets' => 25,
-            'folder_data' => 26,
-            'main_pending_id' => 27,
-
-            // Priority Tier 2: Accounts & User Relations (Depends on condition_key, office, cluster)
-            'account' => 30,
-            'account_details' => 31,
-            'personal_settings' => 32,
-            'cluster_head' => 33,
-            'dts_source_office' => 34,
-            'security_logs' => 35,
-            'tracking_devices_log' => 36,
-
-            // Priority Tier 3: Workflow, Options & Transaction Settings (Depends on account, office)
-            'dts_transaction_flow' => 40,
-            'dts_sequence_list' => 41,
-            'hub_flow_datas' => 42,
-            'dts_action_options' => 43,
-            'dts_email_access' => 44,
-
-            // Priority Tier 4: Transactions, Documents, Chat & Messages
-            'dts_transactions' => 50,
-            'dts_transaction_details' => 51,
-            'dts_document_trans' => 52,
-            'dts_copy_filled_transaction' => 53,
-            'dts_copy_filled_to_office' => 54,
-            'dts_transaction_version' => 55,
-            'dts_requestor_history' => 56,
-            'sub_document_tracking_system_logs' => 57,
-            'rdp_record' => 60,
-            'rdp_document_record' => 61,
-            'rdp_grouped_record' => 62,
-            'rdp_grouped_record_series' => 63,
-            'rdp_pending_record' => 64,
-            'rdp_pending_record_series' => 65,
-            'rdp_period_covered' => 66,
-            'rdp_retention_period' => 67,
-            'rdp_utility_manager' => 68,
-            'rdp_duplication_section' => 69,
-            'chat_conversations' => 70,
-            'chat_messages' => 71,
-            'chat_reactions' => 72,
-            'chat_read_markers' => 73,
-            'chatify_chat_backup' => 74,
-            'chat_notifications' => 75,
-            'chatify_legal_agreements' => 76,
-
-            // Priority Tier 5: Audit & Notification Logs (Depends on account, subsystems, etc.)
-            'notifications' => 80,
-            'notification_div' => 81,
-            'chatify_audit_logs' => 82,
-            'admin_logs' => 83,
-
-            // Priority Tier 6: DCS catalog, then documents, then junctions (Depends on office)
-            'dcs_doc_types' => 90,
-            'dcs_version_type' => 91,
-            'dcs_originators' => 92,
-            'dcs_colleges' => 93,
-            'dcs_programs' => 94,
-            'dcs_semesters' => 95,
-            'dcs_school_years' => 96,
-            'dcs_faculties' => 97,
-            'dcs_program_courses' => 98,
-            'dcs_program_course_faculties' => 99,
-            'dcs_checklist_types' => 100,
-            'dcs_checklist_version' => 101,
-            'dcs_approval_body' => 102,
-            'dcs_document_requests' => 110,
-            'dcs_approval_records' => 111,
-            'dcs_document_change_notice' => 112,
-            'dcs_doc_revision' => 113,
-            'dcs_document_request_form' => 114,
-            'dcs_document_distribution' => 115,
-            'dcs_document_retrieval' => 116,
-            'dcs_masterlist_registration' => 117,
-            'dcs_syllabi' => 118,
-            'dcs_syllabi_drf' => 119,
-            'dcs_document_stamps' => 120,
-            'dcs_opcr_ratings' => 121,
-            'dcs_calendar_categories' => 122,
-            'dcs_calendar_events' => 123,
-            'dcs_report_templates' => 124,
-            'dcs_generated_reports' => 125,
-            'dcs_drf_offices' => 130,
-            'dcs_distribution_offices' => 131,
-            'dcs_retrieval_offices' => 132,
-            'dcs_dcn_offices' => 133,
-            'dcs_masterlist_source_offices' => 134,
-            'dcs_masterlist_related_docs' => 135,
-            'dcs_syllabi_monitoring_status' => 136,
-        ];
+        return \App\Services\BackupService::getTablePriorityMap();
     }
 
     public function startRevertProcess(): void
@@ -772,257 +657,57 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Backup & Recovery Manage
         }
 
         $filename = basename($this->selectedTargetBackup);
-        $localPath = "backups/{$filename}";
-        $googlePath = "backup/{$filename}";
-
-        $jsonContent = null;
-        if (\Illuminate\Support\Facades\Storage::disk('local')->exists($localPath)) {
-            $jsonContent = \Illuminate\Support\Facades\Storage::disk('local')->get($localPath);
-        } elseif (\Illuminate\Support\Facades\Storage::disk('google')->exists($googlePath)) {
-            $jsonContent = \Illuminate\Support\Facades\Storage::disk('google')->get($googlePath);
-            try {
-                \Illuminate\Support\Facades\Storage::disk('local')->put($localPath, $jsonContent);
-            } catch (\Throwable) {}
-        }
-
-        if (!$jsonContent) {
-            $this->errorMessage = "Target backup file [{$filename}] could not be retrieved from storage.";
-            $this->showRevertConfirmModal = false;
-            return;
-        }
-
-        $payload = json_decode($jsonContent, true);
-        if (!$payload || !isset($payload['tables']) || !is_array($payload['tables'])) {
-            $this->errorMessage = "Failed to parse target backup file [{$filename}]. Invalid or corrupted JSON content.";
-            $this->showRevertConfirmModal = false;
-            return;
-        }
-
-        $priorityMap = $this->getTablePriorityMap();
-        $tablesData = $payload['tables'];
-
-        // Insertion order: forward priority order (parents first)
-        uksort($tablesData, function ($a, $b) use ($priorityMap) {
-            $pA = $priorityMap[$a] ?? 50;
-            $pB = $priorityMap[$b] ?? 50;
-            return $pA <=> $pB;
-        });
-
-        $this->revertTablesList = array_keys($tablesData);
-        $this->revertTargetFilename = $filename;
         $this->showRevertConfirmModal = false;
         $this->isReverting = true;
-        $this->revertProgress = 0;
-        $this->revertCurrentIndex = 0;
-        $this->revertCurrentTable = 'Initializing...';
+        $this->revertProgress = 10;
+        $this->revertTargetFilename = $filename;
+        $this->revertCurrentTable = 'Restoring database records...';
         $this->revertLogs = [
             "- Initializing database restoration sequence from [{$filename}]...",
-            "- Payload validated: " . count($tablesData) . " tables ready for restoration."
+            "- Reading backup payload...",
         ];
 
-        // Store payload in cache for step execution
-        \Illuminate\Support\Facades\Cache::put('rms_revert_payload_' . auth()->id(), $payload, now()->addMinutes(15));
+        $backupService = new \App\Services\BackupService();
+        $logs = [];
+        $result = $backupService->restoreBackupFile($filename, function ($message, $percent) use (&$logs) {
+            $logs[] = "- {$message}";
+        });
 
-        $this->executeRevertStep(0);
-    }
+        $this->revertLogs = array_merge($this->revertLogs, $logs);
 
-    public function executeRevertStep(int $step): void
-    {
-        if (!$this->isReverting) {
-            return;
-        }
-
-        @set_time_limit(120);
-
-        $payload = \Illuminate\Support\Facades\Cache::get('rms_revert_payload_' . auth()->id());
-        if (!$payload || !isset($payload['tables'])) {
-            $this->isReverting = false;
-            $this->errorMessage = 'Restoration session expired or payload missing.';
-            return;
-        }
-
-        $driver = \DB::getDriverName();
-        $totalTables = count($this->revertTablesList);
-
-        // Step 0: Disable constraints & clear existing database
-        if ($step === 0) {
-            $this->revertLogs[] = "- Disabling foreign key constraints & preparing {$driver} database...";
-            try {
-                if ($driver === 'pgsql') {
-                    try {
-                        \DB::statement("SET session_replication_role = 'replica';");
-                    } catch (\Throwable) {
-                        \DB::statement('SET CONSTRAINTS ALL DEFERRED;');
-                    }
-                } elseif ($driver === 'sqlite') {
-                    \DB::statement('PRAGMA foreign_keys = OFF;');
-                } elseif ($driver === 'mysql') {
-                    \DB::statement('SET FOREIGN_KEY_CHECKS = 0;');
-                }
-                $this->revertLogs[] = "- Foreign key constraints suspended.";
-            } catch (\Throwable $e) {
-                $this->revertLogs[] = "- Notice while configuring constraints: " . $e->getMessage();
-            }
-
-            // Deletion order: reverse priority (children first)
-            $priorityMap = $this->getTablePriorityMap();
-            $deletionOrder = $this->revertTablesList;
-            usort($deletionOrder, function ($a, $b) use ($priorityMap) {
-                $pA = $priorityMap[$a] ?? 50;
-                $pB = $priorityMap[$b] ?? 50;
-                return $pB <=> $pA;
-            });
-
-            $this->revertLogs[] = "- Clearing existing table data in reverse dependency order...";
-            foreach ($deletionOrder as $tbl) {
-                if (in_array($tbl, ['migrations', 'sessions', 'cache', 'cache_locks', 'jobs', 'failed_jobs'])) continue;
-                if (\Schema::hasTable($tbl)) {
-                    try {
-                        \DB::table($tbl)->delete();
-                    } catch (\Throwable) {}
-                }
-            }
-            $this->revertLogs[] = "- Existing records cleared.";
-
-            $this->revertProgress = 5;
-            $this->revertCurrentIndex = 0;
-            $this->revertCurrentTable = $this->revertTablesList[0] ?? 'Ready';
-            $this->js('$wire.executeRevertStep(1)');
-            return;
-        }
-
-        // Steps 1 to N: Process table by table
-        $tableIndex = $step - 1;
-        if ($tableIndex < $totalTables) {
-            $tableName = $this->revertTablesList[$tableIndex];
-            $rows = $payload['tables'][$tableName] ?? [];
-            $this->revertCurrentTable = $tableName;
-            $this->revertCurrentIndex = $tableIndex + 1;
-
-            if (\Schema::hasTable($tableName) && !in_array($tableName, ['migrations', 'sessions', 'cache', 'cache_locks', 'jobs', 'failed_jobs'])) {
-                $count = count($rows);
-                $this->revertLogs[] = "- Restoring table [{$tableName}] ({$count} records)...";
-
-                if (!empty($rows)) {
-                    $dbColumns = array_flip(\Schema::getColumnListing($tableName));
-                    $chunks = array_chunk($rows, 200);
-                    foreach ($chunks as $chunk) {
-                        $filteredChunk = [];
-                        foreach ($chunk as $row) {
-                            $filteredRow = array_intersect_key((array) $row, $dbColumns);
-                            if (!empty($filteredRow)) {
-                                $filteredChunk[] = $filteredRow;
-                            }
-                        }
-                        if (!empty($filteredChunk)) {
-                            \DB::table($tableName)->insert($filteredChunk);
-                        }
-                    }
-                }
-                $this->revertLogs[] = "- Table [{$tableName}] restored successfully.";
-            } else {
-                $this->revertLogs[] = "- Skipped [{$tableName}] (table does not exist in schema).";
-            }
-
-            $this->revertProgress = (int) round(5 + (($this->revertCurrentIndex / $totalTables) * 90));
-            $nextStep = $step + 1;
-            $this->js('$wire.executeRevertStep(' . $nextStep . ')');
-            return;
-        }
-
-        // Final Step: Complete restoration, sequences & re-enable constraints
-        $this->revertLogs[] = "- Synchronizing database sequences & role references...";
-
-        // Check condition_key fallback
-        if (\Schema::hasTable('account') && \Schema::hasTable('condition_key')) {
-            $missingRoles = \DB::table('account')
-                ->whereNotNull('account_role')
-                ->whereNotIn('account_role', \DB::table('condition_key')->pluck('id'))
-                ->pluck('account_role')
-                ->unique();
-
-            if ($missingRoles->isNotEmpty()) {
-                $firstModifierKey = \DB::table('condition_details')->value('key_id') ?: 1;
-                foreach ($missingRoles as $roleId) {
-                    try {
-                        \DB::table('condition_key')->insert([
-                            'id' => $roleId,
-                            'key_name' => "Role #{$roleId}",
-                            'modifier_key' => $firstModifierKey,
-                            'date_created' => now(),
-                            'date_updated' => now(),
-                        ]);
-                    } catch (\Throwable) {}
-                }
-            }
-        }
-
-        // Resync PostgreSQL sequences if applicable
-        if ($driver === 'pgsql') {
-            $seqTables = \DB::select("SELECT table_name FROM information_schema.tables WHERE table_schema = 'public' AND table_type = 'BASE TABLE'");
-            foreach ($seqTables as $st) {
-                $tbl = $st->table_name;
+        if ($result['success']) {
+            $adminId = auth()->id();
+            if ($adminId && \Schema::hasTable('admin_logs')) {
                 try {
-                    $columns = \Schema::getColumnListing($tbl);
-                    foreach ($columns as $col) {
-                        $seq = \DB::selectOne("SELECT pg_get_serial_sequence(?, ?) AS seq", ["\"{$tbl}\"", $col]);
-                        $seqName = $seq->seq ?? null;
-                        if ($seqName) {
-                            $maxId = \DB::table($tbl)->max($col) ?: 0;
-                            $seqVal = max(1, (int) $maxId);
-                            $isCalled = $maxId > 0;
-                            \DB::statement("SELECT setval(?, ?, ?)", [$seqName, $seqVal, $isCalled]);
-                        }
-                    }
+                    \DB::table('admin_logs')->insert([
+                        'changes' => "EMERGENCY REVERT PERFORMED: System database restored to target backup [{$filename}]",
+                        'admin_id' => $adminId,
+                        'what_system' => 3,
+                        'when_changes' => now(),
+                    ]);
                 } catch (\Throwable) {}
             }
+
+            $this->revertProgress = 100;
+            $this->successMessage = $result['message'];
+            $this->isReverting = false;
+            $this->selectedTargetBackup = '';
+            $this->backupConfirmInput = '';
+            $this->checkBackups();
+        } else {
+            $this->isReverting = false;
+            $this->errorMessage = $result['message'];
         }
+    }
 
-        // Log action
-        try {
-            $adminId = auth()->id();
-            if (\Schema::hasTable('account') && (!$adminId || !\DB::table('account')->where('id', $adminId)->exists())) {
-                $adminId = \DB::table('account')->value('id');
-            }
-            $whatSystem = 3;
-            if (\Schema::hasTable('subsystems') && !\DB::table('subsystems')->where('subsystem_id', $whatSystem)->exists()) {
-                $whatSystem = \DB::table('subsystems')->value('subsystem_id');
-            }
-            if ($adminId && $whatSystem && \Schema::hasTable('admin_logs')) {
-                \DB::table('admin_logs')->insert([
-                    'changes' => "EMERGENCY REVERT PERFORMED: System database restored to target backup [{$this->revertTargetFilename}]",
-                    'admin_id' => $adminId,
-                    'what_system' => $whatSystem,
-                    'when_changes' => now(),
-                ]);
-            }
-        } catch (\Throwable) {}
-
-        // Re-enable constraints
-        if ($driver === 'pgsql') {
-            try {
-                \DB::statement("SET session_replication_role = 'origin';");
-            } catch (\Throwable) {}
-        } elseif ($driver === 'sqlite') {
-            \DB::statement('PRAGMA foreign_keys = ON;');
-        } elseif ($driver === 'mysql') {
-            \DB::statement('SET FOREIGN_KEY_CHECKS = 1;');
-        }
-
-        \Illuminate\Support\Facades\Cache::forget('rms_revert_payload_' . auth()->id());
-        $this->revertProgress = 100;
-        $this->revertLogs[] = "- System database successfully restored from [{$this->revertTargetFilename}] (100%)!";
-        $this->successMessage = "System successfully reverted to target backup [{$this->revertTargetFilename}]! All records have been restored.";
-        $this->isReverting = false;
-        $this->selectedTargetBackup = '';
-        $this->backupConfirmInput = '';
-        $this->checkBackups();
+    public function revertToTargetBackup(): void
+    {
+        $this->startRevertProcess();
     }
 
     public function cancelRevert(): void
     {
         $this->isReverting = false;
-        \Illuminate\Support\Facades\Cache::forget('rms_revert_payload_' . auth()->id());
         $this->errorMessage = 'Database revert operation was cancelled by administrator.';
     }
 
@@ -1716,9 +1401,11 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Backup & Recovery Manage
                 <button type="button" wire:click="cancelRevertModal" style="background: #e2e8f0; color: #475569; border: none; padding: 10px 18px; border-radius: 8px; font-weight: 700; font-size: 13px; cursor: pointer;">
                     Cancel
                 </button>
-                <button type="button" wire:click="startRevertProcess" style="background: #d97706; color: #ffffff; border: none; padding: 10px 20px; border-radius: 8px; font-weight: 700; font-size: 13px; cursor: pointer; display: inline-flex; align-items: center; gap: 8px; box-shadow: 0 4px 12px rgba(217, 119, 6, 0.3);">
-                    <i class="fa-solid fa-rotate-left"></i>
-                    <span>Execute Target Revert</span>
+                <button type="button" wire:click="startRevertProcess" wire:loading.attr="disabled" wire:target="startRevertProcess" style="background: #d97706; color: #ffffff; border: none; padding: 10px 20px; border-radius: 8px; font-weight: 700; font-size: 13px; cursor: pointer; display: inline-flex; align-items: center; gap: 8px; box-shadow: 0 4px 12px rgba(217, 119, 6, 0.3);">
+                    <i class="fa-solid fa-rotate-left" wire:loading.remove wire:target="startRevertProcess"></i>
+                    <i class="fa-solid fa-spinner fa-spin" wire:loading wire:target="startRevertProcess"></i>
+                    <span wire:loading.remove wire:target="startRevertProcess">Execute Target Revert</span>
+                    <span wire:loading wire:target="startRevertProcess">Restoring Database...</span>
                 </button>
             </div>
         </div>

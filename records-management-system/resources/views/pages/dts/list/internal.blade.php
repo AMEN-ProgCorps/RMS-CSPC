@@ -60,16 +60,16 @@ new #[Layout('layouts.dts')] #[Title('DTS - Internal Transactions')] class exten
     // Export Modal Properties
     public bool $showExportModal = false;
     public string $exportFormat = 'pdf';
-    public string $exportScope = 'all';
     public array $exportColumns = [];
+    public int $exportFlowCount = 0;
     public string $exportPreparedBy = '';
     public string $exportNotedBy = '';
 
     public function openExportModal(): void
     {
-        $available = \App\Helpers\DtsExportHelper::getAvailableColumns('internal');
+        $this->exportFlowCount = 0;
+        $available = \App\Helpers\DtsExportHelper::getAvailableColumns('internal', 0);
         $this->exportColumns = array_keys(array_filter($available, fn($c) => $c['default']));
-        $this->exportScope = !empty($this->selectedIds) ? 'selected' : 'all';
         $user = auth()->user();
         $this->exportPreparedBy = $user?->details?->first_name ? ($user->details->first_name . ' ' . $user->details->last_name) : ($user?->name ?? '');
         $this->exportNotedBy = '';
@@ -81,50 +81,100 @@ new #[Layout('layouts.dts')] #[Title('DTS - Internal Transactions')] class exten
         $this->showExportModal = false;
     }
 
+    public function addExportFlow(): void
+    {
+        $this->exportFlowCount++;
+        $newIndex = $this->exportFlowCount;
+        $newCols = array_keys(\App\Helpers\DtsExportHelper::getFlowColumnDefinitions($newIndex));
+        $this->exportColumns = array_values(array_unique(array_merge($this->exportColumns, $newCols)));
+    }
+
+    public function removeExportFlow(int $flowIndex): void
+    {
+        if ($flowIndex < 1 || $flowIndex > $this->exportFlowCount) {
+            return;
+        }
+
+        $updated = [];
+        foreach ($this->exportColumns as $col) {
+            if (preg_match('/^flow(\d+)_(.+)$/', $col, $matches)) {
+                $idx = (int)$matches[1];
+                $field = $matches[2];
+                if ($idx < $flowIndex) {
+                    $updated[] = $col;
+                } elseif ($idx > $flowIndex) {
+                    $newIdx = $idx - 1;
+                    $updated[] = "flow{$newIdx}_{$field}";
+                }
+            } else {
+                $updated[] = $col;
+            }
+        }
+
+        $this->exportColumns = $updated;
+        $this->exportFlowCount = max(0, $this->exportFlowCount - 1);
+    }
+
+    public function toggleFlowStepColumns(int $flowIndex): void
+    {
+        $fKeys = array_keys(\App\Helpers\DtsExportHelper::getFlowColumnDefinitions($flowIndex));
+        $hasAll = count(array_intersect($fKeys, $this->exportColumns)) === count($fKeys);
+        if ($hasAll) {
+            $this->exportColumns = array_values(array_diff($this->exportColumns, $fKeys));
+        } else {
+            $this->exportColumns = array_values(array_unique(array_merge($this->exportColumns, $fKeys)));
+        }
+    }
+
     public function selectAllExportColumns(): void
     {
-        $available = \App\Helpers\DtsExportHelper::getAvailableColumns('internal');
+        $available = \App\Helpers\DtsExportHelper::getAvailableColumns('internal', $this->exportFlowCount);
         $this->exportColumns = array_keys($available);
     }
 
     public function resetDefaultExportColumns(): void
     {
-        $available = \App\Helpers\DtsExportHelper::getAvailableColumns('internal');
+        $this->exportFlowCount = 0;
+        $available = \App\Helpers\DtsExportHelper::getAvailableColumns('internal', 0);
         $this->exportColumns = array_keys(array_filter($available, fn($c) => $c['default']));
+    }
+
+    public function deselectAllExportColumns(): void
+    {
+        $this->exportColumns = [];
     }
 
     public function executeExport()
     {
-        $available = \App\Helpers\DtsExportHelper::getAvailableColumns('internal');
+        if (empty($this->selectedIds)) {
+            return;
+        }
+
+        $available = \App\Helpers\DtsExportHelper::resolveAllColumns('internal', $this->exportColumns);
         $colsToUse = !empty($this->exportColumns) ? $this->exportColumns : array_keys(array_filter($available, fn($c) => $c['default']));
 
         $filters = [
-            'priority'   => $this->selectedPriority,
-            'status'     => $this->selectedStatus,
-            'search'     => $this->searchQuery,
-            'date_from'  => $this->dateFrom,
-            'date_to'    => $this->dateTo,
             'sort_order' => $this->sortOrder,
         ];
 
         if ($this->exportFormat === 'excel') {
-            $rows = \App\Helpers\DtsExportHelper::fetchExportRecords('internal', $filters, $this->selectedIds, $this->exportScope);
-            $filename = 'dts-internal-transactions-' . now()->format('Y-m-d') . '.csv';
+            $rows = \App\Helpers\DtsExportHelper::fetchExportRecords('internal', $filters, $this->selectedIds);
+            $filename = 'dts-internal-transactions-' . now()->format('Y-m-d') . '.xls';
+            $meta = [
+                'title'       => \App\Helpers\DtsExportHelper::getCategoryTitle('internal'),
+                'office_name' => auth()->user()?->details?->office?->office_name ?? 'Records Management System',
+                'prepared_by' => $this->exportPreparedBy,
+                'noted_by'    => $this->exportNotedBy,
+            ];
             $this->showExportModal = false;
-            return \App\Helpers\DtsExportHelper::exportCsv($filename, $colsToUse, $rows, $available);
+            return \App\Helpers\DtsExportHelper::exportExcel($filename, $colsToUse, $rows, $available, $meta);
         }
 
         // PDF / Print format
         $params = [
             'category'    => 'internal',
-            'scope'       => $this->exportScope,
             'ids'         => implode(',', $this->selectedIds),
             'cols'        => implode(',', $colsToUse),
-            'priority'    => $this->selectedPriority,
-            'status'      => $this->selectedStatus,
-            'search'      => $this->searchQuery,
-            'date_from'   => $this->dateFrom,
-            'date_to'     => $this->dateTo,
             'sort_order'  => $this->sortOrder,
             'prepared_by' => $this->exportPreparedBy,
             'noted_by'    => $this->exportNotedBy,
@@ -2484,12 +2534,11 @@ new #[Layout('layouts.dts')] #[Title('DTS - Internal Transactions')] class exten
     <x-dts.export-modal
         :show="$showExportModal"
         category="internal"
-        :available-columns="\App\Helpers\DtsExportHelper::getAvailableColumns('internal')"
+        :available-columns="\App\Helpers\DtsExportHelper::getAvailableColumns('internal', $exportFlowCount)"
         :selected-columns="$exportColumns"
         :format="$exportFormat"
-        :scope="$exportScope"
         :selected-count="count($selectedIds)"
-        :total-count="$this->transactions->total()"
+        :flow-count="$exportFlowCount"
         :prepared-by="$exportPreparedBy"
         :noted-by="$exportNotedBy"
     />

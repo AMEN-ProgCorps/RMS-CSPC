@@ -153,7 +153,7 @@ function dmBuildReplyQuoteHtml(?string $encryptedReplyMessage, string $replyType
         $imageExts  = ['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp', 'svg'];
         if (in_array($ext, $imageExts, true) && $file !== '' && file_exists(__DIR__ . '/uploads/' . $file)) {
             $fnUrl = htmlspecialchars('uploads/' . rawurlencode($file), ENT_QUOTES);
-            return "<div class='reply-quote reply-quote-image-container'><img src='{$fnUrl}' class='reply-quote-image' alt='' referrerpolicy='no-referrer'></div>";
+            return "<div class='reply-quote reply-quote-image-container'><img src='{$fnUrl}' class='reply-quote-image' alt='' referrerpolicy='no-referrer' onerror=\"this.closest('.reply-quote-image-container,.reply-quote')?.remove()\"></div>";
         }
         $snippet = $file !== '' ? $file : 'Attachment';
     } else {

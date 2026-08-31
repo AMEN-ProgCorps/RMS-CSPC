@@ -842,6 +842,10 @@
 
     chatBox.addEventListener('touchstart', function(e) {
       if (e.touches.length !== 1) return;
+      // Admin spy mode is read-only — never start a swipe-to-reply gesture
+      // there. Mirrors the same guard already on the desktop hover-reply
+      // button above (mouseover/click); this touch path was missing it.
+      if (isAdminAllChatsView || activeAdminConv) return;
       const container = e.target.closest('.message-container[data-msg-id]');
       if (!container || container.hasAttribute('data-sending-uid') || container.hasAttribute('data-upload-uid')) return;
 
@@ -926,7 +930,9 @@
 
     function endSwipe() {
       if (!swipeContainer) return;
-      if (swipeLocked && swipeDx >= SWIPE_REPLY_TRIGGER_PX) {
+      // Redundant with the touchstart guard above, but covers the edge
+      // case of spy mode being toggled on mid-gesture.
+      if (swipeLocked && swipeDx >= SWIPE_REPLY_TRIGGER_PX && !isAdminAllChatsView && !activeAdminConv) {
         openReplyForContainer(swipeContainer);
       }
       resetSwipeVisual();
@@ -1926,6 +1932,10 @@
         const firstChild = chatBox.firstChild;
         const btn = document.getElementById('loadOlderBtn');
         oldItems.reverse().forEach(el => {
+          if (el.classList.contains('message-container')) {
+            el.classList.add('msg-animate-older');
+            el.addEventListener('animationend', () => el.classList.remove('msg-animate-older'), { once: true });
+          }
           if (btn) chatBox.insertBefore(el, btn.nextSibling);
           else chatBox.insertBefore(el, firstChild);
         });
@@ -2140,12 +2150,21 @@
                     + '&limit=' + limitParam, true);
       xhr.onload = function() {
         isLoadingGC = false;
+        if (loadOlderMode) hideBackreadTopLoader();
         if (this.status !== 200) return;
+        // Stale-response guard: without this, a fetch started while Global
+        // Chat was open — most easily triggered by a fast backread that's
+        // still in flight — lands and inserts Global Chat messages into
+        // whatever chat is now on screen if the user switched away (to a
+        // DM or Admin conv) before the response arrived. loadChat/
+        // loadAdminConv already guard this per-chat (requestedUser/
+        // requestedConv); this was the one path missing it.
+        if (!isGlobalChat) return;
         let data;
         try { data = JSON.parse(this.responseText); } catch(e) { return; }
         processGlobalChatData(data, loadOlderMode);
       };
-      xhr.onerror = function() { isLoadingGC = false; };
+      xhr.onerror = function() { isLoadingGC = false; if (loadOlderMode) hideBackreadTopLoader(); };
       xhr.send();
     }
 
@@ -2174,6 +2193,10 @@
         const btn = document.getElementById('loadOlderBtn');
         const firstChild = chatBox.firstChild;
         oldItems.reverse().forEach(el => {
+          if (el.classList.contains('message-container')) {
+            el.classList.add('msg-animate-older');
+            el.addEventListener('animationend', () => el.classList.remove('msg-animate-older'), { once: true });
+          }
           if (btn) chatBox.insertBefore(el, btn.nextSibling);
           else chatBox.insertBefore(el, firstChild);
         });
@@ -2337,19 +2360,24 @@
       xhr.onload = function () {
         isLoadingChat = false;
         if (chatXhr === xhr) chatXhr = null;
+        // Unconditional: covers the stale-response case too (user backread
+        // fast then switched chats before this landed) so the spinner never
+        // gets left stranded at the top of whatever chat is now open.
+        if (loadOlderMode) hideBackreadTopLoader();
         if (this.status !== 200) return;
         if (requestedUser !== activeDM) return;
         let data;
         try { data = JSON.parse(this.responseText); } catch(e) { return; }
         processChatData(data, requestedUser, loadOlderMode);
       };
-      xhr.onerror = function() { isLoadingChat = false; if (chatXhr === xhr) chatXhr = null; };
+      xhr.onerror = function() { isLoadingChat = false; if (chatXhr === xhr) chatXhr = null; if (loadOlderMode) hideBackreadTopLoader(); };
       xhr.send();
     }
 
     function loadOlderMessages() {
       shouldAutoScroll = false;
       userScrolledUp = true;
+      showBackreadTopLoader();
       if (activeAdminConv || isAdminAllChatsView) {
         if (activeAdminConv) loadAdminConv(activeAdminConv, false, true);
       } else if (isGlobalChat) {
@@ -3109,7 +3137,7 @@
                   if (activeReply.snippet && activeReply.snippet.startsWith('image:')) {
                     const imgFile = activeReply.snippet.slice(6);
                     const imgSrc  = 'uploads/' + imgFile;
-                    return `<div class="reply-quote reply-quote-image-container"><img src="${imgSrc.replace(/"/g, '&quot;')}" class="reply-quote-image" alt="" referrerpolicy="no-referrer" draggable="false"></div>`;
+                    return `<div class="reply-quote reply-quote-image-container"><img src="${imgSrc.replace(/"/g, '&quot;')}" class="reply-quote-image" alt="" referrerpolicy="no-referrer" draggable="false" onerror="this.closest('.reply-quote-image-container,.reply-quote')?.remove()"></div>`;
                   }
                   return `<div class="reply-quote"><div class="reply-quote-text">${escapeHtml(truncateForReply(activeReply.snippet, 120))}</div></div>`;
                 })();

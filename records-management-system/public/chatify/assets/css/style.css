@@ -1399,11 +1399,24 @@
     .reply-quote-text {
       font-size: 12.5px;
       line-height: 1.35;
+      /* Plain block + max-height clamp instead of `-webkit-box` +
+         `-webkit-line-clamp`. That legacy-flexbox-based clamp technique,
+         combined with `.reply-quote` being a shrink-to-fit flex item
+         inside `.bubble-wrapper` (display:inline-flex; align-items:
+         flex-start/flex-end, i.e. NOT stretch), makes width auto-sizing
+         unreliable for long text: the browser can collapse the box down
+         toward min-content — which, with `word-break:break-word` allowing
+         a break anywhere, can be as narrow as a single character — while
+         height stays fixed by padding, so the whole quote bubble renders
+         as a small round blob instead of a text pill. Text is already
+         hard-capped to 120 chars in JS before this ever renders, so a
+         plain wrap + max-height safety net is all that's needed here;
+         no ellipsis on the clamped line since multi-line ellipsis needs
+         -webkit-box, but the 120-char cap keeps overflow negligible. */
+      max-width: 100%;
+      max-height: calc(1.35em * 2);
       overflow: hidden;
-      text-overflow: ellipsis;
-      display: -webkit-box;
-      -webkit-line-clamp: 2;
-      -webkit-box-orient: vertical;
+      white-space: normal;
       word-break: break-word;
     }
     /* The real message bubble stacks in front of (on top of) .reply-quote */
@@ -1504,6 +1517,57 @@
         opacity: 1;
         transform: translateX(0) scale(1);
       }
+    }
+
+    /* Backread top loader — small pinned spinner shown while an older-
+       history page is being fetched. Absolutely positioned so it never
+       joins #chat-box's normal flow / scrollHeight (it must not interfere
+       with the scroll-preserving math around older-message inserts). Without
+       this, a fast scroll-to-top fetch had zero visual feedback, so the
+       batch just silently popped into place once it arrived. */
+    .backread-top-loader {
+      position: absolute;
+      top: 6px;
+      left: 0;
+      right: 0;
+      display: flex;
+      justify-content: center;
+      pointer-events: none;
+      z-index: 5;
+      animation: backreadLoaderFade 0.15s ease-out forwards;
+    }
+
+    .backread-spinner {
+      width: 20px;
+      height: 20px;
+      border: 2px solid rgba(0, 0, 0, 0.12);
+      border-top-color: var(--primary-color, #1b74e4);
+      border-radius: 50%;
+      animation: backreadSpin 0.6s linear infinite;
+    }
+
+    @keyframes backreadLoaderFade {
+      from { opacity: 0; transform: translateY(-4px); }
+      to   { opacity: 1; transform: translateY(0); }
+    }
+
+    @keyframes backreadSpin {
+      to { transform: rotate(360deg); }
+    }
+
+    /* Older-history batch entrance — a single calm group fade+settle so a
+       backread page reads as "grew from the top" instead of snapping/
+       dumping into place all at once. Deliberately gentler than the bouncy
+       new-message pop-in above, since up to BACKREAD_BATCH messages land
+       simultaneously here (a per-message bounce on 50 items at once would
+       look chaotic, not smooth). */
+    .message-container.msg-animate-older {
+      animation: msgOlderFadeIn 0.32s ease-out forwards;
+    }
+
+    @keyframes msgOlderFadeIn {
+      from { opacity: 0; transform: translateY(-6px); }
+      to   { opacity: 1; transform: translateY(0); }
     }
 
     /* Optimistic "sending" bubble — snappy entrance, then a gentle
@@ -2901,20 +2965,31 @@
       margin-top: 4px;
     }
 
+    /* Emoji-only bubbles have no background and a taller line-height box
+       around the big 36px glyph (empty space the font reserves above/below
+       the visible emoji). The default -13px overlap is tuned for a real
+       bubble's padded corner, so on an emoji-only bubble it leaves the pill
+       floating with a visible gap below the emoji instead of tucking into
+       its corner. Pull it in so it sits snug against the emoji, matching
+       the same attached look reactions have on a normal chat bubble. */
+    .bubble-wrapper:has(.message-bubble.emoji-only) .msg-reactions {
+      bottom: -4px;
+    }
+
     /* Solid mini chat bubble container for reactions */
     .msg-reactions-pill {
       display: inline-flex !important;
       align-items: center !important;
       justify-content: center !important;
-      gap: 3px !important;
-      padding: 2px 6px !important;
-      min-height: 20px !important;
+      gap: 2px !important;
+      padding: 1px 5px !important;
+      min-height: 18px !important;
       box-sizing: border-box !important;
       border-radius: 12px !important;
       background-color: #ffffff !important;
       background: #ffffff !important;
       border: 1px solid rgba(0, 0, 0, 0.12) !important;
-      box-shadow: 0 1px 2px rgba(0, 0, 0, 0.06) !important;
+      box-shadow: none !important;
       cursor: pointer !important;
       white-space: nowrap !important;
       user-select: none !important;
@@ -2927,38 +3002,49 @@
       transform: scale(1.05) !important;
       background-color: #f7f8fa !important;
       background: #f7f8fa !important;
-      box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1) !important;
+      box-shadow: none !important;
     }
     .msg-reactions-pill:active {
       transform: scale(0.95) !important;
     }
 
+    /* #242526 used to live here, but it's nearly identical to --bg-chat
+       (#1a1a1a) that the pill floats over once it overlaps past the bubble's
+       edge — on real screens (esp. after phone/webp compression) that made
+       the "solid mini chat bubble" read as a bare outline/circle instead of
+       a filled badge. Use the received-bubble tone instead: it's already
+       proven to contrast against --bg-chat elsewhere in the app. */
     [data-theme="dark"] .msg-reactions-pill {
-      background-color: #242526 !important;
-      background: #242526 !important;
+      background-color: #3a3b3c !important;
+      background: #3a3b3c !important;
       border-color: rgba(255, 255, 255, 0.18) !important;
-      box-shadow: 0 1px 2px rgba(0, 0, 0, 0.2) !important;
+      box-shadow: none !important;
     }
     [data-theme="dark"] .msg-reactions-pill:hover {
-      background-color: #303031 !important;
-      background: #303031 !important;
-      box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3) !important;
+      background-color: #4a4b4c !important;
+      background: #4a4b4c !important;
+      box-shadow: none !important;
     }
 
     .msg-reactions-pill .reaction-emojis {
       display: inline-flex !important;
       align-items: center !important;
-      font-size: 13px !important;
+      font-size: 12px !important;
       line-height: 1 !important;
       letter-spacing: 1px !important;
-      margin-right: 4px !important;
+      margin-right: 3px !important;
+    }
+    /* Single emoji, no count badge next to it — drop the count-spacing
+       margin so the emoji sits centered in the pill instead of skewed left */
+    .msg-reactions-pill .reaction-emojis:only-child {
+      margin-right: 0 !important;
     }
     .msg-reactions-pill .reaction-total-count {
-      font-size: 11px !important;
+      font-size: 10px !important;
       font-weight: 600 !important;
       color: #65676b !important;
       line-height: 1 !important;
-      margin-left: -5px !important;
+      margin-left: -4px !important;
     }
     [data-theme="dark"] .msg-reactions-pill .reaction-total-count {
       color: #b0b3b8 !important;

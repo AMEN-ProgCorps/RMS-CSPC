@@ -9,6 +9,16 @@
             (function() {
                 var theme = localStorage.getItem('rms-theme') || '{{ auth()->user()?->theme() ?? "light" }}';
                 document.documentElement.setAttribute('data-theme', theme);
+                var modalCloseKey = localStorage.getItem('rms-modal-close-key') || '{{ auth()->user()?->modalCloseKey() ?? "Escape" }}';
+                window.RMS_MODAL_CLOSE_KEY = modalCloseKey;
+                var sidebarToggleKey = localStorage.getItem('rms-sidebar-toggle-key') || '{{ auth()->user()?->sidebarToggleKey() ?? "" }}';
+                window.RMS_SIDEBAR_TOGGLE_KEY = sidebarToggleKey;
+                var actionToggleKey = localStorage.getItem('rms-action-toggle-key') || '{{ auth()->user()?->actionToggleKey() ?? "" }}';
+                window.RMS_ACTION_TOGGLE_KEY = actionToggleKey;
+                var notifToggleKey = localStorage.getItem('rms-notif-toggle-key') || '{{ auth()->user()?->notificationToggleKey() ?? "" }}';
+                window.RMS_NOTIF_TOGGLE_KEY = notifToggleKey;
+                var chatifyToggleKey = localStorage.getItem('rms-chatify-toggle-key') || '{{ auth()->user()?->chatifyToggleKey() ?? "" }}';
+                window.RMS_CHATIFY_TOGGLE_KEY = chatifyToggleKey;
             })();
         </script>
 

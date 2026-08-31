@@ -122,7 +122,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Subsystem Changes Logs')
                     @forelse($logs as $log)
                         <tr wire:key="sub-log-{{ $log->changes_id }}">
                             <td>
-                                <span style="font-weight: 600; color: #64748b;">#{{ $log->changes_id }}</span>
+                                <span class="log-id">#{{ $log->changes_id }}</span>
                             </td>
                             <td>
                                 <div class="admin-name-cell">
@@ -136,7 +136,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Subsystem Changes Logs')
                             </td>
                             <td>
                                 <div class="log-timestamp">
-                                    {{ \Carbon\Carbon::parse($log->changes_on)->format('Y-m-d H:i:s') }}
+                                    <span class="log-date">{{ \Carbon\Carbon::parse($log->changes_on)->format('Y-m-d H:i:s') }}</span>
                                     <span class="time-ago">{{ \Carbon\Carbon::parse($log->changes_on)->diffForHumans() }}</span>
                                 </div>
                             </td>

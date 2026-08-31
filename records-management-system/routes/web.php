@@ -76,13 +76,27 @@ Route::get('/auth/google/callback', function () use ($resolveGoogleSsoCredential
         // Lookup account in account_details by email
         $accountDetail = \Illuminate\Support\Facades\DB::table('account_details')->whereRaw('LOWER(email) = ?', [$email])->first();
 
+        // Safe security log helper
+        $logSecurityEvent = function ($statusId, $accountId = null) {
+            try {
+                if (\Illuminate\Support\Facades\Schema::hasTable('security_status')) {
+                    if (!\Illuminate\Support\Facades\DB::table('security_status')->where('status_id', $statusId)->exists()) {
+                        (new \App\Services\BackupService())->ensureEssentialLookups();
+                    }
+                }
+                \Illuminate\Support\Facades\DB::table('security_logs')->insert([
+                    'status'      => $statusId,
+                    'account'     => $accountId,
+                    'user_ipaddr' => \App\Helpers\NetworkHelper::getClientIp(),
+                    'time'        => now(),
+                ]);
+            } catch (\Throwable $e) {
+                \Illuminate\Support\Facades\Log::warning('Security log insert notice: ' . $e->getMessage());
+            }
+        };
+
         if (!$accountDetail) {
-            \Illuminate\Support\Facades\DB::table('security_logs')->insert([
-                'status'      => 2, // Failed Login
-                'account'     => null,
-                'user_ipaddr' => \App\Helpers\NetworkHelper::getClientIp(),
-                'time'        => now(),
-            ]);
+            $logSecurityEvent(2, null); // Failed Login
 
             return redirect('/')->with('error', "No registered RMS account found for '{$email}'. Please contact your administrator.");
         }
@@ -90,12 +104,7 @@ Route::get('/auth/google/callback', function () use ($resolveGoogleSsoCredential
         // Verify account is active
         $account = \Illuminate\Support\Facades\DB::table('account')->where('id', $accountDetail->account_id)->first();
         if (!$account || !$account->account_active) {
-            \Illuminate\Support\Facades\DB::table('security_logs')->insert([
-                'status'      => 2, // Failed Login
-                'account'     => $accountDetail->account_id,
-                'user_ipaddr' => \App\Helpers\NetworkHelper::getClientIp(),
-                'time'        => now(),
-            ]);
+            $logSecurityEvent(2, $accountDetail->account_id); // Failed Login
 
             return redirect('/')->with('error', 'Your account is deactivated. Please contact your administrator.');
         }
@@ -105,12 +114,7 @@ Route::get('/auth/google/callback', function () use ($resolveGoogleSsoCredential
         session()->regenerate();
 
         // Log successful login
-        \Illuminate\Support\Facades\DB::table('security_logs')->insert([
-            'status'      => 1, // Login Successful
-            'account'     => $accountDetail->account_id,
-            'user_ipaddr' => \App\Helpers\NetworkHelper::getClientIp(),
-            'time'        => now(),
-        ]);
+        $logSecurityEvent(1, $accountDetail->account_id); // Login Successful
 
         // Auto-sync Google Cloud CDN Avatar URL & Names (Approach 1)
         $avatarUrl = $googleUser->getAvatar();
@@ -470,44 +474,30 @@ Route::middleware(['auth'])
         // DTS List of Transactions Printable Export Route
         Route::get('/dts/list/print', function (\Illuminate\Http\Request $request) {
             $category = $request->query('category', 'internal');
-            $scope = $request->query('scope', 'all');
             $selectedIds = array_filter(explode(',', $request->query('ids', '')));
             $selectedColsParam = $request->query('cols', '');
 
-            $availableColumns = \App\Helpers\DtsExportHelper::getAvailableColumns($category);
-            $selectedColumns = !empty($selectedColsParam)
-                ? array_values(array_intersect(explode(',', $selectedColsParam), array_keys($availableColumns)))
+            $rawSelectedCols = !empty($selectedColsParam) ? explode(',', $selectedColsParam) : [];
+            $availableColumns = \App\Helpers\DtsExportHelper::resolveAllColumns($category, $rawSelectedCols);
+            $selectedColumns = !empty($rawSelectedCols)
+                ? array_values(array_intersect($rawSelectedCols, array_keys($availableColumns)))
                 : array_keys(array_filter($availableColumns, fn($c) => $c['default']));
 
             $filters = [
-                'search'     => $request->query('search', ''),
-                'priority'   => $request->query('priority', 'all'),
-                'status'     => $request->query('status', 'all'),
-                'date_from'  => $request->query('date_from', ''),
-                'date_to'    => $request->query('date_to', ''),
                 'sort_order' => $request->query('sort_order', 'desc'),
             ];
 
-            $rows = \App\Helpers\DtsExportHelper::fetchExportRecords($category, $filters, $selectedIds, $scope);
+            $rows = \App\Helpers\DtsExportHelper::fetchExportRecords($category, $filters, $selectedIds);
 
             $userOfficeName = auth()->user()?->details?->office?->office_name ?? 'Records and Freedom of Information Office';
-
-            $dateRangeLabel = '';
-            if (!empty($filters['date_from']) && !empty($filters['date_to'])) {
-                $dateRangeLabel = \Carbon\Carbon::parse($filters['date_from'])->format('M d, Y') . ' to ' . \Carbon\Carbon::parse($filters['date_to'])->format('M d, Y');
-            } elseif (!empty($filters['date_from'])) {
-                $dateRangeLabel = 'From ' . \Carbon\Carbon::parse($filters['date_from'])->format('M d, Y');
-            } elseif (!empty($filters['date_to'])) {
-                $dateRangeLabel = 'Until ' . \Carbon\Carbon::parse($filters['date_to'])->format('M d, Y');
-            }
 
             $meta = [
                 'title'            => \App\Helpers\DtsExportHelper::getCategoryTitle($category),
                 'office_name'      => $userOfficeName,
-                'scope_label'      => $scope === 'selected' ? ('Selected Records (' . count($rows) . ')') : ('All Matching Records (' . count($rows) . ')'),
-                'date_range_label' => $dateRangeLabel,
-                'status_label'     => $filters['status'],
-                'priority_label'   => $filters['priority'],
+                'scope_label'      => 'Selected Records (' . count($rows) . ')',
+                'date_range_label' => '',
+                'status_label'     => 'all',
+                'priority_label'   => 'all',
                 'prepared_by'      => $request->query('prepared_by', ''),
                 'noted_by'         => $request->query('noted_by', ''),
             ];

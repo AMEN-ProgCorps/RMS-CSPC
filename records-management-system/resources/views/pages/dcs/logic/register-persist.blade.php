@@ -9,6 +9,7 @@ use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Facades\Storage;
 use App\Services\DocumentStorageService;
+use App\Services\DcsNotificationService;
 
 /**
  * Register writes via DB::table(). Real PK is always `id`.
@@ -21,7 +22,7 @@ class RegisterPersistHelper
      * Shared admin_logs entry with Document Control System as what_system reference.
      * Same pattern as RDP/Admin Console activity logging.
      */
-    public static function logAdminChange(string $changes): void
+    public static function logAdminChange(string $changes, bool $includeOffice = true): void
     {
         try {
             $adminId = auth()->id();
@@ -39,6 +40,10 @@ class RegisterPersistHelper
                 return;
             }
 
+            if ($includeOffice) {
+                $changes = self::appendOfficeContext($changes);
+            }
+
             DB::table('admin_logs')->insert([
                 'changes' => $changes,
                 'admin_id' => $adminId,
@@ -48,6 +53,150 @@ class RegisterPersistHelper
         } catch (\Throwable $e) {
             // Non-fatal — never break the primary operation
         }
+    }
+
+    /** Append the acting user's office to a DCS log line when known. */
+    public static function appendOfficeContext(string $changes): string
+    {
+        if (str_contains($changes, ' — Office: ')) {
+            return $changes;
+        }
+
+        $office = RegisterQueryHelper::currentOfficeName();
+        if ($office === '—') {
+            return $changes;
+        }
+
+        return $changes . ' — Office: ' . $office;
+    }
+
+    /** Log once per distinct DCS page visit (per session). */
+    public static function logDcsAccess(Request $request): void
+    {
+        if (! self::shouldLogDcsPageVisit($request)) {
+            return;
+        }
+
+        $routeName = $request->route()?->getName();
+        $label = self::dcsPageActionLabel($routeName);
+        if ($label === null) {
+            return;
+        }
+
+        $sessionKey = 'dcs_page_logged.' . ($routeName ?? md5($request->path()));
+        if (session()->get($sessionKey)) {
+            return;
+        }
+        session()->put($sessionKey, true);
+
+        $details = self::dcsPageActionDetails($request, $routeName);
+        self::logAdminChange($label . $details);
+    }
+
+    /** Log blocked full-DCS or allowlist access attempts (once per session per path). */
+    public static function logDcsBlockedAccess(Request $request, string $reason): void
+    {
+        try {
+            $adminId = auth()->id();
+            if (!$adminId) {
+                return;
+            }
+
+            $path = ltrim($request->path(), '/');
+            $sessionKey = 'dcs_blocked_logged.' . md5($reason . '|' . $path);
+            if (session()->get($sessionKey)) {
+                return;
+            }
+            session()->put($sessionKey, true);
+
+            $routeName = $request->route()?->getName();
+            $detail = $routeName ? (' — route: ' . $routeName) : (' — path: ' . $path);
+            $method = strtoupper($request->method());
+
+            self::logAdminChange('Blocked DCS access (' . $reason . ') — ' . $method . $detail);
+        } catch (\Throwable $e) {
+            // Non-fatal
+        }
+    }
+
+    private static function shouldLogDcsPageVisit(Request $request): bool
+    {
+        if (! $request->isMethod('GET') && ! $request->isMethod('HEAD')) {
+            return false;
+        }
+
+        $path = ltrim($request->path(), '/');
+        if (str_contains($path, '/api/') || str_starts_with($path, 'dcs/api/')) {
+            return false;
+        }
+        if (str_contains($path, 'view-document')) {
+            return false;
+        }
+        if (str_contains($path, 'livewire')) {
+            return false;
+        }
+
+        return true;
+    }
+
+    private static function dcsPageActionLabel(?string $routeName): ?string
+    {
+        return match ($routeName) {
+            'dcs', 'dcs.dashboard' => 'Opened DCS Dashboard',
+            'dcs.register.create' => 'Opened Document Registration',
+            'dcs.register.update' => 'Opened Update Documents',
+            'dcs.register.edit' => 'Opened Document Editor',
+            'dcs.register.history' => 'Viewed Document History',
+            'dcs.recycle-bin' => 'Opened Recycle Bin',
+            'dcs.review' => 'Opened Document Review',
+            'dcs.database.index' => 'Opened Document Database',
+            'dcs.stamping.index' => 'Opened Document Stamping',
+            'dcs.manage-files' => 'Opened Manage Files',
+            'dcs.settings.index' => 'Opened DCS Settings',
+            'dcs.office.drf.index' => 'Opened Office DRF List',
+            'dcs.office.drf.create' => 'Opened Create Office DRF',
+            'dcs.office.drf.show' => 'Viewed Office DRF',
+            'dcs.office.drf.print' => 'Printed Office DRF',
+            'dcs.office.dcn.index' => 'Opened Office DCN List',
+            'dcs.office.dcn.create' => 'Opened Create Office DCN',
+            'dcs.office.dcn.show' => 'Viewed Office DCN',
+            'dcs.office.dcn.print' => 'Printed Office DCN',
+            'dcs.reports.masterlist' => 'Opened Masterlist Report',
+            'dcs.reports.monitoring' => 'Opened Monitoring Report',
+            'dcs.reports.opcr' => 'Opened OPCR Report',
+            'dcs.reports.others' => 'Opened Other Reports',
+            'dcs.reports.syllabiTos' => 'Opened Syllabi/TOS Report',
+            default => null,
+        };
+    }
+
+    private static function dcsPageActionDetails(Request $request, ?string $routeName): string
+    {
+        $details = '';
+
+        if ($routeName === 'dcs.register.edit') {
+            $id = $request->route('id');
+            if ($id) {
+                $details = ' #' . $id;
+            }
+        } elseif ($routeName === 'dcs.register.history') {
+            $docNo = $request->route('docNo');
+            if ($docNo) {
+                $details = ' — ' . $docNo;
+            }
+        } elseif (in_array($routeName, ['dcs.office.drf.show', 'dcs.office.drf.print'], true)) {
+            $id = $request->route('id');
+            if ($id) {
+                $details = ' #' . $id;
+            }
+        } elseif (in_array($routeName, ['dcs.office.dcn.show', 'dcs.office.dcn.print'], true)) {
+            $id = $request->route('id');
+            if ($id) {
+                $details = ' #' . $id;
+            }
+        }
+
+        return $details;
     }
 
     public static function scanFileRules(): array
@@ -331,6 +480,7 @@ class RegisterPersistHelper
 
     public static function persist(Request $request): RedirectResponse
     {
+        RegisterQueryHelper::assertFullDcsUser();
         self::blankStringsToNull($request);
         $mode = $request->input('registration_mode', 'new');
 
@@ -616,6 +766,9 @@ class RegisterPersistHelper
                 if (Schema::hasColumn('dcs_masterlist_registration', 'originator_id')) {
                     $masterlistRow['originator_id'] = $originator['originator_id'];
                 }
+                if (Schema::hasColumn('dcs_masterlist_registration', 'originator_account_id')) {
+                    $masterlistRow['originator_account_id'] = RegisterQueryHelper::resolveOriginatorAccountIdForName($originator['originator_name']);
+                }
                 $keywordVal = $request->keywords ?? $request->briefPurpose;
                 if (Schema::hasColumn('dcs_masterlist_registration', 'keywords')) {
                     $masterlistRow['keywords'] = $keywordVal;
@@ -691,6 +844,9 @@ class RegisterPersistHelper
                 }
                 if (Schema::hasColumn('dcs_masterlist_registration', 'originator_id')) {
                     $masterlistData['originator_id'] = $originator['originator_id'];
+                }
+                if (Schema::hasColumn('dcs_masterlist_registration', 'originator_account_id')) {
+                    $masterlistData['originator_account_id'] = RegisterQueryHelper::resolveOriginatorAccountIdForName($originator['originator_name']);
                 }
                 $keywordVal = $request->keywords ?? $request->briefPurpose;
                 if (Schema::hasColumn('dcs_masterlist_registration', 'keywords')) {
@@ -861,6 +1017,29 @@ class RegisterPersistHelper
                 . (isset($savedMl->revise_no) ? ' (Rev ' . $savedMl->revise_no . ')' : '')
                 . (!empty($savedMl->doc_title) ? ': ' . $savedMl->doc_title : '')
             );
+
+            $docNo = trim((string) ($savedMl->doc_no ?? ''));
+            if ($docNo !== '') {
+                $registrarName = RegisterQueryHelper::currentUserDisplayName();
+                $revNo = isset($savedMl->revise_no) ? (int) $savedMl->revise_no : null;
+                $notifyOfficeIds = array_merge(
+                    (array) $request->input('distOffice', []),
+                    (array) $request->input('masterlistOfficeIds', [])
+                );
+                $actorOffice = RegisterQueryHelper::currentOfficeCode();
+                foreach (DcsNotificationService::officeCodesFromIds($notifyOfficeIds) as $officeCode) {
+                    if ($actorOffice !== null && strcasecmp($officeCode, $actorOffice) === 0) {
+                        continue;
+                    }
+                    DcsNotificationService::notifyDocumentRegistered(
+                        $officeCode,
+                        $registrarName,
+                        $docNo,
+                        $requestId,
+                        $revNo
+                    );
+                }
+            }
 
             return redirect()->route('dcs.register.edit', $requestId)
                 ->with('success', 'Document registered successfully!');

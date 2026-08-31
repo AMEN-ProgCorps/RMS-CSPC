@@ -55,7 +55,7 @@ new class extends Component {
         }
 
         // Determine accessible subsystems based on role permissions
-        $allowedSubsystems = ['Profile Manager']; // Default accessible subsystem
+        $allowedSubsystems = ['Profile Manager'];
         if ($perms) {
             if ($perms->is_sadm) {
                 $allowedSubsystems[] = 'Document Tracking System';
@@ -73,6 +73,10 @@ new class extends Component {
                     $allowedSubsystems[] = 'Document Control System';
                 }
             }
+        }
+
+        if (request()->is('dcs', 'dcs/*') && in_array('Document Control System', $allowedSubsystems, true)) {
+            $allowedSubsystems = ['Document Control System'];
         }
 
         // Fetch notifications list, combining with read/unread statuses in notification_div table

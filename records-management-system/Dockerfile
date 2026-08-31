@@ -40,6 +40,12 @@ RUN find /etc -name 'policy.xml' -exec sed -i \
 # ── Composer ──────────────────────────────────────────────────────────────────
 COPY --from=composer:2 /usr/bin/composer /usr/bin/composer
 
+# Match bind-mount file ownership on the host (typical WSL/Linux dev UID 1000).
+RUN addgroup -g 1000 -S appuser \
+    && adduser -u 1000 -D -S -G appuser appuser \
+    && sed -i 's/^user = www-data/user = appuser/' /usr/local/etc/php-fpm.d/www.conf \
+    && sed -i 's/^group = www-data/group = appuser/' /usr/local/etc/php-fpm.d/www.conf
+
 WORKDIR /var/www/html
 
 # ── PHP, Nginx & Supervisor Configs ──────────────────────────────────────────

@@ -7,8 +7,9 @@ echo "────────────────────────�
 
 # ── Ensure Nginx run dir & Laravel storage directories exist with permissions ─
 mkdir -p /run/nginx /var/log/nginx /var/log/supervisor
-mkdir -p storage/framework/views storage/framework/sessions storage/framework/cache/data storage/logs bootstrap/cache public/chatify/uploads public/chatify/storage
-chmod -R 777 storage bootstrap/cache public/chatify/uploads public/chatify/storage
+mkdir -p storage/framework/views storage/framework/sessions storage/framework/cache/data storage/logs bootstrap/cache public/chatify/uploads public/chatify/storage /tmp/laravel-views
+chmod -R 777 storage bootstrap/cache public/chatify/uploads public/chatify/storage /tmp/laravel-views
+export VIEW_COMPILED_PATH="${VIEW_COMPILED_PATH:-/tmp/laravel-views}"
 
 # ── Ensure .env file exists ──────────────────────────────────────────────────
 if [ ! -f ".env" ]; then
@@ -71,6 +72,9 @@ else
     echo "[4/5] Clearing stale caches for development..."
     php artisan optimize:clear
 fi
+
+# Artisan/migrate run as root and may create storage files the FPM pool cannot write.
+chmod -R 777 storage bootstrap/cache public/chatify/uploads public/chatify/storage
 
 echo "[5/5] Starting services via Supervisor..."
 echo "──────────────────────────────────────────"

@@ -63,7 +63,7 @@ body {
     min-width: 0;
     padding: 14px 18px;
     border-bottom: 1px solid var(--hst-border);
-    background: #f8fafc;
+    background: var(--dcs-surface-hover);
 }
 
 .hst-doc .hst-info-label {
@@ -89,7 +89,7 @@ body {
     align-items: center;
     padding: 3px 10px;
     border-radius: 6px;
-    background: #fff;
+    background: var(--hst-surface);
     border: 1px solid var(--hst-border);
     color: var(--hst-text-muted);
     font-size: 0.75rem;
@@ -104,9 +104,9 @@ body {
     gap: 6px;
     padding: 3px 10px;
     border-radius: 999px;
-    background: #eff6ff;
-    border: 1px solid #bfdbfe;
-    color: #1d4ed8;
+    background: var(--hst-accent-subtle);
+    border: 1px solid var(--dcs-border-strong);
+    color: var(--hst-accent-light);
     font-size: 0.68rem;
     font-weight: 650;
 }
@@ -116,7 +116,7 @@ body {
     align-items: center;
     padding: 2px 8px;
     border-radius: 6px;
-    background: #fff;
+    background: var(--hst-surface);
     border: 1px solid var(--hst-border);
     color: var(--hst-text-muted);
     font-size: 0.68rem;
@@ -221,7 +221,7 @@ body {
 }
 
 .hst-node-current .hst-card {
-    border-color: #86efac;
+    border-color: var(--dcs-success-border);
 }
 
 .hst-card-header {
@@ -231,7 +231,7 @@ body {
     gap: 12px;
     padding: 8px 12px;
     border-bottom: 1px solid transparent;
-    background: #f8fafc;
+    background: var(--dcs-surface-hover);
     cursor: pointer;
 }
 
@@ -271,8 +271,8 @@ body {
 }
 
 .hst-node-current .hst-rev-badge {
-    color: #166534;
-    background: #dcfce7;
+    color: var(--dcs-success);
+    background: var(--dcs-success-bg);
 }
 
 .hst-current-tag,
@@ -288,23 +288,23 @@ body {
 }
 
 .hst-current-tag {
-    color: var(--hst-success);
-    background: #dcfce7;
+    color: var(--dcs-success);
+    background: var(--dcs-success-bg);
 }
 
 .hst-prior-tag {
     color: var(--hst-text-subtle);
-    background: #e2e8f0;
+    background: var(--dcs-surface-hover);
 }
 
 .hst-initial-tag {
-    color: #1d4ed8;
-    background: #dbeafe;
+    color: var(--hst-accent-light);
+    background: var(--hst-accent-subtle);
 }
 
 .hst-changed-tag {
-    color: #9a3412;
-    background: #ffedd5;
+    color: var(--dcs-amber);
+    background: var(--dcs-amber-bg);
 }
 
 .hst-card-meta {
@@ -342,7 +342,8 @@ body {
     min-width: 0;
     padding: 6px 8px;
     border-radius: 6px;
-    background: #f8fafc;
+    background: var(--dcs-surface-hover);
+    border: 1px solid var(--dcs-border-light);
 }
 
 .hst-syl-meta {
@@ -353,9 +354,10 @@ body {
 }
 
 .hst-syl-meta .is-changed {
-    background: #fffbeb;
+    background: var(--dcs-amber-bg);
     border-radius: 6px;
     padding: 4px 6px;
+    border: 1px solid var(--dcs-border-strong);
 }
 
 .hst-table-wrap {
@@ -383,7 +385,7 @@ body {
 .hst-table td {
     padding: 6px 8px;
     vertical-align: top;
-    border-bottom: 1px solid #f1f5f9;
+    border-bottom: 1px solid var(--dcs-border-light);
 }
 
 .hst-table td.is-course {
@@ -396,7 +398,7 @@ body {
 }
 
 .hst-table td.is-changed {
-    background: #fffbeb;
+    background: var(--dcs-amber-bg);
 }
 
 .hst-table .hst-val {
@@ -443,7 +445,7 @@ body {
     border: 1px solid transparent;
     border-radius: 4px;
     background: var(--hst-success-bg);
-    color: #166534;
+    color: var(--dcs-success);
     font-size: 0.68rem;
     font-weight: 700;
     cursor: pointer;
@@ -451,7 +453,7 @@ body {
 }
 
 .hst-tag:hover {
-    border-color: #86efac;
+    border-color: var(--dcs-success-border);
 }
 
 .hst-tag.is-active {

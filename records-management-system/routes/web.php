@@ -524,7 +524,7 @@ Route::middleware(['auth'])
     });
 
     // DCS — Document Control System (requires can_access_dcs or is_sadm)
-    Route::middleware(['can.access.dcs'])->group(function () {
+    Route::middleware(['can.access.dcs', 'dcs.intake.allowlist'])->group(function () {
         Volt::route('/dcs', 'pages.dcs.index')->name('dcs');
 
         Route::prefix('dcs')->name('dcs.')->group(function () {
@@ -532,11 +532,14 @@ Route::middleware(['auth'])
 
             Route::get('/view-document', function (\Illuminate\Http\Request $request) {
                 $path = $request->query('path');
-                if (! is_string($path) || trim($path) === '' || str_contains($path, '..')) {
+                if (! is_string($path) || trim($path) === '') {
                     abort(404);
                 }
 
-                $path = ltrim(str_replace(['\\'], '/', $path), '/');
+                RegisterQueryHelper::assertCanAccessScanPath($path);
+
+                $path = \App\Services\DocumentStorageService::normalizeDcsScanPath($path);
+                abort_unless($path, 404);
                 $filename = basename($path) ?: 'document.pdf';
 
                 if (\App\Services\DocumentStorageService::isLegacyPublicScanPath($path)) {

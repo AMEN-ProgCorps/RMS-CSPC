@@ -1,6 +1,7 @@
 <?php
 
 use App\Helpers\SyllabiMonitoringHelper;
+use App\Helpers\RegisterQueryHelper;
 use Illuminate\Support\Facades\DB;
 use Livewire\Attributes\Layout;
 use Livewire\Attributes\Title;
@@ -14,6 +15,7 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
 
     public function saveRemark(int $programId, string $section, string $status): void
     {
+        RegisterQueryHelper::assertFullDcsUser();
         if ($this->collegeId === '' || $this->schoolYearId === '' || $this->semesterId === '') {
             return;
         }

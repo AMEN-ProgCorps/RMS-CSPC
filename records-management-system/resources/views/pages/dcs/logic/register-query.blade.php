@@ -196,7 +196,7 @@ class RegisterQueryHelper
         return $query;
     }
 
-    /** Super admin, RFIO custodian, or explicit DCS “view all offices” clearance (mirrors DTS/RDP). */
+    /** Inventory scope bypass: super admin or RFIO full DCS operators only. */
     public static function canViewAllDocuments(): bool
     {
         $perms = auth()->user()?->permissions;
@@ -206,13 +206,8 @@ class RegisterQueryHelper
         if (!empty($perms->is_sadm)) {
             return true;
         }
-        // RFIO runs Document Control for the whole college — not office-scoped inventory.
-        if (self::isRfioOffice()) {
-            return true;
-        }
 
-        return Schema::hasColumn('condition_details', 'dcs_view_all_documents')
-            && !empty($perms->dcs_view_all_documents);
+        return !empty($perms->can_access_dcs) && self::isRfioOffice();
     }
 
     public static function currentOfficeCode(): ?string
@@ -227,7 +222,7 @@ class RegisterQueryHelper
         return self::currentOfficeCode() === 'RFIO';
     }
 
-    /** Full DCS (Register, Database, Stamp, etc.): RFIO, sadm, or view-all clearance. */
+    /** Full DCS (Register, Database, Stamp, etc.): RFIO operators or super admin only. */
     public static function isFullDcsUser(): bool
     {
         $perms = auth()->user()?->permissions;
@@ -237,11 +232,8 @@ class RegisterQueryHelper
         if (!empty($perms->is_sadm)) {
             return true;
         }
-        if (self::isRfioOffice()) {
-            return true;
-        }
 
-        return self::canViewAllDocuments();
+        return !empty($perms->can_access_dcs) && self::isRfioOffice();
     }
 
     /** Non-RFIO office user with DCS access: DRF/DCN intake only. */
@@ -264,6 +256,167 @@ class RegisterQueryHelper
     public static function assertFullDcsUser(): void
     {
         abort_unless(self::isFullDcsUser(), 403, 'Full Document Control System access is required.');
+    }
+
+    /** RFIO custodian or super admin may browse every office intake form. */
+    public static function canBrowseAllOfficeIntake(): bool
+    {
+        $perms = auth()->user()?->permissions;
+        if (!$perms) {
+            return false;
+        }
+
+        return !empty($perms->is_sadm) || self::isRfioOffice();
+    }
+
+    public static function normalizedOriginatorName(?string $name = null): string
+    {
+        $name ??= self::currentUserDisplayName();
+
+        return mb_strtolower(trim((string) $name));
+    }
+
+    /** Limited DCS: documents where the user is the registered originator account (name fallback for legacy rows). */
+    public static function visibleOriginatorRequestIds(): array
+    {
+        $userId = (int) auth()->id();
+        $selfName = self::normalizedOriginatorName();
+
+        $query = DB::table('dcs_masterlist_registration as ml')
+            ->join('dcs_document_requests as dr', 'dr.id', '=', 'ml.request_id');
+        self::applyNotDeleted($query, 'dr');
+
+        $query->where(function ($q) use ($userId, $selfName) {
+            if ($userId > 0 && Schema::hasColumn('dcs_masterlist_registration', 'originator_account_id')) {
+                $q->where('ml.originator_account_id', $userId);
+            }
+
+            if ($selfName !== '' && $selfName !== '—') {
+                $method = ($userId > 0 && Schema::hasColumn('dcs_masterlist_registration', 'originator_account_id'))
+                    ? 'orWhere'
+                    : 'where';
+                $q->{$method}(function ($legacy) use ($selfName) {
+                    if (Schema::hasColumn('dcs_masterlist_registration', 'originator_account_id')) {
+                        $legacy->whereNull('ml.originator_account_id');
+                    }
+                    $legacy->whereRaw('LOWER(TRIM(COALESCE(ml.originator_name, \'\'))) = ?', [$selfName]);
+                });
+            } elseif ($userId < 1) {
+                $q->whereRaw('1 = 0');
+            }
+        });
+
+        return self::intIds($query->pluck('ml.request_id'));
+    }
+
+    public static function resolveOriginatorAccountIdForName(?string $originatorName): ?int
+    {
+        if (self::originatorMatchesCurrentUser($originatorName)) {
+            $userId = (int) auth()->id();
+
+            return $userId > 0 ? $userId : null;
+        }
+
+        return null;
+    }
+
+    public static function originatorMatchesCurrentUser(?string $originatorName, ?int $originatorAccountId = null): bool
+    {
+        $userId = (int) auth()->id();
+        if ($userId > 0 && $originatorAccountId && (int) $originatorAccountId === $userId) {
+            return true;
+        }
+
+        $a = self::normalizedOriginatorName($originatorName);
+        $b = self::normalizedOriginatorName();
+
+        return $a !== '' && $b !== '' && $b !== '—' && $a === $b;
+    }
+
+    public static function assertCanAccessScanPath(string $path): void
+    {
+        if (self::isLimitedDcsUser()) {
+            abort(403, 'Document files require full DCS access.');
+        }
+
+        $normalized = DocumentStorageService::normalizeDcsScanPath($path);
+        abort_unless($normalized, 404);
+
+        if (self::isOfficeIntakeScanPath($normalized)) {
+            abort(403, 'Office intake forms are not part of the registered document inventory.');
+        }
+
+        $requestId = DocumentStorageService::resolveRequestIdForScanPath($normalized);
+        if ($requestId !== null) {
+            self::assertCanAccessRequest($requestId);
+
+            return;
+        }
+
+        abort_unless(
+            self::userCanAccessGeneratedReportPath($normalized),
+            404,
+            'Document file not found.'
+        );
+    }
+
+    private static function userCanAccessGeneratedReportPath(string $path): bool
+    {
+        if (! Schema::hasTable('dcs_generated_reports')) {
+            return false;
+        }
+
+        $report = DB::table('dcs_generated_reports')->where('file_path', $path)->first();
+        if (!$report) {
+            return false;
+        }
+
+        if (self::canViewAllDocuments()) {
+            return true;
+        }
+
+        $userOffice = self::currentOfficeCode();
+        $reportOffice = strtoupper(trim((string) ($report->office_code ?: explode('/', $path)[0] ?? '')));
+        if ($userOffice && $reportOffice && $userOffice === $reportOffice) {
+            return true;
+        }
+
+        return (int) ($report->generated_by ?? 0) === (int) auth()->id();
+    }
+
+    /** @param  array<string, mixed>  $row */
+    private static function mapSearchResultForAudience(array $row): array
+    {
+        if (! self::isLimitedDcsUser()) {
+            return $row;
+        }
+
+        unset($row['scanned_copy_path'], $row['scanned_copy_url'], $row['keywords']);
+        $row['edit_url'] = null;
+        $row['stamp_url'] = null;
+        $row['inventory_url'] = null;
+        $row['checklists'] = [
+            'drf' => false,
+            'dcn' => false,
+            'masterlist' => true,
+            'approval' => false,
+            'distribution' => false,
+            'retrieval' => false,
+        ];
+
+        return $row;
+    }
+
+    /** @param  array<string, mixed>  $row */
+    private static function mapRevisionResultForAudience(array $row): array
+    {
+        if (! self::isLimitedDcsUser()) {
+            return $row;
+        }
+
+        unset($row['scanned_copy_path'], $row['scanned_copy_url']);
+
+        return $row;
     }
 
     public static function currentUserDisplayName(): string
@@ -347,8 +500,129 @@ class RegisterQueryHelper
         return $query;
     }
 
+    /**
+     * Office intake DRF/DCN are pre-registration forms only — never part of RFIO inventory.
+     */
+    public static function isOfficeIntakeRequestId(int $requestId): bool
+    {
+        if ($requestId < 1) {
+            return false;
+        }
+
+        if (Schema::hasColumn('dcs_document_request_form', 'is_office_intake')) {
+            if (DB::table('dcs_document_request_form')
+                ->where('request_id', $requestId)
+                ->where('is_office_intake', true)
+                ->exists()) {
+                return true;
+            }
+        }
+
+        if (Schema::hasColumn('dcs_document_change_notice', 'is_office_intake')) {
+            if (DB::table('dcs_document_change_notice')
+                ->where('request_id', $requestId)
+                ->where('is_office_intake', true)
+                ->exists()) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /** Exclude office-intake-only rows from registered-document queries on dcs_document_requests. */
+    public static function applyExcludeOfficeIntakeRequests($query, string $drAlias = 'dr'): void
+    {
+        if (! Schema::hasColumn('dcs_document_request_form', 'is_office_intake')
+            && ! Schema::hasColumn('dcs_document_change_notice', 'is_office_intake')) {
+            return;
+        }
+
+        $query->where(function ($q) use ($drAlias) {
+            if (Schema::hasColumn('dcs_document_request_form', 'is_office_intake')) {
+                $q->whereNotExists(function ($sub) use ($drAlias) {
+                    $sub->select(DB::raw(1))
+                        ->from('dcs_document_request_form as oi_drf')
+                        ->whereColumn('oi_drf.request_id', $drAlias . '.id')
+                        ->where('oi_drf.is_office_intake', true);
+                });
+            }
+            if (Schema::hasColumn('dcs_document_change_notice', 'is_office_intake')) {
+                $q->whereNotExists(function ($sub) use ($drAlias) {
+                    $sub->select(DB::raw(1))
+                        ->from('dcs_document_change_notice as oi_dcn')
+                        ->whereColumn('oi_dcn.request_id', $drAlias . '.id')
+                        ->where('oi_dcn.is_office_intake', true);
+                });
+            }
+        });
+    }
+
+    public static function applyExcludeOfficeIntakeDrf($query, string $drfAlias = 'drf'): void
+    {
+        if (! Schema::hasColumn('dcs_document_request_form', 'is_office_intake')) {
+            return;
+        }
+
+        $query->where(function ($q) use ($drfAlias) {
+            $q->whereNull($drfAlias . '.is_office_intake')
+                ->orWhere($drfAlias . '.is_office_intake', false);
+        });
+    }
+
+    public static function applyExcludeOfficeIntakeDcn($query, string $dcnAlias = 'dcn'): void
+    {
+        if (! Schema::hasColumn('dcs_document_change_notice', 'is_office_intake')) {
+            return;
+        }
+
+        $query->where(function ($q) use ($dcnAlias) {
+            $q->whereNull($dcnAlias . '.is_office_intake')
+                ->orWhere($dcnAlias . '.is_office_intake', false);
+        });
+    }
+
+    /** Registered DCS inventory: office scope plus no office-intake placeholders. */
+    public static function applyRegisteredDocumentScope($query, string $drAlias = 'dr'): void
+    {
+        self::applyOfficeScope($query, $drAlias);
+        self::applyExcludeOfficeIntakeRequests($query, $drAlias);
+    }
+
+    public static function isOfficeIntakeScanPath(string $path): bool
+    {
+        $path = DocumentStorageService::normalizeDcsScanPath($path);
+        if ($path === null) {
+            return false;
+        }
+
+        foreach ([
+            ['table' => 'dcs_document_request_form', 'column' => 'scanned_drf'],
+            ['table' => 'dcs_document_change_notice', 'column' => 'scanned_dcn'],
+        ] as $source) {
+            if (! Schema::hasTable($source['table'])
+                || ! Schema::hasColumn($source['table'], $source['column'])
+                || ! Schema::hasColumn($source['table'], 'is_office_intake')) {
+                continue;
+            }
+
+            if (DB::table($source['table'])
+                ->where($source['column'], $path)
+                ->where('is_office_intake', true)
+                ->exists()) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
     public static function userCanAccessRequest(int $requestId): bool
     {
+        if (self::isOfficeIntakeRequestId($requestId)) {
+            return false;
+        }
+
         if (self::canViewAllDocuments()) {
             return true;
         }
@@ -370,14 +644,14 @@ class RegisterQueryHelper
         $mlIds = DB::table('dcs_masterlist_registration as ml')
             ->join('dcs_document_requests as dr', 'dr.id', '=', 'ml.request_id');
         self::applyNotDeleted($mlIds, 'dr');
-        self::applyOfficeScope($mlIds, 'dr');
+        self::applyRegisteredDocumentScope($mlIds, 'dr');
         $mlIds = $mlIds->pluck('ml.request_id');
 
         $noMlIds = DB::table('dcs_document_requests as dr')
             ->leftJoin('dcs_masterlist_registration as ml', 'ml.request_id', '=', 'dr.id')
             ->whereNull('ml.id');
         self::applyNotDeleted($noMlIds, 'dr');
-        self::applyOfficeScope($noMlIds, 'dr');
+        self::applyRegisteredDocumentScope($noMlIds, 'dr');
         $noMlIds = $noMlIds->pluck('dr.id');
 
         return self::intIds($mlIds->merge($noMlIds));
@@ -390,7 +664,7 @@ class RegisterQueryHelper
             ->join('dcs_document_requests as dr', 'dr.id', '=', 'ml.request_id');
         self::applyLatestRevisionStatus($latestIds, 'ml');
         self::applyNotDeleted($latestIds, 'dr');
-        self::applyOfficeScope($latestIds, 'dr');
+        self::applyRegisteredDocumentScope($latestIds, 'dr');
         $latestIds = $latestIds->pluck('ml.request_id');
 
         $noMlIds = DB::table('dcs_document_requests as dr')
@@ -401,7 +675,7 @@ class RegisterQueryHelper
                     ->orWhere('ml.doc_no', '');
             });
         self::applyNotDeleted($noMlIds, 'dr');
-        self::applyOfficeScope($noMlIds, 'dr');
+        self::applyRegisteredDocumentScope($noMlIds, 'dr');
         $noMlIds = $noMlIds->pluck('dr.id');
 
         return self::intIds($latestIds->merge($noMlIds));
@@ -2927,7 +3201,16 @@ class RegisterQueryHelper
             return [];
         }
 
-        $visibleIds = self::visibleRequestIds();
+        if (self::isLimitedDcsUser()) {
+            abort_unless(
+                $request->boolean('originator_self'),
+                403,
+                'Document search is limited to your own originator records.'
+            );
+            $visibleIds = self::visibleOriginatorRequestIds();
+        } else {
+            $visibleIds = self::visibleRequestIds();
+        }
         $field = $request->input('field');
         $docTypeId = $request->input('doc_type_id');
         $subTypeId = $request->input('sub_type_id');
@@ -2944,11 +3227,27 @@ class RegisterQueryHelper
             ->whereIn('ml.request_id', $visibleIds);
 
         if ($request->boolean('originator_self')) {
+            $userId = (int) auth()->id();
             $selfName = mb_strtolower(trim(self::currentUserDisplayName()));
-            if ($selfName === '' || $selfName === '—') {
+            if ($userId < 1 && ($selfName === '' || $selfName === '—')) {
                 return [];
             }
-            $query->whereRaw('LOWER(TRIM(COALESCE(ml.originator_name, \'\'))) = ?', [$selfName]);
+            $query->where(function ($q) use ($userId, $selfName) {
+                if ($userId > 0 && Schema::hasColumn('dcs_masterlist_registration', 'originator_account_id')) {
+                    $q->where('ml.originator_account_id', $userId);
+                }
+                if ($selfName !== '' && $selfName !== '—') {
+                    $method = ($userId > 0 && Schema::hasColumn('dcs_masterlist_registration', 'originator_account_id'))
+                        ? 'orWhere'
+                        : 'where';
+                    $q->{$method}(function ($legacy) use ($selfName) {
+                        if (Schema::hasColumn('dcs_masterlist_registration', 'originator_account_id')) {
+                            $legacy->whereNull('ml.originator_account_id');
+                        }
+                        $legacy->whereRaw('LOWER(TRIM(COALESCE(ml.originator_name, \'\'))) = ?', [$selfName]);
+                    });
+                }
+            });
         }
 
         if (!$allRevisions && !$dashboardSearch) {
@@ -3049,7 +3348,7 @@ class RegisterQueryHelper
             $title = $m->doc_title ?: 'Untitled';
             $isObsolete = strtolower(trim((string) ($m->revision_status ?? ''))) === 'obsolete';
 
-            return [
+            return self::mapSearchResultForAudience([
                 'masterlist_id' => $m->id,
                 'request_id' => $m->request_id,
                 'doc_no' => $m->doc_no,
@@ -3082,7 +3381,7 @@ class RegisterQueryHelper
                 'match_revise_no' => isset($m->match_revise_no) ? (int) $m->match_revise_no : (int) ($m->revise_no ?? 0),
                 'match_masterlist_id' => isset($m->match_masterlist_id) ? (int) $m->match_masterlist_id : (int) $m->id,
                 'lineage_request_id' => isset($m->lineage_request_id) ? (int) $m->lineage_request_id : (int) $m->request_id,
-            ];
+            ]);
         })
             ->values()
             ->all();
@@ -3241,9 +3540,11 @@ class RegisterQueryHelper
             return [];
         }
 
-        $visibleIds = self::visibleRequestIds();
-        if (!in_array($requestId, $visibleIds, true)) {
-            return [];
+        $visibleIds = self::isLimitedDcsUser()
+            ? self::visibleOriginatorRequestIds()
+            : self::visibleRequestIds();
+        if (! in_array($requestId, $visibleIds, true)) {
+            abort(403, 'You do not have access to this document revision.');
         }
 
         $anchor = DB::table('dcs_masterlist_registration as ml')
@@ -3278,7 +3579,9 @@ class RegisterQueryHelper
             }
         }
 
-        return self::attachChecklistPresenceToRevisions($merged);
+        $merged = self::attachChecklistPresenceToRevisions($merged);
+
+        return array_map(fn (array $row) => self::mapRevisionResultForAudience($row), $merged);
     }
 
     /**
@@ -4106,6 +4409,8 @@ class RegisterQueryHelper
 
     public static function documentChecklistPreview(int $requestId, string $type): array
     {
+        self::assertFullDcsUser();
+
         $allowed = ['drf', 'dcn', 'masterlist', 'approval', 'distribution', 'retrieval'];
         if (!in_array($type, $allowed, true)) {
             abort(404);

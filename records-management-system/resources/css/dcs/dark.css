@@ -562,6 +562,53 @@
     border-color: #1e293b !important;
 }
 
+[data-theme="dark"] .hst-doc,
+[data-theme="dark"] .hst-card-header,
+[data-theme="dark"] .hst-field,
+[data-theme="dark"] .hst-docno,
+[data-theme="dark"] .hst-docno-tag {
+    background: #1e293b !important;
+    color: #f8fafc !important;
+    border-color: #334155 !important;
+}
+
+[data-theme="dark"] .hst-node-current .hst-card-header {
+    background: #052e16 !important;
+    border-color: #166534 !important;
+}
+
+[data-theme="dark"] .hst-table td.is-changed,
+[data-theme="dark"] .hst-syl-meta .is-changed {
+    background: #422006 !important;
+    color: #f8fafc !important;
+}
+
+[data-theme="dark"] .hst-prior-tag {
+    background: #1e293b !important;
+    color: #94a3b8 !important;
+}
+
+[data-theme="dark"] .hst-current-tag {
+    background: #052e16 !important;
+    color: #4ade80 !important;
+}
+
+[data-theme="dark"] .hst-initial-tag {
+    background: rgba(37, 99, 235, 0.22) !important;
+    color: #93c5fd !important;
+}
+
+[data-theme="dark"] .hst-changed-tag {
+    background: #422006 !important;
+    color: #fbbf24 !important;
+}
+
+[data-theme="dark"] .hst-lineage-note {
+    background: rgba(37, 99, 235, 0.22) !important;
+    color: #93c5fd !important;
+    border-color: #334155 !important;
+}
+
 [data-theme="dark"] .drr-btn-clear,
 [data-theme="dark"] .drr-btn-ghost,
 [data-theme="dark"] .drr-pg {
@@ -1417,6 +1464,7 @@
 [data-theme="dark"] .st-title,
 [data-theme="dark"] .settings-title,
 [data-theme="dark"] .hst-title,
+[data-theme="dark"] .hst-page-title,
 [data-theme="dark"] .drr-title,
 [data-theme="dark"] .rpt-hdr h1 {
     color: #f8fafc !important;

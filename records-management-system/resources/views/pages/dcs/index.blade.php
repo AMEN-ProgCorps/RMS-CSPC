@@ -27,7 +27,7 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
             ->leftJoin('dcs_masterlist_registration as ml', 'ml.request_id', '=', 'dr.id')
             ->whereIn('dr.approval_status', ['applicable', 'not_applicable']);
         RegisterQueryHelper::applyNotDeleted($queue, 'dr');
-        RegisterQueryHelper::applyOfficeScope($queue, 'dr');
+        RegisterQueryHelper::applyRegisteredDocumentScope($queue, 'dr');
         $hasRevStatus = RegisterQueryHelper::supportsRevisionStatus();
         $queue = $queue->selectRaw('COUNT(dr.id)::int as total');
         if ($hasRevStatus) {
@@ -50,7 +50,7 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                 RegisterQueryHelper::applyLatestRevisionStatus($q, 'ml');
             }
             RegisterQueryHelper::applyNotDeleted($q, 'dr');
-            RegisterQueryHelper::applyOfficeScope($q, 'dr');
+            RegisterQueryHelper::applyRegisteredDocumentScope($q, 'dr');
 
             return $q->count();
         };

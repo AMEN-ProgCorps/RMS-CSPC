@@ -31,6 +31,7 @@ class RegisterUpdateHelper
 
     public static function update(Request $request, int $id): RedirectResponse
     {
+        RegisterQueryHelper::assertFullDcsUser();
         RegisterPersistHelper::blankStringsToNull($request);
 
         if ($redirect = RegisterPersistHelper::rejectInactiveOfficeIds($request)) {
@@ -298,6 +299,9 @@ class RegisterUpdateHelper
                 if (Schema::hasColumn('dcs_masterlist_registration', 'originator_id')) {
                     $masterlistData['originator_id'] = $originator['originator_id'];
                 }
+                if (Schema::hasColumn('dcs_masterlist_registration', 'originator_account_id')) {
+                    $masterlistData['originator_account_id'] = RegisterQueryHelper::resolveOriginatorAccountIdForName($originator['originator_name']);
+                }
                 $keywordVal = $request->keywords ?? $request->briefPurpose;
                 if (Schema::hasColumn('dcs_masterlist_registration', 'keywords')) {
                     $masterlistData['keywords'] = $keywordVal;
@@ -400,6 +404,9 @@ class RegisterUpdateHelper
                 RegisterPersistHelper::applyMasterlistOriginalName($masterlistData, $request);
                 if (Schema::hasColumn('dcs_masterlist_registration', 'originator_id')) {
                     $masterlistData['originator_id'] = $originator['originator_id'];
+                }
+                if (Schema::hasColumn('dcs_masterlist_registration', 'originator_account_id')) {
+                    $masterlistData['originator_account_id'] = RegisterQueryHelper::resolveOriginatorAccountIdForName($originator['originator_name']);
                 }
                 $syllabiKeywordVal = $request->keywords ?? $request->briefPurpose;
                 if (Schema::hasColumn('dcs_masterlist_registration', 'keywords')) {

@@ -3,6 +3,7 @@
 namespace App\Helpers;
 
 use App\Services\DocumentStorageService;
+use App\Services\DcsNotificationService;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -30,7 +31,7 @@ class OfficeIntakeHelper
 
     public static function assertOwnsDrf(object $drf): void
     {
-        if (RegisterQueryHelper::isFullDcsUser()) {
+        if (RegisterQueryHelper::canBrowseAllOfficeIntake()) {
             return;
         }
         abort_unless(
@@ -42,7 +43,7 @@ class OfficeIntakeHelper
 
     public static function assertOwnsDcn(object $dcn): void
     {
-        if (RegisterQueryHelper::isFullDcsUser()) {
+        if (RegisterQueryHelper::canBrowseAllOfficeIntake()) {
             return;
         }
         abort_unless(
@@ -68,7 +69,7 @@ class OfficeIntakeHelper
             ->where('drf.is_office_intake', true)
             ->orderByDesc('drf.id');
 
-        if (! RegisterQueryHelper::isFullDcsUser()) {
+        if (! RegisterQueryHelper::canBrowseAllOfficeIntake()) {
             $q->where('drf.created_by', auth()->id());
         }
 
@@ -94,7 +95,7 @@ class OfficeIntakeHelper
             ->where('dcn.is_office_intake', true)
             ->orderByDesc('dcn.id');
 
-        if (! RegisterQueryHelper::isFullDcsUser()) {
+        if (! RegisterQueryHelper::canBrowseAllOfficeIntake()) {
             $q->where('dcn.created_by', auth()->id());
         }
 
@@ -161,12 +162,9 @@ class OfficeIntakeHelper
             ->get();
     }
 
-    public static function originatorMatchesUser(?string $originatorName): bool
+    public static function originatorMatchesUser(?string $originatorName, ?int $originatorAccountId = null): bool
     {
-        $a = mb_strtolower(trim((string) $originatorName));
-        $b = mb_strtolower(trim(RegisterQueryHelper::currentUserDisplayName()));
-
-        return $a !== '' && $b !== '' && $b !== '—' && $a === $b;
+        return RegisterQueryHelper::originatorMatchesCurrentUser($originatorName, $originatorAccountId);
     }
 
     public static function storeDrf(Request $request): RedirectResponse
@@ -192,27 +190,13 @@ class OfficeIntakeHelper
 
         $userId = (int) auth()->id();
         $now = now();
-        $typeIds = RegisterQueryHelper::parentTypeIdMap();
-        $docTypeId = $typeIds['internal_docs'] ?? 1;
-        $versionId = (int) (DB::table('dcs_version_type')->orderBy('id')->value('id') ?: 1);
 
         $drfFile = null;
 
         try {
-            $id = DB::transaction(function () use ($data, $officeIds, $userId, $now, $docTypeId, $versionId, $drfFile) {
-                $requestId = DB::table('dcs_document_requests')->insertGetId([
-                    'version_id' => $versionId,
-                    'doc_type_id' => $docTypeId,
-                    'sub_type_id' => null,
-                    'approval_status' => 'not_applicable',
-                    'created_by' => $userId,
-                    'updated_by' => $userId,
-                    'created_at' => $now,
-                    'updated_at' => $now,
-                ]);
-
+            $id = DB::transaction(function () use ($data, $officeIds, $userId, $now, $drfFile) {
                 $row = array_merge([
-                    'request_id' => $requestId,
+                    'request_id' => null,
                     'drf_no' => $data['drfNo'],
                     'drf_date' => $data['drfDate'],
                     'drf_receipt_date' => null,
@@ -264,6 +248,20 @@ class OfficeIntakeHelper
             throw $e;
         }
 
+        RegisterPersistHelper::logAdminChange(
+            'Created office DRF #' . $id . ' — ' . $data['drfNo'] . ': ' . $data['drfTitle']
+        );
+
+        if (! RegisterQueryHelper::isRfioOffice()) {
+            DcsNotificationService::notifyOfficeDrfSubmitted(
+                DcsNotificationService::RFIO_OFFICE_CODE,
+                RegisterQueryHelper::currentUserDisplayName(),
+                $data['drfNo'],
+                $data['drfTitle'],
+                $id
+            );
+        }
+
         return redirect()
             ->route('dcs.office.drf.show', $id)
             ->with('success', 'Document Request Form saved. This document cannot be edited.')
@@ -304,27 +302,11 @@ class OfficeIntakeHelper
 
         $userId = (int) auth()->id();
         $now = now();
-        $typeIds = RegisterQueryHelper::parentTypeIdMap();
-        $docTypeId = $typeIds['internal_docs'] ?? 1;
-        $versionId = (int) (DB::table('dcs_version_type')->where('version_name', 'ilike', 'revised')->value('id')
-            ?: DB::table('dcs_version_type')->orderByDesc('id')->value('id')
-            ?: 2);
 
         try {
-            $id = DB::transaction(function () use ($data, $docNo, $docTitle, $userId, $now, $docTypeId, $versionId, $request) {
-                $requestId = DB::table('dcs_document_requests')->insertGetId([
-                    'version_id' => $versionId,
-                    'doc_type_id' => $docTypeId,
-                    'sub_type_id' => null,
-                    'approval_status' => 'not_applicable',
-                    'created_by' => $userId,
-                    'updated_by' => $userId,
-                    'created_at' => $now,
-                    'updated_at' => $now,
-                ]);
-
+            $id = DB::transaction(function () use ($data, $docNo, $docTitle, $userId, $now) {
                 $row = [
-                    'request_id' => $requestId,
+                    'request_id' => null,
                     'dcn_no' => $data['dcnNumber'],
                     'dcn_date' => now()->toDateString(),
                     'dcn_receipt_date' => null,
@@ -377,6 +359,23 @@ class OfficeIntakeHelper
             throw $e;
         }
 
+        RegisterPersistHelper::logAdminChange(
+            'Created office DCN #' . $id
+            . ' — ' . $data['dcnNumber']
+            . ($docNo !== '' ? ' for ' . $docNo : '')
+            . ($docTitle !== '' ? ': ' . $docTitle : '')
+        );
+
+        if (! RegisterQueryHelper::isRfioOffice()) {
+            DcsNotificationService::notifyOfficeDcnSubmitted(
+                DcsNotificationService::RFIO_OFFICE_CODE,
+                RegisterQueryHelper::currentUserDisplayName(),
+                $data['dcnNumber'],
+                $docNo,
+                $id
+            );
+        }
+
         return redirect()
             ->route('dcs.office.dcn.show', $id)
             ->with('success', 'Document Change Notice saved. This document cannot be edited.')
@@ -396,7 +395,7 @@ class OfficeIntakeHelper
             $q->orderByDesc('ml.revise_no');
         }
 
-        $ml = $q->first(['ml.id', 'ml.doc_no', 'ml.originator_name', 'ml.request_id']);
+        $ml = $q->first(['ml.id', 'ml.doc_no', 'ml.originator_name', 'ml.originator_account_id', 'ml.request_id']);
         if (! $ml) {
             throw ValidationException::withMessages([
                 'documentNo' => 'Selected document was not found in the masterlist.',
@@ -405,7 +404,7 @@ class OfficeIntakeHelper
 
         RegisterQueryHelper::assertCanAccessRequest((int) $ml->request_id);
 
-        if (! self::originatorMatchesUser($ml->originator_name ?? null)) {
+        if (! self::originatorMatchesUser($ml->originator_name ?? null, isset($ml->originator_account_id) ? (int) $ml->originator_account_id : null)) {
             throw ValidationException::withMessages([
                 'documentNo' => 'You can only revise documents where you are the originator (originator name must match your account name).',
             ]);

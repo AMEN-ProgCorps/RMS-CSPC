@@ -20,6 +20,7 @@ return Application::configure(basePath: dirname(__DIR__))
             'can.access.dts'   => \App\Http\Middleware\CanAccessDts::class,
             'can.access.rdp'   => \App\Http\Middleware\CanAccessRdp::class,
             'can.access.dcs'   => \App\Http\Middleware\CanAccessDcs::class,
+            'dcs.intake.allowlist' => \App\Http\Middleware\EnforceDcsIntakeAllowlist::class,
             'dcs.full'         => \App\Http\Middleware\RequireFullDcs::class,
         ]);
     })
@@ -59,6 +60,15 @@ return Application::configure(basePath: dirname(__DIR__))
                 $e instanceof \Symfony\Component\HttpKernel\Exception\AccessDeniedHttpException ||
                 $e instanceof \Illuminate\Auth\Access\AuthorizationException ||
                 ($e instanceof \Symfony\Component\HttpKernel\Exception\HttpException && in_array($e->getStatusCode(), [403, 404]))) {
+                if ($request->expectsJson() || $request->ajax() || $request->wantsJson()
+                    || $request->header('X-Requested-With') === 'XMLHttpRequest') {
+                    return null;
+                }
+
+                if ($request->is('dcs/view-document', 'dcs/api/*')) {
+                    return null;
+                }
+
                 return redirect()->route('portal');
             }
 

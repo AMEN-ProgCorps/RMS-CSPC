@@ -847,6 +847,13 @@ class DocumentStorageService
                     ->whereNotNull('src.' . $source['column'])
                     ->where('src.' . $source['column'], '!=', '');
 
+                if (Schema::hasColumn($source['table'], 'is_office_intake')) {
+                    $query->where(function ($q) {
+                        $q->whereNull('src.is_office_intake')
+                            ->orWhere('src.is_office_intake', false);
+                    });
+                }
+
                 if (! empty($source['join'])) {
                     [$joinTable, $left, $operator, $right] = $source['join'];
                     $query->leftJoin($joinTable, $left, $operator, $right);
@@ -1058,14 +1065,70 @@ class DocumentStorageService
         }
     }
 
-    public static function getDcsScanContent(?string $path): ?string
+    public static function normalizeDcsScanPath(?string $path): ?string
     {
         if (! is_string($path) || trim($path) === '') {
             return null;
         }
 
-        $path = ltrim(str_replace(['../', '..\\'], '', $path), '/');
+        $path = ltrim(str_replace(['../', '..\\', '\\'], ['', '', '/'], $path), '/');
         if ($path === '' || str_contains($path, '..')) {
+            return null;
+        }
+
+        return $path;
+    }
+
+    /** Resolve a stored scan path to its DCS document request id, if known. */
+    public static function resolveRequestIdForScanPath(string $path): ?int
+    {
+        $path = self::normalizeDcsScanPath($path);
+        if ($path === null) {
+            return null;
+        }
+
+        foreach (self::DCS_SCAN_SOURCES as $source) {
+            if (! Schema::hasTable($source['table']) || ! Schema::hasColumn($source['table'], $source['column'])) {
+                continue;
+            }
+
+            $query = DB::table($source['table'] . ' as src')
+                ->where('src.' . $source['column'], $path);
+
+            if (! empty($source['join'])) {
+                [$joinTable, $left, $operator, $right] = $source['join'];
+                $query->leftJoin($joinTable, $left, $operator, $right);
+            }
+
+            $requestColumn = $source['request_column']
+                ?? (Schema::hasColumn($source['table'], 'request_id') ? 'src.request_id' : null);
+
+            if (! $requestColumn) {
+                continue;
+            }
+
+            $requestId = $query->value(DB::raw($requestColumn));
+            if ($requestId) {
+                return (int) $requestId;
+            }
+        }
+
+        if (Schema::hasTable('dcs_document_stamps') && Schema::hasColumn('dcs_document_stamps', 'file_path')) {
+            $requestId = DB::table('dcs_document_stamps')
+                ->where('file_path', $path)
+                ->value('document_request_id');
+            if ($requestId) {
+                return (int) $requestId;
+            }
+        }
+
+        return null;
+    }
+
+    public static function getDcsScanContent(?string $path): ?string
+    {
+        $path = self::normalizeDcsScanPath($path);
+        if ($path === null) {
             return null;
         }
 
@@ -1080,12 +1143,8 @@ class DocumentStorageService
 
     public static function dcsScanExists(?string $path): bool
     {
-        if (! is_string($path) || trim($path) === '') {
-            return false;
-        }
-
-        $path = ltrim(str_replace(['../', '..\\'], '', $path), '/');
-        if ($path === '' || str_contains($path, '..')) {
+        $path = self::normalizeDcsScanPath($path);
+        if ($path === null) {
             return false;
         }
 
@@ -1105,11 +1164,22 @@ class DocumentStorageService
             return null;
         }
 
-        if (self::isLegacyPublicScanPath($path)) {
-            return Storage::disk('public')->url($path);
+        return route('dcs.view-document', ['path' => $path]);
+    }
+
+    /** Legacy public/scans/ or {OFFICE}/DCS/{category}/... paths belong to DCS. */
+    public static function isDcsStoragePath(?string $path): bool
+    {
+        $path = self::normalizeDcsScanPath($path);
+        if ($path === null) {
+            return false;
         }
 
-        return route('dcs.view-document', ['path' => $path]);
+        if (self::isLegacyPublicScanPath($path)) {
+            return true;
+        }
+
+        return (bool) preg_match('#(^|/)DCS/#', $path);
     }
 
     public static function duplicateDcsScan(string $sourcePath, ?User $user = null): ?string

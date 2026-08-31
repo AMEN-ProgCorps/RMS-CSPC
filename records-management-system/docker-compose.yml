@@ -16,6 +16,8 @@ services:
       - .:/var/www/html
       # Named volume for vendor/ so it stays inside the container
       - vendor:/var/www/html/vendor
+      # Compiled Blade views — avoids WSL bind-mount touch()/utime failures
+      - laravel_views:/var/www/html/storage/framework/views
     depends_on:
       db:
         condition: service_healthy
@@ -92,6 +94,7 @@ volumes:
   pg_data:
   vendor:
   node_modules:
+  laravel_views:
 
 networks:
   rms_net:

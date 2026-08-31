@@ -34,7 +34,7 @@ if (!empty($status['valid'])) {
             // now() would cause users to appear permanently offline.
             $utcNow = gmdate('Y-m-d H:i:s');
             $stmt = $pdo->prepare(
-                'UPDATE account_details SET is_currently_online = 1, last_online_time = :now WHERE account_id = :id'
+                'UPDATE ' . Database::t('account_details') . ' SET is_currently_online = 1, last_online_time = :now WHERE account_id = :id'
             );
             $stmt->execute([':now' => $utcNow, ':id' => $myAccountId]);
         }

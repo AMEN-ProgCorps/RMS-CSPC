@@ -16,7 +16,7 @@ class DcsNotificationService
     {
         static $subsystemId = null;
         if ($subsystemId === null) {
-            $subsystemId = DB::table('subsystems')
+            $subsystemId = DB::table(\Illuminate\Support\Facades\Schema::hasTable('sys_subsystems') ? 'sys_subsystems' : 'subsystems')
                 ->where('subsystem_name', 'Document Control System')
                 ->value('subsystem_id') ?? 1;
         }
@@ -43,14 +43,14 @@ class DcsNotificationService
         try {
             $subsystemId = static::getDcsSubsystemId();
 
-            $contentId = DB::table('notif_content')->insertGetId([
+            $contentId = DB::table(\Illuminate\Support\Facades\Schema::hasTable('sys_notif_content') ? 'sys_notif_content' : 'notif_content')->insertGetId([
                 'system'       => $subsystemId,
                 'content'      => $message,
                 'redirect_url' => $redirectUrl ?: '/dcs',
                 'created_at'   => now(),
             ]);
 
-            DB::table('notifications')->insert([
+            DB::table(\Illuminate\Support\Facades\Schema::hasTable('sys_notifications') ? 'sys_notifications' : 'notifications')->insert([
                 'office'     => $officeCode,
                 'contents'   => $contentId,
                 'created_at' => now(),
@@ -134,7 +134,7 @@ class DcsNotificationService
             return [];
         }
 
-        return DB::table('office')
+        return DB::table(\Illuminate\Support\Facades\Schema::hasTable('sys_office') ? 'sys_office' : 'office')
             ->whereIn('id', $ids)
             ->whereNotNull('office_code')
             ->where('office_code', '!=', '')

@@ -47,10 +47,15 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Logins')] class extends 
 
     public function with(): array
     {
-        $query = \DB::table('security_logs')
-            ->leftJoin('security_status', 'security_logs.status', '=', 'security_status.status_id')
-            ->leftJoin('account', 'security_logs.account', '=', 'account.id')
-            ->leftJoin('account_details', 'account.id', '=', 'account_details.account_id')
+        $secLogsTable = \Illuminate\Support\Facades\Schema::hasTable('sys_security_logs') ? 'sys_security_logs' : 'security_logs';
+        $secStatusTable = \Illuminate\Support\Facades\Schema::hasTable('sys_security_status') ? 'sys_security_status' : 'security_status';
+        $accountTable = \Illuminate\Support\Facades\Schema::hasTable('sys_account') ? 'sys_account' : 'account';
+        $accountDetailsTable = \Illuminate\Support\Facades\Schema::hasTable('sys_account_details') ? 'sys_account_details' : 'account_details';
+
+        $query = \DB::table($secLogsTable . ' as security_logs')
+            ->leftJoin($secStatusTable . ' as security_status', 'security_logs.status', '=', 'security_status.status_id')
+            ->leftJoin($accountTable . ' as account', 'security_logs.account', '=', 'account.id')
+            ->leftJoin($accountDetailsTable . ' as account_details', 'account.id', '=', 'account_details.account_id')
             ->select([
                 'security_logs.id',
                 'security_logs.time',
@@ -82,14 +87,14 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Logins')] class extends 
         }
 
         $logs = $query->orderBy('security_logs.time', 'desc')->paginate(15);
-        $statuses = \DB::table('security_status')->orderBy('status_name')->get();
+        $statuses = \DB::table(\Illuminate\Support\Facades\Schema::hasTable('sys_security_status') ? 'sys_security_status' : 'security_status')->orderBy('status_name')->get();
 
         // Calculate Overview Statistics
         $stats = [
-            'total'      => \DB::table('security_logs')->count(),
-            'successful' => \DB::table('security_logs')->where('status', 1)->count(),
-            'failed'     => \DB::table('security_logs')->where('status', 2)->count(),
-            'warnings'   => \DB::table('security_logs')->whereIn('status', [4, 5])->count(),
+            'total'      => \DB::table(\Illuminate\Support\Facades\Schema::hasTable('sys_security_logs') ? 'sys_security_logs' : 'security_logs')->count(),
+            'successful' => \DB::table(\Illuminate\Support\Facades\Schema::hasTable('sys_security_logs') ? 'sys_security_logs' : 'security_logs')->where('status', 1)->count(),
+            'failed'     => \DB::table(\Illuminate\Support\Facades\Schema::hasTable('sys_security_logs') ? 'sys_security_logs' : 'security_logs')->where('status', 2)->count(),
+            'warnings'   => \DB::table(\Illuminate\Support\Facades\Schema::hasTable('sys_security_logs') ? 'sys_security_logs' : 'security_logs')->whereIn('status', [4, 5])->count(),
         ];
 
         return [

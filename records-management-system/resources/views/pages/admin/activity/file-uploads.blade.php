@@ -47,10 +47,15 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - File Upload Activity Log
 
     public function with(): array
     {
-        $query = DB::table('document_data')
-            ->leftJoin('account', 'document_data.uploaded_by', '=', 'account.id')
-            ->leftJoin('account_details', 'account.id', '=', 'account_details.account_id')
-            ->leftJoin('office', 'document_data.user_office', '=', 'office.office_code')
+        $docDataTable = \Illuminate\Support\Facades\Schema::hasTable('sys_document_data') ? 'sys_document_data' : 'document_data';
+        $accountTable = \Illuminate\Support\Facades\Schema::hasTable('sys_account') ? 'sys_account' : 'account';
+        $accountDetailsTable = \Illuminate\Support\Facades\Schema::hasTable('sys_account_details') ? 'sys_account_details' : 'account_details';
+        $officeTable = \Illuminate\Support\Facades\Schema::hasTable('sys_office') ? 'sys_office' : 'office';
+
+        $query = DB::table($docDataTable . ' as document_data')
+            ->leftJoin($accountTable . ' as account', 'document_data.uploaded_by', '=', 'account.id')
+            ->leftJoin($accountDetailsTable . ' as account_details', 'account.id', '=', 'account_details.account_id')
+            ->leftJoin($officeTable . ' as office', 'document_data.user_office', '=', 'office.office_code')
             ->select([
                 'document_data.*',
                 'account.username',
@@ -81,12 +86,12 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - File Upload Activity Log
             $query->whereDate('document_data.date_added', $this->dateFilter);
         }
 
-        $totalUploads = DB::table('document_data')->count();
-        $rdpUploads   = DB::table('document_data')->where('document_path', 'like', '%rdp%')->count();
-        $dtsUploads   = DB::table('document_data')->where('document_path', 'like', '%dts%')->count();
-        $recent24h    = DB::table('document_data')->where('date_added', '>=', now()->subHours(24))->count();
+        $totalUploads = DB::table(\Illuminate\Support\Facades\Schema::hasTable('sys_document_data') ? 'sys_document_data' : 'document_data')->count();
+        $rdpUploads   = DB::table(\Illuminate\Support\Facades\Schema::hasTable('sys_document_data') ? 'sys_document_data' : 'document_data')->where('document_path', 'like', '%rdp%')->count();
+        $dtsUploads   = DB::table(\Illuminate\Support\Facades\Schema::hasTable('sys_document_data') ? 'sys_document_data' : 'document_data')->where('document_path', 'like', '%dts%')->count();
+        $recent24h    = DB::table(\Illuminate\Support\Facades\Schema::hasTable('sys_document_data') ? 'sys_document_data' : 'document_data')->where('date_added', '>=', now()->subHours(24))->count();
 
-        $officesList = DB::table('office')->orderBy('office_name', 'asc')->get();
+        $officesList = DB::table(\Illuminate\Support\Facades\Schema::hasTable('sys_office') ? 'sys_office' : 'office')->orderBy('office_name', 'asc')->get();
 
         return [
             'uploads'      => $query->orderBy('document_data.date_added', 'desc')->paginate(15),

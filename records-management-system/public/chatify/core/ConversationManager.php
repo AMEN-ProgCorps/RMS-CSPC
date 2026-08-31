@@ -900,10 +900,10 @@ class ConversationManager
                      o2.office_name AS u2_office_name,
                      o2.office_code AS u2_office_code
                  FROM chat_conversations c
-                 LEFT JOIN account_details ad1 ON ad1.account_id = c.user_1
-                 LEFT JOIN office o1 ON o1.id = ad1.office_id
-                 LEFT JOIN account_details ad2 ON ad2.account_id = c.user_2
-                 LEFT JOIN office o2 ON o2.id = ad2.office_id
+                 LEFT JOIN ' . Database::t('account_details') . ' ad1 ON ad1.account_id = c.user_1
+                 LEFT JOIN ' . Database::t('office') . ' o1 ON o1.id = ad1.office_id
+                 LEFT JOIN ' . Database::t('account_details') . ' ad2 ON ad2.account_id = c.user_2
+                 LEFT JOIN ' . Database::t('office') . ' o2 ON o2.id = ad2.office_id
                  {$whereClause}
                  ORDER BY c.last_message_time DESC
                  LIMIT :lim OFFSET :off";
@@ -1004,10 +1004,10 @@ class ConversationManager
                      o2.office_name AS u2_office_name,
                      o2.office_code AS u2_office_code
                  FROM chat_conversations c
-                 LEFT JOIN account_details ad1 ON ad1.account_id = c.user_1
-                 LEFT JOIN office o1 ON o1.id = ad1.office_id
-                 LEFT JOIN account_details ad2 ON ad2.account_id = c.user_2
-                 LEFT JOIN office o2 ON o2.id = ad2.office_id
+                 LEFT JOIN ' . Database::t('account_details') . ' ad1 ON ad1.account_id = c.user_1
+                 LEFT JOIN ' . Database::t('office') . ' o1 ON o1.id = ad1.office_id
+                 LEFT JOIN ' . Database::t('account_details') . ' ad2 ON ad2.account_id = c.user_2
+                 LEFT JOIN ' . Database::t('office') . ' o2 ON o2.id = ad2.office_id
                  WHERE (c.user_1 = :target_id OR c.user_2 = :target_id)
                    AND COALESCE(c.msg_count, 0) > 0
                    AND c.is_active = true
@@ -1105,15 +1105,15 @@ class ConversationManager
 
         try {
             $pdo = Database::getConnection();
-            $stmt = $pdo->prepare("SELECT value FROM system_settings WHERE key = 'chat_delete_secret_key' LIMIT 1");
+            $stmt = $pdo->prepare("SELECT value FROM ' . Database::t('system_settings') . ' WHERE key = 'chat_delete_secret_key' LIMIT 1");
             $stmt->execute();
             $row = $stmt->fetch();
 
             if (!$row || empty($row['value'])) {
-                // Seed default hashed key ('boss') into system_settings
+                // Seed default hashed key ('boss') into ' . Database::t('system_settings') . '
                 $defaultHash = password_hash('boss', PASSWORD_DEFAULT);
                 $pdo->prepare(
-                    "INSERT INTO system_settings (key, value, created_at, updated_at)
+                    "INSERT INTO ' . Database::t('system_settings') . ' (key, value, created_at, updated_at)
                      VALUES ('chat_delete_secret_key', :val, NOW(), NOW())
                      ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = NOW()"
                 )->execute([':val' => $defaultHash]);
@@ -1154,7 +1154,7 @@ class ConversationManager
             $hashed = password_hash($newKey, PASSWORD_DEFAULT);
 
             $stmt = $pdo->prepare(
-                "INSERT INTO system_settings (key, value, created_at, updated_at)
+                "INSERT INTO ' . Database::t('system_settings') . ' (key, value, created_at, updated_at)
                  VALUES ('chat_delete_secret_key', :val, NOW(), NOW())
                  ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = NOW()"
             );

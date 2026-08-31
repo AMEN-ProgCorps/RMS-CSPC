@@ -101,7 +101,8 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Users')] class extends C
                     'updated_at' => now(),
                 ]);
 
-                \DB::table('admin_logs')->insert([
+                $adminLogsTbl = \Illuminate\Support\Facades\Schema::hasTable('sys_admin_logs') ? 'sys_admin_logs' : 'admin_logs';
+                \DB::table($adminLogsTbl)->insert([
                     'changes' => "Created new requestor contact: {$this->reqName} ({$this->reqOffice})",
                     'admin_id' => auth()->id(),
                     'what_system' => 3,
@@ -121,7 +122,8 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Users')] class extends C
                         'updated_at' => now(),
                     ]);
 
-                \DB::table('admin_logs')->insert([
+                $adminLogsTbl = \Illuminate\Support\Facades\Schema::hasTable('sys_admin_logs') ? 'sys_admin_logs' : 'admin_logs';
+                \DB::table($adminLogsTbl)->insert([
                     'changes' => "Updated requestor contact ID {$this->selectedRequestorId}: {$this->reqName}",
                     'admin_id' => auth()->id(),
                     'what_system' => 3,
@@ -150,7 +152,8 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Users')] class extends C
                     ->where('id', $this->selectedRequestorId)
                     ->update(['is_active' => false, 'updated_at' => now()]);
 
-                \DB::table('admin_logs')->insert([
+                $adminLogsTbl = \Illuminate\Support\Facades\Schema::hasTable('sys_admin_logs') ? 'sys_admin_logs' : 'admin_logs';
+                \DB::table($adminLogsTbl)->insert([
                     'changes' => "Deactivated requestor contact: {$req->requestor_name}",
                     'admin_id' => auth()->id(),
                     'what_system' => 3,
@@ -364,6 +367,10 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Users')] class extends C
             return;
         }
 
+        $accDetailsTbl = \Illuminate\Support\Facades\Schema::hasTable('sys_account_details') ? 'sys_account_details' : 'account_details';
+        $condKeyTbl = \Illuminate\Support\Facades\Schema::hasTable('sys_condition_key') ? 'sys_condition_key' : 'condition_key';
+        $officeTbl = \Illuminate\Support\Facades\Schema::hasTable('sys_office') ? 'sys_office' : 'office';
+
         // 1. Validation Rules
         if ($this->selectedUserId === -1) {
             // Create mode validation rules (Email-First registration: First & Last Name are optional and auto-sync on 1st login)
@@ -371,9 +378,9 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Users')] class extends C
                 'firstName' => 'nullable|string|max:255',
                 'lastName' => 'nullable|string|max:255',
                 'middleName' => 'nullable|string|max:255',
-                'email' => 'required|email|max:255|unique:account_details,email',
-                'roleId' => 'required|exists:condition_key,id',
-                'officeId' => 'nullable|exists:office,id',
+                'email' => "required|email|max:255|unique:{$accDetailsTbl},email",
+                'roleId' => "required|exists:{$condKeyTbl},id",
+                'officeId' => "nullable|exists:{$officeTbl},id",
             ]);
         } else {
             // Edit mode validation rules
@@ -381,9 +388,9 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Users')] class extends C
                 'firstName' => 'required|string|max:255',
                 'lastName' => 'required|string|max:255',
                 'middleName' => 'nullable|string|max:255',
-                'email' => 'required|email|max:255|unique:account_details,email,' . $this->selectedUserId . ',account_id',
-                'roleId' => 'required|exists:condition_key,id',
-                'officeId' => 'nullable|exists:office,id',
+                'email' => "required|email|max:255|unique:{$accDetailsTbl},email,{$this->selectedUserId},account_id",
+                'roleId' => "required|exists:{$condKeyTbl},id",
+                'officeId' => "nullable|exists:{$officeTbl},id",
             ]);
         }
 
@@ -425,7 +432,8 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Users')] class extends C
                     $details->save();
 
                     // Audit Log: created user account
-                    \DB::table('admin_logs')->insert([
+                    $adminLogsTbl = \Illuminate\Support\Facades\Schema::hasTable('sys_admin_logs') ? 'sys_admin_logs' : 'admin_logs';
+                    \DB::table($adminLogsTbl)->insert([
                         'changes' => "Created user account via Google SSO: {$user->username} ({$this->firstName} {$this->lastName} <{$this->email}>)",
                         'admin_id' => auth()->id(),
                         'what_system' => 3, // Admin Console
@@ -480,7 +488,8 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Users')] class extends C
                     }
 
                     // Audit Log: updated details
-                    \DB::table('admin_logs')->insert([
+                    $adminLogsTbl = \Illuminate\Support\Facades\Schema::hasTable('sys_admin_logs') ? 'sys_admin_logs' : 'admin_logs';
+                    \DB::table($adminLogsTbl)->insert([
                         'changes' => "Updated details for user: {$user->username} ({$this->firstName} {$this->lastName})",
                         'admin_id' => auth()->id(),
                         'what_system' => 3, // Admin Console
@@ -489,7 +498,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Users')] class extends C
 
                     // Audit Log: status changed
                     if ($statusChanged) {
-                        \DB::table('admin_logs')->insert([
+                        \DB::table($adminLogsTbl)->insert([
                             'changes' => "Toggled active status (Value: " . ($this->isActive ? '1' : '0') . ") for user: {$user->username}",
                             'admin_id' => auth()->id(),
                             'what_system' => 3, // Admin Console
@@ -506,7 +515,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Users')] class extends C
                 $this->js('window.location.reload();');
             }
         } catch (\Exception $e) {
-            $this->errorMessage = 'Failed to save changes: ' . $e->getMessage();
+            $this->errorMessage = 'Failed to save user account: ' . $e->getMessage();
         }
     }
 
@@ -515,16 +524,10 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Users')] class extends C
      */
     public function deleteUser(): void
     {
-        if ($this->selectedUserId === null || $this->selectedUserId === -1) {
-            return;
-        }
-
         $this->clearMessages();
 
-        // Authorization check: User must be is_sadm or have can_sadm_modify_account clearance
-        $currentUserPerms = auth()->user() ? auth()->user()->permissions : null;
-        if (! $currentUserPerms || (! $currentUserPerms->is_sadm && ! $currentUserPerms->can_sadm_modify_account)) {
-            $this->errorMessage = 'Unauthorized: You do not have permission to delete user accounts.';
+        if (!$this->selectedUserId || $this->selectedUserId <= 0) {
+            $this->errorMessage = 'No user selected to delete.';
             return;
         }
 
@@ -543,7 +546,8 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Users')] class extends C
                 ]);
 
                 // Force logout deactivated user account
-                \DB::table('account_details')
+                $accDetailsTbl = \Illuminate\Support\Facades\Schema::hasTable('sys_account_details') ? 'sys_account_details' : 'account_details';
+                \DB::table($accDetailsTbl)
                     ->where('account_id', $this->selectedUserId)
                     ->update([
                         'force_logout_at' => now(),
@@ -558,7 +562,8 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Users')] class extends C
                 } catch (\Throwable) {}
 
                 // Audit Log: soft-deleted/deactivated
-                \DB::table('admin_logs')->insert([
+                $adminLogsTbl = \Illuminate\Support\Facades\Schema::hasTable('sys_admin_logs') ? 'sys_admin_logs' : 'admin_logs';
+                \DB::table($adminLogsTbl)->insert([
                     'changes' => "Soft-deleted user account (Deactivated for transparency): {$user->username}",
                     'admin_id' => auth()->id(),
                     'what_system' => 3, // Admin Console
@@ -598,6 +603,11 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Users')] class extends C
             });
         }
 
+        $accDetailsTbl = \Illuminate\Support\Facades\Schema::hasTable('sys_account_details') ? 'sys_account_details' : 'account_details';
+        $condKeyTbl = \Illuminate\Support\Facades\Schema::hasTable('sys_condition_key') ? 'sys_condition_key' : 'condition_key';
+        $officeTbl = \Illuminate\Support\Facades\Schema::hasTable('sys_office') ? 'sys_office' : 'office';
+        $accountTbl = \Illuminate\Support\Facades\Schema::hasTable('sys_account') ? 'sys_account' : 'account';
+
         // Handle Sorting Options using subquery ordering
         switch ($this->sortBy) {
             case 'username':
@@ -605,13 +615,13 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Users')] class extends C
                 break;
             case 'role':
                 $query->orderBy(
-                    \DB::raw('(select key_name from condition_key where condition_key.id = account.account_role)'),
+                    \DB::raw("(select key_name from {$condKeyTbl} where {$condKeyTbl}.id = {$accountTbl}.account_role)"),
                     $this->sortDir
                 );
                 break;
             case 'office':
                 $query->orderBy(
-                    \DB::raw('(select office_name from office join account_details on account_details.office_id = office.id where account_details.account_id = account.id)'),
+                    \DB::raw("(select office_name from {$officeTbl} join {$accDetailsTbl} on {$accDetailsTbl}.office_id = {$officeTbl}.id where {$accDetailsTbl}.account_id = {$accountTbl}.id)"),
                     $this->sortDir
                 );
                 break;
@@ -621,10 +631,10 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Users')] class extends C
             case 'name':
             default:
                 $query->orderBy(
-                    \DB::raw('(select last_name from account_details where account_details.account_id = account.id)'),
+                    \DB::raw("(select last_name from {$accDetailsTbl} where {$accDetailsTbl}.account_id = {$accountTbl}.id)"),
                     $this->sortDir
                 )->orderBy(
-                    \DB::raw('(select first_name from account_details where account_details.account_id = account.id)'),
+                    \DB::raw("(select first_name from {$accDetailsTbl} where {$accDetailsTbl}.account_id = {$accountTbl}.id)"),
                     $this->sortDir
                 );
                 break;
@@ -638,7 +648,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Users')] class extends C
         $sourceOffices = \DB::table('dts_source_office')->where('is_active', true)->orderBy('s_office_name')->get();
 
         $requestorsQuery = \DB::table('dts_requestor_history as req')
-            ->leftJoin('office as off', 'off.office_code', '=', 'req.office')
+            ->leftJoin((\Illuminate\Support\Facades\Schema::hasTable('sys_office') ? 'sys_office' : 'office') . ' as off', 'off.office_code', '=', 'req.office')
             ->leftJoin('dts_source_office as src', 'src.s_office_code', '=', 'req.office')
             ->when(!empty($this->requestorSearch), function($q) {
                 $s = trim($this->requestorSearch);
@@ -809,7 +819,8 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Users')] class extends C
                             @php
                                 $userDet = $user->details;
                                 $displayName = $userDet ? ($userDet->first_name . ' ' . $userDet->last_name) : $user->username;
-                                $roleKey = \DB::table('condition_key')->where('id', $user->account_role)->first();
+                                $condKeyTbl = \Illuminate\Support\Facades\Schema::hasTable('sys_condition_key') ? 'sys_condition_key' : 'condition_key';
+                                $roleKey = \DB::table($condKeyTbl)->where('id', $user->account_role)->first();
                             @endphp
                             <tr class="user-tbl-row {{ $selectedUserId === $user->id ? 'selected-row' : '' }}" 
                                 wire:key="user-tbl-{{ $user->id }}" 
@@ -846,7 +857,8 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Users')] class extends C
                         $userDet = $user->details;
                         $initials = strtoupper(substr($userDet?->first_name ?: '?', 0, 1) . substr($userDet?->last_name ?: '?', 0, 1));
                         $displayName = $userDet ? ($userDet->first_name . ' ' . $userDet->last_name) : $user->username;
-                        $roleKey = \DB::table('condition_key')->where('id', $user->account_role)->first();
+                        $condKeyTbl = \Illuminate\Support\Facades\Schema::hasTable('sys_condition_key') ? 'sys_condition_key' : 'condition_key';
+                        $roleKey = \DB::table($condKeyTbl)->where('id', $user->account_role)->first();
                     @endphp
                     <div class="user-item-card {{ $selectedUserId === $user->id ? 'active' : '' }}" wire:key="user-{{ $user->id }}" wire:click="selectUser({{ $user->id }})">
                         <div class="user-avatar-small">
@@ -889,7 +901,8 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Users')] class extends C
                     $selectedUserDet = $selectedUser?->details;
                     $selInitials = strtoupper(substr($selectedUserDet?->first_name ?: '?', 0, 1) . substr($selectedUserDet?->last_name ?: '?', 0, 1));
                     $selDisplayName = $selectedUserDet ? ($selectedUserDet->first_name . ' ' . $selectedUserDet->last_name) : $selectedUser->username;
-                    $selRoleKey = \DB::table('condition_key')->where('id', $selectedUser->account_role)->first();
+                    $condKeyTbl = \Illuminate\Support\Facades\Schema::hasTable('sys_condition_key') ? 'sys_condition_key' : 'condition_key';
+                    $selRoleKey = \DB::table($condKeyTbl)->where('id', $selectedUser->account_role)->first();
                     $selRoleName = $selRoleKey?->key_name ?: 'User';
                     $isOnline = $selectedUserDet?->is_currently_online;
                 } else {

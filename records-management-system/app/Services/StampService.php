@@ -655,7 +655,7 @@ class StampService
                 $stamperName = \App\Helpers\RegisterQueryHelper::currentUserDisplayName();
                 $originOfficeCodes = DB::table('dcs_masterlist_source_offices as mso')
                     ->join('dcs_masterlist_registration as ml', 'ml.id', '=', 'mso.masterlist_id')
-                    ->join('office as o', 'o.id', '=', 'mso.office_id')
+                    ->join((\Illuminate\Support\Facades\Schema::hasTable('sys_office') ? 'sys_office' : 'office') . ' as o', 'o.id', '=', 'mso.office_id')
                     ->where('ml.request_id', $validated['request_id'])
                     ->whereNotNull('o.office_code')
                     ->where('o.office_code', '!=', '')
@@ -848,7 +848,8 @@ class StampService
 
         $stampedBy = 'Unknown';
         if ($stamp->stamped_by) {
-            $details = DB::table('account_details')->where('account_id', $stamp->stamped_by)->first();
+            $accDetailsTbl = \Illuminate\Support\Facades\Schema::hasTable('sys_account_details') ? 'sys_account_details' : 'account_details';
+            $details = DB::table($accDetailsTbl)->where('account_id', $stamp->stamped_by)->first();
             $stampedBy = $details
                 ? trim($details->first_name . ' ' . $details->last_name)
                 : 'Unknown';

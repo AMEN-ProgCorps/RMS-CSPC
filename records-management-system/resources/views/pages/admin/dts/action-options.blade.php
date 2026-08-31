@@ -52,7 +52,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Action Options')] class 
             ]);
 
             // Log admin action
-            DB::table('admin_logs')->insert([
+            DB::table(\Illuminate\Support\Facades\Schema::hasTable('sys_admin_logs') ? 'sys_admin_logs' : 'admin_logs')->insert([
                 'changes' => "Added DTS action option: {$name}",
                 'admin_id' => auth()->id(),
                 'what_system' => 3, // DTS
@@ -110,7 +110,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Action Options')] class 
                 ]);
 
             // Log admin action
-            DB::table('admin_logs')->insert([
+            DB::table(\Illuminate\Support\Facades\Schema::hasTable('sys_admin_logs') ? 'sys_admin_logs' : 'admin_logs')->insert([
                 'changes' => "Updated DTS action option: '{$oldName}' to '{$newName}'",
                 'admin_id' => auth()->id(),
                 'what_system' => 3,
@@ -134,7 +134,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Action Options')] class 
             DB::table('dts_action_options')->where('id', $id)->delete();
 
             // Log admin action
-            DB::table('admin_logs')->insert([
+            DB::table(\Illuminate\Support\Facades\Schema::hasTable('sys_admin_logs') ? 'sys_admin_logs' : 'admin_logs')->insert([
                 'changes' => "Deleted DTS action option: {$name}",
                 'admin_id' => auth()->id(),
                 'what_system' => 3,

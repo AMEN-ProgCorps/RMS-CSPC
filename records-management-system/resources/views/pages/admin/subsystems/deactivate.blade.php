@@ -43,7 +43,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Deactivated Subsystems')
     {
         $this->clearMessages();
 
-        $subsystem = \DB::table('subsystems')->where('subsystem_id', $id)->first();
+        $subsystem = \DB::table(\Illuminate\Support\Facades\Schema::hasTable('sys_subsystems') ? 'sys_subsystems' : 'subsystems')->where('subsystem_id', $id)->first();
         if (!$subsystem) {
             $this->errorMessage = 'Subsystem not found.';
             return;
@@ -52,7 +52,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Deactivated Subsystems')
         try {
             \DB::transaction(function () use ($subsystem, $id) {
                 // Update status
-                \DB::table('subsystems')
+                \DB::table(\Illuminate\Support\Facades\Schema::hasTable('sys_subsystems') ? 'sys_subsystems' : 'subsystems')
                     ->where('subsystem_id', $id)
                     ->update([
                         'is_active' => true,
@@ -60,7 +60,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Deactivated Subsystems')
                     ]);
 
                 // Log to admin changes logs
-                \DB::table('admin_logs')->insert([
+                \DB::table(\Illuminate\Support\Facades\Schema::hasTable('sys_admin_logs') ? 'sys_admin_logs' : 'admin_logs')->insert([
                     'changes' => "Activated subsystem: {$subsystem->subsystem_name} (Restoring application access)",
                     'admin_id' => auth()->id(),
                     'what_system' => 3, // Admin Console
@@ -79,7 +79,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Deactivated Subsystems')
      */
     public function with(): array
     {
-        $deactivatedSubsystems = \DB::table('subsystems')
+        $deactivatedSubsystems = \DB::table(\Illuminate\Support\Facades\Schema::hasTable('sys_subsystems') ? 'sys_subsystems' : 'subsystems')
             ->where('is_active', false)
             ->orderBy('subsystem_name')
             ->get();

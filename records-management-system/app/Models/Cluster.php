@@ -11,7 +11,7 @@ class Cluster extends Model
     use HasFactory, Notifiable;
 
     /** @var string Maps to the 'cluster' table */
-    protected $table = 'cluster';
+    protected $table = 'sys_cluster';
 
     /** @var string Primary key */
     protected $primaryKey = 'id';

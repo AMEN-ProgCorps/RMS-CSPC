@@ -10,7 +10,7 @@ class PersonalSetting extends Model
 {
     use HasFactory;
 
-    protected $table = 'personal_settings';
+    protected $table = 'sys_personal_settings';
 
     protected $fillable = [
         'user',

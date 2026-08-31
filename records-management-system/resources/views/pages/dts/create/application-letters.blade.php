@@ -170,7 +170,7 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create Applicat
 
         $this->unit_college = auth()->user()?->details?->office?->office_code ?? '';
 
-        $this->offices = DB::table('office')
+        $this->offices = DB::table(\Illuminate\Support\Facades\Schema::hasTable('sys_office') ? 'sys_office' : 'office')
             ->where('is_active', true)
             ->whereNotIn('office_code', ['ORIGIN', '[H]'])
             ->orderBy('office_name')
@@ -194,7 +194,7 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create Applicat
                         $q->where('flow_for', 'office')
                           ->whereExists(function($sub) use ($userOfficeId) {
                               $sub->select(DB::raw(1))
-                                  ->from('account_details')
+                                  ->from(\Illuminate\Support\Facades\Schema::hasTable('sys_account_details') ? 'sys_account_details' : 'account_details')
                                   ->whereColumn('account_id', 'dts_transaction_flow.added_by')
                                   ->where('office_id', $userOfficeId);
                           });
@@ -320,10 +320,10 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create Applicat
                 ->toArray();
 
             $originOfficeCode = $this->unit_college;
-            $originOffice = DB::table('office')->where('office_code', $originOfficeCode)->first();
+            $originOffice = DB::table(\Illuminate\Support\Facades\Schema::hasTable('sys_office') ? 'sys_office' : 'office')->where('office_code', $originOfficeCode)->first();
             $clusterHead = null;
             if ($originOffice && $originOffice->cluster) {
-                $cluster = DB::table('cluster')->where('cluster_code', $originOffice->cluster)->first();
+                $cluster = DB::table(\Illuminate\Support\Facades\Schema::hasTable('sys_cluster') ? 'sys_cluster' : 'cluster')->where('cluster_code', $originOffice->cluster)->first();
                 if ($cluster) {
                     $clusterHead = $cluster->cluster_head;
                 }
@@ -675,7 +675,7 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create Applicat
                             $q->where('flow_for', 'office')
                               ->whereExists(function($sub) use ($userOfficeId) {
                                   $sub->select(DB::raw(1))
-                                      ->from('account_details')
+                                      ->from(\Illuminate\Support\Facades\Schema::hasTable('sys_account_details') ? 'sys_account_details' : 'account_details')
                                       ->whereColumn('account_id', 'dts_transaction_flow.added_by')
                                       ->where('office_id', $userOfficeId);
                               });
@@ -703,7 +703,7 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create Applicat
 
     public function save()
     {
-        $isRequired = DB::table('system_settings')->where('key', 'dts_email_access_required_application')->value('value') === 'true';
+        $isRequired = DB::table(\Illuminate\Support\Facades\Schema::hasTable('sys_system_settings') ? 'sys_system_settings' : 'system_settings')->where('key', 'dts_email_access_required_application')->value('value') === 'true';
         if ($isRequired) {
             $this->validate([
                 'email_access_input' => 'required|email',
@@ -728,12 +728,14 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create Applicat
             $this->generateRandomSeq();
         }
 
+        $officeTbl = \Illuminate\Support\Facades\Schema::hasTable('sys_office') ? 'sys_office' : 'office';
+
         $this->validate([
             'seq_number' => 'required|string|max:50',
             'type_of_document' => 'required|string|max:255',
             'applicant_name' => 'required|string|max:255',
             'position' => 'required|string|max:255',
-            'unit_college' => 'required|string|exists:office,office_code',
+            'unit_college' => "required|string|exists:{$officeTbl},office_code",
             'transaction_flow' => 'required|string|exists:dts_transaction_flow,flow_code',
             'copy_furnished' => 'required|string|in:Yes,No',
             'cf_selected_offices' => 'nullable|array',
@@ -813,10 +815,10 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create Applicat
             $flow = DB::table('dts_transaction_flow')->where('flow_code', $this->transaction_flow)->first();
             
             $originOfficeCode = $this->unit_college;
-            $originOffice = DB::table('office')->where('office_code', $originOfficeCode)->first();
+            $originOffice = DB::table(\Illuminate\Support\Facades\Schema::hasTable('sys_office') ? 'sys_office' : 'office')->where('office_code', $originOfficeCode)->first();
             $clusterHead = null;
             if ($originOffice && $originOffice->cluster) {
-                $cluster = DB::table('cluster')->where('cluster_code', $originOffice->cluster)->first();
+                $cluster = DB::table(\Illuminate\Support\Facades\Schema::hasTable('sys_cluster') ? 'sys_cluster' : 'cluster')->where('cluster_code', $originOffice->cluster)->first();
                 if ($cluster) {
                     $clusterHead = $cluster->cluster_head;
                 }
@@ -855,7 +857,7 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create Applicat
                 'referenced_flow' => $flow ? ('REF-' . (str_starts_with($flow->flow_code, 'FLOW-PREDEFINED') || str_starts_with($flow->flow_code, 'PREDEFINED') ? 'PREDEFINED' : 'CUSTOM') . '-' . $flow->id) : null,
             ]);
 
-            $autoFwdSetting = DB::table('system_settings')->where('key', 'dts_auto_forward_created_transaction')->value('value');
+            $autoFwdSetting = DB::table(\Illuminate\Support\Facades\Schema::hasTable('sys_system_settings') ? 'sys_system_settings' : 'system_settings')->where('key', 'dts_auto_forward_created_transaction')->value('value');
             $shouldAutoForward = ($autoFwdSetting !== 'false') && (count($resolvedOffices) > 1);
 
             $originOfficeCode = $this->unit_college;
@@ -908,7 +910,7 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create Applicat
                 $finalCfOffices = [];
                 foreach ($this->cf_selected_offices as $cfOffice) {
                     if ($cfOffice === 'ALL') {
-                        $allOffices = DB::table('office')->pluck('office_code')->toArray();
+                        $allOffices = DB::table(\Illuminate\Support\Facades\Schema::hasTable('sys_office') ? 'sys_office' : 'office')->pluck('office_code')->toArray();
                         foreach ($allOffices as $oCode) {
                             $finalCfOffices[] = $oCode;
                         }
@@ -971,10 +973,10 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create Applicat
             ]);
 
             if ($shouldAutoForward) {
-                $originOfficeName = DB::table('office')->where('office_code', $originOfficeCode)->value('office_name') ?: $originOfficeCode;
+                $originOfficeName = DB::table(\Illuminate\Support\Facades\Schema::hasTable('sys_office') ? 'sys_office' : 'office')->where('office_code', $originOfficeCode)->value('office_name') ?: $originOfficeCode;
 
                 // Step 1 log: Completed/Forwarded at origin
-                DB::table('sub_document_tracking_system_logs')->insert([
+                DB::table(\Illuminate\Support\Facades\Schema::hasTable('dts_transaction_logs') ? 'dts_transaction_logs' : 'sub_document_tracking_system_logs')->insert([
                     'transaction_id' => $transactionId,
                     'office_code' => $originOfficeCode,
                     'type' => 'received',
@@ -985,7 +987,7 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create Applicat
                 ]);
 
                 // Step 2 log: Pending forwarding log at target destination office
-                DB::table('sub_document_tracking_system_logs')->insert([
+                DB::table(\Illuminate\Support\Facades\Schema::hasTable('dts_transaction_logs') ? 'dts_transaction_logs' : 'sub_document_tracking_system_logs')->insert([
                     'transaction_id' => $transactionId,
                     'office_code' => $nextOfficeCode,
                     'type' => 'forwarded',
@@ -996,7 +998,7 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create Applicat
                 ]);
             } else {
                 // Initial tracking log at origin waiting to be forwarded
-                DB::table('sub_document_tracking_system_logs')->insert([
+                DB::table(\Illuminate\Support\Facades\Schema::hasTable('dts_transaction_logs') ? 'dts_transaction_logs' : 'sub_document_tracking_system_logs')->insert([
                     'transaction_id' => $transactionId,
                     'office_code' => $this->unit_college,
                     'type' => 'received',
@@ -1340,7 +1342,7 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create Applicat
                     <span style="color: #dc2626; font-size: 13px; align-self: center; margin-right: 15px;">{{ session('error') }}</span>
                 @endif
                 @php
-                    $emailAccessRequired = DB::table('system_settings')->where('key', 'dts_email_access_required_application')->value('value') === 'true';
+                    $emailAccessRequired = DB::table(\Illuminate\Support\Facades\Schema::hasTable('sys_system_settings') ? 'sys_system_settings' : 'system_settings')->where('key', 'dts_email_access_required_application')->value('value') === 'true';
                     $hasEmailInput = !empty($email_access_input);
                     $hasPasswordInput = !empty($document_password_input);
                     $hasAnyInput = $hasEmailInput || $hasPasswordInput;

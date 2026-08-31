@@ -11,7 +11,7 @@ class role_permission extends Model
 {
     use HasFactory, Notifiable;
 
-    protected $table = 'condition_details';
+    protected $table = 'sys_condition_details';
     protected $primaryKey = 'key_id';
     public $incrementing = true;
     protected $keyType = 'int';

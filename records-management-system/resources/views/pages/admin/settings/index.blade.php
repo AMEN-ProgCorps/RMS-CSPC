@@ -56,19 +56,19 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - System Settings')] class
 
     public function loadDriveCredentials(): void
     {
-        $this->driveClientId = \DB::table('system_settings')->where('key', 'google_drive_client_id')->value('value')
+        $this->driveClientId = \DB::table('sys_system_settings')->where('key', 'google_drive_client_id')->value('value')
             ?: env('GOOGLE_DRIVE_CLIENT_ID', '');
 
-        $this->driveClientSecret = \DB::table('system_settings')->where('key', 'google_drive_client_secret')->value('value')
+        $this->driveClientSecret = \DB::table('sys_system_settings')->where('key', 'google_drive_client_secret')->value('value')
             ?: env('GOOGLE_DRIVE_CLIENT_SECRET', '');
 
-        $this->driveRefreshToken = \DB::table('system_settings')->where('key', 'google_drive_refresh_token')->value('value')
+        $this->driveRefreshToken = \DB::table('sys_system_settings')->where('key', 'google_drive_refresh_token')->value('value')
             ?: env('GOOGLE_DRIVE_REFRESH_TOKEN', '');
 
-        $this->driveFolderId = \DB::table('system_settings')->where('key', 'google_drive_folder_id')->value('value')
+        $this->driveFolderId = \DB::table('sys_system_settings')->where('key', 'google_drive_folder_id')->value('value')
             ?: env('GOOGLE_DRIVE_FOLDER_ID', '1tGkgf7DGmxzMRjwj42hjwyYwvRfhh-_F');
 
-        $sslVal = \DB::table('system_settings')->where('key', 'google_drive_verify_ssl')->value('value');
+        $sslVal = \DB::table('sys_system_settings')->where('key', 'google_drive_verify_ssl')->value('value');
         if ($sslVal !== null) {
             $this->driveVerifySsl = ($sslVal === 'true');
         } else {
@@ -88,7 +88,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - System Settings')] class
             ];
 
             foreach ($credentials as $key => $value) {
-                \DB::table('system_settings')->updateOrInsert(
+                \DB::table('sys_system_settings')->updateOrInsert(
                     ['key' => $key],
                     ['value' => $value, 'updated_at' => now()]
                 );
@@ -109,7 +109,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - System Settings')] class
                 'filesystems.disks.google.folder'       => trim($this->driveFolderId),
             ]);
 
-            \DB::table('admin_logs')->insert([
+            \DB::table('sys_admin_logs')->insert([
                 'changes' => 'Updated Google Drive Cloud Storage credentials and folder target via Admin Console',
                 'admin_id' => auth()->id(),
                 'what_system' => 3,
@@ -141,22 +141,22 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - System Settings')] class
 
     public function loadSsoCredentials(): void
     {
-        $this->ssoClientId = \DB::table('system_settings')->where('key', 'google_sso_client_id')->value('value')
+        $this->ssoClientId = \DB::table('sys_system_settings')->where('key', 'google_sso_client_id')->value('value')
             ?: env('GOOGLE_CLIENT_ID', '');
 
-        $this->ssoClientSecret = \DB::table('system_settings')->where('key', 'google_sso_client_secret')->value('value')
+        $this->ssoClientSecret = \DB::table('sys_system_settings')->where('key', 'google_sso_client_secret')->value('value')
             ?: env('GOOGLE_CLIENT_SECRET', '');
 
-        $this->ssoRedirectUri = \DB::table('system_settings')->where('key', 'google_sso_redirect_uri')->value('value')
+        $this->ssoRedirectUri = \DB::table('sys_system_settings')->where('key', 'google_sso_redirect_uri')->value('value')
             ?: env('GOOGLE_REDIRECT_URI', 'dynamic');
 
-        $this->trackingSsoClientId = \DB::table('system_settings')->where('key', 'google_tracking_sso_client_id')->value('value')
+        $this->trackingSsoClientId = \DB::table('sys_system_settings')->where('key', 'google_tracking_sso_client_id')->value('value')
             ?: env('GOOGLE_TRACKING_CLIENT_ID', '');
 
-        $this->trackingSsoClientSecret = \DB::table('system_settings')->where('key', 'google_tracking_sso_client_secret')->value('value')
+        $this->trackingSsoClientSecret = \DB::table('sys_system_settings')->where('key', 'google_tracking_sso_client_secret')->value('value')
             ?: env('GOOGLE_TRACKING_CLIENT_SECRET', '');
 
-        $this->trackingSsoRedirectUri = \DB::table('system_settings')->where('key', 'google_tracking_sso_redirect_uri')->value('value')
+        $this->trackingSsoRedirectUri = \DB::table('sys_system_settings')->where('key', 'google_tracking_sso_redirect_uri')->value('value')
             ?: env('GOOGLE_TRACKING_REDIRECT_URI', 'dynamic');
     }
 
@@ -173,7 +173,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - System Settings')] class
             ];
 
             foreach ($credentials as $key => $value) {
-                \DB::table('system_settings')->updateOrInsert(
+                \DB::table('sys_system_settings')->updateOrInsert(
                     ['key' => $key],
                     ['value' => $value, 'updated_at' => now()]
                 );
@@ -197,7 +197,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - System Settings')] class
                 'services.google_tracking.redirect'      => trim($this->trackingSsoRedirectUri),
             ]);
 
-            \DB::table('admin_logs')->insert([
+            \DB::table('sys_admin_logs')->insert([
                 'changes' => 'Updated Google SSO (Internal & Tracking) credentials via Admin Console',
                 'admin_id' => auth()->id(),
                 'what_system' => 3,
@@ -217,11 +217,11 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - System Settings')] class
     public function testSsoConnection(): void
     {
         try {
-            $clientId = \DB::table('system_settings')->where('key', 'google_sso_client_id')->value('value')
+            $clientId = \DB::table('sys_system_settings')->where('key', 'google_sso_client_id')->value('value')
                 ?: config('services.google.client_id')
                 ?: env('GOOGLE_CLIENT_ID');
 
-            $clientSecret = \DB::table('system_settings')->where('key', 'google_sso_client_secret')->value('value')
+            $clientSecret = \DB::table('sys_system_settings')->where('key', 'google_sso_client_secret')->value('value')
                 ?: config('services.google.client_secret')
                 ?: env('GOOGLE_CLIENT_SECRET');
 
@@ -246,7 +246,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - System Settings')] class
             $this->ssoStatus = 'connected';
             $this->ssoTestResult = '✅ Google SSO credentials are configured and appear valid. Client ID: ' . substr($clientId, 0, 20) . '...';
 
-            \DB::table('admin_logs')->insert([
+            \DB::table('sys_admin_logs')->insert([
                 'changes' => 'Validated Google SSO credentials (Status: CONFIGURED)',
                 'admin_id' => auth()->id(),
                 'what_system' => 3,
@@ -280,7 +280,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - System Settings')] class
                 @file_put_contents($envPath, $content);
             } catch (\Throwable) {
                 // If .env or .env.docker is read-only for the webserver in Docker,
-                // the system_settings DB table handles credential persistence.
+                // the sys_system_settings DB table handles credential persistence.
             }
         }
     }
@@ -293,31 +293,31 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - System Settings')] class
             return;
         }
 
-        $setting = \DB::table('system_settings')->where('key', 'page_prewarming_enabled')->value('value');
+        $setting = \DB::table('sys_system_settings')->where('key', 'page_prewarming_enabled')->value('value');
         $this->pagePrewarmingEnabled = ($setting === 'true');
 
-        $ext = \DB::table('system_settings')->where('key', 'dts_email_access_required_external')->value('value');
+        $ext = \DB::table('sys_system_settings')->where('key', 'dts_email_access_required_external')->value('value');
         $this->emailAccessRequiredExternal = ($ext !== 'false');
 
-        $app = \DB::table('system_settings')->where('key', 'dts_email_access_required_application')->value('value');
+        $app = \DB::table('sys_system_settings')->where('key', 'dts_email_access_required_application')->value('value');
         $this->emailAccessRequiredApplication = ($app !== 'false');
 
-        $int = \DB::table('system_settings')->where('key', 'dts_email_access_required_internal')->value('value');
+        $int = \DB::table('sys_system_settings')->where('key', 'dts_email_access_required_internal')->value('value');
         $this->emailAccessRequiredInternal = ($int === 'true');
 
-        $manual = \DB::table('system_settings')->where('key', 'dts_allow_manual_completion_button')->value('value');
+        $manual = \DB::table('sys_system_settings')->where('key', 'dts_allow_manual_completion_button')->value('value');
         $this->allowManualCompletionButton = ($manual === 'true');
 
-        $autoFwd = \DB::table('system_settings')->where('key', 'dts_auto_forward_created_transaction')->value('value');
+        $autoFwd = \DB::table('sys_system_settings')->where('key', 'dts_auto_forward_created_transaction')->value('value');
         $this->autoForwardCreatedTransaction = ($autoFwd !== 'false');
 
-        $rdpReq = \DB::table('system_settings')->where('key', 'rdp_required_upload_file')->value('value');
+        $rdpReq = \DB::table('sys_system_settings')->where('key', 'rdp_required_upload_file')->value('value');
         $this->rdpRequiredUploadFile = ($rdpReq === 'true');
 
-        $dtsReq = \DB::table('system_settings')->where('key', 'dts_required_upload_file')->value('value');
+        $dtsReq = \DB::table('sys_system_settings')->where('key', 'dts_required_upload_file')->value('value');
         $this->dtsRequiredUploadFile = ($dtsReq === 'true');
 
-        $timeoutVal = \DB::table('system_settings')->where('key', 'tab_close_idle_timeout_minutes')->value('value');
+        $timeoutVal = \DB::table('sys_system_settings')->where('key', 'tab_close_idle_timeout_minutes')->value('value');
         $this->tabCloseIdleTimeoutMinutes = ($timeoutVal !== null && is_numeric($timeoutVal)) ? (int) $timeoutVal : 15;
     }
 
@@ -338,7 +338,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - System Settings')] class
                 $this->driveStatus = 'connected';
                 $this->driveTestResult = '✅ Google Drive Connection Healthy! Successfully wrote, verified, and cleaned up test file on Google Cloud Storage.';
                 
-                \DB::table('admin_logs')->insert([
+                \DB::table('sys_admin_logs')->insert([
                     'changes' => 'Executed Google Drive Cloud Storage Health Check (Status: HEALTHY)',
                     'admin_id' => auth()->id(),
                     'what_system' => 3,
@@ -359,16 +359,16 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - System Settings')] class
     public function refreshDriveMetrics(): void
     {
         try {
-            $offices = \DB::table('folder_data')->get();
-            $hasDcsColumns = \Illuminate\Support\Facades\Schema::hasColumn('folder_data', 'is_dcs_available');
+            $offices = \DB::table('sys_folder_data')->get();
+            $hasDcsColumns = \Illuminate\Support\Facades\Schema::hasColumn('sys_folder_data', 'is_dcs_available');
 
             foreach ($offices as $office) {
-                $dtsSize = \DB::table('document_data')
+                $dtsSize = \DB::table('sys_document_data')
                     ->where('user_office', $office->office_name)
                     ->where('document_path', 'like', '%dts%')
                     ->sum(\DB::raw('COALESCE(CAST(NULLIF(file_size, \'\') AS BIGINT), 0)'));
 
-                $rdpSize = \DB::table('document_data')
+                $rdpSize = \DB::table('sys_document_data')
                     ->where('user_office', $office->office_name)
                     ->where('document_path', 'like', '%rdp%')
                     ->sum(\DB::raw('COALESCE(CAST(NULLIF(file_size, \'\') AS BIGINT), 0)'));
@@ -389,7 +389,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - System Settings')] class
                     $update['current_dcs_size'] = $dcsSize;
                 }
 
-                \DB::table('folder_data')->where('id', $office->id)->update($update);
+                \DB::table('sys_folder_data')->where('id', $office->id)->update($update);
             }
 
             $this->successMessage = 'Google Drive storage metrics successfully recalculated and synchronized!';
@@ -414,7 +414,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - System Settings')] class
         $this->preloadProgress = 0;
         $this->preloadCurrentIndex = 0;
 
-        $offices = \DB::table('office')
+        $offices = \DB::table('sys_office')
             ->where('is_active', true)
             ->whereNotIn('office_code', ['ORIGIN', '[H]'])
             ->pluck('office_code')
@@ -450,7 +450,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - System Settings')] class
             $this->preloadLogs[] = "- All office folder structures successfully preloaded and verified (100%)!";
             $this->successMessage = "Successfully preloaded office folder structures on Google Drive & database for {$total} offices! Uploads will now be instant.";
             
-            \DB::table('admin_logs')->insert([
+            \DB::table('sys_admin_logs')->insert([
                 'changes' => "Preloaded Google Drive office folders & database records for {$total} offices.",
                 'admin_id' => auth()->id(),
                 'what_system' => 3,
@@ -492,9 +492,9 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - System Settings')] class
         }
 
         // 3. Database record update (using updateOrInsert to prevent duplicate key errors!)
-        $existing = \DB::table('folder_data')->where('office_name', $officeName)->first();
+        $existing = \DB::table('sys_folder_data')->where('office_name', $officeName)->first();
         if (!$existing) {
-            \DB::table('folder_data')->insert([
+            \DB::table('sys_folder_data')->insert([
                 'office_name'       => $officeName,
                 'total_folder_size' => 0,
                 'is_dts_available'  => true,
@@ -506,18 +506,18 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - System Settings')] class
                 'updated_at'        => now(),
             ]);
         } else {
-            \DB::table('folder_data')->where('office_name', $officeName)->update([
+            \DB::table('sys_folder_data')->where('office_name', $officeName)->update([
                 'is_dts_available' => true,
                 'is_rdp_available' => true,
                 'updated_at'        => now(),
             ]);
         }
 
-        // 4. DCS folder_data flags (additive; does not alter DTS/RDP insert/update above)
-        if (\Illuminate\Support\Facades\Schema::hasColumn('folder_data', 'is_dcs_available')) {
-            $dcsRecord = \DB::table('folder_data')->where('office_name', $officeName)->first();
+        // 4. DCS sys_folder_data flags (additive; does not alter DTS/RDP insert/update above)
+        if (\Illuminate\Support\Facades\Schema::hasColumn('sys_folder_data', 'is_dcs_available')) {
+            $dcsRecord = \DB::table('sys_folder_data')->where('office_name', $officeName)->first();
             if ($dcsRecord && !($dcsRecord->is_dcs_available ?? false)) {
-                \DB::table('folder_data')->where('office_name', $officeName)->update([
+                \DB::table('sys_folder_data')->where('office_name', $officeName)->update([
                     'is_dcs_available' => true,
                     'updated_at'       => now(),
                 ]);
@@ -550,7 +550,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - System Settings')] class
 
         try {
             \DB::transaction(function () {
-                \DB::table('system_settings')->updateOrInsert(
+                \DB::table('sys_system_settings')->updateOrInsert(
                     ['key' => 'page_prewarming_enabled'],
                     [
                         'value' => $this->pagePrewarmingEnabled ? 'true' : 'false',
@@ -558,7 +558,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - System Settings')] class
                     ]
                 );
 
-                \DB::table('system_settings')->updateOrInsert(
+                \DB::table('sys_system_settings')->updateOrInsert(
                     ['key' => 'allow_manual_login'],
                     [
                         'value' => 'false',
@@ -566,7 +566,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - System Settings')] class
                     ]
                 );
 
-                \DB::table('system_settings')->updateOrInsert(
+                \DB::table('sys_system_settings')->updateOrInsert(
                     ['key' => 'allow_google_login'],
                     [
                         'value' => 'true',
@@ -574,7 +574,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - System Settings')] class
                     ]
                 );
 
-                \DB::table('system_settings')->updateOrInsert(
+                \DB::table('sys_system_settings')->updateOrInsert(
                     ['key' => 'dts_email_access_required_external'],
                     [
                         'value' => $this->emailAccessRequiredExternal ? 'true' : 'false',
@@ -582,7 +582,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - System Settings')] class
                     ]
                 );
 
-                \DB::table('system_settings')->updateOrInsert(
+                \DB::table('sys_system_settings')->updateOrInsert(
                     ['key' => 'dts_email_access_required_application'],
                     [
                         'value' => $this->emailAccessRequiredApplication ? 'true' : 'false',
@@ -590,7 +590,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - System Settings')] class
                     ]
                 );
 
-                \DB::table('system_settings')->updateOrInsert(
+                \DB::table('sys_system_settings')->updateOrInsert(
                     ['key' => 'dts_email_access_required_internal'],
                     [
                         'value' => $this->emailAccessRequiredInternal ? 'true' : 'false',
@@ -598,7 +598,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - System Settings')] class
                     ]
                 );
 
-                \DB::table('system_settings')->updateOrInsert(
+                \DB::table('sys_system_settings')->updateOrInsert(
                     ['key' => 'dts_allow_manual_completion_button'],
                     [
                         'value' => $this->allowManualCompletionButton ? 'true' : 'false',
@@ -606,7 +606,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - System Settings')] class
                     ]
                 );
 
-                \DB::table('system_settings')->updateOrInsert(
+                \DB::table('sys_system_settings')->updateOrInsert(
                     ['key' => 'dts_auto_forward_created_transaction'],
                     [
                         'value' => $this->autoForwardCreatedTransaction ? 'true' : 'false',
@@ -614,7 +614,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - System Settings')] class
                     ]
                 );
 
-                \DB::table('system_settings')->updateOrInsert(
+                \DB::table('sys_system_settings')->updateOrInsert(
                     ['key' => 'rdp_required_upload_file'],
                     [
                         'value' => $this->rdpRequiredUploadFile ? 'true' : 'false',
@@ -622,7 +622,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - System Settings')] class
                     ]
                 );
 
-                \DB::table('system_settings')->updateOrInsert(
+                \DB::table('sys_system_settings')->updateOrInsert(
                     ['key' => 'dts_required_upload_file'],
                     [
                         'value' => $this->dtsRequiredUploadFile ? 'true' : 'false',
@@ -630,7 +630,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - System Settings')] class
                     ]
                 );
 
-                \DB::table('system_settings')->updateOrInsert(
+                \DB::table('sys_system_settings')->updateOrInsert(
                     ['key' => 'tab_close_idle_timeout_minutes'],
                     [
                         'value' => (string) max(1, (int) $this->tabCloseIdleTimeoutMinutes),
@@ -648,7 +648,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - System Settings')] class
                              ", DTSReq: " . ($this->dtsRequiredUploadFile ? 'true' : 'false') .
                              ", InactivityTimeout: " . $this->tabCloseIdleTimeoutMinutes . " mins";
 
-                \DB::table('admin_logs')->insert([
+                \DB::table('sys_admin_logs')->insert([
                     'changes' => \Illuminate\Support\Str::limit($logText, 250),
                     'admin_id' => auth()->id(),
                     'what_system' => 3, // Admin Console
@@ -668,7 +668,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - System Settings')] class
         $this->successMessage = 'Broadcasted synchronized 5-second auto-refresh signal to all active browser tabs!';
         $this->dispatch('rms-settings-changed', type: 'site_settings', message: 'Administrator initiated a synchronized tab refresh.');
 
-        \DB::table('admin_logs')->insert([
+        \DB::table('sys_admin_logs')->insert([
             'changes' => 'Triggered system-wide cross-tab synchronized refresh across active sessions.',
             'admin_id' => auth()->id(),
             'what_system' => 3,
@@ -722,12 +722,11 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - System Settings')] class
             }
         } else {
             $tables = [
-                'system_settings', 'users', 'account_details', 'condition_key', 'condition_details',
-                'office', 'folder_data', 'subsystems', 'document_data', 'dts_transaction_flow',
-                'dts_action_options', 'dts_transaction_details', 'dts_flow_logs', 'rdp_documents',
-                'rdp_references', 'rdp_inventory_and_appraisal', 'rdp_records_disposition_schedule',
-                'admin_logs', 'security_logs', 'file_upload_logs', 'notifications', 'chat_messages',
-                'chat_conversations', 'personal_settings'
+                'sys_system_settings', 'sys_account', 'sys_account_details', 'sys_condition_key', 'sys_condition_details',
+                'sys_office', 'sys_cluster', 'sys_folder_data', 'sys_subsystems', 'sys_document_data', 'dts_transaction_flow',
+                'dts_action_options', 'dts_transaction_details', 'dts_transaction_logs', 'rdp_record',
+                'rdp_record_series', 'sys_admin_logs', 'sys_security_logs', 'sys_notifications', 'chat_messages',
+                'chat_conversations', 'sys_personal_settings'
             ];
         }
 
@@ -1187,9 +1186,9 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - System Settings')] class
                     </div>
 
                     @php
-                        $currentSsoId = \DB::table('system_settings')->where('key', 'google_sso_client_id')->value('value') ?: config('services.google.client_id') ?: env('GOOGLE_CLIENT_ID', '');
-                        $currentRedirect = \DB::table('system_settings')->where('key', 'google_sso_redirect_uri')->value('value') ?: env('GOOGLE_REDIRECT_URI', 'dynamic');
-                        $fromDb = \DB::table('system_settings')->where('key', 'google_sso_client_id')->value('value');
+                        $currentSsoId = \DB::table(\Illuminate\Support\Facades\Schema::hasTable('sys_system_settings') ? 'sys_system_settings' : 'system_settings')->where('key', 'google_sso_client_id')->value('value') ?: config('services.google.client_id') ?: env('GOOGLE_CLIENT_ID', '');
+                        $currentRedirect = \DB::table(\Illuminate\Support\Facades\Schema::hasTable('sys_system_settings') ? 'sys_system_settings' : 'system_settings')->where('key', 'google_sso_redirect_uri')->value('value') ?: env('GOOGLE_REDIRECT_URI', 'dynamic');
+                        $fromDb = \DB::table(\Illuminate\Support\Facades\Schema::hasTable('sys_system_settings') ? 'sys_system_settings' : 'system_settings')->where('key', 'google_sso_client_id')->value('value');
                     @endphp
 
                     <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px; font-size: 11px;">
@@ -1223,8 +1222,8 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - System Settings')] class
                     </div>
 
                     @php
-                        $customTrackId = \DB::table('system_settings')->where('key', 'google_tracking_sso_client_id')->value('value') ?: config('services.google_tracking.client_id') ?: env('GOOGLE_TRACKING_CLIENT_ID', '');
-                        $trackRedirect = \DB::table('system_settings')->where('key', 'google_tracking_sso_redirect_uri')->value('value') ?: env('GOOGLE_TRACKING_REDIRECT_URI', 'dynamic');
+                        $customTrackId = \DB::table(\Illuminate\Support\Facades\Schema::hasTable('sys_system_settings') ? 'sys_system_settings' : 'system_settings')->where('key', 'google_tracking_sso_client_id')->value('value') ?: config('services.google_tracking.client_id') ?: env('GOOGLE_TRACKING_CLIENT_ID', '');
+                        $trackRedirect = \DB::table(\Illuminate\Support\Facades\Schema::hasTable('sys_system_settings') ? 'sys_system_settings' : 'system_settings')->where('key', 'google_tracking_sso_redirect_uri')->value('value') ?: env('GOOGLE_TRACKING_REDIRECT_URI', 'dynamic');
                     @endphp
 
                     <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px; font-size: 11px;">

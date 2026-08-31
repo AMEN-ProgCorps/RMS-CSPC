@@ -13,25 +13,38 @@ class BackupService
      * Map defining dependency order for table deletion and insertion.
      * Lower number = parent / independent table (inserted first, deleted last).
      * Higher number = child / dependent table (inserted last, deleted first).
+     * Supports both new prefixed names and legacy un-prefixed names with identical priorities.
      */
     public static function getTablePriorityMap(): array
     {
         return [
             // Tier 1: Lookups & Root Parent Tables
+            'sys_subsystems' => 1,
             'subsystems' => 1,
+            'sys_subsystem_versions_log' => 2,
             'subsystem_versions_log' => 2,
+            'sys_condition_details' => 3,
             'condition_details' => 3,
+            'sys_condition_key' => 4,
             'condition_key' => 4,
+            'sys_condition_defaults' => 5,
             'condition_defaults' => 5,
+            'sys_system_settings' => 6,
             'system_settings' => 6,
+            'sys_personal_settings' => 7,
             'personal_settings' => 7,
+            'sys_cluster' => 8,
             'cluster' => 8,
+            'sys_office' => 9,
             'office' => 9,
-            'cluster_head' => 10,
+            'sys_security_status' => 11,
             'security_status' => 11,
+            'dts_transaction_log_types' => 12,
             'sub_document_tracking_system_logs_types' => 12,
+            'sys_document_data' => 13,
             'document_data' => 13,
             'dts_qr_code' => 14,
+            'sys_notif_content' => 15,
             'notif_content' => 15,
 
             // RDP Reference Tables
@@ -46,7 +59,9 @@ class BackupService
             'rdp_pending_status' => 24,
             'rdp_record_series' => 25,
             'rdp_record_series_brackets' => 26,
+            'sys_folder_data' => 27,
             'folder_data' => 27,
+            'rdp_main_pending_id' => 28,
             'main_pending_id' => 28,
 
             // DCS Catalog Lookups
@@ -65,15 +80,20 @@ class BackupService
             'dcs_approval_body' => 41,
 
             // Tier 2: Accounts & User Relations
+            'sys_account' => 45,
             'account' => 45,
+            'sys_account_details' => 46,
             'account_details' => 46,
+            'sys_tracking_devices_log' => 47,
             'tracking_devices_log' => 47,
+            'sys_security_logs' => 48,
             'security_logs' => 48,
             'dts_source_office' => 49,
 
             // Tier 3: Workflow, Hub & Routing
             'dts_transaction_flow' => 50,
             'dts_sequence_list' => 51,
+            'dts_hub_flow_datas' => 52,
             'hub_flow_datas' => 52,
             'dts_action_options' => 53,
             'dts_email_access' => 54,
@@ -86,6 +106,7 @@ class BackupService
             'dts_copy_filled_to_office' => 64,
             'dts_transaction_version' => 65,
             'dts_requestor_history' => 66,
+            'dts_transaction_logs' => 67,
             'sub_document_tracking_system_logs' => 67,
 
             // Tier 5: RDP Document Packages
@@ -134,10 +155,90 @@ class BackupService
             'chat_notifications' => 115,
             'chatify_legal_agreements' => 116,
             'chatify_audit_logs' => 117,
+            'sys_notifications' => 120,
             'notifications' => 120,
+            'sys_notification_div' => 121,
             'notification_div' => 121,
+            'sys_admin_logs' => 122,
             'admin_logs' => 122,
         ];
+    }
+
+    /**
+     * Bi-directional table alias mappings between legacy and uniform domain names.
+     */
+    public static function getTableAliases(): array
+    {
+        return [
+            // Legacy -> Uniform
+            'account' => 'sys_account',
+            'account_details' => 'sys_account_details',
+            'admin_logs' => 'sys_admin_logs',
+            'cluster' => 'sys_cluster',
+            'condition_defaults' => 'sys_condition_defaults',
+            'condition_details' => 'sys_condition_details',
+            'condition_key' => 'sys_condition_key',
+            'document_data' => 'sys_document_data',
+            'folder_data' => 'sys_folder_data',
+            'notif_content' => 'sys_notif_content',
+            'notification_div' => 'sys_notification_div',
+            'notifications' => 'sys_notifications',
+            'office' => 'sys_office',
+            'personal_settings' => 'sys_personal_settings',
+            'security_logs' => 'sys_security_logs',
+            'security_status' => 'sys_security_status',
+            'subsystems' => 'sys_subsystems',
+            'subsystem_versions_log' => 'sys_subsystem_versions_log',
+            'system_settings' => 'sys_system_settings',
+            'tracking_devices_log' => 'sys_tracking_devices_log',
+            'hub_flow_datas' => 'dts_hub_flow_datas',
+            'sub_document_tracking_system_logs' => 'dts_transaction_logs',
+            'sub_document_tracking_system_logs_types' => 'dts_transaction_log_types',
+            'main_pending_id' => 'rdp_main_pending_id',
+
+            // Uniform -> Legacy (for reverse compatibility)
+            'sys_account' => 'account',
+            'sys_account_details' => 'account_details',
+            'sys_admin_logs' => 'admin_logs',
+            'sys_cluster' => 'cluster',
+            'sys_condition_defaults' => 'condition_defaults',
+            'sys_condition_details' => 'condition_details',
+            'sys_condition_key' => 'condition_key',
+            'sys_document_data' => 'document_data',
+            'sys_folder_data' => 'folder_data',
+            'sys_notif_content' => 'notif_content',
+            'sys_notification_div' => 'notification_div',
+            'sys_notifications' => 'notifications',
+            'sys_office' => 'office',
+            'sys_personal_settings' => 'personal_settings',
+            'sys_security_logs' => 'security_logs',
+            'sys_security_status' => 'security_status',
+            'sys_subsystems' => 'subsystems',
+            'sys_subsystem_versions_log' => 'subsystem_versions_log',
+            'sys_system_settings' => 'system_settings',
+            'sys_tracking_devices_log' => 'tracking_devices_log',
+            'dts_hub_flow_datas' => 'hub_flow_datas',
+            'dts_transaction_logs' => 'sub_document_tracking_system_logs',
+            'dts_transaction_log_types' => 'sub_document_tracking_system_logs_types',
+            'rdp_main_pending_id' => 'main_pending_id',
+        ];
+    }
+
+    /**
+     * Resolves the actual existing database table name for any given table name or alias.
+     */
+    public static function resolveTargetTableName(string $tableName): ?string
+    {
+        if (Schema::hasTable($tableName)) {
+            return $tableName;
+        }
+
+        $aliases = self::getTableAliases();
+        if (isset($aliases[$tableName]) && Schema::hasTable($aliases[$tableName])) {
+            return $aliases[$tableName];
+        }
+
+        return null;
     }
 
     /**
@@ -229,32 +330,33 @@ class BackupService
 
             $logCallback("Suspended foreign key checks ({$driver}). Clearing existing records in reverse dependency order...", 5);
 
-            // 2. Clear existing records in child-first order
-            foreach ($deletionOrder as $tbl) {
-                if (in_array($tbl, ['migrations', 'sessions', 'cache', 'cache_locks', 'jobs', 'failed_jobs'])) {
-                    continue;
-                }
-                if (Schema::hasTable($tbl)) {
+            // 2. Clear existing records in child-first order (resolving actual database table name)
+            $clearedTables = [];
+            foreach ($deletionOrder as $rawTbl) {
+                $targetTbl = self::resolveTargetTableName($rawTbl);
+                if ($targetTbl && !in_array($targetTbl, $clearedTables) && !in_array($targetTbl, ['migrations', 'sessions', 'cache', 'cache_locks', 'jobs', 'failed_jobs'])) {
+                    $clearedTables[] = $targetTbl;
                     try {
-                        DB::table($tbl)->delete();
+                        DB::table($targetTbl)->delete();
                     } catch (\Throwable $e) {
-                        Log::warning("Could not delete from table {$tbl}: " . $e->getMessage());
+                        Log::warning("Could not delete from table {$targetTbl}: " . $e->getMessage());
                     }
                 }
             }
 
             $logCallback("Database cleared. Restoring tables in forward dependency order...", 15);
 
-            // 3. Insert records table by table
+            // 3. Insert records table by table (resolving actual database table name)
             $restoredCount = 0;
             $tableIndex = 0;
 
-            foreach ($tablesData as $tableName => $rows) {
+            foreach ($tablesData as $rawTableName => $rows) {
+                $tableName = self::resolveTargetTableName($rawTableName);
                 $tableIndex++;
                 $pct = (int) round(15 + (($tableIndex / max(1, $totalTables)) * 70));
 
-                if (!Schema::hasTable($tableName) || in_array($tableName, ['migrations', 'sessions', 'cache', 'cache_locks', 'jobs', 'failed_jobs'])) {
-                    $logCallback("Skipped table [{$tableName}] (not in database schema)", $pct);
+                if (!$tableName || in_array($tableName, ['migrations', 'sessions', 'cache', 'cache_locks', 'jobs', 'failed_jobs'])) {
+                    $logCallback("Skipped table [{$rawTableName}] (not in database schema)", $pct);
                     continue;
                 }
 
@@ -283,7 +385,7 @@ class BackupService
 
             // 4. Ensure Essential Lookups & Seeds Exist
             $this->ensureEssentialLookups();
-            $logCallback("Ensured essential lookups (security_status, condition_key, subsystems)...", 88);
+            $logCallback("Ensured essential lookups (sys_security_status, sys_condition_key, sys_subsystems)...", 88);
 
             // 5. PostgreSQL Sequences Resynchronization
             if ($driver === 'pgsql') {
@@ -366,7 +468,8 @@ class BackupService
     public function ensureEssentialLookups(): void
     {
         // 1. Security Status Lookup Table
-        if (Schema::hasTable('security_status')) {
+        $secStatusTbl = Schema::hasTable('sys_security_status') ? 'sys_security_status' : (Schema::hasTable('security_status') ? 'security_status' : null);
+        if ($secStatusTbl) {
             $statuses = [
                 ['status_id' => 1, 'status_name' => 'Login Successful', 'description' => 'User successfully logged into the system.'],
                 ['status_id' => 2, 'status_name' => 'Login Failed', 'description' => 'User failed to log into the system.'],
@@ -378,20 +481,24 @@ class BackupService
             ];
 
             foreach ($statuses as $st) {
-                $exists = DB::table('security_status')->where('status_id', $st['status_id'])->exists();
+                $exists = DB::table($secStatusTbl)->where('status_id', $st['status_id'])->exists();
                 if (!$exists) {
                     try {
-                        DB::table('security_status')->insert(array_merge($st, ['time' => now()]));
+                        DB::table($secStatusTbl)->insert(array_merge($st, ['time' => now()]));
                     } catch (\Throwable) {}
                 }
             }
         }
 
         // 2. Condition Details & Condition Keys (Roles)
-        if (Schema::hasTable('condition_details') && Schema::hasTable('condition_key')) {
-            if (DB::table('condition_details')->count() === 0) {
+        $condDetailsTbl = Schema::hasTable('sys_condition_details') ? 'sys_condition_details' : (Schema::hasTable('condition_details') ? 'condition_details' : null);
+        $condKeyTbl = Schema::hasTable('sys_condition_key') ? 'sys_condition_key' : (Schema::hasTable('condition_key') ? 'condition_key' : null);
+        $accountTbl = Schema::hasTable('sys_account') ? 'sys_account' : (Schema::hasTable('account') ? 'account' : null);
+
+        if ($condDetailsTbl && $condKeyTbl) {
+            if (DB::table($condDetailsTbl)->count() === 0) {
                 try {
-                    DB::table('condition_details')->insert([
+                    DB::table($condDetailsTbl)->insert([
                         'key_id' => 1,
                         'name' => 'Default Clearance Scope',
                         'date_created' => now(),
@@ -400,17 +507,17 @@ class BackupService
                 } catch (\Throwable) {}
             }
 
-            if (Schema::hasTable('account')) {
-                $missingRoles = DB::table('account')
+            if ($accountTbl) {
+                $missingRoles = DB::table($accountTbl)
                     ->whereNotNull('account_role')
-                    ->whereNotIn('account_role', DB::table('condition_key')->pluck('id'))
+                    ->whereNotIn('account_role', DB::table($condKeyTbl)->pluck('id'))
                     ->pluck('account_role')
                     ->unique();
 
-                $firstModifierKey = DB::table('condition_details')->value('key_id') ?: 1;
+                $firstModifierKey = DB::table($condDetailsTbl)->value('key_id') ?: 1;
                 foreach ($missingRoles as $roleId) {
                     try {
-                        DB::table('condition_key')->insert([
+                        DB::table($condKeyTbl)->insert([
                             'id' => $roleId,
                             'key_name' => "Role #{$roleId}",
                             'modifier_key' => $firstModifierKey,
@@ -423,7 +530,8 @@ class BackupService
         }
 
         // 3. Subsystems Lookup Table
-        if (Schema::hasTable('subsystems')) {
+        $subsystemsTbl = Schema::hasTable('sys_subsystems') ? 'sys_subsystems' : (Schema::hasTable('subsystems') ? 'subsystems' : null);
+        if ($subsystemsTbl) {
             $defaultSubsystems = [
                 ['subsystem_id' => 1, 'name' => 'Document Tracking System', 'code' => 'DTS', 'active' => 1],
                 ['subsystem_id' => 2, 'name' => 'Records Disposition Package', 'code' => 'RDP', 'active' => 1],
@@ -433,12 +541,12 @@ class BackupService
             ];
 
             foreach ($defaultSubsystems as $sub) {
-                $dbCols = Schema::getColumnListing('subsystems');
+                $dbCols = Schema::getColumnListing($subsystemsTbl);
                 $filtered = array_intersect_key($sub, array_flip($dbCols));
                 $idCol = in_array('subsystem_id', $dbCols) ? 'subsystem_id' : 'id';
-                if (isset($sub[$idCol]) && !DB::table('subsystems')->where($idCol, $sub[$idCol])->exists()) {
+                if (isset($sub[$idCol]) && !DB::table($subsystemsTbl)->where($idCol, $sub[$idCol])->exists()) {
                     try {
-                        DB::table('subsystems')->insert($filtered);
+                        DB::table($subsystemsTbl)->insert($filtered);
                     } catch (\Throwable) {}
                 }
             }

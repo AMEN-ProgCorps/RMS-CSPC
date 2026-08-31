@@ -173,7 +173,7 @@ class ReportTemplateHelper
         }
 
         if ($offices === []) {
-            $offices = DB::table('office')
+            $offices = DB::table(\Illuminate\Support\Facades\Schema::hasTable('sys_office') ? 'sys_office' : 'office')
                 ->where('is_active', true)
                 ->orderBy('office_name')
                 ->pluck('office_name')

@@ -59,10 +59,15 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Account Changes')] class
      */
     public function with(): array
     {
-        $query = \DB::table('admin_logs')
-            ->leftJoin('account', 'admin_logs.admin_id', '=', 'account.id')
-            ->leftJoin('account_details', 'account.id', '=', 'account_details.account_id')
-            ->leftJoin('subsystems', 'admin_logs.what_system', '=', 'subsystems.subsystem_id')
+        $adminLogsTable = \Illuminate\Support\Facades\Schema::hasTable('sys_admin_logs') ? 'sys_admin_logs' : 'admin_logs';
+        $accountTable = \Illuminate\Support\Facades\Schema::hasTable('sys_account') ? 'sys_account' : 'account';
+        $accountDetailsTable = \Illuminate\Support\Facades\Schema::hasTable('sys_account_details') ? 'sys_account_details' : 'account_details';
+        $subsystemsTable = \Illuminate\Support\Facades\Schema::hasTable('sys_subsystems') ? 'sys_subsystems' : 'subsystems';
+
+        $query = \DB::table($adminLogsTable . ' as admin_logs')
+            ->leftJoin($accountTable . ' as account', 'admin_logs.admin_id', '=', 'account.id')
+            ->leftJoin($accountDetailsTable . ' as account_details', 'account.id', '=', 'account_details.account_id')
+            ->leftJoin($subsystemsTable . ' as subsystems', 'admin_logs.what_system', '=', 'subsystems.subsystem_id')
             ->select([
                 'admin_logs.id',
                 'admin_logs.changes',
@@ -94,7 +99,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Account Changes')] class
         $logs = $query->orderBy('admin_logs.when_changes', 'desc')->paginate(15);
 
         // Fetch subsystems list for filter dropdown
-        $subsystems = \DB::table('subsystems')->orderBy('subsystem_name')->get();
+        $subsystems = \DB::table(\Illuminate\Support\Facades\Schema::hasTable('sys_subsystems') ? 'sys_subsystems' : 'subsystems')->orderBy('subsystem_name')->get();
 
         return [
             'logs' => $logs,

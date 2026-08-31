@@ -17,7 +17,7 @@ class office extends Model
     use HasFactory, Notifiable;
 
     /** @var string Explicitly maps to the custom 'office' table */
-    protected $table = 'office';
+    protected $table = 'sys_office';
 
     /** @var string Primary key override - matches increments('id') in migration */
     protected $primaryKey = 'id';

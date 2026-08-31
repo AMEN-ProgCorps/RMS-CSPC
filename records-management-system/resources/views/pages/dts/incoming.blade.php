@@ -82,7 +82,7 @@ new #[Layout('layouts.dts')] #[Title('Incoming Transactions - Document Tracking 
         }
 
         $isFreeFlow = ($trans->transaction_flow === 'FLOW-FREE-FLOW' || str_starts_with($trans->transaction_flow, 'FLOW-FREE-FLOW'));
-        $hasOfficeLog = DB::table('sub_document_tracking_system_logs')
+        $hasOfficeLog = DB::table(\Illuminate\Support\Facades\Schema::hasTable('dts_transaction_logs') ? 'dts_transaction_logs' : 'sub_document_tracking_system_logs')
             ->where('transaction_id', $trans->transaction_id)
             ->where('office_code', $userOfficeCode)
             ->exists();
@@ -94,14 +94,14 @@ new #[Layout('layouts.dts')] #[Title('Incoming Transactions - Document Tracking 
 
         try {
             DB::transaction(function () use ($trans, $userOfficeCode) {
-                $currentLog = DB::table('sub_document_tracking_system_logs')
+                $currentLog = DB::table(\Illuminate\Support\Facades\Schema::hasTable('dts_transaction_logs') ? 'dts_transaction_logs' : 'sub_document_tracking_system_logs')
                     ->where('transaction_id', $trans->transaction_id)
                     ->where('office_code', $userOfficeCode)
                     ->orderBy('id', 'desc')
                     ->first();
 
                 if ($currentLog) {
-                    DB::table('sub_document_tracking_system_logs')
+                    DB::table(\Illuminate\Support\Facades\Schema::hasTable('dts_transaction_logs') ? 'dts_transaction_logs' : 'sub_document_tracking_system_logs')
                         ->where('id', $currentLog->id)
                         ->update([
                             'type' => 'received',
@@ -109,7 +109,7 @@ new #[Layout('layouts.dts')] #[Title('Incoming Transactions - Document Tracking 
                             'performed_by' => auth()->id(),
                         ]);
                 } else {
-                    DB::table('sub_document_tracking_system_logs')->insert([
+                    DB::table(\Illuminate\Support\Facades\Schema::hasTable('dts_transaction_logs') ? 'dts_transaction_logs' : 'sub_document_tracking_system_logs')->insert([
                         'transaction_id' => $trans->transaction_id,
                         'office_code' => $userOfficeCode,
                         'type' => 'received',
@@ -160,10 +160,10 @@ new #[Layout('layouts.dts')] #[Title('Incoming Transactions - Document Tracking 
         $t = DB::table('dts_transactions as dt')
             ->join('dts_transaction_details as dtd', 'dtd.id', '=', 'dt.transaction_id')
             ->leftJoin('dts_requestor_history as req', 'req.id', '=', 'dtd.requestor_id')
-            ->leftJoin('office as originated_office', 'originated_office.office_code', '=', 'dtd.originated_from')
-            ->leftJoin('office as current_office', 'current_office.office_code', '=', 'dt.current_office')
+            ->leftJoin((\Illuminate\Support\Facades\Schema::hasTable('sys_office') ? 'sys_office' : 'office') . ' as originated_office', 'originated_office.office_code', '=', 'dtd.originated_from')
+            ->leftJoin((\Illuminate\Support\Facades\Schema::hasTable('sys_office') ? 'sys_office' : 'office') . ' as current_office', 'current_office.office_code', '=', 'dt.current_office')
             ->leftJoin('dts_transaction_flow as flow', 'flow.flow_code', '=', 'dtd.transaction_flow')
-            ->leftJoin('document_data as doc', 'doc.document_path', '=', 'dt.doc_dir')
+            ->leftJoin((\Illuminate\Support\Facades\Schema::hasTable('sys_document_data') ? 'sys_document_data' : 'document_data') . ' as doc', 'doc.document_path', '=', 'dt.doc_dir')
             ->where('dt.transaction_id', $transactionId)
             ->select(
                 'dt.transaction_id',
@@ -207,17 +207,17 @@ new #[Layout('layouts.dts')] #[Title('Incoming Transactions - Document Tracking 
         $query = DB::table('dts_transactions as dt')
             ->join('dts_transaction_details as dtd', 'dtd.id', '=', 'dt.transaction_id')
             ->leftJoin('dts_requestor_history as req', 'req.id', '=', 'dtd.requestor_id')
-            ->leftJoin('office as originated_office', 'originated_office.office_code', '=', 'dtd.originated_from')
-            ->leftJoin('office as current_office', 'current_office.office_code', '=', 'dt.current_office')
+            ->leftJoin((\Illuminate\Support\Facades\Schema::hasTable('sys_office') ? 'sys_office' : 'office') . ' as originated_office', 'originated_office.office_code', '=', 'dtd.originated_from')
+            ->leftJoin((\Illuminate\Support\Facades\Schema::hasTable('sys_office') ? 'sys_office' : 'office') . ' as current_office', 'current_office.office_code', '=', 'dt.current_office')
             ->leftJoin('dts_transaction_flow as flow', 'flow.flow_code', '=', 'dtd.transaction_flow')
-            ->leftJoin('document_data as doc', 'doc.document_path', '=', 'dt.doc_dir')
+            ->leftJoin((\Illuminate\Support\Facades\Schema::hasTable('sys_document_data') ? 'sys_document_data' : 'document_data') . ' as doc', 'doc.document_path', '=', 'dt.doc_dir')
             ->where('dtd.is_active', 1)
             ->whereNotIn('dt.status', ['completed', 'cancelled'])
             ->where(function($q) use ($userOfficeCode) {
                 $q->where('dt.current_office', $userOfficeCode)
                   ->orWhereExists(function($sub) use ($userOfficeCode) {
                       $sub->select(DB::raw(1))
-                          ->from('sub_document_tracking_system_logs')
+                          ->from(\Illuminate\Support\Facades\Schema::hasTable('dts_transaction_logs') ? 'dts_transaction_logs' : 'sub_document_tracking_system_logs')
                           ->whereColumn('sub_document_tracking_system_logs.transaction_id', 'dt.transaction_id')
                           ->where('sub_document_tracking_system_logs.office_code', $userOfficeCode)
                           ->whereNull('sub_document_tracking_system_logs.date_in');
@@ -260,7 +260,7 @@ new #[Layout('layouts.dts')] #[Title('Incoming Transactions - Document Tracking 
 
         // Filter out transactions that have ALREADY been received at user office
         $incomingOnly = $items->filter(function($t) use ($userOfficeCode) {
-            $currentLog = DB::table('sub_document_tracking_system_logs')
+            $currentLog = DB::table(\Illuminate\Support\Facades\Schema::hasTable('dts_transaction_logs') ? 'dts_transaction_logs' : 'sub_document_tracking_system_logs')
                 ->where('transaction_id', $t->transaction_id)
                 ->where('office_code', $userOfficeCode)
                 ->orderBy('id', 'desc')

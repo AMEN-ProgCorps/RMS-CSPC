@@ -31,12 +31,12 @@ try {
     
     // Ensure columns exist just in case
     @$pdo->exec("
-        ALTER TABLE account_details ADD COLUMN IF NOT EXISTS allow_typing_preview BOOLEAN DEFAULT TRUE;
-        ALTER TABLE account_details ADD COLUMN IF NOT EXISTS allow_see_typing_preview BOOLEAN DEFAULT TRUE;
+        ALTER TABLE ' . Database::t('account_details') . ' ADD COLUMN IF NOT EXISTS allow_typing_preview BOOLEAN DEFAULT TRUE;
+        ALTER TABLE ' . Database::t('account_details') . ' ADD COLUMN IF NOT EXISTS allow_see_typing_preview BOOLEAN DEFAULT TRUE;
     ");
 
     $stmt = $pdo->prepare('
-        UPDATE account_details
+        UPDATE ' . Database::t('account_details') . '
         SET allow_typing_preview = :a,
             allow_see_typing_preview = :b
         WHERE account_id = :id

@@ -10,7 +10,7 @@ try {
     $myAccountId = Auth::accountId();
     if ($myAccountId) {
         $pdo = Database::getConnection();
-        $stmt = $pdo->prepare('UPDATE account_details SET is_currently_online = 0 WHERE account_id = :id');
+        $stmt = $pdo->prepare('UPDATE ' . Database::t('account_details') . ' SET is_currently_online = 0 WHERE account_id = :id');
         $stmt->execute([':id' => $myAccountId]);
     }
 } catch (Throwable $e) {

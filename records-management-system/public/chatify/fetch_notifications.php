@@ -14,7 +14,7 @@
 // mention — by clicking the toast or clicking the item in the bell list.
 // That's what lets the bell keep showing a mention that was fetched here but
 // never actually clicked (offline, missed the toast, dismissed it, etc).
-// Sender display name is resolved from account_details, matching how
+// Sender display name is resolved from ' . Database::t('account_details') . ', matching how
 // index.php resolves the admin's display name.
 // =============================================================================
 
@@ -38,7 +38,7 @@ try {
                 ad.first_name AS sender_first_name,
                 ad.last_name  AS sender_last_name
          FROM chat_message_mentions cmm
-         LEFT JOIN account_details ad ON ad.account_id = cmm.sender_account_id
+         LEFT JOIN ' . Database::t('account_details') . ' ad ON ad.account_id = cmm.sender_account_id
          WHERE cmm.mentioned_account_id = :account_id AND cmm.is_seen = FALSE
          ORDER BY cmm.created_at ASC'
     );

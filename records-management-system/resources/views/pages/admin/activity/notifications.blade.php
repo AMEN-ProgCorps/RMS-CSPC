@@ -75,13 +75,21 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Notification Logs')] cla
      */
     public function with(): array
     {
-        $query = \DB::table('notification_div')
-            ->leftJoin('notifications', 'notification_div.id', '=', 'notifications.id')
-            ->leftJoin('notif_content', 'notifications.contents', '=', 'notif_content.id')
-            ->leftJoin('subsystems', 'notif_content.system', '=', 'subsystems.subsystem_id')
-            ->leftJoin('account', 'notification_div.account_rec', '=', 'account.id')
-            ->leftJoin('account_details', 'account.id', '=', 'account_details.account_id')
-            ->leftJoin('office', 'notifications.office', '=', 'office.office_code')
+        $notifDivTable = \Illuminate\Support\Facades\Schema::hasTable('sys_notification_div') ? 'sys_notification_div' : 'notification_div';
+        $notifTable = \Illuminate\Support\Facades\Schema::hasTable('sys_notifications') ? 'sys_notifications' : 'notifications';
+        $notifContentTable = \Illuminate\Support\Facades\Schema::hasTable('sys_notif_content') ? 'sys_notif_content' : 'notif_content';
+        $subsystemsTable = \Illuminate\Support\Facades\Schema::hasTable('sys_subsystems') ? 'sys_subsystems' : 'subsystems';
+        $accountTable = \Illuminate\Support\Facades\Schema::hasTable('sys_account') ? 'sys_account' : 'account';
+        $accountDetailsTable = \Illuminate\Support\Facades\Schema::hasTable('sys_account_details') ? 'sys_account_details' : 'account_details';
+        $officeTable = \Illuminate\Support\Facades\Schema::hasTable('sys_office') ? 'sys_office' : 'office';
+
+        $query = \DB::table($notifDivTable . ' as notification_div')
+            ->leftJoin($notifTable . ' as notifications', 'notification_div.id', '=', 'notifications.id')
+            ->leftJoin($notifContentTable . ' as notif_content', 'notifications.contents', '=', 'notif_content.id')
+            ->leftJoin($subsystemsTable . ' as subsystems', 'notif_content.system', '=', 'subsystems.subsystem_id')
+            ->leftJoin($accountTable . ' as account', 'notification_div.account_rec', '=', 'account.id')
+            ->leftJoin($accountDetailsTable . ' as account_details', 'account.id', '=', 'account_details.account_id')
+            ->leftJoin($officeTable . ' as office', 'notifications.office', '=', 'office.office_code')
             ->select([
                 'notification_div.id',
                 'notification_div.status',
@@ -129,7 +137,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Notification Logs')] cla
         $logs = $query->orderBy('notification_div.processed_on', 'desc')->paginate(15);
 
         // Fetch subsystems list for filter dropdown
-        $subsystems = \DB::table('subsystems')->orderBy('subsystem_name')->get();
+        $subsystems = \DB::table(\Illuminate\Support\Facades\Schema::hasTable('sys_subsystems') ? 'sys_subsystems' : 'subsystems')->orderBy('subsystem_name')->get();
 
         return [
             'logs' => $logs,

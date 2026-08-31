@@ -124,9 +124,9 @@ class DocumentStorageService
             logger()->error("Google Drive upload failed for {$relativePath}: " . $e->getMessage());
         }
 
-        // 6. Insert / Update document_data Record
+        // 6. Insert / Update sys_document_data Record
         // Ensure document_name is unique if another record already has it
-        $nameConflict = DB::table('document_data')
+        $nameConflict = DB::table('sys_document_data')
             ->where('document_name', $originalName)
             ->where('document_id', '!=', $documentId)
             ->first();
@@ -137,10 +137,10 @@ class DocumentStorageService
             $originalName = "{$base}_" . strtoupper(Str::random(4)) . ($ext ? ".{$ext}" : "");
         }
 
-        $existingDoc = DB::table('document_data')->where('document_id', $documentId)->first();
+        $existingDoc = DB::table('sys_document_data')->where('document_id', $documentId)->first();
 
         if ($existingDoc) {
-            DB::table('document_data')->where('document_id', $documentId)->update([
+            DB::table('sys_document_data')->where('document_id', $documentId)->update([
                 'document_name' => $originalName,
                 'document_path' => $relativePath,
                 'uploaded_by'   => $user?->id ?: $existingDoc->uploaded_by,
@@ -152,7 +152,7 @@ class DocumentStorageService
                 'date_deleted'  => now(),
             ]);
         } else {
-            DB::table('document_data')->insert([
+            DB::table('sys_document_data')->insert([
                 'document_id'   => $documentId,
                 'document_name' => $originalName,
                 'document_path' => $relativePath,
@@ -179,7 +179,7 @@ class DocumentStorageService
     }
 
     /**
-     * Delete/Purge a document from Google Drive, Local Storage cache, and document_data database.
+     * Delete/Purge a document from Google Drive, Local Storage cache, and sys_document_data database.
      *
      * @param string|null $relativePath Relative storage path e.g. "DEV/DTS/DOC-1234_filename.pdf"
      */
@@ -209,15 +209,15 @@ class DocumentStorageService
         }
 
         try {
-            // 3. Delete / Purge record from document_data database table
-            DB::table('document_data')->where('document_path', $relativePath)->delete();
+            // 3. Delete / Purge record from sys_document_data database table
+            DB::table('sys_document_data')->where('document_path', $relativePath)->delete();
         } catch (\Throwable $e) {
-            logger()->error("Database delete failed for document_data ({$relativePath}): " . $e->getMessage());
+            logger()->error("Database delete failed for sys_document_data ({$relativePath}): " . $e->getMessage());
         }
     }
 
     /**
-     * Ensure folder structure exists on Google Drive using folder_data database cache.
+     * Ensure folder structure exists on Google Drive using sys_folder_data database cache.
      */
     protected static function ensureDriveFolderStructure(string $officeName, string $subsystem, int $fileSize): void
     {
@@ -227,7 +227,7 @@ class DocumentStorageService
         $isDcs = ($subsystem === 'DCS');
 
         try {
-            $folderRecord = DB::table('folder_data')->where('office_name', $officeName)->first();
+            $folderRecord = DB::table('sys_folder_data')->where('office_name', $officeName)->first();
 
             if (!$folderRecord) {
                 // First time uploading for this office: Create Office & Subsystem folders on Drive
@@ -238,7 +238,7 @@ class DocumentStorageService
                     logger()->warning("Drive directory creation notice ({$officeName}/{$subsystem}): " . $e->getMessage());
                 }
 
-                DB::table('folder_data')->insert([
+                DB::table('sys_folder_data')->insert([
                     'office_name'       => $officeName,
                     'total_folder_size' => $fileSize,
                     'is_dts_available'  => $isDts,
@@ -250,8 +250,8 @@ class DocumentStorageService
                     'updated_at'        => now(),
                 ]);
 
-                if ($isDcs && Schema::hasColumn('folder_data', 'is_dcs_available')) {
-                    DB::table('folder_data')->where('office_name', $officeName)->update([
+                if ($isDcs && Schema::hasColumn('sys_folder_data', 'is_dcs_available')) {
+                    DB::table('sys_folder_data')->where('office_name', $officeName)->update([
                         'is_dcs_available' => true,
                         'current_dcs_size' => $fileSize,
                     ]);
@@ -271,7 +271,7 @@ class DocumentStorageService
                 }
 
                 // Zero API calls made if subsystem is already available!
-                DB::table('folder_data')->where('office_name', $officeName)->update([
+                DB::table('sys_folder_data')->where('office_name', $officeName)->update([
                     'total_folder_size' => DB::raw("total_folder_size + {$fileSize}"),
                     'is_dts_available'  => $isDts ? true : $folderRecord->is_dts_available,
                     'current_dts_size'  => $isDts ? DB::raw("current_dts_size + {$fileSize}") : $folderRecord->current_dts_size,
@@ -280,8 +280,8 @@ class DocumentStorageService
                     'updated_at'        => now(),
                 ]);
 
-                if ($isDcs && Schema::hasColumn('folder_data', 'is_dcs_available')) {
-                    DB::table('folder_data')->where('office_name', $officeName)->update([
+                if ($isDcs && Schema::hasColumn('sys_folder_data', 'is_dcs_available')) {
+                    DB::table('sys_folder_data')->where('office_name', $officeName)->update([
                         'is_dcs_available' => true,
                         'current_dcs_size' => DB::raw('current_dcs_size + ' . $fileSize),
                     ]);
@@ -308,7 +308,7 @@ class DocumentStorageService
             }
 
             if ($user->details && !empty($user->details->office_id)) {
-                $office = DB::table('office')->where('id', $user->details->office_id)->first();
+                $office = DB::table('sys_office')->where('id', $user->details->office_id)->first();
                 if ($office) {
                     return $office->office_code ?: $office->office_name ?: 'GENERAL';
                 }
@@ -552,7 +552,7 @@ class DocumentStorageService
      */
     public static function collectDcsScanEntries(): \Illuminate\Support\Collection
     {
-        $officeNames = DB::table('office')
+        $officeNames = DB::table('sys_office')
             ->pluck('office_name', 'office_code')
             ->all();
 
@@ -662,7 +662,7 @@ class DocumentStorageService
         $sourceOffices = $requestIds === [] || ! Schema::hasTable('dcs_masterlist_source_offices')
             ? collect()
             : DB::table('dcs_masterlist_source_offices as so')
-                ->join('office as o', 'so.office_id', '=', 'o.id')
+                ->join('sys_office as o', 'so.office_id', '=', 'o.id')
                 ->join('dcs_masterlist_registration as ml', 'so.masterlist_id', '=', 'ml.id')
                 ->whereIn('ml.request_id', $requestIds)
                 ->select('ml.request_id', 'o.office_code', 'o.office_name')
@@ -717,12 +717,12 @@ class DocumentStorageService
             return collect();
         }
 
-        $officeNames = DB::table('office')
+        $officeNames = DB::table('sys_office')
             ->pluck('office_name', 'office_code')
             ->all();
 
         return DB::table('dcs_generated_reports as r')
-            ->leftJoin('account_details as ad', 'r.generated_by', '=', 'ad.account_id')
+            ->leftJoin('sys_account_details as ad', 'r.generated_by', '=', 'ad.account_id')
             ->orderByDesc('r.created_at')
             ->get([
                 'r.id',
@@ -863,7 +863,7 @@ class DocumentStorageService
                     ?? (Schema::hasColumn($source['table'], 'request_id') ? 'src.request_id' : null);
 
                 if (Schema::hasColumn($source['table'], 'created_by')) {
-                    $query->leftJoin('account_details as ad', 'src.created_by', '=', 'ad.account_id');
+                    $query->leftJoin((\Illuminate\Support\Facades\Schema::hasTable('sys_account_details') ? 'sys_account_details' : 'account_details') . ' as ad', 'src.created_by', '=', 'ad.account_id');
                 }
 
                 $select = [

@@ -52,7 +52,7 @@ try {
     // Validate the recipient is a real user via account_details, same source
     // of truth used by fetch_users_dm.php / UserResolver.
     $stmt = $pdo->prepare(
-        'SELECT 1 FROM account_details WHERE account_id = :id LIMIT 1'
+        'SELECT 1 FROM ' . Database::t('account_details') . ' WHERE account_id = :id LIMIT 1'
     );
     $stmt->execute([':id' => $recipientId]);
     if (!$stmt->fetch()) {

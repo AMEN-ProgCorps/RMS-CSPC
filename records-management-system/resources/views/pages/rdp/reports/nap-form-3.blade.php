@@ -54,7 +54,8 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 3')
             $user = Auth::user();
             $userOffice = $user?->details?->office_code ?? null;
 
-            $mainPendingId = DB::table('main_pending_id')->insertGetId([
+            $mainPendingTbl = \Illuminate\Support\Facades\Schema::hasTable('rdp_main_pending_id') ? 'rdp_main_pending_id' : 'main_pending_id';
+            $mainPendingId = DB::table($mainPendingTbl)->insertGetId([
                 'status'     => 'UNUSED',
                 'is_active'  => true,
                 'created_at' => now(),
@@ -282,7 +283,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 3')
 
         // Audit Log
         $adminId = auth()->id() ?? 1;
-        DB::table('admin_logs')->insert([
+        DB::table(\Illuminate\Support\Facades\Schema::hasTable('sys_admin_logs') ? 'sys_admin_logs' : 'admin_logs')->insert([
             'admin_id'    => $adminId,
             'changes'     => 'Updated Unverified Record Series via NAP Form 3: "' . $this->editSeriesTitle . '"',
             'what_system' => 2,
@@ -379,7 +380,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 3')
             ->join('rdp_record_series', 'rdp_record.record_series_id', '=', 'rdp_record_series.id')
             ->leftJoin('rdp_retention_period', 'rdp_record_series.retention_period', '=', 'rdp_retention_period.id')
             ->leftJoin('rdp_record_series as parent', 'rdp_record_series.parent_id', '=', 'parent.id')
-            ->leftJoin('office', 'rdp_record_series.recorded_at_office', '=', 'office.office_code')
+            ->leftJoin((\Illuminate\Support\Facades\Schema::hasTable('sys_office') ? 'sys_office' : 'office') . ' as office', 'rdp_record_series.recorded_at_office', '=', 'office.office_code')
             ->select([
                 'rdp_record_series.*',
                 'rdp_record.id as record_id',
@@ -482,7 +483,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 3')
 
         $totalCount     = count($treeOrdered);
 
-        $officesList = DB::table('office')->where('is_active', true)->orderBy('office_name')->get();
+        $officesList = DB::table(\Illuminate\Support\Facades\Schema::hasTable('sys_office') ? 'sys_office' : 'office')->where('is_active', true)->orderBy('office_name')->get();
 
         return [
             'recordSeriesList' => array_values($treeOrdered),

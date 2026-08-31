@@ -179,8 +179,8 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create Issuance
 
         $this->userOfficeCode = auth()->user()?->details?->office?->office_code 
             ?? \App\Services\DocumentStorageService::resolveOfficeCode(auth()->user()) 
-            ?? (DB::table('office')->where('is_active', true)->whereNotIn('office_code', ['ORIGIN', '[H]', '[HUB]'])->value('office_code') ?: 'RFOIU');
-        $this->offices = DB::table('office')
+            ?? (DB::table('sys_office')->where('is_active', true)->whereNotIn('office_code', ['ORIGIN', '[H]', '[HUB]'])->value('office_code') ?: 'RFOIU');
+        $this->offices = DB::table('sys_office')
             ->where('is_active', true)
             ->whereNotIn('office_code', ['ORIGIN', '[H]'])
             ->orderBy('office_name')
@@ -204,7 +204,7 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create Issuance
                         $q->where('flow_for', 'office')
                           ->whereExists(function($sub) use ($userOfficeId) {
                               $sub->select(DB::raw(1))
-                                  ->from('account_details')
+                                  ->from(\Illuminate\Support\Facades\Schema::hasTable('sys_account_details') ? 'sys_account_details' : 'account_details')
                                   ->whereColumn('account_id', 'dts_transaction_flow.added_by')
                                   ->where('office_id', $userOfficeId);
                           });
@@ -301,10 +301,10 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create Issuance
                 ->toArray();
 
             $originOfficeCode = $this->userOfficeCode;
-            $originOffice = DB::table('office')->where('office_code', $originOfficeCode)->first();
+            $originOffice = DB::table('sys_office')->where('office_code', $originOfficeCode)->first();
             $clusterHead = null;
             if ($originOffice && $originOffice->cluster) {
-                $cluster = DB::table('cluster')->where('cluster_code', $originOffice->cluster)->first();
+                $cluster = \DB::table('sys_cluster')->where('cluster_code', $originOffice->cluster)->first();
                 if ($cluster) {
                     $clusterHead = $cluster->cluster_head;
                 }
@@ -346,7 +346,7 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create Issuance
 
             // Load predefined HUB receiving offices if sequence contains [HUB]
             if (in_array('[HUB]', $rawOffices)) {
-                $predefinedHubOffices = DB::table('hub_flow_datas')
+                $predefinedHubOffices = DB::table('dts_hub_flow_datas')
                     ->where('flow_owner', $flow->id)
                     ->pluck('offices_hub')
                     ->toArray();
@@ -663,7 +663,7 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create Issuance
                 if (in_array('[HUB]', $this->customFlowSequence) && count($this->customFlowHubOffices) > 0) {
                     $officesToSave = $this->customFlowHubOffices;
                     if (in_array('ALL', $officesToSave)) {
-                        $allOffices = DB::table('office')
+                        $allOffices = DB::table('sys_office')
                             ->where('is_active', true)
                             ->whereNotIn('office_code', ['ORIGIN', '[H]', '[HUB]'])
                             ->pluck('office_code')
@@ -671,7 +671,7 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create Issuance
                         $officesToSave = $allOffices;
                     }
                     foreach ($officesToSave as $hOff) {
-                        DB::table('hub_flow_datas')->insert([
+                        DB::table('dts_hub_flow_datas')->insert([
                             'flow_owner' => $flowId,
                             'offices_hub' => $hOff,
                             'created_at' => now(),
@@ -699,7 +699,7 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create Issuance
                             $q->where('flow_for', 'office')
                               ->whereExists(function($sub) use ($userOfficeId) {
                                   $sub->select(DB::raw(1))
-                                      ->from('account_details')
+                                      ->from(\Illuminate\Support\Facades\Schema::hasTable('sys_account_details') ? 'sys_account_details' : 'account_details')
                                       ->whereColumn('account_id', 'dts_transaction_flow.added_by')
                                       ->where('office_id', $userOfficeId);
                               });
@@ -818,7 +818,7 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create Issuance
                 ]);
             }
 
-            $allSystemOffices = DB::table('office')
+            $allSystemOffices = DB::table('sys_office')
                 ->where('is_active', true)
                 ->whereNotIn('office_code', ['ORIGIN', '[H]', '[HUB]'])
                 ->pluck('office_code')
@@ -830,10 +830,10 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create Issuance
 
             $flow = DB::table('dts_transaction_flow')->where('flow_code', $this->transaction_flow)->first();
             
-            $originOffice = DB::table('office')->where('office_code', $originOfficeCode)->first();
+            $originOffice = DB::table('sys_office')->where('office_code', $originOfficeCode)->first();
             $clusterHead = null;
             if ($originOffice && $originOffice->cluster) {
-                $cluster = DB::table('cluster')->where('cluster_code', $originOffice->cluster)->first();
+                $cluster = \DB::table('sys_cluster')->where('cluster_code', $originOffice->cluster)->first();
                 if ($cluster) {
                     $clusterHead = $cluster->cluster_head;
                 }
@@ -874,7 +874,8 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create Issuance
                 'referenced_flow' => $flow ? ('REF-' . (str_starts_with($flow->flow_code, 'FLOW-PREDEFINED') || str_starts_with($flow->flow_code, 'PREDEFINED') ? 'PREDEFINED' : 'CUSTOM') . '-' . $flow->id) : null,
             ]);
 
-            $autoFwdSetting = DB::table('system_settings')->where('key', 'dts_auto_forward_created_transaction')->value('value');
+            $sysSettingsTbl = \Illuminate\Support\Facades\Schema::hasTable('sys_system_settings') ? 'sys_system_settings' : 'system_settings';
+            $autoFwdSetting = DB::table($sysSettingsTbl)->where('key', 'dts_auto_forward_created_transaction')->value('value');
             $shouldAutoForward = ($autoFwdSetting !== 'false') && (count($resolvedOffices) > 1);
 
             $nextOfficeCode = $resolvedOffices[1] ?? $originOfficeCode;
@@ -994,10 +995,10 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create Issuance
                 'copy_filled_id' => $copyFilledId ?: null,
             ]);
 
-            $originOfficeName = DB::table('office')->where('office_code', $originOfficeCode)->value('office_name') ?: $originOfficeCode;
+            $originOfficeName = DB::table('sys_office')->where('office_code', $originOfficeCode)->value('office_name') ?: $originOfficeCode;
 
             // Step 1 log: Origin Office
-            DB::table('sub_document_tracking_system_logs')->insert([
+            DB::table('dts_transaction_logs')->insert([
                 'transaction_id' => $transactionId,
                 'office_code' => $originOfficeCode,
                 'type' => 'received',
@@ -1014,7 +1015,7 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create Issuance
                     DB::table('dts_transactions')->where('transaction_id', $transactionId)->update(['current_office' => $primaryHubOffice]);
                     DB::table('dts_transaction_details')->where('id', $transactionId)->update(['current_office_hold' => $primaryHubOffice]);
 
-                    DB::table('sub_document_tracking_system_logs')->insert([
+                    DB::table('dts_transaction_logs')->insert([
                         'transaction_id' => $transactionId,
                         'office_code' => $primaryHubOffice,
                         'type' => 'forwarded',
@@ -1068,7 +1069,7 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create Issuance
                         ]);
 
                         // Step 1 log: Origin office
-                        DB::table('sub_document_tracking_system_logs')->insert([
+                        DB::table('dts_transaction_logs')->insert([
                             'transaction_id' => $childTransId,
                             'office_code' => $originOfficeCode,
                             'type' => 'received',
@@ -1079,7 +1080,7 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create Issuance
                         ]);
 
                         // Step 2 log: Child recipient office
-                        DB::table('sub_document_tracking_system_logs')->insert([
+                        DB::table('dts_transaction_logs')->insert([
                             'transaction_id' => $childTransId,
                             'office_code' => $childOffice,
                             'type' => 'forwarded',
@@ -1092,7 +1093,7 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create Issuance
                         \App\Services\DtsNotificationService::notifyWaitingToBeReceived($childOffice, $childControlNumber, $childTransId);
                     }
                 } else {
-                    DB::table('sub_document_tracking_system_logs')->insert([
+                    DB::table('dts_transaction_logs')->insert([
                         'transaction_id' => $transactionId,
                         'office_code' => $nextOfficeCode,
                         'type' => 'forwarded',

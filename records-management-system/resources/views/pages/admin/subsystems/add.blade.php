@@ -67,7 +67,8 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Register & Update Subsys
             return;
         }
 
-        $subsystem = \DB::table('subsystems')->where('subsystem_id', $value)->first();
+        $subsystemsTbl = \Illuminate\Support\Facades\Schema::hasTable('sys_subsystems') ? 'sys_subsystems' : 'subsystems';
+        $subsystem = \DB::table($subsystemsTbl)->where('subsystem_id', $value)->first();
         if ($subsystem) {
             $this->subsystemName = $subsystem->subsystem_name;
             $this->subsystemVersion = $subsystem->subsystem_version;
@@ -81,6 +82,10 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Register & Update Subsys
     {
         $this->clearMessages();
 
+        $subsystemsTbl = \Illuminate\Support\Facades\Schema::hasTable('sys_subsystems') ? 'sys_subsystems' : 'subsystems';
+        $versionsLogTbl = \Illuminate\Support\Facades\Schema::hasTable('sys_subsystem_versions_log') ? 'sys_subsystem_versions_log' : 'subsystem_versions_log';
+        $adminLogsTbl = \Illuminate\Support\Facades\Schema::hasTable('sys_admin_logs') ? 'sys_admin_logs' : 'admin_logs';
+
         // 1. Validation
         if ($this->selectedOption === '') {
             $this->errorMessage = 'Please select an option from the dropdown.';
@@ -89,7 +94,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Register & Update Subsys
 
         if ($this->selectedOption === 'new') {
             $this->validate([
-                'subsystemName' => 'required|string|max:255|unique:subsystems,subsystem_name',
+                'subsystemName' => "required|string|max:255|unique:{$subsystemsTbl},subsystem_name",
                 'subsystemVersion' => ['required', 'string', 'max:50', 'regex:/^\d+\.\d+\.\d+$/'],
             ], [
                 'subsystemName.unique' => 'This subsystem is already registered.',
@@ -105,10 +110,10 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Register & Update Subsys
 
         // 2. Perform DB transaction
         try {
-            \DB::transaction(function () {
+            \DB::transaction(function () use ($subsystemsTbl, $versionsLogTbl, $adminLogsTbl) {
                 if ($this->selectedOption === 'new') {
                     // Create mode
-                    $id = \DB::table('subsystems')->insertGetId([
+                    $id = \DB::table($subsystemsTbl)->insertGetId([
                         'subsystem_name' => trim($this->subsystemName),
                         'subsystem_version' => trim($this->subsystemVersion),
                         'is_active' => true,
@@ -117,14 +122,14 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Register & Update Subsys
                     ]);
 
                     // Insert version log
-                    \DB::table('subsystem_versions_log')->insert([
+                    \DB::table($versionsLogTbl)->insert([
                         'subsystem_key' => $id,
                         'version_change' => trim($this->subsystemVersion),
                         'changes_on' => now(),
                     ]);
 
                     // Insert admin audit log
-                    \DB::table('admin_logs')->insert([
+                    \DB::table($adminLogsTbl)->insert([
                         'changes' => "Registered new subsystem: " . trim($this->subsystemName) . " (Version: " . trim($this->subsystemVersion) . ")",
                         'admin_id' => auth()->id(),
                         'what_system' => 3, // Admin Console
@@ -134,7 +139,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Register & Update Subsys
                     $this->successMessage = 'Subsystem successfully registered!';
                 } else {
                     // Update mode
-                    $subsystem = \DB::table('subsystems')->where('subsystem_id', $this->selectedOption)->first();
+                    $subsystem = \DB::table($subsystemsTbl)->where('subsystem_id', $this->selectedOption)->first();
                     if (!$subsystem) {
                         throw new \Exception('Subsystem not found.');
                     }
@@ -144,37 +149,36 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Register & Update Subsys
 
                     if ($oldVersion !== $newVersion) {
                         // Update version
-                        \DB::table('subsystems')->where('subsystem_id', $this->selectedOption)->update([
+                        \DB::table($subsystemsTbl)->where('subsystem_id', $this->selectedOption)->update([
                             'subsystem_version' => $newVersion,
                             'update_at' => now(),
                         ]);
 
                         // Insert version log
-                        \DB::table('subsystem_versions_log')->insert([
+                        \DB::table($versionsLogTbl)->insert([
                             'subsystem_key' => $this->selectedOption,
                             'version_change' => $newVersion,
                             'changes_on' => now(),
                         ]);
 
                         // Insert admin audit log
-                        \DB::table('admin_logs')->insert([
+                        \DB::table($adminLogsTbl)->insert([
                             'changes' => "Updated subsystem version for '{$subsystem->subsystem_name}' from {$oldVersion} to {$newVersion}",
                             'admin_id' => auth()->id(),
                             'what_system' => 3, // Admin Console
                             'when_changes' => now(),
                         ]);
-
-                        $this->successMessage = 'Subsystem version updated successfully!';
-                    } else {
-                        $this->successMessage = 'No changes detected. Version is already ' . $newVersion;
                     }
-                }
-            });
 
-            // Reset selection to clear form
-            $this->resetForm();
+                    $this->successMessage = 'Subsystem version successfully updated!';
+                }
+
+                $this->subsystemVersion = '';
+                $this->selectedOption = '';
+                $this->subsystemName = '';
+            });
         } catch (\Exception $e) {
-            $this->errorMessage = 'Error saving subsystem: ' . $e->getMessage();
+            $this->errorMessage = 'Failed to save subsystem: ' . $e->getMessage();
         }
     }
 
@@ -183,7 +187,9 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Register & Update Subsys
      */
     public function with(): array
     {
-        $subsystems = \DB::table('subsystems')->orderBy('subsystem_name')->get();
+        $subsystemsTbl = \Illuminate\Support\Facades\Schema::hasTable('sys_subsystems') ? 'sys_subsystems' : 'subsystems';
+        $subsystems = \DB::table($subsystemsTbl)->orderBy('subsystem_name')->get();
+
         return [
             'subsystems' => $subsystems,
         ];

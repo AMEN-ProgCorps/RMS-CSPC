@@ -63,7 +63,7 @@ class ChatNotifier
             self::ensureMentionsTable($pdo);
 
             $senderStmt = $pdo->prepare(
-                'SELECT first_name, last_name FROM account_details WHERE account_id = :id LIMIT 1'
+                'SELECT first_name, last_name FROM ' . Database::t('account_details') . ' WHERE account_id = :id LIMIT 1'
             );
             $senderStmt->execute([':id' => $senderId]);
             $senderRow  = $senderStmt->fetch();
@@ -120,8 +120,8 @@ class ChatNotifier
     {
         $stmt = $pdo->prepare(
             'SELECT o.office_code
-             FROM account_details ad
-             JOIN office o ON o.id = ad.office_id
+             FROM ' . Database::t('account_details') . ' ad
+             JOIN ' . Database::t('office') . ' o ON o.id = ad.office_id
              WHERE ad.account_id = :id
              LIMIT 1'
         );
@@ -134,14 +134,14 @@ class ChatNotifier
             }
         }
 
-        $fallback = $pdo->query('SELECT office_code FROM office ORDER BY id ASC LIMIT 1')->fetch();
+        $fallback = $pdo->query('SELECT office_code FROM ' . Database::t('office') . ' ORDER BY id ASC LIMIT 1')->fetch();
         return $fallback['office_code'] ?? null;
     }
 
     private static function pushLegacyChain(PDO $pdo, string $senderName, int $recipientId, int $senderId, ?string $message): void
     {
         try {
-            $subsystemStmt = $pdo->prepare("SELECT subsystem_id FROM subsystems WHERE subsystem_name = 'Chatify' LIMIT 1");
+            $subsystemStmt = $pdo->prepare("SELECT subsystem_id FROM ' . Database::t('subsystems') . ' WHERE subsystem_name = 'Chatify' LIMIT 1");
             $subsystemStmt->execute();
             $subsystem = $subsystemStmt->fetch();
 
@@ -162,7 +162,7 @@ class ChatNotifier
             $pdo->beginTransaction();
 
             $contentStmt = $pdo->prepare(
-                'INSERT INTO notif_content (system, content, redirect_url, created_at)
+                'INSERT INTO ' . Database::t('notif_content') . ' (system, content, redirect_url, created_at)
                  VALUES (:system, :content, :redirect_url, NOW())'
             );
             $contentStmt->execute([
@@ -173,7 +173,7 @@ class ChatNotifier
             $contentId = (int) $pdo->lastInsertId();
 
             $notifStmt = $pdo->prepare(
-                'INSERT INTO notifications (office, contents, created_at)
+                'INSERT INTO ' . Database::t('notifications') . ' (office, contents, created_at)
                  VALUES (:office, :contents, NOW())'
             );
             $notifStmt->execute([
@@ -183,7 +183,7 @@ class ChatNotifier
             $notificationId = (int) $pdo->lastInsertId();
 
             $divStmt = $pdo->prepare(
-                "INSERT INTO notification_div (id, account_rec, status, processed_on, is_in_user_list)
+                "INSERT INTO ' . Database::t('notification_div') . ' (id, account_rec, status, processed_on, is_in_user_list)
                  VALUES (:id, :account_rec, 'unread', NOW(), 1)"
             );
             $divStmt->execute([

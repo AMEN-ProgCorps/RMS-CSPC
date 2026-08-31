@@ -47,24 +47,27 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Subsystem Changes Logs')
      */
     public function with(): array
     {
-        $query = \DB::table('subsystem_versions_log')
-            ->leftJoin('subsystems', 'subsystem_versions_log.subsystem_key', '=', 'subsystems.subsystem_id')
+        $logTbl = \Illuminate\Support\Facades\Schema::hasTable('sys_subsystem_versions_log') ? 'sys_subsystem_versions_log' : 'subsystem_versions_log';
+        $subsystemsTbl = \Illuminate\Support\Facades\Schema::hasTable('sys_subsystems') ? 'sys_subsystems' : 'subsystems';
+
+        $query = \DB::table($logTbl)
+            ->leftJoin($subsystemsTbl, "{$logTbl}.subsystem_key", '=', "{$subsystemsTbl}.subsystem_id")
             ->select([
-                'subsystem_versions_log.changes_id',
-                'subsystem_versions_log.version_change',
-                'subsystem_versions_log.changes_on',
-                'subsystems.subsystem_name',
+                "{$logTbl}.changes_id",
+                "{$logTbl}.version_change",
+                "{$logTbl}.changes_on",
+                "{$subsystemsTbl}.subsystem_name",
             ]);
 
         if ($this->search !== '') {
             $searchVal = '%' . $this->search . '%';
-            $query->where(function ($q) use ($searchVal) {
-                $q->where('subsystems.subsystem_name', 'like', $searchVal)
-                  ->orWhere('subsystem_versions_log.version_change', 'like', $searchVal);
+            $query->where(function ($q) use ($searchVal, $subsystemsTbl, $logTbl) {
+                $q->where("{$subsystemsTbl}.subsystem_name", 'like', $searchVal)
+                  ->orWhere("{$logTbl}.version_change", 'like', $searchVal);
             });
         }
 
-        $logs = $query->orderBy('subsystem_versions_log.changes_on', 'desc')->paginate(15);
+        $logs = $query->orderBy("{$logTbl}.changes_on", 'desc')->paginate(15);
 
         return [
             'logs' => $logs,

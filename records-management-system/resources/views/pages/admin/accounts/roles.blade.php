@@ -311,10 +311,12 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Roles')] class extends C
             return;
         }
 
+        $condKeyTbl = \Illuminate\Support\Facades\Schema::hasTable('sys_condition_key') ? 'sys_condition_key' : 'condition_key';
+
         // Validation rules: unique check excludes selected record if updating
         $uniqueRule = $this->selectedRoleId > 0 
-            ? 'unique:condition_key,key_name,' . $this->selectedRoleId . ',id'
-            : 'unique:condition_key,key_name';
+            ? "unique:{$condKeyTbl},key_name," . $this->selectedRoleId . ',id'
+            : "unique:{$condKeyTbl},key_name";
 
         $this->validate([
             'keyName' => 'required|string|max:255|' . $uniqueRule,
@@ -339,7 +341,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Roles')] class extends C
                     $role->save();
                     
                     // Audit Log: created role
-                    \DB::table('admin_logs')->insert([
+                    \DB::table(\Illuminate\Support\Facades\Schema::hasTable('sys_admin_logs') ? 'sys_admin_logs' : 'admin_logs')->insert([
                         'changes' => "Created role: {$this->keyName}",
                         'admin_id' => auth()->id(),
                         'what_system' => 3, // Admin Console
@@ -369,7 +371,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Roles')] class extends C
                     $perms->save();
 
                     // Audit Log: updated details
-                    \DB::table('admin_logs')->insert([
+                    \DB::table(\Illuminate\Support\Facades\Schema::hasTable('sys_admin_logs') ? 'sys_admin_logs' : 'admin_logs')->insert([
                         'changes' => "Updated permissions/details for role: {$this->keyName}",
                         'admin_id' => auth()->id(),
                         'what_system' => 3, // Admin Console
@@ -378,7 +380,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Roles')] class extends C
 
                     // Audit Log: status changed
                     if ($statusChanged) {
-                        \DB::table('admin_logs')->insert([
+                        \DB::table(\Illuminate\Support\Facades\Schema::hasTable('sys_admin_logs') ? 'sys_admin_logs' : 'admin_logs')->insert([
                             'changes' => "Toggled active status (Value: " . ($this->isActive ? '1' : '0') . ") for role: {$this->keyName}",
                             'admin_id' => auth()->id(),
                             'what_system' => 3, // Admin Console
@@ -428,7 +430,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Roles')] class extends C
                 ]);
 
                 // Audit Log: soft-deleted role
-                \DB::table('admin_logs')->insert([
+                \DB::table(\Illuminate\Support\Facades\Schema::hasTable('sys_admin_logs') ? 'sys_admin_logs' : 'admin_logs')->insert([
                     'changes' => "Soft-deleted role (Deactivated for transparency): {$role->key_name}",
                     'admin_id' => auth()->id(),
                     'what_system' => 3, // Admin Console

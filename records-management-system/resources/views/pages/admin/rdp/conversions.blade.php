@@ -128,7 +128,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Volume Conversions')] cl
                     'updated_at'     => now(),
                 ]);
 
-            DB::table('admin_logs')->insert([
+            DB::table(\Illuminate\Support\Facades\Schema::hasTable('sys_admin_logs') ? 'sys_admin_logs' : 'admin_logs')->insert([
                 'changes'      => "Renamed RDP Volume Unit #{$this->editingUnitId} to '{$name}'",
                 'admin_id'     => auth()->id(),
                 'what_system'  => 2, // RDP
@@ -156,7 +156,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Volume Conversions')] cl
 
             DB::table('rdp_volume_value')->where('volume_id', $volumeId)->delete();
 
-            DB::table('admin_logs')->insert([
+            DB::table(\Illuminate\Support\Facades\Schema::hasTable('sys_admin_logs') ? 'sys_admin_logs' : 'admin_logs')->insert([
                 'changes'      => "Deleted RDP Volume Unit '{$unit->value_standard}'",
                 'admin_id'     => auth()->id(),
                 'what_system'  => 2, // RDP
@@ -217,7 +217,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Volume Conversions')] cl
             $convUnit = DB::table('rdp_volume_value')->where('volume_id', $convId)->first();
             $logMsg = "Added RDP Volume Conversion rule: {$this->amountStandard} {$stdUnit->value_standard} = {$this->amountConverted} {$convUnit->value_standard}";
 
-            DB::table('admin_logs')->insert([
+            DB::table(\Illuminate\Support\Facades\Schema::hasTable('sys_admin_logs') ? 'sys_admin_logs' : 'admin_logs')->insert([
                 'changes'      => $logMsg,
                 'admin_id'     => auth()->id(),
                 'what_system'  => 2, // RDP
@@ -292,7 +292,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Volume Conversions')] cl
                     'updated_at'       => now(),
                 ]);
 
-            DB::table('admin_logs')->insert([
+            DB::table(\Illuminate\Support\Facades\Schema::hasTable('sys_admin_logs') ? 'sys_admin_logs' : 'admin_logs')->insert([
                 'changes'      => "Updated RDP Volume Conversion rule #{$this->editingId}",
                 'admin_id'     => auth()->id(),
                 'what_system'  => 2, // RDP
@@ -341,7 +341,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Volume Conversions')] cl
                 ]);
 
                 $statusText = $newStatus ? 'activated' : 'deactivated';
-                DB::table('admin_logs')->insert([
+                DB::table(\Illuminate\Support\Facades\Schema::hasTable('sys_admin_logs') ? 'sys_admin_logs' : 'admin_logs')->insert([
                     'changes'      => "Toggled RDP Volume Conversion rule #{$id} to {$statusText}",
                     'admin_id'     => auth()->id(),
                     'what_system'  => 2, // RDP
@@ -367,7 +367,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Volume Conversions')] cl
             if ($rule) {
                 DB::table('rdp_volume_conversion')->where('id', $id)->delete();
 
-                DB::table('admin_logs')->insert([
+                DB::table(\Illuminate\Support\Facades\Schema::hasTable('sys_admin_logs') ? 'sys_admin_logs' : 'admin_logs')->insert([
                     'changes'      => "Deleted RDP Volume Conversion rule #{$id}",
                     'admin_id'     => auth()->id(),
                     'what_system'  => 2, // RDP

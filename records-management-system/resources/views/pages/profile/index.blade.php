@@ -129,7 +129,7 @@ new #[Layout('layouts.profile')] #[Title('Profile Manager - Details')] class ext
         // Fetch and map Role name from database condition keys
         $this->roleName = 'Unknown';
         if ($user->account_role) {
-            $role = \DB::table('condition_key')->where('id', $user->account_role)->first();
+            $role = \DB::table(\Illuminate\Support\Facades\Schema::hasTable('sys_condition_key') ? 'sys_condition_key' : 'condition_key')->where('id', $user->account_role)->first();
             $this->roleName = $role?->key_name ?? 'Unknown';
         }
     }

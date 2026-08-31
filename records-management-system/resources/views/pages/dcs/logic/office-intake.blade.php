@@ -137,7 +137,7 @@ class OfficeIntakeHelper
     public static function drfSourceOffices(int $drfId)
     {
         return DB::table('dcs_drf_offices as d')
-            ->leftJoin('office as o', 'o.id', '=', 'd.office_id')
+            ->leftJoin((\Illuminate\Support\Facades\Schema::hasTable('sys_office') ? 'sys_office' : 'office') . ' as o', 'o.id', '=', 'd.office_id')
             ->where('d.document_request_form_id', $drfId)
             ->orderBy('o.office_name')
             ->get(['d.office_id', 'o.office_name', 'o.office_code']);
@@ -147,7 +147,7 @@ class OfficeIntakeHelper
     public static function dcnSourceOffices(int $dcnId)
     {
         return DB::table('dcs_dcn_offices as d')
-            ->leftJoin('office as o', 'o.id', '=', 'd.office_id')
+            ->leftJoin((\Illuminate\Support\Facades\Schema::hasTable('sys_office') ? 'sys_office' : 'office') . ' as o', 'o.id', '=', 'd.office_id')
             ->where('d.dcn_id', $dcnId)
             ->orderBy('o.office_name')
             ->get(['d.office_id', 'o.office_name', 'o.office_code']);
@@ -442,7 +442,7 @@ class OfficeIntakeHelper
             return [];
         }
 
-        $byId = DB::table('office')
+        $byId = DB::table(\Illuminate\Support\Facades\Schema::hasTable('sys_office') ? 'sys_office' : 'office')
             ->whereIn('id', $ids)
             ->get(['id', 'office_code', 'office_name'])
             ->keyBy('id');

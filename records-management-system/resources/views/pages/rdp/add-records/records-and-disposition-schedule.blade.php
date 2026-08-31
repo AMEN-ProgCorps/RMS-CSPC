@@ -249,8 +249,9 @@ new #[Layout('layouts.rdp')] #[Title('Records and Disposition Schedule')] class 
                 }
             }
 
-            // Create centralized main_pending_id & cluster entry
-            $mainPendingId = DB::table('main_pending_id')->insertGetId([
+            // Create centralized rdp_main_pending_id & cluster entry
+            $mainPendingTbl = \Illuminate\Support\Facades\Schema::hasTable('rdp_main_pending_id') ? 'rdp_main_pending_id' : 'main_pending_id';
+            $mainPendingId = DB::table($mainPendingTbl)->insertGetId([
                 'status'     => 'UNUSED',
                 'is_active'  => true,
                 'created_at' => now(),
@@ -397,7 +398,7 @@ new #[Layout('layouts.rdp')] #[Title('Records and Disposition Schedule')] class 
 
         $parentSuggestionsQuery = DB::table('rdp_record_series')
             ->leftJoin('rdp_record_series_type', 'rdp_record_series.series_type', '=', 'rdp_record_series_type.id')
-            ->leftJoin('office', 'rdp_record_series.recorded_at_office', '=', 'office.office_code')
+            ->leftJoin((\Illuminate\Support\Facades\Schema::hasTable('sys_office') ? 'sys_office' : 'office') . ' as office', 'rdp_record_series.recorded_at_office', '=', 'office.office_code')
             ->select([
                 'rdp_record_series.id',
                 'rdp_record_series.series_title',

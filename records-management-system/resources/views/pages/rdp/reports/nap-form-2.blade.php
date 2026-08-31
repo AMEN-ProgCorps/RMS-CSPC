@@ -54,7 +54,8 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 2')
             $user = Auth::user();
             $userOffice = $user?->details?->office_code ?? null;
 
-            $mainPendingId = DB::table('main_pending_id')->insertGetId([
+            $mainPendingTbl = \Illuminate\Support\Facades\Schema::hasTable('rdp_main_pending_id') ? 'rdp_main_pending_id' : 'main_pending_id';
+            $mainPendingId = DB::table($mainPendingTbl)->insertGetId([
                 'status'     => 'UNUSED',
                 'is_active'  => true,
                 'created_at' => now(),
@@ -280,7 +281,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 2')
 
         // Audit Log
         $adminId = auth()->id() ?? 1;
-        DB::table('admin_logs')->insert([
+        DB::table(\Illuminate\Support\Facades\Schema::hasTable('sys_admin_logs') ? 'sys_admin_logs' : 'admin_logs')->insert([
             'admin_id'    => $adminId,
             'changes'     => 'Updated Record Series via NAP Form 2: "' . $this->editSeriesTitle . '"',
             'what_system' => 2,
@@ -357,7 +358,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 2')
             $missingParents = DB::table('rdp_record_series')
                 ->leftJoin('rdp_retention_period', 'rdp_record_series.retention_period', '=', 'rdp_retention_period.id')
                 ->leftJoin('rdp_record_series as parent', 'rdp_record_series.parent_id', '=', 'parent.id')
-                ->leftJoin('office', 'rdp_record_series.recorded_at_office', '=', 'office.office_code')
+                ->leftJoin((\Illuminate\Support\Facades\Schema::hasTable('sys_office') ? 'sys_office' : 'office') . ' as office', 'rdp_record_series.recorded_at_office', '=', 'office.office_code')
                 ->select([
                     'rdp_record_series.*',
                     'rdp_retention_period.active_period',
@@ -413,7 +414,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 2')
         $query = DB::table('rdp_record_series')
             ->leftJoin('rdp_retention_period', 'rdp_record_series.retention_period', '=', 'rdp_retention_period.id')
             ->leftJoin('rdp_record_series as parent', 'rdp_record_series.parent_id', '=', 'parent.id')
-            ->leftJoin('office', 'rdp_record_series.recorded_at_office', '=', 'office.office_code')
+            ->leftJoin((\Illuminate\Support\Facades\Schema::hasTable('sys_office') ? 'sys_office' : 'office') . ' as office', 'rdp_record_series.recorded_at_office', '=', 'office.office_code')
             ->select([
                 'rdp_record_series.*',
                 'rdp_retention_period.active_period',
@@ -444,7 +445,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 2')
                 $q->where('rdp_record_series.series_title', 'ilike', '%' . $this->search . '%')
                   ->orWhere('rdp_record_series.remarks', 'ilike', '%' . $this->search . '%')
                   ->orWhere('parent.series_title', 'ilike', '%' . $this->search . '%')
-                  ->orWhereCast('rdp_record_series.item_number', 'text', 'like', '%' . $this->search . '%');
+                  ->orWhere(DB::raw("CAST(rdp_record_series.item_number AS TEXT)"), 'ilike', '%' . $this->search . '%');
             });
         }
 
@@ -516,7 +517,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 2')
         $permanentCount = count(array_filter($treeOrdered, fn($i) => $i->effective_is_permanent || strtolower(trim($i->effective_total ?? '')) === 'permanent'));
         $temporaryCount = $totalCount - $permanentCount;
 
-        $officesList = DB::table('office')->where('is_active', true)->orderBy('office_name')->get();
+        $officesList = DB::table(\Illuminate\Support\Facades\Schema::hasTable('sys_office') ? 'sys_office' : 'office')->where('is_active', true)->orderBy('office_name')->get();
 
         return [
             'recordSeriesList' => array_values($treeOrdered),

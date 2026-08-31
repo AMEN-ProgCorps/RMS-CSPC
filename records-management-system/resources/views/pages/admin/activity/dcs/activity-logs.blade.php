@@ -16,7 +16,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - DCS Activity Logs')] cla
 
     private function dcsSystemId(): int
     {
-        return (int) DB::table('subsystems')
+        return (int) DB::table(\Illuminate\Support\Facades\Schema::hasTable('sys_subsystems') ? 'sys_subsystems' : 'subsystems')
             ->where('subsystem_name', 'Document Control System')
             ->value('subsystem_id');
     }
@@ -79,12 +79,17 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - DCS Activity Logs')] cla
             ];
         }
 
-        $base = DB::table('admin_logs')->where('what_system', $systemId);
+        $adminLogsTable = \Illuminate\Support\Facades\Schema::hasTable('sys_admin_logs') ? 'sys_admin_logs' : 'admin_logs';
+        $accountTable = \Illuminate\Support\Facades\Schema::hasTable('sys_account') ? 'sys_account' : 'account';
+        $accountDetailsTable = \Illuminate\Support\Facades\Schema::hasTable('sys_account_details') ? 'sys_account_details' : 'account_details';
+        $officeTable = \Illuminate\Support\Facades\Schema::hasTable('sys_office') ? 'sys_office' : 'office';
 
-        $query = DB::table('admin_logs')
-            ->leftJoin('account', 'admin_logs.admin_id', '=', 'account.id')
-            ->leftJoin('account_details', 'account.id', '=', 'account_details.account_id')
-            ->leftJoin('office', 'account_details.office_id', '=', 'office.id')
+        $base = DB::table($adminLogsTable)->where('what_system', $systemId);
+
+        $query = DB::table($adminLogsTable . ' as admin_logs')
+            ->leftJoin($accountTable . ' as account', 'admin_logs.admin_id', '=', 'account.id')
+            ->leftJoin($accountDetailsTable . ' as account_details', 'account.id', '=', 'account_details.account_id')
+            ->leftJoin($officeTable . ' as office', 'account_details.office_id', '=', 'office.id')
             ->where('admin_logs.what_system', $systemId)
             ->select([
                 'admin_logs.*',
@@ -157,7 +162,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - DCS Activity Logs')] cla
             })->count(),
         ];
 
-        $offices = DB::table('office')
+        $offices = DB::table(\Illuminate\Support\Facades\Schema::hasTable('sys_office') ? 'sys_office' : 'office')
             ->where('is_active', true)
             ->orderBy('office_name')
             ->get(['office_code', 'office_name']);

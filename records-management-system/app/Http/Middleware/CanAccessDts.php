@@ -22,7 +22,8 @@ class CanAccessDts
         }
 
         // Check if Document Tracking System is active globally
-        $isActive = \DB::table('subsystems')
+        $subsystemsTbl = \Illuminate\Support\Facades\Schema::hasTable('sys_subsystems') ? 'sys_subsystems' : 'subsystems';
+        $isActive = \DB::table($subsystemsTbl)
             ->where('subsystem_name', 'Document Tracking System')
             ->value('is_active');
 

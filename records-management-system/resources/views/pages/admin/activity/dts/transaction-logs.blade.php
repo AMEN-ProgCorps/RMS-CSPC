@@ -57,39 +57,45 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - DTS Transactions Logs')]
 
     public function with(): array
     {
-        $query = DB::table('sub_document_tracking_system_logs')
-            ->leftJoin('sub_document_tracking_system_logs_types', 'sub_document_tracking_system_logs.type', '=', 'sub_document_tracking_system_logs_types.type_id')
-            ->leftJoin('account', 'sub_document_tracking_system_logs.performed_by', '=', 'account.id')
-            ->leftJoin('account_details', 'account.id', '=', 'account_details.account_id')
-            ->leftJoin('office', 'sub_document_tracking_system_logs.office_code', '=', 'office.office_code')
-            ->leftJoin('dts_transaction_details', 'sub_document_tracking_system_logs.transaction_id', '=', 'dts_transaction_details.id')
+        $logsTbl = \Illuminate\Support\Facades\Schema::hasTable('dts_transaction_logs') ? 'dts_transaction_logs' : 'sub_document_tracking_system_logs';
+        $logTypesTbl = \Illuminate\Support\Facades\Schema::hasTable('dts_transaction_log_types') ? 'dts_transaction_log_types' : 'sub_document_tracking_system_logs_types';
+        $accountTbl = \Illuminate\Support\Facades\Schema::hasTable('sys_account') ? 'sys_account' : 'account';
+        $accDetailsTbl = \Illuminate\Support\Facades\Schema::hasTable('sys_account_details') ? 'sys_account_details' : 'account_details';
+        $officeTbl = \Illuminate\Support\Facades\Schema::hasTable('sys_office') ? 'sys_office' : 'office';
+
+        $query = DB::table($logsTbl)
+            ->leftJoin($logTypesTbl, "{$logsTbl}.type", '=', "{$logTypesTbl}.type_id")
+            ->leftJoin($accountTbl, "{$logsTbl}.performed_by", '=', "{$accountTbl}.id")
+            ->leftJoin($accDetailsTbl, "{$accountTbl}.id", '=', "{$accDetailsTbl}.account_id")
+            ->leftJoin($officeTbl, "{$logsTbl}.office_code", '=', "{$officeTbl}.office_code")
+            ->leftJoin('dts_transaction_details', "{$logsTbl}.transaction_id", '=', 'dts_transaction_details.id')
             ->select([
-                'sub_document_tracking_system_logs.id',
-                'sub_document_tracking_system_logs.transaction_id',
-                'sub_document_tracking_system_logs.type',
-                'sub_document_tracking_system_logs.date_in',
-                'sub_document_tracking_system_logs.date_out',
-                'sub_document_tracking_system_logs.notes',
-                'sub_document_tracking_system_logs_types.type_label',
-                'office.office_name',
-                'office.office_code',
-                'account.username',
-                'account_details.first_name',
-                'account_details.last_name',
+                "{$logsTbl}.id",
+                "{$logsTbl}.transaction_id",
+                "{$logsTbl}.type",
+                "{$logsTbl}.date_in",
+                "{$logsTbl}.date_out",
+                "{$logsTbl}.notes",
+                "{$logTypesTbl}.type_label",
+                "{$officeTbl}.office_name",
+                "{$officeTbl}.office_code",
+                "{$accountTbl}.username",
+                "{$accDetailsTbl}.first_name",
+                "{$accDetailsTbl}.last_name",
                 'dts_transaction_details.control_number',
             ]);
 
         // Search Filter
         if ($this->search !== '') {
             $searchVal = '%' . trim($this->search) . '%';
-            $query->where(function ($q) use ($searchVal) {
+            $query->where(function ($q) use ($searchVal, $logsTbl, $officeTbl, $accountTbl, $accDetailsTbl) {
                 $q->where('dts_transaction_details.control_number', 'like', $searchVal)
-                  ->orWhere('account.username', 'like', $searchVal)
-                  ->orWhere('account_details.first_name', 'like', $searchVal)
-                  ->orWhere('account_details.last_name', 'like', $searchVal)
-                  ->orWhere('office.office_name', 'like', $searchVal)
-                  ->orWhere('office.office_code', 'like', $searchVal)
-                  ->orWhere('sub_document_tracking_system_logs.notes', 'like', $searchVal);
+                  ->orWhere("{$accountTbl}.username", 'like', $searchVal)
+                  ->orWhere("{$accDetailsTbl}.first_name", 'like', $searchVal)
+                  ->orWhere("{$accDetailsTbl}.last_name", 'like', $searchVal)
+                  ->orWhere("{$officeTbl}.office_name", 'like', $searchVal)
+                  ->orWhere("{$officeTbl}.office_code", 'like', $searchVal)
+                  ->orWhere("{$logsTbl}.notes", 'like', $searchVal);
             });
         }
 
@@ -97,45 +103,45 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - DTS Transactions Logs')]
         if ($this->statusFilter !== '') {
             switch ($this->statusFilter) {
                 case 'in_transit':
-                    $query->whereNull('sub_document_tracking_system_logs.date_in');
+                    $query->whereNull("{$logsTbl}.date_in");
                     break;
                 case 'holding':
-                    $query->whereNotNull('sub_document_tracking_system_logs.date_in')
-                          ->whereNull('sub_document_tracking_system_logs.date_out');
+                    $query->whereNotNull("{$logsTbl}.date_in")
+                          ->whereNull("{$logsTbl}.date_out");
                     break;
                 case 'forwarded':
-                    $query->whereNotNull('sub_document_tracking_system_logs.date_out');
+                    $query->whereNotNull("{$logsTbl}.date_out");
                     break;
                 case 'returned':
-                    $query->where(function($sub) {
-                        $sub->where('sub_document_tracking_system_logs.type', 'returned')
-                            ->orWhere('sub_document_tracking_system_logs.notes', 'like', '%revision%')
-                            ->orWhere('sub_document_tracking_system_logs.notes', 'like', '%returned%');
+                    $query->where(function($sub) use ($logsTbl) {
+                        $sub->where("{$logsTbl}.type", 'returned')
+                            ->orWhere("{$logsTbl}.notes", 'like', '%revision%')
+                            ->orWhere("{$logsTbl}.notes", 'like', '%returned%');
                     });
                     break;
                 default:
-                    $query->where('sub_document_tracking_system_logs.type', $this->statusFilter);
+                    $query->where("{$logsTbl}.type", $this->statusFilter);
                     break;
             }
         }
 
         // Office Filter
         if ($this->officeFilter !== '') {
-            $query->where('sub_document_tracking_system_logs.office_code', $this->officeFilter);
+            $query->where("{$logsTbl}.office_code", $this->officeFilter);
         }
 
-        $logs = $query->orderBy('sub_document_tracking_system_logs.id', 'desc')->paginate(15);
+        $logs = $query->orderBy("{$logsTbl}.id", 'desc')->paginate(15);
 
         // Calculate Overview Statistics
         $stats = [
-            'total'      => DB::table('sub_document_tracking_system_logs')->count(),
-            'in_transit' => DB::table('sub_document_tracking_system_logs')->whereNull('date_in')->count(),
-            'holding'    => DB::table('sub_document_tracking_system_logs')->whereNotNull('date_in')->whereNull('date_out')->count(),
-            'forwarded'  => DB::table('sub_document_tracking_system_logs')->whereNotNull('date_out')->count(),
+            'total'      => DB::table($logsTbl)->count(),
+            'in_transit' => DB::table($logsTbl)->whereNull('date_in')->count(),
+            'holding'    => DB::table($logsTbl)->whereNotNull('date_in')->whereNull('date_out')->count(),
+            'forwarded'  => DB::table($logsTbl)->whereNotNull('date_out')->count(),
         ];
 
         // Office List for Filter
-        $offices = DB::table('office')
+        $offices = DB::table($officeTbl)
             ->where('is_active', true)
             ->whereNotIn('office_code', ['ORIGIN', '[H]', '[HUB]'])
             ->orderBy('office_name', 'asc')

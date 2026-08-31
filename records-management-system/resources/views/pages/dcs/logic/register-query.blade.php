@@ -491,7 +491,7 @@ class RegisterQueryHelper
                     ->where('reto_os.office_id', $officeId);
             })->orWhereExists(function ($sub) use ($drAlias, $officeId) {
                 $sub->select(DB::raw(1))
-                    ->from('account_details as ad_os')
+                    ->from((\Illuminate\Support\Facades\Schema::hasTable('sys_account_details') ? 'sys_account_details' : 'account_details') . ' as ad_os')
                     ->whereColumn('ad_os.account_id', $drAlias . '.created_by')
                     ->where('ad_os.office_id', $officeId);
             });
@@ -1696,8 +1696,9 @@ class RegisterQueryHelper
         $documents = $query->skip(($page - 1) * $perPage)->take($perPage)->get();
 
         $deletedByIds = $documents->pluck('deleted_by')->filter()->unique()->all();
+        $accDetailsTbl = \Illuminate\Support\Facades\Schema::hasTable('sys_account_details') ? 'sys_account_details' : 'account_details';
         $deletedByNames = $deletedByIds && Schema::hasColumn('dcs_document_requests', 'deleted_by')
-            ? DB::table('account_details')
+            ? DB::table($accDetailsTbl)
                 ->whereIn('account_id', $deletedByIds)
                 ->get()
                 ->mapWithKeys(fn ($d) => [(int) $d->account_id => trim($d->first_name . ' ' . $d->last_name)])
@@ -2024,7 +2025,7 @@ class RegisterQueryHelper
         $drfIds = $docs->map(fn ($d) => $d->documentRequestForm->id ?? null)->filter()->values()->all();
         $drfOffices = $drfIds
             ? DB::table('dcs_drf_offices as d')
-                ->leftJoin('office as o', 'o.id', '=', 'd.office_id')
+                ->leftJoin((\Illuminate\Support\Facades\Schema::hasTable('sys_office') ? 'sys_office' : 'office') . ' as o', 'o.id', '=', 'd.office_id')
                 ->whereIn('d.document_request_form_id', $drfIds)
                 ->get(['d.document_request_form_id', 'o.office_name'])
                 ->groupBy('document_request_form_id')
@@ -2033,7 +2034,7 @@ class RegisterQueryHelper
         $dcnIds = $docs->map(fn ($d) => $d->documentChangeNotice->id ?? null)->filter()->values()->all();
         $dcnOffices = $dcnIds
             ? DB::table('dcs_dcn_offices as d')
-                ->leftJoin('office as o', 'o.id', '=', 'd.office_id')
+                ->leftJoin((\Illuminate\Support\Facades\Schema::hasTable('sys_office') ? 'sys_office' : 'office') . ' as o', 'o.id', '=', 'd.office_id')
                 ->whereIn('d.dcn_id', $dcnIds)
                 ->get(['d.dcn_id', 'o.office_name'])
                 ->groupBy('dcn_id')
@@ -2060,7 +2061,8 @@ class RegisterQueryHelper
 
         $creatorIds = $mls->pluck('request_created_by')->merge($mls->pluck('created_by'))->filter()->unique()->all();
         if ($creatorIds) {
-            $lookups['creators'] = DB::table('account_details')
+            $accDetailsTbl = \Illuminate\Support\Facades\Schema::hasTable('sys_account_details') ? 'sys_account_details' : 'account_details';
+            $lookups['creators'] = DB::table($accDetailsTbl)
                 ->whereIn('account_id', $creatorIds)
                 ->get()
                 ->mapWithKeys(fn ($d) => [(int) $d->account_id => trim($d->first_name . ' ' . $d->last_name)]);
@@ -4515,7 +4517,7 @@ class RegisterQueryHelper
 
         $offices = self::previewOfficeRows(
             DB::table('dcs_drf_offices as d')
-                ->leftJoin('office as o', 'o.id', '=', 'd.office_id')
+                ->leftJoin((\Illuminate\Support\Facades\Schema::hasTable('sys_office') ? 'sys_office' : 'office') . ' as o', 'o.id', '=', 'd.office_id')
                 ->where('d.document_request_form_id', $drf->id)
                 ->get(['o.office_name'])
         );
@@ -4547,7 +4549,7 @@ class RegisterQueryHelper
 
         $offices = self::previewOfficeRows(
             DB::table('dcs_dcn_offices as d')
-                ->leftJoin('office as o', 'o.id', '=', 'd.office_id')
+                ->leftJoin((\Illuminate\Support\Facades\Schema::hasTable('sys_office') ? 'sys_office' : 'office') . ' as o', 'o.id', '=', 'd.office_id')
                 ->where('d.dcn_id', $dcn->id)
                 ->get(['o.office_name'])
         );
@@ -4592,7 +4594,7 @@ class RegisterQueryHelper
 
         $offices = self::previewOfficeRows(
             DB::table('dcs_masterlist_source_offices as s')
-                ->leftJoin('office as o', 'o.id', '=', 's.office_id')
+                ->leftJoin((\Illuminate\Support\Facades\Schema::hasTable('sys_office') ? 'sys_office' : 'office') . ' as o', 'o.id', '=', 's.office_id')
                 ->where('s.masterlist_id', $ml->id)
                 ->get(['o.office_name'])
         );
@@ -4657,7 +4659,7 @@ class RegisterQueryHelper
 
         $offices = self::previewOfficeRows(
             DB::table('dcs_distribution_offices as d')
-                ->leftJoin('office as o', 'o.id', '=', 'd.office_id')
+                ->leftJoin((\Illuminate\Support\Facades\Schema::hasTable('sys_office') ? 'sys_office' : 'office') . ' as o', 'o.id', '=', 'd.office_id')
                 ->where('d.distribution_id', $dist->id)
                 ->orderBy('o.office_name')
                 ->get(['o.office_name', 'd.copies']),
@@ -4692,7 +4694,7 @@ class RegisterQueryHelper
 
         $offices = self::previewOfficeRows(
             DB::table('dcs_retrieval_offices as r')
-                ->leftJoin('office as o', 'o.id', '=', 'r.office_id')
+                ->leftJoin((\Illuminate\Support\Facades\Schema::hasTable('sys_office') ? 'sys_office' : 'office') . ' as o', 'o.id', '=', 'r.office_id')
                 ->where('r.retrieval_id', $ret->id)
                 ->orderBy('o.office_name')
                 ->get(['o.office_name', 'r.copies']),
@@ -4788,7 +4790,7 @@ class RegisterQueryHelper
                 $latestDistributionOffices = [];
                 if ($latestDistribution) {
                     $latestDistributionOffices = DB::table('dcs_distribution_offices as d')
-                        ->leftJoin('office as o', 'o.id', '=', 'd.office_id')
+                        ->leftJoin((\Illuminate\Support\Facades\Schema::hasTable('sys_office') ? 'sys_office' : 'office') . ' as o', 'o.id', '=', 'd.office_id')
                         ->where('d.distribution_id', $latestDistribution->id)
                         ->orderBy('d.sort_order')
                         ->orderBy('d.id')
@@ -4806,7 +4808,7 @@ class RegisterQueryHelper
                 }
 
                 $sourceOffices = DB::table('dcs_masterlist_source_offices as s')
-                    ->leftJoin('office as o', 'o.id', '=', 's.office_id')
+                    ->leftJoin((\Illuminate\Support\Facades\Schema::hasTable('sys_office') ? 'sys_office' : 'office') . ' as o', 'o.id', '=', 's.office_id')
                     ->where('s.masterlist_id', $latest->id)
                     ->get(['o.office_name']);
                 $latestSourceUnit = $sourceOffices->pluck('office_name')->filter()->implode(', ');
@@ -5041,7 +5043,7 @@ class RegisterQueryHelper
         $drf = DB::table('dcs_document_request_form')->where('request_id', $id)->first();
         $drfOffices = $drf
             ? DB::table('dcs_drf_offices as d')
-                ->leftJoin('office as o', 'o.id', '=', 'd.office_id')
+                ->leftJoin((\Illuminate\Support\Facades\Schema::hasTable('sys_office') ? 'sys_office' : 'office') . ' as o', 'o.id', '=', 'd.office_id')
                 ->where('d.document_request_form_id', $drf->id)
                 ->get(['d.office_id', 'o.office_name'])
             : collect();
@@ -5049,7 +5051,7 @@ class RegisterQueryHelper
         $dcn = DB::table('dcs_document_change_notice')->where('request_id', $id)->first();
         $dcnOffices = $dcn
             ? DB::table('dcs_dcn_offices as d')
-                ->leftJoin('office as o', 'o.id', '=', 'd.office_id')
+                ->leftJoin((\Illuminate\Support\Facades\Schema::hasTable('sys_office') ? 'sys_office' : 'office') . ' as o', 'o.id', '=', 'd.office_id')
                 ->where('d.dcn_id', $dcn->id)
                 ->get(['d.office_id', 'o.office_name'])
             : collect();
@@ -5067,7 +5069,7 @@ class RegisterQueryHelper
         }
         $retrievalOffices = $retrieval
             ? DB::table('dcs_retrieval_offices as r')
-                ->leftJoin('office as o', 'o.id', '=', 'r.office_id')
+                ->leftJoin((\Illuminate\Support\Facades\Schema::hasTable('sys_office') ? 'sys_office' : 'office') . ' as o', 'o.id', '=', 'r.office_id')
                 ->where('r.retrieval_id', $retrieval->id)
                 ->get($retrievalOfficeColumns)
             : collect();
@@ -5095,7 +5097,7 @@ class RegisterQueryHelper
         }
         $distributionOffices = $distribution
             ? DB::table('dcs_distribution_offices as d')
-                ->leftJoin('office as o', 'o.id', '=', 'd.office_id')
+                ->leftJoin((\Illuminate\Support\Facades\Schema::hasTable('sys_office') ? 'sys_office' : 'office') . ' as o', 'o.id', '=', 'd.office_id')
                 ->where('d.distribution_id', $distribution->id)
                 ->orderBy('d.sort_order')
                 ->orderBy('d.id')
@@ -5152,7 +5154,7 @@ class RegisterQueryHelper
         $sourceOffices = collect();
         if ($ml) {
             $sourceOffices = DB::table('dcs_masterlist_source_offices as s')
-                ->leftJoin('office as o', 'o.id', '=', 's.office_id')
+                ->leftJoin((\Illuminate\Support\Facades\Schema::hasTable('sys_office') ? 'sys_office' : 'office') . ' as o', 'o.id', '=', 's.office_id')
                 ->where('s.masterlist_id', $ml->id)
                 ->get(['s.office_id', 'o.office_name']);
         }
@@ -5329,7 +5331,7 @@ class RegisterQueryHelper
 
         $rows = DB::table('dcs_retrieval_offices as r')
             ->join('dcs_document_retrieval as ret', 'ret.id', '=', 'r.retrieval_id')
-            ->leftJoin('office as o', 'o.id', '=', 'r.office_id')
+            ->leftJoin((\Illuminate\Support\Facades\Schema::hasTable('sys_office') ? 'sys_office' : 'office') . ' as o', 'o.id', '=', 'r.office_id')
             ->whereIn('ret.request_id', $priorRequestIds)
             ->where('r.retrieval_status', 'retrieved')
             ->whereNotNull('r.office_id')
@@ -5416,7 +5418,7 @@ class RegisterQueryHelper
         $relatedByMl = collect();
         if ($mlIds) {
             $sourceByMl = DB::table('dcs_masterlist_source_offices as so')
-                ->leftJoin('office as o', 'o.id', '=', 'so.office_id')
+                ->leftJoin((\Illuminate\Support\Facades\Schema::hasTable('sys_office') ? 'sys_office' : 'office') . ' as o', 'o.id', '=', 'so.office_id')
                 ->whereIn('so.masterlist_id', $mlIds)
                 ->get(['so.masterlist_id', 'so.office_id', 'o.office_name'])
                 ->groupBy('masterlist_id')
@@ -5448,7 +5450,7 @@ class RegisterQueryHelper
         $distIds = $dists->pluck('id')->all();
         $distOffices = $distIds
             ? DB::table('dcs_distribution_offices as dof')
-                ->leftJoin('office as o', 'o.id', '=', 'dof.office_id')
+                ->leftJoin((\Illuminate\Support\Facades\Schema::hasTable('sys_office') ? 'sys_office' : 'office') . ' as o', 'o.id', '=', 'dof.office_id')
                 ->whereIn('dof.distribution_id', $distIds)
                 ->orderBy('dof.sort_order')
                 ->orderBy('dof.id')
@@ -5465,7 +5467,7 @@ class RegisterQueryHelper
         $retIds = $rets->pluck('id')->all();
         $retOffices = $retIds
             ? DB::table('dcs_retrieval_offices as rof')
-                ->leftJoin('office as o', 'o.id', '=', 'rof.office_id')
+                ->leftJoin((\Illuminate\Support\Facades\Schema::hasTable('sys_office') ? 'sys_office' : 'office') . ' as o', 'o.id', '=', 'rof.office_id')
                 ->whereIn('rof.retrieval_id', $retIds)
                 ->get(['rof.retrieval_id', 'rof.office_id', 'rof.copies', 'o.office_name'])
                 ->groupBy('retrieval_id')
@@ -5552,7 +5554,7 @@ class RegisterQueryHelper
             : collect();
         $mlIds = $records->pluck('id')->all();
         $sourceByMl = DB::table('dcs_masterlist_source_offices as so')
-            ->leftJoin('office as o', 'o.id', '=', 'so.office_id')
+            ->leftJoin((\Illuminate\Support\Facades\Schema::hasTable('sys_office') ? 'sys_office' : 'office') . ' as o', 'o.id', '=', 'so.office_id')
             ->whereIn('so.masterlist_id', $mlIds)
             ->get(['so.masterlist_id', 'so.office_id', 'o.office_name'])
             ->groupBy('masterlist_id')
@@ -5645,7 +5647,7 @@ class RegisterQueryHelper
         }
 
         return $cache = [
-            'offices' => DB::table('office')
+            'offices' => DB::table(\Illuminate\Support\Facades\Schema::hasTable('sys_office') ? 'sys_office' : 'office')
                 ->where('is_active', true)
                 ->orderBy('office_name')
                 ->get(['id', 'office_name', 'office_code', 'cluster'])
@@ -5657,7 +5659,7 @@ class RegisterQueryHelper
                 ])
                 ->values()
                 ->all(),
-            'clusters' => DB::table('cluster')
+            'clusters' => DB::table(\Illuminate\Support\Facades\Schema::hasTable('sys_cluster') ? 'sys_cluster' : 'cluster')
                 ->where('is_active', true)
                 ->orderBy('cluster_name')
                 ->get(['id', 'cluster_name', 'cluster_code'])

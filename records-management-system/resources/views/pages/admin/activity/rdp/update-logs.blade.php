@@ -40,9 +40,13 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Volume Conversion Logs')
 
     public function with(): array
     {
-        $query = DB::table('admin_logs')
-            ->leftJoin('account', 'admin_logs.admin_id', '=', 'account.id')
-            ->leftJoin('account_details', 'account.id', '=', 'account_details.account_id')
+        $adminLogsTable = \Illuminate\Support\Facades\Schema::hasTable('sys_admin_logs') ? 'sys_admin_logs' : 'admin_logs';
+        $accountTable = \Illuminate\Support\Facades\Schema::hasTable('sys_account') ? 'sys_account' : 'account';
+        $accountDetailsTable = \Illuminate\Support\Facades\Schema::hasTable('sys_account_details') ? 'sys_account_details' : 'account_details';
+
+        $query = DB::table($adminLogsTable . ' as admin_logs')
+            ->leftJoin($accountTable . ' as account', 'admin_logs.admin_id', '=', 'account.id')
+            ->leftJoin($accountDetailsTable . ' as account_details', 'account.id', '=', 'account_details.account_id')
             ->where('admin_logs.what_system', 2) // RDP Subsystem
             ->select([
                 'admin_logs.*',
@@ -65,10 +69,10 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Volume Conversion Logs')
             $query->whereDate('admin_logs.when_changes', $this->dateFilter);
         }
 
-        $totalLogs = DB::table('admin_logs')->where('what_system', 2)->count();
-        $conversionLogs = DB::table('admin_logs')->where('what_system', 2)->where('changes', 'like', '%Conversion%')->count();
-        $unitLogs = DB::table('admin_logs')->where('what_system', 2)->where('changes', 'like', '%Unit%')->count();
-        $recent24hLogs = DB::table('admin_logs')->where('what_system', 2)->where('when_changes', '>=', now()->subHours(24))->count();
+        $totalLogs = DB::table(\Illuminate\Support\Facades\Schema::hasTable('sys_admin_logs') ? 'sys_admin_logs' : 'admin_logs')->where('what_system', 2)->count();
+        $conversionLogs = DB::table(\Illuminate\Support\Facades\Schema::hasTable('sys_admin_logs') ? 'sys_admin_logs' : 'admin_logs')->where('what_system', 2)->where('changes', 'like', '%Conversion%')->count();
+        $unitLogs = DB::table(\Illuminate\Support\Facades\Schema::hasTable('sys_admin_logs') ? 'sys_admin_logs' : 'admin_logs')->where('what_system', 2)->where('changes', 'like', '%Unit%')->count();
+        $recent24hLogs = DB::table(\Illuminate\Support\Facades\Schema::hasTable('sys_admin_logs') ? 'sys_admin_logs' : 'admin_logs')->where('what_system', 2)->where('when_changes', '>=', now()->subHours(24))->count();
 
         return [
             'logs'           => $query->orderBy('admin_logs.when_changes', 'desc')->paginate(15),

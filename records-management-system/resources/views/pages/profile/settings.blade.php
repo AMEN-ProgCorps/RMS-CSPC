@@ -31,6 +31,15 @@ new #[Layout('layouts.profile')] #[Title('Profile Manager - Preferences & Settin
     /** @var string|null Personal preference for sidebar navigation toggle shortcut */
     public ?string $sidebarToggleKey = null;
 
+    /** @var string|null Personal preference for actions menu toggle shortcut */
+    public ?string $actionToggleKey = null;
+
+    /** @var string|null Personal preference for notification center toggle shortcut */
+    public ?string $notificationToggleKey = null;
+
+    /** @var string|null Personal preference for chatify widget toggle shortcut */
+    public ?string $chatifyToggleKey = null;
+
     /** @var string|null Feedback notification message */
     public ?string $feedbackMessage = null;
 
@@ -57,6 +66,9 @@ new #[Layout('layouts.profile')] #[Title('Profile Manager - Preferences & Settin
             $this->theme = $user->theme();
             $this->modalCloseKey = $user->modalCloseKey();
             $this->sidebarToggleKey = $user->sidebarToggleKey();
+            $this->actionToggleKey = $user->actionToggleKey();
+            $this->notificationToggleKey = $user->notificationToggleKey();
+            $this->chatifyToggleKey = $user->chatifyToggleKey();
         }
     }
 
@@ -127,7 +139,7 @@ new #[Layout('layouts.profile')] #[Title('Profile Manager - Preferences & Settin
         }
     }
 
-    public function setModalCloseKey(?string $key): void
+    private function assignKeySetting(string $targetField, ?string $key, string $targetLabel): void
     {
         $key = trim((string)$key);
         if (empty($key) || strtolower($key) === 'none') {
@@ -137,38 +149,68 @@ new #[Layout('layouts.profile')] #[Title('Profile Manager - Preferences & Settin
         }
 
         $user = Auth::user();
-        if ($user) {
-            $setting = PersonalSetting::firstOrCreate(
-                ['user' => $user->id],
-                ['auto_open_chat' => true, 'notification_sound_alert' => true, 'enable_top_tabs' => true, 'theme' => 'light', 'modal_close_key' => 'Escape', 'sidebar_toggle_key' => null]
-            );
+        if (!$user) return;
 
-            $conflictOccurred = false;
-            // Conflict check: if key matches sidebarToggleKey, unbind sidebarToggleKey
-            if ($key !== null && !empty($this->sidebarToggleKey)) {
-                if (strcasecmp($key, $this->sidebarToggleKey) === 0) {
-                    $setting->sidebar_toggle_key = null;
-                    $this->sidebarToggleKey = null;
-                    $conflictOccurred = true;
-                    $this->js("localStorage.setItem('rms-sidebar-toggle-key', 'none'); window.RMS_SIDEBAR_TOGGLE_KEY = ''; window.dispatchEvent(new CustomEvent('rms-sidebar-key-changed', { detail: 'none' }));");
+        $setting = PersonalSetting::firstOrCreate(
+            ['user' => $user->id],
+            [
+                'auto_open_chat' => true, 
+                'notification_sound_alert' => true, 
+                'enable_top_tabs' => true, 
+                'theme' => 'light', 
+                'modal_close_key' => 'Escape', 
+                'sidebar_toggle_key' => null,
+                'action_toggle_key' => null,
+                'notification_toggle_key' => null,
+                'chatify_toggle_key' => null,
+            ]
+        );
+
+        $conflictNames = [];
+        $keyMap = [
+            'modal_close_key' => ['prop' => 'modalCloseKey', 'name' => 'Modal Close', 'storage' => 'rms-modal-close-key', 'event' => 'rms-modal-key-changed', 'window' => 'RMS_MODAL_CLOSE_KEY'],
+            'sidebar_toggle_key' => ['prop' => 'sidebarToggleKey', 'name' => 'Sidebar Navigation', 'storage' => 'rms-sidebar-toggle-key', 'event' => 'rms-sidebar-key-changed', 'window' => 'RMS_SIDEBAR_TOGGLE_KEY'],
+            'action_toggle_key' => ['prop' => 'actionToggleKey', 'name' => 'Actions Menu', 'storage' => 'rms-action-toggle-key', 'event' => 'rms-action-key-changed', 'window' => 'RMS_ACTION_TOGGLE_KEY'],
+            'notification_toggle_key' => ['prop' => 'notificationToggleKey', 'name' => 'Notification Center', 'storage' => 'rms-notif-toggle-key', 'event' => 'rms-notif-key-changed', 'window' => 'RMS_NOTIF_TOGGLE_KEY'],
+            'chatify_toggle_key' => ['prop' => 'chatifyToggleKey', 'name' => 'Chatify Widget', 'storage' => 'rms-chatify-toggle-key', 'event' => 'rms-chatify-key-changed', 'window' => 'RMS_CHATIFY_TOGGLE_KEY'],
+        ];
+
+        if ($key !== null) {
+            foreach ($keyMap as $field => $meta) {
+                if ($field !== $targetField) {
+                    $prop = $meta['prop'];
+                    if (!empty($this->{$prop}) && strcasecmp($this->{$prop}, $key) === 0) {
+                        $setting->{$field} = null;
+                        $this->{$prop} = null;
+                        $conflictNames[] = $meta['name'];
+                        $this->js("localStorage.setItem('{$meta['storage']}', 'none'); window.{$meta['window']} = ''; window.dispatchEvent(new CustomEvent('{$meta['event']}', { detail: 'none' }));");
+                    }
                 }
             }
-
-            $setting->modal_close_key = $key;
-            $setting->save();
-            $this->modalCloseKey = $key;
-
-            $displayKey = $key ? ($key === 'Escape' ? 'Esc (Default)' : $key) : 'None (Disabled)';
-            if ($conflictOccurred) {
-                $this->feedbackMessage = "Assigned '{$displayKey}' to Modal Close (unassigned from Sidebar Toggle to avoid duplicate key).";
-            } else {
-                $this->feedbackMessage = "Preference updated: Modal close shortcut set to {$displayKey}.";
-            }
-
-            $jsKey = $key ? $key : 'none';
-            $this->js("localStorage.setItem('rms-modal-close-key', '{$jsKey}'); window.RMS_MODAL_CLOSE_KEY = '{$key}'; window.dispatchEvent(new CustomEvent('rms-modal-key-changed', { detail: '{$jsKey}' }));");
-            $this->dispatch('rms-settings-changed', type: 'profile_preference', message: 'Modal close shortcut updated.');
         }
+
+        $setting->{$targetField} = $key;
+        $setting->save();
+        $targetProp = $keyMap[$targetField]['prop'];
+        $this->{$targetProp} = $key;
+
+        $targetMeta = $keyMap[$targetField];
+        $displayKey = $key ? ($key === 'Escape' ? 'Esc' : $key) : 'None (Disabled)';
+        if (!empty($conflictNames)) {
+            $unassignedList = implode(', ', $conflictNames);
+            $this->feedbackMessage = "Assigned '{$displayKey}' to {$targetLabel} (unassigned from {$unassignedList} to avoid duplicate key).";
+        } else {
+            $this->feedbackMessage = "Preference updated: {$targetLabel} set to {$displayKey}.";
+        }
+
+        $jsKey = $key ? $key : 'none';
+        $this->js("localStorage.setItem('{$targetMeta['storage']}', '{$jsKey}'); window.{$targetMeta['window']} = '{$key}'; window.dispatchEvent(new CustomEvent('{$targetMeta['event']}', { detail: '{$jsKey}' }));");
+        $this->dispatch('rms-settings-changed', type: 'profile_preference', message: "{$targetLabel} updated.");
+    }
+
+    public function setModalCloseKey(?string $key): void
+    {
+        $this->assignKeySetting('modal_close_key', $key, 'Modal Close Shortcut');
     }
 
     public function resetModalCloseKey(): void
@@ -183,51 +225,42 @@ new #[Layout('layouts.profile')] #[Title('Profile Manager - Preferences & Settin
 
     public function setSidebarToggleKey(?string $key): void
     {
-        $key = trim((string)$key);
-        if (empty($key) || strtolower($key) === 'none') {
-            $key = null;
-        } elseif (strlen($key) > 50) {
-            $key = substr($key, 0, 50);
-        }
-
-        $user = Auth::user();
-        if ($user) {
-            $setting = PersonalSetting::firstOrCreate(
-                ['user' => $user->id],
-                ['auto_open_chat' => true, 'notification_sound_alert' => true, 'enable_top_tabs' => true, 'theme' => 'light', 'modal_close_key' => 'Escape', 'sidebar_toggle_key' => null]
-            );
-
-            $conflictOccurred = false;
-            // Conflict check: if key matches modalCloseKey, unbind modalCloseKey
-            if ($key !== null && !empty($this->modalCloseKey)) {
-                if (strcasecmp($key, $this->modalCloseKey) === 0) {
-                    $setting->modal_close_key = null;
-                    $this->modalCloseKey = null;
-                    $conflictOccurred = true;
-                    $this->js("localStorage.setItem('rms-modal-close-key', 'none'); window.RMS_MODAL_CLOSE_KEY = ''; window.dispatchEvent(new CustomEvent('rms-modal-key-changed', { detail: 'none' }));");
-                }
-            }
-
-            $setting->sidebar_toggle_key = $key;
-            $setting->save();
-            $this->sidebarToggleKey = $key;
-
-            $displayKey = $key ? $key : 'None (Unassigned)';
-            if ($conflictOccurred) {
-                $this->feedbackMessage = "Assigned '{$displayKey}' to Sidebar Toggle (unassigned from Modal Close to avoid duplicate key).";
-            } else {
-                $this->feedbackMessage = "Preference updated: Sidebar toggle shortcut set to {$displayKey}.";
-            }
-
-            $jsKey = $key ? $key : 'none';
-            $this->js("localStorage.setItem('rms-sidebar-toggle-key', '{$jsKey}'); window.RMS_SIDEBAR_TOGGLE_KEY = '{$key}'; window.dispatchEvent(new CustomEvent('rms-sidebar-key-changed', { detail: '{$jsKey}' }));");
-            $this->dispatch('rms-settings-changed', type: 'profile_preference', message: 'Sidebar toggle shortcut updated.');
-        }
+        $this->assignKeySetting('sidebar_toggle_key', $key, 'Sidebar Navigation Panel Toggle');
     }
 
     public function resetSidebarToggleKey(): void
     {
         $this->setSidebarToggleKey(null);
+    }
+
+    public function setActionToggleKey(?string $key): void
+    {
+        $this->assignKeySetting('action_toggle_key', $key, 'Actions Menu Toggle');
+    }
+
+    public function resetActionToggleKey(): void
+    {
+        $this->setActionToggleKey(null);
+    }
+
+    public function setNotificationToggleKey(?string $key): void
+    {
+        $this->assignKeySetting('notification_toggle_key', $key, 'Notification Center Toggle');
+    }
+
+    public function resetNotificationToggleKey(): void
+    {
+        $this->setNotificationToggleKey(null);
+    }
+
+    public function setChatifyToggleKey(?string $key): void
+    {
+        $this->assignKeySetting('chatify_toggle_key', $key, 'Chatify Messaging Widget Toggle');
+    }
+
+    public function resetChatifyToggleKey(): void
+    {
+        $this->setChatifyToggleKey(null);
     }
 
     public function checkRoleUpdate(): void
@@ -960,6 +993,283 @@ new #[Layout('layouts.profile')] #[Title('Profile Manager - Preferences & Settin
                 <div class="settings-clarification-badge" style="margin-top: 6px;">
                     <i class="fa-solid fa-circle-info" style="color: #2563eb; margin-top: 2px;"></i>
                     <span><strong>Clarification:</strong> By default, this is <strong>Unassigned (None)</strong>. When assigned to any key, pressing it will quickly collapse or expand the navigation sidebar across all subsystems.</span>
+                </div>
+            </div>
+
+            <!-- Actions Menu Toggle Shortcut Key Configuration -->
+            <div class="settings-block-row"
+                 style="border-top: 1px solid var(--border-color, #e2e8f0); padding-top: 18px; margin-top: 14px;"
+                 x-data="{
+                     isRecording: false,
+                     currentKey: @entangle('actionToggleKey'),
+                     startRecording() {
+                         this.isRecording = true;
+                         const handleKey = (e) => {
+                             e.preventDefault();
+                             e.stopPropagation();
+                             let pressedKey = e.key;
+                             if (pressedKey === ' ' || e.code === 'Space') pressedKey = 'Space';
+                             if (pressedKey === 'Escape' || pressedKey === 'Esc') pressedKey = 'Escape';
+                             $wire.setActionToggleKey(pressedKey);
+                             this.isRecording = false;
+                             window.removeEventListener('keydown', handleKey, true);
+                         };
+                         window.addEventListener('keydown', handleKey, true);
+                         setTimeout(() => {
+                             if (this.isRecording) {
+                                 this.isRecording = false;
+                                 window.removeEventListener('keydown', handleKey, true);
+                             }
+                         }, 10000);
+                     }
+                 }">
+                <div style="display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap;">
+                    <!-- Left Column: Keybind Name and Description -->
+                    <div style="flex: 1; min-width: 260px;">
+                        <span class="settings-info-title">
+                            <i class="fa-solid fa-bolt" style="color: #2563eb; margin-right: 8px; font-size: 14px;"></i>
+                            Actions Menu Toggle
+                        </span>
+                        <span class="settings-info-desc" style="margin-top: 3px;">
+                            Choose or record a keyboard shortcut key to toggle open and close the Actions dropdown menu.
+                        </span>
+                    </div>
+
+                    <!-- Right Column: Buttons centered vertically relative to Name + Description -->
+                    <div style="display: inline-flex; align-items: center; gap: 8px; flex-wrap: wrap; justify-content: flex-end; flex-shrink: 0;">
+                        <!-- Key Badge Display -->
+                        <div class="shortcut-badge-container">
+                            <span class="shortcut-key-label">Active Key:</span>
+                            <kbd class="shortcut-kbd-badge" 
+                                 :style="!currentKey || currentKey === 'none' ? 'color: #94a3b8; font-weight: 500;' : ''" 
+                                 x-text="!currentKey || currentKey === 'none' ? 'None' : currentKey">{{ empty($actionToggleKey) ? 'None' : $actionToggleKey }}</kbd>
+                        </div>
+
+                        <!-- Quick Preset Dropdown -->
+                        <div class="shortcut-select-wrapper">
+                            <select class="shortcut-select-dropdown"
+                                    @change="$wire.setActionToggleKey($event.target.value)"
+                                    :value="!currentKey || currentKey === 'none' ? 'none' : (['a', 'e', 'o', 'F4', 'Alt'].includes(currentKey) ? currentKey : 'custom')">
+                                <option value="none">None (Disabled)</option>
+                                <option value="a">A Key</option>
+                                <option value="e">E Key</option>
+                                <option value="o">O Key</option>
+                                <option value="F4">F4 Key</option>
+                                <option value="Alt">Alt Key</option>
+                                <option value="custom" x-show="currentKey && currentKey !== 'none' && !['a', 'e', 'o', 'F4', 'Alt'].includes(currentKey)" x-text="'Custom Key (' + (currentKey === ' ' ? 'Space' : currentKey) + ')'">Custom Key ({{ $actionToggleKey }})</option>
+                            </select>
+                        </div>
+
+                        <!-- Record Key Button -->
+                        <button type="button" 
+                                @click="startRecording()" 
+                                :class="{ 'shortcut-record-btn--active': isRecording }"
+                                class="shortcut-record-btn"
+                                title="Click to press any key on your keyboard to set as actions toggle shortcut">
+                            <i class="fa-solid fa-record-vinyl" :style="isRecording ? 'color: #ef4444; animation: recordingPulse 1s infinite;' : ''"></i>
+                            <span x-text="isRecording ? 'Press key now...' : 'Record Key'">Record Key</span>
+                        </button>
+
+                        <!-- Clear Button -->
+                        <button type="button" 
+                                wire:click="resetActionToggleKey"
+                                class="shortcut-reset-btn"
+                                x-show="currentKey && currentKey !== 'none'"
+                                title="Clear shortcut and disable actions toggle keybind">
+                            <i class="fa-solid fa-trash-can"></i>
+                            <span>Clear</span>
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Full-width Clarification Badge -->
+                <div class="settings-clarification-badge" style="margin-top: 6px;">
+                    <i class="fa-solid fa-circle-info" style="color: #2563eb; margin-top: 2px;"></i>
+                    <span><strong>Clarification:</strong> By default, this is <strong>Unassigned (None)</strong>. When assigned to any key, pressing it will open or dismiss the top Actions quick-access menu.</span>
+                </div>
+            </div>
+
+            <!-- Notification Center Toggle Shortcut Key Configuration -->
+            <div class="settings-block-row"
+                 style="border-top: 1px solid var(--border-color, #e2e8f0); padding-top: 18px; margin-top: 14px;"
+                 x-data="{
+                     isRecording: false,
+                     currentKey: @entangle('notificationToggleKey'),
+                     startRecording() {
+                         this.isRecording = true;
+                         const handleKey = (e) => {
+                             e.preventDefault();
+                             e.stopPropagation();
+                             let pressedKey = e.key;
+                             if (pressedKey === ' ' || e.code === 'Space') pressedKey = 'Space';
+                             if (pressedKey === 'Escape' || pressedKey === 'Esc') pressedKey = 'Escape';
+                             $wire.setNotificationToggleKey(pressedKey);
+                             this.isRecording = false;
+                             window.removeEventListener('keydown', handleKey, true);
+                         };
+                         window.addEventListener('keydown', handleKey, true);
+                         setTimeout(() => {
+                             if (this.isRecording) {
+                                 this.isRecording = false;
+                                 window.removeEventListener('keydown', handleKey, true);
+                             }
+                         }, 10000);
+                     }
+                 }">
+                <div style="display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap;">
+                    <!-- Left Column: Keybind Name and Description -->
+                    <div style="flex: 1; min-width: 260px;">
+                        <span class="settings-info-title">
+                            <i class="fa-solid fa-bell" style="color: #2563eb; margin-right: 8px; font-size: 14px;"></i>
+                            Notification Center Toggle
+                        </span>
+                        <span class="settings-info-desc" style="margin-top: 3px;">
+                            Choose or record a keyboard shortcut key to toggle open and close the Notification Center.
+                        </span>
+                    </div>
+
+                    <!-- Right Column: Buttons centered vertically relative to Name + Description -->
+                    <div style="display: inline-flex; align-items: center; gap: 8px; flex-wrap: wrap; justify-content: flex-end; flex-shrink: 0;">
+                        <!-- Key Badge Display -->
+                        <div class="shortcut-badge-container">
+                            <span class="shortcut-key-label">Active Key:</span>
+                            <kbd class="shortcut-kbd-badge" 
+                                 :style="!currentKey || currentKey === 'none' ? 'color: #94a3b8; font-weight: 500;' : ''" 
+                                 x-text="!currentKey || currentKey === 'none' ? 'None' : currentKey">{{ empty($notificationToggleKey) ? 'None' : $notificationToggleKey }}</kbd>
+                        </div>
+
+                        <!-- Quick Preset Dropdown -->
+                        <div class="shortcut-select-wrapper">
+                            <select class="shortcut-select-dropdown"
+                                    @change="$wire.setNotificationToggleKey($event.target.value)"
+                                    :value="!currentKey || currentKey === 'none' ? 'none' : (['n', 'i', 'h', 'F6'].includes(currentKey) ? currentKey : 'custom')">
+                                <option value="none">None (Disabled)</option>
+                                <option value="n">N Key</option>
+                                <option value="i">I Key</option>
+                                <option value="h">H Key</option>
+                                <option value="F6">F6 Key</option>
+                                <option value="custom" x-show="currentKey && currentKey !== 'none' && !['n', 'i', 'h', 'F6'].includes(currentKey)" x-text="'Custom Key (' + (currentKey === ' ' ? 'Space' : currentKey) + ')'">Custom Key ({{ $notificationToggleKey }})</option>
+                            </select>
+                        </div>
+
+                        <!-- Record Key Button -->
+                        <button type="button" 
+                                @click="startRecording()" 
+                                :class="{ 'shortcut-record-btn--active': isRecording }"
+                                class="shortcut-record-btn"
+                                title="Click to press any key on your keyboard to set as notification toggle shortcut">
+                            <i class="fa-solid fa-record-vinyl" :style="isRecording ? 'color: #ef4444; animation: recordingPulse 1s infinite;' : ''"></i>
+                            <span x-text="isRecording ? 'Press key now...' : 'Record Key'">Record Key</span>
+                        </button>
+
+                        <!-- Clear Button -->
+                        <button type="button" 
+                                wire:click="resetNotificationToggleKey"
+                                class="shortcut-reset-btn"
+                                x-show="currentKey && currentKey !== 'none'"
+                                title="Clear shortcut and disable notification toggle keybind">
+                            <i class="fa-solid fa-trash-can"></i>
+                            <span>Clear</span>
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Full-width Clarification Badge -->
+                <div class="settings-clarification-badge" style="margin-top: 6px;">
+                    <i class="fa-solid fa-circle-info" style="color: #2563eb; margin-top: 2px;"></i>
+                    <span><strong>Clarification:</strong> By default, this is <strong>Unassigned (None)</strong>. When assigned to any key, pressing it will open or dismiss the notifications popover.</span>
+                </div>
+            </div>
+
+            <!-- Chatify Messaging Widget Toggle Shortcut Key Configuration -->
+            <div class="settings-block-row"
+                 style="border-top: 1px solid var(--border-color, #e2e8f0); padding-top: 18px; margin-top: 14px;"
+                 x-data="{
+                     isRecording: false,
+                     currentKey: @entangle('chatifyToggleKey'),
+                     startRecording() {
+                         this.isRecording = true;
+                         const handleKey = (e) => {
+                             e.preventDefault();
+                             e.stopPropagation();
+                             let pressedKey = e.key;
+                             if (pressedKey === ' ' || e.code === 'Space') pressedKey = 'Space';
+                             if (pressedKey === 'Escape' || pressedKey === 'Esc') pressedKey = 'Escape';
+                             $wire.setChatifyToggleKey(pressedKey);
+                             this.isRecording = false;
+                             window.removeEventListener('keydown', handleKey, true);
+                         };
+                         window.addEventListener('keydown', handleKey, true);
+                         setTimeout(() => {
+                             if (this.isRecording) {
+                                 this.isRecording = false;
+                                 window.removeEventListener('keydown', handleKey, true);
+                             }
+                         }, 10000);
+                     }
+                 }">
+                <div style="display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap;">
+                    <!-- Left Column: Keybind Name and Description -->
+                    <div style="flex: 1; min-width: 260px;">
+                        <span class="settings-info-title">
+                            <i class="fa-solid fa-comment-dots" style="color: #2563eb; margin-right: 8px; font-size: 14px;"></i>
+                            Chatify Messaging Widget Toggle
+                        </span>
+                        <span class="settings-info-desc" style="margin-top: 3px;">
+                            Choose or record a keyboard shortcut key to quickly open and minimize the floating Chatify messenger.
+                        </span>
+                    </div>
+
+                    <!-- Right Column: Buttons centered vertically relative to Name + Description -->
+                    <div style="display: inline-flex; align-items: center; gap: 8px; flex-wrap: wrap; justify-content: flex-end; flex-shrink: 0;">
+                        <!-- Key Badge Display -->
+                        <div class="shortcut-badge-container">
+                            <span class="shortcut-key-label">Active Key:</span>
+                            <kbd class="shortcut-kbd-badge" 
+                                 :style="!currentKey || currentKey === 'none' ? 'color: #94a3b8; font-weight: 500;' : ''" 
+                                 x-text="!currentKey || currentKey === 'none' ? 'None' : currentKey">{{ empty($chatifyToggleKey) ? 'None' : $chatifyToggleKey }}</kbd>
+                        </div>
+
+                        <!-- Quick Preset Dropdown -->
+                        <div class="shortcut-select-wrapper">
+                            <select class="shortcut-select-dropdown"
+                                    @change="$wire.setChatifyToggleKey($event.target.value)"
+                                    :value="!currentKey || currentKey === 'none' ? 'none' : (['c', 'm', 'j', 'F7'].includes(currentKey) ? currentKey : 'custom')">
+                                <option value="none">None (Disabled)</option>
+                                <option value="c">C Key</option>
+                                <option value="m">M Key</option>
+                                <option value="j">J Key</option>
+                                <option value="F7">F7 Key</option>
+                                <option value="custom" x-show="currentKey && currentKey !== 'none' && !['c', 'm', 'j', 'F7'].includes(currentKey)" x-text="'Custom Key (' + (currentKey === ' ' ? 'Space' : currentKey) + ')'">Custom Key ({{ $chatifyToggleKey }})</option>
+                            </select>
+                        </div>
+
+                        <!-- Record Key Button -->
+                        <button type="button" 
+                                @click="startRecording()" 
+                                :class="{ 'shortcut-record-btn--active': isRecording }"
+                                class="shortcut-record-btn"
+                                title="Click to press any key on your keyboard to set as chatify toggle shortcut">
+                            <i class="fa-solid fa-record-vinyl" :style="isRecording ? 'color: #ef4444; animation: recordingPulse 1s infinite;' : ''"></i>
+                            <span x-text="isRecording ? 'Press key now...' : 'Record Key'">Record Key</span>
+                        </button>
+
+                        <!-- Clear Button -->
+                        <button type="button" 
+                                wire:click="resetChatifyToggleKey"
+                                class="shortcut-reset-btn"
+                                x-show="currentKey && currentKey !== 'none'"
+                                title="Clear shortcut and disable chatify toggle keybind">
+                            <i class="fa-solid fa-trash-can"></i>
+                            <span>Clear</span>
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Full-width Clarification Badge -->
+                <div class="settings-clarification-badge" style="margin-top: 6px;">
+                    <i class="fa-solid fa-circle-info" style="color: #2563eb; margin-top: 2px;"></i>
+                    <span><strong>Clarification:</strong> By default, this is <strong>Unassigned (None)</strong>. When assigned to any key, pressing it will expand or minimize the floating Chatify messenger widget from any screen.</span>
                 </div>
             </div>
         </div>

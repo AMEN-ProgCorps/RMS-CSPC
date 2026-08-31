@@ -135,6 +135,24 @@ class User extends Authenticatable
         return $setting ? $setting->sidebar_toggle_key : null;
     }
 
+    public function actionToggleKey(): ?string
+    {
+        $setting = $this->personalSetting;
+        return $setting ? $setting->action_toggle_key : null;
+    }
+
+    public function notificationToggleKey(): ?string
+    {
+        $setting = $this->personalSetting;
+        return $setting ? $setting->notification_toggle_key : null;
+    }
+
+    public function chatifyToggleKey(): ?string
+    {
+        $setting = $this->personalSetting;
+        return $setting ? $setting->chatify_toggle_key : null;
+    }
+
     public function permissions(): HasOneThrough
     {
         return $this->hasOneThrough(

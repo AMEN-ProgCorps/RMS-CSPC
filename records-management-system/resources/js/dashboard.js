@@ -611,13 +611,118 @@ function handleSidebarToggleShortcut(event) {
 }
 window.handleSidebarToggleShortcut = handleSidebarToggleShortcut;
 
+function getRMSActionToggleKey() {
+    if (window.RMS_ACTION_TOGGLE_KEY !== undefined && window.RMS_ACTION_TOGGLE_KEY !== null && window.RMS_ACTION_TOGGLE_KEY !== '') {
+        return window.RMS_ACTION_TOGGLE_KEY;
+    }
+    try {
+        const stored = localStorage.getItem('rms-action-toggle-key');
+        if (stored && stored !== 'none') return stored;
+    } catch (e) {}
+    return '';
+}
+window.getRMSActionToggleKey = getRMSActionToggleKey;
+
+function getRMSNotifToggleKey() {
+    if (window.RMS_NOTIF_TOGGLE_KEY !== undefined && window.RMS_NOTIF_TOGGLE_KEY !== null && window.RMS_NOTIF_TOGGLE_KEY !== '') {
+        return window.RMS_NOTIF_TOGGLE_KEY;
+    }
+    try {
+        const stored = localStorage.getItem('rms-notif-toggle-key');
+        if (stored && stored !== 'none') return stored;
+    } catch (e) {}
+    return '';
+}
+window.getRMSNotifToggleKey = getRMSNotifToggleKey;
+
+function getRMSChatifyToggleKey() {
+    if (window.RMS_CHATIFY_TOGGLE_KEY !== undefined && window.RMS_CHATIFY_TOGGLE_KEY !== null && window.RMS_CHATIFY_TOGGLE_KEY !== '') {
+        return window.RMS_CHATIFY_TOGGLE_KEY;
+    }
+    try {
+        const stored = localStorage.getItem('rms-chatify-toggle-key');
+        if (stored && stored !== 'none') return stored;
+    } catch (e) {}
+    return '';
+}
+window.getRMSChatifyToggleKey = getRMSChatifyToggleKey;
+
+function isTypingActive() {
+    const activeEl = document.activeElement;
+    if (activeEl) {
+        const tagName = activeEl.tagName ? activeEl.tagName.toLowerCase() : '';
+        if (tagName === 'input' || tagName === 'textarea' || tagName === 'select' || activeEl.isContentEditable) {
+            return true;
+        }
+    }
+    return false;
+}
+
+function handleActionToggleShortcut(event) {
+    const targetKey = getRMSActionToggleKey();
+    if (!targetKey || targetKey.toLowerCase() === 'none') return false;
+    if (!isModalKeyMatch(event, targetKey)) return false;
+    if (isTypingActive()) return false;
+
+    if (typeof window.toggleDropdown === 'function') {
+        window.toggleDropdown();
+    } else {
+        const actionBtn = document.querySelector('.action_button');
+        if (actionBtn) actionBtn.click();
+    }
+    event.preventDefault();
+    event.stopPropagation();
+    return true;
+}
+window.handleActionToggleShortcut = handleActionToggleShortcut;
+
+function handleNotificationToggleShortcut(event) {
+    const targetKey = getRMSNotifToggleKey();
+    if (!targetKey || targetKey.toLowerCase() === 'none') return false;
+    if (!isModalKeyMatch(event, targetKey)) return false;
+    if (isTypingActive()) return false;
+
+    const notifBtn = document.querySelector('.notif-bell-btn');
+    if (notifBtn) {
+        notifBtn.click();
+    } else {
+        window.dispatchEvent(new CustomEvent('toggle-notifications'));
+    }
+    event.preventDefault();
+    event.stopPropagation();
+    return true;
+}
+window.handleNotificationToggleShortcut = handleNotificationToggleShortcut;
+
+function handleChatifyToggleShortcut(event) {
+    const targetKey = getRMSChatifyToggleKey();
+    if (!targetKey || targetKey.toLowerCase() === 'none') return false;
+    if (!isModalKeyMatch(event, targetKey)) return false;
+    if (isTypingActive()) return false;
+
+    const chatifyBtn = document.getElementById('chatify-widget-btn');
+    if (chatifyBtn) {
+        chatifyBtn.click();
+    }
+    event.preventDefault();
+    event.stopPropagation();
+    return true;
+}
+window.handleChatifyToggleShortcut = handleChatifyToggleShortcut;
+
 document.addEventListener('keydown', (e) => {
     if (e.key === 'Escape') {
         closeNavFlyout();
     }
     const handledModal = handleUniversalModalClose(e);
     if (!handledModal) {
-        handleSidebarToggleShortcut(e);
+        if (!handleSidebarToggleShortcut(e)) {
+            if (!handleActionToggleShortcut(e)) {
+                if (!handleNotificationToggleShortcut(e)) {
+                    handleChatifyToggleShortcut(e);
+                }
+            }
+        }
     }
 });
 window.addEventListener('resize', () => {
@@ -638,6 +743,27 @@ window.addEventListener('rms-sidebar-key-changed', (e) => {
     if (e) {
         const keyVal = typeof e.detail === 'string' ? e.detail : (e.detail?.key || '');
         window.RMS_SIDEBAR_TOGGLE_KEY = (keyVal === 'none' || !keyVal) ? '' : keyVal;
+    }
+});
+
+window.addEventListener('rms-action-key-changed', (e) => {
+    if (e) {
+        const keyVal = typeof e.detail === 'string' ? e.detail : (e.detail?.key || '');
+        window.RMS_ACTION_TOGGLE_KEY = (keyVal === 'none' || !keyVal) ? '' : keyVal;
+    }
+});
+
+window.addEventListener('rms-notif-key-changed', (e) => {
+    if (e) {
+        const keyVal = typeof e.detail === 'string' ? e.detail : (e.detail?.key || '');
+        window.RMS_NOTIF_TOGGLE_KEY = (keyVal === 'none' || !keyVal) ? '' : keyVal;
+    }
+});
+
+window.addEventListener('rms-chatify-key-changed', (e) => {
+    if (e) {
+        const keyVal = typeof e.detail === 'string' ? e.detail : (e.detail?.key || '');
+        window.RMS_CHATIFY_TOGGLE_KEY = (keyVal === 'none' || !keyVal) ? '' : keyVal;
     }
 });
 
@@ -683,6 +809,15 @@ window.setupIconModeInteractions = setupIconModeInteractions;
         }
         if (e.key === 'rms-sidebar-toggle-key') {
             window.RMS_SIDEBAR_TOGGLE_KEY = (e.newValue === 'none' || !e.newValue) ? '' : e.newValue;
+        }
+        if (e.key === 'rms-action-toggle-key') {
+            window.RMS_ACTION_TOGGLE_KEY = (e.newValue === 'none' || !e.newValue) ? '' : e.newValue;
+        }
+        if (e.key === 'rms-notif-toggle-key') {
+            window.RMS_NOTIF_TOGGLE_KEY = (e.newValue === 'none' || !e.newValue) ? '' : e.newValue;
+        }
+        if (e.key === 'rms-chatify-toggle-key') {
+            window.RMS_CHATIFY_TOGGLE_KEY = (e.newValue === 'none' || !e.newValue) ? '' : e.newValue;
         }
         if (e.key === STORAGE_KEY && e.newValue) {
             try {

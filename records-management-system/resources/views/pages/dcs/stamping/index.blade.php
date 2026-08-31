@@ -176,13 +176,14 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                                         $fileName = basename((string) $ml->scanned_masterlist);
                                     }
                                     $files[] = [
-                                        'key'        => 'masterlist',
-                                        'label'      => $fileName,
-                                        'abbr'       => $fileName,
-                                        'cls'        => 'ml',
-                                        'path'       => $ml->scanned_masterlist,
-                                        'stamped'    => !!$s,
-                                        'stamp_type' => $s?->stamp_type,
+                                        'key'         => 'masterlist',
+                                        'label'       => $fileName,
+                                        'abbr'        => $fileName,
+                                        'cls'         => 'ml',
+                                        'path'        => $ml->scanned_masterlist,
+                                        'preview_url' => RegisterQueryHelper::scanUrl($ml->scanned_masterlist),
+                                        'stamped'     => !!$s,
+                                        'stamp_type'  => $s?->stamp_type,
                                     ];
                                 }
 

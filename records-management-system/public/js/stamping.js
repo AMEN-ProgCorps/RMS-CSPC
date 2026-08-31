@@ -256,17 +256,25 @@ document.addEventListener('DOMContentLoaded', function () {
     // LOAD PREVIEW
     // ═══════════════════════════════════════════
 
-    function storagePdfUrl(path, bust) {
-        var base = '/storage/' + path;
+    function dcsPdfUrl(path, bust) {
+        path = String(path || '').replace(/^\/+/, '');
+        var base;
+        if (path.indexOf('scans/') === 0) {
+            base = '/storage/' + path;
+        } else {
+            base = '/dcs/view-document?path=' + encodeURIComponent(path);
+        }
         if (!bust) return base;
-        return base + (base.indexOf('?') >= 0 ? '&' : '?') + 'v=' + bust;
+        return base + (base.indexOf('?') >= 0 ? '&' : '?') + 'v=' + encodeURIComponent(bust);
     }
 
     function loadPreview(cacheBust) {
         if (!state.selectedFile) return;
 
         const bust = cacheBust || Date.now();
-        const url  = storagePdfUrl(state.selectedFile.path, bust);
+        const url  = state.selectedFile.preview_url
+            ? (state.selectedFile.preview_url + (state.selectedFile.preview_url.indexOf('?') >= 0 ? '&' : '?') + 'v=' + encodeURIComponent(bust))
+            : dcsPdfUrl(state.selectedFile.path, bust);
 
         previewFallback.style.display = 'none';
         pdfPreview.style.display      = 'block';

@@ -897,6 +897,15 @@ body {
     font-weight: 700;
 }
 
+.drr-page-wrap.is-empty {
+    background: #f8fafc;
+}
+
+.drr-page-wrap.is-empty .drr-page-empty {
+    min-height: 140px;
+    border-bottom: none;
+}
+
 .drr-page-empty {
     min-height: 80px;
     display: flex;

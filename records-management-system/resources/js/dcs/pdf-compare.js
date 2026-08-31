@@ -1,6 +1,13 @@
 import * as pdfjsLib from 'pdfjs-dist';
 import pdfWorker from 'pdfjs-dist/build/pdf.worker.min.mjs?url';
-import { getCompareCache, putCompareCache, hashString, peekMemoryCompareCache } from './pdf-compare-cache.js';
+import {
+    getCompareCache,
+    putCompareCache,
+    hashString,
+    peekMemoryCompareCache,
+    deleteCompareCache,
+    clearMemoryCompareCache,
+} from './pdf-compare-cache.js';
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = pdfWorker;
 
@@ -11,12 +18,17 @@ const FILL = {
 };
 
 const CHUNK_SIZE = 40;
-const OCR_BATCH = 3;
+const OCR_BATCH = 1;
+const OCR_CONCURRENCY = 3;
 const TOKEN_CAP = 1500;
-const SIG_WORDS = 64;
-/** Minimum Jaccard score to pair pages across revisions (handles moved content). */
-const ALIGN_MIN_SCORE = 0.14;
-const CACHE_VERSION = 5;
+/** When content alignment finds nothing but docs share vocabulary, pair by page index. */
+const DOC_SIMILARITY_INDEX_FALLBACK = 0.18;
+const CACHE_VERSION = 14;
+
+const ROMAN_TO_ARABIC = {
+    i: '1', ii: '2', iii: '3', iv: '4', v: '5', vi: '6', vii: '7', viii: '8', ix: '9', x: '10',
+    xi: '11', xii: '12',
+};
 
 function csrfToken() {
     return document.querySelector('meta[name="csrf-token"]')?.content || '';
@@ -54,9 +66,13 @@ function lcsOps(a, b, eqFn) {
 }
 
 function normalizeWord(w) {
-    return String(w || '')
+    let s = String(w || '')
         .toLowerCase()
         .replace(/[^\p{L}\p{N}]+/gu, '');
+    if (ROMAN_TO_ARABIC[s]) {
+        s = ROMAN_TO_ARABIC[s];
+    }
+    return s;
 }
 
 function tokensFromItems(items) {
@@ -75,132 +91,221 @@ function tokensFromPlainText(text) {
 }
 
 /** OCR words with normalized page boxes (0–1) for on-PDF highlighting. */
+function isValidOcrWord(w) {
+    const t = String(w?.t || '').trim();
+    if (!t) return false;
+
+    const conf = Number(w?.conf);
+    if (Number.isFinite(conf) && conf >= 0 && conf < 35) return false;
+
+    const x = Number(w?.x);
+    const y = Number(w?.y);
+    const bw = Number(w?.w);
+    const bh = Number(w?.h);
+    if (![x, y, bw, bh].every((n) => Number.isFinite(n))) return false;
+    if (x < -0.01 || y < -0.01 || x + bw > 1.02 || y + bh > 1.02) return false;
+    if (bw < 0.0005 || bh < 0.0005) return false;
+    if (bw > 0.82 && t.length < 30) return false;
+    if (bh > 0.14 && t.length < 18) return false;
+
+    return true;
+}
+
+/** Split OCR line boxes into word tokens when word-level boxes are sparse. */
+function tokensFromOcrLines(lines) {
+    const out = [];
+    for (const line of (Array.isArray(lines) ? lines : [])) {
+        const text = String(line?.t || '').trim();
+        if (!text) continue;
+        const x = Number(line.x);
+        const y = Number(line.y);
+        const lw = Number(line.w);
+        const lh = Number(line.h);
+        if (![x, y, lw, lh].every((n) => Number.isFinite(n))) continue;
+
+        const words = text.split(/\s+/).filter(Boolean);
+        if (!words.length) continue;
+
+        const sliceW = lw / words.length;
+        words.forEach((t, idx) => {
+            const norm = normalizeWord(t);
+            if (!norm) return;
+            out.push({
+                t,
+                norm,
+                ocr: true,
+                item: null,
+                box: {
+                    x: x + sliceW * idx,
+                    y,
+                    w: Math.max(sliceW * 0.92, 0.002),
+                    h: lh,
+                },
+            });
+        });
+    }
+    return out;
+}
+
+function tokensFromOcrPage(row) {
+    let tokens = tokensFromOcrWords(row?.words).slice(0, TOKEN_CAP);
+    if (tokens.length < 12) {
+        const fromLines = tokensFromOcrLines(row?.lines).slice(0, TOKEN_CAP);
+        if (fromLines.length > tokens.length) {
+            tokens = fromLines;
+        }
+    }
+    return tokens;
+}
+
 function tokensFromOcrWords(words) {
     return (Array.isArray(words) ? words : [])
+        .filter(isValidOcrWord)
         .map((w) => {
-            const t = String(w?.t || '').trim();
+            const t = String(w.t || '').trim();
             const norm = normalizeWord(t);
-            const x = Number(w?.x);
-            const y = Number(w?.y);
-            const bw = Number(w?.w);
-            const bh = Number(w?.h);
-            const hasBox = [x, y, bw, bh].every((n) => Number.isFinite(n));
+            const x = Number(w.x);
+            const y = Number(w.y);
+            const bw = Number(w.w);
+            const bh = Number(w.h);
             return {
                 t,
                 norm,
                 ocr: true,
                 item: null,
-                box: hasBox ? { x, y, w: Math.max(bw, 0.002), h: Math.max(bh, 0.004) } : null,
+                box: { x, y, w: bw, h: bh },
             };
         })
         .filter((row) => row.t !== '' && row.norm !== '');
 }
 
-function pageSignature(tokens) {
-    const words = tokens.map((t) => t.norm).filter(Boolean);
-    if (!words.length) {
-        return '';
-    }
-    const head = words.slice(0, SIG_WORDS);
-    const mid = words.slice(Math.max(0, Math.floor(words.length / 2) - 10), Math.floor(words.length / 2) + 10);
-    const tail = words.slice(-Math.min(SIG_WORDS, words.length));
-    return [...head, '|', ...mid, '|', ...tail].join(' ');
+function prepareTokensForDiff(tokens) {
+    return ensureHighlightTokens(tokens);
 }
 
-function signaturesSimilar(a, b) {
-    if (!a || !b) return false;
-    if (a === b) return true;
-    const aw = new Set(a.split(/\s+/).filter((w) => w && w !== '|'));
-    const bw = b.split(/\s+/).filter((w) => w && w !== '|');
-    if (!aw.size || !bw.length) return false;
+/** Build word tokens with page boxes from plain OCR text (last-resort highlight geometry). */
+function inferBoxesFromText(text) {
+    const lines = String(text || '').split(/\n+/).map((l) => l.trim()).filter(Boolean);
+    if (!lines.length) {
+        const flat = String(text || '').split(/\s+/).map((t) => t.trim()).filter(Boolean);
+        if (!flat.length) return [];
+        lines.push(flat.join(' '));
+    }
+
+    const out = [];
+    const lineCount = Math.max(lines.length, 1);
+    lines.forEach((line, li) => {
+        const words = line.split(/\s+/).filter(Boolean);
+        const wordCount = Math.max(words.length, 1);
+        const lh = 0.88 / lineCount;
+        const y = 0.05 + li * lh;
+        const sliceW = 0.88 / wordCount;
+        words.forEach((t, wi) => {
+            const norm = normalizeWord(t);
+            if (!norm) return;
+            out.push({
+                t,
+                norm,
+                ocr: true,
+                item: null,
+                box: {
+                    x: 0.06 + wi * sliceW,
+                    y,
+                    w: Math.max(sliceW * 0.92, 0.008),
+                    h: Math.max(lh * 0.82, 0.012),
+                },
+            });
+        });
+    });
+    return out;
+}
+
+/** Every compared word must have a box so highlights can be painted on the PDF. */
+function ensureHighlightTokens(tokens, rawText = '') {
+    const list = (tokens || []).map((t) => ({ ...t }));
+    const missing = list.filter((t) => t.norm && !t.box && !t.item);
+    if (!missing.length) return list.filter((t) => t.norm);
+
+    if (!list.length && rawText) {
+        return inferBoxesFromText(rawText);
+    }
+
+    if (missing.length === list.length && rawText) {
+        return inferBoxesFromText(rawText);
+    }
+
+    let n = 0;
+    for (const t of list) {
+        if (t.box || t.item || !t.norm) continue;
+        const row = Math.floor(n / 12);
+        const col = n % 12;
+        t.box = {
+            x: 0.04 + col * 0.078,
+            y: 0.05 + row * 0.026,
+            w: 0.074,
+            h: 0.022,
+        };
+        t.ocr = true;
+        n++;
+    }
+    return list.filter((t) => t.norm && (t.box || t.item));
+}
+
+function countPaintablePages(pages) {
+    return (pages || []).filter((p) => (p.tokens || []).some((t) => t.box || t.item)).length;
+}
+
+function findFuzzyBucket(token, buckets) {
+    for (const [norm, list] of buckets.entries()) {
+        if (!list.length) continue;
+        if (tokensEqual({ norm: token.norm }, { norm })) {
+            return list;
+        }
+    }
+    return null;
+}
+
+function documentWordSet(pages) {
+    const set = new Set();
+    for (const page of pages || []) {
+        for (const token of page.tokens || []) {
+            if (token.norm && token.norm.length >= 3) {
+                set.add(token.norm);
+            }
+        }
+    }
+    return set;
+}
+
+/** Shared vocabulary ratio — detects same document even when page breaks differ. */
+function documentSimilarity(leftPages, rightPages) {
+    const left = documentWordSet(leftPages);
+    const right = documentWordSet(rightPages);
+    if (!left.size || !right.size) {
+        return 0;
+    }
     let hit = 0;
-    for (const w of bw) {
-        if (aw.has(w)) hit++;
+    for (const word of right) {
+        if (left.has(word)) {
+            hit++;
+        }
     }
-    return hit / Math.max(aw.size, bw.length) >= 0.28;
+    return hit / Math.min(left.size, right.size);
 }
 
-function pageAnchors(tokens) {
-    const joined = (tokens || []).map((t) => t.norm).join(' ');
-    const found = new Set();
-    const patterns = [
-        /article\s*(i{1,3}|iv|v|vi{0,3}|ix|x|[0-9]{1,2})\b/g,
-        /section\s*([0-9]{1,2})\b/g,
-        /annex\s*([a-z0-9]{1,2})\b/g,
-    ];
-    for (const re of patterns) {
-        let m;
-        while ((m = re.exec(joined)) !== null) {
-            const kind = m[0].startsWith('article') ? 'article' : (m[0].startsWith('section') ? 'section' : 'annex');
-            found.add(kind + String(m[1] || '').replace(/\s+/g, ''));
-        }
-    }
-    return found;
+function countAlignmentMatches(alignment) {
+    return alignment.filter((slot) => slot.type === 'match').length;
 }
 
-function pageContentScore(leftPage, rightPage) {
-    const aw = leftPage?.tokens || [];
-    const bw = rightPage?.tokens || [];
-    if (!aw.length || !bw.length) return 0;
-
-    const aList = aw.map((t) => t.norm).filter(Boolean);
-    const bList = bw.map((t) => t.norm).filter(Boolean);
-    const aSet = new Set(aList);
-    const bSet = new Set(bList);
-    if (!aSet.size || !bSet.size) return 0;
-
-    let hit = 0;
-    for (const w of bSet) {
-        if (aSet.has(w)) hit++;
-    }
-    // Use the smaller page as denominator so a moved section still scores high
-    // even when surrounding page content differs.
-    let score = hit / Math.min(aSet.size, bSet.size);
-
-    const rareA = [...aSet].filter((w) => w.length >= 6);
-    const rareHits = rareA.filter((w) => bSet.has(w)).length;
-    if (rareA.length) {
-        const rareRatio = rareHits / rareA.length;
-        score = Math.max(score, rareRatio);
-        if (rareHits >= 10) score = Math.max(score, 0.45);
-        else if (rareHits >= 5) score = Math.max(score, 0.28);
-    }
-
-    // Shared structural headings (Article I, Section 1, Annex B, …)
-    const leftAnchors = pageAnchors(aw);
-    const rightAnchors = pageAnchors(bw);
-    let anchorHits = 0;
-    for (const a of leftAnchors) {
-        if (rightAnchors.has(a)) anchorHits++;
-    }
-    if (anchorHits > 0 && leftAnchors.size && rightAnchors.size) {
-        score = Math.max(score, 0.55 + 0.1 * Math.min(anchorHits, 3));
-    }
-
-    // Overlapping 4-word phrases (strong signal for moved paragraphs)
-    const grams = (list) => {
-        const out = new Set();
-        for (let i = 0; i < list.length - 3; i++) {
-            out.add(list.slice(i, i + 4).join(' '));
-        }
-        return out;
-    };
-    const ga = grams(aList);
-    const gb = grams(bList);
-    if (ga.size && gb.size) {
-        let gHit = 0;
-        for (const g of gb) {
-            if (ga.has(g)) gHit++;
-        }
-        const gRatio = gHit / Math.min(ga.size, gb.size);
-        if (gRatio >= 0.08) score = Math.max(score, 0.5);
-        if (gRatio >= 0.15) score = Math.max(score, 0.65);
-    }
-
-    if (signaturesSimilar(leftPage.signature, rightPage.signature)) {
-        score = Math.max(score, 0.42);
-    }
-    return Math.min(score, 1);
+function isBadCachedCompare(cached) {
+    if (!cached) return true;
+    if (Number(cached.version) < CACHE_VERSION) return true;
+    const notes = `${cached.leftNote || ''} ${cached.rightNote || ''}`;
+    if (/0 aligned|0 page pairs/.test(notes) && (cached.totalPages || 0) > 2) return true;
+    const aligned = (cached.alignment || []).filter((s) => s.type === 'match').length;
+    if (aligned === 0 && (cached.totalPages || 0) > 2) return true;
+    if (cached.hasHighlights !== true) return true;
+    return false;
 }
 
 function editDistanceAtMost1(a, b) {
@@ -228,6 +333,35 @@ function editDistanceAtMost1(a, b) {
     return true;
 }
 
+function editDistanceAtMost(a, b, maxEdits) {
+    if (a === b) return true;
+    const n = a.length;
+    const m = b.length;
+    if (Math.abs(n - m) > maxEdits) return false;
+    if (maxEdits === 1) {
+        return editDistanceAtMost1(a, b);
+    }
+
+    const dp = Array.from({ length: n + 1 }, () => new Uint8Array(m + 1));
+    for (let i = 0; i <= n; i++) dp[i][0] = i;
+    for (let j = 0; j <= m; j++) dp[0][j] = j;
+
+    for (let i = 1; i <= n; i++) {
+        let rowMin = maxEdits + 1;
+        for (let j = 1; j <= m; j++) {
+            const cost = a[i - 1] === b[j - 1] ? 0 : 1;
+            dp[i][j] = Math.min(
+                dp[i - 1][j] + 1,
+                dp[i][j - 1] + 1,
+                dp[i - 1][j - 1] + cost
+            );
+            rowMin = Math.min(rowMin, dp[i][j]);
+        }
+        if (rowMin > maxEdits) return false;
+    }
+    return dp[n][m] <= maxEdits;
+}
+
 /** OCR-tolerant word equality for smarter in-page diffs. */
 function tokensEqual(a, b) {
     if (!a || !b) return false;
@@ -241,7 +375,9 @@ function tokensEqual(a, b) {
         const longer = x.length <= y.length ? y : x;
         if (longer.startsWith(shorter) && shorter.length / longer.length >= 0.75) return true;
     }
-    return editDistanceAtMost1(x, y);
+    const maxLen = Math.max(x.length, y.length);
+    const maxEdits = maxLen >= 8 ? 2 : 1;
+    return editDistanceAtMost(x, y, maxEdits);
 }
 
 function transform(m1, m2) {
@@ -263,7 +399,7 @@ function highlightItem(ctx, viewport, item, color) {
     const width = item.width * viewport.scale;
     const height = Math.abs(item.height * viewport.scale) || 10;
     ctx.fillStyle = color;
-    ctx.fillRect(x, y - height, Math.max(width, 4), height);
+    ctx.fillRect(x, y - height, Math.max(width, 2), Math.max(height, 2));
 }
 
 /** Paint a mark on the PDF canvas (embedded text item or OCR normalized box). */
@@ -272,13 +408,19 @@ function paintMark(ctx, viewport, mark, color) {
     if (mark.box && Number.isFinite(mark.box.x)) {
         const cw = ctx.canvas.width;
         const ch = ctx.canvas.height;
+        let x = mark.box.x * cw;
+        let y = mark.box.y * ch;
+        let w = mark.box.w * cw;
+        let h = mark.box.h * ch;
+
+        x = Math.max(0, Math.min(x, cw - 1));
+        y = Math.max(0, Math.min(y, ch - 1));
+        w = Math.min(w, cw - x);
+        h = Math.min(h, ch - y);
+        if (w < 1.5 || h < 1.5) return;
+
         ctx.fillStyle = color;
-        ctx.fillRect(
-            mark.box.x * cw,
-            mark.box.y * ch,
-            Math.max(mark.box.w * cw, 3),
-            Math.max(mark.box.h * ch, 3)
-        );
+        ctx.fillRect(x, y, w, h);
         return;
     }
     if (mark.item) {
@@ -291,6 +433,132 @@ function markFromToken(k, token) {
     if (token.box) return { k, box: token.box };
     if (token.item) return { k, item: token.item };
     return null;
+}
+
+function tokenPaintable(token) {
+    return Boolean(token?.box || token?.item);
+}
+
+function pageHasPaintableTokens(page) {
+    return (page?.tokens || []).some(tokenPaintable);
+}
+
+/** Re-OCR when the other side uses OCR boxes but this page only has sparse/missing text. */
+function pageNeedsOcrForCompare(page, partnerPage) {
+    if (!page) return false;
+    if (!page.tokens.length) return true;
+    if (!pageHasPaintableTokens(page)) return true;
+    if (partnerPage?.usedOcr && !page.usedOcr) return true;
+    if (
+        partnerPage?.usedOcr
+        && partnerPage.tokens.length > 20
+        && page.tokens.length < partnerPage.tokens.length * 0.45
+    ) {
+        return true;
+    }
+    return false;
+}
+
+async function applyOcrToPages(pages, pageNumbers, sideMeta, setStatus, warnings = []) {
+    const unique = [...new Set((pageNumbers || []).map(Number).filter((n) => n > 0))].sort((a, b) => a - b);
+    if (!unique.length) {
+        return;
+    }
+
+    let done = 0;
+    const total = unique.length;
+    let cursor = 0;
+
+    const ocrOne = async (pageNo) => {
+        if (setStatus) {
+            setStatus(
+                `OCR ${sideMeta.label}: page ${pageNo} (${done + 1}/${total})…`,
+                'loading'
+            );
+        }
+
+        let results = [];
+        try {
+            results = await ocrPageBatch({
+                file: sideMeta.file || null,
+                storagePath: sideMeta.storagePath || '',
+                pages: [pageNo],
+            });
+        } catch (err) {
+            warnings.push(friendlyError(err, `OCR failed for ${sideMeta.label} page ${pageNo}.`));
+            results = [{ page: pageNo, text: '', words: [], used_ocr: true, ok: false }];
+        }
+
+        const row = results.find((r) => Number(r.page) === pageNo) || results[0];
+        let tokens = tokensFromOcrPage(row).slice(0, TOKEN_CAP);
+        if (!tokens.length && row?.text) {
+            tokens = inferBoxesFromText(row.text).slice(0, TOKEN_CAP);
+        }
+        tokens = ensureHighlightTokens(tokens, row?.text || '').slice(0, TOKEN_CAP);
+        const idx = pageNo - 1;
+        if (idx >= 0 && idx < pages.length) {
+            pages[idx] = {
+                page: pageNo,
+                tokens,
+                usedOcr: true,
+                hasText: tokens.length > 0,
+            };
+        }
+        done++;
+    };
+
+    const workers = Array.from({ length: Math.min(OCR_CONCURRENCY, unique.length) }, async () => {
+        while (cursor < unique.length) {
+            const pageNo = unique[cursor];
+            cursor += 1;
+            await ocrOne(pageNo);
+        }
+    });
+    await Promise.all(workers);
+}
+
+/**
+ * When one revision is OCR'd and the other isn't, run OCR on both so highlights
+ * paint on previous and current pages (word boxes required for scanned PDFs).
+ */
+async function harmonizeCompareTokens(leftPages, rightPages, leftMeta, rightMeta, setStatus) {
+    const warnings = [];
+    const leftOcr = new Set();
+    const rightOcr = new Set();
+    const shared = Math.min(leftPages.length, rightPages.length);
+
+    for (let i = 0; i < shared; i++) {
+        if (pageNeedsOcrForCompare(leftPages[i], rightPages[i])) {
+            leftOcr.add(leftPages[i].page);
+        }
+        if (pageNeedsOcrForCompare(rightPages[i], rightPages[i])) {
+            rightOcr.add(rightPages[i].page);
+        }
+    }
+    for (let i = shared; i < leftPages.length; i++) {
+        if (!pageHasPaintableTokens(leftPages[i])) {
+            leftOcr.add(leftPages[i].page);
+        }
+    }
+    for (let i = shared; i < rightPages.length; i++) {
+        if (!pageHasPaintableTokens(rightPages[i])) {
+            rightOcr.add(rightPages[i].page);
+        }
+    }
+
+    if (leftOcr.size || rightOcr.size) {
+        await Promise.all([
+            leftOcr.size
+                ? applyOcrToPages(leftPages, [...leftOcr], leftMeta, setStatus, warnings)
+                : Promise.resolve(),
+            rightOcr.size
+                ? applyOcrToPages(rightPages, [...rightOcr], rightMeta, setStatus, warnings)
+                : Promise.resolve(),
+        ]);
+    }
+
+    leftPages.__ocrWarnings = [...(leftPages.__ocrWarnings || []), ...warnings];
+    rightPages.__ocrWarnings = [...(rightPages.__ocrWarnings || []), ...warnings];
 }
 
 function allTokenMarks(tokens, k) {
@@ -312,15 +580,23 @@ function storagePathFromUrl(url) {
     if (!url) return '';
     try {
         const u = new URL(url, window.location.origin);
+        const pathParam = u.searchParams.get('path');
+        if (pathParam) {
+            return decodeURIComponent(pathParam.replace(/\+/g, ' '));
+        }
         const m = u.pathname.match(/\/storage\/(.+)$/);
         return m ? decodeURIComponent(m[1]) : '';
     } catch {
+        const q = String(url).match(/[?&]path=([^&]+)/);
+        if (q) {
+            return decodeURIComponent(q[1].replace(/\+/g, ' '));
+        }
         const m = String(url).match(/\/storage\/(.+)$/);
         return m ? decodeURIComponent(m[1]) : '';
     }
 }
 
-async function ocrPageBatch({ file, storagePath, pages }) {
+async function ocrPageBatch({ file, storagePath, pages }, attempt = 0) {
     if (!pages.length) return [];
     const body = new FormData();
     pages.forEach((p) => body.append('pages[]', String(p)));
@@ -344,9 +620,18 @@ async function ocrPageBatch({ file, storagePath, pages }) {
             credentials: 'same-origin',
         });
     } catch (err) {
+        if (attempt < 1) {
+            await new Promise((r) => setTimeout(r, 800));
+            return ocrPageBatch({ file, storagePath, pages }, attempt + 1);
+        }
         const error = new Error(friendlyError(err, 'OCR request failed.'));
         error.cause = err;
         throw error;
+    }
+
+    if (res.status === 504 && attempt < 1) {
+        await new Promise((r) => setTimeout(r, 800));
+        return ocrPageBatch({ file, storagePath, pages }, attempt + 1);
     }
 
     if (!res.ok) {
@@ -371,17 +656,28 @@ async function ocrPageBatch({ file, storagePath, pages }) {
     return Array.isArray(data.pages) ? data.pages : [];
 }
 
-async function ensurePageTexts(doc, sideMeta, setStatus) {
+async function ensurePageTexts(doc, sideMeta, setStatus, options = {}) {
+    const forceOcr = options.forceOcr === true;
     const pages = [];
     const missing = [];
     const warnings = [];
 
     for (let p = 1; p <= doc.numPages; p++) {
+        if (forceOcr) {
+            pages.push({
+                page: p,
+                tokens: [],
+                usedOcr: false,
+                hasText: false,
+            });
+            missing.push(p);
+            continue;
+        }
+
         const items = tokensFromItems(await pageItems(doc, p)).slice(0, TOKEN_CAP);
         const entry = {
             page: p,
             tokens: items,
-            signature: pageSignature(items),
             usedOcr: false,
             hasText: items.length > 0,
         };
@@ -391,117 +687,115 @@ async function ensurePageTexts(doc, sideMeta, setStatus) {
         }
     }
 
-    for (let i = 0; i < missing.length; i += OCR_BATCH) {
-        const batch = missing.slice(i, i + OCR_BATCH);
-        if (setStatus) {
-            setStatus(
-                `OCR ${sideMeta.label}: pages ${batch[0]}–${batch[batch.length - 1]} of ${doc.numPages}…`,
-                'loading'
-            );
-        }
-
-        let results = [];
-        try {
-            results = await ocrPageBatch({
-                file: sideMeta.file || null,
-                storagePath: sideMeta.storagePath || '',
-                pages: batch,
-            });
-        } catch (err) {
-            warnings.push(friendlyError(err, `OCR failed for ${sideMeta.label} pages ${batch[0]}–${batch[batch.length - 1]}.`));
-            results = batch.map((page) => ({ page, text: '', words: [], used_ocr: true, ok: false }));
-        }
-
-        const byPage = new Map(results.map((r) => [Number(r.page), r]));
-        for (const pageNo of batch) {
-            const row = byPage.get(pageNo);
-            let tokens = tokensFromOcrWords(row?.words).slice(0, TOKEN_CAP);
-            if (!tokens.length) {
-                tokens = tokensFromPlainText(row?.text || '').slice(0, TOKEN_CAP);
-            }
-            const idx = pageNo - 1;
-            pages[idx] = {
-                page: pageNo,
-                tokens,
-                signature: pageSignature(tokens),
-                usedOcr: true,
-                hasText: tokens.length > 0,
-            };
-        }
-    }
+    await applyOcrToPages(pages, missing, sideMeta, setStatus, warnings);
 
     pages.__ocrWarnings = warnings;
     return pages;
 }
 
 /**
- * Content-aware page alignment (never forced page-index pairing).
- * Finds the best matching new page for each old page by text similarity so
- * moved sections (e.g. Article I on old p.10 → new p.3) still align.
- * Display order follows the LATEST pages so every new page stays visible.
+ * Keep each page at its real PDF page number: old p.N ↔ new p.N side by side.
+ * Extra pages at the end of the longer revision show a blank slot on the other side.
  */
-function alignPages(leftPages, rightPages) {
-    const candidates = [];
-    for (let i = 0; i < leftPages.length; i++) {
-        for (let j = 0; j < rightPages.length; j++) {
-            const score = pageContentScore(leftPages[i], rightPages[j]);
-            if (score >= ALIGN_MIN_SCORE) {
-                candidates.push({ i, j, score });
-            }
-        }
-    }
-    candidates.sort((a, b) => b.score - a.score || Math.abs(a.i - a.j) - Math.abs(b.i - b.j));
-
-    const usedL = new Set();
-    const usedR = new Set();
-    const matches = [];
-    for (const c of candidates) {
-        if (usedL.has(c.i) || usedR.has(c.j)) continue;
-        usedL.add(c.i);
-        usedR.add(c.j);
-        matches.push(c);
-    }
-
+function alignPagesByPosition(leftPages, rightPages) {
+    const total = Math.max(leftPages.length, rightPages.length);
     const alignment = [];
-    const matchByRight = new Map(matches.map((m) => [m.j, m]));
 
-    for (let j = 0; j < rightPages.length; j++) {
-        const m = matchByRight.get(j);
-        if (m) {
+    for (let i = 0; i < total; i++) {
+        const left = leftPages[i] || null;
+        const right = rightPages[i] || null;
+
+        if (left && right) {
             alignment.push({
                 type: 'match',
-                leftPage: leftPages[m.i].page,
-                rightPage: rightPages[j].page,
-                left: leftPages[m.i],
-                right: rightPages[j],
+                leftPage: left.page,
+                rightPage: right.page,
+                left,
+                right,
+                pairedBy: 'position',
+            });
+        } else if (left) {
+            alignment.push({
+                type: 'removed',
+                leftPage: left.page,
+                rightPage: null,
+                left,
+                right: null,
+                pairedBy: 'position',
             });
         } else {
             alignment.push({
                 type: 'added',
                 leftPage: null,
-                rightPage: rightPages[j].page,
+                rightPage: right.page,
                 left: null,
-                right: rightPages[j],
+                right,
+                pairedBy: 'position',
             });
         }
-    }
-
-    for (let i = 0; i < leftPages.length; i++) {
-        if (usedL.has(i)) continue;
-        alignment.push({
-            type: 'removed',
-            leftPage: leftPages[i].page,
-            rightPage: null,
-            left: leftPages[i],
-            right: null,
-        });
     }
 
     return alignment;
 }
 
+function alignPagesSmart(leftPages, rightPages) {
+    const similarity = documentSimilarity(leftPages, rightPages);
+    const alignment = alignPagesByPosition(leftPages, rightPages);
+    const matchCount = countAlignmentMatches(alignment);
+    return { alignment, mode: 'position', similarity, matchCount };
+}
+
+/** Count-based diff — shared words (incl. WHEREAS × N) stay unhighlighted. */
+function wordDiffMarksFrequency(leftTokens, rightTokens) {
+    const left = prepareTokensForDiff(leftTokens);
+    const right = prepareTokensForDiff(rightTokens);
+
+    const rightBuckets = new Map();
+    for (const t of right) {
+        if (!rightBuckets.has(t.norm)) rightBuckets.set(t.norm, []);
+        rightBuckets.get(t.norm).push(t);
+    }
+
+    const leftMarks = [];
+    const leftUnmatched = [];
+
+    for (const lt of left) {
+        let bucket = rightBuckets.get(lt.norm);
+        if (!bucket?.length) {
+            bucket = findFuzzyBucket(lt, rightBuckets);
+        }
+        if (bucket?.length) {
+            bucket.pop();
+        } else {
+            leftUnmatched.push(lt);
+        }
+    }
+
+    const rightMarks = [];
+    for (const bucket of rightBuckets.values()) {
+        while (bucket.length) {
+            const t = bucket.pop();
+            const rm = markFromToken('ins', t);
+            if (rm) rightMarks.push(rm);
+        }
+    }
+
+    for (const lt of leftUnmatched) {
+        const lm = markFromToken('del', lt);
+        if (lm) leftMarks.push(lm);
+    }
+
+    return {
+        leftMarks,
+        rightMarks,
+        del: leftUnmatched.length,
+        ins: rightMarks.length,
+        chg: 0,
+    };
+}
+
 /** Word LCS → marks painted on both old and new PDF canvases. */
-function wordDiffMarks(leftTokens, rightTokens) {
+function wordDiffMarksSequential(leftTokens, rightTokens) {
     const ops = lcsOps(leftTokens, rightTokens, tokensEqual);
     const leftMarks = [];
     const rightMarks = [];
@@ -537,6 +831,80 @@ function wordDiffMarks(leftTokens, rightTokens) {
     return { leftMarks, rightMarks, del, ins, chg };
 }
 
+function wordDiffMarks(leftTokens, rightTokens, slot = null) {
+    const left = ensureHighlightTokens(leftTokens);
+    const right = ensureHighlightTokens(rightTokens);
+
+    if (!left.length && !right.length) {
+        return { leftMarks: [], rightMarks: [], del: 0, ins: 0, chg: 0 };
+    }
+    if (!left.length) {
+        const rightMarks = right.map((t) => markFromToken('ins', t)).filter(Boolean);
+        return { leftMarks: [], rightMarks, del: 0, ins: rightMarks.length, chg: 0 };
+    }
+    if (!right.length) {
+        const leftMarks = left.map((t) => markFromToken('del', t)).filter(Boolean);
+        return { leftMarks, rightMarks: [], del: leftMarks.length, ins: 0, chg: 0 };
+    }
+
+    const ocrHeavy = (slot?.left?.usedOcr || slot?.right?.usedOcr)
+        || left.some((t) => t.ocr)
+        || right.some((t) => t.ocr);
+
+    if (ocrHeavy) {
+        return wordDiffMarksFrequency(left, right);
+    }
+    return wordDiffMarksSequential(left, right);
+}
+
+function scrollToCompareStart(leftStage, rightStage) {
+    if (leftStage) leftStage.scrollTop = 0;
+    if (rightStage) rightStage.scrollTop = 0;
+}
+
+function pageCaptionForRow(cached, rowIndex) {
+    const slot = (cached?.alignment || [])[rowIndex];
+    if (!slot) return `Page ${rowIndex + 1}`;
+    if (slot.type === 'match' || slot.type === 'removed') {
+        return `Page ${slot.leftPage || rowIndex + 1}`;
+    }
+    return `Page ${slot.rightPage || rowIndex + 1}`;
+}
+
+function appendPageCaption(wrap, text) {
+    const cap = document.createElement('div');
+    cap.className = 'drr-page-caption';
+    cap.textContent = text;
+    wrap.prepend(cap);
+}
+
+function balanceCompareRow(leftWrap, rightWrap) {
+    const minRow = 140;
+    const h = Math.max(leftWrap?.offsetHeight || 0, rightWrap?.offsetHeight || 0, minRow);
+    if (leftWrap) leftWrap.style.minHeight = `${h}px`;
+    if (rightWrap) rightWrap.style.minHeight = `${h}px`;
+}
+
+function setupCompareScrollSync(leftStage, rightStage) {
+    if (!leftStage || !rightStage) return;
+    if (leftStage.dataset.scrollSync === '1') return;
+    leftStage.dataset.scrollSync = '1';
+    rightStage.dataset.scrollSync = '1';
+
+    let lock = false;
+    const sync = (src, dst) => {
+        if (lock) return;
+        lock = true;
+        dst.scrollTop = src.scrollTop;
+        requestAnimationFrame(() => {
+            lock = false;
+        });
+    };
+
+    leftStage.addEventListener('scroll', () => sync(leftStage, rightStage), { passive: true });
+    rightStage.addEventListener('scroll', () => sync(rightStage, leftStage), { passive: true });
+}
+
 async function renderPdfPage(doc, pageNumber, width, marks, frameClass) {
     const wrap = document.createElement('div');
     wrap.className = 'drr-page-wrap ' + (frameClass || '');
@@ -557,40 +925,41 @@ async function renderPdfPage(doc, pageNumber, width, marks, frameClass) {
     const list = marks || [];
     if (list.length) {
         list.forEach((mark) => paintMark(ctx, viewport, mark, FILL[mark.k] || FILL.chg));
-    } else if (frameClass === 'is-added') {
-        // Whole new page with no word boxes — still show a green wash so it isn't "blank".
-        ctx.fillStyle = 'rgba(134, 239, 172, 0.18)';
-        ctx.fillRect(0, 0, canvas.width, canvas.height);
-    } else if (frameClass === 'is-removed') {
-        ctx.fillStyle = 'rgba(252, 165, 165, 0.18)';
-        ctx.fillRect(0, 0, canvas.width, canvas.height);
     }
 
     wrap.appendChild(canvas);
     return wrap;
 }
 
-function captionForSlot(slot) {
-    if (slot.type === 'match') {
-        if (slot.leftPage === slot.rightPage) {
-            return `Old p.${slot.leftPage} ↔ New p.${slot.rightPage}`;
-        }
-        return `Old p.${slot.leftPage} → New p.${slot.rightPage} (moved)`;
-    }
-    if (slot.type === 'removed') {
-        return `Removed · Old p.${slot.leftPage}`;
-    }
-    return `Added · New p.${slot.rightPage}`;
+function emptyPagePlaceholder(label) {
+    const wrap = document.createElement('div');
+    wrap.className = 'drr-page-wrap is-empty';
+    wrap.innerHTML = `<div class="drr-page-empty">${label}</div>`;
+    return wrap;
 }
 
-function summaryForSlot(slot, stats) {
+function captionForSlot(slot) {
+    if (slot.type === 'match') {
+        return `Page ${slot.leftPage}`;
+    }
+    if (slot.type === 'removed') {
+        return `Page ${slot.leftPage}`;
+    }
+    return `Page ${slot.rightPage}`;
+}
+
+function summaryForSlot(slot, stats, side = 'both') {
     const bits = [];
-    if (slot.type === 'removed') bits.push('Entire page removed');
-    if (slot.type === 'added') bits.push('Entire page added');
+    if (slot.type === 'removed') bits.push('Page only in previous revision');
+    if (slot.type === 'added') bits.push('Page only in current revision');
     if (stats) {
-        if (stats.chg) bits.push(`${stats.chg} changed`);
-        if (stats.del) bits.push(`${stats.del} removed`);
-        if (stats.ins) bits.push(`${stats.ins} added`);
+        if (side === 'left' || side === 'both') {
+            if (stats.del) bits.push(`${stats.del} removed`);
+            if (stats.chg) bits.push(`${stats.chg} changed`);
+        }
+        if (side === 'right' || side === 'both') {
+            if (stats.ins) bits.push(`${stats.ins} added`);
+        }
     }
     if (slot.left?.usedOcr || slot.right?.usedOcr) bits.push('OCR used');
     return bits.join(' · ');
@@ -685,7 +1054,7 @@ async function canvasToBlob(canvas) {
     });
 }
 
-async function paintCached(root, cached) {
+async function paintCached(root, cached, cacheKey = '') {
     const leftStage = root.querySelector('[data-review-side="left"]');
     const rightStage = root.querySelector('[data-review-side="right"]');
     const leftNote = root.querySelector('[data-review-note="left"]');
@@ -693,33 +1062,68 @@ async function paintCached(root, cached) {
 
     if (!leftStage || !rightStage) return false;
     if (!(cached.leftPages?.length) && !(cached.rightPages?.length)) return false;
-    // v4 = no blank placeholders; sides are independent page streams
-    if (Number(cached.version) < CACHE_VERSION) return false;
+
+    const key = cacheKey || cached.key || root.dataset.cacheKey || '';
+    if (isBadCachedCompare(cached)) {
+        if (key) {
+            clearMemoryCompareCache(key);
+            deleteCompareCache(key).catch(() => {});
+        }
+        return false;
+    }
 
     leftStage.innerHTML = '';
     rightStage.innerHTML = '';
 
-    for (const blob of (cached.leftPages || [])) {
-        if (!blob) continue;
-        const wrap = document.createElement('div');
-        wrap.className = 'drr-page-wrap';
-        const img = document.createElement('img');
-        img.className = 'drr-pdf-canvas reg-compare-pdf-canvas';
-        img.src = URL.createObjectURL(blob);
-        wrap.appendChild(img);
-        leftStage.appendChild(wrap);
+    const leftList = cached.leftPages || [];
+    const rightList = cached.rightPages || [];
+    const rows = Math.max(leftList.length, rightList.length);
+
+    for (let i = 0; i < rows; i++) {
+        const leftBlob = leftList[i];
+        const rightBlob = rightList[i];
+        let leftWrap = null;
+        let rightWrap = null;
+
+        if (leftBlob) {
+            leftWrap = document.createElement('div');
+            leftWrap.className = 'drr-page-wrap';
+            leftWrap.dataset.compareRow = String(i);
+            appendPageCaption(leftWrap, pageCaptionForRow(cached, i));
+            const img = document.createElement('img');
+            img.className = 'drr-pdf-canvas reg-compare-pdf-canvas';
+            img.src = URL.createObjectURL(leftBlob);
+            leftWrap.appendChild(img);
+            leftStage.appendChild(leftWrap);
+        } else {
+            leftWrap = emptyPagePlaceholder('No page in previous revision');
+            leftWrap.dataset.compareRow = String(i);
+            appendPageCaption(leftWrap, pageCaptionForRow(cached, i));
+            leftStage.appendChild(leftWrap);
+        }
+
+        if (rightBlob) {
+            rightWrap = document.createElement('div');
+            rightWrap.className = 'drr-page-wrap';
+            rightWrap.dataset.compareRow = String(i);
+            appendPageCaption(rightWrap, pageCaptionForRow(cached, i));
+            const img = document.createElement('img');
+            img.className = 'drr-pdf-canvas reg-compare-pdf-canvas';
+            img.src = URL.createObjectURL(rightBlob);
+            rightWrap.appendChild(img);
+            rightStage.appendChild(rightWrap);
+        } else {
+            rightWrap = emptyPagePlaceholder('No page in current revision');
+            rightWrap.dataset.compareRow = String(i);
+            appendPageCaption(rightWrap, pageCaptionForRow(cached, i));
+            rightStage.appendChild(rightWrap);
+        }
+
+        balanceCompareRow(leftWrap, rightWrap);
     }
 
-    for (const blob of (cached.rightPages || [])) {
-        if (!blob) continue;
-        const wrap = document.createElement('div');
-        wrap.className = 'drr-page-wrap';
-        const img = document.createElement('img');
-        img.className = 'drr-pdf-canvas reg-compare-pdf-canvas';
-        img.src = URL.createObjectURL(blob);
-        wrap.appendChild(img);
-        rightStage.appendChild(wrap);
-    }
+    setupCompareScrollSync(leftStage, rightStage);
+    scrollToCompareStart(leftStage, rightStage);
 
     if (leftNote) leftNote.textContent = cached.leftNote || '';
     if (rightNote) rightNote.textContent = cached.rightNote || '';
@@ -727,9 +1131,9 @@ async function paintCached(root, cached) {
 }
 
 /**
- * Smart PDF comparison:
- * - content-based page pairing (handles moved pages)
- * - word LCS highlights painted on both PDF canvases
+ * PDF comparison:
+ * - page N in previous ↔ page N in current (real page positions)
+ * - word highlights on both sides (red = removed/changed on previous, green = added on current)
  * - OCR with word boxes for scanned PDFs
  * - IndexedDB cache + chunked render
  */
@@ -747,8 +1151,14 @@ export async function runPdfCompare(root, options = {}) {
     const leftNote = root.querySelector('[data-review-note="left"]');
     const rightNote = root.querySelector('[data-review-note="right"]');
 
-    if (leftStage) leftStage.innerHTML = '';
-    if (rightStage) rightStage.innerHTML = '';
+    if (leftStage) {
+        leftStage.innerHTML = '';
+        delete leftStage.dataset.scrollSync;
+    }
+    if (rightStage) {
+        rightStage.innerHTML = '';
+        delete rightStage.dataset.scrollSync;
+    }
     if (leftNote) leftNote.textContent = '';
     if (rightNote) rightNote.textContent = '';
 
@@ -763,7 +1173,7 @@ export async function runPdfCompare(root, options = {}) {
                 const memHit = peekMemoryCompareCache(cacheKey);
                 if (memHit) {
                     setStatus(root, 'Restoring comparison from this session…', 'loading');
-                    const ok = await paintCached(root, memHit);
+                    const ok = await paintCached(root, memHit, cacheKey);
                     if (ok) {
                         setStatus(root, 'Comparison restored from local cache.', 'success');
                         return;
@@ -775,7 +1185,7 @@ export async function runPdfCompare(root, options = {}) {
                 // Trust cacheKey identity (file/URL hashes). Do NOT require leftUrl/rightUrl
                 // equality — blob: URLs change every time the revised compare modal opens.
                 if (cached) {
-                    const ok = await paintCached(root, cached);
+                    const ok = await paintCached(root, cached, cacheKey);
                     if (ok) {
                         setStatus(root, 'Comparison restored from local cache.', 'success');
                         return;
@@ -856,39 +1266,73 @@ export async function runPdfCompare(root, options = {}) {
             storagePath: storagePathFromUrl(rightUrl),
         };
 
+        if (!leftMeta.storagePath && !leftMeta.file) {
+            setStatus(root, 'Could not resolve the previous PDF path for OCR. Try refreshing the page.', 'error');
+            return;
+        }
+        if (!rightMeta.storagePath && !rightMeta.file) {
+            setStatus(root, 'Could not resolve the current PDF path for OCR. Try refreshing the page.', 'error');
+            return;
+        }
+
         setStatus(root, 'Reading text (OCR scanned pages if needed)…', 'loading');
         showStagePlaceholder(leftStage, 'Reading previous PDF…');
         showStagePlaceholder(rightStage, 'Reading latest PDF…');
 
         const statusFn = (t, kind = 'loading') => setStatus(root, t, kind);
-        // Full OCR first so content alignment can match moved sections across page numbers.
-        const leftPages = await ensurePageTexts(leftDoc, leftMeta, statusFn);
+        const [leftPages, rightPages] = await Promise.all([
+            ensurePageTexts(leftDoc, leftMeta, statusFn),
+            ensurePageTexts(rightDoc, rightMeta, statusFn),
+        ]);
         if (root.__drrAbort) {
             setStatus(root, 'Comparison cancelled.', 'info');
             return;
         }
-        const rightPages = await ensurePageTexts(rightDoc, rightMeta, statusFn);
+
+        setStatus(root, 'Aligning OCR for highlights…', 'loading');
+        await harmonizeCompareTokens(leftPages, rightPages, leftMeta, rightMeta, statusFn);
 
         if (root.__drrAbort) {
             setStatus(root, 'Comparison cancelled.', 'info');
-        return;
-    }
+            return;
+        }
 
-        setStatus(root, 'Aligning pages by content…', 'loading');
-        if (leftStage) leftStage.innerHTML = '';
-        if (rightStage) rightStage.innerHTML = '';
+        const leftReadable = countPaintablePages(leftPages);
+        const rightReadable = countPaintablePages(rightPages);
+        if (!leftReadable && !rightReadable) {
+            setStatus(
+                root,
+                'Could not read text from either PDF (OCR failed). Check that Tesseract is installed on the server and the scan files are accessible.',
+                'error'
+            );
+            return;
+        }
+        if (leftReadable < Math.min(leftPages.length, 1) || rightReadable < Math.min(rightPages.length, 1)) {
+            setStatus(root, 'OCR partially failed — some pages may not highlight. Continuing…', 'info');
+        }
 
-        const alignment = alignPages(leftPages, rightPages);
+        setStatus(root, 'Preparing page-by-page comparison…', 'loading');
+        if (leftStage) {
+            leftStage.innerHTML = '';
+            delete leftStage.dataset.scrollSync;
+        }
+        if (rightStage) {
+            rightStage.innerHTML = '';
+            delete rightStage.dataset.scrollSync;
+        }
+
+        const { alignment, mode: alignMode, similarity: docSimilarity } = alignPagesSmart(leftPages, rightPages);
         const width = Math.max(leftStage?.clientWidth || rightStage?.clientWidth || 480, 280);
 
         const leftBlobs = [];
         const rightBlobs = [];
         let ocrUsed = false;
-        let matchCount = 0;
         let removedCount = 0;
         let addedCount = 0;
-        let movedCount = 0;
         let renderErrors = 0;
+        let highlightRows = 0;
+
+        const matchCount = countAlignmentMatches(alignment);
 
         const total = alignment.length;
         let offset = 0;
@@ -933,24 +1377,20 @@ export async function runPdfCompare(root, options = {}) {
                 let rightMarks = [];
 
                 if (slot.type === 'match') {
-                    matchCount++;
-                    if (slot.leftPage !== slot.rightPage) movedCount++;
-                    stats = wordDiffMarks(slot.left.tokens || [], slot.right.tokens || []);
+                    stats = wordDiffMarks(slot.left.tokens || [], slot.right.tokens || [], slot);
                     leftMarks = stats.leftMarks;
                     rightMarks = stats.rightMarks;
                 } else if (slot.type === 'removed') {
                     removedCount++;
-                    leftMarks = allTokenMarks(slot.left?.tokens || [], 'del');
+                    leftMarks = allTokenMarks(ensureHighlightTokens(slot.left?.tokens || []), 'del');
                 } else {
                     addedCount++;
-                    rightMarks = allTokenMarks(slot.right?.tokens || [], 'ins');
+                    rightMarks = allTokenMarks(ensureHighlightTokens(slot.right?.tokens || []), 'ins');
                 }
 
                 if (slot.left?.usedOcr || slot.right?.usedOcr) ocrUsed = true;
 
-                const frame = slot.type === 'removed'
-                    ? 'is-removed'
-                    : (slot.type === 'added' ? 'is-added' : '');
+                const frame = '';
 
                 let leftWrap = null;
                 let rightWrap = null;
@@ -979,25 +1419,64 @@ export async function runPdfCompare(root, options = {}) {
                 const cap = document.createElement('div');
                 cap.className = 'drr-page-caption';
                 cap.textContent = captionForSlot(slot);
-                const sum = document.createElement('div');
-                sum.className = 'drr-page-summary';
-                sum.textContent = summaryForSlot(slot, stats);
+                const sumLeft = document.createElement('div');
+                sumLeft.className = 'drr-page-summary';
+                sumLeft.textContent = summaryForSlot(slot, stats, 'left');
+                const sumRight = document.createElement('div');
+                sumRight.className = 'drr-page-summary';
+                sumRight.textContent = summaryForSlot(slot, stats, 'right');
 
-                if (leftStage && leftWrap && slot.leftPage) {
-                    leftWrap.prepend(cap.cloneNode(true));
-                    if (sum.textContent) leftWrap.appendChild(sum.cloneNode(true));
-                    leftStage.appendChild(leftWrap);
-                    const canvas = leftWrap.querySelector('canvas');
-                    leftBlobs.push(canvas ? await canvasToBlob(canvas) : null);
+                let leftRowWrap = null;
+                let rightRowWrap = null;
+
+                if (leftStage) {
+                    if (leftWrap && slot.leftPage) {
+                        leftWrap.prepend(cap.cloneNode(true));
+                        if (sumLeft.textContent) leftWrap.appendChild(sumLeft);
+                        leftWrap.dataset.compareRow = String(i);
+                        leftStage.appendChild(leftWrap);
+                        leftRowWrap = leftWrap;
+                        const canvas = leftWrap.querySelector('canvas');
+                        leftBlobs.push(canvas ? await canvasToBlob(canvas) : null);
+                    } else {
+                        const ph = emptyPagePlaceholder('No page in previous revision');
+                        ph.prepend(cap.cloneNode(true));
+                        ph.dataset.compareRow = String(i);
+                        leftStage.appendChild(ph);
+                        leftRowWrap = ph;
+                        leftBlobs.push(null);
+                    }
                 }
 
-                if (rightStage && rightWrap && slot.rightPage) {
-                    rightWrap.prepend(cap);
-                    if (sum.textContent) rightWrap.appendChild(sum);
-                    rightStage.appendChild(rightWrap);
-                    const canvas = rightWrap.querySelector('canvas');
-                    rightBlobs.push(canvas ? await canvasToBlob(canvas) : null);
+                if (rightStage) {
+                    if (rightWrap && slot.rightPage) {
+                        rightWrap.prepend(cap);
+                        if (sumRight.textContent) rightWrap.appendChild(sumRight);
+                        rightWrap.dataset.compareRow = String(i);
+                        rightStage.appendChild(rightWrap);
+                        rightRowWrap = rightWrap;
+                        const canvas = rightWrap.querySelector('canvas');
+                        rightBlobs.push(canvas ? await canvasToBlob(canvas) : null);
+                    } else {
+                        const ph = emptyPagePlaceholder('No page in current revision');
+                        ph.prepend(cap.cloneNode(true));
+                        ph.dataset.compareRow = String(i);
+                        rightStage.appendChild(ph);
+                        rightRowWrap = ph;
+                        rightBlobs.push(null);
+                    }
                 }
+
+                balanceCompareRow(leftRowWrap, rightRowWrap);
+
+                if (leftMarks.length || rightMarks.length) {
+                    highlightRows++;
+                }
+            }
+
+            setupCompareScrollSync(leftStage, rightStage);
+            if (offset === 0) {
+                scrollToCompareStart(leftStage, rightStage);
             }
 
             offset = end;
@@ -1010,46 +1489,71 @@ export async function runPdfCompare(root, options = {}) {
             ];
 
             const leftMsg = [
-                `${matchCount} aligned`,
-                movedCount ? `${movedCount} moved` : '',
-                removedCount ? `${removedCount} removed` : '',
+                `${matchCount} page pairs`,
+                removedCount ? `${removedCount} previous-only` : '',
                 ocrUsed ? 'OCR used on some pages' : '',
             ].filter(Boolean).join(' · ');
             const rightMsg = [
-                `${matchCount} aligned`,
-                movedCount ? `${movedCount} moved` : '',
-                addedCount ? `${addedCount} added` : '',
+                `${matchCount} page pairs`,
+                addedCount ? `${addedCount} current-only` : '',
                 ocrUsed ? 'OCR used on some pages' : '',
             ].filter(Boolean).join(' · ');
             if (leftNote) leftNote.textContent = leftMsg;
             if (rightNote) rightNote.textContent = rightMsg;
 
             if (cacheKey && offset >= total) {
+                scrollToCompareStart(leftStage, rightStage);
+
+                if (highlightRows === 0) {
+                    setStatus(
+                        root,
+                        'Comparison finished but no highlights were generated. OCR may have failed — check server Tesseract/Ghostscript, then hard-refresh and compare again.',
+                        'error'
+                    );
+                    return;
+                }
+
+                const shouldCache = highlightRows > 0 && matchCount > 0;
+                if (!shouldCache) {
+                    setStatus(
+                        root,
+                        `Comparison complete · ${matchCount} page pairs`
+                            + (removedCount ? `, ${removedCount} previous-only` : '')
+                            + (addedCount ? `, ${addedCount} current-only` : '')
+                            + ' · re-run to refresh cache.',
+                        'success'
+                    );
+                    return;
+                }
+
                 try {
                     const saved = await putCompareCache({
                         key: cacheKey,
                         leftUrl: String(leftUrl || '').startsWith('blob:') ? '' : leftUrl,
                         rightUrl: String(rightUrl || '').startsWith('blob:') ? '' : rightUrl,
-                        leftPages: leftBlobs.filter(Boolean),
-                        rightPages: rightBlobs.filter(Boolean),
+                        leftPages: leftBlobs,
+                        rightPages: rightBlobs,
                         leftNote: leftMsg,
                         rightNote: rightMsg,
                         alignment: alignment.map((s) => ({
                             type: s.type,
                             leftPage: s.leftPage,
                             rightPage: s.rightPage,
+                            pairedBy: s.pairedBy || 'content',
                         })),
+                        alignMode,
+                        docSimilarity,
                         pageOffset: offset,
                         totalPages: total,
                         version: CACHE_VERSION,
+                        hasHighlights: highlightRows > 0,
                     });
                     if (saved) {
                         setStatus(
                             root,
-                            `Comparison complete · saved locally for faster reopen · ${matchCount} aligned`
-                                + (movedCount ? `, ${movedCount} moved` : '')
-                                + (removedCount ? `, ${removedCount} removed` : '')
-                                + (addedCount ? `, ${addedCount} added` : '')
+                            `Comparison complete · saved locally · ${matchCount} page pairs`
+                                + (removedCount ? `, ${removedCount} previous-only` : '')
+                                + (addedCount ? `, ${addedCount} current-only` : '')
                                 + '.',
                             'success'
                         );
@@ -1076,12 +1580,20 @@ export async function runPdfCompare(root, options = {}) {
                     'info'
                 );
             } else {
+                scrollToCompareStart(leftStage, rightStage);
+                if (highlightRows === 0) {
+                    setStatus(
+                        root,
+                        'Comparison finished but no word highlights were painted. Re-run after confirming OCR works on the server (Tesseract + Ghostscript).',
+                        'error'
+                    );
+                    return;
+                }
                 setStatus(
                     root,
-                    `Comparison complete · ${matchCount} aligned`
-                        + (movedCount ? `, ${movedCount} moved` : '')
-                        + (removedCount ? `, ${removedCount} removed` : '')
-                        + (addedCount ? `, ${addedCount} added` : '')
+                    `Comparison complete · ${matchCount} page pairs`
+                        + (removedCount ? `, ${removedCount} previous-only` : '')
+                        + (addedCount ? `, ${addedCount} current-only` : '')
                         + '.',
                     'success'
                 );
@@ -1111,5 +1623,5 @@ export async function runPdfCompare(root, options = {}) {
 }
 
 export async function buildCompareCacheKey(leftId, rightId) {
-    return 'drr-v5:' + await hashString(String(leftId) + '||' + String(rightId));
+    return 'drr-v14:' + await hashString(String(leftId) + '||' + String(rightId));
 }

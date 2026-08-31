@@ -1977,6 +1977,13 @@
       }
 
       if (rec.type === 'append') {
+        // Snapshot scroll state BEFORE DOM mutation so the delta is real.
+        // Capturing prevScrollHeight after appendChild (old code) made
+        // prevScrollHeight === newScrollHeight, so the compensation was always
+        // zero and the user's view jumped every time a message was appended
+        // while they were scrolled up backreading.
+        const prevScrollTop    = chatBox.scrollTop;
+        const prevScrollHeight = chatBox.scrollHeight;
         rec.items.forEach(el => {
           if (el.classList.contains('message-container')) {
             const msgId = el.getAttribute('data-msg-id');
@@ -1989,11 +1996,16 @@
           }
           chatBox.appendChild(el);
         });
-        const prevScrollTop = chatBox.scrollTop;
-        const prevScrollHeight = chatBox.scrollHeight;
-        const newScrollHeight = chatBox.scrollHeight;
-        chatBox.scrollTop = Math.max(0, prevScrollTop + newScrollHeight - prevScrollHeight);
-        if (trimWindowFromTop(MAX_WINDOW)) refreshCursorAfterTopTrim();
+        // Pin the user's reading position: compensate for the height increase
+        // caused by the newly appended messages so the viewport doesn't jump.
+        if (gcViewingOlder) {
+          const scrollDiff = chatBox.scrollHeight - prevScrollHeight;
+          if (scrollDiff > 0) chatBox.scrollTop = prevScrollTop + scrollDiff;
+        }
+        // Only trim oldest messages from the top when the user is NOT backreading.
+        // Trimming while gcViewingOlder would delete the very messages they're
+        // currently reading, causing a violent view jump.
+        if (!gcViewingOlder && trimWindowFromTop(MAX_WINDOW)) refreshCursorAfterTopTrim();
         if (isFirstLoad) { isFirstLoad = false; handleFirstLoadScroll(); }
         else if (!gcViewingOlder && wasAtBottom) requestAnimationFrame(() => requestAnimationFrame(() => scrollToBottom(true, false)));
         else showScrollIndicator(rec.items.filter(el => el.classList.contains('message-container')).length);
@@ -2229,6 +2241,11 @@
       }
 
       if (rec.type === 'append') {
+        // Snapshot scroll state BEFORE DOM mutation so the delta is real.
+        // Same ordering bug as GC: capturing after appendChild made the
+        // compensation delta always zero.
+        const prevScrollTop    = chatBox.scrollTop;
+        const prevScrollHeight = chatBox.scrollHeight;
         rec.items.forEach(el => {
           if (el.classList.contains('message-container')) {
             const msgId = el.getAttribute('data-msg-id');
@@ -2241,11 +2258,14 @@
           }
           chatBox.appendChild(el);
         });
-        const prevScrollTop = chatBox.scrollTop;
-        const prevScrollHeight = chatBox.scrollHeight;
-        const newScrollHeight = chatBox.scrollHeight;
-        chatBox.scrollTop = Math.max(0, prevScrollTop + newScrollHeight - prevScrollHeight);
-        if (trimWindowFromTop(MAX_WINDOW)) refreshCursorAfterTopTrim();
+        // Pin the user's reading position during backread so appended messages
+        // at the bottom don't shift the view.
+        if (dmViewingOlder) {
+          const scrollDiff = chatBox.scrollHeight - prevScrollHeight;
+          if (scrollDiff > 0) chatBox.scrollTop = prevScrollTop + scrollDiff;
+        }
+        // Only trim oldest messages from the top when the user is NOT backreading.
+        if (!dmViewingOlder && trimWindowFromTop(MAX_WINDOW)) refreshCursorAfterTopTrim();
         if (isFirstLoad) { isFirstLoad = false; handleFirstLoadScroll(); }
         else if (!dmViewingOlder && wasAtBottom) requestAnimationFrame(() => requestAnimationFrame(() => scrollToBottom(true, false)));
         else showScrollIndicator(rec.items.filter(el => el.classList.contains('message-container')).length);

@@ -3531,6 +3531,11 @@
         }
 
         if (rec.type === 'append') {
+          // Snapshot scroll state BEFORE DOM mutation so the delta is real.
+          // Same ordering bug as GC/DM: capturing after appendChild made the
+          // compensation delta always zero, so the view jumped during backread.
+          const prevScrollTop    = chatBox.scrollTop;
+          const prevScrollHeight = chatBox.scrollHeight;
           rec.items.forEach(el => {
             if (el.classList.contains('message-container')) {
               const msgId = el.getAttribute('data-msg-id');
@@ -3543,10 +3548,11 @@
             }
             chatBox.appendChild(el);
           });
-          const prevScrollTop = chatBox.scrollTop;
-          const prevScrollHeight = chatBox.scrollHeight;
-          const newScrollHeight = chatBox.scrollHeight;
-          chatBox.scrollTop = Math.max(0, prevScrollTop + newScrollHeight - prevScrollHeight);
+          // Pin the user's reading position during backread.
+          if (adminConvViewingOlder) {
+            const scrollDiff = chatBox.scrollHeight - prevScrollHeight;
+            if (scrollDiff > 0) chatBox.scrollTop = prevScrollTop + scrollDiff;
+          }
           if (!adminConvViewingOlder) {
             if (trimWindowFromTop(MAX_WINDOW)) refreshCursorAfterTopTrim();
           }

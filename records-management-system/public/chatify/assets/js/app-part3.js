@@ -594,7 +594,7 @@
       // initial load, the button should show — it used to be gated on
       // "scrollTop <= 5" (literally the very top) which meant scrolling
       // up anywhere in the middle/older history never revealed it.
-      if (chatFullyLoaded) {
+      if (chatFullyLoaded && document.activeElement !== messageInput) {
         scrollIndicator.classList.add('visible');
       } else {
         scrollIndicator.classList.remove('visible');
@@ -1602,7 +1602,7 @@
         shouldAutoScroll = false;
         userScrolledUp = true;
         // Only show scroll button when initial load is done AND user has scrolled up > 250px away from bottom
-        if (chatFullyLoaded) {
+        if (chatFullyLoaded && isUserScrollingOrTouching && document.activeElement !== messageInput) {
           const distance = chatBox.scrollHeight - chatBox.scrollTop - chatBox.clientHeight;
           if (distance > 250) {
             const hasMessages = chatBox.querySelectorAll('.message-container').length > 0;
@@ -1610,6 +1610,11 @@
               showScrollIndicator(0);
             }
           } else if (distance <= 100) {
+            hideScrollIndicator();
+          }
+        } else if (chatFullyLoaded) {
+          const distance = chatBox.scrollHeight - chatBox.scrollTop - chatBox.clientHeight;
+          if (distance <= 100) {
             hideScrollIndicator();
           }
         }
@@ -2032,6 +2037,10 @@
     let isLoadingGC = false;
 
     function processGlobalChatData(data, loadOlderMode = false) {
+      if (!data) return;
+      if (!loadOlderMode && typeof cacheGlobalChatSnapshot === 'function') {
+        cacheGlobalChatSnapshot(data);
+      }
       const newHtml    = data.html || '';
       gcHasMore        = data.hasMore || false;
 
@@ -2180,7 +2189,12 @@
         xhr.open('GET', 'load.php?before_uuid=&limit=' + INITIAL_LOAD, true);
         xhr.onload = function() {
           if (this.status === 200) {
-            try { globalChatPrefetchedData = JSON.parse(this.responseText); } catch(e) {}
+            try {
+              globalChatPrefetchedData = JSON.parse(this.responseText);
+              if (typeof cacheGlobalChatSnapshot === 'function') {
+                cacheGlobalChatSnapshot(globalChatPrefetchedData);
+              }
+            } catch(e) {}
           }
           resolve(globalChatPrefetchedData);
         };
@@ -2236,14 +2250,20 @@
       if (!loadOlderMode && !isAutoPoll) {
         if (globalChatPrefetchedData) {
           const data = globalChatPrefetchedData;
+          if (typeof cacheGlobalChatSnapshot === 'function') cacheGlobalChatSnapshot(data);
           globalChatPrefetchedData = null;
-          processGlobalChatData(data, false);
+          if (chatBox && chatBox.children.length === 0) {
+            processGlobalChatData(data, false);
+          }
         } else if (gcPrefetchPromise) {
           const p = gcPrefetchPromise;
           gcPrefetchPromise = null;
           p.then(function(data) {
             if (data && isGlobalChat) {
-              processGlobalChatData(data, false);
+              if (typeof cacheGlobalChatSnapshot === 'function') cacheGlobalChatSnapshot(data);
+              if (chatBox && chatBox.children.length === 0) {
+                processGlobalChatData(data, false);
+              }
             }
           });
         }
@@ -2271,6 +2291,9 @@
         if (!isGlobalChat) return;
         let data;
         try { data = JSON.parse(this.responseText); } catch(e) { return; }
+        if (!loadOlderMode && typeof cacheGlobalChatSnapshot === 'function') {
+          cacheGlobalChatSnapshot(data);
+        }
         processGlobalChatData(data, loadOlderMode);
       };
       xhr.onerror = function() { isLoadingGC = false; if (loadOlderMode) hideBackreadTopLoader(); };
@@ -2612,9 +2635,7 @@
           const clearedGlobal   = isGlobalChat;
 
           if (clearedGlobal) {
-            // Stay in Global Chat (now empty) instead of bouncing to the
-            // home screen — mirrors how the 'all_cleared' WS event behaves
-            // when the admin is already viewing Global Chat.
+            globalChatCache = null;
             gcCursor = '';
             gcViewingOlder = false;
             removePaginationBtn();
@@ -4901,124 +4922,59 @@
     var iosFooter          = document.querySelector('.input-area');
     var iosBlurSuppressed  = false; // true while we're about to refocus after send
 
-    function applyIOSViewport() {
-      if (!window.visualViewport) return;
-      var vv            = window.visualViewport;
-      var visibleTop    = vv.offsetTop;
-      var visibleLeft   = vv.offsetLeft;
-      var visibleWidth  = vv.width;
-      var visibleHeight = vv.height;
+    let keyboardAnimRaf = null;
 
-      // Get safe-area-inset-bottom (home bar on notched iPhones).
-      // Only apply it when the keyboard is NOT open (i.e. visibleHeight is close to full screen).
-      // When the keyboard is open, visibleHeight already excludes the keyboard area,
-      // so we don't need to add extra bottom inset.
-      var safeBottom = 0;
-      var fullHeight = window.screen.height / window.devicePixelRatio;
-      var keyboardOpen = visibleHeight < (fullHeight * 0.75);
-      if (!keyboardOpen) {
-        // Try to read CSS env() via a temporary element
-        try {
-          var tmp = document.createElement('div');
-          tmp.style.cssText = 'position:fixed;bottom:0;height:env(safe-area-inset-bottom,0px);pointer-events:none;visibility:hidden;';
-          document.body.appendChild(tmp);
-          safeBottom = tmp.offsetHeight || 0;
-          document.body.removeChild(tmp);
-        } catch(e) { safeBottom = 0; }
+    function smoothKeepScrollAtBottom(durationMs = 400) {
+      if (!chatBox) return;
+      userScrolledUp = false;
+      shouldAutoScroll = true;
+      hideScrollIndicator();
+
+      if (keyboardAnimRaf) {
+        cancelAnimationFrame(keyboardAnimRaf);
+        keyboardAnimRaf = null;
       }
 
-      var headerH = iosHeader.offsetHeight;
-      var footerH = iosFooter.offsetHeight;
+      const startTime = performance.now();
 
-      // Pin header at top of visible area
-      iosHeader.style.position = 'fixed';
-      iosHeader.style.top      = visibleTop + 'px';
-      iosHeader.style.left     = visibleLeft + 'px';
-      iosHeader.style.width    = visibleWidth + 'px';
-      iosHeader.style.zIndex   = '200';
-
-      // Pin footer just above the keyboard (or home bar when keyboard is closed)
-      var footerTop = visibleTop + visibleHeight - footerH - safeBottom;
-      iosFooter.style.position    = 'fixed';
-      iosFooter.style.top         = footerTop + 'px';
-      iosFooter.style.left        = visibleLeft + 'px';
-      iosFooter.style.width       = visibleWidth + 'px';
-      iosFooter.style.zIndex      = '200';
-      // Remove the CSS padding-bottom safe-area rule while fixed — we handle it manually above
-      iosFooter.style.paddingBottom = (keyboardOpen ? '12px' : (12 + safeBottom) + 'px');
-
-      // chat-box fills the space between header and footer — still scrollable
-      chatBox.style.position  = 'fixed';
-      chatBox.style.top       = (visibleTop + headerH) + 'px';
-      chatBox.style.left      = visibleLeft + 'px';
-      chatBox.style.width     = visibleWidth + 'px';
-      chatBox.style.height    = (visibleHeight - headerH - footerH - safeBottom) + 'px';
-      chatBox.style.overflowY = 'auto';
-
-      // Scroll chat to bottom whenever keyboard changes size
-      setTimeout(function() {
+      function step(now) {
+        if (!chatBox) return;
         chatBox.scrollTop = chatBox.scrollHeight;
-      }, 50);
+        if (now - startTime < durationMs) {
+          keyboardAnimRaf = requestAnimationFrame(step);
+        } else {
+          keyboardAnimRaf = null;
+          chatBox.scrollTop = chatBox.scrollHeight;
+        }
+      }
+
+      keyboardAnimRaf = requestAnimationFrame(step);
+    }
+
+    function applyIOSViewport() {
+      smoothKeepScrollAtBottom(250);
     }
 
     function resetIOSViewport() {
-      if (!window.visualViewport) return;
-
-      iosHeader.style.position = '';
-      iosHeader.style.top      = '';
-      iosHeader.style.left     = '';
-      iosHeader.style.width    = '';
-      iosHeader.style.zIndex   = '';
-
-      iosFooter.style.position     = '';
-      iosFooter.style.top          = '';
-      iosFooter.style.left         = '';
-      iosFooter.style.width        = '';
-      iosFooter.style.zIndex       = '';
-      iosFooter.style.paddingBottom = '';
-
-      chatBox.style.position  = '';
-      chatBox.style.top       = '';
-      chatBox.style.left      = '';
-      chatBox.style.width     = '';
-      chatBox.style.height    = '';
-      chatBox.style.overflowY = '';
+      smoothKeepScrollAtBottom(250);
     }
 
-    if (isIOS && window.visualViewport) {
-      // Use requestAnimationFrame so the layout update runs on the very next
-      // paint frame — eliminates the white flash seen before the footer snaps up.
-      var rafPending = false;
-      function scheduleIOSViewport() {
-        if (rafPending) return;
-        rafPending = true;
-        requestAnimationFrame(function() {
-          rafPending = false;
-          applyIOSViewport();
-        });
-      }
-      window.visualViewport.addEventListener('resize', scheduleIOSViewport);
-      window.visualViewport.addEventListener('scroll', scheduleIOSViewport);
+    if (window.visualViewport) {
+      window.visualViewport.addEventListener('resize', function() {
+        smoothKeepScrollAtBottom(250);
+      });
+      window.visualViewport.addEventListener('scroll', function() {
+        smoothKeepScrollAtBottom(200);
+      });
     }
 
-    // Scroll chat to latest message when the keyboard opens.
-    // iOS: do NOT call applyIOSViewport() here — the keyboard hasn't opened yet,
-    // so visibleHeight is still full-screen and would place the footer wrongly.
-    // The visualViewport 'resize' event (above) fires as soon as the keyboard
-    // appears and will correctly reposition everything via scheduleIOSViewport.
     messageInput.addEventListener('focus', function () {
-      setTimeout(function () {
-        chatBox.scrollTop = chatBox.scrollHeight;
-      }, isIOS ? 400 : 100);
+      smoothKeepScrollAtBottom(450);
     });
 
     messageInput.addEventListener('blur', function () {
-      if (isIOS) {
-        // Skip reset when we're immediately refocusing after send — the keyboard
-        // never actually closed so resetting would cause a white-gap flash.
-        if (iosBlurSuppressed) return;
-        setTimeout(resetIOSViewport, 300);
-      }
+      if (iosBlurSuppressed) return;
+      smoothKeepScrollAtBottom(300);
     });
 
     // ── Mobile keyboard: keep input-area always above the virtual keyboard ──

@@ -1201,6 +1201,7 @@
     /* Chat Container */
     #chat-box {
       flex: 1;
+      min-height: 0;
       overflow-y: auto;
       overflow-x: hidden;
       padding: 16px 12px 20px 12px;
@@ -2734,14 +2735,15 @@
         height: 100%;
         height: 100dvh;
         overflow: hidden;
-        /* iOS Safari: prevent body scroll which can hide the header */
-        position: fixed;
         width: 100%;
+        margin: 0;
+        padding: 0;
+        touch-action: manipulation;
       }
 
       .app-wrapper {
         position: relative;
-        width: 100vw;
+        width: 100%;
         height: 100%;
         height: 100dvh;
       }

@@ -640,6 +640,7 @@
           // partner account to resolve, and the sidebar list itself isn't
           // affected (no conversation entry disappears).
           if (data.chat_type === 'global') {
+            globalChatCache = null;
             gcCursor = '';
             gcViewingOlder = false;
             removePaginationBtn();
@@ -747,6 +748,7 @@
         } else if (data.type === 'all_cleared') {
           console.log('Received WebSocket real-time update notice:', data);
           dmMessageCache.clear(); // every conversation's snapshot is now stale
+          globalChatCache = null;
           gcCursor = ''; dmCursor = '';
           gcViewingOlder = false; dmViewingOlder = false;
           allConvsData = [];
@@ -1155,10 +1157,16 @@
         }
       } else {
         if (backButton) backButton.style.display = 'none';
-        if (sidebar) sidebar.classList.remove('open');
       }
     }
-    window.addEventListener('resize', setupMobileLayout);
+    let lastChatifyWindowWidth = window.innerWidth;
+    function handleResizeSetupMobileLayout() {
+      if (window.innerWidth !== lastChatifyWindowWidth) {
+        lastChatifyWindowWidth = window.innerWidth;
+        setupMobileLayout();
+      }
+    }
+    window.addEventListener('resize', handleResizeSetupMobileLayout);
 
     // Global data
     let allUsersData = [];
@@ -2441,6 +2449,17 @@
 
     // State for global chat
     let isGlobalChat = false;
+    let globalChatCache = null; // { html, hasMore, nextCursor, _raw }
+
+    function cacheGlobalChatSnapshot(data) {
+      if (!data) return;
+      globalChatCache = {
+        html: data.html || '',
+        hasMore: data.hasMore || false,
+        nextCursor: data.nextCursor || '',
+        _raw: data
+      };
+    }
     // ── Infinite-scroll window constants ─────────────────────────────────────
     // INITIAL_LOAD   — messages fetched when first opening a conversation.
     // BACKREAD_BATCH — messages fetched per auto-triggered scroll-up fetch.
@@ -2628,7 +2647,16 @@
       chatHeaderTitle.innerHTML = `Global Chat`;
       applyHeaderAdminBadge(); // activeDMAccountId is null here — clears any leftover badge from the previous DM
       applyHeaderAvatar({ avatar_url: 'cspc.webp', name: 'Global Chat' });
-      if (!globalChatPrefetchedData) {
+      const cached = globalChatCache || (globalChatPrefetchedData ? { html: globalChatPrefetchedData.html || '', hasMore: globalChatPrefetchedData.hasMore || false, nextCursor: globalChatPrefetchedData.nextCursor || '', _raw: globalChatPrefetchedData } : null);
+
+      if (cached && cached._raw) {
+        gcCursor = cached.nextCursor || '';
+        gcHasMore = cached.hasMore || false;
+        gcViewingOlder = false;
+        if (typeof processGlobalChatData === 'function') {
+          processGlobalChatData(cached._raw, false);
+        }
+      } else {
         chatBox.innerHTML = '';
       }
 

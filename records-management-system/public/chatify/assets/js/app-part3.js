@@ -373,40 +373,70 @@
     let unreadCount = 0;
 
     // Dark mode functionality — applies to all users (admin and non-admin)
-    if (darkModeToggle) {
-      // Sync body attribute from html element (set by inline script in <head>)
-      if (document.documentElement.hasAttribute('data-theme')) {
+    function syncDarkModeUI() {
+      const root = document.documentElement;
+      const isDark = root.getAttribute('data-theme') === 'dark';
+      const chk = document.getElementById('darkModeToggle');
+      if (chk) {
+        chk.checked = isDark;
+        const slider = chk.closest('label')?.querySelector('.slider-bg');
+        const knob = chk.closest('label')?.querySelector('.slider-knob');
+        if (slider) slider.style.background = isDark ? '#1b74e4' : 'var(--border-color)';
+        if (knob) knob.style.left = isDark ? '21px' : '3px';
+      }
+    }
+    window.syncDarkModeUI = syncDarkModeUI;
+
+    function toggleDarkMode(forceVal) {
+      const root = document.documentElement;
+      const currentDark = root.getAttribute('data-theme') === 'dark';
+      const enableDark = (typeof forceVal === 'boolean') ? forceVal : !currentDark;
+      const nextState = enableDark ? 'enabled' : 'disabled';
+
+      // Suppress per-element transition animations during theme flip for instant 60fps/120fps paint
+      root.classList.add('theme-transitioning');
+
+      if (enableDark) {
+        root.setAttribute('data-theme', 'dark');
         document.body.setAttribute('data-theme', 'dark');
+      } else {
+        root.removeAttribute('data-theme');
+        document.body.removeAttribute('data-theme');
       }
 
-      darkModeToggle.addEventListener('click', function() {
-        const root = document.documentElement;
-        const isDark = root.getAttribute('data-theme') === 'dark';
-        const nextState = isDark ? 'disabled' : 'enabled';
+      syncDarkModeUI();
 
-        // Suppress per-element transition animations during theme flip for instant 60fps/120fps paint
-        root.classList.add('theme-transitioning');
-
-        if (isDark) {
-          root.removeAttribute('data-theme');
-          document.body.removeAttribute('data-theme');
-        } else {
-          root.setAttribute('data-theme', 'dark');
-          document.body.setAttribute('data-theme', 'dark');
-        }
-
-        // Release transition block on next frame
+      // Release transition block on next frame
+      requestAnimationFrame(function() {
         requestAnimationFrame(function() {
-          requestAnimationFrame(function() {
-            root.classList.remove('theme-transitioning');
-          });
+          root.classList.remove('theme-transitioning');
         });
+      });
 
-        // Fast persistence without blocking main thread
-        try {
-          localStorage.setItem('darkMode', nextState);
-          document.cookie = "dark_mode=" + nextState + "; path=/; max-age=31536000; SameSite=Lax";
-        } catch (e) {}
+      // Fast persistence without blocking main thread
+      try {
+        localStorage.setItem('darkMode', nextState);
+        document.cookie = "dark_mode=" + nextState + "; path=/; max-age=31536000; SameSite=Lax";
+      } catch (e) {}
+    }
+    window.toggleDarkMode = toggleDarkMode;
+
+    if (document.documentElement.hasAttribute('data-theme')) {
+      document.body.setAttribute('data-theme', 'dark');
+    }
+    syncDarkModeUI();
+
+    const darkModeInput = document.getElementById('darkModeToggle');
+    if (darkModeInput) {
+      darkModeInput.addEventListener('change', function() {
+        toggleDarkMode(this.checked);
+      });
+    }
+    const darkRow = document.getElementById('darkModeSettingsRow');
+    if (darkRow) {
+      darkRow.addEventListener('click', function(e) {
+        if (e.target.closest('label') || e.target.closest('input')) return;
+        toggleDarkMode();
       });
     }
 
@@ -3616,6 +3646,10 @@
         chk2.addEventListener('change', () => {
           applyCommSettingsChange({ allow_see_typing_preview: chk2.checked });
         });
+      }
+
+      if (typeof syncDarkModeUI === 'function') {
+        syncDarkModeUI();
       }
 
       modal.classList.add('active');

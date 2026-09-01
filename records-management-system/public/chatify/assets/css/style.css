@@ -182,7 +182,7 @@
       align-items: center;
       justify-content: center;
       flex-shrink: 0;
-      background: #1b74e4;
+      background: var(--primary-color) !important;
       color: #ffffff;
       border: none;
       cursor: pointer;
@@ -191,7 +191,7 @@
     }
 
     .sidebar-action-btn:hover {
-      background: #1669c1;
+      background: var(--primary-hover) !important;
     }
 
     .sidebar-action-btn:active {
@@ -232,7 +232,7 @@
     }
     
     .sidebar-search input:focus, .admin-search input:focus {
-      border-color: #1b74e4;
+      border-color: var(--primary-color) !important;
     }
     
     .sidebar-users {
@@ -379,7 +379,7 @@
     
     .user-office {
       font-size: 11px;
-      color: #1b74e4;
+      color: var(--text-header);
       font-weight: 500;
       line-height: 1.2;
       margin-bottom: 1px;
@@ -402,7 +402,7 @@
 
     /* Unread message badge in sidebar */
     .user-unread-badge {
-      background: #1b74e4;
+      background: var(--primary-color);
       color: #fff;
       border-radius: 12px;
       min-width: 20px;
@@ -468,7 +468,7 @@
     }
     .notify-btn:hover {
       background-color: var(--button-hover);
-      color: #1b74e4;
+      color: var(--primary-color);
     }
     .notify-btn svg { width: 17px; height: 17px; display: block; }
 
@@ -490,7 +490,7 @@
       font-size: 14px;
       line-height: 1.4;
     }
-    .notify-textarea:focus { outline: none; border-color: #1b74e4; }
+    .notify-textarea:focus { outline: none; border-color: var(--primary-color); }
     .notify-char-count {
       text-align: right;
       font-size: 11px;
@@ -671,16 +671,16 @@
       width: 28px;
       height: 28px;
       margin-bottom: 4px;
-      color: #1b74e4;
+      color: var(--primary-color);
     }
 
     .image-staging-dropzone.drag-active {
-      border-color: #1b74e4;
+      border-color: var(--primary-color);
       background-color: var(--bg-drop-overlay);
     }
 
     .image-staging-browse {
-      color: #1b74e4;
+      color: var(--primary-color);
       text-decoration: underline;
       font-size: 12px;
     }
@@ -769,7 +769,7 @@
       position: relative;
       width: 30px;
       height: 30px;
-      color: #1b74e4;
+      color: var(--primary-color);
     }
 
     .image-staging-file-icon svg {
@@ -785,7 +785,7 @@
       font-size: 8px;
       font-weight: 700;
       letter-spacing: 0.2px;
-      background: #1b74e4;
+      background: var(--primary-color);
       color: #fff;
       border-radius: 3px;
       padding: 1px 4px;
@@ -1091,7 +1091,7 @@
     }
 
     .clear-button, .darkmode-button {
-      background: #1b74e4;
+      background: var(--primary-color) !important;
       color: #ffffff;
       border: none;
       padding: 0 16px;
@@ -1153,6 +1153,27 @@
 
     .clear-button:active, .darkmode-button:active {
       transform: scale(0.97);
+    }
+
+    /* Color Preset Buttons & Header Color Picker */
+    .color-preset-btn {
+      width: 100%;
+      height: 38px;
+      border-radius: 8px;
+      border: 2px solid transparent;
+      cursor: pointer;
+      transition: transform 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease;
+      position: relative;
+    }
+    .color-preset-btn:hover {
+      transform: scale(1.08);
+    }
+    .color-preset-btn.active {
+      border-color: var(--text-primary) !important;
+      box-shadow: 0 0 0 2px var(--bg-primary), 0 2px 8px rgba(0,0,0,0.25);
+    }
+    .color-picker-header-btn:hover {
+      transform: scale(1.06);
     }
 
     /* Burger menu button: plain lines, no circle/pill container.
@@ -1832,7 +1853,7 @@
     }
     .attachment-btn:hover {
       background: var(--bg-hover);
-      color: #1b74e4;
+      color: var(--primary-color);
       transform: rotate(-15deg) scale(1.08);
     }
 
@@ -1846,9 +1867,9 @@
       font-size: 15px;
       font-weight: 600;
       letter-spacing: 0.02em;
-      color: #1b74e4;
+      color: var(--primary-color);
       background-color: var(--bg-drop-overlay);
-      border: 2px dashed #1b74e4;
+      border: 2px dashed var(--primary-color);
       border-radius: 16px;
       opacity: 0;
       pointer-events: none;
@@ -2226,8 +2247,8 @@
       transition: background 0.12s ease, border-color 0.12s ease;
     }
     .mention-user-row:hover {
-      border-color: #1b74e4;
-      background: rgba(27, 116, 228, 0.08);
+      border-color: var(--primary-color);
+      background: var(--bg-drop-overlay);
     }
     .mention-user-row .mention-user-avatar {
       width: 34px;
@@ -2270,7 +2291,7 @@
 
     input:focus, textarea:focus {
       outline: none;
-      border-color: #1b74e4;
+      border-color: var(--primary-color);
       background-color: var(--bg-secondary);
     }
 
@@ -2306,7 +2327,7 @@
       min-width: 42px;
       flex-shrink: 0;
       border-radius: 50%;
-      background: #1b74e4;
+      background: var(--primary-color) !important;
       color: white;
       display: flex;
       align-items: center;
@@ -2338,7 +2359,7 @@
     }
 
     #sendButton:hover:not(:disabled) {
-      background: #1669c1;
+      background: var(--primary-hover) !important;
     }
 
     #sendButton:active:not(:disabled) {
@@ -2451,23 +2472,23 @@
     }
 
     .confirm-button {
-      color: #1b74e4;
+      color: var(--text-header);
     }
 
     .confirm-button:hover {
-      background-color: rgba(27, 116, 228, 0.12);
+      background-color: var(--bg-drop-overlay);
     }
 
     .modal-button.modal-close-btn {
       flex: 0 0 auto;
-      color: #1b74e4;
+      color: var(--text-header);
       border-right: none;
       padding: 8px 20px;
       border-radius: 6px;
     }
 
     .modal-button.modal-close-btn:hover {
-      background-color: rgba(27, 116, 228, 0.12);
+      background-color: var(--bg-drop-overlay);
     }
 
     .modal-button:active {
@@ -2592,7 +2613,7 @@
 
     .secret-key-input:focus {
       outline: none;
-      border-color: #1b74e4;
+      border-color: var(--primary-color) !important;
       background-color: var(--bg-secondary);
     }
 
@@ -2605,7 +2626,7 @@
       position: absolute;
       bottom: calc(100% + 8px);
       right: 16px;
-      background: #1b74e4;
+      background: var(--primary-color) !important;
       color: white;
       padding: 8px 14px;
       border-radius: 24px;
@@ -2631,7 +2652,7 @@
     }
 
     .scroll-indicator:hover {
-      background: #1669c1;
+      background: var(--primary-hover) !important;
       transform: translateY(-2px);
       box-shadow: 0 4px 14px rgba(0,0,0,0.3);
     }
@@ -2646,7 +2667,7 @@
       bottom: 16px;
       left: 50%;
       transform: translateX(-50%);
-      background: #1b74e4;
+      background: var(--primary-color) !important;
       color: white;
       padding: 8px 16px;
       border-radius: 24px;
@@ -2830,9 +2851,9 @@
       font-family: 'Inter', sans-serif;
       font-size: 16px;
       font-weight: 500;
-      color: #1b74e4;
+      color: var(--primary-color);
       background-color: var(--bg-drop-overlay);
-      border: 2px dashed #1b74e4;
+      border: 2px dashed var(--primary-color);
       border-radius: 8px;
       margin: 8px;
     }
@@ -3484,7 +3505,7 @@
     /* ── @mention pure blue text in type a message box only ── */
     /* ── @mention pure blue text in type a message box only ── */
     .message-input-highlight .mention-tag {
-      color: #1b74e4 !important;
+      color: var(--text-header) !important;
       font-weight: inherit !important;
       background: transparent !important;
       border: none !important;
@@ -3495,7 +3516,7 @@
       letter-spacing: 0px !important;
     }
     [data-theme="dark"] .message-input-highlight .mention-tag {
-      color: #5ea8ff !important;
+      color: var(--text-header) !important;
     }
 
     .sent .message-avatar {
@@ -3609,7 +3630,7 @@
       height: 34px;
       border-radius: 50%;
       border: none;
-      background: #1b74e4;
+      background: var(--primary-color) !important;
       color: #ffffff;
       display: flex;
       align-items: center;

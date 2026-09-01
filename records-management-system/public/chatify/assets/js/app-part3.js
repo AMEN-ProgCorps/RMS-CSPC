@@ -33,7 +33,7 @@
       const badge = document.createElement('span');
       badge.className = 'verified-badge';
       badge.innerHTML = `<svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-        <circle cx="12" cy="12" r="12" fill="#1b74e4"/>
+        <circle cx="12" cy="12" r="12" fill="var(--primary-color, #8ba888)"/>
         <path d="M7 12.5l3.5 3.5 6.5-7" stroke="#fff" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
       </svg>`;
       el.appendChild(badge);
@@ -418,6 +418,10 @@
       }
 
       syncDarkModeUI();
+      if (typeof applyChatThemeColor === 'function') {
+        const curColor = window.currentUserCommSettings?.chat_theme_color || localStorage.getItem('chatify_theme_color') || '#8ba888';
+        applyChatThemeColor(curColor);
+      }
 
       // Release transition block on next frame
       requestAnimationFrame(function() {
@@ -3807,7 +3811,7 @@
                   const b = document.createElement('span');
                   b.className = 'verified-badge';
                   b.style.cssText = 'flex-shrink:0;';
-                  b.innerHTML = `<svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><circle cx="12" cy="12" r="12" fill="#1b74e4"/><path d="M7 12.5l3.5 3.5 6.5-7" stroke="#fff" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
+                  b.innerHTML = `<svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><circle cx="12" cy="12" r="12" fill="var(--primary-color, #8ba888)"/><path d="M7 12.5l3.5 3.5 6.5-7" stroke="#fff" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
                   nameSpan.appendChild(b);
                 }
 
@@ -3820,7 +3824,7 @@
                 chk.style.cssText = 'opacity:0;width:0;height:0;position:absolute;';
                 const slider = document.createElement('span');
                 slider.className = 'slider-bg';
-                slider.style.cssText = `position:absolute;inset:0;border-radius:22px;transition:background 0.2s;background:${chk.checked ? '#1b74e4' : 'var(--border-color)'};`;
+                slider.style.cssText = `position:absolute;inset:0;border-radius:22px;transition:background 0.2s;background:${chk.checked ? 'var(--primary-color)' : 'var(--border-color)'};`;
                 const knob = document.createElement('span');
                 knob.className = 'slider-knob';
                 knob.style.cssText = `position:absolute;top:3px;left:${chk.checked ? '21px' : '3px'};width:16px;height:16px;border-radius:50%;background:#fff;transition:left 0.2s,background 0.2s;box-shadow:0 1px 3px rgba(0,0,0,0.3);`;
@@ -3831,14 +3835,14 @@
                 chk.addEventListener('change', function() {
                   const newVal = this.checked;
                   const targetId = Number(u.account_id);
-                  slider.style.background = newVal ? '#1b74e4' : 'var(--border-color)';
+                  slider.style.background = newVal ? 'var(--primary-color)' : 'var(--border-color)';
                   knob.style.left = newVal ? '21px' : '3px';
                   // Add or remove badge from the name in the result row
                   const existingBadge = nameSpan.querySelector('.verified-badge');
                   if (newVal && !existingBadge) {
                     const b = document.createElement('span');
                     b.className = 'verified-badge';
-                    b.innerHTML = `<svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><circle cx="12" cy="12" r="12" fill="#1b74e4"/><path d="M7 12.5l3.5 3.5 6.5-7" stroke="#fff" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
+                    b.innerHTML = `<svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><circle cx="12" cy="12" r="12" fill="var(--primary-color, #8ba888)"/><path d="M7 12.5l3.5 3.5 6.5-7" stroke="#fff" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
                     nameSpan.appendChild(b);
                   } else if (!newVal && existingBadge) {
                     existingBadge.remove();
@@ -3884,13 +3888,13 @@
                     if (!res.ok) {
                       // Revert toggle on failure
                       chk.checked = !newVal;
-                      slider.style.background = !newVal ? '#1b74e4' : 'var(--border-color)';
+                      slider.style.background = !newVal ? 'var(--primary-color)' : 'var(--border-color)';
                       knob.style.left = !newVal ? '21px' : '3px';
                       const revertBadge = nameSpan.querySelector('.verified-badge');
                       if (!newVal && !revertBadge) {
                         const b = document.createElement('span');
                         b.className = 'verified-badge';
-                        b.innerHTML = `<svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><circle cx="12" cy="12" r="12" fill="#1b74e4"/><path d="M7 12.5l3.5 3.5 6.5-7" stroke="#fff" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
+                        b.innerHTML = `<svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><circle cx="12" cy="12" r="12" fill="var(--primary-color, #8ba888)"/><path d="M7 12.5l3.5 3.5 6.5-7" stroke="#fff" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
                         nameSpan.appendChild(b);
                       } else if (newVal && revertBadge) {
                         revertBadge.remove();
@@ -3921,13 +3925,13 @@
                     }
                   }).catch(() => {
                     chk.checked = !newVal;
-                    slider.style.background = !newVal ? '#1b74e4' : 'var(--border-color)';
+                    slider.style.background = !newVal ? 'var(--primary-color)' : 'var(--border-color)';
                     knob.style.left = !newVal ? '21px' : '3px';
                     const revertBadge = nameSpan.querySelector('.verified-badge');
                     if (!newVal && !revertBadge) {
                       const b = document.createElement('span');
                       b.className = 'verified-badge';
-                      b.innerHTML = `<svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><circle cx="12" cy="12" r="12" fill="#1b74e4"/><path d="M7 12.5l3.5 3.5 6.5-7" stroke="#fff" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
+                      b.innerHTML = `<svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><circle cx="12" cy="12" r="12" fill="var(--primary-color, #8ba888)"/><path d="M7 12.5l3.5 3.5 6.5-7" stroke="#fff" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
                       nameSpan.appendChild(b);
                     } else if (newVal && revertBadge) {
                       revertBadge.remove();
@@ -3981,7 +3985,7 @@
         // update slider and knob
         const slider = row.querySelector('.slider-bg');
         const knob = row.querySelector('.slider-knob');
-        if (slider) slider.style.background = isVerified ? '#1b74e4' : 'var(--border-color)';
+        if (slider) slider.style.background = isVerified ? 'var(--primary-color)' : 'var(--border-color)';
         if (knob) knob.style.left = isVerified ? '21px' : '3px';
 
         // update name badge
@@ -3991,7 +3995,7 @@
           if (isVerified && !existingBadge) {
             const b = document.createElement('span');
             b.className = 'verified-badge';
-            b.innerHTML = `<svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><circle cx="12" cy="12" r="12" fill="#1b74e4"/><path d="M7 12.5l3.5 3.5 6.5-7" stroke="#fff" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
+            b.innerHTML = `<svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><circle cx="12" cy="12" r="12" fill="var(--primary-color, #8ba888)"/><path d="M7 12.5l3.5 3.5 6.5-7" stroke="#fff" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
             nameSpan.appendChild(b);
           } else if (!isVerified && existingBadge) {
             existingBadge.remove();
@@ -5255,7 +5259,7 @@
           <div style="font-size:16px;font-weight:700;color:var(--text-primary,#050505);margin-bottom:8px;">${title}</div>
           <div style="font-size:13px;color:var(--text-secondary,#65676b);margin-bottom:22px;line-height:1.5;">${body}</div>
           <button onclick="window.location.href='logout.php'" style="
-            background:#1b74e4;color:#fff;border:none;border-radius:8px;
+            background:var(--primary-color);color:#fff;border:none;border-radius:8px;
             padding:10px 28px;font-size:14px;font-weight:600;cursor:pointer;
             font-family:'Inter',sans-serif;width:100%;
           ">OK</button>
@@ -5330,3 +5334,336 @@
       const wsAlive = ws && ws.readyState === WebSocket.OPEN;
       if (!wsAlive) refreshOwnName();
     }, 15000);
+
+    // ── Dynamic Custom Theme Color Engine & Canvas Color Wheel ─────────────────
+    let selectedTempThemeColor = '#8ba888';
+    let isColorWheelDragging = false;
+
+    function hslToRgb(h, s, l) {
+      s /= 100;
+      l /= 100;
+      const k = n => (n + h / 30) % 12;
+      const a = s * Math.min(l, 1 - l);
+      const f = n => l - a * Math.max(-1, Math.min(k(n) - 3, Math.min(9 - k(n), 1)));
+      return {
+        r: Math.round(255 * f(0)),
+        g: Math.round(255 * f(8)),
+        b: Math.round(255 * f(4))
+      };
+    }
+
+    function rgbToHsl(r, g, b) {
+      r /= 255; g /= 255; b /= 255;
+      const max = Math.max(r, g, b), min = Math.min(r, g, b);
+      let h, s, l = (max + min) / 2;
+      if (max === min) {
+        h = s = 0;
+      } else {
+        const d = max - min;
+        s = l > 0.5 ? d / (2 - max - min) : d / (max + min);
+        switch (max) {
+          case r: h = (g - b) / d + (g < b ? 6 : 0); break;
+          case g: h = (b - r) / d + 2; break;
+          case b: h = (r - g) / d + 4; break;
+        }
+        h /= 6;
+      }
+      return { h: h * 360, s: s * 100, l: l * 100 };
+    }
+
+    function hexToRgb(hex) {
+      if (!hex) return { r: 139, g: 168, b: 136 };
+      hex = hex.replace('#', '');
+      if (hex.length === 3) {
+        hex = hex.split('').map(c => c + c).join('');
+      }
+      const num = parseInt(hex, 16);
+      return {
+        r: (num >> 16) & 255,
+        g: (num >> 8) & 255,
+        b: num & 255
+      };
+    }
+
+    function rgbToHex(r, g, b) {
+      const toHex = c => Math.max(0, Math.min(255, Math.round(c))).toString(16).padStart(2, '0');
+      return `#${toHex(r)}${toHex(g)}${toHex(b)}`;
+    }
+
+    function getLuminance(r, g, b) {
+      return (0.299 * r + 0.587 * g + 0.114 * b) / 255;
+    }
+
+    function adjustColorBrightness(hex, percent) {
+      const { r, g, b } = hexToRgb(hex);
+      const factor = 1 + percent / 100;
+      return rgbToHex(r * factor, g * factor, b * factor);
+    }
+
+    function drawColorWheelCanvas() {
+      const canvas = document.getElementById('colorWheelCanvas');
+      if (!canvas) return;
+      const ctx = canvas.getContext('2d');
+      const width = canvas.width;
+      const height = canvas.height;
+      const cx = width / 2;
+      const cy = height / 2;
+      const radius = Math.min(cx, cy) - 4;
+
+      const imgData = ctx.createImageData(width, height);
+      const data = imgData.data;
+
+      for (let y = 0; y < height; y++) {
+        for (let x = 0; x < width; x++) {
+          const dx = x - cx;
+          const dy = y - cy;
+          const dist = Math.sqrt(dx * dx + dy * dy);
+          const index = (y * width + x) * 4;
+
+          if (dist <= radius) {
+            let angle = Math.atan2(dy, dx) * (180 / Math.PI);
+            if (angle < 0) angle += 360;
+            const sat = (dist / radius) * 100;
+            const rgb = hslToRgb(angle, sat, 50);
+
+            data[index] = rgb.r;
+            data[index + 1] = rgb.g;
+            data[index + 2] = rgb.b;
+            data[index + 3] = 255;
+          } else {
+            data[index + 3] = 0;
+          }
+        }
+      }
+      ctx.putImageData(imgData, 0, 0);
+    }
+
+    function positionColorWheelIndicator(hex) {
+      const canvas = document.getElementById('colorWheelCanvas');
+      const indicator = document.getElementById('colorWheelIndicator');
+      if (!canvas || !indicator) return;
+
+      const { r, g, b } = hexToRgb(hex);
+      const { h, s } = rgbToHsl(r, g, b);
+      const cx = canvas.width / 2;
+      const cy = canvas.height / 2;
+      const radius = Math.min(cx, cy) - 4;
+
+      const rad = h * (Math.PI / 180);
+      const dist = (s / 100) * radius;
+      const px = cx + dist * Math.cos(rad);
+      const py = cy + dist * Math.sin(rad);
+
+      indicator.style.left = `${px}px`;
+      indicator.style.top = `${py}px`;
+      indicator.style.background = hex;
+    }
+
+    function handleColorWheelPointer(e) {
+      const canvas = document.getElementById('colorWheelCanvas');
+      if (!canvas) return;
+      const rect = canvas.getBoundingClientRect();
+      const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+      const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+      const x = clientX - rect.left;
+      const y = clientY - rect.top;
+
+      const cx = canvas.width / 2;
+      const cy = canvas.height / 2;
+      const radius = Math.min(cx, cy) - 4;
+      const dx = x - cx;
+      const dy = y - cy;
+      const dist = Math.sqrt(dx * dx + dy * dy);
+
+      if (dist <= radius) {
+        let angle = Math.atan2(dy, dx) * (180 / Math.PI);
+        if (angle < 0) angle += 360;
+        const sat = Math.min(100, (dist / radius) * 100);
+        const rgb = hslToRgb(angle, sat, 50);
+        const hex = rgbToHex(rgb.r, rgb.g, rgb.b);
+
+        updateColorWheelSelection(hex, x, y);
+      }
+    }
+
+    function updateColorWheelSelection(hex, px, py) {
+      selectedTempThemeColor = hex;
+
+      const indicator = document.getElementById('colorWheelIndicator');
+      if (indicator && px !== undefined && py !== undefined) {
+        indicator.style.left = `${px}px`;
+        indicator.style.top = `${py}px`;
+        indicator.style.background = hex;
+      } else {
+        positionColorWheelIndicator(hex);
+      }
+
+      const swatch = document.getElementById('colorWheelSwatchPreview');
+      if (swatch) swatch.style.background = hex;
+
+      const label = document.getElementById('customColorHexLabel');
+      if (label) label.textContent = hex.toUpperCase();
+
+      const picker = document.getElementById('customColorPickerInput');
+      if (picker) picker.value = hex;
+
+      applyChatThemeColor(hex);
+    }
+
+    function setupColorWheelListeners() {
+      const canvas = document.getElementById('colorWheelCanvas');
+      if (!canvas || canvas.dataset.listenersAttached) return;
+      canvas.dataset.listenersAttached = 'true';
+
+      drawColorWheelCanvas();
+
+      canvas.addEventListener('mousedown', function(e) {
+        isColorWheelDragging = true;
+        handleColorWheelPointer(e);
+      });
+
+      window.addEventListener('mousemove', function(e) {
+        if (isColorWheelDragging) {
+          handleColorWheelPointer(e);
+        }
+      });
+
+      window.addEventListener('mouseup', function() {
+        isColorWheelDragging = false;
+      });
+
+      canvas.addEventListener('touchstart', function(e) {
+        isColorWheelDragging = true;
+        handleColorWheelPointer(e);
+      }, { passive: true });
+
+      window.addEventListener('touchmove', function(e) {
+        if (isColorWheelDragging) {
+          handleColorWheelPointer(e);
+        }
+      }, { passive: true });
+
+      window.addEventListener('touchend', function() {
+        isColorWheelDragging = false;
+      });
+    }
+
+    window.applyChatThemeColor = function(color) {
+      if (!color || !/^#([0-9a-fA-F]{3}){1,2}$/.test(color)) color = '#8ba888';
+      
+      const { r, g, b } = hexToRgb(color);
+      const lum = getLuminance(r, g, b);
+      const isDarkTheme = document.documentElement.getAttribute('data-theme') === 'dark';
+
+      const hoverColor = adjustColorBrightness(color, lum > 0.5 ? -15 : 15);
+      const darkerShade = adjustColorBrightness(color, -30);
+      const lighterShade = adjustColorBrightness(color, 35);
+
+      const root = document.documentElement;
+      
+      root.style.setProperty('--primary-color', color);
+      root.style.setProperty('--primary-hover', hoverColor);
+      root.style.setProperty('--bg-bubble-sent', color);
+      root.style.setProperty('--bg-avatar-sent', color);
+      root.style.setProperty('--bg-drop-overlay', `rgba(${r}, ${g}, ${b}, 0.15)`);
+      root.style.setProperty('--active-chat', `rgba(${r}, ${g}, ${b}, 0.20)`);
+      
+      const sentBubbleTextColor = (isDarkTheme ? lum > 0.50 : lum > 0.60) ? '#111d10' : '#ffffff';
+      root.style.setProperty('--text-bubble-sent', sentBubbleTextColor);
+      root.style.setProperty('--text-sender-sent', sentBubbleTextColor);
+
+      let adaptedHeaderColor = color;
+      if (isDarkTheme) {
+        adaptedHeaderColor = lum < 0.45 ? lighterShade : color;
+      } else {
+        adaptedHeaderColor = lum > 0.55 ? darkerShade : color;
+      }
+      root.style.setProperty('--text-header', adaptedHeaderColor);
+      root.style.setProperty('--icon-hover', adaptedHeaderColor);
+
+      document.querySelectorAll('#colorPickerHeaderBtn, #darkModeHeaderBtn, .dark-mode-header-btn, .color-picker-header-btn').forEach(btn => {
+        btn.style.setProperty('background', color, 'important');
+      });
+
+      const sendBtn = document.getElementById('sendButton');
+      if (sendBtn) {
+        sendBtn.style.setProperty('background', color, 'important');
+      }
+
+      try {
+        const widgetBtn = window.parent?.document?.getElementById('chatify-widget-btn') || document.getElementById('chatify-widget-btn');
+        if (widgetBtn) {
+          widgetBtn.style.background = `linear-gradient(135deg, ${hoverColor}, ${color})`;
+          widgetBtn.style.boxShadow = `0 8px 24px -4px rgba(${r}, ${g}, ${b}, 0.5), 0 0 0 1px rgba(255, 255, 255, 0.2)`;
+        }
+      } catch(e) {}
+
+      try {
+        localStorage.setItem('chatify_theme_color', color);
+      } catch(e) {}
+    };
+
+    window.openColorThemeModal = function() {
+      const activeColor = window.currentUserCommSettings?.chat_theme_color || localStorage.getItem('chatify_theme_color') || '#8ba888';
+      selectedTempThemeColor = activeColor;
+
+      const modal = document.getElementById('colorThemeModal');
+      if (modal) {
+        modal.classList.add('active');
+        modal.style.display = 'flex';
+        modal.setAttribute('aria-hidden', 'false');
+      }
+
+      setupColorWheelListeners();
+      updateColorWheelSelection(activeColor);
+    };
+
+    window.closeColorThemeModal = function() {
+      const modal = document.getElementById('colorThemeModal');
+      if (modal) {
+        modal.classList.remove('active');
+        modal.style.display = 'none';
+        modal.setAttribute('aria-hidden', 'true');
+      }
+    };
+
+    window.onCustomColorPickerInput = function(color) {
+      updateColorWheelSelection(color);
+    };
+
+    window.resetThemeColorToDefault = function() {
+      updateColorWheelSelection('#8ba888');
+    };
+
+    window.saveSelectedThemeColor = function() {
+      const chosenColor = selectedTempThemeColor || '#8ba888';
+      applyChatThemeColor(chosenColor);
+
+      if (!window.currentUserCommSettings) window.currentUserCommSettings = {};
+      window.currentUserCommSettings.chat_theme_color = chosenColor;
+
+      fetch('save_comm_settings.php', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          allow_typing_preview: window.currentUserCommSettings.allow_typing_preview !== false,
+          allow_see_typing_preview: window.currentUserCommSettings.allow_see_typing_preview !== false,
+          chat_theme_color: chosenColor
+        })
+      })
+      .then(res => res.json())
+      .then(data => {
+        if (data.success) {
+          closeColorThemeModal();
+        }
+      })
+      .catch(err => {
+        console.error('Failed to save color theme:', err);
+        closeColorThemeModal();
+      });
+    };
+
+    (function initChatThemeColor() {
+      const savedColor = window.currentUserCommSettings?.chat_theme_color || localStorage.getItem('chatify_theme_color') || '#8ba888';
+      applyChatThemeColor(savedColor);
+    })();

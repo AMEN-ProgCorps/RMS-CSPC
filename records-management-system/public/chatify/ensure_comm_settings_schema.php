@@ -20,6 +20,10 @@ try {
         -- User verification badge: managed by Super Admin via User Verification modal
         ALTER TABLE ' . Database::t('account_details') . ' ADD COLUMN IF NOT EXISTS is_chatify_verified BOOLEAN DEFAULT FALSE;
         UPDATE ' . Database::t('account_details') . ' SET is_chatify_verified = FALSE WHERE is_chatify_verified IS NULL;
+
+        -- Chatify custom theme color
+        ALTER TABLE ' . Database::t('account_details') . ' ADD COLUMN IF NOT EXISTS chat_theme_color VARCHAR(20) DEFAULT \'#8ba888\';
+        UPDATE ' . Database::t('account_details') . ' SET chat_theme_color = \'#8ba888\' WHERE chat_theme_color IS NULL OR chat_theme_color = \'\';
     ");
     echo "SCHEMA_UPDATED_SUCCESSFULLY\n";
 } catch (Throwable $e) {

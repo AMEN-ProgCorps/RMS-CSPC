@@ -530,7 +530,7 @@ try {
             <input type="password" id="newSecretInput" required class="secret-key-input" style="width:100%;box-sizing:border-box;padding:8px 12px;border-radius:6px;" placeholder="Enter new secret key" />
           </div>
           <div style="margin-bottom:12px;text-align:left;">
-            <label style="display:block;font-size:12px;margin-bottom:4px;color:var(--text-color);">Confirm New Secret Key</label>
+        <label style="display:block;font-size:12px;margin-bottom:4px;color:var(--text-color);">Confirm New Secret Key</label>
             <input type="password" id="confirmNewSecretInput" required class="secret-key-input" style="width:100%;box-sizing:border-box;padding:8px 12px;border-radius:6px;" placeholder="Confirm new secret key" />
           </div>
           <div id="adminKeyError" style="font-size:12px;color:#e74c3c;display:none;margin-bottom:8px;text-align:center;font-weight:600;"></div>
@@ -551,10 +551,15 @@ try {
     <div class="modal-content" style="max-width:440px;">
       <div class="modal-header" style="padding:14px 16px;border-bottom:1px solid var(--border-color);display:flex;align-items:center;justify-content:space-between;">
         <h3 style="margin:0;font-size:16px;font-weight:600;color:var(--text-primary);">Settings</h3>
-        <button type="button" id="darkModeHeaderBtn" onclick="toggleDarkMode()" title="Toggle Dark Mode" class="dark-mode-header-btn" style="width:34px;height:34px;border-radius:50%;border:none;background:#1b74e4;color:#ffffff;display:flex;align-items:center;justify-content:center;cursor:pointer;transition:transform 0.15s, opacity 0.15s;padding:0;outline:none;" onmouseover="this.style.opacity='0.9'" onmouseout="this.style.opacity='1'">
-          <svg id="darkModeMoonIcon" width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
-          <svg id="darkModeSunIcon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:none;"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>
-        </button>
+        <div style="display:flex;align-items:center;gap:8px;">
+          <button type="button" id="colorPickerHeaderBtn" onclick="openColorThemeModal()" title="Customize Theme Color" class="color-picker-header-btn" style="width:34px;height:34px;border-radius:50%;border:none;background:var(--primary-color);color:#ffffff;display:flex;align-items:center;justify-content:center;cursor:pointer;transition:transform 0.15s, opacity 0.15s;padding:0;outline:none;" onmouseover="this.style.opacity='0.9'" onmouseout="this.style.opacity='1'">
+            <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2.69l5.66 5.66a8 8 0 1 1-11.31 0z"/></svg>
+          </button>
+          <button type="button" id="darkModeHeaderBtn" onclick="toggleDarkMode()" title="Toggle Dark Mode" class="dark-mode-header-btn" style="width:34px;height:34px;border-radius:50%;border:none;background:#1b74e4;color:#ffffff;display:flex;align-items:center;justify-content:center;cursor:pointer;transition:transform 0.15s, opacity 0.15s;padding:0;outline:none;" onmouseover="this.style.opacity='0.9'" onmouseout="this.style.opacity='1'">
+            <svg id="darkModeMoonIcon" width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+            <svg id="darkModeSunIcon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:none;"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>
+          </button>
+        </div>
       </div>
       <div class="modal-body" style="padding:16px;display:flex;flex-direction:column;gap:0;text-align:left;">
         <p style="margin:0 0 10px 0;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.08em;color:var(--text-secondary);">Communication</p>
@@ -595,6 +600,45 @@ try {
       </div>
       <div class="modal-footer">
         <button type="button" class="modal-button cancel-button" onclick="closeCommSettingsModal()">Close</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Color Theme Modal -->
+  <div class="modal" id="colorThemeModal" aria-hidden="true">
+    <div class="modal-content" style="max-width:440px;">
+      <div class="modal-header" style="padding:14px 16px;border-bottom:1px solid var(--border-color);display:flex;align-items:center;justify-content:space-between;">
+        <div style="display:flex;align-items:center;gap:8px;">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--primary-color)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2.69l5.66 5.66a8 8 0 1 1-11.31 0z"/></svg>
+          <h3 style="margin:0;font-size:16px;font-weight:600;color:var(--text-primary);">Theme Color Wheel</h3>
+        </div>
+        <button type="button" onclick="closeColorThemeModal()" style="background:none;border:none;color:var(--text-secondary);cursor:pointer;font-size:20px;line-height:1;">&times;</button>
+      </div>
+      <div class="modal-body" style="padding:20px 16px;display:flex;flex-direction:column;align-items:center;gap:16px;text-align:center;">
+        <p style="margin:0;font-size:13px;color:var(--text-secondary);line-height:1.4;">
+          Drag or tap anywhere on the color wheel to select your Chatify theme color.
+        </p>
+
+        <!-- Color Wheel Canvas Container -->
+        <div class="color-wheel-wrapper" style="position:relative;width:200px;height:200px;display:flex;align-items:center;justify-content:center;margin:4px 0;">
+          <canvas id="colorWheelCanvas" width="200" height="200" style="width:200px;height:200px;border-radius:50%;cursor:crosshair;touch-action:none;box-shadow:0 4px 16px rgba(0,0,0,0.18);"></canvas>
+          <div id="colorWheelIndicator" style="position:absolute;width:18px;height:18px;border-radius:50%;border:2px solid #ffffff;box-shadow:0 2px 6px rgba(0,0,0,0.4);pointer-events:none;transform:translate(-50%, -50%);left:50%;top:50%;background:#8ba888;"></div>
+        </div>
+
+        <!-- Color Preview & Hex Controls -->
+        <div style="width:100%;display:flex;align-items:center;gap:12px;padding:10px 14px;border:1px solid var(--border-color);border-radius:10px;background:var(--bg-input);">
+          <div id="colorWheelSwatchPreview" style="width:36px;height:36px;border-radius:50%;background:#8ba888;box-shadow:0 2px 6px rgba(0,0,0,0.2);flex-shrink:0;"></div>
+          <div style="flex:1;text-align:left;">
+            <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.06em;color:var(--text-secondary);">Selected Hex</div>
+            <div style="font-size:14px;font-weight:700;color:var(--text-primary);letter-spacing:0.03em;" id="customColorHexLabel">#8BA888</div>
+          </div>
+          <input type="color" id="customColorPickerInput" value="#8ba888" style="opacity:0;width:0;height:0;position:absolute;pointer-events:none;" oninput="onCustomColorPickerInput(this.value)">
+          <button type="button" style="background:none;border:1px solid var(--border-color);border-radius:6px;padding:6px 12px;font-size:12px;color:var(--text-primary);cursor:pointer;font-weight:500;" onclick="resetThemeColorToDefault()">Reset</button>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="modal-button cancel-button" onclick="closeColorThemeModal()">Cancel</button>
+        <button type="button" class="modal-button confirm-button" onclick="saveSelectedThemeColor()">Apply & Save</button>
       </div>
     </div>
   </div>

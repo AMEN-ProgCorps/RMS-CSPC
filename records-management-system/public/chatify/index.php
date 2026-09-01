@@ -161,6 +161,7 @@ try {
     window._chatifyHasAgreedToLegal = <?php echo json_encode($hasAgreedToLegal); ?>;
     window.verifiedAccountIds = <?php echo json_encode($verified_account_ids); ?>;
     const verifiedAccountIds = new Set((window.verifiedAccountIds || []).map(Number));
+    window.verifiedAccountIdsSet = verifiedAccountIds;
   </script>
   <!-- Apply dark mode BEFORE page renders to prevent flash -->
   <script>

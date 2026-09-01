@@ -9,6 +9,15 @@
       return window.innerWidth <= MOBILE_BREAKPOINT;
     }
 
+    function injectBadge(el) {
+      if (!el) return;
+      if (el.querySelector && el.querySelector('.verified-badge')) return;
+      const badge = document.createElement('span');
+      badge.className = 'verified-badge';
+      badge.innerHTML = `<svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><circle cx="12" cy="12" r="12" fill="#1b74e4"/><path d="M7 12.5l3.5 3.5 6.5-7" stroke="#fff" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
+      el.appendChild(badge);
+    }
+
     const chatBox         = document.getElementById("chat-box");
     const nameInput       = document.getElementById("nameInput");
     const messageInput    = document.getElementById("messageInput");
@@ -256,6 +265,8 @@
         }
       }
 
+      const senderLabel = escapeHtml(displayName.toLowerCase());
+
       container.innerHTML = `
         <div class="message-avatar">${avatarInnerHtml(senderAvatarUrl, initials)}</div>
         <div class="bubble-wrapper">
@@ -263,6 +274,7 @@
           ${replyQuoteHtml}
           <div class="message-bubble${emojiOnlyClass}">
             <div class="message-content">${escapeHtml(msgText)}</div>
+            <div class="message-info"><span class="message-sender">${senderLabel}</span></div>
           </div>
         </div>
       `;
@@ -778,19 +790,40 @@
           // Broadcast from set_verification.php when Super Admin toggles a user's badge
           const changedId = Number(data.account_id);
           const nowVerified = !!data.is_verified;
-          if (nowVerified) {
-            verifiedAccountIds.add(changedId);
-          } else {
-            verifiedAccountIds.delete(changedId);
+          if (typeof verifiedAccountIds !== 'undefined' && verifiedAccountIds && verifiedAccountIds.add) {
+            if (nowVerified) {
+              verifiedAccountIds.add(changedId);
+            } else {
+              verifiedAccountIds.delete(changedId);
+            }
+          }
+          if (Array.isArray(window.verifiedAccountIds)) {
+            if (nowVerified && !window.verifiedAccountIds.includes(changedId)) {
+              window.verifiedAccountIds.push(changedId);
+            } else if (!nowVerified) {
+              window.verifiedAccountIds = window.verifiedAccountIds.filter(id => Number(id) !== changedId);
+            }
+          }
+          if (Array.isArray(allUsersData)) {
+            const userObj = allUsersData.find(u => Number(u.account_id) === changedId);
+            if (userObj) {
+              userObj.is_chatify_verified = nowVerified;
+            }
           }
           // Re-render sidebar badges
-          renderSidebarUsers();
+          if (typeof renderSidebarUsers === 'function') {
+            renderSidebarUsers();
+          }
           // Re-apply header badge for current DM if it's the changed user
-          if (activeDMAccountId === changedId) {
-            applyHeaderAdminBadge();
+          if (Number(activeDMAccountId) === changedId) {
+            if (typeof applyHeaderAdminBadge === 'function') {
+              applyHeaderAdminBadge();
+            }
           }
           // Re-apply badges on all visible message-sender elements
-          applyAdminBadges();
+          if (typeof applyAdminBadges === 'function') {
+            applyAdminBadges();
+          }
           // If the User Verification modal is open, sync toggle rows in real-time
           if (typeof window._syncVerifyModalRow === 'function') {
             window._syncVerifyModalRow(changedId, nowVerified);
@@ -1578,7 +1611,8 @@
           applyHeaderAvatar(u);
         }
 
-        const targetIsVerified = verifiedAccountIds && verifiedAccountIds.has(Number(u.account_id));
+        const vSet = (typeof verifiedAccountIds !== 'undefined' && verifiedAccountIds) ? verifiedAccountIds : window.verifiedAccountIdsSet;
+        const targetIsVerified = vSet && vSet.has(Number(u.account_id));
 
         // Verified badge next to verified users' names in the sidebar.
         // Injected into nameRow (a flex sibling of nameEl), NOT nameEl itself.

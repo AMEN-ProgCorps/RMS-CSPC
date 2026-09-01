@@ -1,6 +1,7 @@
 // ── Verified badge: inject checkmark next to verified sender names in messages ──
     function applyAdminBadges() {
-      if (!verifiedAccountIds || verifiedAccountIds.size === 0) {
+      const vSet = (typeof verifiedAccountIds !== 'undefined' && verifiedAccountIds) ? verifiedAccountIds : window.verifiedAccountIdsSet;
+      if (!vSet || vSet.size === 0) {
         // Remove any stale badges if no one is verified anymore
         document.querySelectorAll('.message-sender .verified-badge').forEach(b => b.remove());
         return;
@@ -10,14 +11,18 @@
         const senderEl = container.querySelector('.message-sender');
         if (!senderEl) return;
         const badge = senderEl.querySelector('.verified-badge');
-        if (verifiedAccountIds.has(sid)) {
+        if (vSet.has(sid)) {
           if (!badge) injectBadge(senderEl);
         } else if (badge) {
           badge.remove();
         }
       });
     }
+    window.applyAdminBadges = applyAdminBadges;
+
     function injectBadge(el) {
+      if (!el) return;
+      if (el.querySelector && el.querySelector('.verified-badge')) return;
       const badge = document.createElement('span');
       badge.className = 'verified-badge';
       badge.innerHTML = `<svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
@@ -26,6 +31,7 @@
       </svg>`;
       el.appendChild(badge);
     }
+    window.injectBadge = injectBadge;
 
     // ── Profile picture in the header, next to the DM partner's name ──
     // Pass the user object (needs .name/.full_name + .avatar_url) to show
@@ -64,14 +70,17 @@
     // browser's own truncation swallow the SVG whenever the name nearly
     // filled the header, showing "…" instead of the checkmark.
     function applyHeaderAdminBadge() {
-      const headerBadgeParent = document.getElementById('chatHeaderTitleRow') || chatHeaderTitle.parentElement || chatHeaderTitle;
+      const headerBadgeParent = document.getElementById('chatHeaderTitleRow') || (chatHeaderTitle ? chatHeaderTitle.parentElement : null) || chatHeaderTitle;
+      if (!headerBadgeParent) return;
       const existing = headerBadgeParent.querySelector('.verified-badge');
       if (existing) existing.remove();
-      if (!verifiedAccountIds || verifiedAccountIds.size === 0) return;
-      if (activeDMAccountId && verifiedAccountIds.has(Number(activeDMAccountId))) {
+      const vSet = (typeof verifiedAccountIds !== 'undefined' && verifiedAccountIds) ? verifiedAccountIds : window.verifiedAccountIdsSet;
+      if (!vSet || vSet.size === 0) return;
+      if (activeDMAccountId && vSet.has(Number(activeDMAccountId))) {
         injectBadge(headerBadgeParent);
       }
     }
+    window.applyHeaderAdminBadge = applyHeaderAdminBadge;
     
     // ── Image Viewer Modal ──────────────────────────────────────────────
     // Clicking any chat image (class="chat-viewable-image", rendered by
@@ -3723,6 +3732,7 @@
 
                 chk.addEventListener('change', function() {
                   const newVal = this.checked;
+                  const targetId = Number(u.account_id);
                   slider.style.background = newVal ? '#1b74e4' : 'var(--border-color)';
                   knob.style.left = newVal ? '21px' : '3px';
                   // Add or remove badge from the name in the result row
@@ -3735,22 +3745,118 @@
                   } else if (!newVal && existingBadge) {
                     existingBadge.remove();
                   }
+
+                  // Instantly update local state on this client
+                  if (typeof verifiedAccountIds !== 'undefined' && verifiedAccountIds && verifiedAccountIds.add) {
+                    if (newVal) {
+                      verifiedAccountIds.add(targetId);
+                    } else {
+                      verifiedAccountIds.delete(targetId);
+                    }
+                  }
+                  if (Array.isArray(window.verifiedAccountIds)) {
+                    if (newVal && !window.verifiedAccountIds.includes(targetId)) {
+                      window.verifiedAccountIds.push(targetId);
+                    } else if (!newVal) {
+                      window.verifiedAccountIds = window.verifiedAccountIds.filter(id => Number(id) !== targetId);
+                    }
+                  }
+                  if (Array.isArray(allUsersData)) {
+                    const userObj = allUsersData.find(x => Number(x.account_id) === targetId);
+                    if (userObj) {
+                      userObj.is_chatify_verified = newVal;
+                    }
+                  }
+                  if (typeof renderSidebarUsers === 'function') {
+                    renderSidebarUsers();
+                  }
+                  if (Number(activeDMAccountId) === targetId && typeof applyHeaderAdminBadge === 'function') {
+                    applyHeaderAdminBadge();
+                  }
+                  if (typeof applyAdminBadges === 'function') {
+                    applyAdminBadges();
+                  }
+
                   // Persist via backend (WS broadcast is handled server-side)
                   fetch('set_verification.php', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ account_id: u.account_id, is_verified: newVal })
+                    body: JSON.stringify({ account_id: targetId, is_verified: newVal })
                   }).then(r => r.json()).then(res => {
                     if (!res.ok) {
                       // Revert toggle on failure
                       chk.checked = !newVal;
                       slider.style.background = !newVal ? '#1b74e4' : 'var(--border-color)';
                       knob.style.left = !newVal ? '21px' : '3px';
+                      const revertBadge = nameSpan.querySelector('.verified-badge');
+                      if (!newVal && !revertBadge) {
+                        const b = document.createElement('span');
+                        b.className = 'verified-badge';
+                        b.innerHTML = `<svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><circle cx="12" cy="12" r="12" fill="#1b74e4"/><path d="M7 12.5l3.5 3.5 6.5-7" stroke="#fff" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
+                        nameSpan.appendChild(b);
+                      } else if (newVal && revertBadge) {
+                        revertBadge.remove();
+                      }
+                      if (typeof verifiedAccountIds !== 'undefined' && verifiedAccountIds && verifiedAccountIds.add) {
+                        if (!newVal) {
+                          verifiedAccountIds.add(targetId);
+                        } else {
+                          verifiedAccountIds.delete(targetId);
+                        }
+                      }
+                      if (Array.isArray(window.verifiedAccountIds)) {
+                        if (!newVal && !window.verifiedAccountIds.includes(targetId)) {
+                          window.verifiedAccountIds.push(targetId);
+                        } else if (newVal) {
+                          window.verifiedAccountIds = window.verifiedAccountIds.filter(id => Number(id) !== targetId);
+                        }
+                      }
+                      if (Array.isArray(allUsersData)) {
+                        const userObj = allUsersData.find(x => Number(x.account_id) === targetId);
+                        if (userObj) {
+                          userObj.is_chatify_verified = !newVal;
+                        }
+                      }
+                      if (typeof renderSidebarUsers === 'function') renderSidebarUsers();
+                      if (Number(activeDMAccountId) === targetId && typeof applyHeaderAdminBadge === 'function') applyHeaderAdminBadge();
+                      if (typeof applyAdminBadges === 'function') applyAdminBadges();
                     }
                   }).catch(() => {
                     chk.checked = !newVal;
                     slider.style.background = !newVal ? '#1b74e4' : 'var(--border-color)';
                     knob.style.left = !newVal ? '21px' : '3px';
+                    const revertBadge = nameSpan.querySelector('.verified-badge');
+                    if (!newVal && !revertBadge) {
+                      const b = document.createElement('span');
+                      b.className = 'verified-badge';
+                      b.innerHTML = `<svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><circle cx="12" cy="12" r="12" fill="#1b74e4"/><path d="M7 12.5l3.5 3.5 6.5-7" stroke="#fff" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
+                      nameSpan.appendChild(b);
+                    } else if (newVal && revertBadge) {
+                      revertBadge.remove();
+                    }
+                    if (typeof verifiedAccountIds !== 'undefined' && verifiedAccountIds && verifiedAccountIds.add) {
+                      if (!newVal) {
+                        verifiedAccountIds.add(targetId);
+                      } else {
+                        verifiedAccountIds.delete(targetId);
+                      }
+                    }
+                    if (Array.isArray(window.verifiedAccountIds)) {
+                      if (!newVal && !window.verifiedAccountIds.includes(targetId)) {
+                        window.verifiedAccountIds.push(targetId);
+                      } else if (newVal) {
+                        window.verifiedAccountIds = window.verifiedAccountIds.filter(id => Number(id) !== targetId);
+                      }
+                    }
+                    if (Array.isArray(allUsersData)) {
+                      const userObj = allUsersData.find(x => Number(x.account_id) === targetId);
+                      if (userObj) {
+                        userObj.is_chatify_verified = !newVal;
+                      }
+                    }
+                    if (typeof renderSidebarUsers === 'function') renderSidebarUsers();
+                    if (Number(activeDMAccountId) === targetId && typeof applyHeaderAdminBadge === 'function') applyHeaderAdminBadge();
+                    if (typeof applyAdminBadges === 'function') applyAdminBadges();
                   });
                 });
 

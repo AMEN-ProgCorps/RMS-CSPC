@@ -118,22 +118,33 @@ class WsPush
                 'method'        => 'POST',
                 'header'        => "Content-Type: application/json\r\n",
                 'content'       => $body,
-                // Short timeout: this fires after flushResponseThenRun() has
-                // already released the client, but the PHP-FPM worker is
-                // still occupied while this runs — a down/slow ws-server
-                // shouldn't be able to tie up worker capacity for 2s a pop.
-                'timeout'       => 0.3, // seconds
+                'timeout'       => 1.0, // seconds
                 'ignore_errors' => true,
             ],
         ]);
 
-        try {
-            $res = @file_get_contents(WS_INTERNAL_PUSH_URL, false, $context);
-            if ($res === false) {
-                error_log('WsPush::send() failed pushing payload to ' . WS_INTERNAL_PUSH_URL);
+        $urls = [WS_INTERNAL_PUSH_URL];
+        if (strpos(WS_INTERNAL_PUSH_URL, 'websocket') !== false) {
+            $urls[] = str_replace('websocket', '127.0.0.1', WS_INTERNAL_PUSH_URL);
+        } elseif (strpos(WS_INTERNAL_PUSH_URL, '127.0.0.1') !== false) {
+            $urls[] = str_replace('127.0.0.1', 'websocket', WS_INTERNAL_PUSH_URL);
+        }
+
+        $pushed = false;
+        foreach ($urls as $url) {
+            try {
+                $res = @file_get_contents($url, false, $context);
+                if ($res !== false) {
+                    $pushed = true;
+                    break;
+                }
+            } catch (Throwable $e) {
+                // Try next url candidate
             }
-        } catch (Throwable $e) {
-            error_log('WsPush::send() exception: ' . $e->getMessage());
+        }
+
+        if (!$pushed) {
+            error_log('WsPush::send() failed pushing payload to ' . WS_INTERNAL_PUSH_URL);
         }
     }
 }

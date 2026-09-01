@@ -128,7 +128,7 @@ class WsPush
         ]);
 
         try {
-            $res = file_get_contents(WS_INTERNAL_PUSH_URL, false, $context);
+            $res = @file_get_contents(WS_INTERNAL_PUSH_URL, false, $context);
             if ($res === false) {
                 error_log('WsPush::send() failed pushing payload to ' . WS_INTERNAL_PUSH_URL);
             }

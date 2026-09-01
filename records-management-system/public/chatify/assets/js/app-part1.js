@@ -38,8 +38,6 @@
     const chatHeaderAvatar = document.getElementById('chatHeaderAvatar');
     const sidebar         = document.getElementById('sidebar');
     const backButton      = document.getElementById('backButton');
-    const burgerButton    = document.getElementById('burgerButton');
-    const closeSidebarBtn = document.getElementById('closeSidebarBtn');
 
     // The cancel-edit X button now lives inline in the message row itself
     // (next to Send), so no separate width-sync against #sendButton is
@@ -651,7 +649,7 @@
             // on screen even though the message pane behind it is empty.
             if (typeof closeImageViewer === 'function') closeImageViewer();
             if (isGlobalChat) {
-              if (chatBox) chatBox.innerHTML = '<div class="empty-chat"><p>Camarines Sur Polytechnic Colleges</p></div>';
+              if (chatBox) chatBox.innerHTML = '<div class="empty-chat"></div>';
               isFirstLoad = true;
               chatFullyLoaded = false;
               loadGlobalChat(false, false);
@@ -727,7 +725,7 @@
             // Wipe the pane now — resetToHome() will confirm it, but this
             // makes the clear visually instant without waiting for XHR round-trips.
             if (chatBox) {
-              chatBox.innerHTML = '<div class="empty-chat"><p>Camarines Sur Polytechnic Colleges</p></div>';
+              chatBox.innerHTML = '<div class="empty-chat"></div>';
             }
             resetToHome();
           }
@@ -1149,46 +1147,18 @@
     function setupMobileLayout() {
       if (isMobileViewport()) {
         if (!activeDM && !activeAdminConv && !isGlobalChat) {
-          sidebar.classList.add('open');
-          const backdrop = document.getElementById('sidebarBackdrop');
-          if (backdrop) backdrop.classList.add('visible');
-          burgerButton.style.display = 'inline-flex';
-          backButton.style.display = 'none';
+          if (sidebar) sidebar.classList.add('open');
+          if (backButton) backButton.style.display = 'none';
         } else {
-          burgerButton.style.display = 'none';
-          backButton.style.display = 'inline-flex';
+          if (sidebar) sidebar.classList.remove('open');
+          if (backButton) backButton.style.display = 'inline-flex';
         }
-        closeSidebarBtn.style.display = 'inline-flex';
       } else {
-        burgerButton.style.display = 'none';
-        backButton.style.display = 'none';
-        closeSidebarBtn.style.display = 'none';
-        sidebar.classList.remove('open');
-        const backdrop = document.getElementById('sidebarBackdrop');
-        if (backdrop) backdrop.classList.remove('visible');
+        if (backButton) backButton.style.display = 'none';
+        if (sidebar) sidebar.classList.remove('open');
       }
     }
     window.addEventListener('resize', setupMobileLayout);
-
-    burgerButton.addEventListener('click', () => {
-      sidebar.classList.add('open');
-      const backdrop = document.getElementById('sidebarBackdrop');
-      if (backdrop) backdrop.classList.add('visible');
-    });
-    closeSidebarBtn.addEventListener('click', () => {
-      sidebar.classList.remove('open');
-      const backdrop = document.getElementById('sidebarBackdrop');
-      if (backdrop) backdrop.classList.remove('visible');
-    });
-
-    // Backdrop click listener to close sidebar
-    const backdropEl = document.getElementById('sidebarBackdrop');
-    if (backdropEl) {
-      backdropEl.addEventListener('click', () => {
-        sidebar.classList.remove('open');
-        backdropEl.classList.remove('visible');
-      });
-    }
 
     // Global data
     let allUsersData = [];
@@ -1278,7 +1248,7 @@
           return;
         }
         // User genuinely not in the list — show empty state
-        chatBox.innerHTML = '<div class="empty-chat"><p>Camarines Sur Polytechnic Colleges</p></div>';
+        chatBox.innerHTML = '<div class="empty-chat"></div>';
         return;
       }
 
@@ -1292,7 +1262,7 @@
         if (savedActiveDM) {
           restoreActiveConversation(savedActiveDM);
         } else {
-          chatBox.innerHTML = '<div class="empty-chat"><p>Camarines Sur Polytechnic Colleges</p></div>';
+          chatBox.innerHTML = '<div class="empty-chat"></div>';
         }
       }
     }
@@ -1338,7 +1308,7 @@
         // The saved conversation partner no longer exists / isn't reachable
         // anymore — don't keep pointing at a chat we can't reopen.
         localStorage.removeItem('activeDM');
-        chatBox.innerHTML = '<div class="empty-chat"><p>Camarines Sur Polytechnic Colleges</p></div>';
+        chatBox.innerHTML = '<div class="empty-chat"></div>';
       }
     }
 
@@ -2517,10 +2487,7 @@
       if (!isGlobalChat && !activeAdminConv && activeDM === u.username) {
         if (isMobileViewport()) {
           sidebar.classList.remove('open');
-          const backdrop = document.getElementById('sidebarBackdrop');
-          if (backdrop) backdrop.classList.remove('visible');
-          burgerButton.style.display = 'none';
-          backButton.style.display = 'inline-flex';
+          if (backButton) backButton.style.display = 'inline-flex';
         }
         return;
       }
@@ -2603,10 +2570,7 @@
       // Mobile/Tablet: hide sidebar when chat is selected
       if (isMobileViewport()) {
         sidebar.classList.remove('open');
-        const backdrop = document.getElementById('sidebarBackdrop');
-        if (backdrop) backdrop.classList.remove('visible');
-        burgerButton.style.display = 'none';
-        backButton.style.display = 'inline-flex';
+        if (backButton) backButton.style.display = 'inline-flex';
       } else {
         // Desktop only: auto-focus the message input so the cursor is ready
         // without an extra click. preventScroll prevents the browser from shifting scrollable parents.
@@ -2618,10 +2582,7 @@
       if (isGlobalChat && !activeDM && !activeAdminConv) {
         if (isMobileViewport()) {
           sidebar.classList.remove('open');
-          const backdrop = document.getElementById('sidebarBackdrop');
-          if (backdrop) backdrop.classList.remove('visible');
-          burgerButton.style.display = 'none';
-          backButton.style.display = 'inline-flex';
+          if (backButton) backButton.style.display = 'inline-flex';
         }
         return;
       }
@@ -2677,10 +2638,7 @@
       loadGlobalChat();
       if (isMobileViewport()) {
         sidebar.classList.remove('open');
-        const backdrop = document.getElementById('sidebarBackdrop');
-        if (backdrop) backdrop.classList.remove('visible');
-        burgerButton.style.display = 'none';
-        backButton.style.display = 'inline-flex';
+        if (backButton) backButton.style.display = 'inline-flex';
       } else {
         // Desktop only: auto-focus the message input so the cursor is ready
         // without an extra click. preventScroll prevents the browser from shifting scrollable parents.
@@ -3766,10 +3724,7 @@
       if (activeAdminConv === c.convId) {
         if (isMobileViewport()) {
           sidebar.classList.remove('open');
-          const backdrop = document.getElementById('sidebarBackdrop');
-          if (backdrop) backdrop.classList.remove('visible');
-          burgerButton.style.display = 'none';
-          backButton.style.display = 'inline-flex';
+          if (backButton) backButton.style.display = 'inline-flex';
         }
         return;
       }
@@ -3823,10 +3778,7 @@
 
       if (isMobileViewport()) {
         sidebar.classList.remove('open');
-        const backdrop = document.getElementById('sidebarBackdrop');
-        if (backdrop) backdrop.classList.remove('visible');
-        burgerButton.style.display = 'none';
-        backButton.style.display = 'inline-flex';
+        if (backButton) backButton.style.display = 'inline-flex';
       }
     }
     
@@ -3911,17 +3863,14 @@
         applyHeaderAdminBadge();
       }
 
-      // Mobile/Tablet sidebar adjustments
+      // Mobile/Tablet sidebar adjustments: return to frontpage
       if (isMobileViewport()) {
         if (sidebar) sidebar.classList.add('open');
-        const backdrop = document.getElementById('sidebarBackdrop');
-        if (backdrop) backdrop.classList.add('visible');
         if (backButton) backButton.style.display = 'none';
-        if (burgerButton) burgerButton.style.display = 'inline-flex';
       }
 
       if (chatBox) {
-        chatBox.innerHTML = '<div class="empty-chat"><p>Camarines Sur Polytechnic Colleges</p></div>';
+        chatBox.innerHTML = '<div class="empty-chat"></div>';
       }
       const gcItem = document.getElementById('globalChatItem');
       if (gcItem) gcItem.classList.remove('active');

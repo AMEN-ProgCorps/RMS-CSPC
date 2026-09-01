@@ -198,8 +198,12 @@
       transform: scale(0.94);
     }
 
+    #burgerButton, #closeSidebarBtn {
+      display: none !important;
+    }
+
     @media (min-width: 992px) {
-      #closeSidebarBtn {
+      #backButton {
         display: none !important;
       }
     }
@@ -2743,23 +2747,7 @@
       }
 
       .sidebar-backdrop {
-        display: none;
-        position: absolute;
-        top: 0;
-        left: 0;
-        right: 0;
-        bottom: 0;
-        background: rgba(0,0,0,0.4);
-        backdrop-filter: blur(2px);
-        z-index: 190;
-        opacity: 0;
-        transition: opacity 0.25s ease;
-        touch-action: none; /* Block pinch-zoom on the backdrop (mobile) */
-      }
-
-      .sidebar-backdrop.visible {
-        display: block;
-        opacity: 1;
+        display: none !important;
       }
 
       .sidebar {
@@ -2767,17 +2755,11 @@
         left: 0;
         top: 0;
         bottom: 0;
-        width: 320px;
+        width: 100%;
         max-width: 100%;
         transform: translate3d(-100%, 0, 0);
         z-index: 200;
         will-change: transform;
-      }
-
-      @media (max-width: 480px) {
-        .sidebar {
-          width: 100%;
-        }
       }
 
       .sidebar.open {

@@ -455,41 +455,42 @@
     }
      
     function handleFirstLoadScroll() {
+      // Clear any stale scroll tracking from session storage so every open starts at the latest chat
       const activeKey = isGlobalChat ? '__global__' : (activeDM || (activeAdminConv ? '__admin__' + activeAdminConv : null));
-      let restored = false;
-      let wasRestoredAtBottom = false;
-
       if (activeKey) {
-        const savedScrollTop = sessionStorage.getItem('chatScroll_' + activeKey);
-        const savedScrollHeight = sessionStorage.getItem('chatScrollHeight_' + activeKey);
-        const savedAtBottom = sessionStorage.getItem('chatScrollAtBottom_' + activeKey);
-        
-        if (savedAtBottom === 'true') {
-          scrollToBottom(true, true);
-          restored = true;
-          wasRestoredAtBottom = true;
-        } else if (savedScrollTop !== null && savedScrollHeight !== null) {
-          const scrollTop = parseFloat(savedScrollTop);
-          const scrollHeight = parseFloat(savedScrollHeight);
-          const diff = chatBox.scrollHeight - scrollHeight;
-          chatBox.scrollTop = scrollTop + diff;
-          restored = true;
-        }
+        sessionStorage.removeItem('chatScroll_' + activeKey);
+        sessionStorage.removeItem('chatScrollHeight_' + activeKey);
+        sessionStorage.removeItem('chatScrollAtBottom_' + activeKey);
       }
-      if (!restored) {
-        scrollToBottom(true, true);
-        wasRestoredAtBottom = true;
-      }
+
+      // Reset scroll tracking flags
+      userScrolledUp = false;
+      shouldAutoScroll = true;
+      isUserScrollingOrTouching = false;
+
+      // Immediately jump to the latest chat at the bottom
+      scrollToBottom(true, true);
+      
+      // Perform staged adjustments to handle any delayed image/layout reflows
+      requestAnimationFrame(function() {
+        chatBox.scrollTop = chatBox.scrollHeight;
+        hideScrollIndicator();
+      });
+      setTimeout(function() {
+        chatBox.scrollTop = chatBox.scrollHeight;
+        hideScrollIndicator();
+      }, 50);
+      setTimeout(function() {
+        chatBox.scrollTop = chatBox.scrollHeight;
+        hideScrollIndicator();
+      }, 150);
+      setTimeout(function() {
+        chatBox.scrollTop = chatBox.scrollHeight;
+        hideScrollIndicator();
+      }, 300);
 
       hideScrollIndicator();
       chatFullyLoaded = true;
-
-      if (!wasRestoredAtBottom) {
-        const distance = chatBox.scrollHeight - chatBox.scrollTop - chatBox.clientHeight;
-        if (distance > 250) {
-          showScrollIndicator(0);
-        }
-      }
       maybeAutoLoadOlderMessages();
     }
 
@@ -1536,26 +1537,14 @@
           }
         }
       }
-
-      // Save scroll position for active chat
-      const activeKey = isGlobalChat ? '__global__' : (activeDM || (activeAdminConv ? '__admin__' + activeAdminConv : null));
-      if (activeKey) {
-        sessionStorage.setItem('chatScroll_' + activeKey, chatBox.scrollTop);
-        sessionStorage.setItem('chatScrollHeight_' + activeKey, chatBox.scrollHeight);
-        sessionStorage.setItem('chatScrollAtBottom_' + activeKey, atBottom ? 'true' : 'false');
-      }
     });
 
-    // Ensure scroll position is maintained when images finish loading
+    // Ensure scroll position is maintained at latest chat when images finish loading
     chatBox.addEventListener('load', function(event) {
       if (isUserScrollingOrTouching) return;
       if (event.target.tagName === 'IMG') {
-        const activeKey = isGlobalChat ? '__global__' : (activeDM || (activeAdminConv ? '__admin__' + activeAdminConv : null));
-        if (activeKey) {
-          const savedAtBottom = sessionStorage.getItem('chatScrollAtBottom_' + activeKey);
-          if ((savedAtBottom === 'true' || shouldAutoScroll || isAtBottom()) && !userScrolledUp) {
-            scrollToBottom(true, true);
-          }
+        if (shouldAutoScroll || !userScrolledUp || isAtBottom()) {
+          scrollToBottom(true, true);
         }
       }
     }, true);
@@ -2054,10 +2043,12 @@
         // Only trim oldest messages from the top when the user is NOT backreading.
         // Trimming while gcViewingOlder would delete the very messages they're
         // currently reading, causing a violent view jump.
-        if (!gcViewingOlder && trimWindowFromTop(MAX_WINDOW)) refreshCursorAfterTopTrim();
-        if (isFirstLoad) { isFirstLoad = false; handleFirstLoadScroll(); }
-        else if (!gcViewingOlder && wasAtBottom) requestAnimationFrame(() => requestAnimationFrame(() => scrollToBottom(true, false)));
-        else showScrollIndicator(rec.items.filter(el => el.classList.contains('message-container')).length);
+        if (!gcViewingOlder && (isFirstLoad || !userScrolledUp || wasAtBottom)) {
+          isFirstLoad = false;
+          handleFirstLoadScroll();
+        } else if (userScrolledUp) {
+          showScrollIndicator(rec.items.filter(el => el.classList.contains('message-container')).length);
+        }
         applyAdminBadges(); applyEmojiOnly(); attachImageLoadListeners();
         if (gcHasMore && !document.getElementById('loadOlderBtn') && !document.getElementById('noMoreOlderNotice')) insertLoadOlderBtn();
         return;
@@ -2085,9 +2076,12 @@
       });
       
       chatBox.scrollTop = Math.max(0, prevST + chatBox.scrollHeight - prevSH);
-      if (isFirstLoad) { isFirstLoad = false; handleFirstLoadScroll(); }
-      else if (!gcViewingOlder && (wasAtBottom || isFirstLoad)) requestAnimationFrame(() => requestAnimationFrame(() => scrollToBottom(true, false)));
-      else if (genuinelyNewCount > 0) showScrollIndicator(genuinelyNewCount);
+      if (!gcViewingOlder && (isFirstLoad || !userScrolledUp || wasAtBottom)) {
+        isFirstLoad = false;
+        handleFirstLoadScroll();
+      } else if (userScrolledUp && genuinelyNewCount > 0) {
+        showScrollIndicator(genuinelyNewCount);
+      }
       applyAdminBadges(); applyEmojiOnly(); attachImageLoadListeners();
       // Chat was rebuilt from scratch (e.g. cleared), so pagination state no longer applies
       gcCursor = data.nextCursor || '';
@@ -2314,10 +2308,12 @@
           if (scrollDiff > 0) chatBox.scrollTop = prevScrollTop + scrollDiff;
         }
         // Only trim oldest messages from the top when the user is NOT backreading.
-        if (!dmViewingOlder && trimWindowFromTop(MAX_WINDOW)) refreshCursorAfterTopTrim();
-        if (isFirstLoad) { isFirstLoad = false; handleFirstLoadScroll(); }
-        else if (!dmViewingOlder && wasAtBottom) requestAnimationFrame(() => requestAnimationFrame(() => scrollToBottom(true, false)));
-        else showScrollIndicator(rec.items.filter(el => el.classList.contains('message-container')).length);
+        if (!dmViewingOlder && (isFirstLoad || !userScrolledUp || wasAtBottom)) {
+          isFirstLoad = false;
+          handleFirstLoadScroll();
+        } else if (userScrolledUp) {
+          showScrollIndicator(rec.items.filter(el => el.classList.contains('message-container')).length);
+        }
         applyAdminBadges(); applyEmojiOnly(); attachImageLoadListeners();
         if (!document.hidden && activeDM) markRead(activeDM);
         updateSeenIndicator();
@@ -2346,15 +2342,11 @@
       });
       
       chatBox.scrollTop = Math.max(0, prevSTF + chatBox.scrollHeight - prevSHF);
-      const mc = chatBox.querySelectorAll('.message-container').length;
-      if (mc > 0 && !dmViewingOlder && (wasAtBottom || isFirstLoad)) {
-        const doInstant = isFirstLoad;
+      if (!dmViewingOlder && (isFirstLoad || !userScrolledUp || wasAtBottom)) {
         isFirstLoad = false;
-        if (doInstant) handleFirstLoadScroll();
-        else requestAnimationFrame(() => requestAnimationFrame(() => scrollToBottom(true, false)));
-      } else {
-        isFirstLoad = false;
-        if (genuinelyNewCountF > 0) showScrollIndicator(genuinelyNewCountF);
+        handleFirstLoadScroll();
+      } else if (userScrolledUp && genuinelyNewCountF > 0) {
+        showScrollIndicator(genuinelyNewCountF);
       }
       applyAdminBadges(); applyEmojiOnly(); attachImageLoadListeners();
       if (!document.hidden && activeDM) markRead(activeDM);

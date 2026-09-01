@@ -3597,12 +3597,12 @@
             const scrollDiff = chatBox.scrollHeight - prevScrollHeight;
             if (scrollDiff > 0) chatBox.scrollTop = prevScrollTop + scrollDiff;
           }
-          if (!adminConvViewingOlder) {
-            if (trimWindowFromTop(MAX_WINDOW)) refreshCursorAfterTopTrim();
+          if (!adminConvViewingOlder && (isFirstLoad || !userScrolledUp || wasAtBottom)) {
+            isFirstLoad = false;
+            handleFirstLoadScroll();
+          } else if (userScrolledUp) {
+            showScrollIndicator(rec.items.filter(el => el.classList.contains('message-container')).length);
           }
-          if (isFirstLoad) { isFirstLoad = false; handleFirstLoadScroll(); }
-          else if (!adminConvViewingOlder && wasAtBottom) requestAnimationFrame(() => requestAnimationFrame(() => scrollToBottom(true, false)));
-          else showScrollIndicator(rec.items.filter(el => el.classList.contains('message-container')).length);
           applyAdminBadges();
           applyEmojiOnly();
           attachImageLoadListeners();
@@ -3632,15 +3632,11 @@
         });
 
         chatBox.scrollTop = Math.max(0, prevSTF + chatBox.scrollHeight - prevSHF);
-        const mc = chatBox.querySelectorAll('.message-container').length;
-        if (mc > 0 && !adminConvViewingOlder && (wasAtBottom || isFirstLoad)) {
-          const doInstant = isFirstLoad;
+        if (!adminConvViewingOlder && (isFirstLoad || !userScrolledUp || wasAtBottom)) {
           isFirstLoad = false;
-          if (doInstant) handleFirstLoadScroll();
-          else requestAnimationFrame(() => requestAnimationFrame(() => scrollToBottom(true, false)));
-        } else {
-          isFirstLoad = false;
-          if (genuinelyNewCountF > 0) showScrollIndicator(genuinelyNewCountF);
+          handleFirstLoadScroll();
+        } else if (userScrolledUp && genuinelyNewCountF > 0) {
+          showScrollIndicator(genuinelyNewCountF);
         }
         applyAdminBadges();
         applyEmojiOnly();

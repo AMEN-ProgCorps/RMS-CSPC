@@ -2627,7 +2627,7 @@
       localStorage.setItem('activeDM', '__global__');
       chatHeaderTitle.innerHTML = `Global Chat`;
       applyHeaderAdminBadge(); // activeDMAccountId is null here — clears any leftover badge from the previous DM
-      applyHeaderAvatar(null); // no single DM partner — hide the header avatar
+      applyHeaderAvatar({ avatar_url: 'cspc.webp', name: 'Global Chat' });
       if (!globalChatPrefetchedData) {
         chatBox.innerHTML = '';
       }

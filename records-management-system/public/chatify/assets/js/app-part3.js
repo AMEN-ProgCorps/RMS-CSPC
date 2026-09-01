@@ -380,18 +380,33 @@
       }
 
       darkModeToggle.addEventListener('click', function() {
-        const isDark = document.documentElement.hasAttribute('data-theme');
+        const root = document.documentElement;
+        const isDark = root.getAttribute('data-theme') === 'dark';
+        const nextState = isDark ? 'disabled' : 'enabled';
+
+        // Suppress per-element transition animations during theme flip for instant 60fps/120fps paint
+        root.classList.add('theme-transitioning');
+
         if (isDark) {
-          document.documentElement.removeAttribute('data-theme');
+          root.removeAttribute('data-theme');
           document.body.removeAttribute('data-theme');
-          localStorage.setItem('darkMode', 'disabled');
-          document.cookie = "dark_mode=disabled; path=/; max-age=31536000";
         } else {
-          document.documentElement.setAttribute('data-theme', 'dark');
+          root.setAttribute('data-theme', 'dark');
           document.body.setAttribute('data-theme', 'dark');
-          localStorage.setItem('darkMode', 'enabled');
-          document.cookie = "dark_mode=enabled; path=/; max-age=31536000";
         }
+
+        // Release transition block on next frame
+        requestAnimationFrame(function() {
+          requestAnimationFrame(function() {
+            root.classList.remove('theme-transitioning');
+          });
+        });
+
+        // Fast persistence without blocking main thread
+        try {
+          localStorage.setItem('darkMode', nextState);
+          document.cookie = "dark_mode=" + nextState + "; path=/; max-age=31536000; SameSite=Lax";
+        } catch (e) {}
       });
     }
 

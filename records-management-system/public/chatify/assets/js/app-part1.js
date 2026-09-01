@@ -3692,7 +3692,10 @@
             } else if (wasAtBottom || !userScrolledUp) {
               scrollToBottom(true, true);
             } else if (userScrolledUp) {
-              showScrollIndicator(rec.items.filter(el => el.classList.contains('message-container')).length);
+              const newlyAppendedCount = rec.items.filter(el => el.classList.contains('message-container')).length;
+              if (newlyAppendedCount > 0) {
+                showScrollIndicator(newlyAppendedCount);
+              }
             }
           }
           applyAdminBadges();

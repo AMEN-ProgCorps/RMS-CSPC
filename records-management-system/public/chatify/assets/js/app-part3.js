@@ -575,26 +575,29 @@
     const unreadBadge = document.getElementById('unreadBadge');
 
     function showScrollIndicator(newCount = 0) {
+      if (!chatBox || !chatFullyLoaded || document.activeElement === messageInput) {
+        hideScrollIndicator();
+        return;
+      }
+
+      const distance = chatBox.scrollHeight - chatBox.scrollTop - chatBox.clientHeight;
+      if (distance <= 200 && newCount === 0) {
+        hideScrollIndicator();
+        return;
+      }
+
       if (newCount > 0) {
         unreadCount += newCount;
         unreadBadge.textContent = unreadCount;
         scrollIndicatorText.textContent = unreadCount === 1 ? 'new message' : 'new messages';
         scrollIndicator.classList.add('has-unread');
       } else if (!scrollIndicator.classList.contains('visible')) {
-        // Only set "Go to bottom" label if not already showing unread
         if (!scrollIndicator.classList.contains('has-unread')) {
           scrollIndicatorText.textContent = 'Go to bottom';
         }
       }
-      // showScrollIndicator() is only ever called by callers that already
-      // know the user isn't at the bottom (new message arrived while
-      // scrolled up, or the main scroll listener detected !atBottom —
-      // which covers scrolling up past the loaded INITIAL_LOAD window into
-      // older history too). So as long as the chat has finished its
-      // initial load, the button should show — it used to be gated on
-      // "scrollTop <= 5" (literally the very top) which meant scrolling
-      // up anywhere in the middle/older history never revealed it.
-      if (chatFullyLoaded && document.activeElement !== messageInput) {
+
+      if (distance > 200 || scrollIndicator.classList.contains('has-unread')) {
         scrollIndicator.classList.add('visible');
       } else {
         scrollIndicator.classList.remove('visible');
@@ -2128,7 +2131,10 @@
           } else if (wasAtBottom || !userScrolledUp) {
             scrollToBottom(true, true);
           } else if (userScrolledUp) {
-            showScrollIndicator(rec.items.filter(el => el.classList.contains('message-container')).length);
+            const newlyAppendedCount = rec.items.filter(el => el.classList.contains('message-container')).length;
+            if (newlyAppendedCount > 0) {
+              showScrollIndicator(newlyAppendedCount);
+            }
           }
         }
         applyAdminBadges(); applyEmojiOnly(); attachImageLoadListeners();
@@ -2432,7 +2438,10 @@
           } else if (wasAtBottom || !userScrolledUp) {
             scrollToBottom(true, true);
           } else if (userScrolledUp) {
-            showScrollIndicator(rec.items.filter(el => el.classList.contains('message-container')).length);
+            const newlyAppendedCount = rec.items.filter(el => el.classList.contains('message-container')).length;
+            if (newlyAppendedCount > 0) {
+              showScrollIndicator(newlyAppendedCount);
+            }
           }
         }
         if (dmHasMore && !document.getElementById('loadOlderBtn') && !document.getElementById('noMoreOlderNotice')) insertLoadOlderBtn();
@@ -3446,10 +3455,14 @@
       });
     }
 
-    // Auto-expand textarea + typing indicator dispatch
     function autoResizeMessageInput() {
+      if (!messageInput) return;
+      if (!messageInput.value || messageInput.value.trim() === '') {
+        messageInput.style.height = '40px';
+        return;
+      }
       messageInput.style.height = 'auto';
-      const newHeight = Math.min(messageInput.scrollHeight, 120);
+      const newHeight = Math.min(Math.max(messageInput.scrollHeight, 40), 120);
       messageInput.style.height = newHeight + 'px';
     }
 

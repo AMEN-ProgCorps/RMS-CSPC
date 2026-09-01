@@ -2345,16 +2345,19 @@
     // State for global chat
     let isGlobalChat = false;
     // ── Infinite-scroll window constants ─────────────────────────────────────
-    // INITIAL_LOAD  — messages fetched when first opening a conversation.
+    // INITIAL_LOAD   — messages fetched when first opening a conversation.
     // BACKREAD_BATCH — messages fetched per auto-triggered scroll-up fetch.
-    // MAX_WINDOW    — maximum messages kept in the DOM at once. When the user
-    //                 keeps scrolling up, older pages are prepended and the
-    //                 same count is trimmed from the bottom so the DOM never
-    //                 grows past this cap.  "Go to bottom" always snaps back
-    //                 to a fresh INITIAL_LOAD-sized window.
+    // MAX_WINDOW     — maximum messages kept in the DOM at once (performance
+    //                  guard, NOT a history limit). While backreading, older
+    //                  pages are prepended and the same count is trimmed from
+    //                  the bottom so the browser never holds more than this
+    //                  many nodes simultaneously. "Go to bottom" snaps back
+    //                  to a fresh INITIAL_LOAD-sized window from the DB.
+    //                  Raised from 300 → 600 for deeper backread without a
+    //                  DOM trip to the server.
     const INITIAL_LOAD   = 100;
     const BACKREAD_BATCH = 50;
-    const MAX_WINDOW     = 300;  // ~100 initial + 4 backreads; safe for mid-range Android
+    const MAX_WINDOW     = 600;  // ~100 initial + 10 backreads; balanced for mid-range Android
     // Legacy alias — kept so every existing trimWindowFromTop/Bottom call site
     // that still references PAGE_SIZE continues to compile without changes.
     // New code should prefer the explicit constants above.
@@ -2558,13 +2561,20 @@
 
     function showNoMoreOlderNotice() {
       removePaginationBtn();
+      if (document.getElementById('noMoreOlderNotice')) return; // already showing
       const notice = document.createElement('div');
       notice.id = 'noMoreOlderNotice';
       notice.style.cssText = `
-        display:block;text-align:center;width:calc(100% - 32px);margin:10px 16px;
-        padding:8px 16px;color:var(--text-secondary);font-size:12.5px;font-weight:500;
+        display:flex;align-items:center;justify-content:center;gap:8px;
+        text-align:center;width:calc(100% - 32px);margin:10px 16px;
+        padding:8px 16px;color:var(--text-secondary);font-size:12px;font-weight:500;
+        opacity:0.7;
       `;
-      notice.textContent = 'No older messages';
+      // Thin horizontal rule on each side of the label — Messenger/Discord style
+      notice.innerHTML =
+        '<span style="flex:1;height:1px;background:var(--border-color,rgba(0,0,0,0.1));display:block;"></span>' +
+        '<span>Beginning of conversation</span>' +
+        '<span style="flex:1;height:1px;background:var(--border-color,rgba(0,0,0,0.1));display:block;"></span>';
       chatBox.insertBefore(notice, chatBox.firstChild);
     }
 

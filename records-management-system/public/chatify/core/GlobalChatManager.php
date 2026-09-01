@@ -12,15 +12,17 @@
 //   • Keyset pagination  — no OFFSET, no COUNT(*). Cursor = (created_at, id).
 //   • Sequential UUIDs   — monotonically increasing msg_uuid prevents B-tree
 //                          page splits and keeps inserts clustered.
-//   • pruneOldest()       — uses DELETE…USING to avoid separate SELECT+DELETE.
-//   • loadReactions()     — scope to current page UUIDs to avoid loading all
+//   • Unlimited history  — pruneOldest() removed; DB is the source of truth.
+//                          Use /backup and /clear admin commands to manage storage.
+//   • loadReactions()    — scope to current page UUIDs to avoid loading all
 //                          reactions for every message ever sent.
 // =============================================================================
 
 class GlobalChatManager
 {
-    private const CONV_ID    = 'global';
-    private const MAX_STORED = 200; // keep at most this many global messages
+    private const CONV_ID = 'global';
+    // MAX_STORED removed — global chat history is now unlimited in the database.
+    // Use admin /backup and /clear commands for storage management.
 
     // -------------------------------------------------------------------------
     // Message status ('active' | 'inactive') — self-heal on-the-fly
@@ -415,7 +417,7 @@ class GlobalChatManager
     /**
      * Load all reactions for the global chat.
      * Scoped to the provided message UUIDs to avoid loading all reactions
-     * for the entire history when MAX_STORED is large.
+     * for the entire history on every page load.
      *
      * Returns:  array<msgUuid, array<emoji, list<int accountId>>>
      *
@@ -562,7 +564,8 @@ class GlobalChatManager
     }
 
     /**
-     * Insert a new message row; prune oldest rows if over MAX_STORED limit.
+     * Insert a new message row into the global chat.
+     * History is unlimited — no pruning occurs after insert.
      */
     private static function insertMessage(
         int     $senderId,
@@ -604,9 +607,6 @@ class GlobalChatManager
                 ':reply_to'   => $replyToUuid,
             ]);
 
-            // Prune: if we now exceed MAX_STORED, delete the oldest surplus rows.
-            self::pruneOldest($pdo);
-
             return [
                 'id'                => $uuid,
                 'sender_id'         => $senderId,
@@ -640,37 +640,6 @@ class GlobalChatManager
         }
     }
 
-    /**
-     * Delete the oldest messages that exceed MAX_STORED.
-     *
-     * Uses a single DELETE…USING with a subquery instead of SELECT + DELETE,
-     * eliminating one round-trip and avoiding a temporary result set in PHP.
-     */
-    private static function pruneOldest(PDO $pdo): void
-    {
-        // Count and decide in one query using a CTE
-        try {
-            $pdo->prepare(
-                "DELETE FROM chat_messages
-                 WHERE id IN (
-                     SELECT id FROM chat_messages
-                     WHERE conv_id = :conv_id
-                     ORDER BY created_at ASC, id ASC
-                     LIMIT GREATEST(
-                         (SELECT COUNT(*) FROM chat_messages WHERE conv_id = :conv_id2) - :max_stored,
-                         0
-                     )
-                 )"
-            )->execute([
-                ':conv_id'    => self::CONV_ID,
-                ':conv_id2'   => self::CONV_ID,
-                ':max_stored' => self::MAX_STORED,
-            ]);
-        } catch (PDOException $e) {
-            // Non-critical — next insert will retry
-            error_log('GlobalChatManager::pruneOldest() — ' . $e->getMessage());
-        }
-    }
 
     /**
      * Shared reaction toggle logic (used by global and private chat).

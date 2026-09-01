@@ -7,13 +7,15 @@
 //   target_user (string, fallback — email of the other participant)
 //   before_uuid (string, optional) — msg_uuid of the oldest message shown;
 //                                     omit to load the latest messages.
-//   limit       (int, optional)    — messages per page, default/max 50
+//   limit       (int, optional)    — messages per page, default 50, max 100
 //
 // Returns JSON:
 //   { html: string, hasMore: bool, nextCursor: string|null }
 //
 // Uses KEYSET (cursor) pagination — no OFFSET, no COUNT(*).
 // The DB returns rows newest-first; array_reverse() re-orders for display.
+// History is UNLIMITED — the client sends ?before_uuid= on each scroll-up
+// fetch until the server returns hasMore=false ("Beginning of conversation").
 // =============================================================================
 
 require_once __DIR__ . '/bootstrap.php';

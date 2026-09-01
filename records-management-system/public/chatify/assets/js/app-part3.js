@@ -1471,6 +1471,46 @@
         shouldAutoScroll = true;
         userScrolledUp = false;
         hideScrollIndicator();
+
+        // ── Bi-directional infinite scroll: snap back to latest window ────
+        // If the user has scrolled back to the bottom of an older window
+        // (not via the "Go to bottom" button but through natural scrolling),
+        // treat it the same as clicking "Go to bottom" — reset the viewing-
+        // older state and reload the freshest messages from the DB. This
+        // ensures that the trimmed-from-bottom messages never permanently
+        // disappear; the user just needs to scroll back to bottom and the
+        // latest window re-appears automatically.
+        if (isGlobalChat && gcViewingOlder) {
+          gcViewingOlder = false;
+          gcCursor = '';
+          removePaginationBtn();
+          chatBox.innerHTML = '';
+          isFirstLoad = true;
+          chatFullyLoaded = false;
+          loadGlobalChat(false, false);
+          return;
+        }
+        if (!isGlobalChat && activeAdminConv && adminConvViewingOlder) {
+          adminConvViewingOlder = false;
+          adminConvCursor = '';
+          removePaginationBtn();
+          chatBox.innerHTML = '';
+          isFirstLoad = true;
+          chatFullyLoaded = false;
+          loadAdminConv(activeAdminConv, false, false);
+          return;
+        }
+        if (!isGlobalChat && !activeAdminConv && activeDM && dmViewingOlder) {
+          dmViewingOlder = false;
+          dmCursor = '';
+          removePaginationBtn();
+          chatBox.innerHTML = '';
+          isFirstLoad = true;
+          chatFullyLoaded = false;
+          loadChat(false, false, true);
+          return;
+        }
+        // ─────────────────────────────────────────────────────────────────
       } else {
         shouldAutoScroll = false;
         userScrolledUp = true;

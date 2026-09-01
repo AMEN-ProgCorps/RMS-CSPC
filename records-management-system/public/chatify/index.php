@@ -555,8 +555,12 @@ try {
   <!-- Settings Modal (Communication Settings + Admin: User Verification) -->
   <div class="modal" id="commSettingsModal" aria-hidden="true">
     <div class="modal-content" style="max-width:440px;">
-      <div class="modal-header" style="padding:16px;border-bottom:1px solid var(--border-color);">
+      <div class="modal-header" style="padding:14px 16px;border-bottom:1px solid var(--border-color);display:flex;align-items:center;justify-content:space-between;">
         <h3 style="margin:0;font-size:16px;font-weight:600;color:var(--text-primary);">Settings</h3>
+        <button type="button" id="darkModeHeaderBtn" onclick="toggleDarkMode()" title="Toggle Dark Mode" class="dark-mode-header-btn" style="width:34px;height:34px;border-radius:50%;border:none;background:#1b74e4;color:#ffffff;display:flex;align-items:center;justify-content:center;cursor:pointer;transition:transform 0.15s, opacity 0.15s;padding:0;outline:none;" onmouseover="this.style.opacity='0.9'" onmouseout="this.style.opacity='1'">
+          <svg id="darkModeMoonIcon" width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+          <svg id="darkModeSunIcon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:none;"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>
+        </button>
       </div>
       <div class="modal-body" style="padding:16px;display:flex;flex-direction:column;gap:0;text-align:left;">
         <p style="margin:0 0 10px 0;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.08em;color:var(--text-secondary);">Communication</p>
@@ -579,27 +583,6 @@ try {
             View messages as others type them in real time. Turn this off if you prefer to only see messages after they are sent.
           </span>
         </label>
-
-        <div style="border-top:1px solid var(--border-color);margin-top:8px;padding-top:14px;">
-          <p style="margin:0 0 10px 0;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.08em;color:var(--text-secondary);">Appearance</p>
-          <div style="display:flex;align-items:center;justify-content:space-between;padding:8px 0;cursor:pointer;" id="darkModeSettingsRow">
-            <div style="display:flex;flex-direction:column;gap:4px;">
-              <div style="display:flex;align-items:center;gap:8px;font-weight:600;color:var(--text-primary);font-size:14px;">
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="opacity:0.85;"><path d="M12 3c-4.97 0-9 4.03-9 9s4.03 9 9 9 9-4.03 9-9c0-.46-.04-.92-.1-1.36-.98 1.37-2.58 2.26-4.4 2.26-3.03 0-5.5-2.47-5.5-5.5 0-1.82.89-3.42 2.26-4.4-.44-.06-.9-.1-1.36-.1z"/></svg>
-                <span>Dark Mode</span>
-              </div>
-              <span style="font-size:12px;color:var(--text-secondary);margin-left:26px;line-height:1.4;">
-                Switch between light and dark theme for Chatify.
-              </span>
-            </div>
-            <label style="position:relative;display:inline-block;width:40px;height:22px;flex-shrink:0;cursor:pointer;margin-left:12px;">
-              <input type="checkbox" id="darkModeToggle" style="opacity:0;width:0;height:0;position:absolute;">
-              <span class="slider-bg" style="position:absolute;inset:0;border-radius:22px;transition:background 0.2s;background:var(--border-color);">
-                <span class="slider-knob" style="position:absolute;top:3px;left:3px;width:16px;height:16px;border-radius:50%;background:#fff;transition:left 0.2s;box-shadow:0 1px 3px rgba(0,0,0,0.3);"></span>
-              </span>
-            </label>
-          </div>
-        </div>
 
         <?php if ($is_admin): ?>
         <div style="border-top:1px solid var(--border-color);margin-top:8px;padding-top:14px;">

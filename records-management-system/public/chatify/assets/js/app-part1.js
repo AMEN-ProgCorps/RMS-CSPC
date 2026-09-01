@@ -610,27 +610,29 @@
           // The other participant just read up through data.last_msg_uuid —
           // update the Messenger-style "Seen" indicator instantly, no poll needed.
           if (activeDM && activeDMAccountId === Number(data.reader_id)) {
+            let incomingReadUpTo = null;
             if (data.last_msg_uuid) {
-              // DB-confirmed value (arrived via the HTTP-persisted path) —
-              // always authoritative.
-              dmReadUpTo = data.last_msg_uuid;
+              incomingReadUpTo = data.last_msg_uuid;
             } else {
-              // Instant WS-only ping, sent with no id attached (see
-              // markRead() above) — the other participant is actively here
-              // right now, so flag whatever we've most recently sent as
-              // seen using OUR OWN chatBox (accurate on this side), rather
-              // than waiting for the slower DB round trip to confirm it.
-              // Read state only ever moves forward, never backward.
               let newestSentId = null;
               chatBox.querySelectorAll('.message-container.sent[data-msg-id]').forEach(el => {
                 const id = el.getAttribute('data-msg-id');
                 if (id && (!newestSentId || id > newestSentId)) newestSentId = id;
               });
               if (newestSentId && (!dmReadUpTo || newestSentId > dmReadUpTo)) {
-                dmReadUpTo = newestSentId;
+                incomingReadUpTo = newestSentId;
               }
             }
-            updateSeenIndicator();
+            if (incomingReadUpTo && incomingReadUpTo !== dmReadUpTo) {
+              dmReadUpTo = incomingReadUpTo;
+              dmReadUpToMap.set(activeDM, dmReadUpTo);
+              const cachedObj = dmMessageCache.get(activeDM);
+              if (cachedObj) {
+                cachedObj.readUpTo = dmReadUpTo;
+                if (cachedObj._raw) cachedObj._raw.readUpTo = dmReadUpTo;
+              }
+              updateSeenIndicator();
+            }
           }
         } else if (data.type === 'chat_cleared') {
           console.log('Received WebSocket real-time update notice:', data);
@@ -1359,13 +1361,22 @@
     window.dmPrefetchPromises = dmPrefetchPromises;
 
     function cacheDmSnapshot(username, data) {
-      if (!username) return;
+      if (!username || !data) return;
+      let readUpToVal = (typeof data.readUpTo !== 'undefined' && data.readUpTo !== null)
+        ? data.readUpTo
+        : ((typeof dmReadUpToMap !== 'undefined' && dmReadUpToMap.has(username)) ? dmReadUpToMap.get(username) : null);
+      if (readUpToVal && typeof dmReadUpToMap !== 'undefined') {
+        dmReadUpToMap.set(username, readUpToVal);
+      }
+      if (typeof data === 'object' && data !== null) {
+        data.readUpTo = readUpToVal;
+      }
       dmMessageCache.delete(username); // re-insert at the end = most-recently-used
       dmMessageCache.set(username, {
         html: data.html || '',
         hasMore: data.hasMore || false,
         nextCursor: data.nextCursor || '',
-        readUpTo: (typeof data.readUpTo !== 'undefined') ? data.readUpTo : null,
+        readUpTo: readUpToVal,
         _raw: data
       });
       if (dmMessageCache.size > DM_CACHE_LIMIT) {
@@ -2314,6 +2325,8 @@
     });
 
     let markReadHttpDebounceTimer = null;
+    let lastMarkedReadUser = null;
+    let lastMarkedReadMsgId = null;
 
     function markRead(targetUsername) {
       if (!targetUsername) return;
@@ -2337,7 +2350,14 @@
         });
       }
 
-      // Real-time WebSocket relay: ALWAYS fire immediately with last_msg_uuid
+      // If we already marked read up through this exact message for this user, suppress redundant network pings
+      if (lastMarkedReadUser === targetUsername && lastMarkedReadMsgId === newestMsgId && newestMsgId !== null) {
+        return;
+      }
+      lastMarkedReadUser = targetUsername;
+      lastMarkedReadMsgId = newestMsgId;
+
+      // Real-time WebSocket relay: fire immediately with last_msg_uuid
       if (ws && ws.readyState === WebSocket.OPEN && targetId) {
         ws.send(JSON.stringify({
           type: 'mark_read',
@@ -2358,31 +2378,94 @@
     }
 
     // Messenger-style "Seen" indicator: shown under the newest message WE sent
-    // that the other participant has actually read (dmReadUpTo). Re-run this
-    // any time dmReadUpTo changes or the message list is re-rendered — it's
-    // cheap (one DOM query over the currently-loaded page) and always fully
-    // recomputes rather than trying to patch the previous position, so it can
-    // never end up stuck under a stale message.
+    // that the other participant has actually read (dmReadUpTo).
     function updateSeenIndicator() {
-      const existing = chatBox.querySelector('.seen-indicator');
-      if (existing) existing.remove();
+      // Resolve the effective readUpTo: use dmReadUpTo if set, otherwise check
+      // dmReadUpToMap directly.
+      let effectiveReadUpTo = dmReadUpTo;
+      if (!effectiveReadUpTo && activeDM && typeof dmReadUpToMap !== 'undefined' && dmReadUpToMap.has(activeDM)) {
+        effectiveReadUpTo = dmReadUpToMap.get(activeDM);
+      }
 
-      if (!dmReadUpTo || !activeDM || isGlobalChat) return;
+      if (!effectiveReadUpTo || !activeDM || isGlobalChat) {
+        const existing = chatBox ? chatBox.querySelector('.seen-indicator') : null;
+        if (existing) existing.remove();
+        return;
+      }
 
-      // msg_uuid values are fixed-width hex ("msg_" + 10 hex ms + 6 hex rnd),
-      // so plain string comparison sorts them the same as chronological order.
-      const sentMessages = chatBox.querySelectorAll('.message-container.sent[data-msg-id]');
+      const allMessages = Array.from(chatBox.querySelectorAll('.message-container[data-msg-id]'));
+      if (allMessages.length === 0) {
+        const existing = chatBox ? chatBox.querySelector('.seen-indicator') : null;
+        if (existing) existing.remove();
+        return;
+      }
+
+      const cleanReadUpTo = String(effectiveReadUpTo).trim().toLowerCase();
+
+      // Find the index of the read marker message in DOM order (strictly chronological)
+      let readMarkerIndex = -1;
+      for (let i = 0; i < allMessages.length; i++) {
+        const msgId = allMessages[i].getAttribute('data-msg-id');
+        if (msgId && String(msgId).trim().toLowerCase() === cleanReadUpTo) {
+          readMarkerIndex = i;
+          break;
+        }
+      }
+
       let target = null;
-      sentMessages.forEach(el => {
-        const id = el.getAttribute('data-msg-id');
-        if (id && id <= dmReadUpTo) target = el; // keep the newest qualifying one
-      });
-      if (!target) return;
+      if (readMarkerIndex !== -1) {
+        // The read marker message was found in DOM.
+        // Target is the last SENT message at or before readMarkerIndex.
+        for (let i = readMarkerIndex; i >= 0; i--) {
+          if (allMessages[i].classList.contains('sent')) {
+            target = allMessages[i];
+            break;
+          }
+        }
+      } else {
+        // Read marker is set for this conversation but not explicitly found in current DOM slice.
+        // Target the latest SENT message rendered in chatBox.
+        for (let i = allMessages.length - 1; i >= 0; i--) {
+          if (allMessages[i].classList.contains('sent')) {
+            target = allMessages[i];
+            break;
+          }
+        }
+      }
+
+      const existing = chatBox ? chatBox.querySelector('.seen-indicator') : null;
+
+      if (!target) {
+        if (existing) existing.remove();
+        return;
+      }
+
+      // If the seen indicator is already the immediate next sibling of the target, nothing to do.
+      const nextSib = target.nextElementSibling;
+      if (nextSib && nextSib.classList && nextSib.classList.contains('seen-indicator')) {
+        return;
+      }
+
+      // Capture scroll state BEFORE any DOM mutation so we can restore it below.
+      const preScrollTop    = chatBox.scrollTop;
+      const preScrollHeight = chatBox.scrollHeight;
+      const wasNearBottom = (preScrollHeight - preScrollTop - chatBox.clientHeight) <= 60;
+
+      if (existing) existing.remove();
 
       const indicator = document.createElement('div');
       indicator.className = 'seen-indicator';
       indicator.innerHTML = '<span class="seen-indicator-text">seen</span>';
       target.insertAdjacentElement('afterend', indicator);
+
+      // If the user was at (or near) the bottom before the indicator was
+      // inserted/moved, re-snap so the layout shift is invisible to them.
+      if (wasNearBottom) {
+        chatBox.scrollTop = chatBox.scrollHeight;
+        requestAnimationFrame(() => {
+          chatBox.scrollTop = chatBox.scrollHeight;
+        });
+      }
     }
 
 
@@ -2415,6 +2498,8 @@
     // msg_uuid of the newest message the OTHER participant has read, or null.
     // Drives the Messenger-style "Seen" indicator under our own last-read sent message.
     let dmReadUpTo = null;
+    const dmReadUpToMap = new Map(); // username -> msg_uuid
+    window.dmReadUpToMap = dmReadUpToMap;
 
     // Spamming clicks across the conversation list used to make the chat
     // pane visibly jump: every single click synchronously swapped chatBox's
@@ -2424,42 +2509,32 @@
     // heavy part (painting messages + loadChat + scroll) is debounced to
     // only run once the clicks settle, while the row highlight updates
     // instantly on every click and the chat pane just gives a quick "blink"
-    // so spamming still feels responsive without the jumping.
     let selectDMDebounceTimer = null;
     let pendingSelectUser = null;
-    const SELECT_DM_DEBOUNCE_MS = 180;
 
     function selectDM(u) {
-      pendingSelectUser = u;
-
-      // Instant, lightweight feedback: highlight the clicked row right away,
-      // without touching messages/scroll yet.
-      isGlobalChat = false;
-      const _hEl = document.querySelector('.header');
-      if (_hEl) _hEl.classList.remove('is-global-chat');
-      activeDM = u.username;
-      activeDMAccountId = Number(u.account_id);
-      activeAdminConv = null;
-      u.unreadCount = 0;
-      if (!allUsersData.find(function(x) { return Number(x.account_id) === Number(u.account_id); })) {
-        allUsersData.unshift(u);
+      if (!u) return;
+      if (!isGlobalChat && !activeAdminConv && activeDM === u.username) {
+        if (isMobileViewport()) {
+          sidebar.classList.remove('open');
+          const backdrop = document.getElementById('sidebarBackdrop');
+          if (backdrop) backdrop.classList.remove('visible');
+          burgerButton.style.display = 'none';
+          backButton.style.display = 'inline-flex';
+        }
+        return;
       }
-      chatHeaderTitle.textContent = u.name;
-      applyHeaderAdminBadge();
-      applyHeaderAvatar(u);
-      renderSidebarUsers();
-      document.getElementById('globalChatItem').classList.remove('active');
-      hideEditBanner();
-      if (typeof hideReplyBanner === 'function') hideReplyBanner();
-
-      if (selectDMDebounceTimer) clearTimeout(selectDMDebounceTimer);
-      selectDMDebounceTimer = setTimeout(function() {
+      if (selectDMDebounceTimer) {
+        clearTimeout(selectDMDebounceTimer);
         selectDMDebounceTimer = null;
-        performSelectDM(pendingSelectUser);
-      }, SELECT_DM_DEBOUNCE_MS);
+      }
+      performSelectDM(u);
     }
 
     function performSelectDM(u) {
+      if (typeof cancelActiveScrollAnimation === 'function') cancelActiveScrollAnimation();
+      if (typeof clearFirstLoadScrollTimers === 'function') clearFirstLoadScrollTimers();
+
       isGlobalChat = false;
       const _hEl = document.querySelector('.header');
       if (_hEl) _hEl.classList.remove('is-global-chat');
@@ -2498,21 +2573,24 @@
       applyHeaderAdminBadge();
       applyHeaderAvatar(u);
       updateHeaderActiveStatus(u);
-      // Mirror selectGlobalChat's render flow exactly: blank the pane and do
-      // a single, deterministic paint once the real data comes back. The old
-      // approach (instant-paint from a cached snapshot, then reconcile again
-      // against whatever the network returned) meant two separate scroll
-      // adjustments could land back-to-back — that's what made the chat pane
-      // visibly jump when switching conversations quickly.
-      chatBox.innerHTML = '';
+      
+      const cached = dmMessageCache.get(u.username);
+      if (!cached) {
+        chatBox.innerHTML = '';
+      }
       removePaginationBtn();
       hideScrollIndicator();
       const _htp = document.getElementById('headerTypingPreview');
       if (_htp) { _htp.textContent = ''; _htp.classList.remove('active'); }
 
-      dmCursor = '';
-      dmHasMore = false;
-      dmReadUpTo = null;
+      dmCursor = (cached && cached.nextCursor) ? cached.nextCursor : '';
+      dmHasMore = (cached && cached.hasMore) ? cached.hasMore : false;
+      dmReadUpTo = (typeof dmReadUpToMap !== 'undefined' && dmReadUpToMap.has(u.username))
+        ? dmReadUpToMap.get(u.username)
+        : ((cached && typeof cached.readUpTo !== 'undefined') ? cached.readUpTo : null);
+      if (dmReadUpTo && cached && cached._raw) {
+        cached._raw.readUpTo = dmReadUpTo;
+      }
       isFirstLoad = true; // snap straight to bottom once the new conversation's messages arrive
       chatFullyLoaded = false; // suppress scroll buttons until new chat finishes loading
       dmViewingOlder = false;
@@ -2531,13 +2609,26 @@
         backButton.style.display = 'inline-flex';
       } else {
         // Desktop only: auto-focus the message input so the cursor is ready
-        // without an extra click. Skipped on mobile so opening a conversation
-        // doesn't immediately pop the on-screen keyboard over half the chat.
-        setTimeout(() => messageInput.focus(), 0);
+        // without an extra click. preventScroll prevents the browser from shifting scrollable parents.
+        setTimeout(() => messageInput.focus({ preventScroll: true }), 0);
       }
     }
 
     function selectGlobalChat() {
+      if (isGlobalChat && !activeDM && !activeAdminConv) {
+        if (isMobileViewport()) {
+          sidebar.classList.remove('open');
+          const backdrop = document.getElementById('sidebarBackdrop');
+          if (backdrop) backdrop.classList.remove('visible');
+          burgerButton.style.display = 'none';
+          backButton.style.display = 'inline-flex';
+        }
+        return;
+      }
+
+      if (typeof cancelActiveScrollAnimation === 'function') cancelActiveScrollAnimation();
+      if (typeof clearFirstLoadScrollTimers === 'function') clearFirstLoadScrollTimers();
+
       isGlobalChat = true;
       const _hEl = document.querySelector('.header');
       if (_hEl) _hEl.classList.add('is-global-chat');
@@ -2576,7 +2667,9 @@
       chatHeaderTitle.innerHTML = `Global Chat`;
       applyHeaderAdminBadge(); // activeDMAccountId is null here — clears any leftover badge from the previous DM
       applyHeaderAvatar(null); // no single DM partner — hide the header avatar
-      chatBox.innerHTML = '';
+      if (!globalChatPrefetchedData) {
+        chatBox.innerHTML = '';
+      }
 
       removePaginationBtn();
       renderSidebarUsers();
@@ -2590,9 +2683,8 @@
         backButton.style.display = 'inline-flex';
       } else {
         // Desktop only: auto-focus the message input so the cursor is ready
-        // without an extra click. Skipped on mobile so opening a conversation
-        // doesn't immediately pop the on-screen keyboard over half the chat.
-        setTimeout(() => messageInput.focus(), 0);
+        // without an extra click. preventScroll prevents the browser from shifting scrollable parents.
+        setTimeout(() => messageInput.focus({ preventScroll: true }), 0);
       }
     }
 
@@ -3013,7 +3105,7 @@
       mentionModal.setAttribute('aria-hidden', 'true');
       mentionTriggerPos = null;
       if (mentionSearchTimer) { clearTimeout(mentionSearchTimer); mentionSearchTimer = null; }
-      messageInput.focus();
+      messageInput.focus({ preventScroll: true });
     };
 
     function renderMentionResultState(state, usersData) {
@@ -3550,14 +3642,6 @@
           applyAdminBadges();
           applyEmojiOnly();
           attachImageLoadListeners();
-
-          if (adminConvHasMore && chatBox.scrollTop <= AUTO_LOAD_OLDER_THRESHOLD_PX) {
-            requestAnimationFrame(function() {
-              if (typeof maybeAutoLoadOlderMessages === 'function') {
-                maybeAutoLoadOlderMessages();
-              }
-            });
-          }
           return;
         }
 
@@ -3579,8 +3663,14 @@
         syncReactionsFromNewHtml(newMessages);
 
         if (rec.type === 'nochange') {
-          if (isFirstLoad) { isFirstLoad = false; handleFirstLoadScroll(); }
+          if (isFirstLoad) {
+            isFirstLoad = false;
+            handleFirstLoadScroll();
+          } else if (wasAtBottom && shouldAutoScroll) {
+            scrollToBottom(true, true);
+          }
           if (adminConvHasMore && !document.getElementById('loadOlderBtn') && !document.getElementById('noMoreOlderNotice')) insertLoadOlderBtn();
+          applyEmojiOnly();
           return;
         }
 
@@ -3596,9 +3686,11 @@
               if (msgId && chatBox.querySelector(`.message-container[data-msg-id="${msgId}"]`)) {
                 return;
               }
-              const animClass = el.classList.contains('sent') ? 'msg-animate-sent' : 'msg-animate-received';
-              el.classList.add(animClass);
-              el.addEventListener('animationend', () => el.classList.remove(animClass), { once: true });
+              if (chatFullyLoaded && !isFirstLoad) {
+                const animClass = el.classList.contains('sent') ? 'msg-animate-sent' : 'msg-animate-received';
+                el.classList.add(animClass);
+                el.addEventListener('animationend', () => el.classList.remove(animClass), { once: true });
+              }
             }
             chatBox.appendChild(el);
           });
@@ -3607,11 +3699,15 @@
             const scrollDiff = chatBox.scrollHeight - prevScrollHeight;
             if (scrollDiff > 0) chatBox.scrollTop = prevScrollTop + scrollDiff;
           }
-          if (!adminConvViewingOlder && (isFirstLoad || !userScrolledUp || wasAtBottom)) {
-            isFirstLoad = false;
-            handleFirstLoadScroll();
-          } else if (userScrolledUp) {
-            showScrollIndicator(rec.items.filter(el => el.classList.contains('message-container')).length);
+          if (!adminConvViewingOlder) {
+            if (isFirstLoad) {
+              isFirstLoad = false;
+              handleFirstLoadScroll();
+            } else if (wasAtBottom || !userScrolledUp) {
+              scrollToBottom(true, true);
+            } else if (userScrolledUp) {
+              showScrollIndicator(rec.items.filter(el => el.classList.contains('message-container')).length);
+            }
           }
           applyAdminBadges();
           applyEmojiOnly();
@@ -3626,7 +3722,7 @@
         const genuinelyNewCountF = newMessages.filter(el =>
           el.classList.contains('message-container') && !curKeySetF.has(getMessageKey(el))
         ).length;
-        currentMessages.forEach(el => el.remove());
+        chatBox.querySelectorAll('.message-container, .seen-indicator, .empty-chat, #loadOlderBtn, #noMoreOlderNotice').forEach(el => el.remove());
 
         // Deduplicate newMessages during full re-render
         const renderedIdsF = new Set();
@@ -3641,12 +3737,18 @@
           chatBox.appendChild(el);
         });
 
-        chatBox.scrollTop = Math.max(0, prevSTF + chatBox.scrollHeight - prevSHF);
-        if (!adminConvViewingOlder && (isFirstLoad || !userScrolledUp || wasAtBottom)) {
+        if (isFirstLoad) {
           isFirstLoad = false;
           handleFirstLoadScroll();
-        } else if (userScrolledUp && genuinelyNewCountF > 0) {
-          showScrollIndicator(genuinelyNewCountF);
+        } else if (!adminConvViewingOlder) {
+          if (wasAtBottom || !userScrolledUp) {
+            scrollToBottom(true, true);
+          } else {
+            chatBox.scrollTop = Math.max(0, prevSTF + chatBox.scrollHeight - prevSHF);
+            if (userScrolledUp && genuinelyNewCountF > 0) {
+              showScrollIndicator(genuinelyNewCountF);
+            }
+          }
         }
         applyAdminBadges();
         applyEmojiOnly();
@@ -3660,6 +3762,21 @@
     }
 
     function openAdminConv(c) {
+      if (!c) return;
+      if (activeAdminConv === c.convId) {
+        if (isMobileViewport()) {
+          sidebar.classList.remove('open');
+          const backdrop = document.getElementById('sidebarBackdrop');
+          if (backdrop) backdrop.classList.remove('visible');
+          burgerButton.style.display = 'none';
+          backButton.style.display = 'inline-flex';
+        }
+        return;
+      }
+
+      if (typeof cancelActiveScrollAnimation === 'function') cancelActiveScrollAnimation();
+      if (typeof clearFirstLoadScrollTimers === 'function') clearFirstLoadScrollTimers();
+
       activeAdminConv = c.convId;
       activeDM = null;
       activeDMAccountId = null;

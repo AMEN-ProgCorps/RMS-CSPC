@@ -3620,3 +3620,30 @@
       0% { transform: rotate(0deg); }
       100% { transform: rotate(360deg); }
     }
+
+    /* ── Settings Header Dark Mode Button ── */
+    .dark-mode-header-btn {
+      width: 34px;
+      height: 34px;
+      border-radius: 50%;
+      border: none;
+      background: #1b74e4;
+      color: #ffffff;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      transition: transform 0.15s ease, opacity 0.15s ease;
+      outline: none;
+      padding: 0;
+      flex-shrink: 0;
+    }
+
+    .dark-mode-header-btn:hover {
+      opacity: 0.9;
+      transform: scale(1.08);
+    }
+
+    .dark-mode-header-btn:active {
+      transform: scale(0.95);
+    }

@@ -409,6 +409,8 @@
       }
     }
 
+    const processedWsMsgUuids = new Set();
+
     ws.onmessage = function(event) {
         let data;
         try {
@@ -475,8 +477,18 @@
           }
         } else if (data.type === 'message') {
           console.log('Received WebSocket real-time update notice:', data);
-          // Deduplication: if message is already rendered in chatBox, skip fetching!
+          // Deduplication: if message UUID was already processed, drop duplicate immediately
           const targetMsgId = data.msg_uuid || data.id;
+          if (targetMsgId) {
+            if (processedWsMsgUuids.has(targetMsgId)) {
+              return;
+            }
+            processedWsMsgUuids.add(targetMsgId);
+            if (processedWsMsgUuids.size > 1000) {
+              const oldestKey = processedWsMsgUuids.keys().next().value;
+              processedWsMsgUuids.delete(oldestKey);
+            }
+          }
           if (targetMsgId && chatBox.querySelector(`.message-container[data-msg-id="${targetMsgId}"]`)) {
             return;
           }
@@ -816,14 +828,12 @@
           }
           // Re-apply header badge for current DM if it's the changed user
           if (Number(activeDMAccountId) === changedId) {
-            if (typeof applyHeaderAdminBadge === 'function') {
-              applyHeaderAdminBadge();
-            }
+            const fnHeader = (typeof applyHeaderAdminBadge === 'function') ? applyHeaderAdminBadge : window.applyHeaderAdminBadge;
+            if (typeof fnHeader === 'function') fnHeader();
           }
           // Re-apply badges on all visible message-sender elements
-          if (typeof applyAdminBadges === 'function') {
-            applyAdminBadges();
-          }
+          const fnBadges = (typeof applyAdminBadges === 'function') ? applyAdminBadges : window.applyAdminBadges;
+          if (typeof fnBadges === 'function') fnBadges();
           // If the User Verification modal is open, sync toggle rows in real-time
           if (typeof window._syncVerifyModalRow === 'function') {
             window._syncVerifyModalRow(changedId, nowVerified);

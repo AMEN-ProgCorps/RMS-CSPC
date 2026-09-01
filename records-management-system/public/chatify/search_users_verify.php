@@ -31,13 +31,14 @@ if ($q === '') {
     exit;
 }
 
-// Search up to 10 users matching first or last name
+// Search maximum 1 user matching first or last name
 // Pass 0 as excludeAccountId so Super Admin can see all users (including themselves if needed)
-$result = UserResolver::searchUsers($q, 0, 10);
+$result = UserResolver::searchUsers($q, 0, 1);
 $matched = $result['users'] ?? [];
 
 $users = [];
-foreach ($matched as $user) {
+if (!empty($matched)) {
+    $user = $matched[0];
     $users[] = [
         'account_id'          => (int) $user['account_id'],
         'full_name'           => $user['full_name'],

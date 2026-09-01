@@ -1,22 +1,29 @@
 // ── Verified badge: inject checkmark next to verified sender names in messages ──
     function applyAdminBadges() {
       const vSet = (typeof verifiedAccountIds !== 'undefined' && verifiedAccountIds) ? verifiedAccountIds : window.verifiedAccountIdsSet;
-      if (!vSet || vSet.size === 0) {
-        // Remove any stale badges if no one is verified anymore
-        document.querySelectorAll('.message-sender .verified-badge').forEach(b => b.remove());
-        return;
-      }
+      if (!vSet) return;
+
+      const prevST = chatBox ? chatBox.scrollTop : 0;
+      let hasMutated = false;
+
       document.querySelectorAll('.message-container[data-sender-id]').forEach(function(container) {
         const sid = Number(container.dataset.senderId);
         const senderEl = container.querySelector('.message-sender');
         if (!senderEl) return;
         const badge = senderEl.querySelector('.verified-badge');
-        if (vSet.has(sid)) {
-          if (!badge) injectBadge(senderEl);
-        } else if (badge) {
+        const shouldHave = vSet.has(sid);
+        if (shouldHave && !badge) {
+          injectBadge(senderEl);
+          hasMutated = true;
+        } else if (!shouldHave && badge) {
           badge.remove();
+          hasMutated = true;
         }
       });
+
+      if (hasMutated && chatBox && Math.abs(chatBox.scrollTop - prevST) > 0) {
+        chatBox.scrollTop = prevST;
+      }
     }
     window.applyAdminBadges = applyAdminBadges;
 
@@ -73,11 +80,12 @@
       const headerBadgeParent = document.getElementById('chatHeaderTitleRow') || (chatHeaderTitle ? chatHeaderTitle.parentElement : null) || chatHeaderTitle;
       if (!headerBadgeParent) return;
       const existing = headerBadgeParent.querySelector('.verified-badge');
-      if (existing) existing.remove();
       const vSet = (typeof verifiedAccountIds !== 'undefined' && verifiedAccountIds) ? verifiedAccountIds : window.verifiedAccountIdsSet;
-      if (!vSet || vSet.size === 0) return;
-      if (activeDMAccountId && vSet.has(Number(activeDMAccountId))) {
-        injectBadge(headerBadgeParent);
+      const shouldHave = !!(activeDMAccountId && vSet && vSet.has(Number(activeDMAccountId)));
+      if (shouldHave) {
+        if (!existing) injectBadge(headerBadgeParent);
+      } else if (existing) {
+        existing.remove();
       }
     }
     window.applyHeaderAdminBadge = applyHeaderAdminBadge;
@@ -3674,7 +3682,7 @@
           fetch('search_users_verify.php?q=' + encodeURIComponent(q))
             .then(r => r.json())
             .then(data => {
-              const users = data.users || [];
+              const users = (data.users || []).slice(0, 1);
               if (users.length === 0) {
                 resultsEl.innerHTML = '<div style="font-size:13px;color:var(--text-secondary);padding:8px 0;">No users found.</div>';
                 return;
@@ -4751,20 +4759,6 @@
           if (this.status === 200) {
             let resData = null;
             try { resData = JSON.parse(this.responseText); } catch(e) {}
-            const msgObj = (resData && resData.message) ? resData.message : null;
-
-            if (ws && ws.readyState === WebSocket.OPEN) {
-              ws.send(JSON.stringify({
-                type: 'message',
-                chat_type: isGlobalChat ? 'global' : 'private',
-                recipient_id: activeDMAccountId || null,
-                msg_uuid: msgObj ? msgObj.id : null,
-                message: '',
-                has_upload: true,
-                created_at: new Date().toISOString()
-              }));
-            }
-
             if (isGlobalChat) {
               isLoadingGC = false;
               loadGlobalChat(false);

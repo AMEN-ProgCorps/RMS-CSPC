@@ -1750,11 +1750,6 @@
       margin: 0 !important;
     }
 
-    .message-media .message-info:has(.verified-badge) {
-      padding: 3px 2px !important;
-      margin-top: 2px !important;
-    }
-
     /* Chat images (thumbnails rendered by load.php/load_dm.php/
        load_dm_admin.php as <img class="chat-viewable-image" draggable="false">)
        must not be draggable out of our own chat UI — e.g. dragged into the

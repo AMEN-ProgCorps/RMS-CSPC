@@ -258,7 +258,7 @@ class RegisterQueryHelper
         abort_unless(self::isFullDcsUser(), 403, 'Full Document Control System access is required.');
     }
 
-    /** RFIO custodian or super admin may browse every office intake form. */
+    /** RFIO custodian or super admin may open any office intake form by ID (notification deep link). */
     public static function canBrowseAllOfficeIntake(): bool
     {
         $perms = auth()->user()?->permissions;
@@ -1608,7 +1608,6 @@ class RegisterQueryHelper
 
         // Stack renumbered prior doc numbers under the tip (same as Database).
         $groups = self::mergeUpdateListLineageGroups($groups, $visibleIds);
-        self::promoteLatestForLineageGroups($groups, $visibleIds);
 
         if ($matchedIds !== null) {
             $matchSet = array_flip($matchedIds);
@@ -1965,9 +1964,6 @@ class RegisterQueryHelper
         if ($familyNos === []) {
             $familyNos = [$docNo];
         }
-
-        // Keep tip status aligned: highest revise_no in the family is Latest.
-        RegisterPersistHelper::promoteLatestForDoc($docNo, $docTypeId, $subTypeId);
 
         $mls = collect();
         foreach ($familyNos as $chainDocNo) {

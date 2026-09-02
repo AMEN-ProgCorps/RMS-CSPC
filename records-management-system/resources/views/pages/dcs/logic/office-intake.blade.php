@@ -29,6 +29,16 @@ class OfficeIntakeHelper
         abort_unless(self::canAccessIntake(), 403, 'You do not have access to office DRF/DCN intake.');
     }
 
+    /** Print is for the submitting office only — not RFIO reviewers. */
+    public static function assertOfficeIntakePrintAllowed(): void
+    {
+        abort_if(
+            RegisterQueryHelper::canBrowseAllOfficeIntake(),
+            403,
+            'Print is available only to the office that created this form.'
+        );
+    }
+
     public static function assertOwnsDrf(object $drf): void
     {
         if (RegisterQueryHelper::canBrowseAllOfficeIntake()) {
@@ -65,15 +75,11 @@ class OfficeIntakeHelper
             return collect();
         }
 
-        $q = DB::table('dcs_document_request_form as drf')
+        return DB::table('dcs_document_request_form as drf')
             ->where('drf.is_office_intake', true)
-            ->orderByDesc('drf.id');
-
-        if (! RegisterQueryHelper::canBrowseAllOfficeIntake()) {
-            $q->where('drf.created_by', auth()->id());
-        }
-
-        return $q->get([
+            ->where('drf.created_by', auth()->id())
+            ->orderByDesc('drf.id')
+            ->get([
             'drf.id',
             'drf.drf_no',
             'drf.drf_date',
@@ -91,15 +97,11 @@ class OfficeIntakeHelper
             return collect();
         }
 
-        $q = DB::table('dcs_document_change_notice as dcn')
+        return DB::table('dcs_document_change_notice as dcn')
             ->where('dcn.is_office_intake', true)
-            ->orderByDesc('dcn.id');
-
-        if (! RegisterQueryHelper::canBrowseAllOfficeIntake()) {
-            $q->where('dcn.created_by', auth()->id());
-        }
-
-        return $q->get(array_values(array_filter([
+            ->where('dcn.created_by', auth()->id())
+            ->orderByDesc('dcn.id')
+            ->get(array_values(array_filter([
             'dcn.id',
             'dcn.dcn_no',
             'dcn.dcn_date',
@@ -422,6 +424,181 @@ class OfficeIntakeHelper
         }
 
         return null;
+    }
+
+    /** @return array{type: string, id: int}|null */
+    public static function parseIntakeNotificationUrl(?string $url): ?array
+    {
+        if ($url === null || trim($url) === '') {
+            return null;
+        }
+
+        $path = parse_url($url, PHP_URL_PATH) ?? $url;
+        if (! preg_match('#/dcs/office/(drf|dcn)/(\d+)(?:/|$)#', $path, $matches)) {
+            return null;
+        }
+
+        return [
+            'type' => $matches[1],
+            'id' => (int) $matches[2],
+        ];
+    }
+
+    /** @return array{office: string, submitter: string, submittedAt: string} */
+    public static function intakeSubmissionMeta(object $record, string $type, int $id): array
+    {
+        $offices = $type === 'dcn' ? self::dcnSourceOffices($id) : self::drfSourceOffices($id);
+        $office = $offices
+            ->map(fn ($row) => trim((string) ($row->office_name ?? '')) ?: trim((string) ($row->office_code ?? '')))
+            ->filter()
+            ->unique()
+            ->implode(', ');
+
+        if ($office === '') {
+            $office = self::officeLabelForUser((int) ($record->created_by ?? 0));
+        }
+
+        $submitter = self::displayNameForUser((int) ($record->created_by ?? 0));
+        $submittedAt = ! empty($record->created_at)
+            ? \Carbon\Carbon::parse($record->created_at)->timezone('Asia/Manila')->format('M d, Y g:i A')
+            : '—';
+
+        return [
+            'office' => $office !== '' ? $office : 'Unknown office',
+            'submitter' => $submitter !== '' ? $submitter : 'Unknown submitter',
+            'submittedAt' => $submittedAt,
+        ];
+    }
+
+    public static function officeLabelForUser(int $userId): string
+    {
+        if ($userId <= 0) {
+            return '';
+        }
+
+        $accDetailsTbl = Schema::hasTable('sys_account_details') ? 'sys_account_details' : 'account_details';
+        $officeTbl = Schema::hasTable('sys_office') ? 'sys_office' : 'office';
+
+        $row = DB::table($accDetailsTbl . ' as ad')
+            ->join($officeTbl . ' as o', 'o.id', '=', 'ad.office_id')
+            ->where('ad.account_id', $userId)
+            ->select('o.office_name', 'o.office_code')
+            ->first();
+
+        if (! $row) {
+            return '';
+        }
+
+        $name = trim((string) ($row->office_name ?? ''));
+
+        return $name !== '' ? $name : trim((string) ($row->office_code ?? ''));
+    }
+
+    public static function displayNameForUser(int $userId): string
+    {
+        if ($userId <= 0) {
+            return '';
+        }
+
+        $accDetailsTbl = Schema::hasTable('sys_account_details') ? 'sys_account_details' : 'account_details';
+        $row = DB::table($accDetailsTbl)
+            ->where('account_id', $userId)
+            ->select('first_name', 'last_name')
+            ->first();
+
+        if (! $row) {
+            return '';
+        }
+
+        return trim(trim((string) ($row->first_name ?? '')) . ' ' . trim((string) ($row->last_name ?? '')));
+    }
+
+    /** @return array<string, mixed>|null */
+    public static function modalPayload(string $type, int $id): ?array
+    {
+        return match (strtolower($type)) {
+            'dcn' => self::dcnModalPayload($id),
+            'drf' => self::drfModalPayload($id),
+            default => null,
+        };
+    }
+
+    /** @return array<int, array{code: string, name: string}> */
+    public static function drfDistributeOffices(object $drf): array
+    {
+        $catalog = collect(RegisterQueryHelper::jsCatalog()['offices'] ?? []);
+
+        return collect(self::decodeDistributeTo($drf->distribute_to ?? null))
+            ->map(function ($stored) use ($catalog) {
+                $stored = trim((string) $stored);
+                $match = $catalog->first(function ($office) use ($stored) {
+                    $code = trim((string) ($office['office_code'] ?? ''));
+                    $name = trim((string) ($office['office_name'] ?? ''));
+
+                    return ($code !== '' && strcasecmp($code, $stored) === 0)
+                        || ($name !== '' && strcasecmp($name, $stored) === 0);
+                });
+
+                return [
+                    'code' => $match ? trim((string) ($match['office_code'] ?? '')) : $stored,
+                    'name' => $match ? trim((string) ($match['office_name'] ?? '')) : '',
+                ];
+            })
+            ->filter(fn (array $office) => $office['code'] !== '' || $office['name'] !== '')
+            ->values()
+            ->all();
+    }
+
+    /** @return array<string, mixed>|null */
+    private static function dcnModalPayload(int $id): ?array
+    {
+        $dcn = self::findOfficeDcn($id);
+        if (! $dcn) {
+            return null;
+        }
+
+        self::assertOwnsDcn($dcn);
+
+        $revisions = self::dcnRevisions($id);
+        $firstRev = $revisions->first();
+        $docNo = trim((string) ($dcn->document_no ?? '')) ?: trim((string) ($firstRev->document_no ?? ''));
+        $docTitle = trim((string) ($dcn->document_title ?? '')) ?: trim((string) ($firstRev->title ?? ''));
+
+        return [
+            'type' => 'dcn',
+            'id' => $id,
+            'title' => 'Office DCN Submission',
+            'subtitle' => 'Review only — submitted by another office for RFIO processing.',
+            'html' => view('pages.dcs.office.partials.review-submission-dcn', [
+                'dcn' => $dcn,
+                'docNo' => $docNo,
+                'docTitle' => $docTitle,
+                'meta' => self::intakeSubmissionMeta($dcn, 'dcn', $id),
+            ])->render(),
+        ];
+    }
+
+    /** @return array<string, mixed>|null */
+    private static function drfModalPayload(int $id): ?array
+    {
+        $drf = self::findOfficeDrf($id);
+        if (! $drf) {
+            return null;
+        }
+
+        self::assertOwnsDrf($drf);
+
+        return [
+            'type' => 'drf',
+            'id' => $id,
+            'title' => 'Office DRF Submission',
+            'subtitle' => 'Review only — submitted by another office for RFIO processing.',
+            'html' => view('pages.dcs.office.partials.review-submission-drf', [
+                'drf' => $drf,
+                'distributeOffices' => self::drfDistributeOffices($drf),
+                'meta' => self::intakeSubmissionMeta($drf, 'drf', $id),
+            ])->render(),
+        ];
     }
 
     public static function decodeDistributeTo(?string $json): array

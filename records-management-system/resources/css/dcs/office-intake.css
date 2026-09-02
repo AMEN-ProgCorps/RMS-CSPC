@@ -827,6 +827,369 @@ html[data-dcs-sidebar-collapsed="1"] .ofi-page {
     }
 }
 
+/* Office intake RFIO review modal — distinct from office user form view */
+body.ofi-modal-open {
+    overflow: hidden;
+}
+
+.ofi-intake-modal-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 1400;
+    display: none;
+    align-items: center;
+    justify-content: center;
+    padding: 24px;
+    background: rgba(9, 29, 90, 0.48);
+    backdrop-filter: blur(3px);
+}
+
+.ofi-intake-modal-overlay.is-open {
+    display: flex;
+}
+
+.ofi-intake-modal {
+    width: min(760px, 100%);
+    max-height: min(88vh, 900px);
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    border-radius: 16px;
+    background: #fff;
+    box-shadow: 0 24px 64px rgba(9, 29, 90, 0.28);
+    animation: ofiFadeIn 0.2s ease both;
+}
+
+.ofi-intake-modal-header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 16px;
+    padding: 18px 22px;
+    background: linear-gradient(135deg, #091d5a 0%, #0d2a7a 100%);
+    color: #fff;
+}
+
+.ofi-intake-modal-kicker {
+    display: inline-block;
+    margin-bottom: 6px;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: rgba(255, 255, 255, 0.72);
+}
+
+.ofi-intake-modal-header h2 {
+    margin: 0;
+    font-size: 20px;
+    font-weight: 700;
+    color: #fff;
+}
+
+.ofi-intake-modal-subtitle {
+    margin: 6px 0 0;
+    font-size: 13px;
+    line-height: 1.45;
+    color: rgba(255, 255, 255, 0.82);
+    max-width: 520px;
+}
+
+.ofi-intake-modal-actions {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-shrink: 0;
+}
+
+.ofi-intake-modal-print {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 9px 14px;
+    border-radius: 8px;
+    background: #ffb800;
+    color: #091d5a;
+    font-size: 13px;
+    font-weight: 700;
+    text-decoration: none;
+    white-space: nowrap;
+}
+
+.ofi-intake-modal-print:hover {
+    background: #ffc933;
+    color: #091d5a;
+}
+
+.ofi-intake-modal-close {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 36px;
+    height: 36px;
+    border: 1px solid rgba(255, 255, 255, 0.24);
+    border-radius: 8px;
+    background: rgba(255, 255, 255, 0.08);
+    color: #fff;
+    cursor: pointer;
+}
+
+.ofi-intake-modal-close:hover {
+    background: rgba(255, 255, 255, 0.16);
+}
+
+.ofi-intake-modal-body {
+    overflow-y: auto;
+    padding: 0;
+    background: #f8fafc;
+}
+
+.ofi-modal-loading {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    min-height: 220px;
+    color: #64748b;
+    font-size: 14px;
+    font-weight: 500;
+}
+
+/* RFIO review content (inside modal) */
+.ofi-review {
+    padding: 20px 22px 24px;
+}
+
+.ofi-review-hero {
+    padding: 18px;
+    border-radius: 12px;
+    background: #fff;
+    border: 1px solid #e2e8f0;
+    box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
+}
+
+.ofi-review-badge {
+    display: inline-flex;
+    align-items: center;
+    padding: 4px 10px;
+    border-radius: 999px;
+    background: #eef2ff;
+    color: #0d2a7a;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+}
+
+.ofi-review-heading {
+    margin: 10px 0 6px;
+    font-size: 18px;
+    font-weight: 700;
+    color: #0f172a;
+}
+
+.ofi-review-lead {
+    margin: 0 0 16px;
+    font-size: 14px;
+    line-height: 1.5;
+    color: #475569;
+}
+
+.ofi-review-meta-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 12px 18px;
+    margin: 0;
+}
+
+.ofi-review-meta-grid dt {
+    margin: 0 0 2px;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: #94a3b8;
+}
+
+.ofi-review-meta-grid dd {
+    margin: 0;
+    font-size: 14px;
+    font-weight: 600;
+    color: #0f172a;
+}
+
+.ofi-review-note {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    margin: 16px 0;
+    padding: 12px 14px;
+    border-radius: 10px;
+    background: #eff6ff;
+    border: 1px solid #bfdbfe;
+    color: #1e40af;
+    font-size: 13px;
+    line-height: 1.45;
+}
+
+.ofi-review-note i {
+    margin-top: 2px;
+}
+
+.ofi-review-section {
+    margin-top: 14px;
+    padding: 16px 18px;
+    border-radius: 12px;
+    background: #fff;
+    border: 1px solid #e2e8f0;
+}
+
+.ofi-review-section-title {
+    margin: 0 0 12px;
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: #64748b;
+}
+
+.ofi-review-fields {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 12px 16px;
+    margin: 0;
+}
+
+.ofi-review-field {
+    margin: 0;
+}
+
+.ofi-review-field.is-wide {
+    grid-column: 1 / -1;
+}
+
+.ofi-review-field dt {
+    margin: 0 0 4px;
+    font-size: 12px;
+    font-weight: 600;
+    color: #64748b;
+}
+
+.ofi-review-field dd {
+    margin: 0;
+    font-size: 14px;
+    font-weight: 500;
+    color: #0f172a;
+}
+
+.ofi-review-field dd.is-multiline {
+    white-space: pre-wrap;
+    line-height: 1.55;
+}
+
+.ofi-review-text-block {
+    font-size: 14px;
+    line-height: 1.6;
+    color: #0f172a;
+    white-space: pre-wrap;
+}
+
+.ofi-review-pill {
+    display: inline-flex;
+    padding: 4px 10px;
+    border-radius: 999px;
+    background: #f1f5f9;
+    color: #334155;
+    font-size: 12px;
+    font-weight: 700;
+}
+
+.ofi-review-chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+}
+
+.ofi-review-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 10px;
+    border-radius: 8px;
+    background: #f8fafc;
+    border: 1px solid #e2e8f0;
+    font-size: 12px;
+}
+
+.ofi-review-chip-code {
+    font-weight: 700;
+    color: #0d2a7a;
+}
+
+.ofi-review-chip-name {
+    color: #475569;
+}
+
+.ofi-review-empty {
+    font-size: 13px;
+    color: #94a3b8;
+    font-style: italic;
+}
+
+.ofi-intake-modal-print:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+}
+
+@media (max-width: 720px) {
+    .ofi-intake-modal-overlay {
+        padding: 12px;
+    }
+
+    .ofi-intake-modal-header {
+        flex-direction: column;
+    }
+
+    .ofi-intake-modal-actions {
+        width: 100%;
+        justify-content: space-between;
+    }
+
+    .ofi-review-meta-grid,
+    .ofi-review-fields {
+        grid-template-columns: 1fr;
+    }
+}
+
+@media print {
+    body.ofi-modal-open > *:not(.ofi-intake-modal-overlay) {
+        display: none !important;
+    }
+
+    .ofi-intake-modal-overlay {
+        position: static;
+        display: block !important;
+        padding: 0;
+        background: #fff;
+    }
+
+    .ofi-intake-modal {
+        max-height: none;
+        box-shadow: none;
+        border-radius: 0;
+    }
+
+    .ofi-intake-modal-header,
+    .ofi-intake-modal-close,
+    .ofi-intake-modal-print {
+        display: none !important;
+    }
+
+    .ofi-intake-modal-body {
+        overflow: visible;
+    }
+}
+
 @media (prefers-reduced-motion: reduce) {
     .ofi-page { animation: none; }
 }

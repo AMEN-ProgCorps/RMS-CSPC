@@ -23,12 +23,14 @@ class PersonalSetting extends Model
         'action_toggle_key',
         'notification_toggle_key',
         'chatify_toggle_key',
+        'dcs_db_visible_groups',
     ];
 
     protected $casts = [
         'auto_open_chat' => 'boolean',
         'notification_sound_alert' => 'boolean',
         'enable_top_tabs' => 'boolean',
+        'dcs_db_visible_groups' => 'array',
     ];
 
     /**

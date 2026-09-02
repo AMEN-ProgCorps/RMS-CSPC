@@ -1,7 +1,10 @@
 <?php
 
+use App\Helpers\DcsDatabaseColumns;
 use App\Helpers\RegisterQueryHelper;
+use App\Models\PersonalSetting;
 use Carbon\Carbon;
+use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Schema;
@@ -26,6 +29,8 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
 
     public function mount(): void
     {
+        RegisterQueryHelper::assertFullDcsUser();
+
         $type = request('type');
         if ($type !== null && $type !== '') {
             $this->docTypeId = (string) $type;
@@ -42,9 +47,10 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
 
     public function updated($name): void
     {
-        if ($name !== 'page') {
-            $this->page = 1;
+        if (in_array($name, ['page', 'notice'], true)) {
+            return;
         }
+        $this->page = 1;
     }
 
     public function setType(string $id): void
@@ -69,6 +75,22 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
     public function goToPage(int $page): void
     {
         $this->page = max(1, $page);
+    }
+
+    /** @param  array<string, mixed>  $visible */
+    public function saveVisibleGroups(array $visible): void
+    {
+        RegisterQueryHelper::assertFullDcsUser();
+        $user = Auth::user();
+        if (! $user) {
+            return;
+        }
+
+        $normalized = DcsDatabaseColumns::normalizeVisibleGroups($visible);
+        PersonalSetting::updateOrCreate(
+            ['user' => $user->id],
+            ['dcs_db_visible_groups' => $normalized]
+        );
     }
 
     public function export()
@@ -125,6 +147,7 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
             'Retrieved Office(s)',
             'Scanned Ret.',
         ];
+
         $mainIndexes = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 21];
         $headers = $this->exportAllColumns
             ? $allHeaders
@@ -162,7 +185,12 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
 
     public function with(): array
     {
-        return array_merge($this->catalog(), ['list' => $this->listing()]);
+        return array_merge($this->catalog(), [
+            'list' => $this->listing(),
+            'visibleGroups' => Auth::user()?->dcsDbVisibleGroups() ?? DcsDatabaseColumns::defaultVisibleGroups(),
+            'groupColspans' => DcsDatabaseColumns::BUILTIN_COUNTS,
+            'groupLabels' => DcsDatabaseColumns::GROUP_LABELS,
+        ]);
     }
 
     private function catalog(): array
@@ -307,24 +335,6 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
 
             // Stack renumbered families: CSPC-F-102 under CSPC-F-1023 when revised_from_doc_no links them.
             $groups = $this->mergeRenumberLineageGroups($groups);
-
-            $inventoryScopeIds = [];
-            foreach ($groups as $g) {
-                $rid = (int) ($g['parent']['request_id'] ?? 0);
-                if ($rid > 0) {
-                    $inventoryScopeIds[$rid] = $rid;
-                }
-                foreach ($g['children'] ?? [] as $child) {
-                    $cid = (int) ($child['request_id'] ?? 0);
-                    if ($cid > 0) {
-                        $inventoryScopeIds[$cid] = $cid;
-                    }
-                }
-            }
-            RegisterQueryHelper::promoteLatestForLineageGroups(
-                $groups,
-                $inventoryScopeIds !== [] ? array_values($inventoryScopeIds) : RegisterQueryHelper::visibleRequestIds()
-            );
 
             if ($this->revisionStatus === 'latest') {
                 $groups = $groups
@@ -761,12 +771,21 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
         $slug = strtolower(preg_replace('/[^a-z0-9]+/i', '-', $name));
         $categoryState[$slug] = true;
     }
+    $visibleGroups = $visibleGroups ?? \App\Helpers\DcsDatabaseColumns::defaultVisibleGroups();
+    $groupColspans = $groupColspans ?? \App\Helpers\DcsDatabaseColumns::BUILTIN_COUNTS;
+    $tableColspan = 11
+        + collect($groupColspans)->sum()
+        + 7; // collapsed summary placeholders when counting is rough; use a high colspan for category rows
+    $tableColspan = max(47, $tableColspan);
 @endphp
 
 <div x-data="{
     filterOpen: false,
     notice: @js($notice),
+    groupLabels: @js($groupLabels ?? []),
+    groupMenu: { open: false, x: 0, y: 0, group: null },
     open: { approval: true, deadline: true, masterlist: true, dcn: true, drf: true, distribution: true, retrieval: true },
+    visible: @js($visibleGroups),
     categories: {{ json_encode($categoryState) }},
     expandedRevs: {},
     openCourses: {},
@@ -786,6 +805,7 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                 this.open = Object.assign({}, this.open, saved.open);
             }
         } catch (e) {}
+        this.$watch('notice', (v) => { if (v) setTimeout(() => { this.notice = ''; }, 4000); });
     },
     persistExpand() {
         try {
@@ -797,10 +817,42 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
             }));
         } catch (e) {}
     },
+    persistVisible() {
+        $wire.saveVisibleGroups(this.visible);
+    },
     get allCollapsed() {
         return Object.values(this.open).every(v => !v);
     },
     toggle(g) { this.open[g] = !this.open[g]; this.persistExpand(); },
+    openGroupMenu(e, group) {
+        if (!this.visible[group]) {
+            return;
+        }
+        // Anchor near the group header label (left edge of the th), not the far click point on wide colspan cells.
+        const th = e.currentTarget || e.target;
+        const rect = th && th.getBoundingClientRect ? th.getBoundingClientRect() : null;
+        let x = rect ? rect.left + 8 : e.clientX;
+        let y = rect ? rect.bottom + 4 : e.clientY;
+        const menuW = 220;
+        const menuH = 44;
+        x = Math.max(8, Math.min(x, window.innerWidth - menuW - 8));
+        y = Math.max(8, Math.min(y, window.innerHeight - menuH - 8));
+        this.groupMenu = { open: true, x, y, group };
+    },
+    closeGroupMenu() {
+        this.groupMenu.open = false;
+        this.groupMenu.group = null;
+    },
+    hideGroupFromMenu() {
+        const g = this.groupMenu.group;
+        if (!g || !this.visible[g]) {
+            this.closeGroupMenu();
+            return;
+        }
+        this.visible[g] = false;
+        this.persistVisible();
+        this.closeGroupMenu();
+    },
     collapseAll() {
         const next = Object.values(this.open).some(Boolean);
         Object.keys(this.open).forEach(k => this.open[k] = !next);
@@ -810,7 +862,7 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
     toggleRev(id) { this.expandedRevs[id] = !this.expandedRevs[id]; this.persistExpand(); },
     toggleCourses(id) { this.openCourses[id] = !this.openCourses[id]; this.persistExpand(); },
     slug(name) { return String(name || 'uncategorized').toLowerCase().replace(/[^a-z0-9]+/g, '-') }
-}">
+}" @keydown.escape.window="closeGroupMenu()">
 
 <div class="db-filter-overlay" :class="{ 'db-open': filterOpen }" @click="filterOpen = false"></div>
 <aside class="db-filter-panel" :class="{ 'db-open': filterOpen }" id="filterPanel">
@@ -951,70 +1003,70 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                         <th rowspan="3" class="db-offices-col">SOURCE UNIT</th>
                         <th rowspan="3">RELATED DOCS</th>
 
-                        <th rowspan="3" class="col-group-summary" data-group="approval" x-show="!open.approval" x-on:click="toggle('approval')">APPROVAL <span class="collapse-arrow">&#9654;</span></th>
-                        <th colspan="2" class="col-group-approval col-group-expanded" x-show="open.approval" x-on:click="toggle('approval')">APPROVAL <span class="collapse-arrow">&#9664;</span></th>
+                        <th rowspan="3" class="col-group-summary db-group-header" data-group="approval" x-show="visible.approval && !open.approval" x-on:click="toggle('approval')" @contextmenu.prevent="openGroupMenu($event, 'approval')">APPROVAL <span class="collapse-arrow">&#9654;</span></th>
+                        <th colspan="{{ $groupColspans['approval'] ?? 2 }}" class="col-group-approval col-group-expanded db-group-header" x-show="visible.approval && open.approval" x-on:click="toggle('approval')" @contextmenu.prevent="openGroupMenu($event, 'approval')">APPROVAL <span class="collapse-arrow">&#9664;</span></th>
 
-                        <th rowspan="3" class="col-group-summary" data-group="deadline" x-show="!open.deadline" x-on:click="toggle('deadline')">DEADLINE <span class="collapse-arrow">&#9654;</span></th>
-                        <th colspan="2" class="col-group-deadline col-group-expanded" x-show="open.deadline" x-on:click="toggle('deadline')">DEADLINE <span class="collapse-arrow">&#9664;</span></th>
+                        <th rowspan="3" class="col-group-summary db-group-header" data-group="deadline" x-show="visible.deadline && !open.deadline" x-on:click="toggle('deadline')" @contextmenu.prevent="openGroupMenu($event, 'deadline')">DEADLINE <span class="collapse-arrow">&#9654;</span></th>
+                        <th colspan="{{ $groupColspans['deadline'] ?? 2 }}" class="col-group-deadline col-group-expanded db-group-header" x-show="visible.deadline && open.deadline" x-on:click="toggle('deadline')" @contextmenu.prevent="openGroupMenu($event, 'deadline')">DEADLINE <span class="collapse-arrow">&#9664;</span></th>
 
-                        <th rowspan="3" class="col-group-summary" data-group="masterlist" x-show="!open.masterlist" x-on:click="toggle('masterlist')">MASTERLIST <span class="collapse-arrow">&#9654;</span></th>
-                        <th colspan="5" class="col-group-masterlist col-group-expanded" x-show="open.masterlist" x-on:click="toggle('masterlist')">MASTERLIST REGISTRATION <span class="collapse-arrow">&#9664;</span></th>
+                        <th rowspan="3" class="col-group-summary db-group-header" data-group="masterlist" x-show="visible.masterlist && !open.masterlist" x-on:click="toggle('masterlist')" @contextmenu.prevent="openGroupMenu($event, 'masterlist')">MASTERLIST <span class="collapse-arrow">&#9654;</span></th>
+                        <th colspan="{{ $groupColspans['masterlist'] ?? 5 }}" class="col-group-masterlist col-group-expanded db-group-header" x-show="visible.masterlist && open.masterlist" x-on:click="toggle('masterlist')" @contextmenu.prevent="openGroupMenu($event, 'masterlist')">MASTERLIST REGISTRATION <span class="collapse-arrow">&#9664;</span></th>
 
-                        <th rowspan="3" class="col-group-summary" data-group="dcn" x-show="!open.dcn" x-on:click="toggle('dcn')">DCN <span class="collapse-arrow">&#9654;</span></th>
-                        <th colspan="6" class="col-group-dcn col-group-expanded" x-show="open.dcn" x-on:click="toggle('dcn')">DOCUMENT CHANGE NOTICE <span class="collapse-arrow">&#9664;</span></th>
+                        <th rowspan="3" class="col-group-summary db-group-header" data-group="dcn" x-show="visible.dcn && !open.dcn" x-on:click="toggle('dcn')" @contextmenu.prevent="openGroupMenu($event, 'dcn')">DCN <span class="collapse-arrow">&#9654;</span></th>
+                        <th colspan="{{ $groupColspans['dcn'] ?? 6 }}" class="col-group-dcn col-group-expanded db-group-header" x-show="visible.dcn && open.dcn" x-on:click="toggle('dcn')" @contextmenu.prevent="openGroupMenu($event, 'dcn')">DOCUMENT CHANGE NOTICE <span class="collapse-arrow">&#9664;</span></th>
 
-                        <th rowspan="3" class="col-group-summary" data-group="drf" x-show="!open.drf" x-on:click="toggle('drf')">DRF <span class="collapse-arrow">&#9654;</span></th>
-                        <th colspan="5" class="col-group-drf col-group-expanded" x-show="open.drf" x-on:click="toggle('drf')">DOCUMENT REQUEST FORM <span class="collapse-arrow">&#9664;</span></th>
+                        <th rowspan="3" class="col-group-summary db-group-header" data-group="drf" x-show="visible.drf && !open.drf" x-on:click="toggle('drf')" @contextmenu.prevent="openGroupMenu($event, 'drf')">DRF <span class="collapse-arrow">&#9654;</span></th>
+                        <th colspan="{{ $groupColspans['drf'] ?? 5 }}" class="col-group-drf col-group-expanded db-group-header" x-show="visible.drf && open.drf" x-on:click="toggle('drf')" @contextmenu.prevent="openGroupMenu($event, 'drf')">DOCUMENT REQUEST FORM <span class="collapse-arrow">&#9664;</span></th>
 
-                        <th rowspan="3" class="col-group-summary" data-group="distribution" x-show="!open.distribution" x-on:click="toggle('distribution')">DISTRIBUTION <span class="collapse-arrow">&#9654;</span></th>
-                        <th colspan="6" class="col-group-distribution col-group-expanded" x-show="open.distribution" x-on:click="toggle('distribution')">DISTRIBUTION <span class="collapse-arrow">&#9664;</span></th>
+                        <th rowspan="3" class="col-group-summary db-group-header" data-group="distribution" x-show="visible.distribution && !open.distribution" x-on:click="toggle('distribution')" @contextmenu.prevent="openGroupMenu($event, 'distribution')">DISTRIBUTION <span class="collapse-arrow">&#9654;</span></th>
+                        <th colspan="{{ $groupColspans['distribution'] ?? 6 }}" class="col-group-distribution col-group-expanded db-group-header" x-show="visible.distribution && open.distribution" x-on:click="toggle('distribution')" @contextmenu.prevent="openGroupMenu($event, 'distribution')">DISTRIBUTION <span class="collapse-arrow">&#9664;</span></th>
 
-                        <th rowspan="3" class="col-group-summary" data-group="retrieval" x-show="!open.retrieval" x-on:click="toggle('retrieval')">RETRIEVAL <span class="collapse-arrow">&#9654;</span></th>
-                        <th colspan="4" class="col-group-retrieval col-group-expanded" x-show="open.retrieval" x-on:click="toggle('retrieval')">RETRIEVAL <span class="collapse-arrow">&#9664;</span></th>
+                        <th rowspan="3" class="col-group-summary db-group-header" data-group="retrieval" x-show="visible.retrieval && !open.retrieval" x-on:click="toggle('retrieval')" @contextmenu.prevent="openGroupMenu($event, 'retrieval')">RETRIEVAL <span class="collapse-arrow">&#9654;</span></th>
+                        <th colspan="{{ $groupColspans['retrieval'] ?? 4 }}" class="col-group-retrieval col-group-expanded db-group-header" x-show="visible.retrieval && open.retrieval" x-on:click="toggle('retrieval')" @contextmenu.prevent="openGroupMenu($event, 'retrieval')">RETRIEVAL <span class="collapse-arrow">&#9664;</span></th>
                     </tr>
 
                     <tr class="db-head-secondary">
-                        <th colspan="2" class="col-group-approval col-group-expanded" x-show="open.approval">BOT/ADCO APPROVAL</th>
-                        <th rowspan="2" class="col-group-deadline col-group-expanded" x-show="open.deadline">DATE</th>
-                        <th rowspan="2" class="col-group-deadline col-group-expanded" x-show="open.deadline">DAY DIFF</th>
-                        <th colspan="2" class="col-group-masterlist col-group-expanded" x-show="open.masterlist">DOCUMENT RECEIPT</th>
-                        <th colspan="2" class="col-group-masterlist col-group-expanded" x-show="open.masterlist">DOCUMENT REGISTERED</th>
-                        <th rowspan="2" class="col-group-masterlist col-group-expanded" x-show="open.masterlist">TIME SPENT (MINS)</th>
-                        <th rowspan="2" class="col-group-dcn col-group-expanded" x-show="open.dcn">DCN NO.</th>
-                        <th rowspan="2" class="col-group-dcn col-group-expanded" x-show="open.dcn">DCN DATE</th>
-                        <th colspan="2" class="col-group-dcn col-group-expanded" x-show="open.dcn">DCN RECEIPT (ACTUAL)</th>
-                        <th rowspan="2" class="col-group-dcn col-group-expanded" x-show="open.dcn">PURPOSE OF REVISION</th>
-                        <th rowspan="2" class="col-group-dcn col-group-expanded" x-show="open.dcn">SCANNED DCN</th>
-                        <th rowspan="2" class="col-group-drf col-group-expanded" x-show="open.drf">DRF NO.</th>
-                        <th rowspan="2" class="col-group-drf col-group-expanded" x-show="open.drf">DRF DATE</th>
-                        <th colspan="2" class="col-group-drf col-group-expanded" x-show="open.drf">DRF RECEIPT</th>
-                        <th rowspan="2" class="col-group-drf col-group-expanded" x-show="open.drf">SCANNED DRF</th>
-                        <th colspan="2" class="col-group-distribution col-group-expanded" x-show="open.distribution">DISTRIBUTION (ON FILE)</th>
-                        <th colspan="2" class="col-group-distribution col-group-expanded" x-show="open.distribution">DISTRIBUTION (ACTUAL)</th>
-                        <th rowspan="2" class="col-group-distribution col-group-expanded db-offices-col" x-show="open.distribution">RECEIVING OFFICE(S)</th>
-                        <th rowspan="2" class="col-group-distribution col-group-expanded" x-show="open.distribution">SCANNED DIST.</th>
-                        <th colspan="2" class="col-group-retrieval col-group-expanded" x-show="open.retrieval">DATE</th>
-                        <th rowspan="2" class="col-group-retrieval col-group-expanded db-offices-col" x-show="open.retrieval">RETRIEVED OFFICE(S)</th>
-                        <th rowspan="2" class="col-group-retrieval col-group-expanded" x-show="open.retrieval">SCANNED RET.</th>
+                        <th colspan="2" class="col-group-approval col-group-expanded" x-show="visible.approval && open.approval">BOT/ADCO APPROVAL</th>
+                        <th rowspan="2" class="col-group-deadline col-group-expanded" x-show="visible.deadline && open.deadline">DATE</th>
+                        <th rowspan="2" class="col-group-deadline col-group-expanded" x-show="visible.deadline && open.deadline">DAY DIFF</th>
+                        <th colspan="2" class="col-group-masterlist col-group-expanded" x-show="visible.masterlist && open.masterlist">DOCUMENT RECEIPT</th>
+                        <th colspan="2" class="col-group-masterlist col-group-expanded" x-show="visible.masterlist && open.masterlist">DOCUMENT REGISTERED</th>
+                        <th rowspan="2" class="col-group-masterlist col-group-expanded" x-show="visible.masterlist && open.masterlist">TIME SPENT (MINS)</th>
+                        <th rowspan="2" class="col-group-dcn col-group-expanded" x-show="visible.dcn && open.dcn">DCN NO.</th>
+                        <th rowspan="2" class="col-group-dcn col-group-expanded" x-show="visible.dcn && open.dcn">DCN DATE</th>
+                        <th colspan="2" class="col-group-dcn col-group-expanded" x-show="visible.dcn && open.dcn">DCN RECEIPT (ACTUAL)</th>
+                        <th rowspan="2" class="col-group-dcn col-group-expanded" x-show="visible.dcn && open.dcn">PURPOSE OF REVISION</th>
+                        <th rowspan="2" class="col-group-dcn col-group-expanded" x-show="visible.dcn && open.dcn">SCANNED DCN</th>
+                        <th rowspan="2" class="col-group-drf col-group-expanded" x-show="visible.drf && open.drf">DRF NO.</th>
+                        <th rowspan="2" class="col-group-drf col-group-expanded" x-show="visible.drf && open.drf">DRF DATE</th>
+                        <th colspan="2" class="col-group-drf col-group-expanded" x-show="visible.drf && open.drf">DRF RECEIPT</th>
+                        <th rowspan="2" class="col-group-drf col-group-expanded" x-show="visible.drf && open.drf">SCANNED DRF</th>
+                        <th colspan="2" class="col-group-distribution col-group-expanded" x-show="visible.distribution && open.distribution">DISTRIBUTION (ON FILE)</th>
+                        <th colspan="2" class="col-group-distribution col-group-expanded" x-show="visible.distribution && open.distribution">DISTRIBUTION (ACTUAL)</th>
+                        <th rowspan="2" class="col-group-distribution col-group-expanded db-offices-col" x-show="visible.distribution && open.distribution">RECEIVING OFFICE(S)</th>
+                        <th rowspan="2" class="col-group-distribution col-group-expanded" x-show="visible.distribution && open.distribution">SCANNED DIST.</th>
+                        <th colspan="2" class="col-group-retrieval col-group-expanded" x-show="visible.retrieval && open.retrieval">DATE</th>
+                        <th rowspan="2" class="col-group-retrieval col-group-expanded db-offices-col" x-show="visible.retrieval && open.retrieval">RETRIEVED OFFICE(S)</th>
+                        <th rowspan="2" class="col-group-retrieval col-group-expanded" x-show="visible.retrieval && open.retrieval">SCANNED RET.</th>
                     </tr>
 
                     <tr class="db-head-tertiary">
-                        <th class="col-group-approval col-group-expanded" x-show="open.approval">NO.</th>
-                        <th class="col-group-approval col-group-expanded" x-show="open.approval">APPV. DATE</th>
-                        <th class="col-group-masterlist col-group-expanded" x-show="open.masterlist">DATE</th>
-                        <th class="col-group-masterlist col-group-expanded" x-show="open.masterlist">TIME</th>
-                        <th class="col-group-masterlist col-group-expanded" x-show="open.masterlist">DATE</th>
-                        <th class="col-group-masterlist col-group-expanded" x-show="open.masterlist">TIME</th>
-                        <th class="col-group-dcn col-group-expanded" x-show="open.dcn">DATE</th>
-                        <th class="col-group-dcn col-group-expanded" x-show="open.dcn">TIME</th>
-                        <th class="col-group-drf col-group-expanded" x-show="open.drf">DATE</th>
-                        <th class="col-group-drf col-group-expanded" x-show="open.drf">TIME</th>
-                        <th class="col-group-distribution col-group-expanded" x-show="open.distribution">DATE</th>
-                        <th class="col-group-distribution col-group-expanded" x-show="open.distribution">TIME</th>
-                        <th class="col-group-distribution col-group-expanded" x-show="open.distribution">DATE</th>
-                        <th class="col-group-distribution col-group-expanded" x-show="open.distribution">TIME</th>
-                        <th class="col-group-retrieval col-group-expanded" x-show="open.retrieval">ON FILE</th>
-                        <th class="col-group-retrieval col-group-expanded" x-show="open.retrieval">ACTUAL</th>
+                        <th class="col-group-approval col-group-expanded" x-show="visible.approval && open.approval">NO.</th>
+                        <th class="col-group-approval col-group-expanded" x-show="visible.approval && open.approval">APPV. DATE</th>
+                        <th class="col-group-masterlist col-group-expanded" x-show="visible.masterlist && open.masterlist">DATE</th>
+                        <th class="col-group-masterlist col-group-expanded" x-show="visible.masterlist && open.masterlist">TIME</th>
+                        <th class="col-group-masterlist col-group-expanded" x-show="visible.masterlist && open.masterlist">DATE</th>
+                        <th class="col-group-masterlist col-group-expanded" x-show="visible.masterlist && open.masterlist">TIME</th>
+                        <th class="col-group-dcn col-group-expanded" x-show="visible.dcn && open.dcn">DATE</th>
+                        <th class="col-group-dcn col-group-expanded" x-show="visible.dcn && open.dcn">TIME</th>
+                        <th class="col-group-drf col-group-expanded" x-show="visible.drf && open.drf">DATE</th>
+                        <th class="col-group-drf col-group-expanded" x-show="visible.drf && open.drf">TIME</th>
+                        <th class="col-group-distribution col-group-expanded" x-show="visible.distribution && open.distribution">DATE</th>
+                        <th class="col-group-distribution col-group-expanded" x-show="visible.distribution && open.distribution">TIME</th>
+                        <th class="col-group-distribution col-group-expanded" x-show="visible.distribution && open.distribution">DATE</th>
+                        <th class="col-group-distribution col-group-expanded" x-show="visible.distribution && open.distribution">TIME</th>
+                        <th class="col-group-retrieval col-group-expanded" x-show="visible.retrieval && open.retrieval">ON FILE</th>
+                        <th class="col-group-retrieval col-group-expanded" x-show="visible.retrieval && open.retrieval">ACTUAL</th>
                     </tr>
                 </thead>
 
@@ -1108,6 +1160,18 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
         @endif
 
     </section>
+
+    {{-- Group header context menu (hide group) — teleported so fixed coords are viewport-relative --}}
+    <template x-teleport="body">
+        <div class="db-col-context-menu" x-show="groupMenu.open" x-cloak
+             :style="'left:' + groupMenu.x + 'px;top:' + groupMenu.y + 'px'"
+             @click.outside="closeGroupMenu()"
+             @click.stop>
+            <button type="button" @click="hideGroupFromMenu()">
+                Hide <span x-text="groupLabels[groupMenu.group] || groupMenu.group"></span> group
+            </button>
+        </div>
+    </template>
 
 </main>
 </div>

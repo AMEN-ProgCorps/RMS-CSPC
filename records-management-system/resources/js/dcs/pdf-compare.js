@@ -23,7 +23,7 @@ const OCR_CONCURRENCY = 3;
 const TOKEN_CAP = 4000;
 /** When content alignment finds nothing but docs share vocabulary, pair by page index. */
 const DOC_SIMILARITY_INDEX_FALLBACK = 0.18;
-const CACHE_VERSION = 15;
+const CACHE_VERSION = 16;
 /** Pixel diff below this ⇒ treat page pair as visually unchanged (skip OCR). */
 const VISUAL_UNCHANGED_THRESHOLD = 0.015;
 /** Token overlap above this ⇒ suppress highlight noise on near-identical pages. */
@@ -1980,5 +1980,5 @@ export async function runPdfCompare(root, options = {}) {
 }
 
 export async function buildCompareCacheKey(leftId, rightId) {
-    return 'drr-v15:' + await hashString(String(leftId) + '||' + String(rightId));
+    return 'drr-v16:' + await hashString(String(leftId) + '||' + String(rightId));
 }

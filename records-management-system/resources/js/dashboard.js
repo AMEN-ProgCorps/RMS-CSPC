@@ -369,7 +369,21 @@ document.addEventListener('livewire:navigated', () => {
     initializeNavTooltips();
     setupIconModeInteractions();
     initializeSidebarState();
+    applyStoredRmsTheme();
 });
+
+function applyStoredRmsTheme() {
+    if (document.querySelector('meta[name="rms-portal"]')) {
+        return;
+    }
+    try {
+        const theme = localStorage.getItem('rms-theme');
+        if (theme) {
+            document.documentElement.setAttribute('data-theme', theme);
+        }
+    } catch (e) {}
+}
+window.applyStoredRmsTheme = applyStoredRmsTheme;
 document.addEventListener('click', (e) => {
     if (!e.target.closest('.nav-flyout-popover') && !e.target.closest('.button-container')) {
         closeNavFlyout();

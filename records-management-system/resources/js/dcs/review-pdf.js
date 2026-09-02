@@ -4,7 +4,10 @@ import { hashString } from './pdf-compare-cache.js';
 function stableUrlForHash(url) {
     try {
         const u = new URL(url, window.location.origin);
-        // Ignore volatile query strings so reopen/navigation keeps the same cache key.
+        const pathParam = u.searchParams.get('path');
+        if (pathParam) {
+            return `${u.origin}${u.pathname}?path=${pathParam}`;
+        }
         return u.origin + u.pathname;
     } catch {
         return String(url || '');

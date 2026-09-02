@@ -13,6 +13,13 @@ new #[Layout('layouts.dcs')] #[Title('View DRF — CSPC DCS')] class extends Com
     {
         OfficeIntakeHelper::assertCanAccessIntake();
         $this->id = (int) $id;
+
+        if (RegisterQueryHelper::canBrowseAllOfficeIntake()) {
+            $this->redirect('/dcs?intake=drf&id=' . $this->id, navigate: false);
+
+            return;
+        }
+
         $drf = OfficeIntakeHelper::findOfficeDrf($this->id);
         abort_unless($drf, 404);
         OfficeIntakeHelper::assertOwnsDrf($drf);
@@ -48,6 +55,7 @@ new #[Layout('layouts.dcs')] #[Title('View DRF — CSPC DCS')] class extends Com
             'drf' => $drf,
             'distributeOffices' => $distributeOffices,
             'immutableMessage' => OfficeIntakeHelper::IMMUTABLE_MESSAGE,
+            'isIntakeReviewer' => RegisterQueryHelper::canBrowseAllOfficeIntake(),
         ];
     }
 }; ?>
@@ -66,8 +74,8 @@ new #[Layout('layouts.dcs')] #[Title('View DRF — CSPC DCS')] class extends Com
 <div class="ofi-page">
     <div class="ofi-inner">
         <div class="ofi-show-toolbar">
-            <a href="{{ route('dcs.office.drf.index', absolute: false) }}" class="reg-btn reg-btn-cancel">
-                <i class="fa-solid fa-arrow-left"></i> Back to list
+            <a href="{{ ($isIntakeReviewer ?? false) ? route('dcs', absolute: false) : route('dcs.office.drf.index', absolute: false) }}" class="reg-btn reg-btn-cancel">
+                <i class="fa-solid fa-arrow-left"></i> {{ ($isIntakeReviewer ?? false) ? 'Back to DCS' : 'Back to list' }}
             </a>
             <a href="{{ route('dcs.office.drf.print', $drf->id, absolute: false) }}" target="_blank" class="reg-btn reg-btn-save">
                 <i class="fa-solid fa-print"></i> Print form

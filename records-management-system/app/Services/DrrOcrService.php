@@ -30,6 +30,15 @@ class DrrOcrService
             return ['ok' => false, 'reason' => 'missing_source', 'pages' => []];
         }
 
+        if (!$hasFile && $storagePath !== '') {
+            $normalized = DocumentStorageService::normalizeDcsScanPath($storagePath);
+            if ($normalized === null) {
+                abort(422, 'Invalid storage path.');
+            }
+            \App\Helpers\RegisterQueryHelper::assertCanAccessScanPath($normalized);
+            $storagePath = $normalized;
+        }
+
         $tempOwned = null;
         try {
             if ($hasFile) {

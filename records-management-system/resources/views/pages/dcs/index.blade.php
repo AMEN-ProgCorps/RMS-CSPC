@@ -142,7 +142,10 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
             </div>
             <button type="button" class="header-date dash-calendar-trigger" @click.stop="toggleCalendar()" :aria-expanded="calendarOpen.toString()">
                 <i class="fa-regular fa-calendar"></i>
-                <span>{{ $headerDate }}</span>
+                <span class="dash-calendar-trigger-text">
+                    <span class="dash-calendar-trigger-date">{{ $headerDate }}</span>
+                    <span class="dash-calendar-trigger-time" x-text="nowClock" x-cloak></span>
+                </span>
                 <i class="fa-solid fa-chevron-down dash-calendar-chevron" :class="{ 'is-open': calendarOpen }"></i>
             </button>
         </div>
@@ -504,7 +507,10 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                                     <div class="upcoming-item" :class="{ 'is-past': isPastEvent(ev) }" x-on:click="openDay(ev.date)">
                                         <div class="upcoming-event-dot" :style="'background-color:' + (ev.color || '#0d2a7a')"></div>
                                         <div class="upcoming-info">
-                                            <div class="title" x-text="ev.title"></div>
+                                            <div class="upcoming-title-row">
+                                                <div class="title" x-text="ev.title"></div>
+                                                <span class="upcoming-done-badge" x-show="isPastEvent(ev)" x-cloak>Done</span>
+                                            </div>
                                             <div class="time" x-text="eventListMeta(ev)"></div>
                                         </div>
                                     </div>
@@ -538,11 +544,14 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                                 <div class="ev-empty"><i class="fa-regular fa-calendar"></i><span>No events scheduled</span></div>
                             </template>
                             <template x-for="ev in dayEvents" :key="ev.id">
-                                <div class="ev-card">
+                                <div class="ev-card" :class="{ 'is-past': isPastEvent(ev) }">
                                     <div class="ev-card-color" :style="'background:' + (ev.color || '#0d2a7a')"></div>
                                     <div class="ev-card-body">
                                         <div class="ev-card-top">
-                                            <div class="ev-card-title" x-text="ev.title"></div>
+                                            <div class="ev-card-title-wrap">
+                                                <div class="ev-card-title" x-text="ev.title"></div>
+                                                <span class="upcoming-done-badge" x-show="isPastEvent(ev)" x-cloak>Done</span>
+                                            </div>
                                             <div class="ev-card-btns" x-show="!ev.readonly">
                                                 <button type="button" class="ev-card-btn" x-on:click="openEdit(ev.id)"><i class="fa-solid fa-pen"></i></button>
                                                 <button type="button" class="ev-card-btn ev-card-btn-danger" x-on:click="removeEvent(ev.id)"><i class="fa-solid fa-trash-can"></i></button>
@@ -837,6 +846,8 @@ document.addEventListener('alpine:init', () => {
         calendarReady: false,
         calendarPersistKey: 'dcs.dashboard.calendarOpen',
         eventCategoryFilter: '',
+        nowClock: '',
+        _clockTimer: null,
         year: new Date().getFullYear(),
         month: new Date().getMonth(),
         events: [],
@@ -856,7 +867,22 @@ document.addEventListener('alpine:init', () => {
             if (json) h['Content-Type'] = 'application/json';
             return h;
         },
+        tickClock() {
+            try {
+                this.nowClock = new Date().toLocaleTimeString([], {
+                    hour: 'numeric',
+                    minute: '2-digit',
+                    second: '2-digit',
+                });
+            } catch (e) {
+                const n = new Date();
+                this.nowClock = n.toTimeString().slice(0, 8);
+            }
+        },
         async init() {
+            this.tickClock();
+            this._clockTimer = setInterval(() => this.tickClock(), 1000);
+
             try {
                 this.calendarOpen = localStorage.getItem(this.calendarPersistKey) === '1';
             } catch (e) {
@@ -876,6 +902,12 @@ document.addEventListener('alpine:init', () => {
             });
 
             await this.loadAll();
+        },
+        destroy() {
+            if (this._clockTimer) {
+                clearInterval(this._clockTimer);
+                this._clockTimer = null;
+            }
         },
         toggleCalendar() {
             this.calendarOpen = !this.calendarOpen;
@@ -920,14 +952,28 @@ document.addEventListener('alpine:init', () => {
         },
         isPastEvent(ev) {
             const d = String(ev.date || '').slice(0, 10);
-            return d !== '' && d < this.todayIso();
+            if (d === '') return false;
+            const today = this.todayIso();
+            if (d < today) return true;
+            if (d > today) return false;
+
+            // Same calendar day: treat as done once end time has passed.
+            const endRaw = String(ev.endTime || ev.startTime || '23:59').slice(0, 5);
+            const parts = endRaw.split(':');
+            const hh = parseInt(parts[0], 10);
+            const mm = parseInt(parts[1] || '0', 10);
+            if (Number.isNaN(hh)) return false;
+            const now = new Date();
+            const endAt = new Date(now.getFullYear(), now.getMonth(), now.getDate(), hh, Number.isNaN(mm) ? 0 : mm, 0, 0);
+            return Date.now() > endAt.getTime();
         },
         eventListMeta(ev) {
             const d = String(ev.date || '').slice(0, 10);
             const t = this.todayIso();
             const datePart = d === t ? 'Today' : this.displayDateShort(d);
             const cat = ev.category_name ? ev.category_name + ' · ' : '';
-            return cat + datePart + ' · ' + this.formatTime(ev.startTime) + ' — ' + this.formatTime(ev.endTime);
+            const done = this.isPastEvent(ev) ? 'Done · ' : '';
+            return done + cat + datePart + ' · ' + this.formatTime(ev.startTime) + ' — ' + this.formatTime(ev.endTime);
         },
         changeMonth(dir) {
             this.month += dir;

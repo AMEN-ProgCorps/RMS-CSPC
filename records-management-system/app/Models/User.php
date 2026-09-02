@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Helpers\DcsDatabaseColumns;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Relations\HasOne;
 use Illuminate\Database\Eloquent\Relations\HasOneThrough;
@@ -151,6 +152,16 @@ class User extends Authenticatable
     {
         $setting = $this->personalSetting;
         return $setting ? $setting->chatify_toggle_key : null;
+    }
+
+    /** @return array<string, bool> */
+    public function dcsDbVisibleGroups(): array
+    {
+        $setting = $this->personalSetting;
+
+        return DcsDatabaseColumns::normalizeVisibleGroups(
+            $setting?->dcs_db_visible_groups ?? null
+        );
     }
 
     public function permissions(): HasOneThrough

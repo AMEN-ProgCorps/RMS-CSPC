@@ -587,6 +587,7 @@ Route::middleware(['auth'])
             Volt::route('/office/drf/{id}', 'pages.dcs.office.drf-show')->name('office.drf.show');
             Route::get('/office/drf/{id}/print', function (int $id) {
                 OfficeIntakeHelper::assertCanAccessIntake();
+                OfficeIntakeHelper::assertOfficeIntakePrintAllowed();
                 $drf = OfficeIntakeHelper::findOfficeDrf($id);
                 abort_unless($drf, 404);
                 OfficeIntakeHelper::assertOwnsDrf($drf);
@@ -605,6 +606,7 @@ Route::middleware(['auth'])
             Volt::route('/office/dcn/{id}', 'pages.dcs.office.dcn-show')->name('office.dcn.show');
             Route::get('/office/dcn/{id}/print', function (int $id) {
                 OfficeIntakeHelper::assertCanAccessIntake();
+                OfficeIntakeHelper::assertOfficeIntakePrintAllowed();
                 $dcn = OfficeIntakeHelper::findOfficeDcn($id);
                 abort_unless($dcn, 404);
                 OfficeIntakeHelper::assertOwnsDcn($dcn);
@@ -624,6 +626,13 @@ Route::middleware(['auth'])
             Route::get('/api/offices', fn () => response()->json(
                 collect(RegisterQueryHelper::jsCatalog()['offices'] ?? [])->values()
             ));
+            Route::get('/api/office-intake/{type}/{id}', function (string $type, int $id) {
+                OfficeIntakeHelper::assertCanAccessIntake();
+                $payload = OfficeIntakeHelper::modalPayload($type, $id);
+                abort_unless($payload, 404);
+
+                return response()->json($payload);
+            })->whereIn('type', ['drf', 'dcn'])->name('api.office-intake.show');
 
             Route::middleware(['dcs.full'])->group(function () {
                 Route::get('/api/documents/{id}/checklist/{type}', function (int $id, string $type) {

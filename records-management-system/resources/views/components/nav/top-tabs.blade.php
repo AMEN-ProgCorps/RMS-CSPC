@@ -257,6 +257,8 @@
             ];
         }
     } elseif ($system === 'dcs') {
+        $isIntakeReviewer = \App\Helpers\RegisterQueryHelper::canBrowseAllOfficeIntake();
+
         // 1. Dashboard
         if (request()->routeIs('dcs') || request()->routeIs('dcs.dashboard')) {
             $sectionTitle = 'Dashboard';
@@ -269,34 +271,66 @@
             ];
         }
         elseif (request()->routeIs('dcs.office.drf.*')) {
-            $sectionTitle = 'My DRF';
-            $tabs = [
-                [
-                    'label' => 'My DRF',
-                    'url' => route('dcs.office.drf.index'),
-                    'active' => request()->routeIs('dcs.office.drf.index') || request()->routeIs('dcs.office.drf.show'),
-                ],
-                [
-                    'label' => 'New DRF',
-                    'url' => route('dcs.office.drf.create'),
-                    'active' => request()->routeIs('dcs.office.drf.create'),
-                ],
-            ];
+            if ($isIntakeReviewer) {
+                $sectionTitle = 'Office DRF';
+                $tabs = [
+                    [
+                        'label' => 'Submission',
+                        'url' => url()->current(),
+                        'active' => request()->routeIs('dcs.office.drf.show') || request()->routeIs('dcs.office.drf.print'),
+                    ],
+                    [
+                        'label' => 'DCS Dashboard',
+                        'url' => route('dcs'),
+                        'active' => false,
+                    ],
+                ];
+            } else {
+                $sectionTitle = 'My DRF';
+                $tabs = [
+                    [
+                        'label' => 'My DRF',
+                        'url' => route('dcs.office.drf.index'),
+                        'active' => request()->routeIs('dcs.office.drf.index') || request()->routeIs('dcs.office.drf.show'),
+                    ],
+                    [
+                        'label' => 'New DRF',
+                        'url' => route('dcs.office.drf.create'),
+                        'active' => request()->routeIs('dcs.office.drf.create'),
+                    ],
+                ];
+            }
         }
         elseif (request()->routeIs('dcs.office.dcn.*')) {
-            $sectionTitle = 'My DCN';
-            $tabs = [
-                [
-                    'label' => 'My DCN',
-                    'url' => route('dcs.office.dcn.index'),
-                    'active' => request()->routeIs('dcs.office.dcn.index') || request()->routeIs('dcs.office.dcn.show'),
-                ],
-                [
-                    'label' => 'New DCN',
-                    'url' => route('dcs.office.dcn.create'),
-                    'active' => request()->routeIs('dcs.office.dcn.create'),
-                ],
-            ];
+            if ($isIntakeReviewer) {
+                $sectionTitle = 'Office DCN';
+                $tabs = [
+                    [
+                        'label' => 'Submission',
+                        'url' => url()->current(),
+                        'active' => request()->routeIs('dcs.office.dcn.show') || request()->routeIs('dcs.office.dcn.print'),
+                    ],
+                    [
+                        'label' => 'DCS Dashboard',
+                        'url' => route('dcs'),
+                        'active' => false,
+                    ],
+                ];
+            } else {
+                $sectionTitle = 'My DCN';
+                $tabs = [
+                    [
+                        'label' => 'My DCN',
+                        'url' => route('dcs.office.dcn.index'),
+                        'active' => request()->routeIs('dcs.office.dcn.index') || request()->routeIs('dcs.office.dcn.show'),
+                    ],
+                    [
+                        'label' => 'New DCN',
+                        'url' => route('dcs.office.dcn.create'),
+                        'active' => request()->routeIs('dcs.office.dcn.create'),
+                    ],
+                ];
+            }
         }
         // 2. Document Registration
         elseif (request()->routeIs('dcs.register.*')) {

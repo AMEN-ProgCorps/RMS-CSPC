@@ -139,6 +139,86 @@ class DcsAccessControlTest extends TestCase
         $response->assertOk();
     }
 
+    public function test_rfio_user_is_redirected_from_office_dcn_index(): void
+    {
+        if (! \Illuminate\Support\Facades\Schema::hasColumn('dcs_document_change_notice', 'is_office_intake')) {
+            $this->markTestSkipped('Office intake columns are not migrated.');
+        }
+
+        $response = $this->actingAs(User::find($this->rfioUserId))
+            ->get('/dcs/office/dcn');
+
+        $response->assertRedirect(route('dcs'));
+    }
+
+    public function test_rfio_user_can_view_other_office_dcn_from_notification_link(): void
+    {
+        if (! \Illuminate\Support\Facades\Schema::hasColumn('dcs_document_change_notice', 'is_office_intake')) {
+            $this->markTestSkipped('Office intake columns are not migrated.');
+        }
+
+        $dcnId = DB::table('dcs_document_change_notice')->insertGetId([
+            'dcn_no' => 'TEST-DCN-RFIO-VIEW-' . $this->roleId,
+            'dcn_date' => now()->toDateString(),
+            'created_by' => $this->limitedUserId,
+            'is_office_intake' => true,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+
+        $response = $this->actingAs(User::find($this->rfioUserId))
+            ->get('/dcs/office/dcn/' . $dcnId);
+
+        $response->assertRedirect('/dcs?intake=dcn&id=' . $dcnId);
+
+        $api = $this->actingAs(User::find($this->rfioUserId))
+            ->getJson('/dcs/api/office-intake/dcn/' . $dcnId);
+
+        $api->assertOk();
+        $api->assertJsonPath('type', 'dcn');
+        $api->assertJsonPath('id', $dcnId);
+        $api->assertJsonPath('title', 'Office DCN Submission');
+        $this->assertStringContainsString(
+            'TEST-DCN-RFIO-VIEW-' . $this->roleId,
+            (string) $api->json('html')
+        );
+    }
+
+    public function test_office_dcn_list_is_scoped_to_creator_only(): void
+    {
+        if (! \Illuminate\Support\Facades\Schema::hasColumn('dcs_document_change_notice', 'is_office_intake')) {
+            $this->markTestSkipped('Office intake columns are not migrated.');
+        }
+
+        DB::table('dcs_document_change_notice')->insert([
+            'dcn_no' => 'TEST-DCN-LIMITED-' . $this->roleId,
+            'dcn_date' => now()->toDateString(),
+            'created_by' => $this->limitedUserId,
+            'is_office_intake' => true,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+
+        DB::table('dcs_document_change_notice')->insert([
+            'dcn_no' => 'TEST-DCN-RFIO-OWN-' . $this->roleId,
+            'dcn_date' => now()->toDateString(),
+            'created_by' => $this->rfioUserId,
+            'is_office_intake' => true,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+
+        $this->actingAs(User::find($this->limitedUserId));
+        $limitedRows = \App\Helpers\OfficeIntakeHelper::listMyDcn();
+        $this->assertTrue($limitedRows->contains(fn ($row) => $row->dcn_no === 'TEST-DCN-LIMITED-' . $this->roleId));
+        $this->assertFalse($limitedRows->contains(fn ($row) => $row->dcn_no === 'TEST-DCN-RFIO-OWN-' . $this->roleId));
+
+        $this->actingAs(User::find($this->rfioUserId));
+        $rfioRows = \App\Helpers\OfficeIntakeHelper::listMyDcn();
+        $this->assertTrue($rfioRows->contains(fn ($row) => $row->dcn_no === 'TEST-DCN-RFIO-OWN-' . $this->roleId));
+        $this->assertFalse($rfioRows->contains(fn ($row) => $row->dcn_no === 'TEST-DCN-LIMITED-' . $this->roleId));
+    }
+
     public function test_sadm_non_rfio_can_access_full_dcs(): void
     {
         $admin = User::find(1);

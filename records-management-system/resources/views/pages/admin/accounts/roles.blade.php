@@ -466,7 +466,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Roles')] class extends C
         $perms->can_access_dts = $this->canAccessDts;
         $perms->can_access_rdp = $this->canAccessArchv;
         $perms->can_access_dcs = $this->canAccessDcs;
-        $perms->dcs_view_all_documents = ($this->isSadm || $this->isAdmin) ? $this->dcsViewAllDocuments : false;
+        $perms->dcs_view_all_documents = $this->canAccessDcs ? $this->dcsViewAllDocuments : false;
         $perms->can_dts_modify_docflow = $this->canModifyDocflow;
         $perms->can_sadm_modify_accountlist = $this->canModifyAccountlist;
         $perms->can_sadm_modify_pass = $this->canModifyPass;
@@ -1272,7 +1272,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Roles')] class extends C
                                     <div class="permission-toggle-row" style="{{ (!$isSadm && !$isAdmin) ? 'opacity: 0.5; transition: opacity 0.2s ease;' : '' }}">
                                         <div class="permission-toggle-info">
                                             <span class="permission-toggle-title">View All DCS Documents</span>
-                                            <span class="permission-toggle-desc">Full DCS access across all offices (same as RFIO). Without this, non-RFIO users with DCS access only create and print their own DRF/DCN forms.</span>
+                                            <span class="permission-toggle-desc">With DCS access, grants full DCS (Register, Database, Stamping, etc.) for any office — same as RFIO. Without this, non-RFIO users only use office DRF/DCN intake.</span>
                                         </div>
                                         <label class="switch">
                                             <input type="checkbox" wire:model="dcsViewAllDocuments" {{ (!$isSadm && !$isAdmin) ? 'disabled' : '' }}>

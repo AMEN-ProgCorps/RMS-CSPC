@@ -69,6 +69,63 @@ class RegisterQueryHelper
         return Schema::hasColumn('dcs_masterlist_registration', 'revision_status');
     }
 
+    /**
+     * Legacy DCS code sometimes "heals" rows where revision_status = 'archived'
+     * (then recomputes latest/obsolete).
+     *
+     * On Postgres when revision_status is an ENUM type that does NOT include the
+     * label 'archived', the SQL comparison `revision_status = 'archived'`
+     * throws an invalid-enum-label error even if there are zero archived rows.
+     */
+    public static function supportsArchivedRevisionStatus(): bool
+    {
+        if (! self::supportsRevisionStatus()) {
+            return false;
+        }
+
+        $driver = Schema::getConnection()->getDriverName();
+        if ($driver !== 'pgsql') {
+            // MySQL/SQLite/etc: revision_status is typically a string-like column;
+            // querying for 'archived' is safe.
+            return true;
+        }
+
+        $row = DB::selectOne(
+            '
+            SELECT t.typtype, a.atttypid
+            FROM pg_attribute a
+            JOIN pg_class c ON c.oid = a.attrelid
+            JOIN pg_type t ON t.oid = a.atttypid
+            WHERE c.relname = ?
+              AND a.attname = ?
+            LIMIT 1
+            ',
+            ['dcs_masterlist_registration', 'revision_status']
+        );
+
+        if (!$row) {
+            // Unknown column type: err on the side of allowing the legacy query.
+            return true;
+        }
+
+        // Postgres ENUM types have typtype = 'e'.
+        if (($row->typtype ?? null) !== 'e') {
+            return true;
+        }
+
+        $enumOid = (int) ($row->atttypid ?? 0);
+        if ($enumOid <= 0) {
+            return false;
+        }
+
+        $exists = DB::selectOne(
+            'SELECT 1 FROM pg_enum WHERE enumtypid = ? AND enumlabel = ? LIMIT 1',
+            [$enumOid, 'archived']
+        );
+
+        return $exists !== null;
+    }
+
     public static function supportsRevisedFromDocNo(): bool
     {
         return Schema::hasColumn('dcs_masterlist_registration', 'revised_from_doc_no');
@@ -196,18 +253,10 @@ class RegisterQueryHelper
         return $query;
     }
 
-    /** Inventory scope bypass: super admin or RFIO full DCS operators only. */
+    /** Inventory scope bypass: super admin, RFIO, or roles with dcs_view_all_documents. */
     public static function canViewAllDocuments(): bool
     {
-        $perms = auth()->user()?->permissions;
-        if (!$perms) {
-            return false;
-        }
-        if (!empty($perms->is_sadm)) {
-            return true;
-        }
-
-        return !empty($perms->can_access_dcs) && self::isRfioOffice();
+        return self::isFullDcsUser();
     }
 
     public static function currentOfficeCode(): ?string
@@ -222,7 +271,12 @@ class RegisterQueryHelper
         return self::currentOfficeCode() === 'RFIO';
     }
 
-    /** Full DCS (Register, Database, Stamp, etc.): RFIO operators or super admin only. */
+    /**
+     * Full DCS (Register, Database, Stamp, etc.):
+     * - super admin, or
+     * - can_access_dcs + RFIO office, or
+     * - can_access_dcs + dcs_view_all_documents (any office)
+     */
     public static function isFullDcsUser(): bool
     {
         $perms = auth()->user()?->permissions;
@@ -232,11 +286,14 @@ class RegisterQueryHelper
         if (!empty($perms->is_sadm)) {
             return true;
         }
+        if (empty($perms->can_access_dcs)) {
+            return false;
+        }
 
-        return !empty($perms->can_access_dcs) && self::isRfioOffice();
+        return self::isRfioOffice() || !empty($perms->dcs_view_all_documents);
     }
 
-    /** Non-RFIO office user with DCS access: DRF/DCN intake only. */
+    /** Non-full DCS user with DCS access: DRF/DCN intake only. */
     public static function isLimitedDcsUser(): bool
     {
         $perms = auth()->user()?->permissions;
@@ -258,15 +315,10 @@ class RegisterQueryHelper
         abort_unless(self::isFullDcsUser(), 403, 'Full Document Control System access is required.');
     }
 
-    /** RFIO custodian or super admin may open any office intake form by ID (notification deep link). */
+    /** Full DCS operators may open any office intake form by ID (notification deep link). */
     public static function canBrowseAllOfficeIntake(): bool
     {
-        $perms = auth()->user()?->permissions;
-        if (!$perms) {
-            return false;
-        }
-
-        return !empty($perms->is_sadm) || self::isRfioOffice();
+        return self::isFullDcsUser();
     }
 
     public static function normalizedOriginatorName(?string $name = null): string
@@ -335,9 +387,7 @@ class RegisterQueryHelper
 
     public static function assertCanAccessScanPath(string $path): void
     {
-        if (self::isLimitedDcsUser()) {
-            abort(403, 'Document files require full DCS access.');
-        }
+        self::assertFullDcsUser();
 
         $normalized = DocumentStorageService::normalizeDcsScanPath($path);
         abort_unless($normalized, 404);
@@ -5062,6 +5112,9 @@ class RegisterQueryHelper
         }
         if (Schema::hasColumn('dcs_retrieval_offices', 'retrieval_date')) {
             $retrievalOfficeColumns[] = 'r.retrieval_date';
+        }
+        if (Schema::hasColumn('dcs_retrieval_offices', 'retrieval_time')) {
+            $retrievalOfficeColumns[] = 'r.retrieval_time';
         }
         $retrievalOffices = $retrieval
             ? DB::table('dcs_retrieval_offices as r')

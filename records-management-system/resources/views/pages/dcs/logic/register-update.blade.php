@@ -305,8 +305,6 @@ class RegisterUpdateHelper
                 $keywordVal = $request->keywords ?? $request->briefPurpose;
                 if (Schema::hasColumn('dcs_masterlist_registration', 'keywords')) {
                     $masterlistData['keywords'] = $keywordVal;
-                } elseif (Schema::hasColumn('dcs_masterlist_registration', 'brief_purpose')) {
-                    $masterlistData['brief_purpose'] = $keywordVal;
                 }
                 if (Schema::hasColumn('dcs_masterlist_registration', 'revised_from_doc_no')) {
                     $newDocNo = trim((string) ($request->masterlistDocNo ?? ''));
@@ -411,8 +409,6 @@ class RegisterUpdateHelper
                 $syllabiKeywordVal = $request->keywords ?? $request->briefPurpose;
                 if (Schema::hasColumn('dcs_masterlist_registration', 'keywords')) {
                     $masterlistData['keywords'] = $syllabiKeywordVal;
-                } elseif (Schema::hasColumn('dcs_masterlist_registration', 'brief_purpose')) {
-                    $masterlistData['brief_purpose'] = $syllabiKeywordVal;
                 }
                 if ($masterlist) {
                     DB::table('dcs_masterlist_registration')->where('id', $masterlist->id)->update($masterlistData);
@@ -491,6 +487,9 @@ class RegisterUpdateHelper
                         ];
                         if (Schema::hasColumn('dcs_retrieval_offices', 'retrieval_date')) {
                             $retrievalOfficeRow['retrieval_date'] = $request->input('retrievalOfficeDate')[$i] ?? null;
+                        }
+                        if (Schema::hasColumn('dcs_retrieval_offices', 'retrieval_time')) {
+                            $retrievalOfficeRow['retrieval_time'] = $request->input('retrievalOfficeTime')[$i] ?? null;
                         }
                         DB::table('dcs_retrieval_offices')->insert($retrievalOfficeRow);
                     }

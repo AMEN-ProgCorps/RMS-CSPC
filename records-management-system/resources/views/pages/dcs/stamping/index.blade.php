@@ -329,16 +329,6 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                                 <div class="st-stamp-inner" id="overlayStampFallback" style="display:none;">
                                     <div class="st-stamp-title" id="overlayTitle">REFERENCE</div>
                                     <div class="st-stamp-divider" id="overlayDivider" style="display:none;"></div>
-                                    <div class="st-stamp-fields" id="overlayFields" style="display:none;">
-                                        <div class="st-stamp-field">
-                                            <span class="st-sf-label">Certified by:</span>
-                                            <span class="st-sf-value" id="overlayCertBy">...</span>
-                                        </div>
-                                        <div class="st-stamp-field">
-                                            <span class="st-sf-label">Designation:</span>
-                                            <span class="st-sf-value" id="overlayDesig">...</span>
-                                        </div>
-                                    </div>
                                     <div class="st-stamp-date" id="overlayDate" style="display:none;"></div>
                                     <div class="st-stamp-sub" id="overlaySub" style="display:none;"></div>
                                 </div>
@@ -374,17 +364,6 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                             <button class="st-type-pill selected" data-type="reference" type="button">
                                 <span class="st-pill-color" style="background:#b03030"></span> Reference
                             </button>
-                        </div>
-                    </div>
-
-                    <div class="st-section" id="certifiedFields" style="display:none;" hidden>
-                        <div class="st-form-group">
-                            <label class="st-label-sm">Certified By</label>
-                            <input type="text" id="certifiedBy" class="st-input" placeholder="Full name">
-                        </div>
-                        <div class="st-form-group">
-                            <label class="st-label-sm">Designation</label>
-                            <input type="text" id="designation" class="st-input" placeholder="Position / Title">
                         </div>
                     </div>
 

@@ -18,9 +18,11 @@ return new class extends Migration
                   ->constrained('dcs_semesters')
                   ->cascadeOnDelete();
             $table->string('course_name');
+            $table->string('course_code', 50)->nullable();
             $table->timestamps();
 
             $table->unique(['program_id', 'semester_id', 'course_name'], 'program_courses_unique');
+            $table->unique(['program_id', 'semester_id', 'course_code'], 'program_courses_code_unique');
         });
     }
 

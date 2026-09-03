@@ -772,8 +772,6 @@ class RegisterPersistHelper
                 $keywordVal = $request->keywords ?? $request->briefPurpose;
                 if (Schema::hasColumn('dcs_masterlist_registration', 'keywords')) {
                     $masterlistRow['keywords'] = $keywordVal;
-                } elseif (Schema::hasColumn('dcs_masterlist_registration', 'brief_purpose')) {
-                    $masterlistRow['brief_purpose'] = $keywordVal;
                 }
                 if ($mode === 'revised' && Schema::hasColumn('dcs_masterlist_registration', 'revised_from_doc_no')) {
                     $fromDocNo = self::resolveRevisedFromDocNo(
@@ -851,8 +849,6 @@ class RegisterPersistHelper
                 $keywordVal = $request->keywords ?? $request->briefPurpose;
                 if (Schema::hasColumn('dcs_masterlist_registration', 'keywords')) {
                     $masterlistData['keywords'] = $keywordVal;
-                } elseif (Schema::hasColumn('dcs_masterlist_registration', 'brief_purpose')) {
-                    $masterlistData['brief_purpose'] = $keywordVal;
                 }
                 if ($mode === 'revised' && Schema::hasColumn('dcs_masterlist_registration', 'revised_from_doc_no')) {
                     $fromDocNo = self::resolveRevisedFromDocNo(
@@ -927,6 +923,9 @@ class RegisterPersistHelper
                         ];
                         if (Schema::hasColumn('dcs_retrieval_offices', 'retrieval_date')) {
                             $retrievalOfficeRow['retrieval_date'] = $request->input('retrievalOfficeDate')[$i] ?? null;
+                        }
+                        if (Schema::hasColumn('dcs_retrieval_offices', 'retrieval_time')) {
+                            $retrievalOfficeRow['retrieval_time'] = $request->input('retrievalOfficeTime')[$i] ?? null;
                         }
                         DB::table('dcs_retrieval_offices')->insert($retrievalOfficeRow);
                     }
@@ -1645,12 +1644,15 @@ class RegisterPersistHelper
 
         // Heal legacy "archived" → obsolete (status model is latest | obsolete only).
         // Skip rows that would violate the active unique (doc_no + revise_no + type).
-        $legacyArchived = DB::table('dcs_masterlist_registration as m')
-            ->whereIn('m.request_id', $requestIds)
-            ->whereIn('m.doc_no', $familyNos)
-            ->where('m.revision_status', 'archived')
-            ->select('m.id', 'm.doc_no', 'm.revise_no', 'm.doc_type_id')
-            ->get();
+        $legacyArchived = [];
+        if (RegisterQueryHelper::supportsArchivedRevisionStatus()) {
+            $legacyArchived = DB::table('dcs_masterlist_registration as m')
+                ->whereIn('m.request_id', $requestIds)
+                ->whereIn('m.doc_no', $familyNos)
+                ->where('m.revision_status', 'archived')
+                ->select('m.id', 'm.doc_no', 'm.revise_no', 'm.doc_type_id')
+                ->get();
+        }
 
         foreach ($legacyArchived as $row) {
             $conflict = DB::table('dcs_masterlist_registration')

@@ -1295,6 +1295,13 @@
     border-color: #334155 !important;
 }
 
+[data-theme="dark"] .reg-ret-when-fields input[type="date"],
+[data-theme="dark"] .reg-ret-when-fields input[type="time"] {
+    background: #131c2e !important;
+    color: #f8fafc !important;
+    border-color: #334155 !important;
+}
+
 [data-theme="dark"] .reg-dist-table tfoot tr {
     background: #0f172a !important;
     border-color: #1e293b !important;

@@ -556,7 +556,7 @@ window.__registerCatalog = @json($catalog);
                                         placeholder="Type a keyword and press Enter..."
                                         autocomplete="off">
                                 </div>
-                                <input type="hidden" id="keywords" name="keywords" value="{{ $masterlist->keywords ?? $masterlist->brief_purpose ?? '' }}">
+                                <input type="hidden" id="keywords" name="keywords" value="{{ $masterlist->keywords ?? '' }}">
                                 <p class="reg-keywords-hint">Press Enter or comma to add. Click × to remove.</p>
                             </div>
                         </div>
@@ -657,7 +657,7 @@ window.__registerCatalog = @json($catalog);
                     <div class="reg-split-right">
                         <div class="reg-field">
                             <label>Office retrieval status</label>
-                            <p class="reg-field-hint">Mark as Retrieved to also add that office to Distribution. The office stays listed here as Retrieved. Set status back to Pending (or remove it from Distribution) to undo. On the next revision, retrieved offices start again as Pending in Retrieval.</p>
+                            <p class="reg-field-hint">Mark as Retrieved to also add that office to Distribution. Then set that office’s retrieval date and time. The office stays listed here as Retrieved. Set status back to Pending (or remove it from Distribution) to undo. On the next revision, retrieved offices start again as Pending in Retrieval.</p>
                             <div class="reg-search">
                                 <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                                     <circle cx="11" cy="11" r="8"/>
@@ -674,14 +674,18 @@ window.__registerCatalog = @json($catalog);
                                 <thead>
                                     <tr>
                                         <th>Receiving Office(s)</th>
-                                        <th style="width:130px;">Status</th>
+                                        <th class="reg-ret-status">Status</th>
+                                        <th class="reg-ret-when">Retrieved date &amp; time</th>
                                         <th style="width:110px; text-align:center;">No. of Copies</th>
-                                        <th style="width:40px;"></th>
                                     </tr>
                                 </thead>
                                 <tbody id="retrievalBody">
                                     @forelse($retrievalOffices as $retOff)
-                                    @php $retStatus = ($retOff->retrieval_status ?? 'pending') === 'retrieved' ? 'retrieved' : 'pending'; @endphp
+                                    @php
+                                        $retStatus = ($retOff->retrieval_status ?? 'pending') === 'retrieved' ? 'retrieved' : 'pending';
+                                        $retDate = \App\Helpers\RegisterQueryHelper::formatDate($retOff->retrieval_date ?? '');
+                                        $retTime = \App\Helpers\RegisterQueryHelper::formatTime($retOff->retrieval_time ?? '');
+                                    @endphp
                                     <tr class="reg-office-added">
                                         <td>
                                             <input type="hidden" name="retrievalOffice[]" value="{{ $retOff->office_id }}">
@@ -690,19 +694,20 @@ window.__registerCatalog = @json($catalog);
                                                 <span class="reg-office-text">{{ $retOff->office_name ?? 'Unknown' }}</span>
                                             </div>
                                         </td>
-                                        <td>
+                                        <td class="reg-ret-status">
                                             <select name="retrievalStatus[]" class="reg-retrieval-status" onchange="handleRetrievalStatusChange(this)">
                                                 <option value="pending" @selected($retStatus === 'pending')>Pending</option>
                                                 <option value="retrieved" @selected($retStatus === 'retrieved')>Retrieved</option>
                                             </select>
                                         </td>
+                                        <td class="reg-ret-when">
+                                            <div class="reg-ret-when-fields" style="{{ $retStatus === 'retrieved' ? '' : 'display:none' }}">
+                                                <input type="date" name="retrievalOfficeDate[]" value="{{ $retDate }}">
+                                                <input type="time" name="retrievalOfficeTime[]" value="{{ $retTime }}">
+                                            </div>
+                                        </td>
                                         <td style="text-align:center;">
                                             <input type="number" name="retrievalCopies[]" value="{{ $retOff->copies }}" min="1" oninput="updateTotal('retrievalTotal', 'retrievalBody')">
-                                        </td>
-                                        <td>
-                                            <button type="button" class="btn-remove" onclick="removeOffice(this, 'retrievalTotal', 'retrievalBody')">
-                                                <i class="fa-solid fa-xmark"></i>
-                                            </button>
                                         </td>
                                     </tr>
                                     @empty
@@ -724,15 +729,16 @@ window.__registerCatalog = @json($catalog);
                                             <input type="hidden" name="retrievalOffice[]" value="{{ $retOff->office_id }}">
                                             <input type="hidden" name="retrievalStatus[]" value="retrieved">
                                             <input type="hidden" name="retrievalCopies[]" value="{{ $retOff->copies ?? 1 }}">
+                                            <input type="hidden" name="retrievalOfficeDate[]" value="{{ \App\Helpers\RegisterQueryHelper::formatDate($retOff->retrieval_date ?? '') }}">
+                                            <input type="hidden" name="retrievalOfficeTime[]" value="{{ \App\Helpers\RegisterQueryHelper::formatTime($retOff->retrieval_time ?? '') }}">
                                         </td>
                                     </tr>
                                     @endforeach
                                 </tbody>
                                 <tfoot>
                                     <tr>
-                                        <td colspan="2">Total No. of Copies</td>
+                                        <td colspan="3">Total No. of Copies</td>
                                         <td id="retrievalTotal" style="text-align:center; font-weight:700;">{{ $retrievalOffices->sum('copies') }}</td>
-                                        <td></td>
                                     </tr>
                                 </tfoot>
                             </table>
@@ -1079,6 +1085,39 @@ function emptyOfficeRowHTML(tbodyId) {
     return '<tr class="reg-empty-row"><td colspan="' + cols + '"><div class="reg-empty-state"><i class="fa-solid fa-building-circle-xmark"></i><span>No offices added yet</span></div></td></tr>';
 }
 
+function pad2(n) {
+    return String(n).padStart(2, '0');
+}
+
+function localDateValue() {
+    const d = new Date();
+    return d.getFullYear() + '-' + pad2(d.getMonth() + 1) + '-' + pad2(d.getDate());
+}
+
+function localTimeValue() {
+    const d = new Date();
+    return pad2(d.getHours()) + ':' + pad2(d.getMinutes());
+}
+
+function retrievalWhenCellHTML(dateVal, timeVal, visible) {
+    const display = visible ? '' : ' style="display:none"';
+    return '<td class="reg-ret-when"><div class="reg-ret-when-fields"' + display + '>' +
+        '<input type="date" name="retrievalOfficeDate[]" value="' + String(dateVal || '').replace(/"/g, '') + '">' +
+        '<input type="time" name="retrievalOfficeTime[]" value="' + String(timeVal || '').replace(/"/g, '') + '">' +
+        '</div></td>';
+}
+
+function syncRetrievalWhenFields(tr, isRetrieved) {
+    const wrap = tr?.querySelector('.reg-ret-when-fields');
+    if (!wrap) return;
+    wrap.style.display = isRetrieved ? '' : 'none';
+    if (!isRetrieved) return;
+    const dateInp = wrap.querySelector('input[name="retrievalOfficeDate[]"]');
+    const timeInp = wrap.querySelector('input[name="retrievalOfficeTime[]"]');
+    if (dateInp && !dateInp.value) dateInp.value = localDateValue();
+    if (timeInp && !timeInp.value) timeInp.value = localTimeValue();
+}
+
 function retrievalStatusSelectHTML(status) {
     const value = status === 'retrieved' ? 'retrieved' : 'pending';
     return '<select name="retrievalStatus[]" class="reg-retrieval-status" onchange="handleRetrievalStatusChange(this)">' +
@@ -1163,11 +1202,10 @@ function restoreOfficeToRetrievalPending(officeId, officeName, copies) {
             '<td><input type="hidden" name="retrievalOffice[]" value="' + String(officeId).replace(/"/g, '') + '">' +
             '<div class="reg-office-name"><div class="reg-office-icon"><i class="fa-solid fa-building"></i></div>' +
             '<span class="reg-office-text">' + escapeHtml(officeName || 'Office') + '</span></div></td>' +
-            '<td>' + retrievalStatusSelectHTML('pending') + '</td>' +
+            '<td class="reg-ret-status">' + retrievalStatusSelectHTML('pending') + '</td>' +
+            retrievalWhenCellHTML('', '', false) +
             '<td style="text-align:center;"><input type="number" name="retrievalCopies[]" value="' + useCopies +
-            '" min="1" oninput="updateTotal(\'retrievalTotal\', \'retrievalBody\')"></td>' +
-            '<td><button type="button" class="btn-remove" onclick="removeOffice(this, \'retrievalTotal\', \'retrievalBody\')">' +
-            '<i class="fa-solid fa-xmark"></i></button></td>';
+            '" min="1" oninput="updateTotal(\'retrievalTotal\', \'retrievalBody\')"></td>';
         tbody.appendChild(tr);
     }
     updateTotal('retrievalTotal', 'retrievalBody');
@@ -1206,11 +1244,13 @@ window.handleRetrievalStatusChange = function (select) {
     const copies = tr.querySelector('input[type="number"][name="retrievalCopies[]"]')?.value || 1;
     if (select.value === 'retrieved') {
         addRetrievedOfficeToDistribution(officeId, officeName, copies);
+        syncRetrievalWhenFields(tr, true);
         // Keep the office visible in Retrieval with status Retrieved.
         const distSection = document.getElementById('section-5');
         if (distSection) distSection.style.display = 'block';
     } else {
         removeRetrievedOfficeFromDistribution(officeId);
+        syncRetrievalWhenFields(tr, false);
     }
 };
 
@@ -1225,11 +1265,15 @@ function moveRetrievalRowToHidden(tr, officeId, copies) {
     const existing = [...hiddenBody.querySelectorAll('input[name="retrievalOffice[]"]')]
         .find(inp => String(inp.value) === String(officeId));
     if (!existing) {
+        const dateVal = tr.querySelector('input[name="retrievalOfficeDate[]"]')?.value || '';
+        const timeVal = tr.querySelector('input[name="retrievalOfficeTime[]"]')?.value || '';
         const row = document.createElement('tr');
         row.innerHTML = '<td>' +
             '<input type="hidden" name="retrievalOffice[]" value="' + String(officeId).replace(/"/g, '') + '">' +
             '<input type="hidden" name="retrievalStatus[]" value="retrieved">' +
             '<input type="hidden" name="retrievalCopies[]" value="' + String(copies).replace(/"/g, '') + '">' +
+            '<input type="hidden" name="retrievalOfficeDate[]" value="' + String(dateVal).replace(/"/g, '') + '">' +
+            '<input type="hidden" name="retrievalOfficeTime[]" value="' + String(timeVal).replace(/"/g, '') + '">' +
             '</td>';
         hiddenBody.appendChild(row);
     }
@@ -1268,9 +1312,9 @@ function seedRetrievalOfficeRow(tbodyId, totalId, officeId, officeName, copies, 
     if (keepInRetrieval) tr.dataset.fromPriorRetrieval = '1';
     tr.innerHTML = `
         <td><input type="hidden" name="retrievalOffice[]" value="${officeId}"><div class="reg-office-name"><div class="reg-office-icon"><i class="fa-solid fa-building"></i></div><span class="reg-office-text">${escapeHtml(officeName)}</span></div></td>
-        <td>${retrievalStatusSelectHTML(status || 'pending')}</td>
+        <td class="reg-ret-status">${retrievalStatusSelectHTML(status || 'pending')}</td>
+        ${retrievalWhenCellHTML(options.retrievalDate || '', options.retrievalTime || '', (status || 'pending') === 'retrieved')}
         <td style="text-align:center;"><input type="number" name="retrievalCopies[]" value="${copies}" min="1" oninput="updateTotal('${totalId}', '${tbodyId}')"></td>
-        <td><button type="button" class="btn-remove" onclick="removeOffice(this, '${totalId}', '${tbodyId}')"><i class="fa-solid fa-xmark"></i></button></td>
     `;
     tbody.appendChild(tr);
     if ((status || 'pending') === 'retrieved') {
@@ -5867,14 +5911,10 @@ window.addOffice = function (officeId, officeName, bodyId, totalId, resultsId) {
 };
 
 window.removeOffice = function (btn, totalId, bodyId) {
-    const tr = btn.closest("tr");
     if (bodyId === 'retrievalBody') {
-        const officeId = tr.querySelector('input[type="hidden"][name="retrievalOffice[]"]')?.value;
-        const status = tr.querySelector('.reg-retrieval-status')?.value;
-        if (officeId && status === 'retrieved') {
-            removeRetrievedOfficeFromDistribution(officeId);
-        }
+        return;
     }
+    const tr = btn.closest("tr");
     if (bodyId === 'distBody') {
         maybeRestoreDistOfficeToRetrieval(tr);
     }

@@ -13,9 +13,6 @@ document.addEventListener('DOMContentLoaded', function () {
     const fileOptions     = document.getElementById('fileOptions');
 
     const typePills       = document.getElementById('typePills');
-    const certifiedFields = document.getElementById('certifiedFields');
-    const certifiedByInp  = document.getElementById('certifiedBy');
-    const designationInp  = document.getElementById('designation');
 
     const positionMap     = document.getElementById('positionMap');
     const positionLabel   = document.getElementById('positionLabel');
@@ -30,9 +27,6 @@ document.addEventListener('DOMContentLoaded', function () {
 
     const overlayTitle    = document.getElementById('overlayTitle');
     const overlayDivider  = document.getElementById('overlayDivider');
-    const overlayFields   = document.getElementById('overlayFields');
-    const overlayCertBy   = document.getElementById('overlayCertBy');
-    const overlayDesig    = document.getElementById('overlayDesig');
     const overlayDate     = document.getElementById('overlayDate');
     const overlaySub      = document.getElementById('overlaySub');
     const overlayPages    = document.getElementById('overlayPages');
@@ -75,8 +69,6 @@ document.addEventListener('DOMContentLoaded', function () {
         stampType: null,
         position: 'auto',
         allPages: true,
-        certBy: '',
-        desig: '',
         currentPage: 1,
         pageCount: 1,
         placement: null,
@@ -123,8 +115,6 @@ document.addEventListener('DOMContentLoaded', function () {
         state.docNo       = btn.dataset.docNo || '';
         state.rev         = btn.dataset.rev   || '0';
         state.allPages    = true;
-        state.certBy      = '';
-        state.desig       = '';
         state.currentPage = 1;
         state.pageCount   = 1;
         state.placement   = null;
@@ -148,7 +138,6 @@ document.addEventListener('DOMContentLoaded', function () {
         const refPill = document.querySelector('.st-type-pill[data-type="reference"]');
         if (refPill) refPill.classList.add('selected');
         state.stampType = 'reference';
-        if (certifiedFields) certifiedFields.style.display = 'none';
         updateOverlay();
         checkReady();
 
@@ -228,9 +217,6 @@ document.addEventListener('DOMContentLoaded', function () {
         document.querySelectorAll('.st-type-pill').forEach(p => p.classList.remove('selected'));
         const refPill = document.querySelector('.st-type-pill[data-type="reference"]');
         if (refPill) refPill.classList.add('selected');
-        if (certifiedFields) certifiedFields.style.display = 'none';
-        if (certifiedByInp) certifiedByInp.value = '';
-        if (designationInp) designationInp.value = '';
         autoPlace.checked = true;
         manualWrap.style.display = 'none';
         state.position = 'auto';
@@ -317,11 +303,6 @@ document.addEventListener('DOMContentLoaded', function () {
     function fetchStampPlacement() {
         if (!state.selectedFile || !state.stampType || state.position !== 'auto') return;
 
-        if (state.stampType === 'certified_true_copy' &&
-            (!state.certBy.trim() || !state.desig.trim())) {
-            return;
-        }
-
         clearTimeout(placementTimer);
         placementTimer = setTimeout(function () {
             const reqId = ++placementRequestId;
@@ -395,24 +376,6 @@ document.addEventListener('DOMContentLoaded', function () {
 
         state.stampType = pill.dataset.type;
 
-        certifiedFields.style.display = (state.stampType === 'certified_true_copy') ? 'block' : 'none';
-
-        updateOverlay();
-        checkReady();
-    });
-
-    // ═══════════════════════════════════════════
-    // CERTIFIED FIELDS
-    // ═══════════════════════════════════════════
-
-    certifiedByInp.addEventListener('input', function () {
-        state.certBy = this.value;
-        updateOverlay();
-        checkReady();
-    });
-
-    designationInp.addEventListener('input', function () {
-        state.desig = this.value;
         updateOverlay();
         checkReady();
     });
@@ -503,7 +466,6 @@ document.addEventListener('DOMContentLoaded', function () {
             overlayTitle.style.color = cfg.color;
         }
         if (overlayDivider) overlayDivider.style.display = 'none';
-        if (overlayFields) overlayFields.style.display = 'none';
         if (overlayDate) overlayDate.style.display = 'none';
         if (overlaySub) overlaySub.style.display = 'none';
 
@@ -520,10 +482,6 @@ document.addEventListener('DOMContentLoaded', function () {
 
     function checkReady() {
         var ready = !!state.stampType;
-
-        if (state.stampType === 'certified_true_copy') {
-            ready = ready && state.certBy.trim() !== '' && state.desig.trim() !== '';
-        }
 
         downloadBtn.disabled = !ready;
         applyBtn.disabled    = !ready;
@@ -571,8 +529,6 @@ document.addEventListener('DOMContentLoaded', function () {
             stamp_type:   state.stampType,
             position:     state.position,
             all_pages:    state.allPages,
-            certified_by: state.stampType === 'certified_true_copy' ? state.certBy : null,
-            designation:  state.stampType === 'certified_true_copy' ? state.desig  : null,
         };
     }
 

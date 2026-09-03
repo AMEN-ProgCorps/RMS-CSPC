@@ -18,8 +18,6 @@ return new class extends Migration
             $table->string('stamp_type', 50);
             $table->string('position', 30)->default('auto');
             $table->boolean('all_pages')->default(true);
-            $table->string('certified_by')->nullable();
-            $table->string('designation')->nullable();
             $table->unsignedInteger('stamped_by');
             $table->foreign('stamped_by')->references('id')->on('account');
             $table->timestamp('stamped_at');

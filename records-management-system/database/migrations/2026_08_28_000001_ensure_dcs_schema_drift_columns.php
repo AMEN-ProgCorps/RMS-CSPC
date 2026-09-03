@@ -43,9 +43,6 @@ return new class extends Migration
             if (! Schema::hasColumn('dcs_masterlist_registration', 'revision_status')) {
                 $table->string('revision_status', 20)->default('latest')->after('revise_no');
             }
-            if (! Schema::hasColumn('dcs_masterlist_registration', 'brief_purpose')) {
-                $table->text('brief_purpose')->nullable();
-            }
             if (! Schema::hasColumn('dcs_masterlist_registration', 'keywords')) {
                 $table->text('keywords')->nullable();
             }
@@ -80,10 +77,25 @@ return new class extends Migration
             });
         }
 
+        if (Schema::hasTable('dcs_retrieval_offices')
+            && ! Schema::hasColumn('dcs_retrieval_offices', 'retrieval_time')) {
+            Schema::table('dcs_retrieval_offices', function (Blueprint $table) {
+                $table->time('retrieval_time')->nullable()->after('retrieval_date');
+            });
+        }
+
         if (Schema::hasTable('dcs_program_courses')
             && ! Schema::hasColumn('dcs_program_courses', 'course_code')) {
             Schema::table('dcs_program_courses', function (Blueprint $table) {
                 $table->string('course_code', 50)->nullable();
+            });
+        }
+
+        if (Schema::hasTable('dcs_program_courses')
+            && Schema::hasColumn('dcs_program_courses', 'course_code')
+            && ! $this->hasIndex('dcs_program_courses', 'program_courses_code_unique')) {
+            Schema::table('dcs_program_courses', function (Blueprint $table) {
+                $table->unique(['program_id', 'semester_id', 'course_code'], 'program_courses_code_unique');
             });
         }
     }

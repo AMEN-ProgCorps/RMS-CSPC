@@ -527,6 +527,12 @@ Route::middleware(['auth'])
                 abort(404);
             }
 
+            abort_if(
+                \App\Services\DocumentStorageService::isDcsStoragePath($path),
+                403,
+                'Document Control System files can only be opened in DCS.'
+            );
+
             $content = \App\Services\DocumentStorageService::getFileContent($path);
             if (!$content) {
                 abort(404, 'Document file not found.');

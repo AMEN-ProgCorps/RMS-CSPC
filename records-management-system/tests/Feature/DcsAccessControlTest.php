@@ -34,7 +34,6 @@ class DcsAccessControlTest extends TestCase
                 'key_id' => $this->roleId,
                 'is_sadm' => false,
                 'can_access_dcs' => true,
-                'dcs_view_all_documents' => true,
             ]);
 
             DB::table('condition_key')->insert([
@@ -99,12 +98,42 @@ class DcsAccessControlTest extends TestCase
         $this->assertContains($response->status(), [403, 419]);
     }
 
-    public function test_view_all_flag_does_not_grant_full_dcs_to_non_rfio_user(): void
+    public function test_without_view_all_flag_non_rfio_user_stays_limited(): void
     {
+        $conditionTable = \Illuminate\Support\Facades\Schema::hasTable('sys_condition_details')
+            ? 'sys_condition_details'
+            : 'condition_details';
+
+        if (\Illuminate\Support\Facades\Schema::hasColumn($conditionTable, 'dcs_view_all_documents')) {
+            DB::table($conditionTable)->where('key_id', $this->roleId)->update([
+                'dcs_view_all_documents' => false,
+            ]);
+        }
+
         $response = $this->actingAs(User::find($this->limitedUserId))
             ->get('/dcs/database');
 
         $response->assertRedirect(route('portal'));
+    }
+
+    public function test_view_all_flag_grants_full_dcs_to_non_rfio_user(): void
+    {
+        $conditionTable = \Illuminate\Support\Facades\Schema::hasTable('sys_condition_details')
+            ? 'sys_condition_details'
+            : 'condition_details';
+
+        if (! \Illuminate\Support\Facades\Schema::hasColumn($conditionTable, 'dcs_view_all_documents')) {
+            $this->markTestSkipped('dcs_view_all_documents column is not migrated.');
+        }
+
+        DB::table($conditionTable)->where('key_id', $this->roleId)->update([
+            'dcs_view_all_documents' => true,
+        ]);
+
+        $response = $this->actingAs(User::find($this->limitedUserId))
+            ->get('/dcs/database');
+
+        $response->assertOk();
     }
 
     public function test_rfio_user_can_access_register_page(): void

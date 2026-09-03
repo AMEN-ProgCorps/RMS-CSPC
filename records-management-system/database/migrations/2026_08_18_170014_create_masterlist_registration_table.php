@@ -32,7 +32,6 @@ return new class extends Migration
             $table->integer('no_pages')->nullable();
             $table->string('originator_name')->nullable();
             $table->date('deadline')->nullable();
-            $table->text('brief_purpose')->nullable();
             $table->text('keywords')->nullable();
             $table->string('scanned_masterlist')->nullable();
             $table->string('scanned_masterlist_original_name')->nullable();

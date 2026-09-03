@@ -56,8 +56,6 @@ class StampService
             'stamp_type'   => 'required|string|in:reference',
             'position'     => 'required|string|in:top-left,top-right,bottom-left,bottom-right,center,auto',
             'all_pages'    => 'required|boolean',
-            'certified_by' => 'nullable|string|max:255',
-            'designation'  => 'nullable|string|max:255',
         ]);
 
         $relative = $this->storedScanRelativePath((int) $validated['request_id'], $validated['file_key']);
@@ -563,8 +561,6 @@ class StampService
                 $validated['position'],
                 [
                     'stamp_all_pages' => $validated['all_pages'],
-                    'certified_by'    => $validated['certified_by'] ?? '',
-                    'designation'     => $validated['designation'] ?? '',
                 ]
             );
 
@@ -606,8 +602,6 @@ class StampService
                 'stamp_type'   => $validated['stamp_type'],
                 'position'     => $validated['position'],
                 'all_pages'    => $validated['all_pages'],
-                'certified_by' => $validated['certified_by'] ?? null,
-                'designation'  => $validated['designation'] ?? null,
                 'stamped_by'   => Auth::id(),
                 'stamped_at'   => now(),
                 'updated_at'   => now(),
@@ -801,8 +795,6 @@ class StampService
                 $validated['position'],
                 [
                     'stamp_all_pages' => $validated['all_pages'],
-                    'certified_by'    => $validated['certified_by'] ?? '',
-                    'designation'     => $validated['designation'] ?? '',
                 ]
             );
 
@@ -1326,59 +1318,5 @@ class StampService
         $pdf->SetTextColor($r, $g, $b);
         $pdf->SetXY($x, $y + ($h / 2) - 3.5);
         $pdf->Cell($w, 7, $cfg['title'], 0, 0, 'C');
-    }
-
-    private function drawCertified($pdf, float $x, float $y, array $cfg, array $options): void
-    {
-        $w = $cfg['width'];
-        $h = $cfg['height'];
-        [$r, $g, $b] = $cfg['color'];
-        $date   = now()->format('M d, Y');
-        $certBy = $options['certified_by'] ?? '';
-        $desig  = $options['designation'] ?? '';
-
-        $pdf->SetFillColor(255, 255, 255);
-        $pdf->Rect($x, $y, $w, $h, 'F');
-
-        $pdf->SetDrawColor($r, $g, $b);
-        $pdf->SetLineWidth(0.7);
-        $pdf->Rect($x, $y, $w, $h);
-
-        $pdf->SetLineWidth(0.3);
-        $pdf->Rect($x + 1.5, $y + 1.5, $w - 3, $h - 3);
-
-        $pdf->SetFont('Helvetica', 'B', $cfg['titleSize']);
-        $pdf->SetTextColor($r, $g, $b);
-        $pdf->SetXY($x, $y + 3);
-        $pdf->Cell($w, 5, $cfg['title'], 0, 0, 'C');
-
-        $pdf->SetLineWidth(0.2);
-        $pdf->Line($x + 4, $y + 9, $x + $w - 4, $y + 9);
-
-        $pdf->SetFont('Helvetica', '', 7);
-        $pdf->SetTextColor(50, 50, 50);
-        $pdf->SetXY($x + 3, $y + 10.5);
-        $pdf->Cell(25, 4, 'Certified by:', 0, 0, 'L');
-        $pdf->SetFont('Helvetica', 'B', 7);
-        $pdf->Cell($w - 31, 4, $certBy, 0, 0, 'L');
-
-        $pdf->SetLineWidth(0.15);
-        $pdf->SetDrawColor(150, 150, 150);
-        $pdf->Line($x + 25, $y + 14.5, $x + $w - 4, $y + 14.5);
-
-        $pdf->SetFont('Helvetica', '', 7);
-        $pdf->SetTextColor(50, 50, 50);
-        $pdf->SetXY($x + 3, $y + 16);
-        $pdf->Cell(25, 4, 'Designation:', 0, 0, 'L');
-        $pdf->SetFont('Helvetica', 'B', 7);
-        $pdf->Cell($w - 31, 4, $desig, 0, 0, 'L');
-
-        $pdf->Line($x + 25, $y + 20, $x + $w - 4, $y + 20);
-
-        $pdf->SetDrawColor($r, $g, $b);
-        $pdf->SetFont('Helvetica', '', 6);
-        $pdf->SetTextColor($r, $g, $b);
-        $pdf->SetXY($x, $y + 23);
-        $pdf->Cell($w, 4, 'Date: ' . $date, 0, 0, 'C');
     }
 }

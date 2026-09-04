@@ -15,7 +15,7 @@ class DrrOcrService
 
     public static function ocrPages(Request $request): array
     {
-        @set_time_limit(90);
+        @set_time_limit(120);
 
         $request->validate([
             'file' => 'nullable|file|mimes:pdf|max:204800',
@@ -119,19 +119,25 @@ class DrrOcrService
         $imagePath = Storage::disk('local')->path('temp/drr-ocr/' . uniqid('page_', true) . '.jpg');
 
         try {
-            PdfPageRenderer::savePage($pdfPath, $imagePath, $page, 150);
+            PdfPageRenderer::savePage($pdfPath, $imagePath, $page, 200);
 
             $size = @getimagesize($imagePath);
             $imgW = max(1, (int) ($size[0] ?? 1));
             $imgH = max(1, (int) ($size[1] ?? 1));
 
-            $ocr = (new TesseractOCR($imagePath))->lang('eng')->psm(6);
-            $tsv = (string) $ocr->tsv()->run(45);
+            // Primary: uniform block of text (forms/tables).
+            $tsv = (string) (new TesseractOCR($imagePath))->lang('eng')->psm(6)->oem(1)->tsv()->run(60);
             $words = self::parseTsvWords($tsv, $imgW, $imgH);
             $lines = self::parseTsvLines($tsv, $imgW, $imgH);
 
+            if (count($words) < 8) {
+                $tsv = (string) (new TesseractOCR($imagePath))->lang('eng')->psm(4)->oem(1)->tsv()->run(60);
+                $words = self::parseTsvWords($tsv, $imgW, $imgH);
+                $lines = self::parseTsvLines($tsv, $imgW, $imgH);
+            }
+
             if ($words === [] && $lines === []) {
-                $tsv = (string) (new TesseractOCR($imagePath))->lang('eng')->psm(3)->tsv()->run(45);
+                $tsv = (string) (new TesseractOCR($imagePath))->lang('eng')->psm(3)->oem(1)->tsv()->run(60);
                 $words = self::parseTsvWords($tsv, $imgW, $imgH);
                 $lines = self::parseTsvLines($tsv, $imgW, $imgH);
             }
@@ -146,7 +152,8 @@ class DrrOcrService
                 $text = trim((string) (new TesseractOCR($imagePath))
                     ->lang('eng')
                     ->psm(3)
-                    ->run(45));
+                    ->oem(1)
+                    ->run(60));
             }
 
             if ($words === [] && $text !== '') {
@@ -217,7 +224,7 @@ class DrrOcrService
             }
 
             $conf = (float) ($cols[10] ?? -1);
-            if ($conf >= 0 && $conf < 30) {
+            if ($conf >= 0 && $conf < 20) {
                 continue;
             }
 
@@ -283,7 +290,7 @@ class DrrOcrService
             }
 
             $conf = (float) ($cols[10] ?? -1);
-            if ($conf >= 0 && $conf < 40) {
+            if ($conf >= 0 && $conf < 25) {
                 continue;
             }
 

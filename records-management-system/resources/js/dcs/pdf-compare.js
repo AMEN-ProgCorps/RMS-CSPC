@@ -23,11 +23,20 @@ const OCR_CONCURRENCY = 3;
 const TOKEN_CAP = 4000;
 /** When content alignment finds nothing but docs share vocabulary, pair by page index. */
 const DOC_SIMILARITY_INDEX_FALLBACK = 0.18;
-const CACHE_VERSION = 16;
-/** Pixel diff below this ⇒ treat page pair as visually unchanged (skip OCR). */
-const VISUAL_UNCHANGED_THRESHOLD = 0.015;
-/** Token overlap above this ⇒ suppress highlight noise on near-identical pages. */
-const PAGE_SIMILARITY_SKIP = 0.97;
+const CACHE_VERSION = 17;
+/**
+ * Pixel diff below this ⇒ treat page pair as visually identical.
+ * Only used to skip OCR when BOTH pages also have rich embedded text.
+ */
+const VISUAL_UNCHANGED_THRESHOLD = 0.008;
+/** Exact (or near-exact) token overlap required before suppressing highlights. */
+const PAGE_SIMILARITY_SKIP = 0.998;
+/** Max normalized distance to treat OCR words as the same cell/position. */
+const SPATIAL_MATCH_RADIUS = 0.055;
+/** Tile grid for visual region highlights when OCR is weak. */
+const VISUAL_TILE_COLS = 16;
+const VISUAL_TILE_ROWS = 22;
+const VISUAL_TILE_DIFF = 0.12;
 const LARGE_DOC_PAGES = 12;
 
 const ROMAN_TO_ARABIC = {
@@ -101,7 +110,7 @@ function isValidOcrWord(w) {
     if (!t) return false;
 
     const conf = Number(w?.conf);
-    if (Number.isFinite(conf) && conf >= 0 && conf < 35) return false;
+    if (Number.isFinite(conf) && conf >= 0 && conf < 20) return false;
 
     const x = Number(w?.x);
     const y = Number(w?.y);
@@ -710,13 +719,15 @@ async function ensurePageTexts(doc, sideMeta, setStatus, options = {}) {
  * Keep each page at its real PDF page number: old p.N ↔ new p.N side by side.
  * Extra pages at the end of the longer revision show a blank slot on the other side.
  */
-function alignPagesByPosition(leftPages, rightPages) {
+function alignPagesByPosition(leftPages, rightPages, visualByPage = null) {
     const total = Math.max(leftPages.length, rightPages.length);
     const alignment = [];
 
     for (let i = 0; i < total; i++) {
         const left = leftPages[i] || null;
         const right = rightPages[i] || null;
+        const pageKey = left?.page || right?.page || (i + 1);
+        const visualMarks = visualByPage?.get?.(pageKey) || null;
 
         if (left && right) {
             alignment.push({
@@ -726,6 +737,7 @@ function alignPagesByPosition(leftPages, rightPages) {
                 left,
                 right,
                 pairedBy: 'position',
+                visualMarks,
             });
         } else if (left) {
             alignment.push({
@@ -735,6 +747,7 @@ function alignPagesByPosition(leftPages, rightPages) {
                 left,
                 right: null,
                 pairedBy: 'position',
+                visualMarks: null,
             });
         } else {
             alignment.push({
@@ -744,6 +757,7 @@ function alignPagesByPosition(leftPages, rightPages) {
                 left: null,
                 right,
                 pairedBy: 'position',
+                visualMarks: null,
             });
         }
     }
@@ -751,9 +765,9 @@ function alignPagesByPosition(leftPages, rightPages) {
     return alignment;
 }
 
-function alignPagesSmart(leftPages, rightPages) {
+function alignPagesSmart(leftPages, rightPages, visualByPage = null) {
     const similarity = documentSimilarity(leftPages, rightPages);
-    const alignment = alignPagesByPosition(leftPages, rightPages);
+    const alignment = alignPagesByPosition(leftPages, rightPages, visualByPage);
     const matchCount = countAlignmentMatches(alignment);
     return { alignment, mode: 'position', similarity, matchCount };
 }
@@ -804,11 +818,15 @@ function pairUnmatchedTokens(leftUnmatched, rightSurplus) {
 
     for (const lt of leftUnmatched) {
         let bestIdx = -1;
+        let bestScore = Infinity;
         for (let ri = 0; ri < rightSurplus.length; ri++) {
             if (usedRight.has(ri)) continue;
-            if (tokensEqual(lt, rightSurplus[ri])) {
+            const rt = rightSurplus[ri];
+            if (!tokensEqual(lt, rt) && !tokenNear(lt, rt)) continue;
+            const score = tokenNearScore(lt, rt);
+            if (score < bestScore) {
+                bestScore = score;
                 bestIdx = ri;
-                break;
             }
         }
         if (bestIdx >= 0) {
@@ -836,6 +854,103 @@ function pairUnmatchedTokens(leftUnmatched, rightSurplus) {
     }
 
     return { leftMarks, rightMarks, del, ins, chg };
+}
+
+function tokenCenter(token) {
+    const box = token?.box;
+    if (!box || !Number.isFinite(box.x)) return null;
+    return {
+        x: box.x + (Number(box.w) || 0) / 2,
+        y: box.y + (Number(box.h) || 0) / 2,
+    };
+}
+
+function tokenNear(a, b, radius = SPATIAL_MATCH_RADIUS) {
+    const ca = tokenCenter(a);
+    const cb = tokenCenter(b);
+    if (!ca || !cb) return false;
+    const dx = ca.x - cb.x;
+    const dy = ca.y - cb.y;
+    return Math.hypot(dx, dy) <= radius;
+}
+
+function tokenNearScore(a, b) {
+    const ca = tokenCenter(a);
+    const cb = tokenCenter(b);
+    if (!ca || !cb) return Infinity;
+    return Math.hypot(ca.x - cb.x, ca.y - cb.y);
+}
+
+/**
+ * Position-aware OCR diff: match words in the same cell/area first so form
+ * field edits become yellow "changed", not unrelated red/green noise.
+ */
+function wordDiffMarksSpatial(leftTokens, rightTokens) {
+    const left = prepareTokensForDiff(leftTokens);
+    const right = prepareTokensForDiff(rightTokens);
+    const leftMarks = [];
+    const rightMarks = [];
+    const usedRight = new Set();
+    const leftUnmatched = [];
+    let del = 0;
+    let ins = 0;
+    let chg = 0;
+
+    for (const lt of left) {
+        let bestExact = -1;
+        let bestExactScore = Infinity;
+        let bestNear = -1;
+        let bestNearScore = Infinity;
+
+        for (let ri = 0; ri < right.length; ri++) {
+            if (usedRight.has(ri)) continue;
+            const rt = right[ri];
+            const score = tokenNearScore(lt, rt);
+            if (score === Infinity) continue;
+
+            if (lt.norm === rt.norm || tokensEqual(lt, rt)) {
+                if (score < bestExactScore) {
+                    bestExactScore = score;
+                    bestExact = ri;
+                }
+            } else if (score <= SPATIAL_MATCH_RADIUS && score < bestNearScore) {
+                bestNearScore = score;
+                bestNear = ri;
+            }
+        }
+
+        if (bestExact >= 0 && bestExactScore <= SPATIAL_MATCH_RADIUS * 1.8) {
+            usedRight.add(bestExact);
+            continue;
+        }
+
+        if (bestNear >= 0) {
+            const rt = right[bestNear];
+            usedRight.add(bestNear);
+            const lm = markFromToken('chg', lt);
+            const rm = markFromToken('chg', rt);
+            if (lm) leftMarks.push(lm);
+            if (rm) rightMarks.push(rm);
+            chg++;
+            continue;
+        }
+
+        leftUnmatched.push(lt);
+    }
+
+    const rightSurplus = [];
+    for (let ri = 0; ri < right.length; ri++) {
+        if (!usedRight.has(ri)) rightSurplus.push(right[ri]);
+    }
+
+    const freq = pairUnmatchedTokens(leftUnmatched, rightSurplus);
+    return {
+        leftMarks: leftMarks.concat(freq.leftMarks),
+        rightMarks: rightMarks.concat(freq.rightMarks),
+        del: del + freq.del,
+        ins: ins + freq.ins,
+        chg: chg + freq.chg,
+    };
 }
 
 /** Word LCS → marks painted on both old and new PDF canvases. */
@@ -884,6 +999,8 @@ function wordDiffMarks(leftTokens, rightTokens, slot = null) {
     }
 
     if (!left.length && !right.length) {
+        const visual = slot?.visualMarks || null;
+        if (visual) return visual;
         return { leftMarks: [], rightMarks: [], del: 0, ins: 0, chg: 0 };
     }
     if (!left.length) {
@@ -895,7 +1012,13 @@ function wordDiffMarks(leftTokens, rightTokens, slot = null) {
         return { leftMarks, rightMarks: [], del: leftMarks.length, ins: 0, chg: 0 };
     }
 
-    if (pageTextSimilarity(left, right) >= PAGE_SIMILARITY_SKIP) {
+    const similarity = pageTextSimilarity(left, right);
+    if (similarity >= PAGE_SIMILARITY_SKIP) {
+        // Near-identical text — still surface visual region diffs when present.
+        const visual = slot?.visualMarks || null;
+        if (visual && (visual.del + visual.ins + visual.chg) > 0) {
+            return visual;
+        }
         return { leftMarks: [], rightMarks: [], del: 0, ins: 0, chg: 0 };
     }
 
@@ -903,10 +1026,29 @@ function wordDiffMarks(leftTokens, rightTokens, slot = null) {
         || left.some((t) => t.ocr)
         || right.some((t) => t.ocr);
 
-    if (ocrHeavy) {
-        return wordDiffMarksFrequency(left, right);
+    let result;
+    if (ocrHeavy && left.some((t) => t.box) && right.some((t) => t.box)) {
+        result = wordDiffMarksSpatial(left, right);
+    } else if (ocrHeavy) {
+        result = wordDiffMarksFrequency(left, right);
+    } else {
+        result = wordDiffMarksSequential(left, right);
     }
-    return wordDiffMarksSequential(left, right);
+
+    // If OCR/text found almost nothing but pages look different, add region highlights.
+    const textMarks = result.del + result.ins + result.chg;
+    const visual = slot?.visualMarks || null;
+    if (visual && (visual.del + visual.ins + visual.chg) > 0 && textMarks < 3) {
+        return {
+            leftMarks: result.leftMarks.concat(visual.leftMarks || []),
+            rightMarks: result.rightMarks.concat(visual.rightMarks || []),
+            del: result.del + (visual.del || 0),
+            ins: result.ins + (visual.ins || 0),
+            chg: result.chg + (visual.chg || 0),
+        };
+    }
+
+    return result;
 }
 
 function pageTextSimilarity(leftTokens, rightTokens) {
@@ -930,14 +1072,13 @@ function pageTextSimilarity(leftTokens, rightTokens) {
     return matched / Math.max(left.length, right.length, 1);
 }
 
-async function pageVisualHash(doc, pageNum) {
+async function pageVisualHash(doc, pageNum, targetW = 48) {
     const page = await doc.getPage(pageNum);
     const base = page.getViewport({ scale: 1 });
-    const targetW = 24;
     const scale = targetW / base.width;
     const viewport = page.getViewport({ scale });
-    const w = Math.max(8, Math.floor(viewport.width));
-    const h = Math.max(8, Math.floor(viewport.height));
+    const w = Math.max(12, Math.floor(viewport.width));
+    const h = Math.max(12, Math.floor(viewport.height));
     const canvas = document.createElement('canvas');
     canvas.width = w;
     canvas.height = h;
@@ -946,27 +1087,118 @@ async function pageVisualHash(doc, pageNum) {
     ctx.fillRect(0, 0, w, h);
     await page.render({ canvasContext: ctx, viewport }).promise;
     const data = ctx.getImageData(0, 0, w, h).data;
-    const bins = new Uint8Array(w * h);
+    const bins = new Float32Array(w * h);
     for (let i = 0, p = 0; i < data.length; i += 4, p++) {
-        bins[p] = (data[i] * 0.299 + data[i + 1] * 0.587 + data[i + 2] * 0.114) > 140 ? 1 : 0;
+        bins[p] = (data[i] * 0.299 + data[i + 1] * 0.587 + data[i + 2] * 0.114) / 255;
     }
-    return bins;
+    return { bins, w, h };
 }
 
 function visualHashDiff(a, b) {
-    if (!a || !b || a.length !== b.length) return 1;
+    if (!a?.bins || !b?.bins || a.bins.length !== b.bins.length) return 1;
     let diff = 0;
-    for (let i = 0; i < a.length; i++) {
-        if (a[i] !== b[i]) diff++;
+    for (let i = 0; i < a.bins.length; i++) {
+        diff += Math.abs(a.bins[i] - b.bins[i]);
     }
-    return diff / a.length;
+    return diff / a.bins.length;
 }
 
-/** Quick visual scan — unchanged pairs skip expensive OCR on large documents. */
+/** Region boxes where two page renders differ — backup highlights for scanned forms. */
+function visualRegionMarks(leftHash, rightHash) {
+    if (!leftHash?.bins || !rightHash?.bins || leftHash.w !== rightHash.w || leftHash.h !== rightHash.h) {
+        return null;
+    }
+
+    const { w, h } = leftHash;
+    const cols = Math.min(VISUAL_TILE_COLS, w);
+    const rows = Math.min(VISUAL_TILE_ROWS, h);
+    const tileW = Math.max(1, Math.floor(w / cols));
+    const tileH = Math.max(1, Math.floor(h / rows));
+    const hot = [];
+
+    for (let ty = 0; ty < rows; ty++) {
+        for (let tx = 0; tx < cols; tx++) {
+            const x0 = tx * tileW;
+            const y0 = ty * tileH;
+            const x1 = tx === cols - 1 ? w : x0 + tileW;
+            const y1 = ty === rows - 1 ? h : y0 + tileH;
+            let sum = 0;
+            let count = 0;
+            for (let y = y0; y < y1; y++) {
+                for (let x = x0; x < x1; x++) {
+                    const i = y * w + x;
+                    sum += Math.abs(leftHash.bins[i] - rightHash.bins[i]);
+                    count++;
+                }
+            }
+            const avg = count ? sum / count : 0;
+            if (avg >= VISUAL_TILE_DIFF) {
+                hot.push({
+                    x: x0 / w,
+                    y: y0 / h,
+                    w: (x1 - x0) / w,
+                    h: (y1 - y0) / h,
+                });
+            }
+        }
+    }
+
+    if (!hot.length) return null;
+
+    // Merge neighboring hot tiles into larger boxes for cleaner highlights.
+    const merged = mergeRegionBoxes(hot);
+    const leftMarks = merged.map((box) => ({ k: 'chg', box }));
+    const rightMarks = merged.map((box) => ({ k: 'chg', box: { ...box } }));
+    return {
+        leftMarks,
+        rightMarks,
+        del: 0,
+        ins: 0,
+        chg: merged.length,
+    };
+}
+
+function mergeRegionBoxes(boxes) {
+    if (!boxes.length) return [];
+    const sorted = [...boxes].sort((a, b) => (a.y - b.y) || (a.x - b.x));
+    const out = [];
+    for (const box of sorted) {
+        const last = out[out.length - 1];
+        if (
+            last
+            && Math.abs(last.y - box.y) < 0.01
+            && Math.abs((last.x + last.w) - box.x) < 0.02
+            && Math.abs(last.h - box.h) < 0.02
+        ) {
+            const right = Math.max(last.x + last.w, box.x + box.w);
+            last.w = right - last.x;
+            continue;
+        }
+        if (
+            last
+            && Math.abs(last.x - box.x) < 0.01
+            && Math.abs((last.y + last.h) - box.y) < 0.02
+            && Math.abs(last.w - box.w) < 0.02
+        ) {
+            const bottom = Math.max(last.y + last.h, box.y + box.h);
+            last.h = bottom - last.y;
+            continue;
+        }
+        out.push({ ...box });
+    }
+    return out;
+}
+
+/**
+ * Quick visual + text scan.
+ * Only skip OCR when BOTH pages have rich embedded text AND look nearly identical.
+ * Scanned PDFs (no text layer) must always go through OCR / region compare.
+ */
 async function findUnchangedPagePairs(leftDoc, rightDoc, onProgress) {
     const pairs = [];
+    const visualByPage = new Map();
     const total = Math.min(leftDoc.numPages, rightDoc.numPages);
-    const batch = 6;
+    const batch = 4;
 
     for (let start = 1; start <= total; start += batch) {
         const end = Math.min(start + batch - 1, total);
@@ -976,17 +1208,31 @@ async function findUnchangedPagePairs(leftDoc, rightDoc, onProgress) {
         for (let p = start; p <= end; p++) {
             jobs.push(
                 Promise.all([
-                    pageVisualHash(leftDoc, p),
-                    pageVisualHash(rightDoc, p),
+                    pageVisualHash(leftDoc, p, 64),
+                    pageVisualHash(rightDoc, p, 64),
                     pageItems(leftDoc, p),
                     pageItems(rightDoc, p),
                 ]).then(([lh, rh, leftItems, rightItems]) => {
-                    if (visualHashDiff(lh, rh) > VISUAL_UNCHANGED_THRESHOLD) {
-                        return;
+                    const visualDiff = visualHashDiff(lh, rh);
+                    const regionMarks = visualDiff > VISUAL_UNCHANGED_THRESHOLD
+                        ? visualRegionMarks(lh, rh)
+                        : null;
+                    if (regionMarks) {
+                        visualByPage.set(p, regionMarks);
                     }
+
                     const lt = tokensFromItems(leftItems);
                     const rt = tokensFromItems(rightItems);
-                    if (lt.length && rt.length && pageTextSimilarity(lt, rt) < PAGE_SIMILARITY_SKIP) {
+                    const bothHaveText = lt.length >= 12 && rt.length >= 12;
+                    // Never skip OCR on scanned / textless pages — layout can look
+                    // identical at low res while cell values differ.
+                    if (!bothHaveText) {
+                        return;
+                    }
+                    if (visualDiff > VISUAL_UNCHANGED_THRESHOLD) {
+                        return;
+                    }
+                    if (pageTextSimilarity(lt, rt) < PAGE_SIMILARITY_SKIP) {
                         return;
                     }
                     pairs.push({ leftPage: p, rightPage: p });
@@ -997,7 +1243,7 @@ async function findUnchangedPagePairs(leftDoc, rightDoc, onProgress) {
         await new Promise((r) => setTimeout(r, 0));
     }
 
-    return pairs;
+    return { pairs, visualByPage };
 }
 
 function computeSlotDiff(slot) {
@@ -1625,14 +1871,16 @@ export async function runPdfCompare(root, options = {}) {
         }
 
         setStatus(root, 'Scanning for changed pages…', 'loading');
-        const unchangedPairs = await findUnchangedPagePairs(leftDoc, rightDoc, (cur, tot) => {
+        const scan = await findUnchangedPagePairs(leftDoc, rightDoc, (cur, tot) => {
             setStatus(root, `Scanning pages ${cur}/${tot} for changes…`, 'loading');
         });
+        const unchangedPairs = scan.pairs || [];
+        const visualByPage = scan.visualByPage || new Map();
         const skipLeft = new Set(unchangedPairs.map((p) => p.leftPage));
         const skipRight = new Set(unchangedPairs.map((p) => p.rightPage));
         const skipCount = unchangedPairs.length;
 
-        setStatus(root, 'Reading text (OCR only on changed pages)…', 'loading');
+        setStatus(root, 'Reading text (OCR on pages that may differ)…', 'loading');
         showStagePlaceholder(leftStage, 'Reading previous PDF…');
         showStagePlaceholder(rightStage, 'Reading latest PDF…');
 
@@ -1646,7 +1894,7 @@ export async function runPdfCompare(root, options = {}) {
             return;
         }
 
-        setStatus(root, 'Aligning OCR for highlights…', 'loading');
+        setStatus(root, 'Aligning text for highlights…', 'loading');
         await harmonizeCompareTokens(leftPages, rightPages, leftMeta, rightMeta, statusFn);
 
         if (root.__drrAbort) {
@@ -1656,16 +1904,23 @@ export async function runPdfCompare(root, options = {}) {
 
         const leftReadable = countPaintablePages(leftPages);
         const rightReadable = countPaintablePages(rightPages);
-        if (!leftReadable && !rightReadable) {
+        const hasVisualFallback = visualByPage.size > 0;
+        if (!leftReadable && !rightReadable && !hasVisualFallback) {
             setStatus(
                 root,
-                'Could not read text from either PDF (OCR failed). Check that Tesseract is installed on the server and the scan files are accessible.',
+                'Could not read text from either PDF (OCR failed) and no visual differences were detected. Check that Tesseract/Ghostscript are installed, then hard-refresh and compare again.',
                 'error'
             );
             return;
         }
         if (leftReadable < Math.min(leftPages.length, 1) || rightReadable < Math.min(rightPages.length, 1)) {
-            setStatus(root, 'OCR partially failed — some pages may not highlight. Continuing…', 'info');
+            setStatus(
+                root,
+                hasVisualFallback
+                    ? 'OCR was weak on some pages — using visual region highlights where needed…'
+                    : 'OCR partially failed — some pages may not highlight. Continuing…',
+                'info'
+            );
         }
 
         setStatus(root, 'Preparing page-by-page comparison…', 'loading');
@@ -1678,7 +1933,11 @@ export async function runPdfCompare(root, options = {}) {
             delete rightStage.dataset.scrollSync;
         }
 
-        const { alignment, mode: alignMode, similarity: docSimilarity } = alignPagesSmart(leftPages, rightPages);
+        const { alignment, mode: alignMode, similarity: docSimilarity } = alignPagesSmart(
+            leftPages,
+            rightPages,
+            visualByPage
+        );
         const changeAnalysis = analyzeAlignmentChanges(alignment);
         const width = Math.max(leftStage?.clientWidth || rightStage?.clientWidth || 480, 280);
 
@@ -1843,15 +2102,15 @@ export async function runPdfCompare(root, options = {}) {
 
             const leftMsg = [
                 `${changeAnalysis.stats.changed} page${changeAnalysis.stats.changed === 1 ? '' : 's'} with changes`,
-                skipCount ? `${skipCount} unchanged (OCR skipped)` : '',
+                skipCount ? `${skipCount} identical (skipped)` : '',
                 removedCount ? `${removedCount} previous-only` : '',
-                ocrUsed ? 'OCR on changed pages' : '',
+                ocrUsed ? 'OCR used' : '',
             ].filter(Boolean).join(' · ');
             const rightMsg = [
                 `${changeAnalysis.stats.changed} page${changeAnalysis.stats.changed === 1 ? '' : 's'} with changes`,
-                skipCount ? `${skipCount} unchanged (OCR skipped)` : '',
+                skipCount ? `${skipCount} identical (skipped)` : '',
                 addedCount ? `${addedCount} current-only` : '',
-                ocrUsed ? 'OCR on changed pages' : '',
+                ocrUsed ? 'OCR used' : '',
             ].filter(Boolean).join(' · ');
             if (leftNote) leftNote.textContent = leftMsg;
             if (rightNote) rightNote.textContent = rightMsg;
@@ -1862,9 +2121,15 @@ export async function runPdfCompare(root, options = {}) {
                 if (highlightRows === 0) {
                     setStatus(
                         root,
-                        'Comparison finished but no highlights were generated. OCR may have failed — check server Tesseract/Ghostscript, then hard-refresh and compare again.',
-                        'error'
+                        skipCount === total
+                            ? 'Comparison complete — these revisions look identical (no text or visual differences found).'
+                            : 'Comparison finished but no differences were highlighted. If the files should differ, hard-refresh and compare again (old cache cleared).',
+                        skipCount === total ? 'success' : 'info'
                     );
+                    if (skipCount !== total && cacheKey) {
+                        try { await deleteCompareCache(cacheKey); } catch { /* ignore */ }
+                        clearMemoryCompareCache(cacheKey);
+                    }
                     return;
                 }
 
@@ -1909,7 +2174,7 @@ export async function runPdfCompare(root, options = {}) {
                         setStatus(
                             root,
                             `Comparison complete · ${changeAnalysis.stats.changed} page${changeAnalysis.stats.changed === 1 ? '' : 's'} with changes`
-                                + (skipCount ? ` · ${skipCount} unchanged pages skipped OCR` : '')
+                                + (skipCount ? ` · ${skipCount} identical page${skipCount === 1 ? '' : 's'} skipped` : '')
                                 + ' · saved locally.',
                             'success'
                         );
@@ -1940,15 +2205,17 @@ export async function runPdfCompare(root, options = {}) {
                 if (highlightRows === 0) {
                     setStatus(
                         root,
-                        'Comparison finished but no word highlights were painted. Re-run after confirming OCR works on the server (Tesseract + Ghostscript).',
-                        'error'
+                        skipCount === total
+                            ? 'Comparison complete — these revisions look identical.'
+                            : 'Comparison finished but no word/visual differences were painted. Hard-refresh and try again if the files should differ.',
+                        skipCount === total ? 'success' : 'info'
                     );
                     return;
                 }
                 setStatus(
                     root,
                     `Comparison complete · ${changeAnalysis.stats.changed} page${changeAnalysis.stats.changed === 1 ? '' : 's'} with changes`
-                        + (skipCount ? ` · ${skipCount} unchanged pages skipped OCR` : '')
+                        + (skipCount ? ` · ${skipCount} identical page${skipCount === 1 ? '' : 's'} skipped` : '')
                         + (removedCount ? ` · ${removedCount} previous-only` : '')
                         + (addedCount ? ` · ${addedCount} current-only` : '')
                         + '. Use Prev/Next change to jump between edits.',
@@ -1980,5 +2247,5 @@ export async function runPdfCompare(root, options = {}) {
 }
 
 export async function buildCompareCacheKey(leftId, rightId) {
-    return 'drr-v16:' + await hashString(String(leftId) + '||' + String(rightId));
+    return 'drr-v17:' + await hashString(String(leftId) + '||' + String(rightId));
 }

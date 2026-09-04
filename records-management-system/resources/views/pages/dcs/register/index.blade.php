@@ -1283,6 +1283,8 @@ document.addEventListener("DOMContentLoaded", async function () {
         const versionSelect = document.getElementById("versionType");
         versionTypes.forEach(v => versionSelect.add(new Option(v.version_name, v.version_id)));
         const urlType = new URLSearchParams(location.search).get('type');
+        // Only pre-select when the URL explicitly asks (?type=new|revised).
+        // Normal Register visits leave Version Type blank so the user picks first.
         if (versionSelect && urlType === 'revised') {
             const match = [...versionSelect.options].find(o => /revis/i.test(o.text));
             if (match && match.value) {
@@ -1291,12 +1293,17 @@ document.addEventListener("DOMContentLoaded", async function () {
             }
             const modeEl = document.getElementById('registrationMode');
             if (modeEl) modeEl.value = 'revised';
-        } else if (versionSelect && (urlType === 'new' || !urlType)) {
+        } else if (versionSelect && urlType === 'new') {
             const match = [...versionSelect.options].find(o => /new/i.test(o.text) && !/revis/i.test(o.text));
             if (match && match.value) {
                 versionSelect.value = match.value;
                 versionSelect.dataset.lastValid = match.value;
             }
+            const modeEl = document.getElementById('registrationMode');
+            if (modeEl) modeEl.value = 'new';
+        } else if (versionSelect) {
+            versionSelect.value = '';
+            versionSelect.dataset.lastValid = '';
             const modeEl = document.getElementById('registrationMode');
             if (modeEl) modeEl.value = 'new';
         }
@@ -1920,6 +1927,8 @@ function clearRetrievalSection() {
 }
 
 function syncRetrievalForMode() {
+    const docTypeSelected = String(document.getElementById('docType')?.value || '').trim() !== '';
+
     if (!isRevisedMode()) {
         clearRetrievalSection();
         // Drop retrieval checkbox if it was rendered for a prior version selection.
@@ -1929,6 +1938,20 @@ function syncRetrievalForMode() {
             const label = cb.closest('label');
             if (label) label.remove();
         });
+        return;
+    }
+
+    // Version just changed and Document Type was cleared — refresh checklist
+    // options only. Do NOT re-show form sections from a prior selection.
+    if (!docTypeSelected) {
+        if (window.__lastVersionChecklists && window.__lastVersionChecklists.length) {
+            const container = document.getElementById('dynamicCheckboxes');
+            const hasRetrieval = container?.querySelector('input[name="checklists[]"][value="4"]');
+            if (!hasRetrieval) {
+                renderChecklists(window.__lastVersionChecklists, true);
+            }
+        }
+        clearRetrievalSection();
         return;
     }
 
@@ -1951,6 +1974,22 @@ function syncRetrievalForMode() {
             });
         }
     }
+}
+
+function updateRegistrationMode() {
+    const sel = document.getElementById('versionType');
+    const hidden = document.getElementById('registrationMode');
+    if (!sel || !hidden) return;
+
+    if (!String(sel.value || '').trim()) {
+        hidden.value = 'new';
+        applyRevisionMode();
+        return;
+    }
+
+    const text = sel.options[sel.selectedIndex]?.text?.toLowerCase() || '';
+    hidden.value = (text.includes('revised') || text.includes('revision') || text.includes('revise')) ? 'revised' : 'new';
+    applyRevisionMode();
 }
 
 function applyRevisionMode() {
@@ -2001,16 +2040,6 @@ function applyRevisionMode() {
     }
 
     syncRetrievalForMode();
-}
-
-function updateRegistrationMode() {
-    const sel = document.getElementById('versionType');
-    const hidden = document.getElementById('registrationMode');
-    if (!sel || !hidden) return;
-
-    const text = sel.options[sel.selectedIndex]?.text?.toLowerCase() || '';
-    hidden.value = (text.includes('revised') || text.includes('revision') || text.includes('revise')) ? 'revised' : 'new';
-    applyRevisionMode();
 }
 
 function setSaveEnabled(enabled) {
@@ -3577,12 +3606,82 @@ async function handleVersionChange() {
     const docTypeSelect = document.getElementById("docType");
     const subTypeSelect = document.getElementById("subType");
 
+    // Changing version invalidates the previous Document Type / form state.
+    window.__isSyllabiMode = false;
+    window.__syllabiModeLabel = 'Syllabi';
+    window.__lastSubTypeId = null;
+    window.__revisedFromDocNo = null;
+    syllabiTitleManuallyEdited = false;
+    docNoDuplicate = false;
+    clearRevNoHint();
+
+    const fromInput = document.getElementById('revisedFromDocNo');
+    if (fromInput) fromInput.value = '';
+    clearRevisedApprovalContext();
+
     ["section-1", "section-2", "section-3", "section-4", "section-5", "section-approval", "section-syllabi", "formActions"].forEach(id => {
         const el = document.getElementById(id);
-        if (el) el.style.display = "none";
+        if (el) {
+            el.style.display = "none";
+            resetTextLikeInputs(el);
+            resetFileWidgetsIn(el);
+        }
     });
 
+    ['masterlistTimeSpentDisplay', 'retrievalTimeSpentDisplay', 'distributionTimeSpentDisplay'].forEach(id => {
+        const el = document.getElementById(id);
+        if (el) {
+            el.value = '--';
+            el.style.color = '';
+        }
+    });
+    ['masterlistTimeSpent', 'retrievalTimeSpent', 'distributionTimeSpent'].forEach(id => {
+        const el = document.getElementById(id);
+        if (el) el.value = '';
+    });
+
+    ['drf', 'dcn', 'masterlist', 'masterlistOriginator'].forEach(key => {
+        if (window.__sourceWidgets?.[key]) window.__sourceWidgets[key].reset();
+    });
+    ['drfSourceUnitSearch', 'dcnSourceUnitSearch', 'masterlistSourceSearch', 'masterlistOriginatorSearch'].forEach(id => {
+        const el = document.getElementById(id);
+        if (el) el.value = '';
+    });
+
+    relatedDocsSelected = [];
+    if (typeof renderRelatedDocsChips === 'function') renderRelatedDocsChips();
+
+    ['retrievalBody', 'distBody'].forEach(tbodyId => {
+        const tbody = document.getElementById(tbodyId);
+        if (tbody) tbody.innerHTML = emptyOfficeRowHTML(tbodyId);
+    });
+    ['totalRetrievalCopies', 'totalDistCopies'].forEach(id => {
+        const el = document.getElementById(id);
+        if (el) el.textContent = '0';
+    });
+
+    const revisionBody = document.getElementById('revisionTableBody');
+    if (revisionBody) {
+        revisionBody.querySelectorAll('tr[data-uid]').forEach(tr => removeRevisionRowDropdowns(tr));
+        revisionBody.innerHTML = '<tr>' + revisionRowCellsHTML() + '</tr>';
+        const newRow = revisionBody.querySelector('tr');
+        bindTableFileInput(newRow.querySelector('input[type="file"]'));
+        bindRevisionRowSearch(newRow);
+    }
+
+    if (typeof resetSyllabiSection === 'function') resetSyllabiSection();
+    if (typeof resetMasterlistNoOfPagesField === 'function') resetMasterlistNoOfPagesField();
+    if (typeof setSyllabiStep === 'function') setSyllabiStep(1);
+
+    const hintEl = document.getElementById('docNoHint');
+    if (hintEl) {
+        hintEl.innerHTML = '';
+        hintEl.style.color = '';
+        hintEl.dataset.valid = '';
+    }
+
     docTypeSelect.value = "";
+    docTypeSelect.dataset.lastValid = "";
     const hasVersion = String(versionId ?? "").trim() !== "";
     docTypeSelect.disabled = !hasVersion;
     if (hasVersion) {
@@ -3593,10 +3692,12 @@ async function handleVersionChange() {
     subTypeSelect.innerHTML = '<option value="" selected disabled>Select sub-type</option>';
     subTypeSelect.disabled = true;
     subTypeSelect.setAttribute("disabled", "disabled");
+    subTypeSelect.dataset.lastValid = "";
     disableApproval();
+    clearValidation();
 
-    // Set new/revised mode before rendering so Document Retrieval (checklist 4)
-    // is only included when registering a revision.
+    // Mode first (New vs Revised), then checklists — never restore sections
+    // from a prior Document Type while version is being changed.
     updateRegistrationMode();
 
     if (!versionId) {
@@ -3607,6 +3708,7 @@ async function handleVersionChange() {
             { checklist_id: 4, checklist_name: "Document Retrieval" },
             { checklist_id: 5, checklist_name: "Document Distribution" },
         ], true);
+        lockChecklist();
         return;
     }
 
@@ -3614,8 +3716,10 @@ async function handleVersionChange() {
         const byVersion = (window.__registerCatalog && window.__registerCatalog.checklistsByVersion) || {};
         const checklists = byVersion[String(versionId)] || [];
         renderChecklists(checklists, true);
+        lockChecklist();
     } catch (err) {
         console.error("Failed to load checklists:", err);
+        lockChecklist();
     }
 }
 

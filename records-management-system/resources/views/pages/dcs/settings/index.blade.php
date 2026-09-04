@@ -12,7 +12,6 @@ new #[Layout('layouts.dcs')] class extends Component {
     public ?int $editingId = null;
     public ?int $parentId = null;
 
-    public string $versionName = '';
     public string $docTypeName = '';
     public string $originatorName = '';
     public string $facultyName = '';
@@ -43,23 +42,13 @@ new #[Layout('layouts.dcs')] class extends Component {
         $this->parentId = null;
         $this->modalKind = '';
         $this->reset([
-            'versionName', 'docTypeName', 'originatorName',
+            'docTypeName', 'originatorName',
             'facultyName', 'collegeId', 'collegeName', 'officeId', 'programName', 'programCode',
             'semesterName', 'schoolYear', 'programId', 'semesterId', 'courseName', 'courseCode', 'courseFacultyIds',
             'deleteTitle', 'deleteMessage',
         ]);
         $this->resetValidation();
         $this->dispatch('settings-close-modal');
-    }
-
-    public function openVersionType(?int $id = null): void
-    {
-        $this->resetFormFor('versionType', $id);
-        if ($id) {
-            $row = DB::table('dcs_version_type')->where('id', $id)->first();
-            abort_unless($row, 404);
-            $this->versionName = $row->version_name;
-        }
     }
 
     public function openDocType(?int $id = null, ?int $parentId = null): void
@@ -188,7 +177,6 @@ new #[Layout('layouts.dcs')] class extends Component {
     {
         \App\Helpers\RegisterQueryHelper::assertFullDcsUser();
         match ($this->modalKind) {
-            'versionType' => $this->saveVersionType(),
             'docType' => $this->saveDocType(),
             'originator' => $this->saveOriginator(),
             'faculty' => $this->saveFaculty(),
@@ -208,7 +196,6 @@ new #[Layout('layouts.dcs')] class extends Component {
         $id = (int) $this->editingId;
 
         match ($kind) {
-            'versionType' => $this->destroyVersionType($id),
             'docType' => $this->destroyDocType($id),
             'originator' => $this->destroyOriginator($id),
             'faculty' => $this->destroyFaculty($id),
@@ -219,25 +206,6 @@ new #[Layout('layouts.dcs')] class extends Component {
             'programCourse' => $this->destroyProgramCourse($id),
             default => null,
         };
-    }
-
-    private function saveVersionType(): void
-    {
-        $this->validate([
-            'versionName' => [
-                'required', 'string', 'max:255',
-                Rule::unique('dcs_version_type', 'version_name')->ignore($this->editingId, 'id'),
-            ],
-        ]);
-
-        if ($this->editingId) {
-            DB::table('dcs_version_type')->where('id', $this->editingId)->update(['version_name' => $this->versionName]);
-            $this->done('Version type updated.');
-            return;
-        }
-
-        DB::table('dcs_version_type')->insert(['version_name' => $this->versionName]);
-        $this->done('Version type added.');
     }
 
     private function saveDocType(): void
@@ -553,16 +521,6 @@ new #[Layout('layouts.dcs')] class extends Component {
         }
     }
 
-    private function destroyVersionType(int $id): void
-    {
-        if (DB::table('dcs_document_requests')->where('version_id', $id)->exists()) {
-            $this->fail('This version type is used by existing documents and cannot be deleted.');
-            return;
-        }
-        DB::table('dcs_version_type')->where('id', $id)->delete();
-        $this->done('Version type deleted.');
-    }
-
     private function destroyDocType(int $id): void
     {
         if (DB::table('dcs_doc_types')->where('parent_id', $id)->exists()) {
@@ -742,7 +700,6 @@ new #[Layout('layouts.dcs')] class extends Component {
         return [
             'docTypeParents' => $docTypeParents,
             'docTypeSubs' => $docTypeSubs,
-            'versionTypes' => DB::table('dcs_version_type')->orderBy('version_name')->get(['id', 'version_name']),
             'originators' => Schema::hasTable('dcs_originators')
                 ? DB::table('dcs_originators')->orderBy('originator_name')->get(['id', 'originator_name'])
                 : collect(),
@@ -809,7 +766,7 @@ new #[Layout('layouts.dcs')] class extends Component {
         tab: new URLSearchParams(window.location.search).get('tab') || sessionStorage.getItem('settingsActiveTab') || 'doctypes',
         modalOpen: false,
         init() {
-            const allowed = ['versiontypes','doctypes','originators','faculties','colleges','programs','semesters','schoolyears','coursenames'];
+            const allowed = ['doctypes','originators','faculties','colleges','programs','semesters','schoolyears','coursenames'];
             if (!allowed.includes(this.tab)) this.tab = 'doctypes';
             sessionStorage.setItem('settingsActiveTab', this.tab);
         },
@@ -844,7 +801,6 @@ new #[Layout('layouts.dcs')] class extends Component {
 
     <div class="settings-tabs">
         @foreach ([
-            'versiontypes' => ['fa-code-branch', 'Version Types'],
             'doctypes' => ['fa-tags', 'Document Types'],
             'originators' => ['fa-user-pen', 'Originators'],
             'faculties' => ['fa-chalkboard-user', 'Faculties'],
@@ -859,35 +815,6 @@ new #[Layout('layouts.dcs')] class extends Component {
             </button>
         @endforeach
     </div>
-
-    <section class="tab-panel" x-show="tab === 'versiontypes'" x-cloak>
-        <div class="panel-toolbar">
-            <span class="panel-subtitle">Document version classifications</span>
-            <button type="button" class="btn-primary" wire:click="openVersionType()">
-                <i class="fa-solid fa-plus"></i> Add Version Type
-            </button>
-        </div>
-        <div class="table-wrap">
-            <table class="settings-table">
-                <thead><tr><th>Version Name</th><th style="width:140px;">Actions</th></tr></thead>
-                <tbody>
-                    @forelse($versionTypes as $v)
-                        <tr wire:key="vt-{{ $v->id }}" data-id="{{ $v->id }}">
-                            <td>{{ $v->version_name }}</td>
-                            <td>
-                                <div class="row-actions">
-                                    <button type="button" class="icon-btn" title="Edit" wire:click="openVersionType({{ $v->id }})"><i class="fa-solid fa-pen"></i></button>
-                                    <button type="button" class="icon-btn icon-btn-danger" title="Delete" wire:click="confirmDelete('versionType', {{ $v->id }}, 'Delete Version Type', 'This version type will be permanently removed. This cannot be undone.')"><i class="fa-solid fa-trash"></i></button>
-                                </div>
-                            </td>
-                        </tr>
-                    @empty
-                        <tr><td colspan="2" class="empty-cell">No version types yet.</td></tr>
-                    @endforelse
-                </tbody>
-            </table>
-        </div>
-    </section>
 
     <section class="tab-panel" x-show="tab === 'doctypes'" x-cloak>
         <div class="panel-toolbar">
@@ -1167,8 +1094,7 @@ new #[Layout('layouts.dcs')] class extends Component {
                     <button type="button" class="st-modal-close" @click="dismiss()"><i class="fa-solid fa-xmark"></i></button>
                 </div>
                 <div class="st-modal-title">
-                    @if($modalKind === 'versionType') {{ $editingId ? 'Edit Version Type' : 'Add Version Type' }}
-                    @elseif($modalKind === 'docType') {{ $editingId ? 'Edit Document Type' : ($parentId ? 'Add Sub-type' : 'Add Document Type') }}
+                    @if($modalKind === 'docType') {{ $editingId ? 'Edit Document Type' : ($parentId ? 'Add Sub-type' : 'Add Document Type') }}
                     @elseif($modalKind === 'originator') {{ $editingId ? 'Edit Originator' : 'Add Originator' }}
                     @elseif($modalKind === 'faculty') {{ $editingId ? 'Edit Faculty' : 'Add Faculty' }}
                     @elseif($modalKind === 'college') {{ $editingId ? 'Edit College' : 'Add College' }}
@@ -1179,13 +1105,7 @@ new #[Layout('layouts.dcs')] class extends Component {
                     @endif
                 </div>
 
-                @if($modalKind === 'versionType')
-                    <div class="st-field">
-                        <label class="st-label">Version Name</label>
-                        <input type="text" class="st-input @error('versionName') error @enderror" wire:model="versionName" placeholder="e.g. Original, Revised">
-                        @error('versionName') <div class="field-error">{{ $message }}</div> @enderror
-                    </div>
-                @elseif($modalKind === 'docType')
+                @if($modalKind === 'docType')
                     <div class="st-field">
                         <label class="st-label">Name</label>
                         <input type="text" class="st-input @error('docTypeName') error @enderror" wire:model="docTypeName" placeholder="e.g. Internal, Syllabi">

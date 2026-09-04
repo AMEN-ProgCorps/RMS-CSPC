@@ -687,6 +687,24 @@
       }, 250);
     });
 
+    function isMessageEditWindowExpired(container) {
+      if (!container) return false;
+      const createdAtRaw = container.getAttribute('data-created-at');
+      if (!createdAtRaw) return false;
+      let createdTime = NaN;
+      if (createdAtRaw.includes('T')) {
+        createdTime = new Date(createdAtRaw).getTime();
+      } else {
+        // From server timestamp (Asia/Manila UTC+8)
+        const normalized = createdAtRaw.replace(' ', 'T') + '+08:00';
+        createdTime = new Date(normalized).getTime();
+      }
+      if (!isNaN(createdTime)) {
+        return (Date.now() - createdTime) / 1000 > 120;
+      }
+      return false;
+    }
+
     // Event delegation for double click to edit chat message
     chatBox.addEventListener('dblclick', function (e) {
       const container = e.target.closest('.message-container.sent');
@@ -694,6 +712,19 @@
       
       const msgId = container.getAttribute('data-msg-id');
       if (!msgId) return;
+
+      // 3-edit limit check
+      const currentEditCount = parseInt(container.getAttribute('data-edit-count') || '0', 10);
+      if (currentEditCount >= 3) {
+        showEditLimitModal();
+        return;
+      }
+
+      // 2-minute edit limit check
+      if (isMessageEditWindowExpired(container)) {
+        showEditExpiredModal();
+        return;
+      }
 
       // Ensure it is a text message, not an upload
       const contentEl = container.querySelector('.message-bubble .message-content');
@@ -2321,13 +2352,13 @@
           cachedObj.readUpTo = data.readUpTo;
           if (cachedObj._raw) cachedObj._raw.readUpTo = data.readUpTo;
         }
-      } else if (typeof dmReadUpToMap !== 'undefined' && dmReadUpToMap.has(requestedUser)) {
-        dmReadUpTo = dmReadUpToMap.get(requestedUser);
-        if (data && typeof data === 'object') data.readUpTo = dmReadUpTo;
+      } else {
+        dmReadUpTo = null;
+        if (typeof dmReadUpToMap !== 'undefined') dmReadUpToMap.set(requestedUser, null);
         const cachedObj = typeof dmMessageCache !== 'undefined' ? dmMessageCache.get(requestedUser) : null;
         if (cachedObj) {
-          cachedObj.readUpTo = dmReadUpTo;
-          if (cachedObj._raw) cachedObj._raw.readUpTo = dmReadUpTo;
+          cachedObj.readUpTo = null;
+          if (cachedObj._raw) cachedObj._raw.readUpTo = null;
         }
       }
 
@@ -3178,6 +3209,30 @@
       let payload = '';
 
       if (editingMsgId) {
+        const editedContainer = chatBox.querySelector(`.message-container[data-msg-id="${editingMsgId}"]`);
+        if (editedContainer) {
+          const currentEditCount = parseInt(editedContainer.getAttribute('data-edit-count') || '0', 10);
+          if (currentEditCount >= 3) {
+            showEditLimitModal();
+            hideEditBanner();
+            resetMessageInputVisualState();
+            messageInput.style.height = 'auto';
+            isSending = false;
+            sendButton.classList.remove('sending');
+            sendButton.disabled = false;
+            return;
+          }
+          if (isMessageEditWindowExpired(editedContainer)) {
+            showEditExpiredModal();
+            hideEditBanner();
+            resetMessageInputVisualState();
+            messageInput.style.height = 'auto';
+            isSending = false;
+            sendButton.classList.remove('sending');
+            sendButton.disabled = false;
+            return;
+          }
+        }
         xhr.open('POST', 'edit_message.php', true);
         xhr.setRequestHeader('Content-type', 'application/x-www-form-urlencoded');
         payload = 'msg_uuid=' + encodeURIComponent(editingMsgId) + '&message=' + encodeURIComponent(message);
@@ -3236,15 +3291,24 @@
             sendTypingStatus(false);
           }
 
+          let resData = null;
+          try { resData = JSON.parse(this.responseText); } catch(e) {}
+          const confirmedMsg = (resData && resData.message) ? resData.message : null;
+
           // Optimistically patch the edited bubble in-place so it updates
           // instantly without waiting for loadChatForced() to re-render.
           let capturedEditingMsgId = null;
+          let newEditCount = 1;
           if (editingMsgId) {
             capturedEditingMsgId = editingMsgId;
             const editedContainer = chatBox.querySelector(
               `.message-container[data-msg-id="${editingMsgId}"]`
             );
             if (editedContainer) {
+              const prevEditCount = parseInt(editedContainer.getAttribute('data-edit-count') || '0', 10);
+              newEditCount = (resData && typeof resData.edit_count !== 'undefined') ? Number(resData.edit_count) : (prevEditCount + 1);
+              editedContainer.setAttribute('data-edit-count', String(newEditCount));
+
               const editedBubble = editedContainer.querySelector('.message-bubble');
               const contentEl = editedContainer.querySelector('.message-bubble .message-content');
               if (contentEl) {
@@ -3269,12 +3333,26 @@
                 bubbleWrapper.insertBefore(label, bubbleWrapper.firstChild);
               }
             }
+
+            // Real-time reply reflection: update any reply bubbles referencing this message
+            if (typeof updateRepliesForEditedMessage === 'function') {
+              updateRepliesForEditedMessage(capturedEditingMsgId, message);
+            }
+
+            // If current user is replying to this message, update banner preview
+            if (typeof replyState !== 'undefined' && replyState && replyState.msgId === capturedEditingMsgId) {
+              replyState.snippet = message;
+              if (typeof showReplyBanner === 'function') {
+                showReplyBanner(message);
+              }
+            }
+
+            if (typeof dmMessageCache !== 'undefined') {
+              dmMessageCache.clear();
+            }
+
             hideEditBanner();
           }
-
-          let resData = null;
-          try { resData = JSON.parse(this.responseText); } catch(e) {}
-          const confirmedMsg = (resData && resData.message) ? resData.message : null;
 
           // Convert optimistic sending bubble in-place immediately without full chat reload
           if (!editingMsgId && sendIndId) {
@@ -3286,6 +3364,12 @@
                   if (sendingBubble.parentNode) sendingBubble.parentNode.removeChild(sendingBubble);
                 } else {
                   sendingBubble.setAttribute('data-msg-id', confirmedMsg.id);
+                  sendingBubble.setAttribute('data-created-at', new Date().toISOString());
+                  sendingBubble.setAttribute('data-edit-count', '0');
+                  const replyUuid = (confirmedMsg && confirmedMsg.reply_to_msg_uuid) ? confirmedMsg.reply_to_msg_uuid : (activeReply ? activeReply.msgId : null);
+                  if (replyUuid) {
+                    sendingBubble.setAttribute('data-reply-to', replyUuid);
+                  }
                   sendingBubble.removeAttribute('id');
                   sendingBubble.removeAttribute('data-sending-uid');
                 
@@ -3305,7 +3389,6 @@
                 sendingBubble.className = 'message-container sent';
                 const emojiOnlyClass = isEmojiOnly(msgContent) ? ' emoji-only' : '';
                 const replyQuoteHtml = (() => {
-                  const replyUuid = (confirmedMsg && confirmedMsg.reply_to_msg_uuid) ? confirmedMsg.reply_to_msg_uuid : (activeReply ? activeReply.msgId : null);
                   let snippetText = (confirmedMsg && (confirmedMsg.reply_snippet || confirmedMsg.reply_message))
                     ? (confirmedMsg.reply_snippet || confirmedMsg.reply_message)
                     : (activeReply && activeReply.snippet ? activeReply.snippet : '');
@@ -3319,9 +3402,9 @@
                   if (String(snippetText).startsWith('image:')) {
                     const imgFile = String(snippetText).slice(6);
                     const imgSrc  = 'uploads/' + imgFile;
-                    return `<div class="reply-quote reply-quote-image-container"><img src="${imgSrc.replace(/"/g, '&quot;')}" class="reply-quote-image" alt="" referrerpolicy="no-referrer" draggable="false" onerror="this.closest('.reply-quote-image-container,.reply-quote')?.remove()"></div>`;
+                    return `<div class="reply-quote reply-quote-image-container" data-reply-to="${escapeHtml(replyUuid)}"><img src="${imgSrc.replace(/"/g, '&quot;')}" class="reply-quote-image" alt="" referrerpolicy="no-referrer" draggable="false" onerror="this.closest('.reply-quote-image-container,.reply-quote')?.remove()"></div>`;
                   }
-                  return `<div class="reply-quote"><div class="reply-quote-text">${escapeHtml(truncateForReply(snippetText, 120))}</div></div>`;
+                  return `<div class="reply-quote" data-reply-to="${escapeHtml(replyUuid)}"><div class="reply-quote-text">${escapeHtml(truncateForReply(snippetText, 120))}</div></div>`;
                 })();
                 sendingBubble.innerHTML = `
                   <div class="message-avatar">${avatarInnerHtml(wsConfig.avatarUrl, getInitials(name))}</div>
@@ -3367,6 +3450,7 @@
                 type: 'message_edited',
                 msg_uuid: capturedEditingMsgId,
                 message: message,
+                edit_count: newEditCount,
                 chat_type: isGlobalChat ? 'global' : 'private',
                 recipient_id: activeDMAccountId || null
               }));
@@ -3414,12 +3498,35 @@
             const indicator = document.getElementById(sendIndId);
             if (indicator) indicator.remove();
           }
+          if (editingMsgId) {
+            let resData = null;
+            try { resData = JSON.parse(this.responseText); } catch(e) {}
+            const errMsg = (resData && resData.error) ? resData.error : 'Failed to update message.';
+            if (errMsg.toLowerCase().includes('2 minutes')) {
+              showEditExpiredModal(errMsg);
+            } else if (errMsg.toLowerCase().includes('3 times') || errMsg.toLowerCase().includes('edited up to')) {
+              showEditLimitModal(errMsg);
+            } else if (typeof showGeneralToast === 'function') {
+              showGeneralToast(errMsg, true);
+            }
+            hideEditBanner();
+            resetMessageInputVisualState();
+            messageInput.style.height = 'auto';
+          }
         }
       };
 
       xhr.onerror = function() {
         const indicator = document.getElementById(sendIndId);
         if (indicator) indicator.remove();
+        if (editingMsgId) {
+          if (typeof showGeneralToast === 'function') {
+            showGeneralToast('Failed to update message due to network error.', true);
+          }
+          hideEditBanner();
+          resetMessageInputVisualState();
+          messageInput.style.height = 'auto';
+        }
       };
     });
 
@@ -4749,6 +4856,46 @@
         modal.style.display = 'none';
         modal.classList.remove('active');
       }
+    }
+
+    function showEditExpiredModal(msg, title) {
+      const modal = document.getElementById('editExpiredModal');
+      const titleEl = document.getElementById('editExpiredTitle');
+      const bodyEl = document.getElementById('editExpiredBody');
+      if (titleEl) {
+        titleEl.textContent = title || 'Edit Expired';
+      }
+      if (bodyEl) {
+        bodyEl.textContent = msg || 'Messages cannot be edited after 2 minutes.';
+      }
+      if (modal) {
+        modal.style.display = 'flex';
+        modal.classList.add('active');
+      }
+    }
+
+    function showEditLimitModal(msg) {
+      showEditExpiredModal(msg || 'Messages can only be edited up to 3 times.', 'Edit Limit Reached');
+    }
+
+    function closeEditExpiredModal() {
+      const modal = document.getElementById('editExpiredModal');
+      if (modal) {
+        modal.style.display = 'none';
+        modal.classList.remove('active');
+      }
+    }
+    window.showEditExpiredModal = showEditExpiredModal;
+    window.showEditLimitModal = showEditLimitModal;
+    window.closeEditExpiredModal = closeEditExpiredModal;
+
+    const editExpiredModalEl = document.getElementById('editExpiredModal');
+    if (editExpiredModalEl) {
+      editExpiredModalEl.addEventListener('click', function(e) {
+        if (e.target === editExpiredModalEl) {
+          closeEditExpiredModal();
+        }
+      });
     }
 
     // ── Scroll anchoring for content that resizes above the viewport ──────

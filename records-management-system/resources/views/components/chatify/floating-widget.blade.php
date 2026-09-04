@@ -440,42 +440,50 @@
                 playNotificationSound();
             }
 
-            lastChatUnread = chatCount;
-            lastSystemUnread = systemCount;
-
-            // 1. Update Chatify Floating Widget Button Badge
-            const badge = document.getElementById('chatify-unread-badge');
-            if (badge) {
-                if (chatCount > 0) {
-                    badge.textContent = chatCount > 99 ? '99+' : chatCount;
-                    badge.style.display = 'flex';
-                } else {
-                    badge.style.display = 'none';
-                }
-            }
-
-            // 2. Update Chatify Dropdown Badge
-            const dropdownBadge = document.getElementById('chatify-dropdown-unread-badge');
-            if (dropdownBadge) {
-                if (chatCount > 0) {
-                    dropdownBadge.textContent = chatCount > 99 ? '99+' : chatCount;
-                    dropdownBadge.style.display = 'inline-flex';
-                } else {
-                    dropdownBadge.style.display = 'none';
-                }
-            }
-
-            // 3. Update Header Bell Notification Badge
-            const bellBadge = document.getElementById('header-notif-badge') || document.querySelector('.notif-badge');
-            if (bellBadge) {
-                bellBadge.style.display = systemCount > 0 ? 'block' : 'none';
-            }
-
-            // 4. Update Tab Title & Favicon Red Dot
-            updateTabTitle(totalCount);
-            updateFaviconBadge(totalCount);
+            applyUnreadCounts(chatCount, systemCount);
         })
         .catch(() => {});
+    }
+
+    function applyUnreadCounts(chatCount, systemCount) {
+        chatCount = Math.max(0, parseInt(chatCount !== undefined ? chatCount : (lastChatUnread || 0), 10));
+        systemCount = Math.max(0, parseInt(systemCount !== undefined ? systemCount : (lastSystemUnread || 0), 10));
+
+        lastChatUnread = chatCount;
+        lastSystemUnread = systemCount;
+        const totalCount = chatCount + systemCount;
+
+        // 1. Update Chatify Floating Widget Button Badge
+        const badge = document.getElementById('chatify-unread-badge');
+        if (badge) {
+            if (chatCount > 0) {
+                badge.textContent = chatCount > 99 ? '99+' : chatCount;
+                badge.style.display = 'flex';
+            } else {
+                badge.style.display = 'none';
+            }
+        }
+
+        // 2. Update Chatify Dropdown Badge
+        const dropdownBadge = document.getElementById('chatify-dropdown-unread-badge');
+        if (dropdownBadge) {
+            if (chatCount > 0) {
+                dropdownBadge.textContent = chatCount > 99 ? '99+' : chatCount;
+                dropdownBadge.style.display = 'inline-flex';
+            } else {
+                dropdownBadge.style.display = 'none';
+            }
+        }
+
+        // 3. Update Header Bell Notification Badge
+        const bellBadge = document.getElementById('header-notif-badge') || document.querySelector('.notif-badge');
+        if (bellBadge) {
+            bellBadge.style.display = systemCount > 0 ? 'block' : 'none';
+        }
+
+        // 4. Update Tab Title & Favicon Red Dot
+        updateTabTitle(totalCount);
+        updateFaviconBadge(totalCount);
     }
 
     window.updateChatifyUnreadBadge = updateUnreadBadge;
@@ -484,6 +492,9 @@
         if (!event.data) return;
 
         if (event.data.type === 'CHATIFY_NEW_MESSAGE') {
+            if (typeof event.data.unread_count === 'number') {
+                applyUnreadCounts(event.data.unread_count, lastSystemUnread);
+            }
             playNotificationSound();
             updateUnreadBadge();
             setTimeout(updateUnreadBadge, 400);
@@ -493,6 +504,9 @@
         } else if (event.data.type === 'CHATIFY_USER_INTERACTION') {
             initAudioContext();
         } else if (event.data.type === 'CHATIFY_MARK_READ' || event.data.type === 'CHATIFY_REFRESH_BADGE') {
+            if (typeof event.data.unread_count === 'number') {
+                applyUnreadCounts(event.data.unread_count, lastSystemUnread);
+            }
             updateUnreadBadge();
             setTimeout(updateUnreadBadge, 500);
         }

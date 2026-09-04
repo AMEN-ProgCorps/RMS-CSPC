@@ -56,6 +56,43 @@
       const xBtn = document.getElementById('cancelEditXBtn');
       if (xBtn) xBtn.style.display = 'none';
     }
+
+    function updateRepliesForEditedMessage(msgUuid, newText) {
+      if (!msgUuid || typeof newText !== 'string' || !chatBox) return;
+      const cleanSnippet = newText.replace(/\s+/g, ' ').trim();
+      const truncated = cleanSnippet.length <= 120 ? cleanSnippet : cleanSnippet.slice(0, 120).trim() + '...';
+
+      const quotes = chatBox.querySelectorAll(
+        `.reply-quote[data-reply-to="${msgUuid}"], .message-container[data-reply-to="${msgUuid}"] .reply-quote`
+      );
+
+      quotes.forEach(function(rq) {
+        const textEl = rq.querySelector('.reply-quote-text');
+        if (textEl) {
+          textEl.textContent = truncated;
+        } else if (!rq.querySelector('img')) {
+          rq.innerHTML = `<div class="reply-quote-text">${escapeHtml(truncated)}</div>`;
+        }
+      });
+    }
+    window.updateRepliesForEditedMessage = updateRepliesForEditedMessage;
+
+    function showGeneralToast(message, isError) {
+      const container = document.getElementById('notifyToastContainer');
+      if (!container) return;
+      const toast = document.createElement('div');
+      toast.className = 'notify-toast' + (isError ? ' error' : '');
+      if (isError) {
+        toast.style.cssText = 'background:#ef4444;color:#ffffff;border:none;box-shadow:0 4px 12px rgba(239,68,68,0.4);font-weight:600;font-size:13px;padding:10px 16px;border-radius:10px;';
+      }
+      toast.textContent = message;
+      container.appendChild(toast);
+      setTimeout(() => {
+        toast.classList.add('hide');
+        setTimeout(() => toast.remove(), 250);
+      }, 3500);
+    }
+    window.showGeneralToast = showGeneralToast;
     const notifyModal        = document.getElementById('notifyModal');
     const notifyTargetName   = document.getElementById('notifyTargetName');
     const notifyMessageInput = document.getElementById('notifyMessageInput');
@@ -210,6 +247,9 @@
       container.className = 'message-container ' + (isSentByMe ? 'sent' : 'received') + ' msg-animate-' + (isSentByMe ? 'sent' : 'received');
       if (msgId) container.setAttribute('data-msg-id', msgId);
       if (msgData.sender_id) container.setAttribute('data-sender-id', String(msgData.sender_id));
+      if (msgData.created_at) container.setAttribute('data-created-at', String(msgData.created_at));
+      if (msgData.reply_to_msg_uuid) container.setAttribute('data-reply-to', String(msgData.reply_to_msg_uuid));
+      container.setAttribute('data-edit-count', String(msgData.edit_count || 0));
       container.addEventListener('animationend', () => container.classList.remove('msg-animate-sent', 'msg-animate-received'), { once: true });
 
       const msgText = msgData.message || msgData.plaintext || '';
@@ -257,9 +297,9 @@
         if (String(replySnippetText).startsWith('image:')) {
           const imgFile = String(replySnippetText).slice(6);
           const imgSrc  = 'uploads/' + imgFile;
-          replyQuoteHtml = `<div class="reply-quote reply-quote-image-container"><img src="${escapeHtml(imgSrc)}" class="reply-quote-image" alt="" referrerpolicy="no-referrer" draggable="false" onerror="this.closest('.reply-quote-image-container,.reply-quote')?.remove()"></div>`;
+          replyQuoteHtml = `<div class="reply-quote reply-quote-image-container" data-reply-to="${escapeHtml(msgData.reply_to_msg_uuid)}"><img src="${escapeHtml(imgSrc)}" class="reply-quote-image" alt="" referrerpolicy="no-referrer" draggable="false" onerror="this.closest('.reply-quote-image-container,.reply-quote')?.remove()"></div>`;
         } else {
-          replyQuoteHtml = `<div class="reply-quote"><div class="reply-quote-text">${escapeHtml(String(replySnippetText).slice(0, 120))}</div></div>`;
+          replyQuoteHtml = `<div class="reply-quote" data-reply-to="${escapeHtml(msgData.reply_to_msg_uuid)}"><div class="reply-quote-text">${escapeHtml(String(replySnippetText).slice(0, 120))}</div></div>`;
         }
       }
 
@@ -332,6 +372,9 @@
       container.className = 'message-container received msg-animate-received';
       if (msgId) container.setAttribute('data-msg-id', msgId);
       if (msgData.sender_id) container.setAttribute('data-sender-id', String(msgData.sender_id));
+      if (msgData.created_at) container.setAttribute('data-created-at', String(msgData.created_at));
+      if (msgData.reply_to_msg_uuid) container.setAttribute('data-reply-to', String(msgData.reply_to_msg_uuid));
+      container.setAttribute('data-edit-count', String(msgData.edit_count || 0));
       container.addEventListener('animationend', () => container.classList.remove('msg-animate-received'), { once: true });
 
       const msgText = msgData.message || msgData.plaintext || '';
@@ -366,9 +409,9 @@
         if (String(replySnippetText).startsWith('image:')) {
           const imgFile = String(replySnippetText).slice(6);
           const imgSrc  = 'uploads/' + imgFile;
-          replyQuoteHtml = `<div class="reply-quote reply-quote-image-container"><img src="${escapeHtml(imgSrc)}" class="reply-quote-image" alt="" referrerpolicy="no-referrer" draggable="false" onerror="this.closest('.reply-quote-image-container,.reply-quote')?.remove()"></div>`;
+          replyQuoteHtml = `<div class="reply-quote reply-quote-image-container" data-reply-to="${escapeHtml(msgData.reply_to_msg_uuid)}"><img src="${escapeHtml(imgSrc)}" class="reply-quote-image" alt="" referrerpolicy="no-referrer" draggable="false" onerror="this.closest('.reply-quote-image-container,.reply-quote')?.remove()"></div>`;
         } else {
-          replyQuoteHtml = `<div class="reply-quote"><div class="reply-quote-text">${escapeHtml(String(replySnippetText).slice(0, 120))}</div></div>`;
+          replyQuoteHtml = `<div class="reply-quote" data-reply-to="${escapeHtml(msgData.reply_to_msg_uuid)}"><div class="reply-quote-text">${escapeHtml(String(replySnippetText).slice(0, 120))}</div></div>`;
         }
       }
 
@@ -445,6 +488,13 @@
             `.message-container[data-msg-id="${data.msg_uuid}"]`
           );
           if (targetContainer) {
+            if (typeof data.edit_count !== 'undefined') {
+              targetContainer.setAttribute('data-edit-count', String(data.edit_count));
+            } else {
+              const prevCount = parseInt(targetContainer.getAttribute('data-edit-count') || '0', 10);
+              targetContainer.setAttribute('data-edit-count', String(prevCount + 1));
+            }
+
             const contentEl = targetContainer.querySelector('.message-bubble .message-content');
             if (contentEl) {
               contentEl.textContent = data.message;
@@ -461,6 +511,23 @@
               label.textContent = 'edited';
               bubbleWrapper.insertBefore(label, bubbleWrapper.firstChild);
             }
+          }
+
+          // Real-time reply reflection: update any reply bubbles referencing this message
+          if (typeof updateRepliesForEditedMessage === 'function') {
+            updateRepliesForEditedMessage(data.msg_uuid, data.message);
+          }
+
+          // If current user is in the middle of replying to this message, update reply banner
+          if (typeof replyState !== 'undefined' && replyState && replyState.msgId === data.msg_uuid) {
+            replyState.snippet = data.message;
+            if (typeof showReplyBanner === 'function') {
+              showReplyBanner(data.message);
+            }
+          }
+
+          if (typeof dmMessageCache !== 'undefined') {
+            dmMessageCache.clear();
           }
         } else if (data.type === 'reaction_updated') {
           // Another client (or our own second tab) toggled a reaction —
@@ -608,19 +675,7 @@
           // The other participant just read up through data.last_msg_uuid —
           // update the Messenger-style "Seen" indicator instantly, no poll needed.
           if (activeDM && activeDMAccountId === Number(data.reader_id)) {
-            let incomingReadUpTo = null;
-            if (data.last_msg_uuid) {
-              incomingReadUpTo = data.last_msg_uuid;
-            } else {
-              let newestSentId = null;
-              chatBox.querySelectorAll('.message-container.sent[data-msg-id]').forEach(el => {
-                const id = el.getAttribute('data-msg-id');
-                if (id && (!newestSentId || id > newestSentId)) newestSentId = id;
-              });
-              if (newestSentId && (!dmReadUpTo || newestSentId > dmReadUpTo)) {
-                incomingReadUpTo = newestSentId;
-              }
-            }
+            let incomingReadUpTo = data.last_msg_uuid || null;
             if (incomingReadUpTo && incomingReadUpTo !== dmReadUpTo) {
               dmReadUpTo = incomingReadUpTo;
               dmReadUpToMap.set(activeDM, dmReadUpTo);
@@ -1340,10 +1395,10 @@
 
     function cacheDmSnapshot(username, data) {
       if (!username || !data) return;
-      let readUpToVal = (typeof data.readUpTo !== 'undefined' && data.readUpTo !== null)
-        ? data.readUpTo
-        : ((typeof dmReadUpToMap !== 'undefined' && dmReadUpToMap.has(username)) ? dmReadUpToMap.get(username) : null);
-      if (readUpToVal && typeof dmReadUpToMap !== 'undefined') {
+      let readUpToVal = (typeof data.readUpTo !== 'undefined')
+        ? (data.readUpTo || null)
+        : ((typeof dmReadUpToMap !== 'undefined' && dmReadUpToMap.has(username)) ? (dmReadUpToMap.get(username) || null) : null);
+      if (typeof dmReadUpToMap !== 'undefined') {
         dmReadUpToMap.set(username, readUpToVal);
       }
       if (typeof data === 'object' && data !== null) {
@@ -1483,12 +1538,21 @@
         if (activeUser) activeUser.unreadCount = 0;
       }
 
+      latestTotalUnread = (allUsersData || []).reduce((sum, u) => {
+        const isAct = (activeDMAccountId && Number(u.account_id) === Number(activeDMAccountId)) || (activeDM && u.username === activeDM);
+        return sum + (isAct ? 0 : (u.unreadCount || 0));
+      }, 0);
+      updateTabTitle(latestTotalUnread);
+      if (window.parent && window.parent !== window) {
+        try {
+          window.parent.postMessage({
+            type: 'CHATIFY_REFRESH_BADGE',
+            unread_count: latestTotalUnread
+          }, '*');
+        } catch (e) {}
+      }
+
       if (query === '') {
-        latestTotalUnread = (allUsersData || []).reduce((sum, u) => {
-          const isAct = (activeDMAccountId && Number(u.account_id) === Number(activeDMAccountId)) || (activeDM && u.username === activeDM);
-          return sum + (isAct ? 0 : (u.unreadCount || 0));
-        }, 0);
-        updateTabTitle(latestTotalUnread);
 
         if (!allUsersData || allUsersData.length === 0) {
           sidebarUsers.innerHTML = `<div class="sidebar-empty-state" style="padding:32px 16px;text-align:center;font-size:13px;color:var(--text-secondary);opacity:0.85;">
@@ -2401,14 +2465,10 @@
           }
         }
       } else {
-        // Read marker is set for this conversation but not explicitly found in current DOM slice.
-        // Target the latest SENT message rendered in chatBox.
-        for (let i = allMessages.length - 1; i >= 0; i--) {
-          if (allMessages[i].classList.contains('sent')) {
-            target = allMessages[i];
-            break;
-          }
-        }
+        // Read marker is not found in the current DOM slice (it belongs to an older
+        // message scrolled off-screen, or is invalid/cleared).
+        // NEVER target the latest sent message or assume unread/offline messages were read.
+        target = null;
       }
 
       const existing = chatBox ? chatBox.querySelector('.seen-indicator') : null;

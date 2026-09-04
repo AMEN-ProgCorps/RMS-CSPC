@@ -682,6 +682,21 @@ try {
     </div>
   </div>
 
+  <!-- Edit Expired Modal -->
+  <div class="modal" id="editExpiredModal" aria-hidden="true" style="display:none;align-items:center;justify-content:center;z-index:99999;">
+    <div class="modal-content" style="max-width:320px;min-height:0;">
+      <div class="modal-header">
+        <h3 id="editExpiredTitle" style="color:#c0392b;">Edit Expired</h3>
+      </div>
+      <div class="modal-body" id="editExpiredBody">
+        Messages cannot be edited after 2 minutes.
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="modal-button confirm-button" id="editExpiredCloseBtn" style="border-right:none;" onclick="closeEditExpiredModal()">Close</button>
+      </div>
+    </div>
+  </div>
+
   <!-- Attach/Staging Modal — opens whenever file(s) are picked via the
        attach button OR dropped/dragged into the chat, for BOTH images and
        any other allowed file type. Lets the user review what's about to be

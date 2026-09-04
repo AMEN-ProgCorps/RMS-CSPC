@@ -99,13 +99,15 @@ function adminGetInitials(string $name): string
  * the small quoted bubble shown above a reply's own message-content, so the
  * admin spy view shows who-replied-to-what just like the regular DM view.
  */
-function adminBuildReplyQuoteHtml(?string $encryptedReplyMessage, string $replyType): string
+function adminBuildReplyQuoteHtml(?string $encryptedReplyMessage, string $replyType, ?string $replyToUuid = null): string
 {
     global $uploadsDir, $imageExts;
 
     if ($encryptedReplyMessage === null) {
         return '';
     }
+
+    $replyToAttr = $replyToUuid ? " data-reply-to='" . htmlspecialchars($replyToUuid, ENT_QUOTES) . "'" : '';
 
     if ($replyType === 'upload') {
         $rawPayload = safeDecrypt($encryptedReplyMessage);
@@ -114,7 +116,7 @@ function adminBuildReplyQuoteHtml(?string $encryptedReplyMessage, string $replyT
         $ext        = strtolower(pathinfo($file, PATHINFO_EXTENSION));
         if (in_array($ext, $imageExts, true) && $file !== '' && file_exists($uploadsDir . $file)) {
             $fnUrl = htmlspecialchars('uploads/' . rawurlencode($file), ENT_QUOTES);
-            return "<div class='reply-quote reply-quote-image-container'><img src='{$fnUrl}' class='reply-quote-image' alt='' referrerpolicy='no-referrer' onerror=\"this.closest('.reply-quote-image-container,.reply-quote')?.remove()\"></div>";
+            return "<div class='reply-quote reply-quote-image-container'{$replyToAttr}><img src='{$fnUrl}' class='reply-quote-image' alt='' referrerpolicy='no-referrer' onerror=\"this.closest('.reply-quote-image-container,.reply-quote')?.remove()\"></div>";
         }
         $snippet = $file !== '' ? $file : 'Attachment';
     } else {
@@ -132,7 +134,7 @@ function adminBuildReplyQuoteHtml(?string $encryptedReplyMessage, string $replyT
     }
 
     $snippetEsc = htmlspecialchars($snippet, ENT_QUOTES);
-    return "<div class='reply-quote'><div class='reply-quote-text'>{$snippetEsc}</div></div>";
+    return "<div class='reply-quote'{$replyToAttr}><div class='reply-quote-text'>{$snippetEsc}</div></div>";
 }
 
 $html = '';
@@ -176,7 +178,7 @@ for ($i = 0; $i < $msgCount; $i++) {
 
         $replyQuoteHtml = '';
         if (!empty($msg['reply_to_msg_uuid']) && isset($msg['reply_message'])) {
-            $replyQuoteHtml = adminBuildReplyQuoteHtml($msg['reply_message'], $msg['reply_msg_type'] ?? 'text');
+            $replyQuoteHtml = adminBuildReplyQuoteHtml($msg['reply_message'], $msg['reply_msg_type'] ?? 'text', $msg['reply_to_msg_uuid']);
         }
 
         $bodyHtml .= $replyQuoteHtml;
@@ -288,7 +290,10 @@ for ($i = 0; $i < $msgCount; $i++) {
     }
 
     // In admin view, all shown as received-style
-    $html .= "<div class='message-container received' data-msg-id='{$msgId}'>";
+    $rawTimestamp = htmlspecialchars($msg['timestamp'] ?? '', ENT_QUOTES);
+    $replyToAttr = !empty($msg['reply_to_msg_uuid']) ? " data-reply-to='" . htmlspecialchars($msg['reply_to_msg_uuid'], ENT_QUOTES) . "'" : '';
+    $editCount = (int)($msg['edit_count'] ?? 0);
+    $html .= "<div class='message-container received' data-msg-id='{$msgId}' data-sender-id='{$senderId}' data-created-at='{$rawTimestamp}' data-edit-count='{$editCount}'{$replyToAttr}>";
     $html .= "<div class='message-avatar'>{$avatarInner}</div>";
     $html .= "<div class='bubble-wrapper'>";
     $tsClass = ($type !== 'text') ? 'message-click-timestamp show-timestamp' : 'message-click-timestamp';

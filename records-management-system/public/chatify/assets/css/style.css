@@ -845,7 +845,8 @@
       opacity: 1;
     }
 
-    #uploadErrorList {
+    #uploadErrorList,
+    #editExpiredBody {
       font-size: 14px;
       color: var(--text-secondary);
       line-height: 1.5;

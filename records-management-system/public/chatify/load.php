@@ -92,11 +92,13 @@ $uploadsDir = __DIR__ . '/uploads/';
  * was replied to (already-decrypted plaintext for text, a generic label for
  * uploads/other reply targets that no longer resolve cleanly).
  */
-function gcBuildReplyQuoteHtml(?string $encryptedReplyMessage, string $replyType): string
+function gcBuildReplyQuoteHtml(?string $encryptedReplyMessage, string $replyType, ?string $replyToUuid = null): string
 {
     if ($encryptedReplyMessage === null) {
         return '';
     }
+
+    $replyToAttr = $replyToUuid ? " data-reply-to='" . htmlspecialchars($replyToUuid, ENT_QUOTES) . "'" : '';
 
     if ($replyType === 'upload') {
         $rawPayload = safeDecrypt($encryptedReplyMessage);
@@ -106,7 +108,7 @@ function gcBuildReplyQuoteHtml(?string $encryptedReplyMessage, string $replyType
         $imageExts  = ['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp', 'svg'];
         if (in_array($ext, $imageExts, true) && $file !== '' && file_exists(__DIR__ . '/uploads/' . $file)) {
             $fnUrl = htmlspecialchars('uploads/' . rawurlencode($file), ENT_QUOTES);
-            return "<div class='reply-quote reply-quote-image-container'><img src='{$fnUrl}' class='reply-quote-image' alt='' referrerpolicy='no-referrer' onerror=\"this.closest('.reply-quote-image-container,.reply-quote')?.remove()\"></div>";
+            return "<div class='reply-quote reply-quote-image-container'{$replyToAttr}><img src='{$fnUrl}' class='reply-quote-image' alt='' referrerpolicy='no-referrer' onerror=\"this.closest('.reply-quote-image-container,.reply-quote')?.remove()\"></div>";
         }
         $snippet = $file !== '' ? $file : 'Attachment';
     } else {
@@ -124,7 +126,7 @@ function gcBuildReplyQuoteHtml(?string $encryptedReplyMessage, string $replyType
     }
 
     $snippetEsc = htmlspecialchars($snippet, ENT_QUOTES);
-    return "<div class='reply-quote'><div class='reply-quote-text'>{$snippetEsc}</div></div>";
+    return "<div class='reply-quote'{$replyToAttr}><div class='reply-quote-text'>{$snippetEsc}</div></div>";
 }
 
 /**
@@ -212,7 +214,10 @@ for ($i = 0; $i < $msgCount; $i++) {
     }
 
     if ($type === 'text') {
-        $html .= "<div class='message-container {$msgClass}' data-msg-id='{$msgId}' data-sender-id='{$senderId}'>";
+        $rawTimestamp = htmlspecialchars($msg['timestamp'] ?? '', ENT_QUOTES);
+        $replyToAttr = !empty($msg['reply_to_msg_uuid']) ? " data-reply-to='" . htmlspecialchars($msg['reply_to_msg_uuid'], ENT_QUOTES) . "'" : '';
+        $editCount = (int)($msg['edit_count'] ?? 0);
+        $html .= "<div class='message-container {$msgClass}' data-msg-id='{$msgId}' data-sender-id='{$senderId}' data-created-at='{$rawTimestamp}' data-edit-count='{$editCount}'{$replyToAttr}>";
         $html .= "<div class='message-avatar'>{$avatarInner}</div>";
 
         // Decrypt message content
@@ -226,7 +231,7 @@ for ($i = 0; $i < $msgCount; $i++) {
         // gets nulled out by the FK's ON DELETE SET NULL in that case).
         $replyQuoteHtml = '';
         if (!empty($msg['reply_to_msg_uuid']) && isset($msg['reply_message'])) {
-            $replyQuoteHtml = gcBuildReplyQuoteHtml($msg['reply_message'], $msg['reply_msg_type'] ?? 'text');
+            $replyQuoteHtml = gcBuildReplyQuoteHtml($msg['reply_message'], $msg['reply_msg_type'] ?? 'text', $msg['reply_to_msg_uuid']);
         }
 
         $html .= "<div class='bubble-wrapper'>";
@@ -363,7 +368,10 @@ for ($i = 0; $i < $msgCount; $i++) {
             continue;
         }
 
-        $html .= "<div class='message-container {$msgClass}' data-msg-id='{$msgId}' data-sender-id='{$senderId}'>";
+        $rawTimestamp = htmlspecialchars($msg['timestamp'] ?? '', ENT_QUOTES);
+        $replyToAttr = !empty($msg['reply_to_msg_uuid']) ? " data-reply-to='" . htmlspecialchars($msg['reply_to_msg_uuid'], ENT_QUOTES) . "'" : '';
+        $editCount = (int)($msg['edit_count'] ?? 0);
+        $html .= "<div class='message-container {$msgClass}' data-msg-id='{$msgId}' data-sender-id='{$senderId}' data-created-at='{$rawTimestamp}' data-edit-count='{$editCount}'{$replyToAttr}>";
         $html .= "<div class='message-avatar'>{$avatarInner}</div>";
         $html .= "<div class='bubble-wrapper'>";
         $html .= "<div class='message-click-timestamp show-timestamp'>{$fullTimeDisplay}</div>";

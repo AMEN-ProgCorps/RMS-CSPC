@@ -658,9 +658,13 @@
         }
     }
 
+    let lastWidgetWindowWidth = window.innerWidth;
     window.addEventListener('resize', function() {
-        if (!isTabletOrDesktop()) {
-            setWidgetVisibility(false, false);
+        if (window.innerWidth !== lastWidgetWindowWidth) {
+            lastWidgetWindowWidth = window.innerWidth;
+            if (!isTabletOrDesktop()) {
+                setWidgetVisibility(false, false);
+            }
         }
     });
 

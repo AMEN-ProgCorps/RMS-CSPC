@@ -272,8 +272,8 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Pending List
                     'rdp_pending_record.is_for_nap_three',
                     'rdp_pending_record.created_at',
                     'rdp_pending_status.status_name',
-                    'office.office_name',
-                    DB::raw("CONCAT(account_details.first_name, ' ', account_details.last_name) as submitter_name"),
+                    "{$officeTbl}.office_name",
+                    DB::raw("CONCAT({$accDetailsTbl}.first_name, ' ', {$accDetailsTbl}.last_name) as submitter_name"),
                     DB::raw("CASE WHEN rdp_pending_record.is_for_nap_three = true THEN 'NAP Form 3' ELSE 'NAP Form 1' END as form_label"),
                     DB::raw("CASE WHEN rdp_pending_record.is_for_nap_three = true THEN 'nap3' ELSE 'nap1' END as form_code"),
                     DB::raw("(SELECT COUNT(*) FROM rdp_grouped_record WHERE group_head = rdp_pending_record.cluster_id) as total_items")
@@ -295,9 +295,9 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Pending List
 
             if (!empty(trim($this->search))) {
                 $term = '%' . trim($this->search) . '%';
-                $qRec->where(function($q) use ($term) {
+                $qRec->where(function($q) use ($term, $officeTbl) {
                     $q->where('rdp_pending_record.cluster_name', 'ILIKE', $term)
-                      ->orWhere('office.office_name', 'ILIKE', $term);
+                      ->orWhere("{$officeTbl}.office_name", 'ILIKE', $term);
                 });
             }
 

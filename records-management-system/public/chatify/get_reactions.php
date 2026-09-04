@@ -27,7 +27,7 @@ try {
         "SELECT r.account_id, r.emoji, r.reacted_at,
                 ad.first_name, ad.last_name, ad.avatar_url, ad.email
          FROM chat_reactions r
-         JOIN ' . Database::t('account_details') . ' ad ON ad.account_id = r.account_id
+         JOIN " . Database::t('account_details') . " ad ON ad.account_id = r.account_id
          WHERE r.msg_uuid = :msg_uuid
          ORDER BY r.reacted_at ASC"
     );

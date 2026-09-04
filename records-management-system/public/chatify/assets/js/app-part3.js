@@ -1,23 +1,35 @@
 // ── Verified badge: inject checkmark next to verified sender names in messages ──
     function applyAdminBadges() {
-      if (!verifiedAccountIds || verifiedAccountIds.size === 0) {
-        // Remove any stale badges if no one is verified anymore
-        document.querySelectorAll('.message-sender .verified-badge').forEach(b => b.remove());
-        return;
-      }
+      const vSet = (typeof verifiedAccountIds !== 'undefined' && verifiedAccountIds) ? verifiedAccountIds : window.verifiedAccountIdsSet;
+      if (!vSet) return;
+
+      const prevST = chatBox ? chatBox.scrollTop : 0;
+      let hasMutated = false;
+
       document.querySelectorAll('.message-container[data-sender-id]').forEach(function(container) {
         const sid = Number(container.dataset.senderId);
         const senderEl = container.querySelector('.message-sender');
         if (!senderEl) return;
         const badge = senderEl.querySelector('.verified-badge');
-        if (verifiedAccountIds.has(sid)) {
-          if (!badge) injectBadge(senderEl);
-        } else if (badge) {
+        const shouldHave = vSet.has(sid);
+        if (shouldHave && !badge) {
+          injectBadge(senderEl);
+          hasMutated = true;
+        } else if (!shouldHave && badge) {
           badge.remove();
+          hasMutated = true;
         }
       });
+
+      if (hasMutated && chatBox && Math.abs(chatBox.scrollTop - prevST) > 0) {
+        chatBox.scrollTop = prevST;
+      }
     }
+    window.applyAdminBadges = applyAdminBadges;
+
     function injectBadge(el) {
+      if (!el) return;
+      if (el.querySelector && el.querySelector('.verified-badge')) return;
       const badge = document.createElement('span');
       badge.className = 'verified-badge';
       badge.innerHTML = `<svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
@@ -26,6 +38,7 @@
       </svg>`;
       el.appendChild(badge);
     }
+    window.injectBadge = injectBadge;
 
     // ── Profile picture in the header, next to the DM partner's name ──
     // Pass the user object (needs .name/.full_name + .avatar_url) to show
@@ -64,14 +77,18 @@
     // browser's own truncation swallow the SVG whenever the name nearly
     // filled the header, showing "…" instead of the checkmark.
     function applyHeaderAdminBadge() {
-      const headerBadgeParent = document.getElementById('chatHeaderTitleRow') || chatHeaderTitle.parentElement || chatHeaderTitle;
+      const headerBadgeParent = document.getElementById('chatHeaderTitleRow') || (chatHeaderTitle ? chatHeaderTitle.parentElement : null) || chatHeaderTitle;
+      if (!headerBadgeParent) return;
       const existing = headerBadgeParent.querySelector('.verified-badge');
-      if (existing) existing.remove();
-      if (!verifiedAccountIds || verifiedAccountIds.size === 0) return;
-      if (activeDMAccountId && verifiedAccountIds.has(Number(activeDMAccountId))) {
-        injectBadge(headerBadgeParent);
+      const vSet = (typeof verifiedAccountIds !== 'undefined' && verifiedAccountIds) ? verifiedAccountIds : window.verifiedAccountIdsSet;
+      const shouldHave = !!(activeDMAccountId && vSet && vSet.has(Number(activeDMAccountId)));
+      if (shouldHave) {
+        if (!existing) injectBadge(headerBadgeParent);
+      } else if (existing) {
+        existing.remove();
       }
     }
+    window.applyHeaderAdminBadge = applyHeaderAdminBadge;
     
     // ── Image Viewer Modal ──────────────────────────────────────────────
     // Clicking any chat image (class="chat-viewable-image", rendered by
@@ -356,25 +373,83 @@
     let unreadCount = 0;
 
     // Dark mode functionality — applies to all users (admin and non-admin)
-    if (darkModeToggle) {
-      // Sync body attribute from html element (set by inline script in <head>)
-      if (document.documentElement.hasAttribute('data-theme')) {
-        document.body.setAttribute('data-theme', 'dark');
+    function syncDarkModeUI() {
+      const root = document.documentElement;
+      const isDark = root.getAttribute('data-theme') === 'dark';
+      
+      const moonIcon = document.getElementById('darkModeMoonIcon');
+      const sunIcon = document.getElementById('darkModeSunIcon');
+      const headerBtn = document.getElementById('darkModeHeaderBtn');
+      if (headerBtn) {
+        headerBtn.title = isDark ? 'Switch to Light Mode' : 'Switch to Dark Mode';
+        headerBtn.setAttribute('aria-label', isDark ? 'Switch to Light Mode' : 'Switch to Dark Mode');
+      }
+      if (moonIcon && sunIcon) {
+        moonIcon.style.display = isDark ? 'none' : 'block';
+        sunIcon.style.display = isDark ? 'block' : 'none';
       }
 
-      darkModeToggle.addEventListener('click', function() {
-        const isDark = document.documentElement.hasAttribute('data-theme');
-        if (isDark) {
-          document.documentElement.removeAttribute('data-theme');
-          document.body.removeAttribute('data-theme');
-          localStorage.setItem('darkMode', 'disabled');
-          document.cookie = "dark_mode=disabled; path=/; max-age=31536000";
-        } else {
-          document.documentElement.setAttribute('data-theme', 'dark');
-          document.body.setAttribute('data-theme', 'dark');
-          localStorage.setItem('darkMode', 'enabled');
-          document.cookie = "dark_mode=enabled; path=/; max-age=31536000";
-        }
+      const chk = document.getElementById('darkModeToggle');
+      if (chk) {
+        chk.checked = isDark;
+        const slider = chk.closest('label')?.querySelector('.slider-bg');
+        const knob = chk.closest('label')?.querySelector('.slider-knob');
+        if (slider) slider.style.background = isDark ? '#1b74e4' : 'var(--border-color)';
+        if (knob) knob.style.left = isDark ? '21px' : '3px';
+      }
+    }
+    window.syncDarkModeUI = syncDarkModeUI;
+
+    function toggleDarkMode(forceVal) {
+      const root = document.documentElement;
+      const currentDark = root.getAttribute('data-theme') === 'dark';
+      const enableDark = (typeof forceVal === 'boolean') ? forceVal : !currentDark;
+      const nextState = enableDark ? 'enabled' : 'disabled';
+
+      // Suppress per-element transition animations during theme flip for instant 60fps/120fps paint
+      root.classList.add('theme-transitioning');
+
+      if (enableDark) {
+        root.setAttribute('data-theme', 'dark');
+        document.body.setAttribute('data-theme', 'dark');
+      } else {
+        root.removeAttribute('data-theme');
+        document.body.removeAttribute('data-theme');
+      }
+
+      syncDarkModeUI();
+
+      // Release transition block on next frame
+      requestAnimationFrame(function() {
+        requestAnimationFrame(function() {
+          root.classList.remove('theme-transitioning');
+        });
+      });
+
+      // Fast persistence without blocking main thread
+      try {
+        localStorage.setItem('darkMode', nextState);
+        document.cookie = "dark_mode=" + nextState + "; path=/; max-age=31536000; SameSite=Lax";
+      } catch (e) {}
+    }
+    window.toggleDarkMode = toggleDarkMode;
+
+    if (document.documentElement.hasAttribute('data-theme')) {
+      document.body.setAttribute('data-theme', 'dark');
+    }
+    syncDarkModeUI();
+
+    const darkModeInput = document.getElementById('darkModeToggle');
+    if (darkModeInput) {
+      darkModeInput.addEventListener('change', function() {
+        toggleDarkMode(this.checked);
+      });
+    }
+    const darkRow = document.getElementById('darkModeSettingsRow');
+    if (darkRow) {
+      darkRow.addEventListener('click', function(e) {
+        if (e.target.closest('label') || e.target.closest('input')) return;
+        toggleDarkMode();
       });
     }
 
@@ -398,6 +473,22 @@
     }
 
     // Enhanced scroll management
+    let activeScrollAnimationId = null;
+    function cancelActiveScrollAnimation() {
+      if (activeScrollAnimationId) {
+        cancelAnimationFrame(activeScrollAnimationId);
+        activeScrollAnimationId = null;
+      }
+    }
+    window.cancelActiveScrollAnimation = cancelActiveScrollAnimation;
+
+    let firstLoadScrollTimers = [];
+    function clearFirstLoadScrollTimers() {
+      firstLoadScrollTimers.forEach(t => clearTimeout(t));
+      firstLoadScrollTimers = [];
+    }
+    window.clearFirstLoadScrollTimers = clearFirstLoadScrollTimers;
+
     function isAtBottom() {
       return (chatBox.scrollHeight - chatBox.scrollTop - chatBox.clientHeight) <= 25;
     }
@@ -406,11 +497,13 @@
       // Never snap or jump scroll position while the user is actively touch-dragging or scrolling
       if (isUserScrollingOrTouching && !force) return;
 
+      cancelActiveScrollAnimation();
+
       if (force || shouldAutoScroll) {
-        // Instant scroll — no animation (used on page load / refresh)
+        // Instant scroll — no animation (used on page load / switch / refresh)
         if (instant) {
           chatBox.scrollTop = chatBox.scrollHeight;
-          // Double-tap for mobile where layout may not be settled
+          // Double-tap for mobile / delayed reflow where layout may not be settled
           requestAnimationFrame(function() {
             chatBox.scrollTop = chatBox.scrollHeight;
             hideScrollIndicator();
@@ -434,80 +527,77 @@
           chatBox.scrollTop = start + distance * ease;
 
           if (progress < 1) {
-            requestAnimationFrame(animateScroll);
+            activeScrollAnimationId = requestAnimationFrame(animateScroll);
           } else {
             chatBox.scrollTop = chatBox.scrollHeight;
             hideScrollIndicator();
+            activeScrollAnimationId = null;
           }
         }
 
-        requestAnimationFrame(animateScroll);
+        activeScrollAnimationId = requestAnimationFrame(animateScroll);
       }
     }
      
     function handleFirstLoadScroll() {
+      // Clear any stale scroll tracking from session storage so every open starts at the latest chat
       const activeKey = isGlobalChat ? '__global__' : (activeDM || (activeAdminConv ? '__admin__' + activeAdminConv : null));
-      let restored = false;
-      let wasRestoredAtBottom = false;
-
       if (activeKey) {
-        const savedScrollTop = sessionStorage.getItem('chatScroll_' + activeKey);
-        const savedScrollHeight = sessionStorage.getItem('chatScrollHeight_' + activeKey);
-        const savedAtBottom = sessionStorage.getItem('chatScrollAtBottom_' + activeKey);
-        
-        if (savedAtBottom === 'true') {
-          scrollToBottom(true, true);
-          restored = true;
-          wasRestoredAtBottom = true;
-        } else if (savedScrollTop !== null && savedScrollHeight !== null) {
-          const scrollTop = parseFloat(savedScrollTop);
-          const scrollHeight = parseFloat(savedScrollHeight);
-          const diff = chatBox.scrollHeight - scrollHeight;
-          chatBox.scrollTop = scrollTop + diff;
-          restored = true;
-        }
+        sessionStorage.removeItem('chatScroll_' + activeKey);
+        sessionStorage.removeItem('chatScrollHeight_' + activeKey);
+        sessionStorage.removeItem('chatScrollAtBottom_' + activeKey);
       }
-      if (!restored) {
-        scrollToBottom(true, true);
-        wasRestoredAtBottom = true;
-      }
+
+      // Reset scroll tracking flags
+      userScrolledUp = false;
+      shouldAutoScroll = true;
+      isUserScrollingOrTouching = false;
+      clearFirstLoadScrollTimers();
+
+      // Immediately jump to the latest chat at the bottom
+      scrollToBottom(true, true);
+      
+      // Double-rAF ensures browser paint and subpixel reflows are completely settled without delayed timeouts
+      requestAnimationFrame(function() {
+        chatBox.scrollTop = chatBox.scrollHeight;
+        hideScrollIndicator();
+        requestAnimationFrame(function() {
+          chatBox.scrollTop = chatBox.scrollHeight;
+          hideScrollIndicator();
+        });
+      });
 
       hideScrollIndicator();
       chatFullyLoaded = true;
-
-      if (!wasRestoredAtBottom) {
-        const distance = chatBox.scrollHeight - chatBox.scrollTop - chatBox.clientHeight;
-        if (distance > 250) {
-          showScrollIndicator(0);
-        }
-      }
-      maybeAutoLoadOlderMessages();
     }
 
     const scrollIndicatorText = document.getElementById('scrollIndicatorText');
     const unreadBadge = document.getElementById('unreadBadge');
 
     function showScrollIndicator(newCount = 0) {
+      if (!chatBox || !chatFullyLoaded || document.activeElement === messageInput) {
+        hideScrollIndicator();
+        return;
+      }
+
+      const distance = chatBox.scrollHeight - chatBox.scrollTop - chatBox.clientHeight;
+      if (distance <= 200 && newCount === 0) {
+        hideScrollIndicator();
+        return;
+      }
+
       if (newCount > 0) {
         unreadCount += newCount;
         unreadBadge.textContent = unreadCount;
         scrollIndicatorText.textContent = unreadCount === 1 ? 'new message' : 'new messages';
         scrollIndicator.classList.add('has-unread');
       } else if (!scrollIndicator.classList.contains('visible')) {
-        // Only set "Go to bottom" label if not already showing unread
         if (!scrollIndicator.classList.contains('has-unread')) {
           scrollIndicatorText.textContent = 'Go to bottom';
         }
       }
-      // showScrollIndicator() is only ever called by callers that already
-      // know the user isn't at the bottom (new message arrived while
-      // scrolled up, or the main scroll listener detected !atBottom —
-      // which covers scrolling up past the loaded INITIAL_LOAD window into
-      // older history too). So as long as the chat has finished its
-      // initial load, the button should show — it used to be gated on
-      // "scrollTop <= 5" (literally the very top) which meant scrolling
-      // up anywhere in the middle/older history never revealed it.
-      if (chatFullyLoaded) {
+
+      if (distance > 200 || scrollIndicator.classList.contains('has-unread')) {
         scrollIndicator.classList.add('visible');
       } else {
         scrollIndicator.classList.remove('visible');
@@ -646,7 +736,7 @@
       userScrolledUp = false;
       scrollToBottom(true, true);
 
-      messageInput.focus();
+      messageInput.focus({ preventScroll: true });
     });
 
     // X cancel-edit button
@@ -720,7 +810,7 @@
         snippet: snippet
       };
       showReplyBanner(snippet);
-      messageInput.focus();
+      messageInput.focus({ preventScroll: true });
     }
 
     if (replyBannerCancel) {
@@ -1471,11 +1561,51 @@
         shouldAutoScroll = true;
         userScrolledUp = false;
         hideScrollIndicator();
+
+        // ── Bi-directional infinite scroll: snap back to latest window ────
+        // If the user has scrolled back to the bottom of an older window
+        // (not via the "Go to bottom" button but through natural scrolling),
+        // treat it the same as clicking "Go to bottom" — reset the viewing-
+        // older state and reload the freshest messages from the DB. This
+        // ensures that the trimmed-from-bottom messages never permanently
+        // disappear; the user just needs to scroll back to bottom and the
+        // latest window re-appears automatically.
+        if (isGlobalChat && gcViewingOlder) {
+          gcViewingOlder = false;
+          gcCursor = '';
+          removePaginationBtn();
+          chatBox.innerHTML = '';
+          isFirstLoad = true;
+          chatFullyLoaded = false;
+          loadGlobalChat(false, false);
+          return;
+        }
+        if (!isGlobalChat && activeAdminConv && adminConvViewingOlder) {
+          adminConvViewingOlder = false;
+          adminConvCursor = '';
+          removePaginationBtn();
+          chatBox.innerHTML = '';
+          isFirstLoad = true;
+          chatFullyLoaded = false;
+          loadAdminConv(activeAdminConv, false, false);
+          return;
+        }
+        if (!isGlobalChat && !activeAdminConv && activeDM && dmViewingOlder) {
+          dmViewingOlder = false;
+          dmCursor = '';
+          removePaginationBtn();
+          chatBox.innerHTML = '';
+          isFirstLoad = true;
+          chatFullyLoaded = false;
+          loadChat(false, false, true);
+          return;
+        }
+        // ─────────────────────────────────────────────────────────────────
       } else {
         shouldAutoScroll = false;
         userScrolledUp = true;
         // Only show scroll button when initial load is done AND user has scrolled up > 250px away from bottom
-        if (chatFullyLoaded) {
+        if (chatFullyLoaded && isUserScrollingOrTouching && document.activeElement !== messageInput) {
           const distance = chatBox.scrollHeight - chatBox.scrollTop - chatBox.clientHeight;
           if (distance > 250) {
             const hasMessages = chatBox.querySelectorAll('.message-container').length > 0;
@@ -1485,28 +1615,21 @@
           } else if (distance <= 100) {
             hideScrollIndicator();
           }
+        } else if (chatFullyLoaded) {
+          const distance = chatBox.scrollHeight - chatBox.scrollTop - chatBox.clientHeight;
+          if (distance <= 100) {
+            hideScrollIndicator();
+          }
         }
-      }
-
-      // Save scroll position for active chat
-      const activeKey = isGlobalChat ? '__global__' : (activeDM || (activeAdminConv ? '__admin__' + activeAdminConv : null));
-      if (activeKey) {
-        sessionStorage.setItem('chatScroll_' + activeKey, chatBox.scrollTop);
-        sessionStorage.setItem('chatScrollHeight_' + activeKey, chatBox.scrollHeight);
-        sessionStorage.setItem('chatScrollAtBottom_' + activeKey, atBottom ? 'true' : 'false');
       }
     });
 
-    // Ensure scroll position is maintained when images finish loading
+    // Ensure scroll position is maintained at latest chat when images finish loading
     chatBox.addEventListener('load', function(event) {
       if (isUserScrollingOrTouching) return;
       if (event.target.tagName === 'IMG') {
-        const activeKey = isGlobalChat ? '__global__' : (activeDM || (activeAdminConv ? '__admin__' + activeAdminConv : null));
-        if (activeKey) {
-          const savedAtBottom = sessionStorage.getItem('chatScrollAtBottom_' + activeKey);
-          if ((savedAtBottom === 'true' || shouldAutoScroll || isAtBottom()) && !userScrolledUp) {
-            scrollToBottom(true, true);
-          }
+        if (shouldAutoScroll || !userScrolledUp || isAtBottom()) {
+          scrollToBottom(true, true);
         }
       }
     }, true);
@@ -1758,6 +1881,7 @@
     function maybeAutoLoadOlderMessages() {
       if (!chatFullyLoaded) return;
       if (isAdminAllChatsView && !activeAdminConv) return; // spy mode's conversation LIST is showing, no transcript open
+      if (chatBox.scrollHeight <= chatBox.clientHeight) return; // chat doesn't overflow, user is not scrolling older
       if (chatBox.scrollTop > AUTO_LOAD_OLDER_THRESHOLD_PX) return;
       if (currentChatIsLoadingOlder()) return; // a fetch is already in flight
       if (!currentChatHasOlderMessages()) return; // nothing left to fetch
@@ -1916,6 +2040,10 @@
     let isLoadingGC = false;
 
     function processGlobalChatData(data, loadOlderMode = false) {
+      if (!data) return;
+      if (!loadOlderMode && typeof cacheGlobalChatSnapshot === 'function') {
+        cacheGlobalChatSnapshot(data);
+      }
       const newHtml    = data.html || '';
       gcHasMore        = data.hasMore || false;
 
@@ -1924,8 +2052,9 @@
         userScrolledUp = true;
         gcCursor = data.nextCursor || '';
         gcViewingOlder = true;
-        // Prepend older messages
-        const prev = chatBox.scrollHeight;
+
+        const anchor = captureScrollAnchor();
+
         const temp = document.createElement('div');
         temp.innerHTML = newHtml;
         const oldItems = Array.from(temp.querySelectorAll('.message-container, .empty-chat'));
@@ -1939,11 +2068,10 @@
           if (btn) chatBox.insertBefore(el, btn.nextSibling);
           else chatBox.insertBefore(el, firstChild);
         });
-        // Maintain scroll position
-        chatBox.scrollTop += chatBox.scrollHeight - prev;
-        // Swap the window: drop the newest messages off the bottom so the
-        // total on screen stays capped at MAX_WINDOW instead of growing forever.
+
         trimWindowFromBottom(MAX_WINDOW);
+        restoreScrollAnchor(anchor, oldItems);
+
         if (!gcHasMore) showNoMoreOlderNotice(); else if (!document.getElementById('loadOlderBtn')) insertLoadOlderBtn();
         applyAdminBadges();
         applyEmojiOnly();
@@ -1964,67 +2092,53 @@
       if (typeof syncReactionsFromNewHtml === 'function') syncReactionsFromNewHtml(newMessages);
 
       if (rec.type === 'nochange') {
-        if (isFirstLoad) { isFirstLoad = false; handleFirstLoadScroll(); }
+        if (isFirstLoad) {
+          isFirstLoad = false;
+          handleFirstLoadScroll();
+        } else if (wasAtBottom && shouldAutoScroll) {
+          scrollToBottom(true, true);
+        }
         if (gcHasMore && !document.getElementById('loadOlderBtn') && !document.getElementById('noMoreOlderNotice')) insertLoadOlderBtn();
         applyEmojiOnly();
         return;
       }
 
       if (rec.type === 'append') {
-        const toInsert = [];
+        const prevScrollTop    = chatBox.scrollTop;
+        const prevScrollHeight = chatBox.scrollHeight;
         rec.items.forEach(el => {
           if (el.classList.contains('message-container')) {
             const msgId = el.getAttribute('data-msg-id');
             if (msgId && chatBox.querySelector(`.message-container[data-msg-id="${msgId}"]`)) {
-              return; // Deduplicate: already in DOM
+              return;
             }
-          }
-          toInsert.push(el);
-        });
-
-        if (toInsert.length === 0) {
-          document.querySelectorAll('[data-sending-uid]').forEach(el => el.remove());
-          if (trimWindowFromTop(MAX_WINDOW)) refreshCursorAfterTopTrim();
-          applyAdminBadges(); applyEmojiOnly();
-          if (gcHasMore && !document.getElementById('loadOlderBtn') && !document.getElementById('noMoreOlderNotice')) insertLoadOlderBtn();
-          return;
-        }
-
-        const STAGGER_MS = 90;      // gap between each message appearing
-        const MAX_STAGGER = 8;      // cap: beyond this many messages, no extra delay
-        const useStagger = !isFirstLoad && toInsert.length > 1;
-
-        toInsert.forEach(el => {
-          if (useStagger && el.classList.contains('message-container')) {
-            el.classList.add('gc-msg-pending');
+            if (chatFullyLoaded && !isFirstLoad) {
+              const animClass = el.classList.contains('sent') ? 'msg-animate-sent' : 'msg-animate-received';
+              el.classList.add(animClass);
+              el.addEventListener('animationend', () => el.classList.remove(animClass), { once: true });
+            }
           }
           chatBox.appendChild(el);
         });
-        document.querySelectorAll('[data-sending-uid]').forEach(el => el.remove());
-        if (trimWindowFromTop(MAX_WINDOW)) refreshCursorAfterTopTrim();
-
-        let revealedCount = 0;
-        toInsert.forEach((el, i) => {
-          const delay = useStagger ? Math.min(i, MAX_STAGGER) * STAGGER_MS : 0;
-          setTimeout(() => {
-            revealedCount++;
-            if (el.isConnected) {
-              el.classList.remove('gc-msg-pending');
-              if (el.classList.contains('message-container')) {
-                const animClass = el.classList.contains('sent') ? 'msg-animate-sent' : 'msg-animate-received';
-                el.classList.add(animClass);
-                el.addEventListener('animationend', () => el.classList.remove(animClass), { once: true });
-              }
+        if (gcViewingOlder) {
+          const scrollDiff = chatBox.scrollHeight - prevScrollHeight;
+          if (scrollDiff > 0) chatBox.scrollTop = prevScrollTop + scrollDiff;
+        }
+        if (!gcViewingOlder) {
+          if (isFirstLoad) {
+            isFirstLoad = false;
+            handleFirstLoadScroll();
+          } else if (wasAtBottom || !userScrolledUp) {
+            scrollToBottom(true, true);
+          } else if (userScrolledUp) {
+            const newlyAppendedCount = rec.items.filter(el => el.classList.contains('message-container')).length;
+            if (newlyAppendedCount > 0) {
+              showScrollIndicator(newlyAppendedCount);
             }
-            if (revealedCount === toInsert.length) {
-              if (isFirstLoad) { isFirstLoad = false; handleFirstLoadScroll(); }
-              else if (!gcViewingOlder && wasAtBottom) requestAnimationFrame(() => requestAnimationFrame(() => scrollToBottom(true, false)));
-              else showScrollIndicator(toInsert.filter(el => el.classList.contains('message-container')).length);
-              applyAdminBadges(); applyEmojiOnly(); attachImageLoadListeners();
-              if (gcHasMore && !document.getElementById('loadOlderBtn') && !document.getElementById('noMoreOlderNotice')) insertLoadOlderBtn();
-            }
-          }, delay);
-        });
+          }
+        }
+        applyAdminBadges(); applyEmojiOnly(); attachImageLoadListeners();
+        if (gcHasMore && !document.getElementById('loadOlderBtn') && !document.getElementById('noMoreOlderNotice')) insertLoadOlderBtn();
         return;
       }
 
@@ -2034,7 +2148,7 @@
       const genuinelyNewCount = newMessages.filter(el =>
         el.classList.contains('message-container') && !curKeySet.has(getMessageKey(el))
       ).length;
-      currentMessages.forEach(el => el.remove());
+      chatBox.querySelectorAll('.message-container, .seen-indicator, .empty-chat, #loadOlderBtn, #noMoreOlderNotice').forEach(el => el.remove());
       
       // Deduplicate newMessages during full re-render
       const renderedIds = new Set();
@@ -2049,11 +2163,19 @@
         chatBox.appendChild(el);
       });
       
-      document.querySelectorAll('[data-sending-uid]').forEach(el => el.remove());
-      chatBox.scrollTop = Math.max(0, prevST + chatBox.scrollHeight - prevSH);
-      if (isFirstLoad) { isFirstLoad = false; handleFirstLoadScroll(); }
-      else if (!gcViewingOlder && (wasAtBottom || isFirstLoad)) requestAnimationFrame(() => requestAnimationFrame(() => scrollToBottom(true, false)));
-      else if (genuinelyNewCount > 0) showScrollIndicator(genuinelyNewCount);
+      if (isFirstLoad) {
+        isFirstLoad = false;
+        handleFirstLoadScroll();
+      } else if (!gcViewingOlder) {
+        if (wasAtBottom || !userScrolledUp) {
+          scrollToBottom(true, true);
+        } else {
+          chatBox.scrollTop = Math.max(0, prevST + chatBox.scrollHeight - prevSH);
+          if (userScrolledUp && genuinelyNewCount > 0) {
+            showScrollIndicator(genuinelyNewCount);
+          }
+        }
+      }
       applyAdminBadges(); applyEmojiOnly(); attachImageLoadListeners();
       // Chat was rebuilt from scratch (e.g. cleared), so pagination state no longer applies
       gcCursor = data.nextCursor || '';
@@ -2073,7 +2195,12 @@
         xhr.open('GET', 'load.php?before_uuid=&limit=' + INITIAL_LOAD, true);
         xhr.onload = function() {
           if (this.status === 200) {
-            try { globalChatPrefetchedData = JSON.parse(this.responseText); } catch(e) {}
+            try {
+              globalChatPrefetchedData = JSON.parse(this.responseText);
+              if (typeof cacheGlobalChatSnapshot === 'function') {
+                cacheGlobalChatSnapshot(globalChatPrefetchedData);
+              }
+            } catch(e) {}
           }
           resolve(globalChatPrefetchedData);
         };
@@ -2129,12 +2256,20 @@
       if (!loadOlderMode && !isAutoPoll) {
         if (globalChatPrefetchedData) {
           const data = globalChatPrefetchedData;
+          if (typeof cacheGlobalChatSnapshot === 'function') cacheGlobalChatSnapshot(data);
           globalChatPrefetchedData = null;
-          processGlobalChatData(data, false);
+          if (chatBox && chatBox.children.length === 0) {
+            processGlobalChatData(data, false);
+          }
         } else if (gcPrefetchPromise) {
-          gcPrefetchPromise.then(function(data) {
+          const p = gcPrefetchPromise;
+          gcPrefetchPromise = null;
+          p.then(function(data) {
             if (data && isGlobalChat) {
-              processGlobalChatData(data, false);
+              if (typeof cacheGlobalChatSnapshot === 'function') cacheGlobalChatSnapshot(data);
+              if (chatBox && chatBox.children.length === 0) {
+                processGlobalChatData(data, false);
+              }
             }
           });
         }
@@ -2162,6 +2297,9 @@
         if (!isGlobalChat) return;
         let data;
         try { data = JSON.parse(this.responseText); } catch(e) { return; }
+        if (!loadOlderMode && typeof cacheGlobalChatSnapshot === 'function') {
+          cacheGlobalChatSnapshot(data);
+        }
         processGlobalChatData(data, loadOlderMode);
       };
       xhr.onerror = function() { isLoadingGC = false; if (loadOlderMode) hideBackreadTopLoader(); };
@@ -2175,7 +2313,23 @@
       if (requestedUser !== activeDM) return;
       const newHtml = data.html || '';
       dmHasMore = data.hasMore || false;
-      if (typeof data.readUpTo !== 'undefined') dmReadUpTo = data.readUpTo;
+      if (typeof data.readUpTo !== 'undefined' && data.readUpTo !== null) {
+        dmReadUpTo = data.readUpTo;
+        if (typeof dmReadUpToMap !== 'undefined') dmReadUpToMap.set(requestedUser, data.readUpTo);
+        const cachedObj = typeof dmMessageCache !== 'undefined' ? dmMessageCache.get(requestedUser) : null;
+        if (cachedObj) {
+          cachedObj.readUpTo = data.readUpTo;
+          if (cachedObj._raw) cachedObj._raw.readUpTo = data.readUpTo;
+        }
+      } else if (typeof dmReadUpToMap !== 'undefined' && dmReadUpToMap.has(requestedUser)) {
+        dmReadUpTo = dmReadUpToMap.get(requestedUser);
+        if (data && typeof data === 'object') data.readUpTo = dmReadUpTo;
+        const cachedObj = typeof dmMessageCache !== 'undefined' ? dmMessageCache.get(requestedUser) : null;
+        if (cachedObj) {
+          cachedObj.readUpTo = dmReadUpTo;
+          if (cachedObj._raw) cachedObj._raw.readUpTo = dmReadUpTo;
+        }
+      }
 
       if (loadOlderMode) {
         shouldAutoScroll = false;
@@ -2186,7 +2340,9 @@
         // re-placed correctly when the next normal poll lands.
         const existingSeen = chatBox.querySelector('.seen-indicator');
         if (existingSeen) existingSeen.remove();
-        const prev = chatBox.scrollHeight;
+
+        const anchor = captureScrollAnchor();
+
         const temp = document.createElement('div');
         temp.innerHTML = newHtml;
         const oldItems = Array.from(temp.querySelectorAll('.message-container, .empty-chat'));
@@ -2200,17 +2356,13 @@
           if (btn) chatBox.insertBefore(el, btn.nextSibling);
           else chatBox.insertBefore(el, firstChild);
         });
-        chatBox.scrollTop += chatBox.scrollHeight - prev;
+
         trimWindowFromBottom(MAX_WINDOW);
+        restoreScrollAnchor(anchor, oldItems);
+
         if (!dmHasMore) showNoMoreOlderNotice(); else if (!document.getElementById('loadOlderBtn')) insertLoadOlderBtn();
         applyAdminBadges(); applyEmojiOnly();
         attachImageLoadListeners();
-        // NOTE: updateSeenIndicator() intentionally NOT called here.
-        // In loadOlderMode the seen state (dmReadUpTo) is unchanged — the
-        // user is just scrolling back through history. Calling it after
-        // trimWindowFromBottom() would make the indicator jump to a
-        // mid-history sent message because the newest sent messages were
-        // just trimmed off the bottom of the DOM.
         return;
       }
 
@@ -2241,38 +2393,57 @@
       if (typeof syncReactionsFromNewHtml === 'function') syncReactionsFromNewHtml(newMessages);
 
       if (rec.type === 'nochange') {
-        if (isFirstLoad) { isFirstLoad = false; handleFirstLoadScroll(); }
-        if (dmHasMore && !document.getElementById('loadOlderBtn') && !document.getElementById('noMoreOlderNotice')) insertLoadOlderBtn();
         if (!document.hidden && activeDM) markRead(activeDM);
         updateSeenIndicator();
+        if (isFirstLoad) {
+          isFirstLoad = false;
+          handleFirstLoadScroll();
+        }
+        if (dmHasMore && !document.getElementById('loadOlderBtn') && !document.getElementById('noMoreOlderNotice')) insertLoadOlderBtn();
         applyEmojiOnly();
         return;
       }
 
       if (rec.type === 'append') {
+        const prevScrollTop    = chatBox.scrollTop;
+        const prevScrollHeight = chatBox.scrollHeight;
         rec.items.forEach(el => {
           if (el.classList.contains('message-container')) {
             const msgId = el.getAttribute('data-msg-id');
             if (msgId && chatBox.querySelector(`.message-container[data-msg-id="${msgId}"]`)) {
               return;
             }
-            const animClass = el.classList.contains('sent') ? 'msg-animate-sent' : 'msg-animate-received';
-            el.classList.add(animClass);
-            el.addEventListener('animationend', () => el.classList.remove(animClass), { once: true });
+            if (chatFullyLoaded && !isFirstLoad) {
+              const animClass = el.classList.contains('sent') ? 'msg-animate-sent' : 'msg-animate-received';
+              el.classList.add(animClass);
+              el.addEventListener('animationend', () => el.classList.remove(animClass), { once: true });
+            }
           }
           chatBox.appendChild(el);
         });
-        const prevScrollTop = chatBox.scrollTop;
-        const prevScrollHeight = chatBox.scrollHeight;
-        const newScrollHeight = chatBox.scrollHeight;
-        chatBox.scrollTop = Math.max(0, prevScrollTop + newScrollHeight - prevScrollHeight);
-        if (trimWindowFromTop(MAX_WINDOW)) refreshCursorAfterTopTrim();
-        if (isFirstLoad) { isFirstLoad = false; handleFirstLoadScroll(); }
-        else if (!dmViewingOlder && wasAtBottom) requestAnimationFrame(() => requestAnimationFrame(() => scrollToBottom(true, false)));
-        else showScrollIndicator(rec.items.filter(el => el.classList.contains('message-container')).length);
+        // Pin the user's reading position during backread so appended messages
+        // at the bottom don't shift the view.
+        if (dmViewingOlder) {
+          const scrollDiff = chatBox.scrollHeight - prevScrollHeight;
+          if (scrollDiff > 0) chatBox.scrollTop = prevScrollTop + scrollDiff;
+        }
         applyAdminBadges(); applyEmojiOnly(); attachImageLoadListeners();
         if (!document.hidden && activeDM) markRead(activeDM);
         updateSeenIndicator();
+        // Only trim oldest messages from the top when the user is NOT backreading.
+        if (!dmViewingOlder) {
+          if (isFirstLoad) {
+            isFirstLoad = false;
+            handleFirstLoadScroll();
+          } else if (wasAtBottom || !userScrolledUp) {
+            scrollToBottom(true, true);
+          } else if (userScrolledUp) {
+            const newlyAppendedCount = rec.items.filter(el => el.classList.contains('message-container')).length;
+            if (newlyAppendedCount > 0) {
+              showScrollIndicator(newlyAppendedCount);
+            }
+          }
+        }
         if (dmHasMore && !document.getElementById('loadOlderBtn') && !document.getElementById('noMoreOlderNotice')) insertLoadOlderBtn();
         return;
       }
@@ -2283,7 +2454,7 @@
       const genuinelyNewCountF = newMessages.filter(el =>
         el.classList.contains('message-container') && !curKeySetF.has(getMessageKey(el))
       ).length;
-      currentMessages.forEach(el => el.remove());
+      chatBox.querySelectorAll('.message-container, .seen-indicator, .empty-chat, #loadOlderBtn, #noMoreOlderNotice').forEach(el => el.remove());
       
       const renderedIdsF = new Set();
       newMessages.forEach(el => {
@@ -2297,20 +2468,23 @@
         chatBox.appendChild(el);
       });
       
-      chatBox.scrollTop = Math.max(0, prevSTF + chatBox.scrollHeight - prevSHF);
-      const mc = chatBox.querySelectorAll('.message-container').length;
-      if (mc > 0 && !dmViewingOlder && (wasAtBottom || isFirstLoad)) {
-        const doInstant = isFirstLoad;
-        isFirstLoad = false;
-        if (doInstant) handleFirstLoadScroll();
-        else requestAnimationFrame(() => requestAnimationFrame(() => scrollToBottom(true, false)));
-      } else {
-        isFirstLoad = false;
-        if (genuinelyNewCountF > 0) showScrollIndicator(genuinelyNewCountF);
-      }
       applyAdminBadges(); applyEmojiOnly(); attachImageLoadListeners();
       if (!document.hidden && activeDM) markRead(activeDM);
       updateSeenIndicator();
+      
+      if (isFirstLoad) {
+        isFirstLoad = false;
+        handleFirstLoadScroll();
+      } else if (!dmViewingOlder) {
+        if (wasAtBottom || !userScrolledUp) {
+          scrollToBottom(true, true);
+        } else {
+          chatBox.scrollTop = Math.max(0, prevSTF + chatBox.scrollHeight - prevSHF);
+          if (userScrolledUp && genuinelyNewCountF > 0) {
+            showScrollIndicator(genuinelyNewCountF);
+          }
+        }
+      }
       dmCursor = data.nextCursor || '';
       dmViewingOlder = false;
       if (dmHasMore && !document.getElementById('loadOlderBtn') && !document.getElementById('noMoreOlderNotice')) insertLoadOlderBtn();
@@ -2470,9 +2644,7 @@
           const clearedGlobal   = isGlobalChat;
 
           if (clearedGlobal) {
-            // Stay in Global Chat (now empty) instead of bouncing to the
-            // home screen — mirrors how the 'all_cleared' WS event behaves
-            // when the admin is already viewing Global Chat.
+            globalChatCache = null;
             gcCursor = '';
             gcViewingOlder = false;
             removePaginationBtn();
@@ -2913,7 +3085,7 @@
       }
 
       if (!name || !message) {
-        if (!message) messageInput.focus();
+        if (!message) messageInput.focus({ preventScroll: true });
         return;
       }
 
@@ -2966,7 +3138,7 @@
       // Suppress the blur→resetIOSViewport that fires when .focus() briefly
       // blurs the element — the keyboard never actually closes here.
       if (isIOS) iosBlurSuppressed = true;
-      messageInput.focus();
+      messageInput.focus({ preventScroll: true });
       if (isIOS) iosBlurSuppressed = false;
 
       // Show optimistic "Sending..." bubble immediately (only if NOT editing).
@@ -3133,13 +3305,23 @@
                 sendingBubble.className = 'message-container sent';
                 const emojiOnlyClass = isEmojiOnly(msgContent) ? ' emoji-only' : '';
                 const replyQuoteHtml = (() => {
-                  if (!activeReply) return '';
-                  if (activeReply.snippet && activeReply.snippet.startsWith('image:')) {
-                    const imgFile = activeReply.snippet.slice(6);
+                  const replyUuid = (confirmedMsg && confirmedMsg.reply_to_msg_uuid) ? confirmedMsg.reply_to_msg_uuid : (activeReply ? activeReply.msgId : null);
+                  let snippetText = (confirmedMsg && (confirmedMsg.reply_snippet || confirmedMsg.reply_message))
+                    ? (confirmedMsg.reply_snippet || confirmedMsg.reply_message)
+                    : (activeReply && activeReply.snippet ? activeReply.snippet : '');
+                  if (!snippetText && replyUuid) {
+                    const targetContainer = chatBox.querySelector(`.message-container[data-msg-id="${replyUuid}"]`);
+                    if (targetContainer && typeof getReplySnippet === 'function') {
+                      snippetText = getReplySnippet(targetContainer);
+                    }
+                  }
+                  if (!replyUuid || !snippetText) return '';
+                  if (String(snippetText).startsWith('image:')) {
+                    const imgFile = String(snippetText).slice(6);
                     const imgSrc  = 'uploads/' + imgFile;
                     return `<div class="reply-quote reply-quote-image-container"><img src="${imgSrc.replace(/"/g, '&quot;')}" class="reply-quote-image" alt="" referrerpolicy="no-referrer" draggable="false" onerror="this.closest('.reply-quote-image-container,.reply-quote')?.remove()"></div>`;
                   }
-                  return `<div class="reply-quote"><div class="reply-quote-text">${escapeHtml(truncateForReply(activeReply.snippet, 120))}</div></div>`;
+                  return `<div class="reply-quote"><div class="reply-quote-text">${escapeHtml(truncateForReply(snippetText, 120))}</div></div>`;
                 })();
                 sendingBubble.innerHTML = `
                   <div class="message-avatar">${avatarInnerHtml(wsConfig.avatarUrl, getInitials(name))}</div>
@@ -3170,23 +3352,14 @@
                   scrollToBottom(true, true);
                   updateSeenIndicator();
                 }
+              } else {
+                // If confirmedMsg is missing or invalid, remove the optimistic sending bubble so it doesn't float stuck!
+                if (sendingBubble.parentNode) sendingBubble.parentNode.removeChild(sendingBubble);
               }
             }
           }
 
           // Broadcast notification via WebSocket so other clients patch DOM.
-          // NOTE: only 'message_edited' is sent manually here — a plain new
-          // 'message' is NOT re-broadcast from the client anymore. send.php /
-          // send_dm.php already push an authoritative WS 'message' event
-          // server-side (via WsPush) right after the DB insert succeeds, and
-          // that push reaches the same audience (recipient, sender's other
-          // tabs, admin spy). Re-sending an identical 'message' event here on
-          // top of that authoritative push made every text/DM send arrive
-          // twice for the recipient, doubling the sidebar's unread counter
-          // (2, 4, 6, 8... instead of 1, 2, 3, 4) since the "already
-          // rendered" dedup check in ws.onmessage only catches it when the
-          // recipient already has that chat open — not while it's sitting
-          // unread in the sidebar.
           if (ws && ws.readyState === WebSocket.OPEN) {
             const wasEditing = !!capturedEditingMsgId;
             if (wasEditing) {
@@ -3197,11 +3370,31 @@
                 chat_type: isGlobalChat ? 'global' : 'private',
                 recipient_id: activeDMAccountId || null
               }));
+            } else {
+              const mentionedIds = (typeof activeMentions !== 'undefined' && Array.isArray(activeMentions))
+                ? activeMentions.map(m => m.account_id)
+                : [];
+              const replyToUuid = (confirmedMsg && confirmedMsg.reply_to_msg_uuid)
+                ? confirmedMsg.reply_to_msg_uuid
+                : (activeReply ? activeReply.msgId : null);
+              const replySnippet = activeReply ? activeReply.snippet : null;
+              ws.send(JSON.stringify({
+                type: 'message',
+                chat_type: isGlobalChat ? 'global' : 'private',
+                recipient_id: activeDMAccountId || null,
+                msg_uuid: (confirmedMsg && confirmedMsg.id) ? confirmedMsg.id : null,
+                message: message,
+                mentioned_ids: mentionedIds,
+                reply_to_msg_uuid: replyToUuid,
+                reply_snippet: replySnippet,
+                created_at: new Date().toISOString()
+              }));
             }
           }
 
-          // Fallback only if confirmedMsg missing
+          // Fallback only if confirmedMsg missing (optimistic bubble already converted above)
           if (!confirmedMsg) {
+            if (typeof clearSendingOverlay === 'function') clearSendingOverlay();
             if (isGlobalChat) { isLoadingGC = false; loadGlobalChat(false); }
             else loadChatForced();
           }
@@ -3262,10 +3455,14 @@
       });
     }
 
-    // Auto-expand textarea + typing indicator dispatch
     function autoResizeMessageInput() {
+      if (!messageInput) return;
+      if (!messageInput.value || messageInput.value.trim() === '') {
+        messageInput.style.height = '40px';
+        return;
+      }
       messageInput.style.height = 'auto';
-      const newHeight = Math.min(messageInput.scrollHeight, 120);
+      const newHeight = Math.min(Math.max(messageInput.scrollHeight, 40), 120);
       messageInput.style.height = newHeight + 'px';
     }
 
@@ -3534,6 +3731,10 @@
         });
       }
 
+      if (typeof syncDarkModeUI === 'function') {
+        syncDarkModeUI();
+      }
+
       modal.classList.add('active');
       modal.setAttribute('aria-hidden', 'false');
     };
@@ -3613,7 +3814,7 @@
           fetch('search_users_verify.php?q=' + encodeURIComponent(q))
             .then(r => r.json())
             .then(data => {
-              const users = data.users || [];
+              const users = (data.users || []).slice(0, 1);
               if (users.length === 0) {
                 resultsEl.innerHTML = '<div style="font-size:13px;color:var(--text-secondary);padding:8px 0;">No users found.</div>';
                 return;
@@ -3663,6 +3864,7 @@
 
                 chk.addEventListener('change', function() {
                   const newVal = this.checked;
+                  const targetId = Number(u.account_id);
                   slider.style.background = newVal ? '#1b74e4' : 'var(--border-color)';
                   knob.style.left = newVal ? '21px' : '3px';
                   // Add or remove badge from the name in the result row
@@ -3675,22 +3877,118 @@
                   } else if (!newVal && existingBadge) {
                     existingBadge.remove();
                   }
+
+                  // Instantly update local state on this client
+                  if (typeof verifiedAccountIds !== 'undefined' && verifiedAccountIds && verifiedAccountIds.add) {
+                    if (newVal) {
+                      verifiedAccountIds.add(targetId);
+                    } else {
+                      verifiedAccountIds.delete(targetId);
+                    }
+                  }
+                  if (Array.isArray(window.verifiedAccountIds)) {
+                    if (newVal && !window.verifiedAccountIds.includes(targetId)) {
+                      window.verifiedAccountIds.push(targetId);
+                    } else if (!newVal) {
+                      window.verifiedAccountIds = window.verifiedAccountIds.filter(id => Number(id) !== targetId);
+                    }
+                  }
+                  if (Array.isArray(allUsersData)) {
+                    const userObj = allUsersData.find(x => Number(x.account_id) === targetId);
+                    if (userObj) {
+                      userObj.is_chatify_verified = newVal;
+                    }
+                  }
+                  if (typeof renderSidebarUsers === 'function') {
+                    renderSidebarUsers();
+                  }
+                  if (Number(activeDMAccountId) === targetId && typeof applyHeaderAdminBadge === 'function') {
+                    applyHeaderAdminBadge();
+                  }
+                  if (typeof applyAdminBadges === 'function') {
+                    applyAdminBadges();
+                  }
+
                   // Persist via backend (WS broadcast is handled server-side)
                   fetch('set_verification.php', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ account_id: u.account_id, is_verified: newVal })
+                    body: JSON.stringify({ account_id: targetId, is_verified: newVal })
                   }).then(r => r.json()).then(res => {
                     if (!res.ok) {
                       // Revert toggle on failure
                       chk.checked = !newVal;
                       slider.style.background = !newVal ? '#1b74e4' : 'var(--border-color)';
                       knob.style.left = !newVal ? '21px' : '3px';
+                      const revertBadge = nameSpan.querySelector('.verified-badge');
+                      if (!newVal && !revertBadge) {
+                        const b = document.createElement('span');
+                        b.className = 'verified-badge';
+                        b.innerHTML = `<svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><circle cx="12" cy="12" r="12" fill="#1b74e4"/><path d="M7 12.5l3.5 3.5 6.5-7" stroke="#fff" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
+                        nameSpan.appendChild(b);
+                      } else if (newVal && revertBadge) {
+                        revertBadge.remove();
+                      }
+                      if (typeof verifiedAccountIds !== 'undefined' && verifiedAccountIds && verifiedAccountIds.add) {
+                        if (!newVal) {
+                          verifiedAccountIds.add(targetId);
+                        } else {
+                          verifiedAccountIds.delete(targetId);
+                        }
+                      }
+                      if (Array.isArray(window.verifiedAccountIds)) {
+                        if (!newVal && !window.verifiedAccountIds.includes(targetId)) {
+                          window.verifiedAccountIds.push(targetId);
+                        } else if (newVal) {
+                          window.verifiedAccountIds = window.verifiedAccountIds.filter(id => Number(id) !== targetId);
+                        }
+                      }
+                      if (Array.isArray(allUsersData)) {
+                        const userObj = allUsersData.find(x => Number(x.account_id) === targetId);
+                        if (userObj) {
+                          userObj.is_chatify_verified = !newVal;
+                        }
+                      }
+                      if (typeof renderSidebarUsers === 'function') renderSidebarUsers();
+                      if (Number(activeDMAccountId) === targetId && typeof applyHeaderAdminBadge === 'function') applyHeaderAdminBadge();
+                      if (typeof applyAdminBadges === 'function') applyAdminBadges();
                     }
                   }).catch(() => {
                     chk.checked = !newVal;
                     slider.style.background = !newVal ? '#1b74e4' : 'var(--border-color)';
                     knob.style.left = !newVal ? '21px' : '3px';
+                    const revertBadge = nameSpan.querySelector('.verified-badge');
+                    if (!newVal && !revertBadge) {
+                      const b = document.createElement('span');
+                      b.className = 'verified-badge';
+                      b.innerHTML = `<svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><circle cx="12" cy="12" r="12" fill="#1b74e4"/><path d="M7 12.5l3.5 3.5 6.5-7" stroke="#fff" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
+                      nameSpan.appendChild(b);
+                    } else if (newVal && revertBadge) {
+                      revertBadge.remove();
+                    }
+                    if (typeof verifiedAccountIds !== 'undefined' && verifiedAccountIds && verifiedAccountIds.add) {
+                      if (!newVal) {
+                        verifiedAccountIds.add(targetId);
+                      } else {
+                        verifiedAccountIds.delete(targetId);
+                      }
+                    }
+                    if (Array.isArray(window.verifiedAccountIds)) {
+                      if (!newVal && !window.verifiedAccountIds.includes(targetId)) {
+                        window.verifiedAccountIds.push(targetId);
+                      } else if (newVal) {
+                        window.verifiedAccountIds = window.verifiedAccountIds.filter(id => Number(id) !== targetId);
+                      }
+                    }
+                    if (Array.isArray(allUsersData)) {
+                      const userObj = allUsersData.find(x => Number(x.account_id) === targetId);
+                      if (userObj) {
+                        userObj.is_chatify_verified = !newVal;
+                      }
+                    }
+                    if (typeof renderSidebarUsers === 'function') renderSidebarUsers();
+                    if (Number(activeDMAccountId) === targetId && typeof applyHeaderAdminBadge === 'function') applyHeaderAdminBadge();
+                    if (typeof applyAdminBadges === 'function') applyAdminBadges();
                   });
                 });
 
@@ -4311,6 +4609,50 @@
       }, false);
     }
 
+    // ── Clipboard Paste (Ctrl+V) → Send Files Modal ───────────────────────────
+    // When the user pastes while inside a conversation (activeDM or isGlobalChat
+    // is set) and the clipboard contains an image, the Send Files staging modal
+    // opens automatically with the pasted image pre-attached — even when the
+    // message box is focused. Text-only pastes (no image in clipboard) are
+    // naturally unaffected because e.preventDefault() is only called after
+    // image files are confirmed, so text keeps pasting normally everywhere.
+    document.addEventListener('paste', function(e) {
+      // Guard: only active when a DM or the global chat is open
+      if (!activeDM && !isGlobalChat) return;
+      if (isAdminAllChatsView || activeAdminConv) return;
+
+      const items = e.clipboardData && e.clipboardData.items;
+      if (!items || items.length === 0) return;
+
+      // Collect all image items from the clipboard
+      const imageFiles = [];
+      for (let i = 0; i < items.length; i++) {
+        const item = items[i];
+        if (item.kind === 'file' && item.type && item.type.startsWith('image/')) {
+          const blob = item.getAsFile();
+          if (!blob) continue;
+
+          // Derive a readable filename: pasted-image-<timestamp>.<ext>
+          const ext = item.type.split('/')[1] || 'png';
+          const safeName = 'pasted-image-' + Date.now() + '.' + ext;
+
+          // ClipboardItem.getAsFile() returns a File-like Blob; we need a real
+          // File so the staging modal's name/ext logic works correctly.
+          const file = new File([blob], safeName, { type: item.type, lastModified: Date.now() });
+          imageFiles.push(file);
+        }
+      }
+
+      if (imageFiles.length === 0) return;
+
+      // Prevent the browser from doing anything else with this paste event
+      e.preventDefault();
+
+      // Hand the file(s) to the existing staging modal — guards, rejection
+      // checks, and grid rendering are all handled inside openImageStagingModal.
+      openImageStagingModal(imageFiles);
+    }, false);
+
     // ── Upload Progress & Error Modal Controls ────────────────────────────────
     function showUploadingModal(names) {
       const modal = document.getElementById('uploadingModal');
@@ -4452,7 +4794,7 @@
         if (scrollAnchorObserver) scrollAnchorObserver.observe(img);
         img.addEventListener('load', () => {
           if (!viewingOlder && isAtBottom() && shouldAutoScroll) {
-            scrollToBottom(true, false);
+            scrollToBottom(true, true);
           }
         });
       });
@@ -4591,19 +4933,8 @@
           setTimeout(closeUploadingModal, 300);
 
           if (this.status === 200) {
-            // NOTE: no client-side ws.send('message', ...) re-broadcast here.
-            // send.php / send_dm.php ALREADY push an authoritative WS 'message'
-            // event (with has_upload correctly set) server-side once the DB
-            // insert succeeds — that single push reaches the recipient, the
-            // sender's other tabs, and admin spy sessions. Re-broadcasting it
-            // again from here made every attachment fire the sidebar's
-            // unread-count bump TWICE (2, 4, 6, 8... instead of 1, 2, 3, 4)
-            // for the recipient, since the client-sent duplicate isn't caught
-            // by the "already rendered" dedup check when they're not actively
-            // viewing that chat. The server push alone is sufficient.
-
-            // Force a fresh chat load so the grid/image renders immediately
-            // for the SENDER's own view (independent of any WS broadcast).
+            let resData = null;
+            try { resData = JSON.parse(this.responseText); } catch(e) {}
             if (isGlobalChat) {
               isLoadingGC = false;
               loadGlobalChat(false);
@@ -4648,124 +4979,59 @@
     var iosFooter          = document.querySelector('.input-area');
     var iosBlurSuppressed  = false; // true while we're about to refocus after send
 
-    function applyIOSViewport() {
-      if (!window.visualViewport) return;
-      var vv            = window.visualViewport;
-      var visibleTop    = vv.offsetTop;
-      var visibleLeft   = vv.offsetLeft;
-      var visibleWidth  = vv.width;
-      var visibleHeight = vv.height;
+    let keyboardAnimRaf = null;
 
-      // Get safe-area-inset-bottom (home bar on notched iPhones).
-      // Only apply it when the keyboard is NOT open (i.e. visibleHeight is close to full screen).
-      // When the keyboard is open, visibleHeight already excludes the keyboard area,
-      // so we don't need to add extra bottom inset.
-      var safeBottom = 0;
-      var fullHeight = window.screen.height / window.devicePixelRatio;
-      var keyboardOpen = visibleHeight < (fullHeight * 0.75);
-      if (!keyboardOpen) {
-        // Try to read CSS env() via a temporary element
-        try {
-          var tmp = document.createElement('div');
-          tmp.style.cssText = 'position:fixed;bottom:0;height:env(safe-area-inset-bottom,0px);pointer-events:none;visibility:hidden;';
-          document.body.appendChild(tmp);
-          safeBottom = tmp.offsetHeight || 0;
-          document.body.removeChild(tmp);
-        } catch(e) { safeBottom = 0; }
+    function smoothKeepScrollAtBottom(durationMs = 400) {
+      if (!chatBox) return;
+      userScrolledUp = false;
+      shouldAutoScroll = true;
+      hideScrollIndicator();
+
+      if (keyboardAnimRaf) {
+        cancelAnimationFrame(keyboardAnimRaf);
+        keyboardAnimRaf = null;
       }
 
-      var headerH = iosHeader.offsetHeight;
-      var footerH = iosFooter.offsetHeight;
+      const startTime = performance.now();
 
-      // Pin header at top of visible area
-      iosHeader.style.position = 'fixed';
-      iosHeader.style.top      = visibleTop + 'px';
-      iosHeader.style.left     = visibleLeft + 'px';
-      iosHeader.style.width    = visibleWidth + 'px';
-      iosHeader.style.zIndex   = '200';
-
-      // Pin footer just above the keyboard (or home bar when keyboard is closed)
-      var footerTop = visibleTop + visibleHeight - footerH - safeBottom;
-      iosFooter.style.position    = 'fixed';
-      iosFooter.style.top         = footerTop + 'px';
-      iosFooter.style.left        = visibleLeft + 'px';
-      iosFooter.style.width       = visibleWidth + 'px';
-      iosFooter.style.zIndex      = '200';
-      // Remove the CSS padding-bottom safe-area rule while fixed — we handle it manually above
-      iosFooter.style.paddingBottom = (keyboardOpen ? '12px' : (12 + safeBottom) + 'px');
-
-      // chat-box fills the space between header and footer — still scrollable
-      chatBox.style.position  = 'fixed';
-      chatBox.style.top       = (visibleTop + headerH) + 'px';
-      chatBox.style.left      = visibleLeft + 'px';
-      chatBox.style.width     = visibleWidth + 'px';
-      chatBox.style.height    = (visibleHeight - headerH - footerH - safeBottom) + 'px';
-      chatBox.style.overflowY = 'auto';
-
-      // Scroll chat to bottom whenever keyboard changes size
-      setTimeout(function() {
+      function step(now) {
+        if (!chatBox) return;
         chatBox.scrollTop = chatBox.scrollHeight;
-      }, 50);
+        if (now - startTime < durationMs) {
+          keyboardAnimRaf = requestAnimationFrame(step);
+        } else {
+          keyboardAnimRaf = null;
+          chatBox.scrollTop = chatBox.scrollHeight;
+        }
+      }
+
+      keyboardAnimRaf = requestAnimationFrame(step);
+    }
+
+    function applyIOSViewport() {
+      smoothKeepScrollAtBottom(250);
     }
 
     function resetIOSViewport() {
-      if (!window.visualViewport) return;
-
-      iosHeader.style.position = '';
-      iosHeader.style.top      = '';
-      iosHeader.style.left     = '';
-      iosHeader.style.width    = '';
-      iosHeader.style.zIndex   = '';
-
-      iosFooter.style.position     = '';
-      iosFooter.style.top          = '';
-      iosFooter.style.left         = '';
-      iosFooter.style.width        = '';
-      iosFooter.style.zIndex       = '';
-      iosFooter.style.paddingBottom = '';
-
-      chatBox.style.position  = '';
-      chatBox.style.top       = '';
-      chatBox.style.left      = '';
-      chatBox.style.width     = '';
-      chatBox.style.height    = '';
-      chatBox.style.overflowY = '';
+      smoothKeepScrollAtBottom(250);
     }
 
-    if (isIOS && window.visualViewport) {
-      // Use requestAnimationFrame so the layout update runs on the very next
-      // paint frame — eliminates the white flash seen before the footer snaps up.
-      var rafPending = false;
-      function scheduleIOSViewport() {
-        if (rafPending) return;
-        rafPending = true;
-        requestAnimationFrame(function() {
-          rafPending = false;
-          applyIOSViewport();
-        });
-      }
-      window.visualViewport.addEventListener('resize', scheduleIOSViewport);
-      window.visualViewport.addEventListener('scroll', scheduleIOSViewport);
+    if (window.visualViewport) {
+      window.visualViewport.addEventListener('resize', function() {
+        smoothKeepScrollAtBottom(250);
+      });
+      window.visualViewport.addEventListener('scroll', function() {
+        smoothKeepScrollAtBottom(200);
+      });
     }
 
-    // Scroll chat to latest message when the keyboard opens.
-    // iOS: do NOT call applyIOSViewport() here — the keyboard hasn't opened yet,
-    // so visibleHeight is still full-screen and would place the footer wrongly.
-    // The visualViewport 'resize' event (above) fires as soon as the keyboard
-    // appears and will correctly reposition everything via scheduleIOSViewport.
     messageInput.addEventListener('focus', function () {
-      setTimeout(function () {
-        chatBox.scrollTop = chatBox.scrollHeight;
-      }, isIOS ? 400 : 100);
+      smoothKeepScrollAtBottom(450);
     });
 
     messageInput.addEventListener('blur', function () {
-      if (isIOS) {
-        // Skip reset when we're immediately refocusing after send — the keyboard
-        // never actually closed so resetting would cause a white-gap flash.
-        if (iosBlurSuppressed) return;
-        setTimeout(resetIOSViewport, 300);
-      }
+      if (iosBlurSuppressed) return;
+      smoothKeepScrollAtBottom(300);
     });
 
     // ── Mobile keyboard: keep input-area always above the virtual keyboard ──
@@ -4799,7 +5065,7 @@
       // Focus on message input only if a chat is already selected
       if (activeDM) {
         setTimeout(() => {
-          messageInput.focus();
+          messageInput.focus({ preventScroll: true });
         }, 300);
       }
       

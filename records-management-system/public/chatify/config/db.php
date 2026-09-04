@@ -70,7 +70,8 @@ define('CHAT_SHARED_SECRET', getEnvValue('CHAT_SHARED_SECRET', '7f5b84c8a2bf6d91
 // live WebSocket the instant its RMS session is invalidated (logout, admin
 // kick, etc.) instead of waiting for the socket's own token to expire.
 // -----------------------------------------------------------------------------
-define('WS_INTERNAL_PUSH_URL', getEnvValue('WS_INTERNAL_PUSH_URL', 'http://127.0.0.1:8080/internal/push'));
+$defaultWsHost = (getenv('DB_HOST') === 'db' || LARAVEL_DB_HOST === 'db' || file_exists('/.dockerenv')) ? 'websocket' : '127.0.0.1';
+define('WS_INTERNAL_PUSH_URL', getEnvValue('WS_INTERNAL_PUSH_URL', "http://{$defaultWsHost}:8080/internal/push"));
 define('INTERNAL_PUSH_SECRET', getEnvValue('INTERNAL_PUSH_SECRET', CHAT_SHARED_SECRET));
 
 // -----------------------------------------------------------------------------

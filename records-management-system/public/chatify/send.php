@@ -74,6 +74,13 @@ if ($message !== '') {
         $errors[] = 'Failed to save text message.';
     } else {
         $result['plaintext'] = $message;
+        if (!empty($result['reply_to_msg_uuid'])) {
+            $prev = GlobalChatManager::getReplyPreview($result['reply_to_msg_uuid']);
+            if ($prev && isset($prev['snippet'])) {
+                $result['reply_message'] = $prev['snippet'];
+                $result['reply_snippet'] = $prev['snippet'];
+            }
+        }
         $allResults[] = $result;
     }
 }

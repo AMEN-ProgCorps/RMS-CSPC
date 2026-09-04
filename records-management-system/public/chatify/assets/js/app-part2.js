@@ -52,6 +52,8 @@
           isGlobalChat = false;
           activeAdminConv = null;
           updateClearChatButtonVisibility();
+          if (typeof hideEditBanner === 'function') hideEditBanner();
+          if (typeof hideReplyBanner === 'function') hideReplyBanner();
           localStorage.removeItem('activeSpyConv');
           
           chatHeaderTitle.textContent = '';
@@ -60,7 +62,7 @@
           if (typeof updateHeaderActiveStatus === 'function') updateHeaderActiveStatus();
           if (typeof renderSidebarUsers === 'function') renderSidebarUsers();
           removePaginationBtn();
-          chatBox.innerHTML = '<div class="empty-chat"><p>Camarines Sur Polytechnic Colleges</p></div>';
+          chatBox.innerHTML = '<div class="empty-chat"></div>';
 
           isAdminAllChatsView = true;
           localStorage.setItem('__adminAllChatsView__', '1');
@@ -77,6 +79,8 @@
           localStorage.setItem('__adminAllChatsView__', '0');
           activeAdminConv = null;
           updateClearChatButtonVisibility();
+          if (typeof hideEditBanner === 'function') hideEditBanner();
+          if (typeof hideReplyBanner === 'function') hideReplyBanner();
           localStorage.removeItem('activeSpyConv');
 
           // Reset all admin spy mode state & search inputs fully
@@ -132,7 +136,7 @@
             applyHeaderAdminBadge(); // activeDMAccountId is null here — clears any leftover badge
             applyHeaderAvatar(null);
             removePaginationBtn();
-            chatBox.innerHTML = '<div class="empty-chat"><p>Camarines Sur Polytechnic Colleges</p></div>';
+            chatBox.innerHTML = '<div class="empty-chat"></div>';
           }
 
           // Clean up pre-spy state

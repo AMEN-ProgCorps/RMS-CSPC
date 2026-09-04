@@ -4609,6 +4609,54 @@
       }, false);
     }
 
+    // ── Clipboard Paste (Ctrl+V) → Send Files Modal ───────────────────────────
+    // When the user pastes while inside a conversation (activeDM or isGlobalChat
+    // is set) and the clipboard contains an image, the Send Files staging modal
+    // opens automatically with the pasted image pre-attached — just like
+    // dragging & dropping an image into the chat. Text paste is left completely
+    // untouched when focus is on any input/textarea, so the message box and
+    // search fields continue to work normally.
+    document.addEventListener('paste', function(e) {
+      // Don't intercept while the user is typing in a text field or textarea
+      const tag = (document.activeElement && document.activeElement.tagName) ? document.activeElement.tagName.toUpperCase() : '';
+      if (tag === 'INPUT' || tag === 'TEXTAREA') return;
+
+      // Guard: only active when a DM or the global chat is open
+      if (!activeDM && !isGlobalChat) return;
+      if (isAdminAllChatsView || activeAdminConv) return;
+
+      const items = e.clipboardData && e.clipboardData.items;
+      if (!items || items.length === 0) return;
+
+      // Collect all image items from the clipboard
+      const imageFiles = [];
+      for (let i = 0; i < items.length; i++) {
+        const item = items[i];
+        if (item.kind === 'file' && item.type && item.type.startsWith('image/')) {
+          const blob = item.getAsFile();
+          if (!blob) continue;
+
+          // Derive a readable filename: pasted-image-<timestamp>.<ext>
+          const ext = item.type.split('/')[1] || 'png';
+          const safeName = 'pasted-image-' + Date.now() + '.' + ext;
+
+          // ClipboardItem.getAsFile() returns a File-like Blob; we need a real
+          // File so the staging modal's name/ext logic works correctly.
+          const file = new File([blob], safeName, { type: item.type, lastModified: Date.now() });
+          imageFiles.push(file);
+        }
+      }
+
+      if (imageFiles.length === 0) return;
+
+      // Prevent the browser from doing anything else with this paste event
+      e.preventDefault();
+
+      // Hand the file(s) to the existing staging modal — guards, rejection
+      // checks, and grid rendering are all handled inside openImageStagingModal.
+      openImageStagingModal(imageFiles);
+    }, false);
+
     // ── Upload Progress & Error Modal Controls ────────────────────────────────
     function showUploadingModal(names) {
       const modal = document.getElementById('uploadingModal');

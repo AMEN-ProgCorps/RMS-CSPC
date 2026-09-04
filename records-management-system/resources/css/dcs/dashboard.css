@@ -1589,11 +1589,80 @@ body.dash-cl-open {
 .upcoming-item:hover { background: var(--dash-border-light); }
 
 .upcoming-item.is-past {
-    opacity: 0.78;
+    opacity: 0.85;
+    background: #f8fafc;
+}
+
+.upcoming-item.is-past .title {
+    color: #64748b;
+    text-decoration: line-through;
+    text-decoration-thickness: 1px;
+    text-decoration-color: #94a3b8;
 }
 
 .upcoming-item.is-past .time {
     color: var(--dash-text-muted, #64748b);
+}
+
+.upcoming-title-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-width: 0;
+}
+
+.upcoming-title-row .title {
+    flex: 1;
+    min-width: 0;
+}
+
+.upcoming-done-badge {
+    flex-shrink: 0;
+    font-size: 0.58rem;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: #475569;
+    background: #e2e8f0;
+    border-radius: 99px;
+    padding: 2px 7px;
+    line-height: 1.4;
+}
+
+.ev-card-title-wrap {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-width: 0;
+    flex: 1;
+}
+
+.ev-card.is-past {
+    opacity: 0.82;
+    background: #f8fafc;
+}
+
+.ev-card.is-past .ev-card-title {
+    color: #64748b;
+    text-decoration: line-through;
+    text-decoration-thickness: 1px;
+    text-decoration-color: #94a3b8;
+}
+
+.dash-calendar-trigger-text {
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+    min-width: 0;
+}
+
+.dash-calendar-trigger-time {
+    color: var(--dash-accent, #1d4ed8);
+    font-weight: 700;
+    font-variant-numeric: tabular-nums;
+    letter-spacing: 0.01em;
+    border-left: 1px solid var(--dash-border);
+    padding-left: 10px;
 }
 
 .upcoming-event-dot {

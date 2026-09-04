@@ -11,6 +11,8 @@ use Livewire\Attributes\Title;
 use Livewire\Volt\Component;
 use Illuminate\Support\Facades\Auth;
 use App\Models\PersonalSetting;
+use App\Helpers\DcsDatabaseColumns;
+use App\Helpers\RegisterQueryHelper;
 
 new #[Layout('layouts.profile')] #[Title('Profile Manager - Preferences & Settings')] class extends Component {
     /** @var bool Personal preference for auto-opening Chatify widget upon login */
@@ -39,6 +41,11 @@ new #[Layout('layouts.profile')] #[Title('Profile Manager - Preferences & Settin
 
     /** @var string|null Personal preference for chatify widget toggle shortcut */
     public ?string $chatifyToggleKey = null;
+
+    /** @var array<string, bool> */
+    public array $dcsDbVisibleGroups = [];
+
+    public bool $canManageDcsDbColumns = false;
 
     /** @var string|null Feedback notification message */
     public ?string $feedbackMessage = null;
@@ -69,6 +76,11 @@ new #[Layout('layouts.profile')] #[Title('Profile Manager - Preferences & Settin
             $this->actionToggleKey = $user->actionToggleKey();
             $this->notificationToggleKey = $user->notificationToggleKey();
             $this->chatifyToggleKey = $user->chatifyToggleKey();
+            // Inventory column prefs: full DCS / RFIO / super-admin only — never limited office DCS users.
+            $this->canManageDcsDbColumns = RegisterQueryHelper::isFullDcsUser();
+            $this->dcsDbVisibleGroups = $this->canManageDcsDbColumns
+                ? $user->dcsDbVisibleGroups()
+                : [];
         }
     }
 
@@ -137,6 +149,66 @@ new #[Layout('layouts.profile')] #[Title('Profile Manager - Preferences & Settin
             $this->js("localStorage.setItem('rms-theme', '{$theme}'); document.documentElement.setAttribute('data-theme', '{$theme}'); document.cookie = 'rms_theme={$theme}; path=/; max-age=31536000; SameSite=Lax'; document.cookie = 'dark_mode=" . ($theme === 'dark' ? 'enabled' : 'disabled') . "; path=/; max-age=31536000; SameSite=Lax';");
             $this->dispatch('rms-settings-changed', type: 'theme_change', message: 'Theme updated to ' . ucfirst($theme) . ' Mode.');
         }
+    }
+
+    public function toggleDcsDbGroup(string $groupKey): void
+    {
+        if (! RegisterQueryHelper::isFullDcsUser()) {
+            return;
+        }
+        if (! in_array($groupKey, DcsDatabaseColumns::GROUP_KEYS, true)) {
+            return;
+        }
+
+        $user = Auth::user();
+        if (! $user) {
+            return;
+        }
+
+        $groups = DcsDatabaseColumns::normalizeVisibleGroups($this->dcsDbVisibleGroups);
+        $groups[$groupKey] = ! ($groups[$groupKey] ?? true);
+        $this->persistDcsDbVisibleGroups($groups, 'DCS Database column visibility updated.');
+    }
+
+    public function showAllDcsDbGroups(): void
+    {
+        if (! RegisterQueryHelper::isFullDcsUser()) {
+            return;
+        }
+        $this->persistDcsDbVisibleGroups(
+            DcsDatabaseColumns::defaultVisibleGroups(),
+            'All DCS Database column groups are visible again.'
+        );
+    }
+
+    public function hideAllDcsDbGroups(): void
+    {
+        if (! RegisterQueryHelper::isFullDcsUser()) {
+            return;
+        }
+        $hidden = DcsDatabaseColumns::defaultVisibleGroups();
+        foreach ($hidden as $key => $_) {
+            $hidden[$key] = false;
+        }
+        $this->persistDcsDbVisibleGroups($hidden, 'All DCS Database column groups are hidden.');
+    }
+
+    /** @param  array<string, bool>  $groups */
+    private function persistDcsDbVisibleGroups(array $groups, string $message): void
+    {
+        $user = Auth::user();
+        if (! $user) {
+            return;
+        }
+
+        $normalized = DcsDatabaseColumns::normalizeVisibleGroups($groups);
+        PersonalSetting::updateOrCreate(
+            ['user' => $user->id],
+            ['dcs_db_visible_groups' => $normalized]
+        );
+        $this->dcsDbVisibleGroups = $normalized;
+        $this->feedbackMessage = $message;
+        $this->dispatch('rms-settings-changed', type: 'profile_preference', message: $message);
     }
 
     private function assignKeySetting(string $targetField, ?string $key, string $targetLabel): void
@@ -349,6 +421,69 @@ new #[Layout('layouts.profile')] #[Title('Profile Manager - Preferences & Settin
         }
         [data-theme="dark"] .settings-info-desc {
             color: #94a3b8 !important;
+        }
+
+        .dcs-db-cols-actions {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+            margin: 4px 0 8px;
+        }
+
+        .dcs-db-cols-actions .theme-option-btn {
+            padding: 8px 14px;
+            border: 1px solid #cbd5e1;
+            border-radius: 9px;
+            background: #fff;
+            cursor: pointer;
+            font-weight: 600;
+            font-size: 13px;
+            color: #0f172a;
+        }
+
+        .dcs-db-cols-actions .theme-option-btn:hover {
+            border-color: #93c5fd;
+            background: #eff6ff;
+            color: #1d4ed8;
+        }
+
+        .dcs-db-cols-list .settings-block-row {
+            padding: 14px 0;
+        }
+
+        .dcs-db-cols-list .settings-block-row:first-of-type {
+            padding-top: 8px;
+        }
+
+        .dcs-db-access-badge {
+            display: inline-flex;
+            align-items: center;
+            margin-left: 10px;
+            padding: 3px 9px;
+            border-radius: 999px;
+            background: #eff6ff;
+            color: #1d4ed8;
+            font-size: 11px;
+            font-weight: 700;
+            letter-spacing: 0.02em;
+            vertical-align: middle;
+        }
+
+        [data-theme="dark"] .dcs-db-cols-actions .theme-option-btn {
+            background: #0f172a;
+            border-color: #334155;
+            color: #e2e8f0;
+        }
+
+        [data-theme="dark"] .dcs-db-cols-actions .theme-option-btn:hover {
+            background: #1e293b;
+            border-color: #475569;
+            color: #93c5fd;
+        }
+
+        [data-theme="dark"] .dcs-db-access-badge {
+            background: rgba(37, 99, 235, 0.22);
+            color: #93c5fd;
         }
 
         .settings-toast {
@@ -787,6 +922,44 @@ new #[Layout('layouts.profile')] #[Title('Profile Manager - Preferences & Settin
                 </div>
             </div>
         </div>
+
+        @if($canManageDcsDbColumns)
+        <div class="profile-card">
+            <h2 class="card-title">
+                <i class="fa-solid fa-table"></i> DCS Database columns
+                <span class="dcs-db-access-badge">Full DCS only</span>
+            </h2>
+            <div class="settings-block-row">
+                <span class="settings-info-title">Hide or show inventory column groups</span>
+                <span class="settings-info-desc">
+                    Applies to the Inventory table for your account only (RFIO / full DCS). Right-click a group header on Inventory to hide it, or use the toggles below. Limited office users never see this section.
+                </span>
+                <div class="dcs-db-cols-actions">
+                    <button type="button" class="theme-option-btn" wire:click="showAllDcsDbGroups">Show all</button>
+                    <button type="button" class="theme-option-btn" wire:click="hideAllDcsDbGroups">Hide all groups</button>
+                </div>
+            </div>
+            <div class="dcs-db-cols-list">
+                @foreach(\App\Helpers\DcsDatabaseColumns::GROUP_KEYS as $gKey)
+                    <div class="settings-block-row">
+                        <div class="settings-row-header">
+                            <span class="settings-info-title">{{ \App\Helpers\DcsDatabaseColumns::GROUP_LABELS[$gKey] }}</span>
+                            <button type="button" wire:click="toggleDcsDbGroup('{{ $gKey }}')" role="switch"
+                                aria-checked="{{ !empty($dcsDbVisibleGroups[$gKey]) ? 'true' : 'false' }}"
+                                aria-label="Toggle {{ \App\Helpers\DcsDatabaseColumns::GROUP_LABELS[$gKey] }}"
+                                style="position:relative;display:inline-flex;width:48px;height:26px;border:none;cursor:pointer;background-color:{{ !empty($dcsDbVisibleGroups[$gKey]) ? '#2563eb' : '#cbd5e1' }};transition:background-color 0.25s ease;border-radius:26px;padding:0;outline:none;flex-shrink:0;">
+                                <span style="position:absolute;top:3px;left:{{ !empty($dcsDbVisibleGroups[$gKey]) ? '25px' : '3px' }};width:20px;height:20px;background-color:#ffffff;border-radius:50%;transition:left 0.25s ease;box-shadow:0 1px 3px rgba(0,0,0,0.2);"></span>
+                            </button>
+                        </div>
+                    </div>
+                @endforeach
+            </div>
+            <div class="settings-clarification-badge" style="margin-top:4px;">
+                <i class="fa-solid fa-circle-info" style="color:#2563eb;margin-top:2px;"></i>
+                <span>On Inventory, right-click a group header (Approval, DCN, …) to hide it. Restore visibility here anytime.</span>
+            </div>
+        </div>
+        @endif
 
         <!-- Key Binds Card -->
         <div class="profile-card">

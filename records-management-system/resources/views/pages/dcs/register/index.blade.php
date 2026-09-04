@@ -554,7 +554,7 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                 <div class="reg-split-right">
                     <div class="reg-field">
                         <label>Office retrieval status</label>
-                        <p class="reg-field-hint">Mark as Retrieved to also add that office to Distribution. The office stays listed here as Retrieved. Set status back to Pending (or remove it from Distribution) to undo. On the next revision, retrieved offices start again as Pending in Retrieval.</p>
+                            <p class="reg-field-hint">Mark as Retrieved to also add that office to Distribution. Then set that office’s retrieval date and time. The office stays listed here as Retrieved. Set status back to Pending (or remove it from Distribution) to undo. On the next revision, retrieved offices start again as Pending in Retrieval.</p>
                         <div class="reg-search">
                             <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                                 <circle cx="11" cy="11" r="8"/>
@@ -570,9 +570,9 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                             <thead>
                                 <tr>
                                     <th>Receiving Office(s)</th>
-                                    <th style="width: 130px;">Status</th>
+                                    <th class="reg-ret-status">Status</th>
+                                    <th class="reg-ret-when">Retrieved date &amp; time</th>
                                     <th style="width: 110px; text-align: center;">No. of Copies</th>
-                                    <th style="width: 40px;"></th>
                                 </tr>
                             </thead>
                             <tbody id="retrievalBody">
@@ -588,9 +588,8 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                             <tbody id="retrievalRetrievedHidden" style="display:none;" aria-hidden="true"></tbody>
                             <tfoot>
                                 <tr>
-                                    <td colspan="2">Total No. of Copies</td>
+                                    <td colspan="3">Total No. of Copies</td>
                                     <td id="totalRetrievalCopies" style="text-align: center; font-weight: 700;">0</td>
-                                    <td></td>
                                 </tr>
                             </tfoot>
                         </table>
@@ -951,6 +950,39 @@ function emptyOfficeRowHTML(bodyId) {
             '</tr>';
 }
 
+function pad2(n) {
+    return String(n).padStart(2, '0');
+}
+
+function localDateValue() {
+    const d = new Date();
+    return d.getFullYear() + '-' + pad2(d.getMonth() + 1) + '-' + pad2(d.getDate());
+}
+
+function localTimeValue() {
+    const d = new Date();
+    return pad2(d.getHours()) + ':' + pad2(d.getMinutes());
+}
+
+function retrievalWhenCellHTML(dateVal, timeVal, visible) {
+    const display = visible ? '' : ' style="display:none"';
+    return '<td class="reg-ret-when"><div class="reg-ret-when-fields"' + display + '>' +
+        '<input type="date" name="retrievalOfficeDate[]" value="' + String(dateVal || '').replace(/"/g, '') + '">' +
+        '<input type="time" name="retrievalOfficeTime[]" value="' + String(timeVal || '').replace(/"/g, '') + '">' +
+        '</div></td>';
+}
+
+function syncRetrievalWhenFields(tr, isRetrieved) {
+    const wrap = tr?.querySelector('.reg-ret-when-fields');
+    if (!wrap) return;
+    wrap.style.display = isRetrieved ? '' : 'none';
+    if (!isRetrieved) return;
+    const dateInp = wrap.querySelector('input[name="retrievalOfficeDate[]"]');
+    const timeInp = wrap.querySelector('input[name="retrievalOfficeTime[]"]');
+    if (dateInp && !dateInp.value) dateInp.value = localDateValue();
+    if (timeInp && !timeInp.value) timeInp.value = localTimeValue();
+}
+
 function retrievalStatusSelectHTML(status) {
     const value = status === 'retrieved' ? 'retrieved' : 'pending';
     return '<select name="retrievalStatus[]" class="reg-retrieval-status" onchange="handleRetrievalStatusChange(this)">' +
@@ -1037,11 +1069,10 @@ function restoreOfficeToRetrievalPending(officeId, officeName, copies) {
             '<td><input type="hidden" name="retrievalOffice[]" value="' + String(officeId).replace(/"/g, '') + '">' +
             '<div class="reg-office-name"><div class="reg-office-icon"><i class="fa-solid fa-building"></i></div>' +
             '<span class="reg-office-text">' + escapeHtml(officeName || 'Office') + '</span></div></td>' +
-            '<td>' + retrievalStatusSelectHTML('pending') + '</td>' +
+            '<td class="reg-ret-status">' + retrievalStatusSelectHTML('pending') + '</td>' +
+            retrievalWhenCellHTML('', '', false) +
             '<td style="text-align:center;"><input type="number" name="retrievalCopies[]" value="' + useCopies +
-            '" min="1" oninput="updateTotal(\'totalRetrievalCopies\', \'retrievalBody\')"></td>' +
-            '<td><button type="button" class="btn-remove" onclick="removeOffice(this, \'totalRetrievalCopies\', \'retrievalBody\')">' +
-            '<i class="fa-solid fa-xmark"></i></button></td>';
+            '" min="1" oninput="updateTotal(\'totalRetrievalCopies\', \'retrievalBody\')"></td>';
         tbody.appendChild(tr);
     }
     updateTotal('totalRetrievalCopies', 'retrievalBody');
@@ -1080,11 +1111,13 @@ window.handleRetrievalStatusChange = function (select) {
     const copies = tr.querySelector('input[type="number"][name="retrievalCopies[]"]')?.value || 1;
     if (select.value === 'retrieved') {
         addRetrievedOfficeToDistribution(officeId, officeName, copies);
+        syncRetrievalWhenFields(tr, true);
         // Keep the office visible in Retrieval with status Retrieved.
         const distSection = document.getElementById('section-5');
         if (distSection) distSection.style.display = 'block';
     } else {
         removeRetrievedOfficeFromDistribution(officeId);
+        syncRetrievalWhenFields(tr, false);
     }
 };
 
@@ -1098,11 +1131,15 @@ function moveRetrievalRowToHidden(tr, officeId, copies) {
     const existing = [...hiddenBody.querySelectorAll('input[name="retrievalOffice[]"]')]
         .find(inp => String(inp.value) === String(officeId));
     if (!existing) {
+        const dateVal = tr.querySelector('input[name="retrievalOfficeDate[]"]')?.value || '';
+        const timeVal = tr.querySelector('input[name="retrievalOfficeTime[]"]')?.value || '';
         const row = document.createElement('tr');
         row.innerHTML = '<td>' +
             '<input type="hidden" name="retrievalOffice[]" value="' + String(officeId).replace(/"/g, '') + '">' +
             '<input type="hidden" name="retrievalStatus[]" value="retrieved">' +
             '<input type="hidden" name="retrievalCopies[]" value="' + String(copies).replace(/"/g, '') + '">' +
+            '<input type="hidden" name="retrievalOfficeDate[]" value="' + String(dateVal).replace(/"/g, '') + '">' +
+            '<input type="hidden" name="retrievalOfficeTime[]" value="' + String(timeVal).replace(/"/g, '') + '">' +
             '</td>';
         hiddenBody.appendChild(row);
     }
@@ -1150,14 +1187,10 @@ function seedRetrievalOfficeRow(tbodyId, totalId, officeId, officeName, copies, 
                 <span class="reg-office-text">${escapeHtml(officeName)}</span>
             </div>
         </td>
-        <td>${retrievalStatusSelectHTML(status || 'pending')}</td>
+        <td class="reg-ret-status">${retrievalStatusSelectHTML(status || 'pending')}</td>
+        ${retrievalWhenCellHTML(options.retrievalDate || '', options.retrievalTime || '', (status || 'pending') === 'retrieved')}
         <td style="text-align: center;">
             <input type="number" name="retrievalCopies[]" value="${copies}" min="1" oninput="updateTotal('${totalId}', '${tbodyId}')">
-        </td>
-        <td>
-            <button type="button" class="btn-remove" onclick="removeOffice(this, '${totalId}', '${tbodyId}')">
-                <i class="fa-solid fa-xmark"></i>
-            </button>
         </td>
     `;
     tbody.appendChild(tr);
@@ -1250,6 +1283,8 @@ document.addEventListener("DOMContentLoaded", async function () {
         const versionSelect = document.getElementById("versionType");
         versionTypes.forEach(v => versionSelect.add(new Option(v.version_name, v.version_id)));
         const urlType = new URLSearchParams(location.search).get('type');
+        // Only pre-select when the URL explicitly asks (?type=new|revised).
+        // Normal Register visits leave Version Type blank so the user picks first.
         if (versionSelect && urlType === 'revised') {
             const match = [...versionSelect.options].find(o => /revis/i.test(o.text));
             if (match && match.value) {
@@ -1258,12 +1293,17 @@ document.addEventListener("DOMContentLoaded", async function () {
             }
             const modeEl = document.getElementById('registrationMode');
             if (modeEl) modeEl.value = 'revised';
-        } else if (versionSelect && (urlType === 'new' || !urlType)) {
+        } else if (versionSelect && urlType === 'new') {
             const match = [...versionSelect.options].find(o => /new/i.test(o.text) && !/revis/i.test(o.text));
             if (match && match.value) {
                 versionSelect.value = match.value;
                 versionSelect.dataset.lastValid = match.value;
             }
+            const modeEl = document.getElementById('registrationMode');
+            if (modeEl) modeEl.value = 'new';
+        } else if (versionSelect) {
+            versionSelect.value = '';
+            versionSelect.dataset.lastValid = '';
             const modeEl = document.getElementById('registrationMode');
             if (modeEl) modeEl.value = 'new';
         }
@@ -1887,6 +1927,8 @@ function clearRetrievalSection() {
 }
 
 function syncRetrievalForMode() {
+    const docTypeSelected = String(document.getElementById('docType')?.value || '').trim() !== '';
+
     if (!isRevisedMode()) {
         clearRetrievalSection();
         // Drop retrieval checkbox if it was rendered for a prior version selection.
@@ -1896,6 +1938,20 @@ function syncRetrievalForMode() {
             const label = cb.closest('label');
             if (label) label.remove();
         });
+        return;
+    }
+
+    // Version just changed and Document Type was cleared — refresh checklist
+    // options only. Do NOT re-show form sections from a prior selection.
+    if (!docTypeSelected) {
+        if (window.__lastVersionChecklists && window.__lastVersionChecklists.length) {
+            const container = document.getElementById('dynamicCheckboxes');
+            const hasRetrieval = container?.querySelector('input[name="checklists[]"][value="4"]');
+            if (!hasRetrieval) {
+                renderChecklists(window.__lastVersionChecklists, true);
+            }
+        }
+        clearRetrievalSection();
         return;
     }
 
@@ -1918,6 +1974,22 @@ function syncRetrievalForMode() {
             });
         }
     }
+}
+
+function updateRegistrationMode() {
+    const sel = document.getElementById('versionType');
+    const hidden = document.getElementById('registrationMode');
+    if (!sel || !hidden) return;
+
+    if (!String(sel.value || '').trim()) {
+        hidden.value = 'new';
+        applyRevisionMode();
+        return;
+    }
+
+    const text = sel.options[sel.selectedIndex]?.text?.toLowerCase() || '';
+    hidden.value = (text.includes('revised') || text.includes('revision') || text.includes('revise')) ? 'revised' : 'new';
+    applyRevisionMode();
 }
 
 function applyRevisionMode() {
@@ -1968,16 +2040,6 @@ function applyRevisionMode() {
     }
 
     syncRetrievalForMode();
-}
-
-function updateRegistrationMode() {
-    const sel = document.getElementById('versionType');
-    const hidden = document.getElementById('registrationMode');
-    if (!sel || !hidden) return;
-
-    const text = sel.options[sel.selectedIndex]?.text?.toLowerCase() || '';
-    hidden.value = (text.includes('revised') || text.includes('revision') || text.includes('revise')) ? 'revised' : 'new';
-    applyRevisionMode();
 }
 
 function setSaveEnabled(enabled) {
@@ -3544,12 +3606,82 @@ async function handleVersionChange() {
     const docTypeSelect = document.getElementById("docType");
     const subTypeSelect = document.getElementById("subType");
 
+    // Changing version invalidates the previous Document Type / form state.
+    window.__isSyllabiMode = false;
+    window.__syllabiModeLabel = 'Syllabi';
+    window.__lastSubTypeId = null;
+    window.__revisedFromDocNo = null;
+    syllabiTitleManuallyEdited = false;
+    docNoDuplicate = false;
+    clearRevNoHint();
+
+    const fromInput = document.getElementById('revisedFromDocNo');
+    if (fromInput) fromInput.value = '';
+    clearRevisedApprovalContext();
+
     ["section-1", "section-2", "section-3", "section-4", "section-5", "section-approval", "section-syllabi", "formActions"].forEach(id => {
         const el = document.getElementById(id);
-        if (el) el.style.display = "none";
+        if (el) {
+            el.style.display = "none";
+            resetTextLikeInputs(el);
+            resetFileWidgetsIn(el);
+        }
     });
 
+    ['masterlistTimeSpentDisplay', 'retrievalTimeSpentDisplay', 'distributionTimeSpentDisplay'].forEach(id => {
+        const el = document.getElementById(id);
+        if (el) {
+            el.value = '--';
+            el.style.color = '';
+        }
+    });
+    ['masterlistTimeSpent', 'retrievalTimeSpent', 'distributionTimeSpent'].forEach(id => {
+        const el = document.getElementById(id);
+        if (el) el.value = '';
+    });
+
+    ['drf', 'dcn', 'masterlist', 'masterlistOriginator'].forEach(key => {
+        if (window.__sourceWidgets?.[key]) window.__sourceWidgets[key].reset();
+    });
+    ['drfSourceUnitSearch', 'dcnSourceUnitSearch', 'masterlistSourceSearch', 'masterlistOriginatorSearch'].forEach(id => {
+        const el = document.getElementById(id);
+        if (el) el.value = '';
+    });
+
+    relatedDocsSelected = [];
+    if (typeof renderRelatedDocsChips === 'function') renderRelatedDocsChips();
+
+    ['retrievalBody', 'distBody'].forEach(tbodyId => {
+        const tbody = document.getElementById(tbodyId);
+        if (tbody) tbody.innerHTML = emptyOfficeRowHTML(tbodyId);
+    });
+    ['totalRetrievalCopies', 'totalDistCopies'].forEach(id => {
+        const el = document.getElementById(id);
+        if (el) el.textContent = '0';
+    });
+
+    const revisionBody = document.getElementById('revisionTableBody');
+    if (revisionBody) {
+        revisionBody.querySelectorAll('tr[data-uid]').forEach(tr => removeRevisionRowDropdowns(tr));
+        revisionBody.innerHTML = '<tr>' + revisionRowCellsHTML() + '</tr>';
+        const newRow = revisionBody.querySelector('tr');
+        bindTableFileInput(newRow.querySelector('input[type="file"]'));
+        bindRevisionRowSearch(newRow);
+    }
+
+    if (typeof resetSyllabiSection === 'function') resetSyllabiSection();
+    if (typeof resetMasterlistNoOfPagesField === 'function') resetMasterlistNoOfPagesField();
+    if (typeof setSyllabiStep === 'function') setSyllabiStep(1);
+
+    const hintEl = document.getElementById('docNoHint');
+    if (hintEl) {
+        hintEl.innerHTML = '';
+        hintEl.style.color = '';
+        hintEl.dataset.valid = '';
+    }
+
     docTypeSelect.value = "";
+    docTypeSelect.dataset.lastValid = "";
     const hasVersion = String(versionId ?? "").trim() !== "";
     docTypeSelect.disabled = !hasVersion;
     if (hasVersion) {
@@ -3560,10 +3692,12 @@ async function handleVersionChange() {
     subTypeSelect.innerHTML = '<option value="" selected disabled>Select sub-type</option>';
     subTypeSelect.disabled = true;
     subTypeSelect.setAttribute("disabled", "disabled");
+    subTypeSelect.dataset.lastValid = "";
     disableApproval();
+    clearValidation();
 
-    // Set new/revised mode before rendering so Document Retrieval (checklist 4)
-    // is only included when registering a revision.
+    // Mode first (New vs Revised), then checklists — never restore sections
+    // from a prior Document Type while version is being changed.
     updateRegistrationMode();
 
     if (!versionId) {
@@ -3574,6 +3708,7 @@ async function handleVersionChange() {
             { checklist_id: 4, checklist_name: "Document Retrieval" },
             { checklist_id: 5, checklist_name: "Document Distribution" },
         ], true);
+        lockChecklist();
         return;
     }
 
@@ -3581,8 +3716,10 @@ async function handleVersionChange() {
         const byVersion = (window.__registerCatalog && window.__registerCatalog.checklistsByVersion) || {};
         const checklists = byVersion[String(versionId)] || [];
         renderChecklists(checklists, true);
+        lockChecklist();
     } catch (err) {
         console.error("Failed to load checklists:", err);
+        lockChecklist();
     }
 }
 
@@ -6513,14 +6650,10 @@ window.addOffice = function (officeId, officeName, bodyId, totalId, resultsId) {
 };
 
 window.removeOffice = function (btn, totalId, bodyId) {
-    const tr = btn.closest("tr");
     if (bodyId === 'retrievalBody') {
-        const officeId = tr.querySelector('input[type="hidden"][name="retrievalOffice[]"]')?.value;
-        const status = tr.querySelector('.reg-retrieval-status')?.value;
-        if (officeId && status === 'retrieved') {
-            removeRetrievedOfficeFromDistribution(officeId);
-        }
+        return;
     }
+    const tr = btn.closest("tr");
     if (bodyId === 'distBody') {
         maybeRestoreDistOfficeToRetrieval(tr);
     }

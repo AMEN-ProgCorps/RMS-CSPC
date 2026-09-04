@@ -1565,14 +1565,23 @@ body {
 }
 
 .reg-retrieval-status {
+    display: block;
     width: 100%;
-    max-width: 120px;
-    padding: 4px 8px;
+    min-width: 0;
+    max-width: none;
+    box-sizing: border-box;
+    padding: 6px 8px;
     border: 1px solid var(--reg-border);
     border-radius: 6px;
     font-size: 0.78rem;
     background: #fff;
     color: var(--reg-text);
+}
+
+.reg-dist-table th.reg-ret-status,
+.reg-dist-table td.reg-ret-status {
+    width: 150px;
+    min-width: 150px;
 }
 
 .reg-field-hint {
@@ -1583,6 +1592,51 @@ body {
 
 .reg-retrieval-status option[value="retrieved"] {
     color: #15803d;
+}
+
+.reg-dist-table th.reg-ret-when,
+.reg-dist-table td.reg-ret-when {
+    width: 250px;
+    min-width: 250px;
+    white-space: nowrap;
+    vertical-align: middle;
+}
+
+.reg-ret-when-fields {
+    display: flex;
+    flex-wrap: nowrap;
+    flex-direction: row;
+    gap: 6px;
+    align-items: center;
+    white-space: nowrap;
+}
+
+.reg-ret-when-fields input[type="date"],
+.reg-ret-when-fields input[type="time"] {
+    flex: 0 0 auto;
+    height: 32px;
+    border: 1.5px solid var(--reg-border);
+    border-radius: 6px;
+    padding: 0 6px;
+    font-size: 0.75rem;
+    font-family: inherit;
+    color: var(--reg-text);
+    background: var(--reg-surface);
+    outline: none;
+}
+
+.reg-ret-when-fields input[type="date"] {
+    width: 138px;
+}
+
+.reg-ret-when-fields input[type="time"] {
+    width: 102px;
+}
+
+.reg-ret-when-fields input[type="date"]:focus,
+.reg-ret-when-fields input[type="time"]:focus {
+    border-color: var(--reg-accent);
+    box-shadow: 0 0 0 3px rgba(13, 42, 122, 0.07);
 }
 
 .reg-upload-preview-note {

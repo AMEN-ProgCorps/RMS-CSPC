@@ -10,6 +10,14 @@ new #[Layout('layouts.dcs')] #[Title('My DCN — CSPC DCS')] class extends Compo
     public function mount(): void
     {
         OfficeIntakeHelper::assertCanAccessIntake();
+
+        if (RegisterQueryHelper::canBrowseAllOfficeIntake()) {
+            session()->flash(
+                'info',
+                'Office intake submissions from other offices appear in notifications. Open a notification to view a specific DRF or DCN.'
+            );
+            $this->redirect(route('dcs', absolute: false), navigate: true);
+        }
     }
 
     public function with(): array

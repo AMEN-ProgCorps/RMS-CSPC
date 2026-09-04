@@ -322,9 +322,14 @@ class DocumentStorageService
 
     /**
      * Retrieve file contents (checks local cache first, falls back to Google Drive and caches locally).
+     * DCS paths are refused unless $allowDcsPaths is true — DTS/RDP must not read DCS files this way.
      */
-    public static function getFileContent(string $relativePath): ?string
+    public static function getFileContent(string $relativePath, bool $allowDcsPaths = false): ?string
     {
+        if (! $allowDcsPaths && self::isDcsStoragePath($relativePath)) {
+            return null;
+        }
+
         $localPath = self::localUploadsPath($relativePath);
 
         if (Storage::disk('local')->exists($localPath)) {
@@ -521,20 +526,13 @@ class DocumentStorageService
     }
 
     /**
-     * Path + optional scan document id (from filename; not a document_data FK).
+     * Scan path fields for DCS registration inserts/updates.
      *
      * @return array<string, mixed>
      */
     public static function dcsScanFields(string $table, string $pathColumn, ?string $path): array
     {
-        $fields = [$pathColumn => $path];
-        $docIdColumn = $pathColumn . '_document_id';
-
-        if ($path && Schema::hasTable($table) && Schema::hasColumn($table, $docIdColumn)) {
-            $fields[$docIdColumn] = self::dcsDocumentIdFromPath($path);
-        }
-
-        return $fields;
+        return [$pathColumn => $path];
     }
 
     protected static function extractDcsDocumentId(string $relativePath): string
@@ -1138,7 +1136,7 @@ class DocumentStorageService
                 : null;
         }
 
-        return self::getFileContent($path);
+        return self::getFileContent($path, true);
     }
 
     public static function dcsScanExists(?string $path): bool

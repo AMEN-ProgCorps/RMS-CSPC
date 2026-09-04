@@ -65,7 +65,7 @@ return Application::configure(basePath: dirname(__DIR__))
                     return null;
                 }
 
-                if ($request->is('dcs/view-document', 'dcs/api/*')) {
+                if ($request->is('dcs/view-document', 'dts/view-document', 'dcs/api/*')) {
                     return null;
                 }
 

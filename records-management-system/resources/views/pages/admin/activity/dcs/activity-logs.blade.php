@@ -70,7 +70,11 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - DCS Activity Logs')] cla
     {
         $systemId = $this->dcsSystemId();
 
-        if ($systemId < 1 || !\Illuminate\Support\Facades\Schema::hasTable('admin_logs')) {
+        $adminLogsTable = \Illuminate\Support\Facades\Schema::hasTable('sys_admin_logs')
+            ? 'sys_admin_logs'
+            : 'admin_logs';
+
+        if ($systemId < 1 || !\Illuminate\Support\Facades\Schema::hasTable($adminLogsTable)) {
             return [
                 'logs' => new \Illuminate\Pagination\LengthAwarePaginator([], 0, 15),
                 'stats' => ['total' => 0, 'views' => 0, 'documents' => 0, 'office_intake' => 0, 'blocked' => 0, 'other' => 0],
@@ -79,7 +83,6 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - DCS Activity Logs')] cla
             ];
         }
 
-        $adminLogsTable = \Illuminate\Support\Facades\Schema::hasTable('sys_admin_logs') ? 'sys_admin_logs' : 'admin_logs';
         $accountTable = \Illuminate\Support\Facades\Schema::hasTable('sys_account') ? 'sys_account' : 'account';
         $accountDetailsTable = \Illuminate\Support\Facades\Schema::hasTable('sys_account_details') ? 'sys_account_details' : 'account_details';
         $officeTable = \Illuminate\Support\Facades\Schema::hasTable('sys_office') ? 'sys_office' : 'office';

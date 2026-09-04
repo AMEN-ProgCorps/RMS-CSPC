@@ -164,3 +164,28 @@ export function clearMemoryCompareCache(key) {
     if (key) memoryCache.delete(key);
     else memoryCache.clear();
 }
+
+export async function deleteCompareCache(key) {
+    if (!key) {
+        return false;
+    }
+    memoryCache.delete(key);
+    try {
+        const db = await openDb();
+        await new Promise((resolve, reject) => {
+            const tx = db.transaction(STORE, 'readwrite');
+            tx.objectStore(STORE).delete(key);
+            tx.oncomplete = () => {
+                db.close();
+                resolve(true);
+            };
+            tx.onerror = () => {
+                db.close();
+                reject(tx.error);
+            };
+        });
+        return true;
+    } catch {
+        return false;
+    }
+}

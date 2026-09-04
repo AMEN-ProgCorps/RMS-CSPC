@@ -6,6 +6,7 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Storage;
 use setasign\Fpdi\Fpdi;
 
 class StampService
@@ -55,8 +56,6 @@ class StampService
             'stamp_type'   => 'required|string|in:reference',
             'position'     => 'required|string|in:top-left,top-right,bottom-left,bottom-right,center,auto',
             'all_pages'    => 'required|boolean',
-            'certified_by' => 'nullable|string|max:255',
-            'designation'  => 'nullable|string|max:255',
         ]);
 
         $relative = $this->storedScanRelativePath((int) $validated['request_id'], $validated['file_key']);
@@ -562,8 +561,6 @@ class StampService
                 $validated['position'],
                 [
                     'stamp_all_pages' => $validated['all_pages'],
-                    'certified_by'    => $validated['certified_by'] ?? '',
-                    'designation'     => $validated['designation'] ?? '',
                 ]
             );
 
@@ -577,22 +574,20 @@ class StampService
                 'size'   => filesize($outputPath),
             ]);
 
-            // Overwrite the actual file with the stamped version
-            if (!copy($outputPath, $fullPath)) {
-                throw new \RuntimeException('Failed to write stamped file to destination.');
-            }
+            // Overwrite the stored scan with the stamped version
+            $this->persistStampedFile($validated['file_path'], $fullPath, $outputPath);
 
             clearstatcache(true, $fullPath);
 
             Log::debug('Stamp: file overwritten', [
-                'target' => $fullPath,
-                'newSize' => filesize($fullPath),
+                'relative' => $validated['file_path'],
+                'newSize'  => filesize($outputPath),
             ]);
 
             StampBackupService::recordStamped(
                 $validated['request_id'],
                 $validated['file_key'],
-                $fullPath,
+                $outputPath,
                 $validated['file_path']
             );
 
@@ -607,8 +602,6 @@ class StampService
                 'stamp_type'   => $validated['stamp_type'],
                 'position'     => $validated['position'],
                 'all_pages'    => $validated['all_pages'],
-                'certified_by' => $validated['certified_by'] ?? null,
-                'designation'  => $validated['designation'] ?? null,
                 'stamped_by'   => Auth::id(),
                 'stamped_at'   => now(),
                 'updated_at'   => now(),
@@ -729,16 +722,17 @@ class StampService
             ], 404);
         }
 
-        $fullPath = $this->resolveOwnedFilePath($requestId, $fileKey);
+        $relative = $this->storedScanRelativePath($requestId, $fileKey);
+        $fullPath = $relative ? $this->resolveFilePath($relative) : null;
 
-        if (!$fullPath) {
+        if (!$fullPath || !$relative) {
             return response()->json([
                 'success' => false,
                 'message' => 'File not found on the server.',
             ], 404);
         }
 
-        if (!StampBackupService::restoreTo($requestId, $fileKey, $fullPath)) {
+        if (!$this->restoreOriginalFile($requestId, $fileKey, $relative, $fullPath)) {
             return response()->json([
                 'success' => false,
                 'message' => 'No original backup is available to restore.',
@@ -801,8 +795,6 @@ class StampService
                 $validated['position'],
                 [
                     'stamp_all_pages' => $validated['all_pages'],
-                    'certified_by'    => $validated['certified_by'] ?? '',
-                    'designation'     => $validated['designation'] ?? '',
                 ]
             );
 
@@ -886,12 +878,117 @@ class StampService
             }
         }
 
+        if (DocumentStorageService::isDcsStoragePath($path)) {
+            $localRel = DocumentStorageService::localUploadsPath($path);
+            if (Storage::disk('local')->exists($localRel)) {
+                $localAbs = Storage::disk('local')->path($localRel);
+                if (is_readable($localAbs) && filesize($localAbs) > 0) {
+                    if ($this->isValidPdfFile($localAbs)) {
+                        Log::debug('Stamp: resolved DCS local cache', ['input' => $path, 'resolved' => $localAbs]);
+
+                        return realpath($localAbs) ?: $localAbs;
+                    }
+
+                    Log::warning('Stamp: invalid PDF in local cache, refreshing from storage', ['path' => $path]);
+                    Storage::disk('local')->delete($localRel);
+                }
+            }
+
+            if (DocumentStorageService::dcsScanExists($path)) {
+                $content = DocumentStorageService::getDcsScanContent($path);
+                if ($content !== null && $content !== '' && str_starts_with($content, '%PDF')) {
+                    $temp = tempnam(sys_get_temp_dir(), 'stamp_src_');
+                    if ($temp === false) {
+                        return null;
+                    }
+                    @unlink($temp);
+                    $tempPdf = $temp . '.pdf';
+                    file_put_contents($tempPdf, $content);
+                    $this->tempFiles[] = $tempPdf;
+                    Log::debug('Stamp: resolved DCS cloud file to temp', ['input' => $path, 'temp' => $tempPdf]);
+
+                    return $tempPdf;
+                }
+
+                if ($content !== null && $content !== '') {
+                    Log::warning('Stamp: storage returned non-PDF content', ['path' => $path, 'head' => substr($content, 0, 32)]);
+                }
+            }
+        }
+
         Log::warning('Stamp: file not found', [
             'path'       => $path,
             'candidates' => $candidates,
         ]);
 
         return null;
+    }
+
+    private function persistStampedFile(string $relativePath, string $resolvedAbsolutePath, string $stampedOutputPath): void
+    {
+        if (!is_file($stampedOutputPath) || filesize($stampedOutputPath) === 0) {
+            throw new \RuntimeException('Stamp output file is empty or missing.');
+        }
+
+        if (DocumentStorageService::isLegacyPublicScanPath($relativePath)) {
+            $dest = Storage::disk('public')->path(ltrim($relativePath, '/'));
+            if (!copy($stampedOutputPath, $dest)) {
+                throw new \RuntimeException('Failed to write stamped file to destination.');
+            }
+
+            return;
+        }
+
+        if (DocumentStorageService::isDcsStoragePath($relativePath)) {
+            $content = file_get_contents($stampedOutputPath);
+            if ($content === false || $content === '') {
+                throw new \RuntimeException('Stamp output could not be read.');
+            }
+            DocumentStorageService::storeDcsFileAtPath($relativePath, $content);
+
+            return;
+        }
+
+        if (!copy($stampedOutputPath, $resolvedAbsolutePath)) {
+            throw new \RuntimeException('Failed to write stamped file to destination.');
+        }
+    }
+
+    private function restoreOriginalFile(int $requestId, string $fileKey, string $relativePath, string $resolvedAbsolutePath): bool
+    {
+        $backupPath = StampBackupService::backupPath($requestId, $fileKey);
+        if (!is_file($backupPath) || filesize($backupPath) === 0) {
+            return false;
+        }
+
+        if (DocumentStorageService::isLegacyPublicScanPath($relativePath)) {
+            $dest = Storage::disk('public')->path(ltrim($relativePath, '/'));
+
+            return copy($backupPath, $dest);
+        }
+
+        if (DocumentStorageService::isDcsStoragePath($relativePath)) {
+            $content = file_get_contents($backupPath);
+            if ($content === false || $content === '') {
+                return false;
+            }
+            DocumentStorageService::storeDcsFileAtPath($relativePath, $content);
+
+            return true;
+        }
+
+        return StampBackupService::restoreTo($requestId, $fileKey, $resolvedAbsolutePath);
+    }
+
+    private function isValidPdfFile(string $absolutePath): bool
+    {
+        if (!is_readable($absolutePath) || filesize($absolutePath) < 5) {
+            return false;
+        }
+
+        $head = file_get_contents($absolutePath, false, null, 0, 5);
+
+        return $head === '%PDF-';
     }
 
     private function storedScanRelativePath(int $requestId, string $fileKey): ?string
@@ -1221,59 +1318,5 @@ class StampService
         $pdf->SetTextColor($r, $g, $b);
         $pdf->SetXY($x, $y + ($h / 2) - 3.5);
         $pdf->Cell($w, 7, $cfg['title'], 0, 0, 'C');
-    }
-
-    private function drawCertified($pdf, float $x, float $y, array $cfg, array $options): void
-    {
-        $w = $cfg['width'];
-        $h = $cfg['height'];
-        [$r, $g, $b] = $cfg['color'];
-        $date   = now()->format('M d, Y');
-        $certBy = $options['certified_by'] ?? '';
-        $desig  = $options['designation'] ?? '';
-
-        $pdf->SetFillColor(255, 255, 255);
-        $pdf->Rect($x, $y, $w, $h, 'F');
-
-        $pdf->SetDrawColor($r, $g, $b);
-        $pdf->SetLineWidth(0.7);
-        $pdf->Rect($x, $y, $w, $h);
-
-        $pdf->SetLineWidth(0.3);
-        $pdf->Rect($x + 1.5, $y + 1.5, $w - 3, $h - 3);
-
-        $pdf->SetFont('Helvetica', 'B', $cfg['titleSize']);
-        $pdf->SetTextColor($r, $g, $b);
-        $pdf->SetXY($x, $y + 3);
-        $pdf->Cell($w, 5, $cfg['title'], 0, 0, 'C');
-
-        $pdf->SetLineWidth(0.2);
-        $pdf->Line($x + 4, $y + 9, $x + $w - 4, $y + 9);
-
-        $pdf->SetFont('Helvetica', '', 7);
-        $pdf->SetTextColor(50, 50, 50);
-        $pdf->SetXY($x + 3, $y + 10.5);
-        $pdf->Cell(25, 4, 'Certified by:', 0, 0, 'L');
-        $pdf->SetFont('Helvetica', 'B', 7);
-        $pdf->Cell($w - 31, 4, $certBy, 0, 0, 'L');
-
-        $pdf->SetLineWidth(0.15);
-        $pdf->SetDrawColor(150, 150, 150);
-        $pdf->Line($x + 25, $y + 14.5, $x + $w - 4, $y + 14.5);
-
-        $pdf->SetFont('Helvetica', '', 7);
-        $pdf->SetTextColor(50, 50, 50);
-        $pdf->SetXY($x + 3, $y + 16);
-        $pdf->Cell(25, 4, 'Designation:', 0, 0, 'L');
-        $pdf->SetFont('Helvetica', 'B', 7);
-        $pdf->Cell($w - 31, 4, $desig, 0, 0, 'L');
-
-        $pdf->Line($x + 25, $y + 20, $x + $w - 4, $y + 20);
-
-        $pdf->SetDrawColor($r, $g, $b);
-        $pdf->SetFont('Helvetica', '', 6);
-        $pdf->SetTextColor($r, $g, $b);
-        $pdf->SetXY($x, $y + 23);
-        $pdf->Cell($w, 4, 'Date: ' . $date, 0, 0, 'C');
     }
 }

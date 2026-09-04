@@ -26,13 +26,12 @@ return new class extends Migration
             $table->string('doc_title')->nullable();
             $table->date('effectivity_date')->nullable();
             $table->integer('revise_no')->default(0);
-            // latest = current tip, obsolete = prior revision (or soft-deleted tip).
-            // Soft-delete uses dcs_document_requests.deleted_at — not a third status.
-            $table->enum('revision_status', ['latest', 'obsolete'])->default('latest');
+            // latest = current tip, obsolete = prior live revision,
+            // archived = soft-deleted (frees doc_no for reuse; restore blocked if reused).
+            $table->enum('revision_status', ['latest', 'obsolete', 'archived'])->default('latest');
             $table->integer('no_pages')->nullable();
             $table->string('originator_name')->nullable();
             $table->date('deadline')->nullable();
-            $table->text('brief_purpose')->nullable();
             $table->text('keywords')->nullable();
             $table->string('scanned_masterlist')->nullable();
             $table->string('scanned_masterlist_original_name')->nullable();
@@ -43,8 +42,8 @@ return new class extends Migration
             $table->index(['doc_no', 'revision_status'], 'dcs_ml_doc_no_revision_status_idx');
         });
 
-        // Unique among latest/obsolete. Soft-deleted tips stay obsolete and keep
-        // the key occupied until permanently removed.
+        // Unique among live rows only. Soft-deleted tips use revision_status=archived
+        // so their document number can be registered again.
         DB::statement("
             CREATE UNIQUE INDEX dcs_ml_doc_no_revise_type_active_unique
             ON dcs_masterlist_registration (doc_no, revise_no, doc_type_id)

@@ -9,12 +9,14 @@ use thiagoalessio\TesseractOCR\TesseractOCR;
 
 class DrrOcrService
 {
-    public const MAX_PAGES_PER_REQUEST = 3;
+    public const MAX_PAGES_PER_REQUEST = 1;
 
-    private static ?string $resolvedTempPdf = null;
+    private const PDF_CACHE_TTL = 3600;
 
     public static function ocrPages(Request $request): array
     {
+        @set_time_limit(120);
+
         $request->validate([
             'file' => 'nullable|file|mimes:pdf|max:204800',
             'storage_path' => 'nullable|string|max:500',
@@ -26,6 +28,15 @@ class DrrOcrService
         $storagePath = trim((string) $request->input('storage_path', ''));
         if (!$hasFile && $storagePath === '') {
             return ['ok' => false, 'reason' => 'missing_source', 'pages' => []];
+        }
+
+        if (!$hasFile && $storagePath !== '') {
+            $normalized = DocumentStorageService::normalizeDcsScanPath($storagePath);
+            if ($normalized === null) {
+                abort(422, 'Invalid storage path.');
+            }
+            \App\Helpers\RegisterQueryHelper::assertCanAccessScanPath($normalized);
+            $storagePath = $normalized;
         }
 
         $tempOwned = null;
@@ -57,10 +68,6 @@ class DrrOcrService
             if ($tempOwned) {
                 Storage::disk('local')->delete($tempOwned);
             }
-            if (self::$resolvedTempPdf && is_file(self::$resolvedTempPdf)) {
-                @unlink(self::$resolvedTempPdf);
-                self::$resolvedTempPdf = null;
-            }
         }
     }
 
@@ -72,6 +79,15 @@ class DrrOcrService
         }
         if ($path === '' || str_contains($path, '..')) {
             return null;
+        }
+
+        $cacheRel = 'temp/drr-ocr/cache/' . hash('sha256', $path) . '.pdf';
+        $cacheAbs = Storage::disk('local')->path($cacheRel);
+        if (is_file($cacheAbs) && filesize($cacheAbs) > 32) {
+            $mtime = filemtime($cacheAbs);
+            if ($mtime !== false && $mtime > time() - self::PDF_CACHE_TTL) {
+                return $cacheAbs;
+            }
         }
 
         if (Storage::disk('public')->exists($path)) {
@@ -88,11 +104,10 @@ class DrrOcrService
         if (DocumentStorageService::dcsScanExists($path)) {
             $content = DocumentStorageService::getDcsScanContent($path);
             if ($content !== null && $content !== '') {
-                $tempRel = 'temp/drr-ocr/' . uniqid('drive_', true) . '.pdf';
-                Storage::disk('local')->put($tempRel, $content);
-                self::$resolvedTempPdf = Storage::disk('local')->path($tempRel);
+                Storage::disk('local')->makeDirectory('temp/drr-ocr/cache');
+                Storage::disk('local')->put($cacheRel, $content);
 
-                return self::$resolvedTempPdf;
+                return $cacheAbs;
             }
         }
 
@@ -104,29 +119,52 @@ class DrrOcrService
         $imagePath = Storage::disk('local')->path('temp/drr-ocr/' . uniqid('page_', true) . '.jpg');
 
         try {
-            // Better OCR quality for content matching (moved sections / reflowed text).
-            PdfPageRenderer::savePage($pdfPath, $imagePath, $page, 150);
+            PdfPageRenderer::savePage($pdfPath, $imagePath, $page, 200);
 
             $size = @getimagesize($imagePath);
             $imgW = max(1, (int) ($size[0] ?? 1));
             $imgH = max(1, (int) ($size[1] ?? 1));
 
-            $ocr = (new TesseractOCR($imagePath))->lang('eng')->psm(6);
-            $tsv = (string) $ocr->tsv()->run(120);
+            // Primary: uniform block of text (forms/tables).
+            $tsv = (string) (new TesseractOCR($imagePath))->lang('eng')->psm(6)->oem(1)->tsv()->run(60);
             $words = self::parseTsvWords($tsv, $imgW, $imgH);
+            $lines = self::parseTsvLines($tsv, $imgW, $imgH);
+
+            if (count($words) < 8) {
+                $tsv = (string) (new TesseractOCR($imagePath))->lang('eng')->psm(4)->oem(1)->tsv()->run(60);
+                $words = self::parseTsvWords($tsv, $imgW, $imgH);
+                $lines = self::parseTsvLines($tsv, $imgW, $imgH);
+            }
+
+            if ($words === [] && $lines === []) {
+                $tsv = (string) (new TesseractOCR($imagePath))->lang('eng')->psm(3)->oem(1)->tsv()->run(60);
+                $words = self::parseTsvWords($tsv, $imgW, $imgH);
+                $lines = self::parseTsvLines($tsv, $imgW, $imgH);
+            }
+
             $text = trim(implode(' ', array_column($words, 't')));
+
+            if ($text === '' && count($lines) > 0) {
+                $text = trim(implode(' ', array_column($lines, 't')));
+            }
 
             if ($text === '') {
                 $text = trim((string) (new TesseractOCR($imagePath))
                     ->lang('eng')
-                    ->psm(6)
-                    ->run(90));
+                    ->psm(3)
+                    ->oem(1)
+                    ->run(60));
+            }
+
+            if ($words === [] && $text !== '') {
+                $words = self::syntheticWordsFromText($text);
             }
 
             return [
                 'page' => $page,
                 'text' => $text,
                 'words' => $words,
+                'lines' => $lines,
                 'image_w' => $imgW,
                 'image_h' => $imgH,
                 'used_ocr' => true,
@@ -186,7 +224,7 @@ class DrrOcrService
             }
 
             $conf = (float) ($cols[10] ?? -1);
-            if ($conf < 0) {
+            if ($conf >= 0 && $conf < 20) {
                 continue;
             }
 
@@ -195,13 +233,120 @@ class DrrOcrService
             $w = max(1.0, (float) $cols[8]);
             $h = max(1.0, (float) $cols[9]);
 
+            $nw = $w / $imgW;
+            $nh = $h / $imgH;
+            if ($nw > 0.48 && strlen($text) < 22) {
+                continue;
+            }
+            if ($nh > 0.09 && strlen($text) < 14) {
+                continue;
+            }
+
             $words[] = [
+                't' => $text,
+                'x' => $left / $imgW,
+                'y' => $top / $imgH,
+                'w' => $nw,
+                'h' => $nh,
+                'conf' => $conf >= 0 ? $conf : null,
+            ];
+        }
+
+        return $words;
+    }
+
+    /**
+     * @return list<array{t: string, x: float, y: float, w: float, h: float}>
+     */
+    private static function parseTsvLines(string $tsv, int $imgW, int $imgH): array
+    {
+        $lines = [];
+        $parsed = preg_split('/\R/', $tsv) ?: [];
+        $headerSkipped = false;
+
+        foreach ($parsed as $line) {
+            if ($line === '') {
+                continue;
+            }
+            if (!$headerSkipped) {
+                $headerSkipped = true;
+                if (str_starts_with($line, 'level')) {
+                    continue;
+                }
+            }
+
+            $cols = explode("\t", $line);
+            if (count($cols) < 12) {
+                continue;
+            }
+
+            if ((int) $cols[0] !== 4) {
+                continue;
+            }
+
+            $text = trim((string) ($cols[11] ?? ''));
+            if ($text === '') {
+                continue;
+            }
+
+            $conf = (float) ($cols[10] ?? -1);
+            if ($conf >= 0 && $conf < 25) {
+                continue;
+            }
+
+            $left = (float) $cols[6];
+            $top = (float) $cols[7];
+            $w = max(1.0, (float) $cols[8]);
+            $h = max(1.0, (float) $cols[9]);
+
+            $lines[] = [
                 't' => $text,
                 'x' => $left / $imgW,
                 'y' => $top / $imgH,
                 'w' => $w / $imgW,
                 'h' => $h / $imgH,
             ];
+        }
+
+        return $lines;
+    }
+
+    /**
+     * Estimated word boxes when Tesseract returns text but no geometry.
+     *
+     * @return list<array{t: string, x: float, y: float, w: float, h: float}>
+     */
+    private static function syntheticWordsFromText(string $text): array
+    {
+        $words = [];
+        $lines = preg_split('/\R+/', trim($text)) ?: [];
+        if ($lines === []) {
+            $lines = [trim($text)];
+        }
+
+        $lineCount = max(count($lines), 1);
+        foreach ($lines as $li => $line) {
+            $line = trim((string) $line);
+            if ($line === '') {
+                continue;
+            }
+            $parts = preg_split('/\s+/', $line) ?: [];
+            $wordCount = max(count($parts), 1);
+            $lh = 0.88 / $lineCount;
+            $y = 0.05 + ($li * $lh);
+            $sliceW = 0.88 / $wordCount;
+            foreach ($parts as $wi => $part) {
+                if ($part === '') {
+                    continue;
+                }
+                $words[] = [
+                    't' => $part,
+                    'x' => 0.06 + ($wi * $sliceW),
+                    'y' => $y,
+                    'w' => max($sliceW * 0.92, 0.008),
+                    'h' => max($lh * 0.82, 0.012),
+                ];
+            }
         }
 
         return $words;

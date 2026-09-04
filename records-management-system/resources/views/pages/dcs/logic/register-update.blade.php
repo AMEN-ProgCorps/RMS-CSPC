@@ -305,8 +305,6 @@ class RegisterUpdateHelper
                 $keywordVal = $request->keywords ?? $request->briefPurpose;
                 if (Schema::hasColumn('dcs_masterlist_registration', 'keywords')) {
                     $masterlistData['keywords'] = $keywordVal;
-                } elseif (Schema::hasColumn('dcs_masterlist_registration', 'brief_purpose')) {
-                    $masterlistData['brief_purpose'] = $keywordVal;
                 }
                 if (Schema::hasColumn('dcs_masterlist_registration', 'revised_from_doc_no')) {
                     $newDocNo = trim((string) ($request->masterlistDocNo ?? ''));
@@ -411,8 +409,6 @@ class RegisterUpdateHelper
                 $syllabiKeywordVal = $request->keywords ?? $request->briefPurpose;
                 if (Schema::hasColumn('dcs_masterlist_registration', 'keywords')) {
                     $masterlistData['keywords'] = $syllabiKeywordVal;
-                } elseif (Schema::hasColumn('dcs_masterlist_registration', 'brief_purpose')) {
-                    $masterlistData['brief_purpose'] = $syllabiKeywordVal;
                 }
                 if ($masterlist) {
                     DB::table('dcs_masterlist_registration')->where('id', $masterlist->id)->update($masterlistData);
@@ -491,6 +487,9 @@ class RegisterUpdateHelper
                         ];
                         if (Schema::hasColumn('dcs_retrieval_offices', 'retrieval_date')) {
                             $retrievalOfficeRow['retrieval_date'] = $request->input('retrievalOfficeDate')[$i] ?? null;
+                        }
+                        if (Schema::hasColumn('dcs_retrieval_offices', 'retrieval_time')) {
+                            $retrievalOfficeRow['retrieval_time'] = $request->input('retrievalOfficeTime')[$i] ?? null;
                         }
                         DB::table('dcs_retrieval_offices')->insert($retrievalOfficeRow);
                     }
@@ -627,12 +626,15 @@ class RegisterUpdateHelper
             }
             DB::table('dcs_document_requests')->where('id', $id)->update($update);
 
-            // Soft-delete is deleted_at only; tip becomes obsolete, then promote
-            // the previous live revision to latest (statuses: latest | obsolete).
+            // Soft-delete: tip is archived (frees unique doc_no slot), then promote
+            // the previous live revision to latest (live statuses: latest | obsolete).
             if ($ml && RegisterQueryHelper::supportsRevisionStatus()) {
+                $status = RegisterQueryHelper::supportsArchivedRevisionStatus()
+                    ? 'archived'
+                    : 'obsolete';
                 DB::table('dcs_masterlist_registration')
                     ->where('id', $ml->id)
-                    ->update(['revision_status' => 'obsolete', 'updated_at' => $now]);
+                    ->update(['revision_status' => $status, 'updated_at' => $now]);
             }
 
             if ($promoteDocNo) {
@@ -692,8 +694,8 @@ class RegisterUpdateHelper
                 return self::flashRedirect(
                     'dcs.recycle-bin',
                     'error',
-                    'Cannot restore: document number "' . $ml->doc_no . '" Rev ' . (int) $ml->revise_no
-                        . ' is already in use by an active document. Delete or renumber the active one first.'
+                    'Cannot restore document number "' . $ml->doc_no . '" (Rev ' . (int) $ml->revise_no
+                        . '): it was already registered by a new document. Delete or renumber the active document first, then try restoring again.'
                 );
             }
         }

@@ -78,6 +78,12 @@
         'resources/css/notifications.css',
         'resources/js/dashboard.js',
     ])
+    @if(\App\Helpers\RegisterQueryHelper::canBrowseAllOfficeIntake())
+        @vite([
+            'resources/css/dcs/office-intake.css',
+            'resources/js/dcs/office-intake-modal.js',
+        ])
+    @endif
     @if(request()->routeIs('dcs', 'dcs.dashboard'))
         @vite(['resources/css/dcs/dashboard.css'])
         @if(\App\Helpers\RegisterQueryHelper::isLimitedDcsUser())
@@ -193,6 +199,9 @@
 
     {{ $slot }}
 
+    @if(\App\Helpers\RegisterQueryHelper::canBrowseAllOfficeIntake())
+        <x-dcs.office-intake-modal />
+    @endif
     <x-dcs.toast />
     <x-chatify.floating-widget />
     @stack('scripts')

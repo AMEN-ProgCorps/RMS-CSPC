@@ -1,6 +1,7 @@
 <?php
 
 use App\Helpers\OfficeIntakeHelper;
+use App\Helpers\RegisterQueryHelper;
 use Livewire\Attributes\Layout;
 use Livewire\Attributes\Title;
 use Livewire\Volt\Component;
@@ -12,6 +13,13 @@ new #[Layout('layouts.dcs')] #[Title('View DCN — CSPC DCS')] class extends Com
     {
         OfficeIntakeHelper::assertCanAccessIntake();
         $this->id = (int) $id;
+
+        if (RegisterQueryHelper::canBrowseAllOfficeIntake()) {
+            $this->redirect('/dcs?intake=dcn&id=' . $this->id, navigate: false);
+
+            return;
+        }
+
         $dcn = OfficeIntakeHelper::findOfficeDcn($this->id);
         abort_unless($dcn, 404);
         OfficeIntakeHelper::assertOwnsDcn($dcn);
@@ -30,6 +38,7 @@ new #[Layout('layouts.dcs')] #[Title('View DCN — CSPC DCS')] class extends Com
             'docNo' => trim((string) ($dcn->document_no ?? '')) ?: trim((string) ($firstRev->document_no ?? '')),
             'docTitle' => trim((string) ($dcn->document_title ?? '')) ?: trim((string) ($firstRev->title ?? '')),
             'immutableMessage' => OfficeIntakeHelper::IMMUTABLE_MESSAGE,
+            'isIntakeReviewer' => RegisterQueryHelper::canBrowseAllOfficeIntake(),
         ];
     }
 }; ?>
@@ -37,8 +46,8 @@ new #[Layout('layouts.dcs')] #[Title('View DCN — CSPC DCS')] class extends Com
 <div class="ofi-page">
     <div class="ofi-inner">
         <div class="ofi-show-toolbar">
-            <a href="{{ route('dcs.office.dcn.index', absolute: false) }}" class="reg-btn reg-btn-cancel">
-                <i class="fa-solid fa-arrow-left"></i> Back to list
+            <a href="{{ ($isIntakeReviewer ?? false) ? route('dcs', absolute: false) : route('dcs.office.dcn.index', absolute: false) }}" class="reg-btn reg-btn-cancel">
+                <i class="fa-solid fa-arrow-left"></i> {{ ($isIntakeReviewer ?? false) ? 'Back to DCS' : 'Back to list' }}
             </a>
             <a href="{{ route('dcs.office.dcn.print', $dcn->id, absolute: false) }}" target="_blank" class="reg-btn reg-btn-save">
                 <i class="fa-solid fa-print"></i> Print form

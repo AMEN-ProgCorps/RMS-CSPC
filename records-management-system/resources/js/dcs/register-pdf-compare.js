@@ -4,6 +4,10 @@ import { hashFile, hashString } from './pdf-compare-cache.js';
 function stableUrlForHash(url) {
     try {
         const u = new URL(url, window.location.origin);
+        const pathParam = u.searchParams.get('path');
+        if (pathParam) {
+            return `${u.origin}${u.pathname}?path=${pathParam}`;
+        }
         return u.origin + u.pathname;
     } catch {
         return String(url || '');

@@ -62,7 +62,7 @@ new class extends Component {
         }
 
         // Determine accessible subsystems based on role permissions
-        $allowedSubsystems = ['Profile Manager'];
+        $allowedSubsystems = ['Profile Manager']; // Default accessible subsystem
         if ($perms) {
             if ($perms->is_sadm) {
                 $allowedSubsystems[] = 'Document Tracking System';
@@ -131,10 +131,57 @@ new class extends Component {
         // 1. Mark notification as read
         $this->markAsRead($notificationId);
 
-        // 2. Redirect to item view link if present
+        // 2. Office intake submissions open in a modal on the current DCS page
+        // (Livewire requests hit /livewire/update — do not use request()->is('dcs*') here)
         if ($notification && $notification->redirect_url) {
+            $intake = \App\Helpers\OfficeIntakeHelper::parseIntakeNotificationUrl($notification->redirect_url);
+            if ($intake) {
+                $this->showDropdown = false;
+                $this->dispatch('close-notifications');
+
+                if ($this->isOnDcsPage()) {
+                    $this->dispatch('open-office-intake-modal', type: $intake['type'], id: $intake['id']);
+                    $this->js(
+                        'window.dispatchEvent(new CustomEvent("open-office-intake-modal",{detail:'
+                        . json_encode(['type' => $intake['type'], 'id' => $intake['id']])
+                        . '}));'
+                    );
+                } else {
+                    $this->redirect(
+                        '/dcs?intake=' . $intake['type'] . '&id=' . $intake['id'],
+                        navigate: false
+                    );
+                }
+
+                return;
+            }
+
             $this->redirect($notification->redirect_url, navigate: true);
         }
+    }
+
+    /**
+     * Detect whether the user is currently viewing a DCS page.
+     * Livewire updates use /livewire/update, so check the referer / previous URL.
+     */
+    private function isOnDcsPage(): bool
+    {
+        $candidates = [
+            (string) request()->headers->get('referer'),
+            (string) url()->previous(),
+        ];
+
+        foreach ($candidates as $url) {
+            if ($url === '') {
+                continue;
+            }
+            $path = ltrim((string) (parse_url($url, PHP_URL_PATH) ?? ''), '/');
+            if ($path === 'dcs' || str_starts_with($path, 'dcs/')) {
+                return true;
+            }
+        }
+
+        return request()->is('dcs', 'dcs/*');
     }
 
     /**

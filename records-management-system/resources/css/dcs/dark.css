@@ -211,6 +211,27 @@
     -webkit-backdrop-filter: blur(2px);
 }
 
+[data-theme="dark"] .dash-calendar-trigger-time {
+    color: #93c5fd !important;
+    border-left-color: #334155 !important;
+}
+
+[data-theme="dark"] .upcoming-item.is-past,
+[data-theme="dark"] .ev-card.is-past {
+    background: rgba(15, 23, 42, 0.55) !important;
+}
+
+[data-theme="dark"] .upcoming-item.is-past .title,
+[data-theme="dark"] .ev-card.is-past .ev-card-title {
+    color: #94a3b8 !important;
+    text-decoration-color: #64748b !important;
+}
+
+[data-theme="dark"] .upcoming-done-badge {
+    background: #1e293b !important;
+    color: #cbd5e1 !important;
+}
+
 [data-theme="dark"] .dash-event-panel,
 [data-theme="dark"] .ev-modal {
     background: #131c2e !important;
@@ -1274,6 +1295,13 @@
     border-color: #334155 !important;
 }
 
+[data-theme="dark"] .reg-ret-when-fields input[type="date"],
+[data-theme="dark"] .reg-ret-when-fields input[type="time"] {
+    background: #131c2e !important;
+    color: #f8fafc !important;
+    border-color: #334155 !important;
+}
+
 [data-theme="dark"] .reg-dist-table tfoot tr {
     background: #0f172a !important;
     border-color: #1e293b !important;
@@ -1609,4 +1637,82 @@
 [data-theme="dark"] .reg-table tbody .reg-rev-purpose-text,
 [data-theme="dark"] .reg-table tbody .reg-rev-title-text {
     color: #94a3b8;
+}
+
+/* Office intake RFIO review modal */
+[data-theme="dark"] .ofi-intake-modal-overlay {
+    background: rgba(2, 6, 23, 0.78) !important;
+}
+
+[data-theme="dark"] .ofi-intake-modal {
+    background: #131c2e !important;
+    box-shadow: 0 24px 64px rgba(0, 0, 0, 0.55) !important;
+}
+
+[data-theme="dark"] .ofi-intake-modal-header {
+    background: linear-gradient(135deg, #0f172a 0%, #1e3a8a 100%) !important;
+}
+
+[data-theme="dark"] .ofi-intake-modal-body {
+    background: #0b0f19 !important;
+}
+
+[data-theme="dark"] .ofi-intake-modal-close {
+    border-color: rgba(255, 255, 255, 0.2) !important;
+    background: rgba(255, 255, 255, 0.06) !important;
+    color: #f8fafc !important;
+}
+
+[data-theme="dark"] .ofi-intake-modal-close:hover {
+    background: rgba(255, 255, 255, 0.12) !important;
+}
+
+[data-theme="dark"] .ofi-modal-loading {
+    color: #94a3b8 !important;
+}
+
+[data-theme="dark"] .ofi-review-hero,
+[data-theme="dark"] .ofi-review-section {
+    background: #131c2e !important;
+    border-color: #1e293b !important;
+}
+
+[data-theme="dark"] .ofi-review-badge {
+    background: rgba(37, 99, 235, 0.22) !important;
+    color: #93c5fd !important;
+}
+
+[data-theme="dark"] .ofi-review-heading,
+[data-theme="dark"] .ofi-review-meta-grid dd,
+[data-theme="dark"] .ofi-review-field dd,
+[data-theme="dark"] .ofi-review-text-block {
+    color: #f8fafc !important;
+}
+
+[data-theme="dark"] .ofi-review-lead,
+[data-theme="dark"] .ofi-review-meta-grid dt,
+[data-theme="dark"] .ofi-review-field dt,
+[data-theme="dark"] .ofi-review-section-title,
+[data-theme="dark"] .ofi-review-empty {
+    color: #94a3b8 !important;
+}
+
+[data-theme="dark"] .ofi-review-note {
+    background: rgba(37, 99, 235, 0.14) !important;
+    border-color: rgba(59, 130, 246, 0.35) !important;
+    color: #bfdbfe !important;
+}
+
+[data-theme="dark"] .ofi-review-pill,
+[data-theme="dark"] .ofi-review-chip {
+    background: #0f172a !important;
+    border-color: #334155 !important;
+}
+
+[data-theme="dark"] .ofi-review-chip-code {
+    color: #93c5fd !important;
+}
+
+[data-theme="dark"] .ofi-review-chip-name {
+    color: #cbd5e1 !important;
 }

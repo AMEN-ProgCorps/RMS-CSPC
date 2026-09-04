@@ -596,8 +596,8 @@ body:has(#dcs-sidebar-collapsed:checked) .side-nav .collapse-btn:hover .toggle-i
 }
 
 body:has(#dcs-sidebar-collapsed:checked) .side-nav .collapse-btn {
-    justify-content: center;
-    padding: 12px 0;
+    justify-content: flex-start;
+    padding: 16px;
     overflow: visible;
 }
 
@@ -606,7 +606,7 @@ body:has(#dcs-sidebar-collapsed:checked) .side-nav .collapse-indicator {
 }
 
 body:has(#dcs-sidebar-collapsed:checked) .side-nav .nav-links {
-    padding: 8px 10px;
+    padding: 8px;
     overflow: visible;
 }
 
@@ -617,8 +617,8 @@ body:has(#dcs-sidebar-collapsed:checked) .side-nav .nav-item {
 body:has(#dcs-sidebar-collapsed:checked) .side-nav .nav-item > a,
 body:has(#dcs-sidebar-collapsed:checked) .side-nav .nav-item.dropdown > span,
 body:has(#dcs-sidebar-collapsed:checked) .side-nav .nav-item.dropdown summary {
-    justify-content: center;
-    padding: 4px 0;
+    justify-content: flex-start;
+    padding: 10px 12px;
     overflow: visible;
     background: transparent;
 }
@@ -633,7 +633,7 @@ body:has(#dcs-sidebar-collapsed:checked) .side-nav .nav-item.active.dropdown sum
 }
 
 body:has(#dcs-sidebar-collapsed:checked) .side-nav .nav-item i:not(.arrow) {
-    margin-right: 0;
+    margin-right: 10px;
 }
 
 body:has(#dcs-sidebar-collapsed:checked) .side-nav .nav-item > a:hover i:not(.arrow),

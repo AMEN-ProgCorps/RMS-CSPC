@@ -897,6 +897,15 @@ body {
     font-weight: 700;
 }
 
+.drr-page-wrap.is-empty {
+    background: #f8fafc;
+}
+
+.drr-page-wrap.is-empty .drr-page-empty {
+    min-height: 140px;
+    border-bottom: none;
+}
+
 .drr-page-empty {
     min-height: 80px;
     display: flex;
@@ -909,6 +918,92 @@ body {
 
 .drr-load-more {
     margin: 8px auto;
+}
+
+.drr-change-nav {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px 16px;
+    margin-bottom: 12px;
+    padding: 10px 14px;
+    background: linear-gradient(135deg, #f0f9ff 0%, #f8fafc 100%);
+    border: 1px solid #bae6fd;
+    border-radius: var(--dcs-radius-sm);
+}
+
+.drr-change-nav-summary {
+    font-size: 0.82rem;
+    color: #0f172a;
+    line-height: 1.4;
+}
+
+.drr-change-nav-summary strong {
+    color: #0d2a7a;
+    font-size: 0.95rem;
+}
+
+.drr-change-nav-detail {
+    display: block;
+    font-size: 0.74rem;
+    color: #64748b;
+    margin-top: 2px;
+}
+
+.drr-change-nav-controls {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+}
+
+.drr-change-nav-toggle {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 0.78rem;
+    color: #334155;
+    cursor: pointer;
+    user-select: none;
+}
+
+.drr-change-nav-btn {
+    border: 1px solid var(--dcs-border);
+    background: #fff;
+    color: #0d2a7a;
+    border-radius: 8px;
+    padding: 6px 10px;
+    font-size: 0.75rem;
+    font-weight: 600;
+    cursor: pointer;
+}
+
+.drr-change-nav-btn:hover {
+    background: #eff6ff;
+}
+
+.drr-change-nav-jump {
+    border: 1px solid var(--dcs-border);
+    border-radius: 8px;
+    padding: 6px 8px;
+    font-size: 0.75rem;
+    background: #fff;
+    color: #334155;
+    max-width: 160px;
+}
+
+.drr-page-wrap.drr-page-changed {
+    outline: 2px solid rgba(250, 204, 21, 0.55);
+    outline-offset: -1px;
+}
+
+.drr-page-wrap.drr-page-unchanged .drr-page-summary:empty {
+    display: none;
+}
+
+.drr-show-changed-only .drr-page-unchanged {
+    display: none !important;
 }
 
 .drr-pdf-note {

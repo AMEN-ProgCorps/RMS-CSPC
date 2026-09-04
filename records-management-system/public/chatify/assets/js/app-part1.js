@@ -1538,12 +1538,21 @@
         if (activeUser) activeUser.unreadCount = 0;
       }
 
+      latestTotalUnread = (allUsersData || []).reduce((sum, u) => {
+        const isAct = (activeDMAccountId && Number(u.account_id) === Number(activeDMAccountId)) || (activeDM && u.username === activeDM);
+        return sum + (isAct ? 0 : (u.unreadCount || 0));
+      }, 0);
+      updateTabTitle(latestTotalUnread);
+      if (window.parent && window.parent !== window) {
+        try {
+          window.parent.postMessage({
+            type: 'CHATIFY_REFRESH_BADGE',
+            unread_count: latestTotalUnread
+          }, '*');
+        } catch (e) {}
+      }
+
       if (query === '') {
-        latestTotalUnread = (allUsersData || []).reduce((sum, u) => {
-          const isAct = (activeDMAccountId && Number(u.account_id) === Number(activeDMAccountId)) || (activeDM && u.username === activeDM);
-          return sum + (isAct ? 0 : (u.unreadCount || 0));
-        }, 0);
-        updateTabTitle(latestTotalUnread);
 
         if (!allUsersData || allUsersData.length === 0) {
           sidebarUsers.innerHTML = `<div class="sidebar-empty-state" style="padding:32px 16px;text-align:center;font-size:13px;color:var(--text-secondary);opacity:0.85;">

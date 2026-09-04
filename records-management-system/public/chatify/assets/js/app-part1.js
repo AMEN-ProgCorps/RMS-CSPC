@@ -675,19 +675,7 @@
           // The other participant just read up through data.last_msg_uuid —
           // update the Messenger-style "Seen" indicator instantly, no poll needed.
           if (activeDM && activeDMAccountId === Number(data.reader_id)) {
-            let incomingReadUpTo = null;
-            if (data.last_msg_uuid) {
-              incomingReadUpTo = data.last_msg_uuid;
-            } else {
-              let newestSentId = null;
-              chatBox.querySelectorAll('.message-container.sent[data-msg-id]').forEach(el => {
-                const id = el.getAttribute('data-msg-id');
-                if (id && (!newestSentId || id > newestSentId)) newestSentId = id;
-              });
-              if (newestSentId && (!dmReadUpTo || newestSentId > dmReadUpTo)) {
-                incomingReadUpTo = newestSentId;
-              }
-            }
+            let incomingReadUpTo = data.last_msg_uuid || null;
             if (incomingReadUpTo && incomingReadUpTo !== dmReadUpTo) {
               dmReadUpTo = incomingReadUpTo;
               dmReadUpToMap.set(activeDM, dmReadUpTo);
@@ -1407,10 +1395,10 @@
 
     function cacheDmSnapshot(username, data) {
       if (!username || !data) return;
-      let readUpToVal = (typeof data.readUpTo !== 'undefined' && data.readUpTo !== null)
-        ? data.readUpTo
-        : ((typeof dmReadUpToMap !== 'undefined' && dmReadUpToMap.has(username)) ? dmReadUpToMap.get(username) : null);
-      if (readUpToVal && typeof dmReadUpToMap !== 'undefined') {
+      let readUpToVal = (typeof data.readUpTo !== 'undefined')
+        ? (data.readUpTo || null)
+        : ((typeof dmReadUpToMap !== 'undefined' && dmReadUpToMap.has(username)) ? (dmReadUpToMap.get(username) || null) : null);
+      if (typeof dmReadUpToMap !== 'undefined') {
         dmReadUpToMap.set(username, readUpToVal);
       }
       if (typeof data === 'object' && data !== null) {
@@ -2468,14 +2456,10 @@
           }
         }
       } else {
-        // Read marker is set for this conversation but not explicitly found in current DOM slice.
-        // Target the latest SENT message rendered in chatBox.
-        for (let i = allMessages.length - 1; i >= 0; i--) {
-          if (allMessages[i].classList.contains('sent')) {
-            target = allMessages[i];
-            break;
-          }
-        }
+        // Read marker is not found in the current DOM slice (it belongs to an older
+        // message scrolled off-screen, or is invalid/cleared).
+        // NEVER target the latest sent message or assume unread/offline messages were read.
+        target = null;
       }
 
       const existing = chatBox ? chatBox.querySelector('.seen-indicator') : null;

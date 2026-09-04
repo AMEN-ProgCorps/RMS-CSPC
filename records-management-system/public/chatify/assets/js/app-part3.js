@@ -2352,13 +2352,13 @@
           cachedObj.readUpTo = data.readUpTo;
           if (cachedObj._raw) cachedObj._raw.readUpTo = data.readUpTo;
         }
-      } else if (typeof dmReadUpToMap !== 'undefined' && dmReadUpToMap.has(requestedUser)) {
-        dmReadUpTo = dmReadUpToMap.get(requestedUser);
-        if (data && typeof data === 'object') data.readUpTo = dmReadUpTo;
+      } else {
+        dmReadUpTo = null;
+        if (typeof dmReadUpToMap !== 'undefined') dmReadUpToMap.set(requestedUser, null);
         const cachedObj = typeof dmMessageCache !== 'undefined' ? dmMessageCache.get(requestedUser) : null;
         if (cachedObj) {
-          cachedObj.readUpTo = dmReadUpTo;
-          if (cachedObj._raw) cachedObj._raw.readUpTo = dmReadUpTo;
+          cachedObj.readUpTo = null;
+          if (cachedObj._raw) cachedObj._raw.readUpTo = null;
         }
       }
 

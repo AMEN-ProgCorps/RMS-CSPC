@@ -1642,16 +1642,18 @@ class RegisterPersistHelper
             }
         }
 
-        // Heal legacy "archived" → obsolete (status model is latest | obsolete only).
-        // Skip rows that would violate the active unique (doc_no + revise_no + type).
+        // Heal live "archived" → obsolete only (never soft-deleted recycle-bin rows —
+        // those stay archived so their doc_no remains free for reuse).
         $legacyArchived = [];
         if (RegisterQueryHelper::supportsArchivedRevisionStatus()) {
-            $legacyArchived = DB::table('dcs_masterlist_registration as m')
+            $legacyQuery = DB::table('dcs_masterlist_registration as m')
+                ->join('dcs_document_requests as dr', 'dr.id', '=', 'm.request_id')
                 ->whereIn('m.request_id', $requestIds)
                 ->whereIn('m.doc_no', $familyNos)
                 ->where('m.revision_status', 'archived')
-                ->select('m.id', 'm.doc_no', 'm.revise_no', 'm.doc_type_id')
-                ->get();
+                ->select('m.id', 'm.doc_no', 'm.revise_no', 'm.doc_type_id');
+            RegisterQueryHelper::applyNotDeleted($legacyQuery, 'dr');
+            $legacyArchived = $legacyQuery->get();
         }
 
         foreach ($legacyArchived as $row) {

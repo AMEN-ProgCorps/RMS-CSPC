@@ -611,23 +611,23 @@ td.sticky-col-4::after {
 .db-status-obsolete { background: var(--db-red-light); color: var(--db-red); }
 .db-status-deleted,
 .db-status-archived {
-    background: #f8fafc;
-    color: #475569;
-    border: 1px solid #cbd5e1;
+    background: var(--db-red-light);
+    color: var(--db-red);
+    border: 1px solid color-mix(in srgb, var(--db-red) 28%, transparent);
 }
 
 .db-deleted-row > td {
-    background: #f8fafc !important;
-    border-top: 1px solid #e2e8f0 !important;
-    border-bottom: 1px solid #e2e8f0 !important;
+    background: #fef2f2 !important;
+    border-top: 1px solid #fecaca !important;
+    border-bottom: 1px solid #fecaca !important;
 }
 
 .db-deleted-row > td:first-child {
-    box-shadow: inset 4px 0 0 #64748b;
+    box-shadow: inset 4px 0 0 var(--db-red);
 }
 
 .db-deleted-row:hover > td {
-    background: #f1f5f9 !important;
+    background: #fee2e2 !important;
 }
 .db-status-pending { background: var(--db-amber-light); color: var(--db-amber); }
 
@@ -947,23 +947,23 @@ td.sticky-col-4::after {
 
 .db-status-deleted,
 .db-status-archived {
-    background: #f8fafc;
-    color: #475569;
-    border: 1px solid #cbd5e1;
+    background: var(--db-red-light);
+    color: var(--db-red);
+    border: 1px solid color-mix(in srgb, var(--db-red) 28%, transparent);
 }
 
 .db-deleted-row > td {
-    background: #f8fafc !important;
-    border-top: 1px solid #e2e8f0 !important;
-    border-bottom: 1px solid #e2e8f0 !important;
+    background: #fef2f2 !important;
+    border-top: 1px solid #fecaca !important;
+    border-bottom: 1px solid #fecaca !important;
 }
 
 .db-deleted-row > td:first-child {
-    box-shadow: inset 4px 0 0 #64748b;
+    box-shadow: inset 4px 0 0 var(--db-red);
 }
 
 .db-deleted-row:hover > td {
-    background: #f1f5f9 !important;
+    background: #fee2e2 !important;
 }
 /* Columns picker + custom columns */
 .db-columns-wrap {

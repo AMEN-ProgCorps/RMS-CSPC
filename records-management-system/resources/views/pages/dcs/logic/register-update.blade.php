@@ -626,12 +626,15 @@ class RegisterUpdateHelper
             }
             DB::table('dcs_document_requests')->where('id', $id)->update($update);
 
-            // Soft-delete is deleted_at only; tip becomes obsolete, then promote
-            // the previous live revision to latest (statuses: latest | obsolete).
+            // Soft-delete: tip is archived (frees unique doc_no slot), then promote
+            // the previous live revision to latest (live statuses: latest | obsolete).
             if ($ml && RegisterQueryHelper::supportsRevisionStatus()) {
+                $status = RegisterQueryHelper::supportsArchivedRevisionStatus()
+                    ? 'archived'
+                    : 'obsolete';
                 DB::table('dcs_masterlist_registration')
                     ->where('id', $ml->id)
-                    ->update(['revision_status' => 'obsolete', 'updated_at' => $now]);
+                    ->update(['revision_status' => $status, 'updated_at' => $now]);
             }
 
             if ($promoteDocNo) {
@@ -691,8 +694,8 @@ class RegisterUpdateHelper
                 return self::flashRedirect(
                     'dcs.recycle-bin',
                     'error',
-                    'Cannot restore: document number "' . $ml->doc_no . '" Rev ' . (int) $ml->revise_no
-                        . ' is already in use by an active document. Delete or renumber the active one first.'
+                    'Cannot restore document number "' . $ml->doc_no . '" (Rev ' . (int) $ml->revise_no
+                        . '): it was already registered by a new document. Delete or renumber the active document first, then try restoring again.'
                 );
             }
         }

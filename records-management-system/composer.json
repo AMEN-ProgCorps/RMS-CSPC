@@ -17,8 +17,7 @@
         "masbug/flysystem-google-drive-ext": "*",
         "setasign/fpdf": "^1.9",
         "setasign/fpdi": "^2.6",
-        "spatie/pdf-to-image": "^3.3",
-        "thiagoalessio/tesseract_ocr": "^2.13"
+        "spatie/pdf-to-image": "^3.3"
     },
     "require-dev": {
         "fakerphp/faker": "^1.23",

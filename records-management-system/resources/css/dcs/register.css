@@ -2467,6 +2467,12 @@ select.reg-field-locked:disabled {
     color: #b45309;
 }
 
+.reg-compare-leg-approx {
+    background: rgba(253, 230, 138, 0.35);
+    color: #92400e;
+    border: 1px dashed rgba(217, 119, 6, 0.7);
+}
+
 .reg-compare-panels {
     display: grid;
     grid-template-columns: 1fr 1fr;

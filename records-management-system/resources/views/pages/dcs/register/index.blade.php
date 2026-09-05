@@ -3333,8 +3333,8 @@ function autofillDrfFields(fields) {
         if (fields.sourceOfficeId) {
             window.__sourceWidgets.drf.pick(fields.sourceOfficeId);
             filled = true;
-        } else if (fields.sourceUnit) {
-            window.__sourceWidgets.drf.seedFromString(fields.sourceUnit);
+        } else if (fields.sourceOfficeCode || fields.sourceUnit) {
+            window.__sourceWidgets.drf.seedFromString(fields.sourceOfficeCode || fields.sourceUnit);
             filled = true;
         }
     }

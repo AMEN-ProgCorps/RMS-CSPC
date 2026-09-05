@@ -88,6 +88,13 @@
       --shadow-color: rgba(0,0,0,0.3);
     }
 
+    html.theme-transitioning,
+    html.theme-transitioning *,
+    html.theme-transitioning *::before,
+    html.theme-transitioning *::after {
+      transition: none !important;
+    }
+
     * {
       box-sizing: border-box;
       margin: 0;
@@ -110,7 +117,6 @@
       padding: 0;
       overflow: hidden;
       color: var(--text-primary);
-      transition: background-color 0.3s ease, color 0.2s ease;
       user-select: none;
     }
 
@@ -192,8 +198,12 @@
       transform: scale(0.94);
     }
 
+    #burgerButton, #closeSidebarBtn {
+      display: none !important;
+    }
+
     @media (min-width: 992px) {
-      #closeSidebarBtn {
+      #backButton {
         display: none !important;
       }
     }
@@ -1191,6 +1201,7 @@
     /* Chat Container */
     #chat-box {
       flex: 1;
+      min-height: 0;
       overflow-y: auto;
       overflow-x: hidden;
       padding: 16px 12px 20px 12px;
@@ -1199,7 +1210,7 @@
       overscroll-behavior-y: contain;
       position: relative;
       scroll-behavior: auto;
-      overflow-anchor: auto;
+      overflow-anchor: none;
       transition: background-color 0.3s ease;
       /* Hide scrollbar but keep scroll functionality */
       scrollbar-width: none; /* Firefox */
@@ -1219,7 +1230,7 @@
 
     /* Message Container */
     .message-container {
-      margin-bottom: 8px;
+      margin-bottom: 12px;
       display: flex;
       align-items: flex-end;
       flex-wrap: nowrap; /* Keep avatar + bubble on same row at all times */
@@ -1230,7 +1241,7 @@
          position:absolute and needs to be visible outside its stacking
          context during the swipe animation. */
       contain: layout style;
-      overflow: hidden;  /* Clip bubble if viewport is narrower than avatar + bubble */
+      overflow: visible;  /* Allow reaction badges and swipe icons to render outside bounds without clipping */
       position: relative; /* anchors the swipe-to-reply icon revealed underneath the bubble */
     }
 
@@ -1436,13 +1447,15 @@
       opacity: 1 !important;
       border-radius: 14px;
       margin-bottom: -30px;
+      width: 160px;
+      min-width: 160px;
       max-width: 200px;
+      box-sizing: border-box;
     }
     .reply-quote-image {
       display: block;
       width: 100%;
-      max-width: 200px;
-      height: 100px;
+      height: 110px;
       object-fit: cover;
       border-radius: 12px;
       box-shadow: 0 2px 10px rgba(0,0,0,0.25);
@@ -1636,7 +1649,7 @@
       min-width: 32px;  /* Never shrink */
       flex-shrink: 0;   /* Never shrink */
       text-transform: uppercase;
-      transition: background-color 0.3s ease;
+      position: relative;
     }
 
     .received .message-avatar {
@@ -1649,6 +1662,35 @@
       color: white;
     }
 
+    .message-avatar.empty {
+      background-color: transparent !important;
+      color: transparent !important;
+      border: none !important;
+      box-shadow: none !important;
+    }
+
+    .seen-indicator {
+      display: flex;
+      justify-content: flex-end;
+      width: 100%;
+      padding-right: 8px;
+      margin-top: 2px;
+      margin-bottom: 4px;
+      box-sizing: border-box;
+      pointer-events: none;
+    }
+
+    .seen-indicator-text {
+      width: 32px;
+      text-align: center;
+      font-size: 10px;
+      font-weight: 500;
+      color: var(--text-secondary);
+      text-transform: none;
+      opacity: 0.85;
+      line-height: 1;
+    }
+
     /* Message Bubble */
     .message-bubble {
       max-width: 100%; /* Bubble takes full space of its wrapper */
@@ -1657,7 +1699,6 @@
       position: relative;
       word-wrap: break-word;
       box-shadow: 0 1px 2px var(--shadow-color);
-      transition: background-color 0.3s ease, color 0.3s ease;
       -webkit-user-select: none;
       -moz-user-select: none;
       user-select: none;
@@ -1716,11 +1757,6 @@
     .message-media .message-info {
       padding: 0 !important;
       margin: 0 !important;
-    }
-
-    .message-media .message-info:has(.verified-badge) {
-      padding: 3px 2px !important;
-      margin-top: 2px !important;
     }
 
     /* Chat images (thumbnails rendered by load.php/load_dm.php/
@@ -1977,9 +2013,7 @@
     .input-area {
       /* Blends with the chat view instead of standing out as its own bar */
       background-color: var(--bg-chat);
-      padding: 12px 16px;
-      /* safe-area-inset-bottom for iPhone notch/home bar */
-      padding-bottom: calc(12px + env(safe-area-inset-bottom, 0px));
+      padding: 10px 16px 12px 16px;
       border-top: none;
       /* Never sticky — flexbox keeps it at bottom naturally.
          sticky + virtual keyboard = input getting buried on Android. */
@@ -2132,6 +2166,9 @@
 
     #messageInput {
       width: 100%;
+      height: 40px;
+      min-height: 40px;
+      max-height: 120px;
       border-radius: 18px;
       border: 1px solid transparent;
       background: transparent;
@@ -2141,8 +2178,6 @@
       z-index: 1;
       resize: none;
       overflow-y: scroll;
-      min-height: 40px;
-      max-height: 120px;
       display: block;
       /* Hide scrollbar — webkit */
       scrollbar-width: none;
@@ -2699,36 +2734,21 @@
         height: 100%;
         height: 100dvh;
         overflow: hidden;
-        /* iOS Safari: prevent body scroll which can hide the header */
-        position: fixed;
         width: 100%;
+        margin: 0;
+        padding: 0;
+        touch-action: manipulation;
       }
 
       .app-wrapper {
         position: relative;
-        width: 100vw;
+        width: 100%;
         height: 100%;
         height: 100dvh;
       }
 
       .sidebar-backdrop {
-        display: none;
-        position: absolute;
-        top: 0;
-        left: 0;
-        right: 0;
-        bottom: 0;
-        background: rgba(0,0,0,0.4);
-        backdrop-filter: blur(2px);
-        z-index: 190;
-        opacity: 0;
-        transition: opacity 0.25s ease;
-        touch-action: none; /* Block pinch-zoom on the backdrop (mobile) */
-      }
-
-      .sidebar-backdrop.visible {
-        display: block;
-        opacity: 1;
+        display: none !important;
       }
 
       .sidebar {
@@ -2736,17 +2756,11 @@
         left: 0;
         top: 0;
         bottom: 0;
-        width: 320px;
+        width: 100%;
         max-width: 100%;
         transform: translate3d(-100%, 0, 0);
         z-index: 200;
         will-change: transform;
-      }
-
-      @media (max-width: 480px) {
-        .sidebar {
-          width: 100%;
-        }
       }
 
       .sidebar.open {
@@ -2793,10 +2807,9 @@
         max-width: 100%;
       }
 
-      /* iOS safe area support (notch / home bar) */
       .input-area {
         flex-shrink: 0;
-        padding-bottom: max(12px, env(safe-area-inset-bottom, 0px));
+        padding-bottom: 12px;
       }
     }
 
@@ -2921,7 +2934,7 @@
     /* Reactions sit at the bottom corner of the bubble as a solid mini chat bubble */
     .msg-reactions {
       position: absolute;
-      bottom: -13px;
+      bottom: -8px;
       z-index: 10;
       display: flex;
       align-items: center;
@@ -2945,16 +2958,13 @@
       justify-content: flex-start;
     }
 
-    /* Add space under bubble wrapper and match avatar margin when reactions are present */
+    /* Stable margin under bubble wrapper — no layout shifts when reactions are toggled */
     .bubble-wrapper:has(.msg-reactions),
-    .bubble-wrapper.has-reactions {
-      margin-bottom: 14px !important;
-    }
-
+    .bubble-wrapper.has-reactions,
     .message-container:has(.msg-reactions) .message-avatar,
     .message-container:has(.has-reactions) .message-avatar,
     .message-container.has-reactions .message-avatar {
-      margin-bottom: 14px !important;
+      margin-bottom: 0 !important;
     }
 
     .message-container > .msg-reactions {
@@ -3591,4 +3601,31 @@
     @keyframes uploadSpin {
       0% { transform: rotate(0deg); }
       100% { transform: rotate(360deg); }
+    }
+
+    /* ── Settings Header Dark Mode Button ── */
+    .dark-mode-header-btn {
+      width: 34px;
+      height: 34px;
+      border-radius: 50%;
+      border: none;
+      background: #1b74e4;
+      color: #ffffff;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      transition: transform 0.15s ease, opacity 0.15s ease;
+      outline: none;
+      padding: 0;
+      flex-shrink: 0;
+    }
+
+    .dark-mode-header-btn:hover {
+      opacity: 0.9;
+      transform: scale(1.08);
+    }
+
+    .dark-mode-header-btn:active {
+      transform: scale(0.95);
     }

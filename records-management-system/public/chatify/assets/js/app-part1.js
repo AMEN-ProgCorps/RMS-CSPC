@@ -9,6 +9,15 @@
       return window.innerWidth <= MOBILE_BREAKPOINT;
     }
 
+    function injectBadge(el) {
+      if (!el) return;
+      if (el.querySelector && el.querySelector('.verified-badge')) return;
+      const badge = document.createElement('span');
+      badge.className = 'verified-badge';
+      badge.innerHTML = `<svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><circle cx="12" cy="12" r="12" fill="#1b74e4"/><path d="M7 12.5l3.5 3.5 6.5-7" stroke="#fff" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
+      el.appendChild(badge);
+    }
+
     const chatBox         = document.getElementById("chat-box");
     const nameInput       = document.getElementById("nameInput");
     const messageInput    = document.getElementById("messageInput");
@@ -29,8 +38,6 @@
     const chatHeaderAvatar = document.getElementById('chatHeaderAvatar');
     const sidebar         = document.getElementById('sidebar');
     const backButton      = document.getElementById('backButton');
-    const burgerButton    = document.getElementById('burgerButton');
-    const closeSidebarBtn = document.getElementById('closeSidebarBtn');
 
     // The cancel-edit X button now lives inline in the message row itself
     // (next to Send), so no separate width-sync against #sendButton is
@@ -161,8 +168,8 @@
           wsReconnectTimer = null;
         }
 
-        // Stop fallback polling on successful connection
-        stopPollingFallback();
+        // Keep hybrid background polling running as safety net
+        startPollingFallback();
 
         // Authenticate connection
         ws.send(JSON.stringify({
@@ -256,6 +263,8 @@
         }
       }
 
+      const senderLabel = escapeHtml(displayName.toLowerCase());
+
       container.innerHTML = `
         <div class="message-avatar">${avatarInnerHtml(senderAvatarUrl, initials)}</div>
         <div class="bubble-wrapper">
@@ -263,6 +272,7 @@
           ${replyQuoteHtml}
           <div class="message-bubble${emojiOnlyClass}">
             <div class="message-content">${escapeHtml(msgText)}</div>
+            <div class="message-info"><span class="message-sender">${senderLabel}</span></div>
           </div>
         </div>
       `;
@@ -397,6 +407,8 @@
       }
     }
 
+    const processedWsMsgUuids = new Set();
+
     ws.onmessage = function(event) {
         let data;
         try {
@@ -463,18 +475,40 @@
           }
         } else if (data.type === 'message') {
           console.log('Received WebSocket real-time update notice:', data);
-          // Deduplication: if message is already rendered in chatBox, skip fetching!
+          // Deduplication: if message UUID was already processed, drop duplicate immediately
           const targetMsgId = data.msg_uuid || data.id;
+          if (targetMsgId) {
+            if (processedWsMsgUuids.has(targetMsgId)) {
+              return;
+            }
+            processedWsMsgUuids.add(targetMsgId);
+            if (processedWsMsgUuids.size > 1000) {
+              const oldestKey = processedWsMsgUuids.keys().next().value;
+              processedWsMsgUuids.delete(oldestKey);
+            }
+          }
           if (targetMsgId && chatBox.querySelector(`.message-container[data-msg-id="${targetMsgId}"]`)) {
             return;
           }
           if (data.chat_type === 'global') {
+            if (Array.isArray(data.mentioned_ids) && data.mentioned_ids.map(Number).includes(Number(wsConfig.accountId))) {
+              catchUpMissedNotifications();
+            }
             if (isGlobalChat) {
-              if (data.has_upload) {
-                isLoadingGC = false;
-                loadGlobalChat(false);
+              const sender = Number(data.sender_id);
+              if (sender !== wsConfig.accountId) {
+                if (data.has_upload) {
+                  isLoadingGC = false;
+                  loadGlobalChat(false);
+                } else {
+                  renderAndAppendWsMessage(data);
+                }
               } else {
-                renderAndAppendWsMessage(data);
+                // Echo of our own sent message — XHR optimistic path already rendered it in place.
+                if (data.has_upload) {
+                  isLoadingGC = false;
+                  loadGlobalChat(false);
+                }
               }
             }
           } else if (data.chat_type === 'private') {
@@ -574,27 +608,29 @@
           // The other participant just read up through data.last_msg_uuid —
           // update the Messenger-style "Seen" indicator instantly, no poll needed.
           if (activeDM && activeDMAccountId === Number(data.reader_id)) {
+            let incomingReadUpTo = null;
             if (data.last_msg_uuid) {
-              // DB-confirmed value (arrived via the HTTP-persisted path) —
-              // always authoritative.
-              dmReadUpTo = data.last_msg_uuid;
+              incomingReadUpTo = data.last_msg_uuid;
             } else {
-              // Instant WS-only ping, sent with no id attached (see
-              // markRead() above) — the other participant is actively here
-              // right now, so flag whatever we've most recently sent as
-              // seen using OUR OWN chatBox (accurate on this side), rather
-              // than waiting for the slower DB round trip to confirm it.
-              // Read state only ever moves forward, never backward.
               let newestSentId = null;
               chatBox.querySelectorAll('.message-container.sent[data-msg-id]').forEach(el => {
                 const id = el.getAttribute('data-msg-id');
                 if (id && (!newestSentId || id > newestSentId)) newestSentId = id;
               });
               if (newestSentId && (!dmReadUpTo || newestSentId > dmReadUpTo)) {
-                dmReadUpTo = newestSentId;
+                incomingReadUpTo = newestSentId;
               }
             }
-            updateSeenIndicator();
+            if (incomingReadUpTo && incomingReadUpTo !== dmReadUpTo) {
+              dmReadUpTo = incomingReadUpTo;
+              dmReadUpToMap.set(activeDM, dmReadUpTo);
+              const cachedObj = dmMessageCache.get(activeDM);
+              if (cachedObj) {
+                cachedObj.readUpTo = dmReadUpTo;
+                if (cachedObj._raw) cachedObj._raw.readUpTo = dmReadUpTo;
+              }
+              updateSeenIndicator();
+            }
           }
         } else if (data.type === 'chat_cleared') {
           console.log('Received WebSocket real-time update notice:', data);
@@ -604,6 +640,7 @@
           // partner account to resolve, and the sidebar list itself isn't
           // affected (no conversation entry disappears).
           if (data.chat_type === 'global') {
+            globalChatCache = null;
             gcCursor = '';
             gcViewingOlder = false;
             removePaginationBtn();
@@ -613,7 +650,7 @@
             // on screen even though the message pane behind it is empty.
             if (typeof closeImageViewer === 'function') closeImageViewer();
             if (isGlobalChat) {
-              if (chatBox) chatBox.innerHTML = '<div class="empty-chat"><p>Camarines Sur Polytechnic Colleges</p></div>';
+              if (chatBox) chatBox.innerHTML = '<div class="empty-chat"></div>';
               isFirstLoad = true;
               chatFullyLoaded = false;
               loadGlobalChat(false, false);
@@ -689,7 +726,7 @@
             // Wipe the pane now — resetToHome() will confirm it, but this
             // makes the clear visually instant without waiting for XHR round-trips.
             if (chatBox) {
-              chatBox.innerHTML = '<div class="empty-chat"><p>Camarines Sur Polytechnic Colleges</p></div>';
+              chatBox.innerHTML = '<div class="empty-chat"></div>';
             }
             resetToHome();
           }
@@ -711,6 +748,7 @@
         } else if (data.type === 'all_cleared') {
           console.log('Received WebSocket real-time update notice:', data);
           dmMessageCache.clear(); // every conversation's snapshot is now stale
+          globalChatCache = null;
           gcCursor = ''; dmCursor = '';
           gcViewingOlder = false; dmViewingOlder = false;
           allConvsData = [];
@@ -766,19 +804,38 @@
           // Broadcast from set_verification.php when Super Admin toggles a user's badge
           const changedId = Number(data.account_id);
           const nowVerified = !!data.is_verified;
-          if (nowVerified) {
-            verifiedAccountIds.add(changedId);
-          } else {
-            verifiedAccountIds.delete(changedId);
+          if (typeof verifiedAccountIds !== 'undefined' && verifiedAccountIds && verifiedAccountIds.add) {
+            if (nowVerified) {
+              verifiedAccountIds.add(changedId);
+            } else {
+              verifiedAccountIds.delete(changedId);
+            }
+          }
+          if (Array.isArray(window.verifiedAccountIds)) {
+            if (nowVerified && !window.verifiedAccountIds.includes(changedId)) {
+              window.verifiedAccountIds.push(changedId);
+            } else if (!nowVerified) {
+              window.verifiedAccountIds = window.verifiedAccountIds.filter(id => Number(id) !== changedId);
+            }
+          }
+          if (Array.isArray(allUsersData)) {
+            const userObj = allUsersData.find(u => Number(u.account_id) === changedId);
+            if (userObj) {
+              userObj.is_chatify_verified = nowVerified;
+            }
           }
           // Re-render sidebar badges
-          renderSidebarUsers();
+          if (typeof renderSidebarUsers === 'function') {
+            renderSidebarUsers();
+          }
           // Re-apply header badge for current DM if it's the changed user
-          if (activeDMAccountId === changedId) {
-            applyHeaderAdminBadge();
+          if (Number(activeDMAccountId) === changedId) {
+            const fnHeader = (typeof applyHeaderAdminBadge === 'function') ? applyHeaderAdminBadge : window.applyHeaderAdminBadge;
+            if (typeof fnHeader === 'function') fnHeader();
           }
           // Re-apply badges on all visible message-sender elements
-          applyAdminBadges();
+          const fnBadges = (typeof applyAdminBadges === 'function') ? applyAdminBadges : window.applyAdminBadges;
+          if (typeof fnBadges === 'function') fnBadges();
           // If the User Verification modal is open, sync toggle rows in real-time
           if (typeof window._syncVerifyModalRow === 'function') {
             window._syncVerifyModalRow(changedId, nowVerified);
@@ -1064,18 +1121,18 @@
 
     function startPollingFallback() {
       if (wsPollInterval) return;
-      if (document.hidden) return; // don't poll while tab is in background
-      console.log('Starting backup message polling...');
+      console.log('Starting hybrid message polling...');
       wsPollInterval = setInterval(function() {
         if (document.hidden) return; // skip each tick while hidden
         if (isGlobalChat) {
           loadGlobalChat(true);
         } else if (activeDM) {
           loadChat(true);
-        } else if (activeAdminConv) {
+        }
+        if (activeAdminConv) {
           loadAdminConv(activeAdminConv, true);
         }
-      }, 3000);
+      }, 4000);
     }
 
     function stopPollingFallback() {
@@ -1092,46 +1149,24 @@
     function setupMobileLayout() {
       if (isMobileViewport()) {
         if (!activeDM && !activeAdminConv && !isGlobalChat) {
-          sidebar.classList.add('open');
-          const backdrop = document.getElementById('sidebarBackdrop');
-          if (backdrop) backdrop.classList.add('visible');
-          burgerButton.style.display = 'inline-flex';
-          backButton.style.display = 'none';
+          if (sidebar) sidebar.classList.add('open');
+          if (backButton) backButton.style.display = 'none';
         } else {
-          burgerButton.style.display = 'none';
-          backButton.style.display = 'inline-flex';
+          if (sidebar) sidebar.classList.remove('open');
+          if (backButton) backButton.style.display = 'inline-flex';
         }
-        closeSidebarBtn.style.display = 'inline-flex';
       } else {
-        burgerButton.style.display = 'none';
-        backButton.style.display = 'none';
-        closeSidebarBtn.style.display = 'none';
-        sidebar.classList.remove('open');
-        const backdrop = document.getElementById('sidebarBackdrop');
-        if (backdrop) backdrop.classList.remove('visible');
+        if (backButton) backButton.style.display = 'none';
       }
     }
-    window.addEventListener('resize', setupMobileLayout);
-
-    burgerButton.addEventListener('click', () => {
-      sidebar.classList.add('open');
-      const backdrop = document.getElementById('sidebarBackdrop');
-      if (backdrop) backdrop.classList.add('visible');
-    });
-    closeSidebarBtn.addEventListener('click', () => {
-      sidebar.classList.remove('open');
-      const backdrop = document.getElementById('sidebarBackdrop');
-      if (backdrop) backdrop.classList.remove('visible');
-    });
-
-    // Backdrop click listener to close sidebar
-    const backdropEl = document.getElementById('sidebarBackdrop');
-    if (backdropEl) {
-      backdropEl.addEventListener('click', () => {
-        sidebar.classList.remove('open');
-        backdropEl.classList.remove('visible');
-      });
+    let lastChatifyWindowWidth = window.innerWidth;
+    function handleResizeSetupMobileLayout() {
+      if (window.innerWidth !== lastChatifyWindowWidth) {
+        lastChatifyWindowWidth = window.innerWidth;
+        setupMobileLayout();
+      }
     }
+    window.addEventListener('resize', handleResizeSetupMobileLayout);
 
     // Global data
     let allUsersData = [];
@@ -1221,7 +1256,7 @@
           return;
         }
         // User genuinely not in the list — show empty state
-        chatBox.innerHTML = '<div class="empty-chat"><p>Camarines Sur Polytechnic Colleges</p></div>';
+        chatBox.innerHTML = '<div class="empty-chat"></div>';
         return;
       }
 
@@ -1235,7 +1270,7 @@
         if (savedActiveDM) {
           restoreActiveConversation(savedActiveDM);
         } else {
-          chatBox.innerHTML = '<div class="empty-chat"><p>Camarines Sur Polytechnic Colleges</p></div>';
+          chatBox.innerHTML = '<div class="empty-chat"></div>';
         }
       }
     }
@@ -1281,7 +1316,7 @@
         // The saved conversation partner no longer exists / isn't reachable
         // anymore — don't keep pointing at a chat we can't reopen.
         localStorage.removeItem('activeDM');
-        chatBox.innerHTML = '<div class="empty-chat"><p>Camarines Sur Polytechnic Colleges</p></div>';
+        chatBox.innerHTML = '<div class="empty-chat"></div>';
       }
     }
 
@@ -1304,13 +1339,22 @@
     window.dmPrefetchPromises = dmPrefetchPromises;
 
     function cacheDmSnapshot(username, data) {
-      if (!username) return;
+      if (!username || !data) return;
+      let readUpToVal = (typeof data.readUpTo !== 'undefined' && data.readUpTo !== null)
+        ? data.readUpTo
+        : ((typeof dmReadUpToMap !== 'undefined' && dmReadUpToMap.has(username)) ? dmReadUpToMap.get(username) : null);
+      if (readUpToVal && typeof dmReadUpToMap !== 'undefined') {
+        dmReadUpToMap.set(username, readUpToVal);
+      }
+      if (typeof data === 'object' && data !== null) {
+        data.readUpTo = readUpToVal;
+      }
       dmMessageCache.delete(username); // re-insert at the end = most-recently-used
       dmMessageCache.set(username, {
         html: data.html || '',
         hasMore: data.hasMore || false,
         nextCursor: data.nextCursor || '',
-        readUpTo: (typeof data.readUpTo !== 'undefined') ? data.readUpTo : null,
+        readUpTo: readUpToVal,
         _raw: data
       });
       if (dmMessageCache.size > DM_CACHE_LIMIT) {
@@ -1566,7 +1610,8 @@
           applyHeaderAvatar(u);
         }
 
-        const targetIsVerified = verifiedAccountIds && verifiedAccountIds.has(Number(u.account_id));
+        const vSet = (typeof verifiedAccountIds !== 'undefined' && verifiedAccountIds) ? verifiedAccountIds : window.verifiedAccountIdsSet;
+        const targetIsVerified = vSet && vSet.has(Number(u.account_id));
 
         // Verified badge next to verified users' names in the sidebar.
         // Injected into nameRow (a flex sibling of nameEl), NOT nameEl itself.
@@ -1800,7 +1845,7 @@
       notificationPollInterval = setInterval(function() {
         if (document.hidden) return;
         catchUpMissedNotifications();
-      }, 10000);
+      }, 2500);
     }
 
     // Max characters to show in the toast preview before truncating with "..."
@@ -2217,7 +2262,7 @@
     // text as the inner content of a .user-avatar / .message-avatar circle.
     function avatarInnerHtml(avatarUrl, initials) {
       if (avatarUrl) {
-        return `<img src="${escapeHtml(avatarUrl)}" class="avatar-img" alt="" loading="lazy" referrerpolicy="no-referrer">`;
+        return `<img src="${escapeHtml(avatarUrl)}" class="avatar-img" alt="" loading="eager" referrerpolicy="no-referrer">`;
       }
       return escapeHtml(initials);
     }
@@ -2258,6 +2303,8 @@
     });
 
     let markReadHttpDebounceTimer = null;
+    let lastMarkedReadUser = null;
+    let lastMarkedReadMsgId = null;
 
     function markRead(targetUsername) {
       if (!targetUsername) return;
@@ -2281,7 +2328,14 @@
         });
       }
 
-      // Real-time WebSocket relay: ALWAYS fire immediately with last_msg_uuid
+      // If we already marked read up through this exact message for this user, suppress redundant network pings
+      if (lastMarkedReadUser === targetUsername && lastMarkedReadMsgId === newestMsgId && newestMsgId !== null) {
+        return;
+      }
+      lastMarkedReadUser = targetUsername;
+      lastMarkedReadMsgId = newestMsgId;
+
+      // Real-time WebSocket relay: fire immediately with last_msg_uuid
       if (ws && ws.readyState === WebSocket.OPEN && targetId) {
         ws.send(JSON.stringify({
           type: 'mark_read',
@@ -2302,48 +2356,124 @@
     }
 
     // Messenger-style "Seen" indicator: shown under the newest message WE sent
-    // that the other participant has actually read (dmReadUpTo). Re-run this
-    // any time dmReadUpTo changes or the message list is re-rendered — it's
-    // cheap (one DOM query over the currently-loaded page) and always fully
-    // recomputes rather than trying to patch the previous position, so it can
-    // never end up stuck under a stale message.
+    // that the other participant has actually read (dmReadUpTo).
     function updateSeenIndicator() {
-      const existing = chatBox.querySelector('.seen-indicator');
-      if (existing) existing.remove();
+      // Resolve the effective readUpTo: use dmReadUpTo if set, otherwise check
+      // dmReadUpToMap directly.
+      let effectiveReadUpTo = dmReadUpTo;
+      if (!effectiveReadUpTo && activeDM && typeof dmReadUpToMap !== 'undefined' && dmReadUpToMap.has(activeDM)) {
+        effectiveReadUpTo = dmReadUpToMap.get(activeDM);
+      }
 
-      if (!dmReadUpTo || !activeDM || isGlobalChat) return;
+      if (!effectiveReadUpTo || !activeDM || isGlobalChat) {
+        const existing = chatBox ? chatBox.querySelector('.seen-indicator') : null;
+        if (existing) existing.remove();
+        return;
+      }
 
-      // msg_uuid values are fixed-width hex ("msg_" + 10 hex ms + 6 hex rnd),
-      // so plain string comparison sorts them the same as chronological order.
-      const sentMessages = chatBox.querySelectorAll('.message-container.sent[data-msg-id]');
+      const allMessages = Array.from(chatBox.querySelectorAll('.message-container[data-msg-id]'));
+      if (allMessages.length === 0) {
+        const existing = chatBox ? chatBox.querySelector('.seen-indicator') : null;
+        if (existing) existing.remove();
+        return;
+      }
+
+      const cleanReadUpTo = String(effectiveReadUpTo).trim().toLowerCase();
+
+      // Find the index of the read marker message in DOM order (strictly chronological)
+      let readMarkerIndex = -1;
+      for (let i = 0; i < allMessages.length; i++) {
+        const msgId = allMessages[i].getAttribute('data-msg-id');
+        if (msgId && String(msgId).trim().toLowerCase() === cleanReadUpTo) {
+          readMarkerIndex = i;
+          break;
+        }
+      }
+
       let target = null;
-      sentMessages.forEach(el => {
-        const id = el.getAttribute('data-msg-id');
-        if (id && id <= dmReadUpTo) target = el; // keep the newest qualifying one
-      });
-      if (!target) return;
+      if (readMarkerIndex !== -1) {
+        // The read marker message was found in DOM.
+        // Target is the last SENT message at or before readMarkerIndex.
+        for (let i = readMarkerIndex; i >= 0; i--) {
+          if (allMessages[i].classList.contains('sent')) {
+            target = allMessages[i];
+            break;
+          }
+        }
+      } else {
+        // Read marker is set for this conversation but not explicitly found in current DOM slice.
+        // Target the latest SENT message rendered in chatBox.
+        for (let i = allMessages.length - 1; i >= 0; i--) {
+          if (allMessages[i].classList.contains('sent')) {
+            target = allMessages[i];
+            break;
+          }
+        }
+      }
+
+      const existing = chatBox ? chatBox.querySelector('.seen-indicator') : null;
+
+      if (!target) {
+        if (existing) existing.remove();
+        return;
+      }
+
+      // If the seen indicator is already the immediate next sibling of the target, nothing to do.
+      const nextSib = target.nextElementSibling;
+      if (nextSib && nextSib.classList && nextSib.classList.contains('seen-indicator')) {
+        return;
+      }
+
+      // Capture scroll state BEFORE any DOM mutation so we can restore it below.
+      const preScrollTop    = chatBox.scrollTop;
+      const preScrollHeight = chatBox.scrollHeight;
+      const wasNearBottom = (preScrollHeight - preScrollTop - chatBox.clientHeight) <= 60;
+
+      if (existing) existing.remove();
 
       const indicator = document.createElement('div');
       indicator.className = 'seen-indicator';
-      indicator.textContent = 'Seen';
-      indicator.style.cssText = 'font-size:11px;color:var(--text-secondary);text-align:right;padding:2px 12px 6px 0;opacity:0.85;';
+      indicator.innerHTML = '<span class="seen-indicator-text">seen</span>';
       target.insertAdjacentElement('afterend', indicator);
+
+      // If the user was at (or near) the bottom before the indicator was
+      // inserted/moved, re-snap so the layout shift is invisible to them.
+      if (wasNearBottom) {
+        chatBox.scrollTop = chatBox.scrollHeight;
+        requestAnimationFrame(() => {
+          chatBox.scrollTop = chatBox.scrollHeight;
+        });
+      }
     }
 
 
     // State for global chat
     let isGlobalChat = false;
+    let globalChatCache = null; // { html, hasMore, nextCursor, _raw }
+
+    function cacheGlobalChatSnapshot(data) {
+      if (!data) return;
+      globalChatCache = {
+        html: data.html || '',
+        hasMore: data.hasMore || false,
+        nextCursor: data.nextCursor || '',
+        _raw: data
+      };
+    }
     // ── Infinite-scroll window constants ─────────────────────────────────────
-    // INITIAL_LOAD  — messages fetched when first opening a conversation.
+    // INITIAL_LOAD   — messages fetched when first opening a conversation.
     // BACKREAD_BATCH — messages fetched per auto-triggered scroll-up fetch.
-    // MAX_WINDOW    — maximum messages kept in the DOM at once. When the user
-    //                 keeps scrolling up, older pages are prepended and the
-    //                 same count is trimmed from the bottom so the DOM never
-    //                 grows past this cap.  "Go to bottom" always snaps back
-    //                 to a fresh INITIAL_LOAD-sized window.
+    // MAX_WINDOW     — maximum messages kept in the DOM at once (performance
+    //                  guard, NOT a history limit). While backreading, older
+    //                  pages are prepended and the same count is trimmed from
+    //                  the bottom so the browser never holds more than this
+    //                  many nodes simultaneously. "Go to bottom" snaps back
+    //                  to a fresh INITIAL_LOAD-sized window from the DB.
+    //                  Raised from 300 → 600 for deeper backread without a
+    //                  DOM trip to the server.
     const INITIAL_LOAD   = 100;
     const BACKREAD_BATCH = 50;
-    const MAX_WINDOW     = 300;  // ~100 initial + 4 backreads; safe for mid-range Android
+    const MAX_WINDOW     = 600;  // ~100 initial + 10 backreads; balanced for mid-range Android
     // Legacy alias — kept so every existing trimWindowFromTop/Bottom call site
     // that still references PAGE_SIZE continues to compile without changes.
     // New code should prefer the explicit constants above.
@@ -2357,6 +2487,8 @@
     // msg_uuid of the newest message the OTHER participant has read, or null.
     // Drives the Messenger-style "Seen" indicator under our own last-read sent message.
     let dmReadUpTo = null;
+    const dmReadUpToMap = new Map(); // username -> msg_uuid
+    window.dmReadUpToMap = dmReadUpToMap;
 
     // Spamming clicks across the conversation list used to make the chat
     // pane visibly jump: every single click synchronously swapped chatBox's
@@ -2366,40 +2498,29 @@
     // heavy part (painting messages + loadChat + scroll) is debounced to
     // only run once the clicks settle, while the row highlight updates
     // instantly on every click and the chat pane just gives a quick "blink"
-    // so spamming still feels responsive without the jumping.
     let selectDMDebounceTimer = null;
     let pendingSelectUser = null;
-    const SELECT_DM_DEBOUNCE_MS = 180;
 
     function selectDM(u) {
-      pendingSelectUser = u;
-
-      // Instant, lightweight feedback: highlight the clicked row right away,
-      // without touching messages/scroll yet.
-      isGlobalChat = false;
-      const _hEl = document.querySelector('.header');
-      if (_hEl) _hEl.classList.remove('is-global-chat');
-      activeDM = u.username;
-      activeDMAccountId = Number(u.account_id);
-      activeAdminConv = null;
-      u.unreadCount = 0;
-      if (!allUsersData.find(function(x) { return Number(x.account_id) === Number(u.account_id); })) {
-        allUsersData.unshift(u);
+      if (!u) return;
+      if (!isGlobalChat && !activeAdminConv && activeDM === u.username) {
+        if (isMobileViewport()) {
+          sidebar.classList.remove('open');
+          if (backButton) backButton.style.display = 'inline-flex';
+        }
+        return;
       }
-      chatHeaderTitle.textContent = u.name;
-      applyHeaderAdminBadge();
-      applyHeaderAvatar(u);
-      renderSidebarUsers();
-      document.getElementById('globalChatItem').classList.remove('active');
-
-      if (selectDMDebounceTimer) clearTimeout(selectDMDebounceTimer);
-      selectDMDebounceTimer = setTimeout(function() {
+      if (selectDMDebounceTimer) {
+        clearTimeout(selectDMDebounceTimer);
         selectDMDebounceTimer = null;
-        performSelectDM(pendingSelectUser);
-      }, SELECT_DM_DEBOUNCE_MS);
+      }
+      performSelectDM(u);
     }
 
     function performSelectDM(u) {
+      if (typeof cancelActiveScrollAnimation === 'function') cancelActiveScrollAnimation();
+      if (typeof clearFirstLoadScrollTimers === 'function') clearFirstLoadScrollTimers();
+
       isGlobalChat = false;
       const _hEl = document.querySelector('.header');
       if (_hEl) _hEl.classList.remove('is-global-chat');
@@ -2416,6 +2537,7 @@
       updateClearChatButtonVisibility();
       clearSendingOverlay(); // drop any pending-send bubbles from the previous conversation
       hideEditBanner();
+      if (typeof hideReplyBanner === 'function') hideReplyBanner();
       
       // Reset local typing indicator state
       if (localTypingTimeout) {
@@ -2437,21 +2559,24 @@
       applyHeaderAdminBadge();
       applyHeaderAvatar(u);
       updateHeaderActiveStatus(u);
-      // Mirror selectGlobalChat's render flow exactly: blank the pane and do
-      // a single, deterministic paint once the real data comes back. The old
-      // approach (instant-paint from a cached snapshot, then reconcile again
-      // against whatever the network returned) meant two separate scroll
-      // adjustments could land back-to-back — that's what made the chat pane
-      // visibly jump when switching conversations quickly.
-      chatBox.innerHTML = '';
+      
+      const cached = dmMessageCache.get(u.username);
+      if (!cached) {
+        chatBox.innerHTML = '';
+      }
       removePaginationBtn();
       hideScrollIndicator();
       const _htp = document.getElementById('headerTypingPreview');
       if (_htp) { _htp.textContent = ''; _htp.classList.remove('active'); }
 
-      dmCursor = '';
-      dmHasMore = false;
-      dmReadUpTo = null;
+      dmCursor = (cached && cached.nextCursor) ? cached.nextCursor : '';
+      dmHasMore = (cached && cached.hasMore) ? cached.hasMore : false;
+      dmReadUpTo = (typeof dmReadUpToMap !== 'undefined' && dmReadUpToMap.has(u.username))
+        ? dmReadUpToMap.get(u.username)
+        : ((cached && typeof cached.readUpTo !== 'undefined') ? cached.readUpTo : null);
+      if (dmReadUpTo && cached && cached._raw) {
+        cached._raw.readUpTo = dmReadUpTo;
+      }
       isFirstLoad = true; // snap straight to bottom once the new conversation's messages arrive
       chatFullyLoaded = false; // suppress scroll buttons until new chat finishes loading
       dmViewingOlder = false;
@@ -2464,19 +2589,26 @@
       // Mobile/Tablet: hide sidebar when chat is selected
       if (isMobileViewport()) {
         sidebar.classList.remove('open');
-        const backdrop = document.getElementById('sidebarBackdrop');
-        if (backdrop) backdrop.classList.remove('visible');
-        burgerButton.style.display = 'none';
-        backButton.style.display = 'inline-flex';
+        if (backButton) backButton.style.display = 'inline-flex';
       } else {
         // Desktop only: auto-focus the message input so the cursor is ready
-        // without an extra click. Skipped on mobile so opening a conversation
-        // doesn't immediately pop the on-screen keyboard over half the chat.
-        setTimeout(() => messageInput.focus(), 0);
+        // without an extra click. preventScroll prevents the browser from shifting scrollable parents.
+        setTimeout(() => messageInput.focus({ preventScroll: true }), 0);
       }
     }
 
     function selectGlobalChat() {
+      if (isGlobalChat && !activeDM && !activeAdminConv) {
+        if (isMobileViewport()) {
+          sidebar.classList.remove('open');
+          if (backButton) backButton.style.display = 'inline-flex';
+        }
+        return;
+      }
+
+      if (typeof cancelActiveScrollAnimation === 'function') cancelActiveScrollAnimation();
+      if (typeof clearFirstLoadScrollTimers === 'function') clearFirstLoadScrollTimers();
+
       isGlobalChat = true;
       const _hEl = document.querySelector('.header');
       if (_hEl) _hEl.classList.add('is-global-chat');
@@ -2489,6 +2621,7 @@
       gcViewingOlder = false;
       clearSendingOverlay(); // drop any pending-send bubbles from the previous conversation
       hideEditBanner();
+      if (typeof hideReplyBanner === 'function') hideReplyBanner();
       updateHeaderActiveStatus();
       isFirstLoad = true;
       chatFullyLoaded = false; // suppress scroll buttons until global chat finishes loading
@@ -2513,8 +2646,19 @@
       localStorage.setItem('activeDM', '__global__');
       chatHeaderTitle.innerHTML = `Global Chat`;
       applyHeaderAdminBadge(); // activeDMAccountId is null here — clears any leftover badge from the previous DM
-      applyHeaderAvatar(null); // no single DM partner — hide the header avatar
-      chatBox.innerHTML = '';
+      applyHeaderAvatar({ avatar_url: 'cspc.webp', name: 'Global Chat' });
+      const cached = globalChatCache || (globalChatPrefetchedData ? { html: globalChatPrefetchedData.html || '', hasMore: globalChatPrefetchedData.hasMore || false, nextCursor: globalChatPrefetchedData.nextCursor || '', _raw: globalChatPrefetchedData } : null);
+
+      if (cached && cached._raw) {
+        gcCursor = cached.nextCursor || '';
+        gcHasMore = cached.hasMore || false;
+        gcViewingOlder = false;
+        if (typeof processGlobalChatData === 'function') {
+          processGlobalChatData(cached._raw, false);
+        }
+      } else {
+        chatBox.innerHTML = '';
+      }
 
       removePaginationBtn();
       renderSidebarUsers();
@@ -2522,15 +2666,11 @@
       loadGlobalChat();
       if (isMobileViewport()) {
         sidebar.classList.remove('open');
-        const backdrop = document.getElementById('sidebarBackdrop');
-        if (backdrop) backdrop.classList.remove('visible');
-        burgerButton.style.display = 'none';
-        backButton.style.display = 'inline-flex';
+        if (backButton) backButton.style.display = 'inline-flex';
       } else {
         // Desktop only: auto-focus the message input so the cursor is ready
-        // without an extra click. Skipped on mobile so opening a conversation
-        // doesn't immediately pop the on-screen keyboard over half the chat.
-        setTimeout(() => messageInput.focus(), 0);
+        // without an extra click. preventScroll prevents the browser from shifting scrollable parents.
+        setTimeout(() => messageInput.focus({ preventScroll: true }), 0);
       }
     }
 
@@ -2543,13 +2683,20 @@
 
     function showNoMoreOlderNotice() {
       removePaginationBtn();
+      if (document.getElementById('noMoreOlderNotice')) return; // already showing
       const notice = document.createElement('div');
       notice.id = 'noMoreOlderNotice';
       notice.style.cssText = `
-        display:block;text-align:center;width:calc(100% - 32px);margin:10px 16px;
-        padding:8px 16px;color:var(--text-secondary);font-size:12.5px;font-weight:500;
+        display:flex;align-items:center;justify-content:center;gap:8px;
+        text-align:center;width:calc(100% - 32px);margin:10px 16px;
+        padding:8px 16px;color:var(--text-secondary);font-size:12px;font-weight:500;
+        opacity:0.7;
       `;
-      notice.textContent = 'No older messages';
+      // Thin horizontal rule on each side of the label — Messenger/Discord style
+      notice.innerHTML =
+        '<span style="flex:1;height:1px;background:var(--border-color,rgba(0,0,0,0.1));display:block;"></span>' +
+        '<span>Beginning of conversation</span>' +
+        '<span style="flex:1;height:1px;background:var(--border-color,rgba(0,0,0,0.1));display:block;"></span>';
       chatBox.insertBefore(notice, chatBox.firstChild);
     }
 
@@ -2674,6 +2821,64 @@
     function unobserveImagesIn(el) {
       if (typeof scrollAnchorObserver === 'undefined' || !scrollAnchorObserver || !el || !el.querySelectorAll) return;
       el.querySelectorAll('img').forEach(img => scrollAnchorObserver.unobserve(img));
+    }
+
+    // ── Messenger-Style Scroll Anchor Lock ────────────────────────────────────
+    // Captures the current topmost visible message node and its relative offset
+    // inside #chat-box before inserting older history.
+    function captureScrollAnchor() {
+      if (!chatBox) return null;
+      const boxRect = chatBox.getBoundingClientRect();
+      const messages = Array.from(chatBox.querySelectorAll('.message-container'));
+      if (messages.length === 0) return null;
+
+      let anchorEl = null;
+      for (let i = 0; i < messages.length; i++) {
+        const rect = messages[i].getBoundingClientRect();
+        if (rect.bottom >= boxRect.top + 5) {
+          anchorEl = messages[i];
+          break;
+        }
+      }
+      if (!anchorEl) anchorEl = messages[0];
+
+      const anchorTop = anchorEl.getBoundingClientRect().top - boxRect.top;
+      return { el: anchorEl, offsetTop: anchorTop };
+    }
+
+    // Restores scroll position so anchorEl remains at the exact pixel offset,
+    // and attaches image load listeners to prepended media to compensate for
+    // layout shifts as images load.
+    function restoreScrollAnchor(anchorInfo, prependedItems) {
+      if (!chatBox || !anchorInfo || !anchorInfo.el || !anchorInfo.el.parentNode) return;
+
+      const boxRect = chatBox.getBoundingClientRect();
+      const currentTop = anchorInfo.el.getBoundingClientRect().top - boxRect.top;
+      const shift = currentTop - anchorInfo.offsetTop;
+      if (Math.abs(shift) > 0.5) {
+        chatBox.scrollTop += shift;
+      }
+
+      if (prependedItems && prependedItems.length > 0) {
+        prependedItems.forEach(item => {
+          if (!item.querySelectorAll) return;
+          item.querySelectorAll('img').forEach(img => {
+            if (!img.complete && !img.dataset.anchorBound) {
+              img.dataset.anchorBound = '1';
+              img.addEventListener('load', function() {
+                if (anchorInfo.el && anchorInfo.el.parentNode) {
+                  const curBoxRect = chatBox.getBoundingClientRect();
+                  const nowTop = anchorInfo.el.getBoundingClientRect().top - curBoxRect.top;
+                  const imgShift = nowTop - anchorInfo.offsetTop;
+                  if (Math.abs(imgShift) > 0.5) {
+                    chatBox.scrollTop += imgShift;
+                  }
+                }
+              }, { once: true });
+            }
+          });
+        });
+      }
     }
 
     // Keeps the chat window capped at maxCount messages by trimming the
@@ -2886,7 +3091,7 @@
       mentionModal.setAttribute('aria-hidden', 'true');
       mentionTriggerPos = null;
       if (mentionSearchTimer) { clearTimeout(mentionSearchTimer); mentionSearchTimer = null; }
-      messageInput.focus();
+      messageInput.focus({ preventScroll: true });
     };
 
     function renderMentionResultState(state, usersData) {
@@ -3296,7 +3501,10 @@
           const nameDisplay = c.name1 + ' ↔ ' + c.name2;
           if (nameEl.textContent !== nameDisplay) nameEl.textContent = nameDisplay;
 
-          const newMsg = (c.msgCount || 1) + ' msg' + (c.msgCount !== 1 ? 's' : '') + (c.lastMessage ? ' · ' + c.lastMessage : '');
+          const count = c.msgCount || 1;
+          const newMsg = (count > 99)
+            ? '99+ messages'
+            : (count + ' msg' + (count !== 1 ? 's' : '') + (c.lastMessage ? ' · ' + c.lastMessage : ''));
           if (msgEl.textContent !== newMsg) msgEl.textContent = newMsg;
 
           list.appendChild(item);
@@ -3396,7 +3604,9 @@
           userScrolledUp = true;
           adminConvCursor = data.nextCursor || '';
           adminConvViewingOlder = true;
-          const prev = chatBox.scrollHeight;
+
+          const anchor = captureScrollAnchor();
+
           const temp = document.createElement('div');
           temp.innerHTML = newHtml;
           const oldItems = Array.from(temp.querySelectorAll('.message-container, .empty-chat'));
@@ -3410,8 +3620,10 @@
             if (btn) chatBox.insertBefore(el, btn.nextSibling);
             else chatBox.insertBefore(el, firstChild);
           });
-          chatBox.scrollTop += chatBox.scrollHeight - prev;
+
           trimWindowFromBottom(MAX_WINDOW);
+          restoreScrollAnchor(anchor, oldItems);
+
           if (!adminConvHasMore) showNoMoreOlderNotice(); else if (!document.getElementById('loadOlderBtn')) insertLoadOlderBtn();
           applyAdminBadges();
           applyEmojiOnly();
@@ -3437,34 +3649,55 @@
         syncReactionsFromNewHtml(newMessages);
 
         if (rec.type === 'nochange') {
-          if (isFirstLoad) { isFirstLoad = false; handleFirstLoadScroll(); }
+          if (isFirstLoad) {
+            isFirstLoad = false;
+            handleFirstLoadScroll();
+          } else if (wasAtBottom && shouldAutoScroll) {
+            scrollToBottom(true, true);
+          }
           if (adminConvHasMore && !document.getElementById('loadOlderBtn') && !document.getElementById('noMoreOlderNotice')) insertLoadOlderBtn();
+          applyEmojiOnly();
           return;
         }
 
         if (rec.type === 'append') {
+          // Snapshot scroll state BEFORE DOM mutation so the delta is real.
+          // Same ordering bug as GC/DM: capturing after appendChild made the
+          // compensation delta always zero, so the view jumped during backread.
+          const prevScrollTop    = chatBox.scrollTop;
+          const prevScrollHeight = chatBox.scrollHeight;
           rec.items.forEach(el => {
             if (el.classList.contains('message-container')) {
               const msgId = el.getAttribute('data-msg-id');
               if (msgId && chatBox.querySelector(`.message-container[data-msg-id="${msgId}"]`)) {
                 return;
               }
-              const animClass = el.classList.contains('sent') ? 'msg-animate-sent' : 'msg-animate-received';
-              el.classList.add(animClass);
-              el.addEventListener('animationend', () => el.classList.remove(animClass), { once: true });
+              if (chatFullyLoaded && !isFirstLoad) {
+                const animClass = el.classList.contains('sent') ? 'msg-animate-sent' : 'msg-animate-received';
+                el.classList.add(animClass);
+                el.addEventListener('animationend', () => el.classList.remove(animClass), { once: true });
+              }
             }
             chatBox.appendChild(el);
           });
-          const prevScrollTop = chatBox.scrollTop;
-          const prevScrollHeight = chatBox.scrollHeight;
-          const newScrollHeight = chatBox.scrollHeight;
-          chatBox.scrollTop = Math.max(0, prevScrollTop + newScrollHeight - prevScrollHeight);
-          if (!adminConvViewingOlder) {
-            if (trimWindowFromTop(MAX_WINDOW)) refreshCursorAfterTopTrim();
+          // Pin the user's reading position during backread.
+          if (adminConvViewingOlder) {
+            const scrollDiff = chatBox.scrollHeight - prevScrollHeight;
+            if (scrollDiff > 0) chatBox.scrollTop = prevScrollTop + scrollDiff;
           }
-          if (isFirstLoad) { isFirstLoad = false; handleFirstLoadScroll(); }
-          else if (!adminConvViewingOlder && wasAtBottom) requestAnimationFrame(() => requestAnimationFrame(() => scrollToBottom(true, false)));
-          else showScrollIndicator(rec.items.filter(el => el.classList.contains('message-container')).length);
+          if (!adminConvViewingOlder) {
+            if (isFirstLoad) {
+              isFirstLoad = false;
+              handleFirstLoadScroll();
+            } else if (wasAtBottom || !userScrolledUp) {
+              scrollToBottom(true, true);
+            } else if (userScrolledUp) {
+              const newlyAppendedCount = rec.items.filter(el => el.classList.contains('message-container')).length;
+              if (newlyAppendedCount > 0) {
+                showScrollIndicator(newlyAppendedCount);
+              }
+            }
+          }
           applyAdminBadges();
           applyEmojiOnly();
           attachImageLoadListeners();
@@ -3478,7 +3711,7 @@
         const genuinelyNewCountF = newMessages.filter(el =>
           el.classList.contains('message-container') && !curKeySetF.has(getMessageKey(el))
         ).length;
-        currentMessages.forEach(el => el.remove());
+        chatBox.querySelectorAll('.message-container, .seen-indicator, .empty-chat, #loadOlderBtn, #noMoreOlderNotice').forEach(el => el.remove());
 
         // Deduplicate newMessages during full re-render
         const renderedIdsF = new Set();
@@ -3493,16 +3726,18 @@
           chatBox.appendChild(el);
         });
 
-        chatBox.scrollTop = Math.max(0, prevSTF + chatBox.scrollHeight - prevSHF);
-        const mc = chatBox.querySelectorAll('.message-container').length;
-        if (mc > 0 && !adminConvViewingOlder && (wasAtBottom || isFirstLoad)) {
-          const doInstant = isFirstLoad;
+        if (isFirstLoad) {
           isFirstLoad = false;
-          if (doInstant) handleFirstLoadScroll();
-          else requestAnimationFrame(() => requestAnimationFrame(() => scrollToBottom(true, false)));
-        } else {
-          isFirstLoad = false;
-          if (genuinelyNewCountF > 0) showScrollIndicator(genuinelyNewCountF);
+          handleFirstLoadScroll();
+        } else if (!adminConvViewingOlder) {
+          if (wasAtBottom || !userScrolledUp) {
+            scrollToBottom(true, true);
+          } else {
+            chatBox.scrollTop = Math.max(0, prevSTF + chatBox.scrollHeight - prevSHF);
+            if (userScrolledUp && genuinelyNewCountF > 0) {
+              showScrollIndicator(genuinelyNewCountF);
+            }
+          }
         }
         applyAdminBadges();
         applyEmojiOnly();
@@ -3516,6 +3751,18 @@
     }
 
     function openAdminConv(c) {
+      if (!c) return;
+      if (activeAdminConv === c.convId) {
+        if (isMobileViewport()) {
+          sidebar.classList.remove('open');
+          if (backButton) backButton.style.display = 'inline-flex';
+        }
+        return;
+      }
+
+      if (typeof cancelActiveScrollAnimation === 'function') cancelActiveScrollAnimation();
+      if (typeof clearFirstLoadScrollTimers === 'function') clearFirstLoadScrollTimers();
+
       activeAdminConv = c.convId;
       activeDM = null;
       activeDMAccountId = null;
@@ -3529,6 +3776,7 @@
       adminConvViewingOlder = false;
       clearSendingOverlay(); // drop any pending-send bubbles from the previous conversation
       hideEditBanner();
+      if (typeof hideReplyBanner === 'function') hideReplyBanner();
       isFirstLoad = true;
 
       // Reset local typing indicator state
@@ -3561,10 +3809,7 @@
 
       if (isMobileViewport()) {
         sidebar.classList.remove('open');
-        const backdrop = document.getElementById('sidebarBackdrop');
-        if (backdrop) backdrop.classList.remove('visible');
-        burgerButton.style.display = 'none';
-        backButton.style.display = 'inline-flex';
+        if (backButton) backButton.style.display = 'inline-flex';
       }
     }
     
@@ -3614,6 +3859,8 @@
       }
       
       updateClearChatButtonVisibility();
+      hideEditBanner();
+      if (typeof hideReplyBanner === 'function') hideReplyBanner();
       
       // Reset local typing indicator state
       if (localTypingTimeout) {
@@ -3647,17 +3894,14 @@
         applyHeaderAdminBadge();
       }
 
-      // Mobile/Tablet sidebar adjustments
+      // Mobile/Tablet sidebar adjustments: return to frontpage
       if (isMobileViewport()) {
         if (sidebar) sidebar.classList.add('open');
-        const backdrop = document.getElementById('sidebarBackdrop');
-        if (backdrop) backdrop.classList.add('visible');
         if (backButton) backButton.style.display = 'none';
-        if (burgerButton) burgerButton.style.display = 'inline-flex';
       }
 
       if (chatBox) {
-        chatBox.innerHTML = '<div class="empty-chat"><p>Camarines Sur Polytechnic Colleges</p></div>';
+        chatBox.innerHTML = '<div class="empty-chat"></div>';
       }
       const gcItem = document.getElementById('globalChatItem');
       if (gcItem) gcItem.classList.remove('active');

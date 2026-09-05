@@ -5,13 +5,17 @@
 // GET params:
 //   before_uuid (string, optional) — msg_uuid of the oldest message already shown;
 //                                     omit to load the latest messages.
-//   limit       (int, optional)    — messages per page, default 50, max 50.
+//   limit       (int, optional)    — messages per page, default 50, max 100.
 //
 // Returns JSON:
 //   { html: string, hasMore: bool, nextCursor: string|null }
 //
 // Uses KEYSET (cursor) pagination — no OFFSET, no COUNT(*).  The DB returns
 // rows newest-first; array_reverse() re-orders for display.
+//
+// History is UNLIMITED — pruneOldest() has been removed. The client drives
+// infinite scroll by sending ?before_uuid= on each scroll-up fetch until the
+// server returns hasMore=false ("Beginning of conversation").
 // =============================================================================
 
 require_once __DIR__ . '/bootstrap.php';
@@ -159,12 +163,16 @@ function gcInitials(string $name): string
 // ── Render messages ──────────────────────────────────────────────────────────
 $html = '';
 
-foreach ($rawMessages as $msg) {
+$msgCount = count($rawMessages);
+for ($i = 0; $i < $msgCount; $i++) {
+    $msg = $rawMessages[$i];
     if (!isset($msg['sender_id'], $msg['timestamp'])) {
         continue;
     }
 
     $senderId   = (int) $msg['sender_id'];
+    $nextMsg    = $rawMessages[$i + 1] ?? null;
+    $isLastInGroup = ($nextMsg === null || !isset($nextMsg['sender_id']) || (int)$nextMsg['sender_id'] !== $senderId);
     $msgId      = htmlspecialchars($msg['id'] ?? '', ENT_QUOTES);
     $isSent     = ($senderId === $myAccountId);
     $msgClass   = $isSent ? 'sent' : 'received';

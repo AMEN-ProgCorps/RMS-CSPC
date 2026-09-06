@@ -136,7 +136,7 @@ class DrrOcrService
         $imagePath = Storage::disk('local')->path('temp/drr-ocr/' . uniqid('page_', true) . '.jpg');
 
         try {
-            PdfPageRenderer::savePage($pdfPath, $imagePath, $page, 200);
+            PdfPageRenderer::savePage($pdfPath, $imagePath, $page, 220);
 
             return self::ocrImageFile($imagePath, $page);
         } catch (\Throwable $e) {

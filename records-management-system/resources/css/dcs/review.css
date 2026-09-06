@@ -889,9 +889,10 @@ body {
 }
 
 .drr-page-wrap.is-rewrite {
-    outline: 3px solid rgba(234, 88, 12, 0.9);
-    outline-offset: -3px;
-    background: #fff7ed;
+    outline: 2px solid rgba(234, 88, 12, 0.55);
+    outline-offset: -2px;
+    /* Keep page readable — word highlights carry the diff, not a heavy wash. */
+    background: transparent;
 }
 
 .drr-page-caption.is-rewrite {

@@ -42,7 +42,12 @@ async function runReviewCompare() {
     root.dataset.cacheKey = cacheKey;
 
     // Already comparing this pair — do not restart (Livewire commits caused OCR loops).
-    if (root.__drrRunning && root.dataset.cacheKey === cacheKey) {
+    if (root.__drrRunning && root.dataset.activeCompareKey === cacheKey) {
+        return;
+    }
+
+    // Hard OCR/compare failure for this pair — do not spin forever on Livewire commits.
+    if (root.dataset.compareFailed === cacheKey) {
         return;
     }
 
@@ -51,9 +56,16 @@ async function runReviewCompare() {
         return;
     }
 
+    root.dataset.activeCompareKey = cacheKey;
+    delete root.dataset.compareFailed;
+
     await runPdfCompare(root, { leftUrl, rightUrl, cacheKey });
     if (hasCompareContent(root)) {
         root.dataset.cacheRestored = cacheKey;
+        delete root.dataset.compareFailed;
+    } else if (root.dataset.compareFailed !== cacheKey) {
+        // Soft fail without explicit flag — still avoid immediate relaunch loops.
+        root.dataset.compareFailed = cacheKey;
     }
 }
 

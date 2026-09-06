@@ -76,6 +76,17 @@ fi
 # Artisan/migrate run as root and may create storage files the FPM pool cannot write.
 chmod -R 777 storage bootstrap/cache public/chatify/uploads public/chatify/storage
 
+# PaddleOCR model cache must be writable by PHP-FPM (appuser).
+mkdir -p /opt/paddleocr
+if [ -d /root/.paddleocr ] && [ ! -e /opt/paddleocr/.paddleocr ]; then
+    cp -a /root/.paddleocr /opt/paddleocr/.paddleocr || true
+fi
+if id appuser >/dev/null 2>&1; then
+    chown -R appuser:appuser /opt/paddleocr 2>/dev/null || chmod -R a+rwX /opt/paddleocr || true
+else
+    chmod -R a+rwX /opt/paddleocr || true
+fi
+
 echo "[5/5] Starting services via Supervisor..."
 echo "──────────────────────────────────────────"
 

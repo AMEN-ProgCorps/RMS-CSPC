@@ -37,11 +37,25 @@ def stdout_to_stderr():
 
 
 def ensure_model_home() -> None:
-    """Use shared model cache (Docker: /opt/paddleocr) so appuser does not re-download."""
-    model_home = os.environ.get("PADDLEOCR_HOME") or os.environ.get("PADDLE_HOME")
-    if model_home:
-        Path(model_home).mkdir(parents=True, exist_ok=True)
-        os.environ["HOME"] = model_home
+    """Use a writable model cache so PHP-FPM (appuser) does not fail on /opt."""
+    candidates = []
+    env_home = os.environ.get("PADDLEOCR_HOME") or os.environ.get("PADDLE_HOME")
+    if env_home:
+        candidates.append(env_home)
+    candidates.extend(["/opt/paddleocr", "/tmp/paddleocr"])
+
+    for model_home in candidates:
+        try:
+            path = Path(model_home)
+            path.mkdir(parents=True, exist_ok=True)
+            probe = path / ".write_test"
+            probe.write_text("ok", encoding="utf-8")
+            probe.unlink(missing_ok=True)
+            os.environ["HOME"] = model_home
+            os.environ["PADDLEOCR_HOME"] = model_home
+            return
+        except OSError:
+            continue
 
 
 def load_image_size(path: str) -> tuple[int, int]:

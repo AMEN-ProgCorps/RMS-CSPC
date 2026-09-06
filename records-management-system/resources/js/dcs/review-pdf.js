@@ -14,6 +14,15 @@ function stableUrlForHash(url) {
     }
 }
 
+function hasCompareContent(root) {
+    return Boolean(
+        root.querySelector(
+            '[data-review-side="left"] canvas, [data-review-side="left"] img, '
+            + '[data-review-side="right"] canvas, [data-review-side="right"] img'
+        )
+    );
+}
+
 async function runReviewCompare() {
     const root = document.getElementById('drr-pdf-compare');
     if (!root) {
@@ -32,16 +41,18 @@ async function runReviewCompare() {
     );
     root.dataset.cacheKey = cacheKey;
 
-    // Same pair already on screen (e.g. Livewire re-render) — do not recompute.
-    if (
-        root.dataset.cacheRestored === cacheKey
-        && root.querySelector('[data-review-side="left"] canvas, [data-review-side="left"] img, [data-review-side="right"] canvas, [data-review-side="right"] img')
-    ) {
+    // Already comparing this pair — do not restart (Livewire commits caused OCR loops).
+    if (root.__drrRunning && root.dataset.cacheKey === cacheKey) {
+        return;
+    }
+
+    // Same pair already on screen — do not recompute.
+    if (root.dataset.cacheRestored === cacheKey && hasCompareContent(root)) {
         return;
     }
 
     await runPdfCompare(root, { leftUrl, rightUrl, cacheKey });
-    if (root.querySelector('[data-review-side] canvas, [data-review-side] img')) {
+    if (hasCompareContent(root)) {
         root.dataset.cacheRestored = cacheKey;
     }
 }
@@ -53,6 +64,8 @@ function scheduleCompare() {
             console.error('DRR compare failed to start', err);
             const root = document.getElementById('drr-pdf-compare');
             if (!root) return;
+            // Don't clobber an in-progress or finished compare with a start error.
+            if (root.__drrRunning || hasCompareContent(root)) return;
             let host = root.parentElement?.querySelector('[data-review-status-host="1"]');
             if (!host) {
                 host = document.createElement('div');
@@ -66,7 +79,7 @@ function scheduleCompare() {
                 + '</div>';
             host.style.display = '';
         });
-    }, 50);
+    }, 80);
 }
 
 document.addEventListener('DOMContentLoaded', scheduleCompare);

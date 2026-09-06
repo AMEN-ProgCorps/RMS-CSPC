@@ -270,13 +270,25 @@ Route::middleware(['auth'])
 
         $userId = $user->id;
 
-        // 1. Chatify unread count
+        // 1. Chatify unread count (directly based on active conversations in Chatify)
         $chatUnread = 0;
         try {
-            $totalUnread = \Illuminate\Support\Facades\DB::table('view_user_unread_chats')
-                ->where('account_id', $userId)
-                ->value('total_unread');
-            $chatUnread = (int) ($totalUnread ?? 0);
+            if (\Illuminate\Support\Facades\Schema::hasTable('chat_conversations')) {
+                $totalUnread = \Illuminate\Support\Facades\DB::table('chat_conversations')
+                    ->where('is_active', true)
+                    ->where(function ($q) use ($userId) {
+                        $q->where('user_1', $userId)
+                          ->orWhere('user_2', $userId);
+                    })
+                    ->selectRaw('COALESCE(SUM(CASE WHEN user_1 = ? THEN unread_user_1 ELSE unread_user_2 END), 0) AS total', [$userId])
+                    ->value('total');
+                $chatUnread = (int) ($totalUnread ?? 0);
+            } else {
+                $totalUnread = \Illuminate\Support\Facades\DB::table('view_user_unread_chats')
+                    ->where('account_id', $userId)
+                    ->value('total_unread');
+                $chatUnread = (int) ($totalUnread ?? 0);
+            }
         } catch (\Throwable $e) {
             $chatUnread = 0;
         }

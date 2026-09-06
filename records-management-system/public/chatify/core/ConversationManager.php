@@ -152,6 +152,7 @@ class ConversationManager
         SelfHealCache::once('message_status_column', function () use ($pdo) {
             try {
                 $pdo->exec("ALTER TABLE chat_messages ADD COLUMN IF NOT EXISTS status VARCHAR(10) NOT NULL DEFAULT 'active'");
+                $pdo->exec("ALTER TABLE chat_messages ADD COLUMN IF NOT EXISTS edit_count INT NOT NULL DEFAULT 0");
                 $pdo->exec("CREATE INDEX IF NOT EXISTS idx_chat_messages_status ON chat_messages (conv_id, status)");
             } catch (Throwable $t) {
                 error_log('ConversationManager::ensureMessageStatusColumn() — ' . $t->getMessage());
@@ -216,6 +217,7 @@ class ConversationManager
                             m.message,
                             m.msg_type AS type,
                             m.is_edited,
+                            m.edit_count,
                             m.reply_to_msg_uuid,
                             r.message AS reply_message,
                             r.msg_type AS reply_msg_type,
@@ -247,6 +249,7 @@ class ConversationManager
                             m.message,
                             m.msg_type AS type,
                             m.is_edited,
+                            m.edit_count,
                             m.reply_to_msg_uuid,
                             r.message AS reply_message,
                             r.msg_type AS reply_msg_type,
@@ -302,6 +305,7 @@ class ConversationManager
                         m.message,
                         m.msg_type AS type,
                         m.is_edited,
+                        m.edit_count,
                         to_char(m.created_at AT TIME ZONE \'Asia/Manila\', \'YYYY-MM-DD HH24:MI:SS.US\') AS timestamp
                  FROM chat_messages m
                  WHERE m.conv_id = :conv_id
@@ -325,20 +329,70 @@ class ConversationManager
 
     /**
      * Edit a message's text content.
+     * Enforces that only the sender can edit, only active text messages can be edited,
+     * message cannot be edited after 2 minutes, and message can be edited at most 3 times.
      * Also updates chat_conversations if the edited message is the latest.
      */
-    public static function editMessage(string $msgUuid, int $senderId, string $newContent): bool
+    public static function editMessage(string $msgUuid, int $senderId, string $newContent): array
     {
         $encrypted = encryptMessage($newContent);
         if ($encrypted === false) {
-            return false;
+            return ['success' => false, 'error' => 'Encryption failed.', 'status_code' => 500];
         }
 
         try {
             $pdo = Database::getConnection();
+
+            // Fetch message metadata to validate permissions, type, status, edit window, and edit count
+            $chk = $pdo->prepare(
+                'SELECT msg_uuid, sender_id, msg_type, status, edit_count,
+                        EXTRACT(EPOCH FROM (NOW() - created_at)) AS age_seconds
+                 FROM chat_messages
+                 WHERE msg_uuid = :uuid
+                 LIMIT 1'
+            );
+            $chk->execute([':uuid' => $msgUuid]);
+            $row = $chk->fetch();
+
+            if (!$row) {
+                return ['success' => false, 'error' => 'Message not found.', 'status_code' => 404];
+            }
+
+            if ((int)$row['sender_id'] !== $senderId) {
+                return ['success' => false, 'error' => 'You are not authorized to edit this message.', 'status_code' => 403];
+            }
+
+            if ($row['status'] !== 'active') {
+                return ['success' => false, 'error' => 'This message has been removed.', 'status_code' => 400];
+            }
+
+            if ($row['msg_type'] !== 'text') {
+                return ['success' => false, 'error' => 'Only text messages can be edited.', 'status_code' => 400];
+            }
+
+            // Enforce edit count limit (maximum 3 edits)
+            $editCount = (int)($row['edit_count'] ?? 0);
+            if ($editCount >= 3) {
+                return [
+                    'success'     => false,
+                    'error'       => 'Messages can only be edited up to 3 times.',
+                    'status_code' => 403
+                ];
+            }
+
+            // Enforce 2-minute window (120 seconds)
+            $ageSeconds = (float)($row['age_seconds'] ?? 0);
+            if ($ageSeconds > 120) {
+                return [
+                    'success'     => false,
+                    'error'       => 'Messages cannot be edited after 2 minutes.',
+                    'status_code' => 403
+                ];
+            }
+
             $stmt = $pdo->prepare(
                 'UPDATE chat_messages
-                 SET message = :message, is_edited = true, updated_at = NOW()
+                 SET message = :message, is_edited = true, edit_count = edit_count + 1, updated_at = NOW()
                  WHERE msg_uuid = :uuid AND sender_id = :sender_id'
             );
             $stmt->execute([
@@ -350,9 +404,9 @@ class ConversationManager
             // Update chat_conversations if this edited message is the latest message
             try {
                 self::ensureConversationsTable($pdo);
-                $chk = $pdo->prepare('SELECT conv_id FROM chat_messages WHERE msg_uuid = :uuid LIMIT 1');
-                $chk->execute([':uuid' => $msgUuid]);
-                $convRow = $chk->fetch();
+                $cChk = $pdo->prepare('SELECT conv_id FROM chat_messages WHERE msg_uuid = :uuid LIMIT 1');
+                $cChk->execute([':uuid' => $msgUuid]);
+                $convRow = $cChk->fetch();
                 if ($convRow) {
                     $convId = $convRow['conv_id'];
                     $pdo->prepare(
@@ -367,10 +421,10 @@ class ConversationManager
                 }
             } catch (Throwable $t) {}
 
-            return $stmt->rowCount() > 0;
+            return ['success' => true, 'edit_count' => $editCount + 1];
         } catch (PDOException $e) {
             error_log('ConversationManager::editMessage() — ' . $e->getMessage());
-            return false;
+            return ['success' => false, 'error' => 'Database error occurred.', 'status_code' => 500];
         }
     }
 

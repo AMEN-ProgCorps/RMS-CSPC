@@ -27,18 +27,21 @@ if ($msgUuid === '' || $message === '') {
     die(json_encode(['error' => 'Missing message ID or message text.']));
 }
 
-$success = ConversationManager::editMessage($msgUuid, $senderId, $message);
+$result = ConversationManager::editMessage($msgUuid, $senderId, $message);
 
 header('Content-Type: application/json');
 
-if ($success) {
-    echo json_encode(['success' => true]);
+if (!empty($result['success'])) {
+    echo json_encode([
+        'success'    => true,
+        'edit_count' => $result['edit_count'] ?? 1
+    ]);
     // ── Audit log (fire-and-forget) ───────────────────────────────────────────
     ChatAuditLogger::log($senderId, 'edit_message', $msgUuid);
 } else {
-    http_response_code(500);
+    http_response_code($result['status_code'] ?? 400);
     echo json_encode([
         'success' => false,
-        'error'   => 'Failed to update message. Ensure you are the sender.'
+        'error'   => $result['error'] ?? 'Failed to update message.'
     ]);
 }

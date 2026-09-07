@@ -105,6 +105,77 @@ body {
     border-color: var(--rb-accent-hover);
 }
 
+.rb-tabs {
+    display: inline-flex;
+    gap: 6px;
+    padding: 4px;
+    margin-bottom: 16px;
+    border-radius: 12px;
+    background: var(--rb-surface);
+    border: 1px solid var(--rb-border);
+    box-shadow: var(--rb-shadow);
+}
+
+.rb-tab {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 14px;
+    border: none;
+    border-radius: 9px;
+    background: transparent;
+    color: var(--rb-text-muted);
+    font-size: 0.82rem;
+    font-weight: 650;
+    cursor: pointer;
+    transition: all 0.15s ease;
+}
+
+.rb-tab:hover {
+    color: var(--rb-text);
+    background: var(--rb-surface-hover);
+}
+
+.rb-tab.is-active {
+    background: var(--rb-accent);
+    color: #fff;
+}
+
+.rb-tab-count {
+    display: inline-flex;
+    min-width: 1.4rem;
+    justify-content: center;
+    padding: 1px 7px;
+    border-radius: 999px;
+    font-size: 0.72rem;
+    font-weight: 700;
+    background: rgba(0, 0, 0, 0.08);
+}
+
+.rb-tab.is-active .rb-tab-count {
+    background: rgba(255, 255, 255, 0.22);
+}
+
+.rb-flash {
+    margin-bottom: 14px;
+    padding: 10px 14px;
+    border-radius: 10px;
+    font-size: 0.86rem;
+    font-weight: 600;
+}
+
+.rb-flash.is-success {
+    background: var(--rb-green-bg);
+    color: var(--rb-green);
+    border: 1px solid color-mix(in srgb, var(--rb-green) 25%, transparent);
+}
+
+.rb-flash.is-error {
+    background: #fef2f2;
+    color: #b91c1c;
+    border: 1px solid #fecaca;
+}
+
 .rb-callout {
     display: flex;
     gap: 14px;
@@ -546,6 +617,59 @@ body {
 
 .rb-modal-danger:hover {
     filter: brightness(1.08);
+}
+
+.rb-modal-wide {
+    max-width: 460px;
+}
+
+.rb-confirm-fields {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    margin: 4px 0 12px;
+    text-align: left;
+}
+
+.rb-confirm-label {
+    font-size: 0.78rem;
+    font-weight: 650;
+    color: var(--rb-text);
+    margin-top: 6px;
+}
+
+.rb-confirm-input {
+    height: 40px;
+    border-radius: 10px;
+    border: 1.5px solid var(--rb-border);
+    background: var(--rb-surface);
+    color: var(--rb-text);
+    padding: 0 12px;
+    font-size: 0.86rem;
+}
+
+.rb-confirm-input:focus {
+    outline: none;
+    border-color: var(--rb-red);
+    box-shadow: 0 0 0 3px rgba(220, 38, 38, 0.12);
+}
+
+.rb-confirm-hint {
+    margin: 0 0 4px;
+    font-size: 0.74rem;
+    color: var(--rb-text-muted);
+}
+
+.rb-confirm-error {
+    margin: 0 0 12px;
+    padding: 10px 12px;
+    border-radius: 10px;
+    background: var(--rb-red-bg);
+    border: 1px solid var(--dcs-red-border);
+    color: var(--rb-red);
+    font-size: 0.8rem;
+    font-weight: 600;
+    text-align: left;
 }
 
 @media (max-width: 900px) {

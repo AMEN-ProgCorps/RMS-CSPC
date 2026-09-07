@@ -25,8 +25,13 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
 
     <form id="masterForm" enctype="multipart/form-data" method="POST" action="{{ route('dcs.register.store') }}" autocomplete="off">
         @csrf
-        <input type="hidden" id="registrationMode" name="registration_mode" value="new">
+        <input type="hidden" id="registrationMode" name="registration_mode" value="{{ request()->query('type') === 'revised' ? 'revised' : 'new' }}">
         <input type="hidden" id="revisedFromDocNo" name="revised_from_doc_no" value="">
+
+        @php
+            $urlVersionType = request()->query('type');
+            $quickActionVersion = in_array($urlVersionType, ['new', 'revised'], true);
+        @endphp
 
         <!-- ═══ TOP SELECTION PANEL ═══ -->
         <section class="reg-panel">
@@ -34,12 +39,13 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                 <div class="reg-field">
                     <label>Version Type</label>
                     <select id="versionType" name="version_id" autocomplete="off">
-                        <option value="" selected disabled>Select version</option>
+                        <option value="" {{ $quickActionVersion ? '' : 'selected' }} disabled>Select version</option>
                     </select>
                 </div>
                 <div class="reg-field">
                     <label>Document Type</label>
-                    <select id="docType" name="doc_type_id" disabled autocomplete="off">
+                    {{-- Quick actions (?type=new|revised) render enabled so Livewire remorph cannot stick this disabled --}}
+                    <select id="docType" name="doc_type_id" @if(! $quickActionVersion) disabled @endif autocomplete="off">
                         <option value="" selected disabled>Select type</option>
                     </select>
                 </div>
@@ -1308,6 +1314,16 @@ document.addEventListener("DOMContentLoaded", async function () {
             if (modeEl) modeEl.value = 'new';
         }
 
+        // Quick actions land with ?type= set — unlock Document Type right away so it
+        // isn't stuck disabled if later init work throws or Livewire remorphs the DOM.
+        if (versionSelect?.value) {
+            const earlyDocType = document.getElementById('docType');
+            if (earlyDocType) {
+                earlyDocType.disabled = false;
+                earlyDocType.removeAttribute('disabled');
+            }
+        }
+
         const docTypeSelect = document.getElementById("docType");
         docTypes.filter(d => !d.parent_id).forEach(d => {
             docTypeSelect.add(new Option(d.doc_type_name, d.doc_type_id));
@@ -1353,6 +1369,54 @@ document.addEventListener("DOMContentLoaded", async function () {
     } else {
         applyRevisionMode();
     }
+
+    // Livewire/Volt can restore server HTML after the first JS pass — Document Type
+    // enabled but checklist chips wiped. Re-apply version unlock + checklists.
+    const reassertUrlVersionUnlock = () => {
+        const urlType = new URLSearchParams(location.search).get('type');
+        if (urlType !== 'new' && urlType !== 'revised') return;
+
+        const vs = document.getElementById('versionType');
+        const dt = document.getElementById('docType');
+        if (!vs?.value || !dt) return;
+
+        if (dt.disabled) {
+            dt.disabled = false;
+            dt.removeAttribute('disabled');
+        }
+
+        const box = document.getElementById('dynamicCheckboxes');
+        const hasChecks = !!box?.querySelector('input[name="checklists[]"]');
+        if (hasChecks) return;
+
+        const savedDocType = dt.value;
+        const subTypeEl = document.getElementById('subType');
+        const savedSubType = subTypeEl?.value || '';
+
+        handleVersionChange();
+
+        if (savedDocType) {
+            dt.value = savedDocType;
+            dt.dataset.lastValid = savedDocType;
+            dt.disabled = false;
+            dt.removeAttribute('disabled');
+            handleDocTypeChange();
+            if (savedSubType && subTypeEl) {
+                subTypeEl.value = savedSubType;
+                subTypeEl.dataset.lastValid = savedSubType;
+                subTypeEl.disabled = false;
+                subTypeEl.removeAttribute('disabled');
+                validateChecklistState();
+            }
+        }
+    };
+    requestAnimationFrame(() => {
+        reassertUrlVersionUnlock();
+        setTimeout(reassertUrlVersionUnlock, 0);
+        setTimeout(reassertUrlVersionUnlock, 100);
+    });
+    document.addEventListener('livewire:initialized', reassertUrlVersionUnlock, { once: true });
+    document.addEventListener('livewire:navigated', reassertUrlVersionUnlock);
 
     // ── Auto-copy DRF title to Masterlist title ──
     const drfTitle = document.getElementById('drfTitle');
@@ -3606,6 +3670,19 @@ async function handleVersionChange() {
     const docTypeSelect = document.getElementById("docType");
     const subTypeSelect = document.getElementById("subType");
 
+    // Unlock Document Type immediately when a version is set. Must happen before
+    // the heavy form reset below — if anything throws (or Livewire rehydrates),
+    // quick-action loads (?type=new|revised) were leaving Document Type stuck disabled.
+    const hasVersion = String(versionId ?? "").trim() !== "";
+    if (docTypeSelect) {
+        docTypeSelect.disabled = !hasVersion;
+        if (hasVersion) {
+            docTypeSelect.removeAttribute("disabled");
+        } else {
+            docTypeSelect.setAttribute("disabled", "disabled");
+        }
+    }
+
     // Changing version invalidates the previous Document Type / form state.
     window.__isSyllabiMode = false;
     window.__syllabiModeLabel = 'Syllabi';
@@ -3680,19 +3757,23 @@ async function handleVersionChange() {
         hintEl.dataset.valid = '';
     }
 
-    docTypeSelect.value = "";
-    docTypeSelect.dataset.lastValid = "";
-    const hasVersion = String(versionId ?? "").trim() !== "";
-    docTypeSelect.disabled = !hasVersion;
-    if (hasVersion) {
-        docTypeSelect.removeAttribute("disabled");
-    } else {
-        docTypeSelect.setAttribute("disabled", "disabled");
+    if (docTypeSelect) {
+        docTypeSelect.value = "";
+        docTypeSelect.dataset.lastValid = "";
+        // Re-assert after resets (some paths may re-apply disabled).
+        docTypeSelect.disabled = !hasVersion;
+        if (hasVersion) {
+            docTypeSelect.removeAttribute("disabled");
+        } else {
+            docTypeSelect.setAttribute("disabled", "disabled");
+        }
     }
-    subTypeSelect.innerHTML = '<option value="" selected disabled>Select sub-type</option>';
-    subTypeSelect.disabled = true;
-    subTypeSelect.setAttribute("disabled", "disabled");
-    subTypeSelect.dataset.lastValid = "";
+    if (subTypeSelect) {
+        subTypeSelect.innerHTML = '<option value="" selected disabled>Select sub-type</option>';
+        subTypeSelect.disabled = true;
+        subTypeSelect.setAttribute("disabled", "disabled");
+        subTypeSelect.dataset.lastValid = "";
+    }
     disableApproval();
     clearValidation();
 
@@ -3720,6 +3801,13 @@ async function handleVersionChange() {
     } catch (err) {
         console.error("Failed to load checklists:", err);
         lockChecklist();
+    }
+
+    // Final unlock — Livewire/Volt hydration can restore server HTML (disabled)
+    // after the first pass when landing from dashboard quick actions.
+    if (docTypeSelect && hasVersion) {
+        docTypeSelect.disabled = false;
+        docTypeSelect.removeAttribute("disabled");
     }
 }
 
@@ -3798,7 +3886,7 @@ function handleDocTypeChange() {
     });
 
     ['drf', 'dcn', 'masterlist', 'masterlistOriginator'].forEach(key => {
-        if (window.__sourceWidgets[key]) window.__sourceWidgets[key].reset();
+        if (window.__sourceWidgets?.[key]) window.__sourceWidgets[key].reset();
     });
     ['drfSourceUnitSearch', 'dcnSourceUnitSearch', 'masterlistSourceSearch', 'masterlistOriginatorSearch'].forEach(id => {
         const el = document.getElementById(id);
@@ -3806,7 +3894,7 @@ function handleDocTypeChange() {
     });
 
     relatedDocsSelected = [];
-    renderRelatedDocsChips();
+    if (typeof renderRelatedDocsChips === 'function') renderRelatedDocsChips();
 
     ['retrievalBody', 'distBody'].forEach(tbodyId => {
         const tbody = document.getElementById(tbodyId);
@@ -3974,6 +4062,31 @@ function applySyllabiSectionLabel() {
 // ══════════════════════════════════════════════
 // CHECKLIST
 // ══════════════════════════════════════════════
+/** Re-render version checklists when the box was wiped (quick-action / Livewire remorph). */
+function ensureVersionChecklistsRendered() {
+    const container = document.getElementById("dynamicCheckboxes");
+    if (container?.querySelector('input[name="checklists[]"]')) {
+        return true;
+    }
+
+    const versionId = document.getElementById("versionType")?.value;
+    if (!String(versionId ?? "").trim()) {
+        return false;
+    }
+
+    const byVersion = (window.__registerCatalog && window.__registerCatalog.checklistsByVersion) || {};
+    let checklists = byVersion[String(versionId)] || [];
+    if (!checklists.length && window.__lastVersionChecklists?.length) {
+        checklists = window.__lastVersionChecklists;
+    }
+    if (!checklists.length) {
+        return false;
+    }
+
+    renderChecklists(checklists, true);
+    return !!container?.querySelector('input[name="checklists[]"]');
+}
+
 function renderChecklists(checklists, disabled) {
     const container = document.getElementById("dynamicCheckboxes");
     container.innerHTML = "";
@@ -4044,7 +4157,14 @@ function lockChecklist() {
 }
 
 function unlockChecklist() {
+    // Quick actions can leave #dynamicCheckboxes empty after Livewire remorph.
+    // Types without sub-types (Forms / External / Logbooks) call unlock immediately
+    // and would otherwise show only Cancel/Save with no DRF/Masterlist sections.
+    ensureVersionChecklistsRendered();
+
     const container = document.getElementById("dynamicCheckboxes");
+    if (!container) return;
+
     container.querySelectorAll("input[type='checkbox']").forEach(cb => {
         cb.disabled = false;
         cb.checked = true;

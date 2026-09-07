@@ -480,7 +480,7 @@ class RegisterPersistHelper
 
     public static function persist(Request $request): RedirectResponse
     {
-        RegisterQueryHelper::assertFullDcsUser();
+        RegisterQueryHelper::assertFullDcsUser('register');
         self::blankStringsToNull($request);
         $mode = $request->input('registration_mode', 'new');
 

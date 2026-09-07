@@ -96,6 +96,10 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
             'typeIds' => $typeIds,
             'headerDate' => now('Asia/Manila')->format('l, F j, Y'),
             'holidays' => $holidays,
+            'canDatabase' => RegisterQueryHelper::canAccessDcsModule('database'),
+            'canRegister' => RegisterQueryHelper::canAccessDcsModule('register'),
+            'canSettings' => RegisterQueryHelper::canAccessDcsModule('settings'),
+            'canStamping' => RegisterQueryHelper::canAccessDcsModule('stamping'),
         ];
     }
 }; ?>
@@ -154,15 +158,21 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
             <div class="dashboard-content-wrapper dashboard-content-wrapper--full">
                 <div class="main-column">
             <section class="dash-queue-bar">
-                <a href="{{ route('dcs.database.index', absolute: false) }}" class="dash-queue-chip">
-                    <span>Total</span><strong>{{ number_format((int) $stats['totalDocuments']) }}</strong>
-                </a>
-                <a href="{{ route('dcs.database.index', ['revision' => 'latest'], absolute: false) }}" class="dash-queue-chip is-latest">
-                    <span>Latest</span><strong>{{ number_format((int) $stats['latestCount']) }}</strong>
-                </a>
-                <a href="{{ route('dcs.database.index', ['revision' => 'obsolete'], absolute: false) }}" class="dash-queue-chip is-obsolete">
-                    <span>Obsolete</span><strong>{{ number_format((int) $stats['obsoleteCount']) }}</strong>
-                </a>
+                @if(!empty($canDatabase))
+                    <a href="{{ route('dcs.database.index', absolute: false) }}" class="dash-queue-chip">
+                        <span>Total</span><strong>{{ number_format((int) $stats['totalDocuments']) }}</strong>
+                    </a>
+                    <a href="{{ route('dcs.database.index', ['revision' => 'latest'], absolute: false) }}" class="dash-queue-chip is-latest">
+                        <span>Latest</span><strong>{{ number_format((int) $stats['latestCount']) }}</strong>
+                    </a>
+                    <a href="{{ route('dcs.database.index', ['revision' => 'obsolete'], absolute: false) }}" class="dash-queue-chip is-obsolete">
+                        <span>Obsolete</span><strong>{{ number_format((int) $stats['obsoleteCount']) }}</strong>
+                    </a>
+                @else
+                    <div class="dash-queue-chip"><span>Total</span><strong>{{ number_format((int) $stats['totalDocuments']) }}</strong></div>
+                    <div class="dash-queue-chip is-latest"><span>Latest</span><strong>{{ number_format((int) $stats['latestCount']) }}</strong></div>
+                    <div class="dash-queue-chip is-obsolete"><span>Obsolete</span><strong>{{ number_format((int) $stats['obsoleteCount']) }}</strong></div>
+                @endif
             </section>
 
             <section class="stats-row">
@@ -174,7 +184,11 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                     ['id' => 'logbooksCount', 'typeKey' => 'logbooks', 'label' => 'Logbooks', 'icon' => 'fa-book', 'accent' => 'green'],
                 ] as $box)
                     @php $count = (int) ($stats[$box['id']] ?? 0); @endphp
-                    <a href="{{ route('dcs.database.index', ['type' => $typeIds[$box['typeKey']] ?? null, 'revision' => 'latest'], absolute: false) }}" class="stat-box" @if($box['accent']) data-accent="{{ $box['accent'] }}" @endif>
+                    @if(!empty($canDatabase))
+                        <a href="{{ route('dcs.database.index', ['type' => $typeIds[$box['typeKey']] ?? null, 'revision' => 'latest'], absolute: false) }}" class="stat-box" @if($box['accent']) data-accent="{{ $box['accent'] }}" @endif>
+                    @else
+                        <div class="stat-box" @if($box['accent']) data-accent="{{ $box['accent'] }}" @endif>
+                    @endif
                         <div class="stat-icon-wrap"><i class="fa-solid {{ $box['icon'] }}"></i></div>
                         <div class="stat-body">
                             <p class="stat-label">{{ $box['label'] }}</p>
@@ -182,7 +196,11 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                                 <h3 class="stat-value">{{ number_format($count) }}</h3>
                             </div>
                         </div>
-                    </a>
+                    @if(!empty($canDatabase))
+                        </a>
+                    @else
+                        </div>
+                    @endif
                 @endforeach
             </section>
 
@@ -408,6 +426,7 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                 </template>
             </section>
 
+            @if(!empty($canRegister))
             <section class="actions-section">
                 <div class="section-header">
                     <h2>Quick Actions</h2>
@@ -440,6 +459,7 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                     </a>
                 </div>
             </section>
+            @endif
         </div>
             </div>
 

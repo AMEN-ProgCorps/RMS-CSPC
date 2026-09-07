@@ -3,9 +3,17 @@
 use App\Helpers\NetworkHelper;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schema;
 use Livewire\Volt\Component;
 
 new class extends Component {
+    public int $idleTimeoutMinutes = 15;
+
+    public function mount(): void
+    {
+        $this->idleTimeoutMinutes = $this->configuredIdleTimeoutMinutes();
+    }
+
     public function ping(): void
     {
         $user = Auth::user();
@@ -13,7 +21,7 @@ new class extends Component {
             return;
         }
 
-        $accDetailsTbl = \Illuminate\Support\Facades\Schema::hasTable('sys_account_details') ? 'sys_account_details' : 'account_details';
+        $accDetailsTbl = Schema::hasTable('sys_account_details') ? 'sys_account_details' : 'account_details';
         DB::table($accDetailsTbl)
             ->where('account_id', $user->id)
             ->update([
@@ -31,8 +39,8 @@ new class extends Component {
     {
         $user = Auth::user();
         if ($user) {
-            $secLogsTbl = \Illuminate\Support\Facades\Schema::hasTable('sys_security_logs') ? 'sys_security_logs' : 'security_logs';
-            $accDetailsTbl = \Illuminate\Support\Facades\Schema::hasTable('sys_account_details') ? 'sys_account_details' : 'account_details';
+            $secLogsTbl = Schema::hasTable('sys_security_logs') ? 'sys_security_logs' : 'security_logs';
+            $accDetailsTbl = Schema::hasTable('sys_account_details') ? 'sys_account_details' : 'account_details';
 
             DB::table($secLogsTbl)->insert([
                 'status' => 3,
@@ -55,6 +63,23 @@ new class extends Component {
 
         $this->redirect(route('login'));
     }
+
+    private function configuredIdleTimeoutMinutes(): int
+    {
+        $minutes = 15;
+        try {
+            $table = Schema::hasTable('sys_system_settings') ? 'sys_system_settings' : 'system_settings';
+            if (Schema::hasTable($table)) {
+                $settingVal = DB::table($table)->where('key', 'tab_close_idle_timeout_minutes')->value('value');
+                if ($settingVal !== null && is_numeric($settingVal) && (int) $settingVal > 0) {
+                    $minutes = (int) $settingVal;
+                }
+            }
+        } catch (\Throwable) {
+        }
+
+        return max(1, $minutes);
+    }
 };
 ?>
 
@@ -64,7 +89,7 @@ new class extends Component {
         last: Date.now(),
         warn: false,
         left: 60,
-        timeout: 15 * 60 * 1000,
+        timeout: {{ (int) $idleTimeoutMinutes }} * 60 * 1000,
         warning: 60 * 1000,
         tick() {
             const elapsed = Date.now() - this.last;

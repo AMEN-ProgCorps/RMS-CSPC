@@ -45,7 +45,7 @@ class CalendarHelper
 
     public static function storeCategory(Request $request): JsonResponse
     {
-        RegisterQueryHelper::assertFullDcsUser();
+        RegisterQueryHelper::assertFullDcsUser('settings');
         $data = $request->validate([
             'name' => 'required|string|max:80',
         ]);
@@ -78,7 +78,7 @@ class CalendarHelper
 
     public static function storeEvent(Request $request): JsonResponse
     {
-        RegisterQueryHelper::assertFullDcsUser();
+        RegisterQueryHelper::assertFullDcsUser('settings');
         $data = self::validatedEvent($request);
 
         $id = DB::table('dcs_calendar_events')->insertGetId([
@@ -102,7 +102,7 @@ class CalendarHelper
 
     public static function updateEvent(Request $request, int $id): JsonResponse
     {
-        RegisterQueryHelper::assertFullDcsUser();
+        RegisterQueryHelper::assertFullDcsUser('settings');
         $existing = DB::table('dcs_calendar_events')->where('id', $id)->first();
         if (!$existing) {
             abort(404);
@@ -129,7 +129,7 @@ class CalendarHelper
 
     public static function destroyEvent(int $id): JsonResponse
     {
-        RegisterQueryHelper::assertFullDcsUser();
+        RegisterQueryHelper::assertFullDcsUser('settings');
         $event = DB::table('dcs_calendar_events')->where('id', $id)->first();
         $deleted = DB::table('dcs_calendar_events')->where('id', $id)->delete();
         if (!$deleted) {
@@ -147,7 +147,7 @@ class CalendarHelper
 
     public static function destroyCategory(int $id): JsonResponse
     {
-        RegisterQueryHelper::assertFullDcsUser();
+        RegisterQueryHelper::assertFullDcsUser('settings');
         $cat = DB::table('dcs_calendar_categories')->where('id', $id)->first();
         if (!$cat) {
             abort(404);

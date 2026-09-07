@@ -136,8 +136,43 @@ class DcsAccessControlTest extends TestCase
         $response->assertOk();
     }
 
+    public function test_module_flag_blocks_register_even_with_view_all(): void
+    {
+        $conditionTable = \Illuminate\Support\Facades\Schema::hasTable('sys_condition_details')
+            ? 'sys_condition_details'
+            : 'condition_details';
+
+        if (! \Illuminate\Support\Facades\Schema::hasColumn($conditionTable, 'dcs_can_register')) {
+            $this->markTestSkipped('dcs_can_register column is not migrated.');
+        }
+
+        DB::table($conditionTable)->where('key_id', $this->roleId)->update([
+            'dcs_view_all_documents' => true,
+            'dcs_can_register' => false,
+        ]);
+
+        $blocked = $this->actingAs(User::find($this->limitedUserId))
+            ->get('/dcs/register');
+        $blocked->assertRedirect(route('dcs'));
+
+        $allowed = $this->actingAs(User::find($this->limitedUserId))
+            ->get('/dcs/database');
+        $allowed->assertOk();
+    }
+
     public function test_rfio_user_can_access_register_page(): void
     {
+        $conditionTable = \Illuminate\Support\Facades\Schema::hasTable('sys_condition_details')
+            ? 'sys_condition_details'
+            : 'condition_details';
+
+        if (\Illuminate\Support\Facades\Schema::hasColumn($conditionTable, 'dcs_can_register')) {
+            DB::table($conditionTable)->where('key_id', $this->roleId)->update([
+                'dcs_can_register' => true,
+                'dcs_can_review_intake' => true,
+            ]);
+        }
+
         $response = $this->actingAs(User::find($this->rfioUserId))
             ->get('/dcs/register');
 
@@ -174,6 +209,16 @@ class DcsAccessControlTest extends TestCase
             $this->markTestSkipped('Office intake columns are not migrated.');
         }
 
+        $conditionTable = \Illuminate\Support\Facades\Schema::hasTable('sys_condition_details')
+            ? 'sys_condition_details'
+            : 'condition_details';
+
+        if (\Illuminate\Support\Facades\Schema::hasColumn($conditionTable, 'dcs_can_review_intake')) {
+            DB::table($conditionTable)->where('key_id', $this->roleId)->update([
+                'dcs_can_review_intake' => true,
+            ]);
+        }
+
         $response = $this->actingAs(User::find($this->rfioUserId))
             ->get('/dcs/office/dcn');
 
@@ -184,6 +229,16 @@ class DcsAccessControlTest extends TestCase
     {
         if (! \Illuminate\Support\Facades\Schema::hasColumn('dcs_document_change_notice', 'is_office_intake')) {
             $this->markTestSkipped('Office intake columns are not migrated.');
+        }
+
+        $conditionTable = \Illuminate\Support\Facades\Schema::hasTable('sys_condition_details')
+            ? 'sys_condition_details'
+            : 'condition_details';
+
+        if (\Illuminate\Support\Facades\Schema::hasColumn($conditionTable, 'dcs_can_review_intake')) {
+            DB::table($conditionTable)->where('key_id', $this->roleId)->update([
+                'dcs_can_review_intake' => true,
+            ]);
         }
 
         $dcnId = DB::table('dcs_document_change_notice')->insertGetId([
@@ -262,15 +317,23 @@ class DcsAccessControlTest extends TestCase
 
     private function ensureDcsSubsystemActive(): void
     {
-        $exists = DB::table('subsystems')->where('subsystem_name', 'Document Control System')->exists();
+        $table = \Illuminate\Support\Facades\Schema::hasTable('sys_subsystems')
+            ? 'sys_subsystems'
+            : 'subsystems';
+
+        if (! \Illuminate\Support\Facades\Schema::hasTable($table)) {
+            return;
+        }
+
+        $exists = DB::table($table)->where('subsystem_name', 'Document Control System')->exists();
         if (! $exists) {
-            DB::table('subsystems')->insert([
+            DB::table($table)->insert([
                 'subsystem_name' => 'Document Control System',
                 'subsystem_version' => '1.0',
                 'is_active' => true,
             ]);
         } else {
-            DB::table('subsystems')
+            DB::table($table)
                 ->where('subsystem_name', 'Document Control System')
                 ->update(['is_active' => true]);
         }
@@ -278,8 +341,12 @@ class DcsAccessControlTest extends TestCase
 
     private function ensureOffice(string $code, string $name): void
     {
-        if (! DB::table('office')->where('office_code', $code)->exists()) {
-            DB::table('office')->insert([
+        $table = \Illuminate\Support\Facades\Schema::hasTable('sys_office')
+            ? 'sys_office'
+            : 'office';
+
+        if (! DB::table($table)->where('office_code', $code)->exists()) {
+            DB::table($table)->insert([
                 'office_code' => $code,
                 'office_name' => $name,
                 'is_active' => true,

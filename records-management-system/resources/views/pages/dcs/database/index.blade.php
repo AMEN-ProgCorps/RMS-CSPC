@@ -29,7 +29,7 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
 
     public function mount(): void
     {
-        RegisterQueryHelper::assertFullDcsUser();
+        RegisterQueryHelper::assertFullDcsUser('database');
 
         $type = request('type');
         if ($type !== null && $type !== '') {
@@ -80,7 +80,7 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
     /** @param  array<string, mixed>  $visible */
     public function saveVisibleGroups(array $visible): void
     {
-        RegisterQueryHelper::assertFullDcsUser();
+        RegisterQueryHelper::assertFullDcsUser('database');
         $user = Auth::user();
         if (! $user) {
             return;

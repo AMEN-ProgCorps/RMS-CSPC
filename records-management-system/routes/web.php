@@ -644,57 +644,77 @@ Route::middleware(['auth'])
                 Route::get('/api/documents/{id}/checklist/{type}', function (int $id, string $type) {
                     return response()->json(RegisterQueryHelper::documentChecklistPreview($id, $type));
                 })->whereIn('type', ['drf', 'dcn', 'masterlist', 'approval', 'distribution', 'retrieval']);
+
+                // Dashboard calendar reads for all full DCS users; mutations need Settings.
                 Route::get('/api/calendar/categories', fn () => CalendarHelper::categories());
-                Route::post('/api/calendar/categories', fn (Request $request) => CalendarHelper::storeCategory($request));
-                Route::delete('/api/calendar/categories/{id}', fn (int $id) => CalendarHelper::destroyCategory($id));
                 Route::get('/api/calendar/events', fn () => CalendarHelper::events());
-                Route::post('/api/calendar/events', fn (Request $request) => CalendarHelper::storeEvent($request));
-                Route::put('/api/calendar/events/{id}', fn (Request $request, int $id) => CalendarHelper::updateEvent($request, $id));
-                Route::delete('/api/calendar/events/{id}', fn (int $id) => CalendarHelper::destroyEvent($id));
 
-                Route::get('/register/check-docno', fn (Request $request) => response()->json(RegisterQueryHelper::checkDocNo($request)))
-                    ->name('register.checkDocNo');
-                Route::get('/register/check-revno', fn (Request $request) => response()->json(RegisterQueryHelper::checkRevNo($request)))
-                    ->name('register.checkRevNo');
-                Route::post('/register/extract-scan', fn (Request $request) => response()->json(RegisterScanService::extract($request)))
-                    ->name('register.extractScan');
-                Route::post('/api/drr/ocr-pages', fn (Request $request) => response()->json(\App\Services\DrrOcrService::ocrPages($request)))
-                    ->name('drr.ocrPages');
+                Route::middleware(['dcs.module:settings'])->group(function () {
+                    Route::post('/api/calendar/categories', fn (Request $request) => CalendarHelper::storeCategory($request));
+                    Route::delete('/api/calendar/categories/{id}', fn (int $id) => CalendarHelper::destroyCategory($id));
+                    Route::post('/api/calendar/events', fn (Request $request) => CalendarHelper::storeEvent($request));
+                    Route::put('/api/calendar/events/{id}', fn (Request $request, int $id) => CalendarHelper::updateEvent($request, $id));
+                    Route::delete('/api/calendar/events/{id}', fn (int $id) => CalendarHelper::destroyEvent($id));
+                    Volt::route('/settings', 'pages.dcs.settings.index')->name('settings.index');
+                });
 
-                Volt::route('/register', 'pages.dcs.register.index')->name('register.create');
-                Route::post('/register', fn (Request $request) => RegisterPersistHelper::persist($request))->name('register.store');
-                Route::get('/register/revised', fn () => redirect()->route('dcs.register.create', ['type' => 'revised']))
-                    ->name('register.revised');
+                Route::middleware(['dcs.module:register'])->group(function () {
+                    Route::get('/register/check-docno', fn (Request $request) => response()->json(RegisterQueryHelper::checkDocNo($request)))
+                        ->name('register.checkDocNo');
+                    Route::get('/register/check-revno', fn (Request $request) => response()->json(RegisterQueryHelper::checkRevNo($request)))
+                        ->name('register.checkRevNo');
+                    Route::post('/register/extract-scan', fn (Request $request) => response()->json(RegisterScanService::extract($request)))
+                        ->name('register.extractScan');
+                    Volt::route('/register', 'pages.dcs.register.index')->name('register.create');
+                    Route::post('/register', fn (Request $request) => RegisterPersistHelper::persist($request))->name('register.store');
+                    Route::get('/register/revised', fn () => redirect()->route('dcs.register.create', ['type' => 'revised']))
+                        ->name('register.revised');
+                    Volt::route('/register/update', 'pages.dcs.register.update')->name('register.update');
+                    Volt::route('/register/history/{docNo}', 'pages.dcs.register.history')->name('register.history');
+                    Volt::route('/register/{id}/edit', 'pages.dcs.register.edit')->name('register.edit');
+                    Route::put('/register/{id}', fn (Request $request, $id) => RegisterUpdateHelper::update($request, (int) $id))
+                        ->name('register.updateDoc');
+                });
 
-                Volt::route('/register/update', 'pages.dcs.register.update')->name('register.update');
-                Volt::route('/recycle-bin', 'pages.dcs.recycle-bin.index')->name('recycle-bin');
-                Volt::route('/review', 'pages.dcs.review.index')->name('review');
-                Volt::route('/register/history/{docNo}', 'pages.dcs.register.history')->name('register.history');
-                Volt::route('/register/{id}/edit', 'pages.dcs.register.edit')->name('register.edit');
-                Route::put('/register/{id}', fn (Request $request, $id) => RegisterUpdateHelper::update($request, (int) $id))
-                    ->name('register.updateDoc');
+                Route::middleware(['dcs.module:review'])->group(function () {
+                    Route::post('/api/drr/ocr-pages', fn (Request $request) => response()->json(\App\Services\DrrOcrService::ocrPages($request)))
+                        ->name('drr.ocrPages');
+                    Volt::route('/review', 'pages.dcs.review.index')->name('review');
+                });
 
-                Volt::route('/reports/masterlist', 'pages.dcs.reports.show')->name('reports.masterlist');
-                Volt::route('/reports/monitoring', 'pages.dcs.reports.show')->name('reports.monitoring');
-                Volt::route('/reports/opcr', 'pages.dcs.reports.show')->name('reports.opcr');
-                Volt::route('/reports/others', 'pages.dcs.reports.show')->name('reports.others');
-                Volt::route('/reports/syllabi-tos', 'pages.dcs.reports.syllabi-tos')->name('reports.syllabiTos');
-                Route::get('/reports/export', fn (Request $request) => app(ReportHelper::class)->export($request))->name('reports.export');
-                Route::match(['get', 'post'], '/reports/distribution-template', fn (Request $request) => ReportTemplateHelper::render($request))
-                    ->name('reports.distributionTemplate');
-                Route::get('/api/report-templates', fn () => response()->json(ReportTemplateHelper::list()));
-                Route::post('/api/report-templates', fn (Request $request) => ReportTemplateHelper::store($request));
-                Route::delete('/api/report-templates/{id}', fn (int $id) => ReportTemplateHelper::destroy($id));
+                Route::middleware(['dcs.module:recycle_bin'])->group(function () {
+                    Volt::route('/recycle-bin', 'pages.dcs.recycle-bin.index')->name('recycle-bin');
+                });
 
-                Volt::route('/stamping', 'pages.dcs.stamping.index')->name('stamping.index');
-                Route::post('/stamp/apply', fn (Request $request) => app(StampService::class)->apply($request))->name('stamp.apply');
-                Route::post('/stamp/remove', fn (Request $request) => app(StampService::class)->remove($request))->name('stamp.remove');
-                Route::post('/stamp/download', fn (Request $request) => app(StampService::class)->download($request))->name('stamp.download');
-                Route::post('/stamp/preview', fn (Request $request) => app(StampService::class)->preview($request))->name('stamp.preview');
+                Route::middleware(['dcs.module:reports'])->group(function () {
+                    Volt::route('/reports/masterlist', 'pages.dcs.reports.show')->name('reports.masterlist');
+                    Volt::route('/reports/monitoring', 'pages.dcs.reports.show')->name('reports.monitoring');
+                    Volt::route('/reports/opcr', 'pages.dcs.reports.show')->name('reports.opcr');
+                    Volt::route('/reports/others', 'pages.dcs.reports.show')->name('reports.others');
+                    Volt::route('/reports/syllabi-tos', 'pages.dcs.reports.syllabi-tos')->name('reports.syllabiTos');
+                    Route::get('/reports/export', fn (Request $request) => app(ReportHelper::class)->export($request))->name('reports.export');
+                    Route::match(['get', 'post'], '/reports/distribution-template', fn (Request $request) => ReportTemplateHelper::render($request))
+                        ->name('reports.distributionTemplate');
+                    Route::get('/api/report-templates', fn () => response()->json(ReportTemplateHelper::list()));
+                    Route::post('/api/report-templates', fn (Request $request) => ReportTemplateHelper::store($request));
+                    Route::delete('/api/report-templates/{id}', fn (int $id) => ReportTemplateHelper::destroy($id));
+                });
 
-                Volt::route('/database', 'pages.dcs.database.index')->name('database.index');
-                Volt::route('/manage-files', 'pages.dcs.manage-files')->name('manage-files');
-                Volt::route('/settings', 'pages.dcs.settings.index')->name('settings.index');
+                Route::middleware(['dcs.module:stamping'])->group(function () {
+                    Volt::route('/stamping', 'pages.dcs.stamping.index')->name('stamping.index');
+                    Route::post('/stamp/apply', fn (Request $request) => app(StampService::class)->apply($request))->name('stamp.apply');
+                    Route::post('/stamp/remove', fn (Request $request) => app(StampService::class)->remove($request))->name('stamp.remove');
+                    Route::post('/stamp/download', fn (Request $request) => app(StampService::class)->download($request))->name('stamp.download');
+                    Route::post('/stamp/preview', fn (Request $request) => app(StampService::class)->preview($request))->name('stamp.preview');
+                });
+
+                Route::middleware(['dcs.module:database'])->group(function () {
+                    Volt::route('/database', 'pages.dcs.database.index')->name('database.index');
+                });
+
+                Route::middleware(['dcs.module:manage_files'])->group(function () {
+                    Volt::route('/manage-files', 'pages.dcs.manage-files')->name('manage-files');
+                });
             });
         });
     });

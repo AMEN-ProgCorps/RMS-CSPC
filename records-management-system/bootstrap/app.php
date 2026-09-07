@@ -22,6 +22,7 @@ return Application::configure(basePath: dirname(__DIR__))
             'can.access.dcs'   => \App\Http\Middleware\CanAccessDcs::class,
             'dcs.intake.allowlist' => \App\Http\Middleware\EnforceDcsIntakeAllowlist::class,
             'dcs.full'         => \App\Http\Middleware\RequireFullDcs::class,
+            'dcs.module'       => \App\Http\Middleware\RequireDcsModule::class,
         ]);
     })
     ->withExceptions(function (Exceptions $exceptions): void {

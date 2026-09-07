@@ -15,7 +15,7 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
 
     public function saveRemark(int $programId, string $section, string $status): void
     {
-        RegisterQueryHelper::assertFullDcsUser();
+        RegisterQueryHelper::assertFullDcsUser('reports');
         if ($this->collegeId === '' || $this->schoolYearId === '' || $this->semesterId === '') {
             return;
         }

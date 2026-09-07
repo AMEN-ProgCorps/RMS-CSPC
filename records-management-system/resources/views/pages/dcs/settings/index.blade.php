@@ -2,7 +2,6 @@
 
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
-use Illuminate\Validation\Rule;
 use Livewire\Attributes\Layout;
 use Livewire\Volt\Component;
 
@@ -175,7 +174,7 @@ new #[Layout('layouts.dcs')] class extends Component {
 
     public function save(): void
     {
-        \App\Helpers\RegisterQueryHelper::assertFullDcsUser();
+        \App\Helpers\RegisterQueryHelper::assertFullDcsUser('settings');
         match ($this->modalKind) {
             'docType' => $this->saveDocType(),
             'originator' => $this->saveOriginator(),
@@ -191,7 +190,7 @@ new #[Layout('layouts.dcs')] class extends Component {
 
     public function destroy(): void
     {
-        \App\Helpers\RegisterQueryHelper::assertFullDcsUser();
+        \App\Helpers\RegisterQueryHelper::assertFullDcsUser('settings');
         $kind = str_replace(':delete', '', $this->modalKind);
         $id = (int) $this->editingId;
 
@@ -218,10 +217,9 @@ new #[Layout('layouts.dcs')] class extends Component {
         $exists = DB::table('dcs_doc_types')
             ->where('doc_type_name', $this->docTypeName)
             ->where('parent_id', $parentId)
-            ->when($this->editingId, fn ($q) => $q->where('id', '!=', $this->editingId))
-            ->exists();
-
-        if ($exists) {
+            ->when($this->editingId, fn ($q) => $q->where('id', '!=', $this->editingId));
+        \App\Helpers\SettingsRecycleHelper::applyNotDeleted($exists, 'dcs_doc_types');
+        if ($exists->exists()) {
             $this->fail('Another entry with this name already exists at the same level.');
             return;
         }
@@ -249,7 +247,7 @@ new #[Layout('layouts.dcs')] class extends Component {
         $this->validate([
             'originatorName' => [
                 'required', 'string', 'max:255',
-                Rule::unique('dcs_originators', 'originator_name')->ignore($this->editingId, 'id'),
+                \App\Helpers\SettingsRecycleHelper::uniqueRule('dcs_originators', 'originator_name', $this->editingId),
             ],
         ]);
 
@@ -276,13 +274,12 @@ new #[Layout('layouts.dcs')] class extends Component {
             'collegeId' => 'nullable|integer|exists:dcs_colleges,id',
         ]);
 
-        $exists = DB::table('dcs_faculties')
+        $existsQ = DB::table('dcs_faculties')
             ->where('faculty_name', $this->facultyName)
             ->where('college_id', $collegeId)
-            ->when($this->editingId, fn ($q) => $q->where('id', '!=', $this->editingId))
-            ->exists();
-
-        if ($exists) {
+            ->when($this->editingId, fn ($q) => $q->where('id', '!=', $this->editingId));
+        \App\Helpers\SettingsRecycleHelper::applyNotDeleted($existsQ, 'dcs_faculties');
+        if ($existsQ->exists()) {
             $this->fail('A faculty with this name already exists in the selected college.');
             return;
         }
@@ -311,7 +308,7 @@ new #[Layout('layouts.dcs')] class extends Component {
             'officeId' => "nullable|integer|exists:{$officeTbl},id",
             'collegeName' => [
                 'required', 'string', 'max:255',
-                Rule::unique('dcs_colleges', 'college_name')->ignore($this->editingId, 'id'),
+                \App\Helpers\SettingsRecycleHelper::uniqueRule('dcs_colleges', 'college_name', $this->editingId),
             ],
         ]);
 
@@ -329,11 +326,11 @@ new #[Layout('layouts.dcs')] class extends Component {
         }
 
         if ($officeId) {
-            $officeTaken = DB::table('dcs_colleges')
+            $officeTakenQ = DB::table('dcs_colleges')
                 ->where('office_id', $officeId)
-                ->when($this->editingId, fn ($q) => $q->where('id', '!=', $this->editingId))
-                ->exists();
-            if ($officeTaken) {
+                ->when($this->editingId, fn ($q) => $q->where('id', '!=', $this->editingId));
+            \App\Helpers\SettingsRecycleHelper::applyNotDeleted($officeTakenQ, 'dcs_colleges');
+            if ($officeTakenQ->exists()) {
                 $this->fail('That office is already linked to another college.');
                 return;
             }
@@ -370,9 +367,8 @@ new #[Layout('layouts.dcs')] class extends Component {
             'programName' => 'required|string|max:255',
             'programCode' => [
                 'required', 'string', 'max:50',
-                Rule::unique('dcs_programs', 'program_code')
-                    ->where(fn ($q) => $q->where('college_id', (int) $this->collegeId))
-                    ->ignore($this->editingId, 'id'),
+                \App\Helpers\SettingsRecycleHelper::uniqueRule('dcs_programs', 'program_code', $this->editingId)
+                    ->where(fn ($q) => $q->where('college_id', (int) $this->collegeId)),
             ],
         ]);
 
@@ -397,7 +393,7 @@ new #[Layout('layouts.dcs')] class extends Component {
         $this->validate([
             'semesterName' => [
                 'required', 'string', 'max:50',
-                Rule::unique('dcs_semesters', 'semester_name')->ignore($this->editingId, 'id'),
+                \App\Helpers\SettingsRecycleHelper::uniqueRule('dcs_semesters', 'semester_name', $this->editingId),
             ],
         ]);
 
@@ -416,7 +412,7 @@ new #[Layout('layouts.dcs')] class extends Component {
         $this->validate([
             'schoolYear' => [
                 'required', 'string', 'max:50',
-                Rule::unique('dcs_school_years', 'school_year')->ignore($this->editingId, 'id'),
+                \App\Helpers\SettingsRecycleHelper::uniqueRule('dcs_school_years', 'school_year', $this->editingId),
             ],
         ]);
 
@@ -444,27 +440,25 @@ new #[Layout('layouts.dcs')] class extends Component {
         }
         $this->validate($rules);
 
-        $exists = DB::table('dcs_program_courses')
+        $existsQ = DB::table('dcs_program_courses')
             ->where('program_id', (int) $this->programId)
             ->where('semester_id', (int) $this->semesterId)
             ->where('course_name', $this->courseName)
-            ->when($this->editingId, fn ($q) => $q->where('id', '!=', $this->editingId))
-            ->exists();
-
-        if ($exists) {
+            ->when($this->editingId, fn ($q) => $q->where('id', '!=', $this->editingId));
+        \App\Helpers\SettingsRecycleHelper::applyNotDeleted($existsQ, 'dcs_program_courses');
+        if ($existsQ->exists()) {
             $this->fail('This course is already listed for the selected program and semester.');
             return;
         }
 
         if ($hasCourseCode) {
-            $codeExists = DB::table('dcs_program_courses')
+            $codeExistsQ = DB::table('dcs_program_courses')
                 ->where('program_id', (int) $this->programId)
                 ->where('semester_id', (int) $this->semesterId)
                 ->where('course_code', $this->courseCode)
-                ->when($this->editingId, fn ($q) => $q->where('id', '!=', $this->editingId))
-                ->exists();
-
-            if ($codeExists) {
+                ->when($this->editingId, fn ($q) => $q->where('id', '!=', $this->editingId));
+            \App\Helpers\SettingsRecycleHelper::applyNotDeleted($codeExistsQ, 'dcs_program_courses');
+            if ($codeExistsQ->exists()) {
                 $this->fail('This course code is already used for the selected program and semester.');
                 return;
             }
@@ -523,12 +517,19 @@ new #[Layout('layouts.dcs')] class extends Component {
 
     private function destroyDocType(int $id): void
     {
-        if (DB::table('dcs_doc_types')->where('parent_id', $id)->exists()) {
+        $activeChildren = DB::table('dcs_doc_types')->where('parent_id', $id);
+        \App\Helpers\SettingsRecycleHelper::applyNotDeleted($activeChildren, 'dcs_doc_types');
+        if ($activeChildren->exists()) {
             $this->fail('This document type still has sub-types under it. Remove or reassign those first.');
             return;
         }
         if ($this->docTypeIsInUse($id)) {
             $this->fail('This type is already used by one or more registered documents and cannot be deleted.');
+            return;
+        }
+        if (\App\Helpers\SettingsRecycleHelper::supports('dcs_doc_types')) {
+            \App\Helpers\SettingsRecycleHelper::softDelete('docType', $id);
+            $this->done('Document type moved to Recycle Bin.');
             return;
         }
         DB::table('dcs_doc_types')->where('id', $id)->delete();
@@ -541,6 +542,11 @@ new #[Layout('layouts.dcs')] class extends Component {
             $this->fail('Originators table is not available. Run pending migrations.');
             return;
         }
+        if (\App\Helpers\SettingsRecycleHelper::supports('dcs_originators')) {
+            \App\Helpers\SettingsRecycleHelper::softDelete('originator', $id);
+            $this->done('Originator moved to Recycle Bin.');
+            return;
+        }
         DB::table('dcs_originators')->where('id', $id)->delete();
         $this->done('Originator deleted.');
     }
@@ -551,14 +557,26 @@ new #[Layout('layouts.dcs')] class extends Component {
             $this->fail('This faculty is referenced by syllabi DRF records and cannot be deleted.');
             return;
         }
+        if (\App\Helpers\SettingsRecycleHelper::supports('dcs_faculties')) {
+            \App\Helpers\SettingsRecycleHelper::softDelete('faculty', $id);
+            $this->done('Faculty moved to Recycle Bin.');
+            return;
+        }
         DB::table('dcs_faculties')->where('id', $id)->delete();
         $this->done('Faculty deleted.');
     }
 
     private function destroyCollege(int $id): void
     {
-        if (DB::table('dcs_programs')->where('college_id', $id)->exists()) {
+        $programs = DB::table('dcs_programs')->where('college_id', $id);
+        \App\Helpers\SettingsRecycleHelper::applyNotDeleted($programs, 'dcs_programs');
+        if ($programs->exists()) {
             $this->fail('This college has programs. Remove or reassign them first.');
+            return;
+        }
+        if (\App\Helpers\SettingsRecycleHelper::supports('dcs_colleges')) {
+            \App\Helpers\SettingsRecycleHelper::softDelete('college', $id);
+            $this->done('College moved to Recycle Bin.');
             return;
         }
         DB::table('dcs_colleges')->where('id', $id)->delete();
@@ -567,10 +585,17 @@ new #[Layout('layouts.dcs')] class extends Component {
 
     private function destroyProgram(int $id): void
     {
-        $inUse = DB::table('dcs_program_courses')->where('program_id', $id)->exists()
+        $courses = DB::table('dcs_program_courses')->where('program_id', $id);
+        \App\Helpers\SettingsRecycleHelper::applyNotDeleted($courses, 'dcs_program_courses');
+        $inUse = $courses->exists()
             || DB::table('dcs_syllabi')->where('program_id', $id)->exists();
         if ($inUse) {
             $this->fail('This program is referenced by courses or syllabi and cannot be deleted.');
+            return;
+        }
+        if (\App\Helpers\SettingsRecycleHelper::supports('dcs_programs')) {
+            \App\Helpers\SettingsRecycleHelper::softDelete('program', $id);
+            $this->done('Program moved to Recycle Bin.');
             return;
         }
         DB::table('dcs_programs')->where('id', $id)->delete();
@@ -579,10 +604,17 @@ new #[Layout('layouts.dcs')] class extends Component {
 
     private function destroySemester(int $id): void
     {
-        $inUse = DB::table('dcs_program_courses')->where('semester_id', $id)->exists()
+        $courses = DB::table('dcs_program_courses')->where('semester_id', $id);
+        \App\Helpers\SettingsRecycleHelper::applyNotDeleted($courses, 'dcs_program_courses');
+        $inUse = $courses->exists()
             || DB::table('dcs_syllabi')->where('semester_id', $id)->exists();
         if ($inUse) {
             $this->fail('This semester is referenced by courses or syllabi and cannot be deleted.');
+            return;
+        }
+        if (\App\Helpers\SettingsRecycleHelper::supports('dcs_semesters')) {
+            \App\Helpers\SettingsRecycleHelper::softDelete('semester', $id);
+            $this->done('Semester moved to Recycle Bin.');
             return;
         }
         DB::table('dcs_semesters')->where('id', $id)->delete();
@@ -595,6 +627,11 @@ new #[Layout('layouts.dcs')] class extends Component {
             $this->fail('This school year is referenced by syllabi and cannot be deleted.');
             return;
         }
+        if (\App\Helpers\SettingsRecycleHelper::supports('dcs_school_years')) {
+            \App\Helpers\SettingsRecycleHelper::softDelete('schoolYear', $id);
+            $this->done('School year moved to Recycle Bin.');
+            return;
+        }
         DB::table('dcs_school_years')->where('id', $id)->delete();
         $this->done('School year deleted.');
     }
@@ -603,6 +640,11 @@ new #[Layout('layouts.dcs')] class extends Component {
     {
         if (DB::table('dcs_syllabi')->where('course_id', $id)->exists()) {
             $this->fail('This course is referenced by syllabi and cannot be deleted.');
+            return;
+        }
+        if (\App\Helpers\SettingsRecycleHelper::supports('dcs_program_courses')) {
+            \App\Helpers\SettingsRecycleHelper::softDelete('programCourse', $id);
+            $this->done('Course moved to Recycle Bin.');
             return;
         }
         DB::table('dcs_program_courses')->where('id', $id)->delete();
@@ -637,13 +679,20 @@ new #[Layout('layouts.dcs')] class extends Component {
 
     private function catalog(): array
     {
-        $docTypeParents = DB::table('dcs_doc_types')->whereNull('parent_id')->orderBy('doc_type_name')->get(['id', 'doc_type_name', 'parent_id']);
-        $docTypeSubs = DB::table('dcs_doc_types')->whereNotNull('parent_id')->orderBy('doc_type_name')->get(['id', 'doc_type_name', 'parent_id'])
+        $docTypeParentsQ = DB::table('dcs_doc_types')->whereNull('parent_id')->orderBy('doc_type_name');
+        \App\Helpers\SettingsRecycleHelper::applyNotDeleted($docTypeParentsQ, 'dcs_doc_types');
+        $docTypeParents = $docTypeParentsQ->get(['id', 'doc_type_name', 'parent_id']);
+
+        $docTypeSubsQ = DB::table('dcs_doc_types')->whereNotNull('parent_id')->orderBy('doc_type_name');
+        \App\Helpers\SettingsRecycleHelper::applyNotDeleted($docTypeSubsQ, 'dcs_doc_types');
+        $docTypeSubs = $docTypeSubsQ->get(['id', 'doc_type_name', 'parent_id'])
             ->groupBy(fn ($row) => (string) $row->parent_id);
-        $colleges = DB::table('dcs_colleges as c')
+
+        $collegesQ = DB::table('dcs_colleges as c')
             ->leftJoin((\Illuminate\Support\Facades\Schema::hasTable('sys_office') ? 'sys_office' : 'office') . ' as o', 'o.id', '=', 'c.office_id')
-            ->orderBy('c.college_code')
-            ->get(['c.id', 'c.college_code', 'c.college_name', 'c.office_id', 'o.office_name as office_name', 'o.office_code as office_code']);
+            ->orderBy('c.college_code');
+        \App\Helpers\SettingsRecycleHelper::applyNotDeleted($collegesQ, 'dcs_colleges', 'c');
+        $colleges = $collegesQ->get(['c.id', 'c.college_code', 'c.college_name', 'c.office_id', 'o.office_name as office_name', 'o.office_code as office_code']);
         $linkedOfficeIds = $colleges->pluck('office_id')->filter()->map(fn ($id) => (int) $id);
         if ($this->modalKind === 'college' && $this->editingId) {
             $currentOfficeId = (int) (optional($colleges->firstWhere('id', $this->editingId))->office_id ?? 0);
@@ -662,11 +711,16 @@ new #[Layout('layouts.dcs')] class extends Component {
                 $collegeOffices = $collegeOffices->prepend($selectedOffice);
             }
         }
-        $programCounts = DB::table('dcs_programs')->select('college_id', DB::raw('count(*) as programs_count'))->groupBy('college_id')->pluck('programs_count', 'college_id');
-        $programs = DB::table('dcs_programs as p')
+        $programCountsQ = DB::table('dcs_programs')->select('college_id', DB::raw('count(*) as programs_count'));
+        \App\Helpers\SettingsRecycleHelper::applyNotDeleted($programCountsQ, 'dcs_programs');
+        $programCounts = $programCountsQ->groupBy('college_id')->pluck('programs_count', 'college_id');
+
+        $programsQ = DB::table('dcs_programs as p')
             ->leftJoin('dcs_colleges as c', 'c.id', '=', 'p.college_id')
-            ->orderBy('c.college_name')->orderBy('p.program_name')
-            ->get(['p.id', 'p.college_id', 'p.program_name', 'p.program_code', 'c.college_name']);
+            ->orderBy('c.college_name')->orderBy('p.program_name');
+        \App\Helpers\SettingsRecycleHelper::applyNotDeleted($programsQ, 'dcs_programs', 'p');
+        \App\Helpers\SettingsRecycleHelper::applyNotDeleted($programsQ, 'dcs_colleges', 'c');
+        $programs = $programsQ->get(['p.id', 'p.college_id', 'p.program_name', 'p.program_code', 'c.college_name']);
 
         $hasCourseCode = Schema::hasColumn('dcs_program_courses', 'course_code');
         $courseCols = ['pc.id', 'pc.program_id', 'pc.semester_id', 'pc.course_name', 'p.program_name', 'c.college_name', 's.semester_name'];
@@ -674,18 +728,21 @@ new #[Layout('layouts.dcs')] class extends Component {
             $courseCols[] = 'pc.course_code';
         }
 
-        $programCourses = DB::table('dcs_program_courses as pc')
+        $programCoursesQ = DB::table('dcs_program_courses as pc')
             ->leftJoin('dcs_programs as p', 'p.id', '=', 'pc.program_id')
             ->leftJoin('dcs_colleges as c', 'c.id', '=', 'p.college_id')
             ->leftJoin('dcs_semesters as s', 's.id', '=', 'pc.semester_id')
-            ->orderBy('pc.program_id')->orderBy('pc.semester_id')->orderBy('pc.course_name')
-            ->get($courseCols);
+            ->orderBy('pc.program_id')->orderBy('pc.semester_id')->orderBy('pc.course_name');
+        \App\Helpers\SettingsRecycleHelper::applyNotDeleted($programCoursesQ, 'dcs_program_courses', 'pc');
+        $programCourses = $programCoursesQ->get($courseCols);
 
         $facultyNamesByCourse = collect();
         if (Schema::hasTable('dcs_program_course_faculties')) {
             $facultyNamesByCourse = DB::table('dcs_program_course_faculties as pcf')
                 ->join('dcs_faculties as f', 'f.id', '=', 'pcf.faculty_id')
-                ->orderBy('f.faculty_name')
+                ->orderBy('f.faculty_name');
+            \App\Helpers\SettingsRecycleHelper::applyNotDeleted($facultyNamesByCourse, 'dcs_faculties', 'f');
+            $facultyNamesByCourse = $facultyNamesByCourse
                 ->get(['pcf.program_course_id', 'f.faculty_name'])
                 ->groupBy('program_course_id')
                 ->map(fn ($rows) => $rows->pluck('faculty_name')->join(', '));
@@ -697,20 +754,36 @@ new #[Layout('layouts.dcs')] class extends Component {
                 ?? null;
         });
 
+        $originatorsQ = Schema::hasTable('dcs_originators')
+            ? DB::table('dcs_originators')->orderBy('originator_name')
+            : null;
+        if ($originatorsQ) {
+            \App\Helpers\SettingsRecycleHelper::applyNotDeleted($originatorsQ, 'dcs_originators');
+        }
+
+        $facultiesQ = DB::table('dcs_faculties as f')->leftJoin('dcs_colleges as c', 'c.id', '=', 'f.college_id')->orderBy('f.faculty_name');
+        \App\Helpers\SettingsRecycleHelper::applyNotDeleted($facultiesQ, 'dcs_faculties', 'f');
+
+        $semestersQ = DB::table('dcs_semesters')->orderBy('id');
+        \App\Helpers\SettingsRecycleHelper::applyNotDeleted($semestersQ, 'dcs_semesters');
+
+        $schoolYearsQ = DB::table('dcs_school_years')->orderBy('school_year');
+        \App\Helpers\SettingsRecycleHelper::applyNotDeleted($schoolYearsQ, 'dcs_school_years');
+
         return [
             'docTypeParents' => $docTypeParents,
             'docTypeSubs' => $docTypeSubs,
-            'originators' => Schema::hasTable('dcs_originators')
-                ? DB::table('dcs_originators')->orderBy('originator_name')->get(['id', 'originator_name'])
+            'originators' => $originatorsQ
+                ? $originatorsQ->get(['id', 'originator_name'])
                 : collect(),
-            'faculties' => DB::table('dcs_faculties as f')->leftJoin('dcs_colleges as c', 'c.id', '=', 'f.college_id')->orderBy('f.faculty_name')->get(['f.id', 'f.faculty_name', 'f.college_id', 'c.college_name']),
+            'faculties' => $facultiesQ->get(['f.id', 'f.faculty_name', 'f.college_id', 'c.college_name']),
             'colleges' => $colleges,
             'collegeOffices' => $collegeOffices,
             'programCounts' => $programCounts,
             'programs' => $programs,
             'programsByCollege' => $programs->groupBy(fn ($row) => (string) $row->college_id),
-            'semesters' => DB::table('dcs_semesters')->orderBy('id')->get(['id', 'semester_name']),
-            'schoolYears' => DB::table('dcs_school_years')->orderBy('school_year')->get(['id', 'school_year']),
+            'semesters' => $semestersQ->get(['id', 'semester_name']),
+            'schoolYears' => $schoolYearsQ->get(['id', 'school_year']),
             'programCourses' => $programCourses,
         ];
     }
@@ -731,10 +804,11 @@ new #[Layout('layouts.dcs')] class extends Component {
         if ($code === '') {
             return $this->uniqueCollegeCode($name, $exceptId);
         }
-        $taken = DB::table('dcs_colleges')
+        $takenQ = DB::table('dcs_colleges')
             ->where('college_code', $code)
-            ->when($exceptId, fn ($q) => $q->where('id', '!=', $exceptId))
-            ->exists();
+            ->when($exceptId, fn ($q) => $q->where('id', '!=', $exceptId));
+        \App\Helpers\SettingsRecycleHelper::applyNotDeleted($takenQ, 'dcs_colleges');
+        $taken = $takenQ->exists();
 
         return $taken ? $this->uniqueCollegeCode($name, $exceptId) : $code;
     }
@@ -747,7 +821,12 @@ new #[Layout('layouts.dcs')] class extends Component {
         }
         $base = $code;
         $counter = 1;
-        while (DB::table('dcs_colleges')->where('college_code', $code)->when($exceptId, fn ($q) => $q->where('id', '!=', $exceptId))->exists()) {
+        while (true) {
+            $q = DB::table('dcs_colleges')->where('college_code', $code)->when($exceptId, fn ($qq) => $qq->where('id', '!=', $exceptId));
+            \App\Helpers\SettingsRecycleHelper::applyNotDeleted($q, 'dcs_colleges');
+            if (! $q->exists()) {
+                break;
+            }
             $code = $base . $counter;
             $counter++;
         }
@@ -829,7 +908,7 @@ new #[Layout('layouts.dcs')] class extends Component {
                         <div class="row-actions">
                             <button type="button" class="icon-btn" title="Add sub-type" wire:click="openSubType({{ $type->id }})"><i class="fa-solid fa-plus"></i></button>
                             <button type="button" class="icon-btn" title="Edit" wire:click="openDocType({{ $type->id }})"><i class="fa-solid fa-pen"></i></button>
-                            <button type="button" class="icon-btn icon-btn-danger" title="Delete" wire:click="confirmDelete('docType', {{ $type->id }}, 'Delete Document Type', 'This document type will be permanently removed. This cannot be undone.')"><i class="fa-solid fa-trash"></i></button>
+                            <button type="button" class="icon-btn icon-btn-danger" title="Delete" wire:click="confirmDelete('docType', {{ $type->id }}, 'Delete Document Type', 'This document type will be moved to the DCS Recycle Bin.')"><i class="fa-solid fa-trash"></i></button>
                         </div>
                     </div>
                     @if(($docTypeSubs[(string) $type->id] ?? collect())->count())
@@ -839,7 +918,7 @@ new #[Layout('layouts.dcs')] class extends Component {
                                     <div class="doctype-name"><i class="fa-solid fa-turn-up fa-rotate-90"></i><span>{{ $sub->doc_type_name }}</span></div>
                                     <div class="row-actions">
                                         <button type="button" class="icon-btn" title="Edit" wire:click="openDocType({{ $sub->id }})"><i class="fa-solid fa-pen"></i></button>
-                                        <button type="button" class="icon-btn icon-btn-danger" title="Delete" wire:click="confirmDelete('docType', {{ $sub->id }}, 'Delete Document Type', 'This document type will be permanently removed. This cannot be undone.')"><i class="fa-solid fa-trash"></i></button>
+                                        <button type="button" class="icon-btn icon-btn-danger" title="Delete" wire:click="confirmDelete('docType', {{ $sub->id }}, 'Delete Document Type', 'This document type will be moved to the DCS Recycle Bin.')"><i class="fa-solid fa-trash"></i></button>
                                     </div>
                                 </div>
                             @endforeach
@@ -867,7 +946,7 @@ new #[Layout('layouts.dcs')] class extends Component {
                             <td>
                                 <div class="row-actions">
                                     <button type="button" class="icon-btn" title="Edit" wire:click="openOriginator({{ $orig->id }})"><i class="fa-solid fa-pen"></i></button>
-                                    <button type="button" class="icon-btn icon-btn-danger" title="Delete" wire:click="confirmDelete('originator', {{ $orig->id }}, 'Delete Originator', 'This originator will be permanently removed. This cannot be undone.')"><i class="fa-solid fa-trash"></i></button>
+                                    <button type="button" class="icon-btn icon-btn-danger" title="Delete" wire:click="confirmDelete('originator', {{ $orig->id }}, 'Delete Originator', 'This originator will be moved to the DCS Recycle Bin.')"><i class="fa-solid fa-trash"></i></button>
                                 </div>
                             </td>
                         </tr>
@@ -895,7 +974,7 @@ new #[Layout('layouts.dcs')] class extends Component {
                             <td>
                                 <div class="row-actions">
                                     <button type="button" class="icon-btn" title="Edit" wire:click="openFaculty({{ $fac->id }})"><i class="fa-solid fa-pen"></i></button>
-                                    <button type="button" class="icon-btn icon-btn-danger" title="Delete" wire:click="confirmDelete('faculty', {{ $fac->id }}, 'Delete Faculty', 'This faculty will be permanently removed. This cannot be undone.')"><i class="fa-solid fa-trash"></i></button>
+                                    <button type="button" class="icon-btn icon-btn-danger" title="Delete" wire:click="confirmDelete('faculty', {{ $fac->id }}, 'Delete Faculty', 'This faculty will be moved to the DCS Recycle Bin.')"><i class="fa-solid fa-trash"></i></button>
                                 </div>
                             </td>
                         </tr>
@@ -930,7 +1009,7 @@ new #[Layout('layouts.dcs')] class extends Component {
                             <td>
                                 <div class="row-actions">
                                     <button type="button" class="icon-btn" title="Edit" wire:click="openCollege({{ $college->id }})"><i class="fa-solid fa-pen"></i></button>
-                                    <button type="button" class="icon-btn icon-btn-danger" title="Delete" wire:click="confirmDelete('college', {{ $college->id }}, 'Delete College', 'This college will be permanently removed. This cannot be undone.')"><i class="fa-solid fa-trash"></i></button>
+                                    <button type="button" class="icon-btn icon-btn-danger" title="Delete" wire:click="confirmDelete('college', {{ $college->id }}, 'Delete College', 'This college will be moved to the DCS Recycle Bin.')"><i class="fa-solid fa-trash"></i></button>
                                 </div>
                             </td>
                         </tr>
@@ -968,7 +1047,7 @@ new #[Layout('layouts.dcs')] class extends Component {
                                 <td>
                                     <div class="row-actions">
                                         <button type="button" class="icon-btn" title="Edit" wire:click="openProgram({{ $prog->id }})"><i class="fa-solid fa-pen"></i></button>
-                                        <button type="button" class="icon-btn icon-btn-danger" title="Delete" wire:click="confirmDelete('program', {{ $prog->id }}, 'Delete Program', 'This program will be permanently removed. This cannot be undone.')"><i class="fa-solid fa-trash"></i></button>
+                                        <button type="button" class="icon-btn icon-btn-danger" title="Delete" wire:click="confirmDelete('program', {{ $prog->id }}, 'Delete Program', 'This program will be moved to the DCS Recycle Bin.')"><i class="fa-solid fa-trash"></i></button>
                                     </div>
                                 </td>
                             </tr>
@@ -998,7 +1077,7 @@ new #[Layout('layouts.dcs')] class extends Component {
                             <td>
                                 <div class="row-actions">
                                     <button type="button" class="icon-btn" title="Edit" wire:click="openSemester({{ $sem->id }})"><i class="fa-solid fa-pen"></i></button>
-                                    <button type="button" class="icon-btn icon-btn-danger" title="Delete" wire:click="confirmDelete('semester', {{ $sem->id }}, 'Delete Semester', 'This semester will be permanently removed. This cannot be undone.')"><i class="fa-solid fa-trash"></i></button>
+                                    <button type="button" class="icon-btn icon-btn-danger" title="Delete" wire:click="confirmDelete('semester', {{ $sem->id }}, 'Delete Semester', 'This semester will be moved to the DCS Recycle Bin.')"><i class="fa-solid fa-trash"></i></button>
                                 </div>
                             </td>
                         </tr>
@@ -1025,7 +1104,7 @@ new #[Layout('layouts.dcs')] class extends Component {
                             <td>
                                 <div class="row-actions">
                                     <button type="button" class="icon-btn" title="Edit" wire:click="openSchoolYear({{ $sy->id }})"><i class="fa-solid fa-pen"></i></button>
-                                    <button type="button" class="icon-btn icon-btn-danger" title="Delete" wire:click="confirmDelete('schoolYear', {{ $sy->id }}, 'Delete School Year', 'This school year will be permanently removed. This cannot be undone.')"><i class="fa-solid fa-trash"></i></button>
+                                    <button type="button" class="icon-btn icon-btn-danger" title="Delete" wire:click="confirmDelete('schoolYear', {{ $sy->id }}, 'Delete School Year', 'This school year will be moved to the DCS Recycle Bin.')"><i class="fa-solid fa-trash"></i></button>
                                 </div>
                             </td>
                         </tr>
@@ -1057,7 +1136,7 @@ new #[Layout('layouts.dcs')] class extends Component {
                             <td>
                                 <div class="row-actions">
                                     <button type="button" class="icon-btn" title="Edit" wire:click="openProgramCourse({{ $course->id }})"><i class="fa-solid fa-pen"></i></button>
-                                    <button type="button" class="icon-btn icon-btn-danger" title="Delete" wire:click="confirmDelete('programCourse', {{ $course->id }}, 'Delete Course', 'This course will be permanently removed. This cannot be undone.')"><i class="fa-solid fa-trash"></i></button>
+                                    <button type="button" class="icon-btn icon-btn-danger" title="Delete" wire:click="confirmDelete('programCourse', {{ $course->id }}, 'Delete Course', 'This course will be moved to the DCS Recycle Bin.')"><i class="fa-solid fa-trash"></i></button>
                                 </div>
                             </td>
                         </tr>

@@ -1,8 +1,11 @@
 <?php
 
+use App\Helpers\RegisterPersistHelper;
 use App\Helpers\RegisterQueryHelper;
 use App\Helpers\RegisterUpdateHelper;
+use App\Helpers\SettingsRecycleHelper;
 use Illuminate\Http\RedirectResponse;
+use Illuminate\Support\Facades\DB;
 use Livewire\Attributes\Layout;
 use Livewire\Attributes\Title;
 use Livewire\Attributes\Url;
@@ -12,16 +15,44 @@ new #[Layout('layouts.dcs')] #[Title('Recycle Bin — CSPC DCS')] class extends 
     #[Url]
     public string $search = '';
 
+    #[Url]
+    public string $tab = 'documents';
+
     public int $page = 1;
 
     public ?int $restoreId = null;
+    public string $restoreKind = '';
     public string $restoreTitle = '';
     public string $restoreDocNo = '';
 
+    public ?int $deleteId = null;
+    public string $deleteKind = '';
+    public string $deleteTitle = '';
+    public string $deleteDocNo = '';
+    public string $deleteConfirmCode = '';
+    public string $deleteError = '';
+
     public function with(): array
     {
+        $this->normalizeTab();
+
+        $docs = RegisterQueryHelper::recycleBinList(
+            $this->tab === 'documents' ? $this->search : '',
+            $this->tab === 'documents' ? $this->page : 1
+        );
+        $settings = SettingsRecycleHelper::recycleBinList(
+            $this->tab === 'settings' ? $this->search : '',
+            $this->tab === 'settings' ? $this->page : 1
+        );
+
+        $list = $this->tab === 'settings' ? $settings : $docs;
+
         return [
-            'list' => RegisterQueryHelper::recycleBinList($this->search, $this->page),
+            'list' => $list,
+            'documentsTotal' => $docs['total'],
+            'settingsTotal' => $settings['total'],
+            'deleteCodeConfigured' => $this->configuredDeleteCode() !== '',
+            'isSettingsTab' => $this->tab === 'settings',
         ];
     }
 
@@ -30,14 +61,31 @@ new #[Layout('layouts.dcs')] #[Title('Recycle Bin — CSPC DCS')] class extends 
         $this->page = 1;
     }
 
+    public function updatedTab(): void
+    {
+        $this->normalizeTab();
+        $this->page = 1;
+        $this->search = '';
+        $this->closeRestore();
+        $this->closeDelete();
+    }
+
+    public function setTab(string $tab): void
+    {
+        $this->tab = $tab;
+        $this->updatedTab();
+    }
+
     public function goToPage(int $page): void
     {
         $this->page = max(1, $page);
     }
 
-    public function confirmRestore(int $id, string $title, string $docNo): void
+    public function confirmRestore(int $id, string $title, string $docNo, string $kind = ''): void
     {
+        $this->closeDelete();
         $this->restoreId = $id;
+        $this->restoreKind = $kind;
         $this->restoreTitle = $title;
         $this->restoreDocNo = $docNo;
     }
@@ -45,14 +93,32 @@ new #[Layout('layouts.dcs')] #[Title('Recycle Bin — CSPC DCS')] class extends 
     public function closeRestore(): void
     {
         $this->restoreId = null;
+        $this->restoreKind = '';
         $this->restoreTitle = '';
         $this->restoreDocNo = '';
     }
 
     public function restore(): void
     {
-        RegisterQueryHelper::assertFullDcsUser();
-        if (!$this->restoreId) {
+        RegisterQueryHelper::assertFullDcsUser('recycle_bin');
+        if (! $this->restoreId) {
+            return;
+        }
+
+        if ($this->restoreKind !== '') {
+            $result = SettingsRecycleHelper::restore($this->restoreKind, $this->restoreId);
+            $title = $this->restoreTitle;
+            $this->closeRestore();
+
+            if (! ($result['ok'] ?? false)) {
+                session()->flash('error', $result['message'] ?? 'Restore failed.');
+
+                return;
+            }
+
+            RegisterPersistHelper::logAdminChange('Restored settings item from Recycle Bin: ' . $title);
+            session()->flash('success', 'Settings item restored.');
+
             return;
         }
 
@@ -60,6 +126,113 @@ new #[Layout('layouts.dcs')] #[Title('Recycle Bin — CSPC DCS')] class extends 
         if ($response instanceof RedirectResponse) {
             $this->redirect($response->getTargetUrl(), navigate: true);
         }
+    }
+
+    public function confirmDelete(int $id, string $title, string $docNo, string $kind = ''): void
+    {
+        $this->closeRestore();
+        $this->deleteId = $id;
+        $this->deleteKind = $kind;
+        $this->deleteTitle = $title;
+        $this->deleteDocNo = $docNo;
+        $this->deleteConfirmCode = '';
+        $this->deleteError = '';
+    }
+
+    public function closeDelete(): void
+    {
+        $this->deleteId = null;
+        $this->deleteKind = '';
+        $this->deleteTitle = '';
+        $this->deleteDocNo = '';
+        $this->deleteConfirmCode = '';
+        $this->deleteError = '';
+    }
+
+    public function permanentDelete(): void
+    {
+        RegisterQueryHelper::assertFullDcsUser('recycle_bin');
+        if (! $this->deleteId) {
+            return;
+        }
+
+        $this->deleteError = '';
+        $expectedCode = $this->configuredDeleteCode();
+
+        if ($expectedCode === '') {
+            $this->deleteError = 'Permanent delete is not configured. Set the code in Admin → System Settings (or DCS_RECYCLE_DELETE_CODE in the server environment).';
+            RegisterPersistHelper::logAdminChange(
+                'Blocked permanent delete of #' . $this->deleteId . ' — delete code not configured'
+            );
+
+            return;
+        }
+
+        $provided = trim($this->deleteConfirmCode);
+        if ($provided === '' || ! hash_equals($expectedCode, $provided)) {
+            $this->deleteError = 'Incorrect secret code. Permanent delete was blocked.';
+            RegisterPersistHelper::logAdminChange(
+                'Blocked permanent delete of #' . $this->deleteId . ' — invalid delete code'
+            );
+
+            return;
+        }
+
+        $id = $this->deleteId;
+        $kind = $this->deleteKind;
+        $title = $this->deleteTitle;
+        $docNo = $this->deleteDocNo;
+        $this->closeDelete();
+
+        if ($kind !== '') {
+            SettingsRecycleHelper::permanentDestroy($kind, $id);
+            RegisterPersistHelper::logAdminChange(
+                'Permanently deleted settings item #' . $id
+                . ($title !== '' ? ': ' . $title : '')
+                . ' (secret code verified)'
+            );
+            session()->flash('success', 'Settings item permanently deleted.');
+
+            return;
+        }
+
+        RegisterPersistHelper::logAdminChange(
+            'Permanently deleted document #' . $id
+            . ($docNo !== '' && $docNo !== 'N/A' ? ' — ' . $docNo : '')
+            . ($title !== '' ? ': ' . $title : '')
+            . ' (secret code verified)'
+        );
+
+        $response = RegisterUpdateHelper::permanentDestroy($id);
+        if ($response instanceof RedirectResponse) {
+            $this->redirect($response->getTargetUrl(), navigate: true);
+        }
+    }
+
+    private function normalizeTab(): void
+    {
+        if (! in_array($this->tab, ['documents', 'settings'], true)) {
+            $this->tab = 'documents';
+        }
+    }
+
+    private function configuredDeleteCode(): string
+    {
+        try {
+            $table = \Illuminate\Support\Facades\Schema::hasTable('sys_system_settings')
+                ? 'sys_system_settings'
+                : 'system_settings';
+
+            if (\Illuminate\Support\Facades\Schema::hasTable($table)) {
+                $fromDb = DB::table($table)->where('key', 'dcs_recycle_delete_code')->value('value');
+                if (is_string($fromDb) && trim($fromDb) !== '') {
+                    return trim($fromDb);
+                }
+            }
+        } catch (\Throwable) {
+        }
+
+        return trim((string) env('DCS_RECYCLE_DELETE_CODE', ''));
     }
 }; ?>
 
@@ -71,14 +244,16 @@ new #[Layout('layouts.dcs')] #[Title('Recycle Bin — CSPC DCS')] class extends 
                 <div class="rb-title-icon"><i class="fa-solid fa-trash-can"></i></div>
                 <div>
                     <div class="rb-title">Recycle Bin</div>
-                    <p class="rb-subtitle">Deleted documents are kept for {{ $list['retention_years'] ?? 1 }} year, then permanently removed.</p>
+                    <p class="rb-subtitle">
+                        Deleted documents and settings items are kept for {{ $list['retention_years'] ?? 1 }} year, then permanently removed.
+                    </p>
                 </div>
             </div>
         </div>
         <div class="rb-header-actions">
             <span class="rb-count-badge">
                 <i class="fa-solid fa-trash-can"></i>
-                {{ $list['total'] }} deleted document{{ $list['total'] === 1 ? '' : 's' }}
+                {{ $documentsTotal + $settingsTotal }} deleted item{{ ($documentsTotal + $settingsTotal) === 1 ? '' : 's' }}
             </span>
             <a href="{{ route('dcs.register.update', absolute: false) }}" class="rb-back-link">
                 <i class="fa-solid fa-arrow-left"></i> Back to Update
@@ -86,24 +261,55 @@ new #[Layout('layouts.dcs')] #[Title('Recycle Bin — CSPC DCS')] class extends 
         </div>
     </div>
 
+    <div class="rb-tabs" role="tablist">
+        <button type="button" class="rb-tab {{ $tab === 'documents' ? 'is-active' : '' }}"
+            wire:click="setTab('documents')" role="tab" aria-selected="{{ $tab === 'documents' ? 'true' : 'false' }}">
+            <i class="fa-solid fa-file-lines"></i>
+            Documents
+            <span class="rb-tab-count">{{ $documentsTotal }}</span>
+        </button>
+        <button type="button" class="rb-tab {{ $tab === 'settings' ? 'is-active' : '' }}"
+            wire:click="setTab('settings')" role="tab" aria-selected="{{ $tab === 'settings' ? 'true' : 'false' }}">
+            <i class="fa-solid fa-sliders"></i>
+            Settings
+            <span class="rb-tab-count">{{ $settingsTotal }}</span>
+        </button>
+    </div>
+
     <div class="rb-callout">
         <div class="rb-callout-icon"><i class="fa-solid fa-circle-info"></i></div>
         <div class="rb-callout-text">
             <strong>{{ $list['retention_years'] ?? 1 }}-year retention</strong>
             <p>
-                Documents deleted from the Update page stay here for
-                <strong>{{ $list['retention_years'] ?? 1 }} year</strong>
-                (same duration as the Admin Console Recycle Bin).
-                Use <strong>Restore</strong> before the expiry date. After that, they are permanently deleted with their files.
+                @if($isSettingsTab)
+                    Items deleted from DCS Settings stay here for
+                    <strong>{{ $list['retention_years'] ?? 1 }} year</strong>.
+                    Use <strong>Restore</strong> to return them to Settings, or <strong>Delete forever</strong> with the
+                    operations secret code. After expiry, they are permanently removed.
+                @else
+                    Documents deleted from the Update page stay here for
+                    <strong>{{ $list['retention_years'] ?? 1 }} year</strong>
+                    (same duration as the Admin Console Recycle Bin).
+                    Use <strong>Restore</strong> before the expiry date, or <strong>Delete forever</strong> with the
+                    operations secret code. After expiry, they are permanently deleted with their files.
+                @endif
             </p>
         </div>
     </div>
+
+    @if (session('success'))
+        <div class="rb-flash is-success">{{ session('success') }}</div>
+    @endif
+    @if (session('error'))
+        <div class="rb-flash is-error">{{ session('error') }}</div>
+    @endif
 
     <div class="rb-search-bar">
         <div class="rb-search-wrapper">
             <i class="fa-solid fa-magnifying-glass"></i>
             <input type="text" class="rb-search-input" wire:model.live.debounce.400ms="search"
-                placeholder="Search deleted documents by title or document no..." autocomplete="off">
+                placeholder="{{ $isSettingsTab ? 'Search deleted settings by name or type...' : 'Search deleted documents by title or document no...' }}"
+                autocomplete="off">
         </div>
     </div>
 
@@ -112,30 +318,42 @@ new #[Layout('layouts.dcs')] #[Title('Recycle Bin — CSPC DCS')] class extends 
             <table class="rb-table">
                 <thead>
                     <tr>
-                        <th>Document</th>
-                        <th>Document No.</th>
+                        <th>{{ $isSettingsTab ? 'Item' : 'Document' }}</th>
+                        @unless($isSettingsTab)
+                            <th>Document No.</th>
+                        @endunless
                         <th>Type</th>
-                        <th>Rev</th>
+                        @unless($isSettingsTab)
+                            <th>Rev</th>
+                        @endunless
                         <th>Deleted</th>
                         <th>Expires</th>
-                        <th style="width:160px;">Actions</th>
+                        <th style="width:260px;">Actions</th>
                     </tr>
                 </thead>
                 <tbody>
                     @foreach($list['rows'] as $doc)
+                        @php
+                            $rowKind = $doc['kind'] ?? '';
+                            $rowId = $doc['request_id'] ?? $doc['id'];
+                        @endphp
                         <tr>
-                            <td data-label="Document">
+                            <td data-label="{{ $isSettingsTab ? 'Item' : 'Document' }}">
                                 <div class="rb-doc-title" title="{{ $doc['title'] }}">{{ $doc['title'] }}</div>
                             </td>
-                            <td data-label="Document No.">
-                                <span class="rb-doc-no">{{ $doc['doc_no'] }}</span>
-                            </td>
+                            @unless($isSettingsTab)
+                                <td data-label="Document No.">
+                                    <span class="rb-doc-no">{{ $doc['doc_no'] }}</span>
+                                </td>
+                            @endunless
                             <td data-label="Type">
                                 <span class="rb-type-badge">{{ $doc['doc_type'] }}</span>
                             </td>
-                            <td data-label="Rev">
-                                <span class="rb-rev-badge">Rev {{ $doc['rev_no'] }}</span>
-                            </td>
+                            @unless($isSettingsTab)
+                                <td data-label="Rev">
+                                    <span class="rb-rev-badge">Rev {{ $doc['rev_no'] }}</span>
+                                </td>
+                            @endunless
                             <td data-label="Deleted">
                                 <span class="rb-deleted-at">{{ $doc['deleted_at'] }}</span>
                                 @if(!empty($doc['deleted_by']))
@@ -154,9 +372,13 @@ new #[Layout('layouts.dcs')] #[Title('Recycle Bin — CSPC DCS')] class extends 
                             </td>
                             <td data-label="Actions">
                                 <div class="rb-actions">
-                                    <button type="button" class="rb-btn rb-btn-restore" title="Restore document"
-                                        wire:click="confirmRestore({{ $doc['request_id'] }}, @js($doc['title']), @js($doc['doc_no']))">
+                                    <button type="button" class="rb-btn rb-btn-restore" title="Restore"
+                                        wire:click="confirmRestore({{ $rowId }}, @js($doc['title']), @js($doc['doc_no']), @js($rowKind))">
                                         <i class="fa-solid fa-rotate-left"></i> Restore
+                                    </button>
+                                    <button type="button" class="rb-btn rb-btn-delete" title="Permanently delete"
+                                        wire:click="confirmDelete({{ $rowId }}, @js($doc['title']), @js($doc['doc_no']), @js($rowKind))">
+                                        <i class="fa-solid fa-trash"></i> Delete
                                     </button>
                                 </div>
                             </td>
@@ -169,7 +391,13 @@ new #[Layout('layouts.dcs')] #[Title('Recycle Bin — CSPC DCS')] class extends 
         <div class="rb-empty" @if(count($list['rows']) > 0) style="display:none" @endif>
             <div class="rb-empty-icon"><i class="fa-solid fa-trash-can"></i></div>
             <h3>Recycle Bin is empty</h3>
-            <p>Deleted documents will appear here for 1 year and can be restored before they expire.</p>
+            <p>
+                @if($isSettingsTab)
+                    Deleted settings items will appear here for {{ $list['retention_years'] ?? 1 }} year and can be restored before they expire.
+                @else
+                    Deleted documents will appear here for {{ $list['retention_years'] ?? 1 }} year and can be restored before they expire.
+                @endif
+            </p>
         </div>
 
         <div class="rb-pagination">
@@ -192,18 +420,66 @@ new #[Layout('layouts.dcs')] #[Title('Recycle Bin — CSPC DCS')] class extends 
     <div class="rb-modal-overlay">
         <div class="rb-modal">
             <div class="rb-modal-icon is-restore"><i class="fa-solid fa-rotate-left"></i></div>
-            <h3>Restore Document?</h3>
+            <h3>{{ $restoreKind !== '' ? 'Restore Settings Item?' : 'Restore Document?' }}</h3>
             <p>
                 Restore <strong>{{ $restoreTitle }}</strong>
-                @if($restoreDocNo && $restoreDocNo !== 'N/A')
+                @if($restoreKind === '' && $restoreDocNo && $restoreDocNo !== 'N/A')
                     (<span>{{ $restoreDocNo }}</span>)
                 @endif
-                back to the active Update Documents list?
+                {{ $restoreKind !== '' ? 'back to DCS Settings?' : 'back to the active Update Documents list?' }}
             </p>
             <div class="rb-modal-actions">
                 <button type="button" class="rb-modal-btn rb-modal-cancel" wire:click="closeRestore">Cancel</button>
                 <button type="button" class="rb-modal-btn rb-modal-restore" wire:click="restore" wire:loading.attr="disabled">
                     <i class="fa-solid fa-rotate-left"></i> Restore
+                </button>
+            </div>
+        </div>
+    </div>
+    @endteleport
+    @endif
+
+    @if($deleteId)
+    @teleport('body')
+    <div class="rb-modal-overlay">
+        <div class="rb-modal rb-modal-wide">
+            <div class="rb-modal-icon is-danger"><i class="fa-solid fa-triangle-exclamation"></i></div>
+            <h3>Permanently Delete?</h3>
+            <p>
+                This will permanently remove <strong>{{ $deleteTitle }}</strong>
+                @if($deleteKind === '' && $deleteDocNo && $deleteDocNo !== 'N/A')
+                    (<span>{{ $deleteDocNo }}</span>)
+                @endif
+                {{ $deleteKind !== '' ? 'from Settings.' : 'and its scanned files.' }} This cannot be undone.
+            </p>
+
+            <div class="rb-confirm-fields">
+                <label class="rb-confirm-label" for="rbDeleteCode">Secret code</label>
+                <input id="rbDeleteCode" type="password" class="rb-confirm-input"
+                    wire:model="deleteConfirmCode" autocomplete="off"
+                    placeholder="Enter permanent-delete secret code"
+                    wire:keydown.enter="permanentDelete">
+                <p class="rb-confirm-hint">
+                    @if($deleteCodeConfigured)
+                        Enter the DCS permanent-delete code from Admin → System Settings.
+                    @else
+                        Permanent delete is disabled until the code is set in Admin → System Settings
+                        (or <code>DCS_RECYCLE_DELETE_CODE</code> on the server).
+                    @endif
+                </p>
+            </div>
+
+            @if($deleteError !== '')
+                <div class="rb-confirm-error">{{ $deleteError }}</div>
+            @endif
+
+            <div class="rb-modal-actions">
+                <button type="button" class="rb-modal-btn rb-modal-cancel" wire:click="closeDelete">Cancel</button>
+                <button type="button" class="rb-modal-btn rb-modal-danger"
+                    wire:click="permanentDelete" wire:loading.attr="disabled"
+                    @disabled(! $deleteCodeConfigured)>
+                    <span wire:loading.remove wire:target="permanentDelete"><i class="fa-solid fa-trash"></i> Delete forever</span>
+                    <span wire:loading wire:target="permanentDelete">Deleting…</span>
                 </button>
             </div>
         </div>

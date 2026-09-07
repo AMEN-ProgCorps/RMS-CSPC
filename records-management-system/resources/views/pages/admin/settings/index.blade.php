@@ -17,6 +17,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - System Settings')] class
     public bool $rdpRequiredUploadFile = false;
     public bool $dtsRequiredUploadFile = false;
     public int $tabCloseIdleTimeoutMinutes = 15;
+    public string $dcsRecycleDeleteCode = '';
     public string $successMessage = '';
     public string $errorMessage = '';
 
@@ -319,6 +320,11 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - System Settings')] class
 
         $timeoutVal = \DB::table('sys_system_settings')->where('key', 'tab_close_idle_timeout_minutes')->value('value');
         $this->tabCloseIdleTimeoutMinutes = ($timeoutVal !== null && is_numeric($timeoutVal)) ? (int) $timeoutVal : 15;
+
+        $deleteCode = \DB::table('sys_system_settings')->where('key', 'dcs_recycle_delete_code')->value('value');
+        $this->dcsRecycleDeleteCode = is_string($deleteCode) && $deleteCode !== ''
+            ? $deleteCode
+            : (string) env('DCS_RECYCLE_DELETE_CODE', '');
     }
 
     public function testDriveConnection(): void
@@ -638,6 +644,14 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - System Settings')] class
                     ]
                 );
 
+                \DB::table('sys_system_settings')->updateOrInsert(
+                    ['key' => 'dcs_recycle_delete_code'],
+                    [
+                        'value' => trim($this->dcsRecycleDeleteCode),
+                        'updated_at' => now(),
+                    ]
+                );
+
                 // Log activity
                 $logText = "Updated system settings. Prewarming: " . ($this->pagePrewarmingEnabled ? 'true' : 'false') . 
                              ", ExtEmail: " . ($this->emailAccessRequiredExternal ? 'true' : 'false') . 
@@ -646,7 +660,8 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - System Settings')] class
                              ", ManualBtn: " . ($this->allowManualCompletionButton ? 'true' : 'false') .
                              ", RDPReq: " . ($this->rdpRequiredUploadFile ? 'true' : 'false') .
                              ", DTSReq: " . ($this->dtsRequiredUploadFile ? 'true' : 'false') .
-                             ", InactivityTimeout: " . $this->tabCloseIdleTimeoutMinutes . " mins";
+                             ", InactivityTimeout: " . $this->tabCloseIdleTimeoutMinutes . " mins" .
+                             ", DcsDeleteCode: " . (trim($this->dcsRecycleDeleteCode) !== '' ? 'set' : 'cleared');
 
                 \DB::table('sys_admin_logs')->insert([
                     'changes' => \Illuminate\Support\Str::limit($logText, 250),
@@ -1431,7 +1446,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - System Settings')] class
                     <div class="setting-item" style="flex-direction: column; align-items: flex-start; gap: 8px;">
                         <div class="setting-details">
                             <span class="setting-title">Tab-Close & Inactivity Auto-Logout Timeout</span>
-                            <span class="setting-desc">Automatically logs out users when their tab is closed or idle without activity for the configured duration.</span>
+                            <span class="setting-desc">Applies system-wide (Portal, DTS, RDP, DCS, Admin). Logs out users when idle or after tab close for the configured duration.</span>
                         </div>
                         <div style="display: flex; align-items: center; gap: 10px; width: 100%; margin-top: 4px;">
                             <select wire:model="tabCloseIdleTimeoutMinutes" class="form-input" style="max-width: 220px; font-size: 13px; font-weight: 600; color: #1e293b; border: 1.5px solid #cbd5e1; border-radius: 8px; padding: 6px 12px; cursor: pointer; background: #ffffff;">
@@ -1445,6 +1460,25 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - System Settings')] class
                                 <option value="60">60 Minutes (1 Hour)</option>
                             </select>
                             <span style="font-size: 12px; color: #64748b; font-weight: 500;">Minutes until auto-logout</span>
+                        </div>
+                    </div>
+
+                    <!-- Setting: DCS Recycle Bin permanent-delete code -->
+                    <div class="setting-item" style="flex-direction: column; align-items: flex-start; gap: 8px; margin-top: 16px; padding-top: 16px; border-top: 1px solid #e2e8f0;">
+                        <div class="setting-details">
+                            <span class="setting-title">DCS Recycle Bin Permanent-Delete Code</span>
+                            <span class="setting-desc">Secret code required to permanently delete documents in DCS Recycle Bin. Leave blank to disable permanent delete. Overrides <code>DCS_RECYCLE_DELETE_CODE</code> in env when set here.</span>
+                        </div>
+                        <div style="display: flex; align-items: center; gap: 10px; width: 100%; margin-top: 4px;">
+                            <input
+                                type="password"
+                                wire:model="dcsRecycleDeleteCode"
+                                class="form-input"
+                                autocomplete="new-password"
+                                placeholder="Enter secret code"
+                                style="max-width: 320px; font-size: 13px; font-weight: 600; color: #1e293b; border: 1.5px solid #cbd5e1; border-radius: 8px; padding: 6px 12px; background: #ffffff;"
+                            >
+                            <span style="font-size: 12px; color: #64748b; font-weight: 500;">Required for Delete forever</span>
                         </div>
                     </div>
 

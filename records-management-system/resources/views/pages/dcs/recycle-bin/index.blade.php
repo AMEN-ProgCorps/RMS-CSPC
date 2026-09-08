@@ -111,13 +111,17 @@ new #[Layout('layouts.dcs')] #[Title('Recycle Bin — CSPC DCS')] class extends 
             $this->closeRestore();
 
             if (! ($result['ok'] ?? false)) {
-                session()->flash('error', $result['message'] ?? 'Restore failed.');
+                $this->dispatch('dcs-toast', message: $result['message'] ?? 'Restore failed.', type: 'error');
 
                 return;
             }
 
             RegisterPersistHelper::logAdminChange('Restored settings item from Recycle Bin: ' . $title);
-            session()->flash('success', 'Settings item restored.');
+            $this->dispatch(
+                'dcs-toast',
+                message: 'Settings item restored from Recycle Bin successfully.',
+                type: 'success'
+            );
 
             return;
         }
@@ -191,7 +195,11 @@ new #[Layout('layouts.dcs')] #[Title('Recycle Bin — CSPC DCS')] class extends 
                 . ($title !== '' ? ': ' . $title : '')
                 . ' (secret code verified)'
             );
-            session()->flash('success', 'Settings item permanently deleted.');
+            $this->dispatch(
+                'dcs-toast',
+                message: 'Settings item permanently deleted from Recycle Bin.',
+                type: 'success'
+            );
 
             return;
         }
@@ -296,13 +304,6 @@ new #[Layout('layouts.dcs')] #[Title('Recycle Bin — CSPC DCS')] class extends 
             </p>
         </div>
     </div>
-
-    @if (session('success'))
-        <div class="rb-flash is-success">{{ session('success') }}</div>
-    @endif
-    @if (session('error'))
-        <div class="rb-flash is-error">{{ session('error') }}</div>
-    @endif
 
     <div class="rb-search-bar">
         <div class="rb-search-wrapper">

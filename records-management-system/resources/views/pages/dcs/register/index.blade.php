@@ -421,6 +421,13 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                         <input type="number" id="masterlistRevisionNo" name="masterlistRevisionNo" min="0" placeholder="0">
                         <span id="revNoHint" style="display:block;margin-top:4px;font-size:12px;"></span>
                     </div>
+                    <div class="reg-field" id="mlFieldPreviousDocNo" style="display:none;">
+                        <label>Previous Document No. <span style="font-weight:500;color:#64748b;">(if renumbered)</span></label>
+                        <input type="text" id="historicalPreviousDocNo" placeholder="e.g. CSPC-F-DCC-03" autocomplete="off">
+                        <span id="historicalPreviousHint" style="display:block;margin-top:4px;font-size:12px;color:#64748b;">
+                            Leave blank for the origin (Rev 0). If this revision used a new number, enter the prior document number to keep one family.
+                        </span>
+                    </div>
                     <div class="reg-field">
                         <label>No. of Pages</label>
                         <input type="number" id="masterlistNoOfPages" name="masterlistNoOfPages" min="0" placeholder="0">
@@ -1358,6 +1365,15 @@ document.addEventListener("DOMContentLoaded", async function () {
     // ── Document No. live lookup (both modes) ──
     initDocNoLookup(revField);
     initRevNoLookup();
+    document.getElementById('historicalPreviousDocNo')?.addEventListener('input', () => {
+        if (!isHistoricalMode()) return;
+        syncHistoricalPreviousDocNo();
+        const docNo = (document.getElementById('masterlistDocNo')?.value || '').trim();
+        const hintEl = document.getElementById('docNoHint');
+        if (docNo) {
+            runDocNoLookup(docNo, hintEl, revField);
+        }
+    });
     wireSyllabiMasterlistSync();
     wireApprovalDeadlineSync();
     wireCompareRevisionButton();
@@ -1666,14 +1682,23 @@ async function runDocNoLookup(docNo, hintEl, revField) {
     try {
         const docTypeId = document.getElementById('docType').value;
         const subTypeId = document.getElementById('subType').value;
-        const url = '/dcs/register/check-docno?doc_no=' + encodeURIComponent(docNo) +
+        let url = '/dcs/register/check-docno?doc_no=' + encodeURIComponent(docNo) +
                     (docTypeId ? '&doc_type_id=' + docTypeId : '') +
                     (subTypeId ? '&sub_type_id=' + subTypeId : '');
+        if (isHistoricalMode()) {
+            syncHistoricalPreviousDocNo();
+            const fromNo = getRevisedFromDocNo();
+            if (fromNo && fromNo.toLowerCase() !== docNo.toLowerCase()) {
+                url += '&related_from=' + encodeURIComponent(fromNo);
+            }
+        }
         const res = await fetch(url);
         const data = await res.json();
 
         if (isRevisedMode()) {
             applyRevisedModeLookupResult(data, hintEl, revField);
+        } else if (isHistoricalMode()) {
+            applyHistoricalModeLookupResult(data, hintEl, revField);
         } else {
             applyNewModeLookupResult(data, hintEl, revField);
         }
@@ -1681,6 +1706,43 @@ async function runDocNoLookup(docNo, hintEl, revField) {
         console.error('DocNo lookup failed:', e);
         if (!isRevisedMode()) setSaveEnabled(true);
     }
+}
+
+function applyHistoricalModeLookupResult(data, hintEl, revField) {
+    docNoDuplicate = false;
+    setSaveEnabled(true);
+    syncHistoricalPreviousDocNo();
+
+    if (data.exists) {
+        if (revField && (!revField.value || revField.dataset.userEdited !== 'true') && data.next_rev != null) {
+            // Suggest next unused rev, but user may enter any unused historical rev.
+            revField.setAttribute('title', 'Suggested unused Rev ' + data.next_rev + ' (or enter an unused historical rev).');
+        }
+        scheduleRevNoCheck();
+        if (hintEl) {
+            hintEl.innerHTML = '<i class="fa-solid fa-clock-rotate-left"></i> Document number already has history. Enter an unused <strong>Revision No.</strong> — this row will be saved as <strong>Obsolete</strong> (no Latest).';
+            hintEl.style.color = '#0369a1';
+            hintEl.dataset.valid = 'historical_existing';
+        }
+        return;
+    }
+
+    if (data.wrong_type) {
+        if (hintEl) {
+            hintEl.innerHTML = '<i class="fa-solid fa-triangle-exclamation"></i> ' + escapeHtml(data.message || '') +
+                '<br><span style="font-weight:400;font-size:11px;">You may continue in Historical mode.</span>';
+            hintEl.style.color = '#d97706';
+            hintEl.dataset.valid = 'different_type';
+        }
+        return;
+    }
+
+    if (hintEl) {
+        hintEl.innerHTML = '<i class="fa-solid fa-circle-check"></i> Ready for historical registration (will save as Obsolete).';
+        hintEl.style.color = '#16a34a';
+        hintEl.dataset.valid = 'historical_new';
+    }
+    scheduleRevNoCheck();
 }
 
 function applyRevisedDocumentContext(data, options = {}) {
@@ -1960,11 +2022,27 @@ function isRevisedMode() {
     return hidden && hidden.value === 'revised';
 }
 
+function isHistoricalMode() {
+    const hidden = document.getElementById('registrationMode');
+    return hidden && hidden.value === 'historical';
+}
+
 /** Checklist 4 = Document Retrieval — only for revised documents. */
 function filterChecklistsForMode(checklists) {
     const list = Array.isArray(checklists) ? checklists : [];
     if (isRevisedMode()) return list;
     return list.filter(c => parseInt(c.checklist_id, 10) !== 4);
+}
+
+function syncHistoricalPreviousDocNo() {
+    const fromInput = document.getElementById('revisedFromDocNo');
+    const prevInput = document.getElementById('historicalPreviousDocNo');
+    if (!fromInput) return;
+    if (isHistoricalMode() && prevInput) {
+        const v = (prevInput.value || '').trim();
+        fromInput.value = v;
+        window.__revisedFromDocNo = v || null;
+    }
 }
 
 function clearRetrievalSection() {
@@ -2052,15 +2130,25 @@ function updateRegistrationMode() {
     }
 
     const text = sel.options[sel.selectedIndex]?.text?.toLowerCase() || '';
-    hidden.value = (text.includes('revised') || text.includes('revision') || text.includes('revise')) ? 'revised' : 'new';
+    if (text.includes('historical') || text.includes('obsolete')) {
+        hidden.value = 'historical';
+    } else if (text.includes('revised') || text.includes('revision') || text.includes('revise')) {
+        hidden.value = 'revised';
+    } else {
+        hidden.value = 'new';
+    }
     applyRevisionMode();
 }
 
 function applyRevisionMode() {
     const revField = document.getElementById('masterlistRevisionNo');
     const hintEl = document.getElementById('docNoHint');
+    const prevWrap = document.getElementById('mlFieldPreviousDocNo');
+    const prevInput = document.getElementById('historicalPreviousDocNo');
 
     if (isRevisedMode()) {
+        if (prevWrap) prevWrap.style.display = 'none';
+        if (prevInput) prevInput.value = '';
         if (revField) {
             revField.value = '';
             revField.dataset.userEdited = '';
@@ -2082,12 +2170,41 @@ function applyRevisionMode() {
         if (docNo) {
             runDocNoLookup(docNo, hintEl, revField);
         }
+    } else if (isHistoricalMode()) {
+        docNoDuplicate = false;
+        clearRevisedApprovalContext();
+        if (prevWrap) prevWrap.style.display = '';
+        if (revField) {
+            if (revField.value === '' || revField.dataset.userEdited !== 'true') {
+                revField.value = 0;
+            }
+            revField.readOnly = false;
+            revField.style.background = '';
+            revField.style.cursor = '';
+            revField.removeAttribute('min');
+            revField.setAttribute('title', 'Enter the historical revision number (0, 1, 2…). Saved as Obsolete — no Latest tip.');
+        }
+        if (hintEl) {
+            hintEl.innerHTML = '<span style="color:#94a3b8"><i class="fa-solid fa-clock-rotate-left"></i> Historical mode: this row is saved as <strong>Obsolete</strong> only (no Latest). Use Previous Document No. when the number changed across revisions.</span>';
+            hintEl.style.color = '';
+            hintEl.dataset.valid = '';
+        }
+        syncHistoricalPreviousDocNo();
+        setSaveEnabled(true);
+        const docNoInput = document.getElementById(window.__isSyllabiMode ? 'syllabiDocNo' : 'masterlistDocNo')
+            || document.getElementById('masterlistDocNo');
+        const docNo = docNoInput?.value.trim();
+        if (docNo) {
+            runDocNoLookup(docNo, hintEl, revField);
+        }
     } else {
         docNoDuplicate = false;
         window.__revisedFromDocNo = null;
         clearRevisedApprovalContext();
         const fromInput = document.getElementById('revisedFromDocNo');
         if (fromInput) fromInput.value = '';
+        if (prevWrap) prevWrap.style.display = 'none';
+        if (prevInput) prevInput.value = '';
         if (revField) {
             revField.value = 0;
             revField.readOnly = false;                   // ← editable
@@ -4568,6 +4685,19 @@ function validateForm() {
         }
         if (!window.__isSyllabiMode) {
             validateRevisedRequiresDocumentsForRevision(errors);
+        }
+    }
+
+    if (isHistoricalMode()) {
+        syncHistoricalPreviousDocNo();
+        const fieldId = window.__isSyllabiMode ? 'syllabiDocNo' : 'masterlistDocNo';
+        const docNo = document.getElementById(fieldId)?.value.trim()
+            || document.getElementById('masterlistDocNo')?.value.trim();
+        if (!docNo) {
+            errors.push({
+                field: fieldId,
+                message: "Document number is required for historical registration.",
+            });
         }
     }
 

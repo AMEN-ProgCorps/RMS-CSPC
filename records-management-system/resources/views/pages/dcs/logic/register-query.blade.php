@@ -1666,13 +1666,17 @@ class RegisterQueryHelper
             $sorted = $family->sortByDesc('rev_no')->sortByDesc('request_id')->values();
 
             // Heal: tip must be the highest revise_no (e.g. Rev 10 beats Rev 7).
+            // Skip when the family is obsolete-only (historical registrations — no Latest).
             $tipRow = $sorted->first();
             if ($tipRow && ($tipRow['doc_no'] ?? 'N/A') !== 'N/A') {
                 $latestRows = $family->filter(fn ($r) => !empty($r['is_latest']));
+                $allObsolete = $family->every(fn ($r) => ($r['revision_status'] ?? '') === 'obsolete');
                 $tipIsLatest = !empty($tipRow['is_latest']);
-                $needsHeal = !$tipIsLatest
+                $needsHeal = !$allObsolete && (
+                    !$tipIsLatest
                     || $latestRows->count() !== 1
-                    || (int) ($latestRows->first()['request_id'] ?? 0) !== (int) $tipRow['request_id'];
+                    || (int) ($latestRows->first()['request_id'] ?? 0) !== (int) $tipRow['request_id']
+                );
 
                 if ($needsHeal) {
                     $family = $family->map(function ($r) use ($tipRow) {

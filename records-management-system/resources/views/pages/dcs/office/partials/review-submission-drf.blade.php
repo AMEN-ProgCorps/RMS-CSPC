@@ -1,6 +1,5 @@
 @php
-    $originator = trim((string) ($drf->originator_name ?? ''))
-        ?: trim((string) ($drf->prepared_by_name ?? ''));
+    $originator = trim((string) ($drf->originator_name ?? ''));
     $kind = strtolower(trim((string) ($drf->doc_type_kind ?? '')));
     $docTypeLabel = match ($kind) {
         'internal' => 'Internal',
@@ -18,8 +17,7 @@
             <span class="ofi-review-badge">Office submission</span>
             <h3 class="ofi-review-heading">Document Request Form</h3>
             <p class="ofi-review-lead">
-                {{ $meta['office'] }} submitted DRF <strong>{{ $drf->drf_no ?: '—' }}</strong>
-                for RFIO review.
+                {{ $meta['office'] }} submitted a Document Request Form for RFIO review.
             </p>
         </div>
         <dl class="ofi-review-meta-grid">
@@ -46,10 +44,6 @@
     <section class="ofi-review-section">
         <h4 class="ofi-review-section-title">Request details</h4>
         <dl class="ofi-review-fields">
-            <div class="ofi-review-field">
-                <dt>Request number</dt>
-                <dd>{{ $drf->drf_no ?: '—' }}</dd>
-            </div>
             <div class="ofi-review-field">
                 <dt>Request date</dt>
                 <dd>{{ $drfDate }}</dd>

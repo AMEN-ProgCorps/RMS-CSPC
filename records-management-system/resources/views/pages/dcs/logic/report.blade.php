@@ -635,12 +635,12 @@ class ReportHelper
             $timeReleased = $dist && $dist->doc_distribution_time_actual
                 ? $this->formatTime($dist->doc_distribution_time_actual) : null;
 
-            // Time spent 2 (mins) — stored distribution time, else registration to distribution
+            // Time spent 2 (mins) — stored distribution time, else masterlist receipt → distribution
             $timeSpent2 = ($dist && $dist->time_spent !== null && $dist->time_spent !== '')
                 ? (int) $dist->time_spent
                 : null;
-            if ($timeSpent2 === null && $ml && $ml->doc_registered_date && $dist && $dist->doc_distribution_date_actual) {
-                $start = $this->combineDateTime($ml->doc_registered_date, $ml->doc_registered_time);
+            if ($timeSpent2 === null && $ml && $ml->doc_receipt_date && $dist && $dist->doc_distribution_date_actual) {
+                $start = $this->combineDateTime($ml->doc_receipt_date, $ml->doc_receipt_time);
                 $end = $this->combineDateTime($dist->doc_distribution_date_actual, $dist->doc_distribution_time_actual);
                 $timeSpent2 = ($start && $end) ? (int) $start->diffInMinutes($end) : null;
             }

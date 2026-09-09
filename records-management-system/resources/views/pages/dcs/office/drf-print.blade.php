@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>DRF {{ $drf->drf_no }} — CSPC-F-DCC-06</title>
+    <title>Document Request Form — CSPC-F-DCC-06</title>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body {
@@ -36,14 +36,16 @@
         .print-toolbar .btn-print { background: #0d2a7a; color: #fff; border-color: #0d2a7a; }
         .print-toolbar .btn-close { background: #fff; color: #64748b; }
         .sheet {
-            width: 210mm;
-            min-height: 297mm;
+            width: 8.5in;
+            min-height: 13in;
             margin: 16px auto;
             background: #fff;
-            padding: 6mm 14mm 10mm;
+            /* Matches the template's half-long-bond print margins. */
+            padding: 0.08in 0.6in;
             box-shadow: 0 4px 24px rgba(15, 23, 42, 0.12);
             font-family: Arial, sans-serif;
             font-size: 11pt;
+            line-height: 1;
         }
         .hdr-table {
             width: 100%;
@@ -100,8 +102,8 @@
             display: flex;
             align-items: baseline;
             gap: 6px;
-            margin-bottom: 8px;
-            line-height: 1.35;
+            margin-bottom: 0;
+            line-height: 1.2;
         }
         .field-row.split {
             justify-content: space-between;
@@ -120,7 +122,7 @@
             border-bottom: 1px solid #000;
             min-height: 1.2em;
             flex: 1;
-            padding: 0 2px 1px;
+            padding: 0 2px;
             word-break: break-word;
         }
         .uline.short { min-width: 120px; max-width: 180px; }
@@ -128,7 +130,7 @@
             display: flex;
             align-items: center;
             gap: 18px;
-            margin-bottom: 8px;
+            margin-bottom: 0;
         }
         .check-item {
             display: inline-flex;
@@ -147,11 +149,13 @@
             vertical-align: middle;
         }
         .desc-block {
+            /* One 9 pt blank line after "Type of document". */
+            margin-top: 9pt;
             margin-bottom: 10px;
         }
         .desc-block .lbl {
             display: block;
-            margin-bottom: 4px;
+            margin-bottom: 6px;
         }
         .desc-line {
             border-bottom: 1px solid #000;
@@ -165,7 +169,8 @@
             margin-top: 0;
         }
         .dist-label {
-            margin: 10px 0 6px;
+            /* One 9 pt blank line after the description lines. */
+            margin: 9pt 0 6px;
         }
         .dist-grid {
             display: grid;
@@ -197,11 +202,11 @@
             text-align: center;
         }
         .sig-table th {
-            font-weight: 700;
+            font-weight: 400;
             background: #fff;
         }
         .sig-table .row-label {
-            font-weight: 700;
+            font-weight: 400;
             text-align: left;
             width: 14%;
         }
@@ -220,9 +225,12 @@
             display: flex;
             justify-content: space-between;
             align-items: center;
+            font-family: Arial, sans-serif;
+            font-size: 7pt;
+            line-height: 1;
         }
         .footer strong {
-            font-size: 10pt;
+            font-size: 7pt;
             font-weight: 700;
         }
         @media print {
@@ -234,8 +242,11 @@
                 width: auto;
                 min-height: auto;
                 padding: 0;
+                break-inside: avoid;
+                page-break-inside: avoid;
             }
-            @page { size: A4 portrait; margin: 6mm 12mm 8mm 12mm; }
+            /* Long bond (8.5 × 13 in), portrait. The DRF occupies its upper half. */
+            @page { size: 8.5in 13in; margin: 0.08in 0.6in; }
             .desc-line,
             .dist-line,
             .uline {
@@ -249,8 +260,7 @@
 @php
     use App\Helpers\OfficeIntakeHelper;
 
-    $originator = trim((string) ($drf->originator_name ?? ''))
-        ?: trim((string) ($drf->prepared_by_name ?? ''));
+    $originator = trim((string) ($drf->originator_name ?? ''));
     $kind = strtolower(trim((string) ($drf->doc_type_kind ?? '')));
     $isInternal = $kind === 'internal';
     $isExternal = $kind === 'external';
@@ -290,9 +300,9 @@
     <div class="field-row split">
         <div class="field-group">
             <span class="lbl">Request # :</span>
-            <span class="uline">{{ $drf->drf_no }}</span>
+            <span class="uline short" aria-label="Blank request number line for RFIO"></span>
         </div>
-        <div class="field-group shrink">
+        <div class="field-group shrink" style="margin-left:auto;">
             <span class="lbl">Date:</span>
             <span class="uline short">{{ $drfDate }}</span>
         </div>

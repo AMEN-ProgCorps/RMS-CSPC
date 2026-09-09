@@ -87,8 +87,9 @@ class DcsNotificationService
         int $drfId
     ): void {
         $name = static::displayName($submitterName);
+        $number = trim($drfNo) !== '' ? ' ' . trim($drfNo) : '';
         $label = trim($title) !== '' ? ": {$title}" : '';
-        $message = "New Document Request Form {$drfNo}{$label} was submitted by {$name} and is ready for RFIO processing.";
+        $message = "New Document Request Form{$number}{$label} was submitted by {$name} and is ready for RFIO processing.";
         $url = '/dcs/office/drf/' . $drfId;
 
         static::createNotification($targetOfficeCode, $message, $url);
@@ -102,8 +103,9 @@ class DcsNotificationService
         int $dcnId
     ): void {
         $name = static::displayName($submitterName);
+        $number = trim($dcnNo) !== '' ? ' ' . trim($dcnNo) : '';
         $docLabel = trim($docNo) !== '' ? " for document {$docNo}" : '';
-        $message = "New Document Change Notice {$dcnNo}{$docLabel} was submitted by {$name} and is ready for RFIO processing.";
+        $message = "New Document Change Notice{$number}{$docLabel} was submitted by {$name} and is ready for RFIO processing.";
         $url = '/dcs/office/dcn/' . $dcnId;
 
         static::createNotification($targetOfficeCode, $message, $url);

@@ -4,8 +4,7 @@
             <span class="ofi-review-badge">Office submission</span>
             <h3 class="ofi-review-heading">Document Change Notice</h3>
             <p class="ofi-review-lead">
-                {{ $meta['office'] }} submitted DCN <strong>{{ $dcn->dcn_no ?: '—' }}</strong>
-                for RFIO review.
+                {{ $meta['office'] }} submitted a Document Change Notice for RFIO review.
             </p>
         </div>
         <dl class="ofi-review-meta-grid">
@@ -32,10 +31,6 @@
     <section class="ofi-review-section">
         <h4 class="ofi-review-section-title">Document details</h4>
         <dl class="ofi-review-fields">
-            <div class="ofi-review-field">
-                <dt>DCN number</dt>
-                <dd>{{ $dcn->dcn_no ?: '—' }}</dd>
-            </div>
             <div class="ofi-review-field">
                 <dt>Document number</dt>
                 <dd>{{ $docNo ?: '—' }}</dd>

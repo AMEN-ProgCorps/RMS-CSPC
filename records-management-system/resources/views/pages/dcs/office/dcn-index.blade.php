@@ -52,8 +52,8 @@ new #[Layout('layouts.dcs')] #[Title('My DCN — CSPC DCS')] class extends Compo
             <table class="ofi-table">
                 <thead>
                     <tr>
-                        <th>DCN No.</th>
                         <th>Date</th>
+                        <th>Date Created</th>
                         <th>Justification</th>
                         <th style="width:160px;">Actions</th>
                     </tr>
@@ -61,8 +61,8 @@ new #[Layout('layouts.dcs')] #[Title('My DCN — CSPC DCS')] class extends Compo
                 <tbody>
                     @forelse($rows as $row)
                         <tr>
-                            <td>{{ $row->dcn_no ?: '—' }}</td>
                             <td>{{ $row->dcn_date ? \Carbon\Carbon::parse($row->dcn_date)->format('M d, Y') : '—' }}</td>
+                            <td>{{ $row->created_at ? \Carbon\Carbon::parse($row->created_at)->format('M d, Y g:i A') : '—' }}</td>
                             <td>{{ \Illuminate\Support\Str::limit($row->brief_purpose ?: '—', 80) }}</td>
                             <td class="ofi-actions">
                                 <a href="{{ route('dcs.office.dcn.show', $row->id, absolute: false) }}" title="View"><i class="fa-solid fa-eye"></i></a>

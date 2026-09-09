@@ -69,11 +69,6 @@ new #[Layout('layouts.dcs')] #[Title('View DCN — CSPC DCS')] class extends Com
                 <span class="ofi-form-code-badge">CSPC-F-DCC-01</span>
             </div>
             <div class="reg-card-body ofi-dcn-form ofi-show-form">
-                <div class="reg-field">
-                    <label>DCN #</label>
-                    <div class="ofi-show-value">{{ $dcn->dcn_no ?: '—' }}</div>
-                </div>
-
                 <div class="ofi-dcn-box ofi-dcn-box-readonly">
                     <div class="ofi-dcn-box-section">
                         <div class="ofi-dcn-doc-fields">

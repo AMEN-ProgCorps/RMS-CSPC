@@ -49,11 +49,6 @@ new #[Layout('layouts.dcs')] #[Title('New DCN — CSPC DCS')] class extends Comp
                     <span class="ofi-form-code-badge">CSPC-F-DCC-01</span>
                 </div>
                 <div class="reg-card-body ofi-dcn-form">
-                    <div class="reg-field">
-                        <label for="dcnNumber">DCN #</label>
-                        <input type="text" id="dcnNumber" name="dcnNumber" value="{{ old('dcnNumber') }}" required maxlength="100" placeholder="Enter DCN number">
-                    </div>
-
                     <div class="ofi-dcn-box">
                         <div class="ofi-dcn-box-section">
                             <div class="ofi-dcn-doc-fields">

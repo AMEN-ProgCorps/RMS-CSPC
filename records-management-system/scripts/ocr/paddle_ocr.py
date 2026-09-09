@@ -85,6 +85,49 @@ def box_to_norm(box, img_w: int, img_h: int) -> dict[str, float]:
     }
 
 
+def visual_text_width(text: str) -> float:
+    """Approximate glyph width so phrase boxes split at the printed words."""
+    width = 0.0
+    for char in text:
+        if char in "ilI1|!.,:;'`":
+            width += 0.48
+        elif char in "mwMW@%&":
+            width += 1.35
+        elif char.isupper() or char.isdigit():
+            width += 1.08
+        else:
+            width += 0.95
+    return max(width, 0.5)
+
+
+def split_phrase_geometry(geom: dict[str, float], parts: list[str]) -> list[dict[str, float]]:
+    """Split one Paddle phrase box into word boxes, retaining space gaps."""
+    if not parts:
+        return []
+
+    weights = [visual_text_width(part) for part in parts]
+    gap = 0.30
+    total = sum(weights) + gap * max(len(parts) - 1, 0)
+    if total <= 0:
+        return []
+
+    unit = geom["w"] / total
+    cursor = geom["x"]
+    boxes = []
+    for index, weight in enumerate(weights):
+        word_w = max(unit * weight, 0.002)
+        boxes.append(
+            {
+                "x": cursor,
+                "y": geom["y"],
+                "w": max(word_w * 0.98, 0.002),
+                "h": geom["h"],
+            }
+        )
+        cursor += word_w + (unit * gap if index < len(parts) - 1 else 0.0)
+    return boxes
+
+
 def run_paddle(image_path: str):
     try:
         from paddleocr import PaddleOCR
@@ -175,15 +218,12 @@ def main() -> None:
             lines.append({"t": text, **geom})
             continue
 
-        slice_w = geom["w"] / len(parts)
-        for i, part in enumerate(parts):
+        word_boxes = split_phrase_geometry(geom, parts)
+        for part, word_geom in zip(parts, word_boxes):
             words.append(
                 {
                     "t": part,
-                    "x": geom["x"] + slice_w * i,
-                    "y": geom["y"],
-                    "w": max(slice_w * 0.92, 0.002),
-                    "h": geom["h"],
+                    **word_geom,
                     "conf": conf,
                 }
             )

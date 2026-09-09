@@ -5,6 +5,7 @@ require_once resource_path('views/pages/dcs/logic/bootstrap.blade.php');
 use App\Http\Controllers\ChatController;
 use App\Helpers\OfficeIntakeHelper;
 use App\Helpers\CalendarHelper;
+use App\Helpers\DistributionOfficeGroupHelper;
 use App\Helpers\RegisterPersistHelper;
 use App\Helpers\RegisterQueryHelper;
 use App\Helpers\RegisterUpdateHelper;
@@ -665,6 +666,16 @@ Route::middleware(['auth'])
                         ->name('register.checkRevNo');
                     Route::post('/register/extract-scan', fn (Request $request) => response()->json(RegisterScanService::extract($request)))
                         ->name('register.extractScan');
+                    Route::get('/register/distribution-office-groups', fn () => response()->json([
+                        'ok' => true,
+                        'groups' => DistributionOfficeGroupHelper::listForCatalog(),
+                    ]))->name('register.distributionOfficeGroups.index');
+                    Route::post('/register/distribution-office-groups', fn (Request $request) => response()->json(
+                        DistributionOfficeGroupHelper::store($request)
+                    ))->name('register.distributionOfficeGroups.store');
+                    Route::delete('/register/distribution-office-groups/{id}', fn (int $id) => response()->json(
+                        DistributionOfficeGroupHelper::destroy($id)
+                    ))->name('register.distributionOfficeGroups.destroy');
                     Volt::route('/register', 'pages.dcs.register.index')->name('register.create');
                     Route::post('/register', fn (Request $request) => RegisterPersistHelper::persist($request))->name('register.store');
                     Route::get('/register/revised', fn () => redirect()->route('dcs.register.create', ['type' => 'revised']))

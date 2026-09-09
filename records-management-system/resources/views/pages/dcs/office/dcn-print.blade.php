@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>DCN {{ $dcn->dcn_no }} — CSPC-F-DCC-01</title>
+    <title>Document Change Notice — CSPC-F-DCC-01</title>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body {
@@ -305,11 +305,6 @@
     <div class="hdr-line"><span>CSPC-F-DCC-01</span></div>
 
     <div class="form-title">Document Change Notice</div>
-
-    <div class="dcn-no-row">
-        <span>DCN #</span>
-        <span class="uline">{{ $dcn->dcn_no }}</span>
-    </div>
 
     <div class="form-box">
         <div class="box-section">

@@ -513,7 +513,14 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                             <div class="ev-category-pills" x-show="categories.length > 0">
                                 <button type="button" class="ev-cat-pill" :class="{ 'is-active': eventCategoryFilter === '' }" @click="eventCategoryFilter = ''">All</button>
                                 <template x-for="cat in categories" :key="cat.id">
-                                    <button type="button" class="ev-cat-pill" :class="{ 'is-active': String(eventCategoryFilter) === String(cat.id) }" @click="eventCategoryFilter = cat.id" x-text="cat.name"></button>
+                                    <button
+                                        type="button"
+                                        class="ev-cat-pill is-category"
+                                        :class="{ 'is-active': String(eventCategoryFilter) === String(cat.id) }"
+                                        :style="{ '--event-category-color': categoryColor(cat) }"
+                                        @click="eventCategoryFilter = cat.id"
+                                        x-text="cat.name"
+                                    ></button>
                                 </template>
                             </div>
                             <div class="upcoming-list">
@@ -524,12 +531,11 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                                     </div>
                                 </template>
                                 <template x-for="ev in filteredUpcoming" :key="ev.id">
-                                    <div class="upcoming-item" :class="{ 'is-past': isPastEvent(ev) }" x-on:click="openDay(ev.date)">
+                                    <div class="upcoming-item" x-on:click="openDay(ev.date)">
                                         <div class="upcoming-event-dot" :style="'background-color:' + (ev.color || '#0d2a7a')"></div>
                                         <div class="upcoming-info">
                                             <div class="upcoming-title-row">
                                                 <div class="title" x-text="ev.title"></div>
-                                                <span class="upcoming-done-badge" x-show="isPastEvent(ev)" x-cloak>Done</span>
                                             </div>
                                             <div class="time" x-text="eventListMeta(ev)"></div>
                                         </div>
@@ -564,13 +570,12 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                                 <div class="ev-empty"><i class="fa-regular fa-calendar"></i><span>No events scheduled</span></div>
                             </template>
                             <template x-for="ev in dayEvents" :key="ev.id">
-                                <div class="ev-card" :class="{ 'is-past': isPastEvent(ev) }">
+                                <div class="ev-card">
                                     <div class="ev-card-color" :style="'background:' + (ev.color || '#0d2a7a')"></div>
                                     <div class="ev-card-body">
                                         <div class="ev-card-top">
                                             <div class="ev-card-title-wrap">
                                                 <div class="ev-card-title" x-text="ev.title"></div>
-                                                <span class="upcoming-done-badge" x-show="isPastEvent(ev)" x-cloak>Done</span>
                                             </div>
                                             <div class="ev-card-btns" x-show="!ev.readonly">
                                                 <button type="button" class="ev-card-btn" x-on:click="openEdit(ev.id)"><i class="fa-solid fa-pen"></i></button>
@@ -628,6 +633,10 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                                     </button>
                                 </div>
                                 <div class="ev-cat-add" x-show="addingCategory" x-cloak>
+                                    <label class="ev-color-picker" title="Category color">
+                                        <span>Color</span>
+                                        <input type="color" x-model="newCategoryColor" aria-label="Category color">
+                                    </label>
                                     <input class="ev-input" x-ref="newCatInput" x-model="newCategory" placeholder="Category name" autocomplete="off" @keydown.enter.prevent="addCategory">
                                     <button type="button" class="ev-btn ev-btn-ghost" @click="addCategory">Add</button>
                                 </div>
@@ -878,6 +887,7 @@ document.addEventListener('alpine:init', () => {
         saving: false,
         addingCategory: false,
         newCategory: '',
+        newCategoryColor: '#0369a1',
         form: { title: '', category_id: '', date: '', startTime: '09:00', endTime: '10:00', description: '' },
         csrf() {
             return document.querySelector('meta[name="csrf-token"]')?.content || '';
@@ -970,30 +980,16 @@ document.addEventListener('alpine:init', () => {
         displayDateShort(iso) {
             return new Date(iso + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
         },
-        isPastEvent(ev) {
-            const d = String(ev.date || '').slice(0, 10);
-            if (d === '') return false;
-            const today = this.todayIso();
-            if (d < today) return true;
-            if (d > today) return false;
-
-            // Same calendar day: treat as done once end time has passed.
-            const endRaw = String(ev.endTime || ev.startTime || '23:59').slice(0, 5);
-            const parts = endRaw.split(':');
-            const hh = parseInt(parts[0], 10);
-            const mm = parseInt(parts[1] || '0', 10);
-            if (Number.isNaN(hh)) return false;
-            const now = new Date();
-            const endAt = new Date(now.getFullYear(), now.getMonth(), now.getDate(), hh, Number.isNaN(mm) ? 0 : mm, 0, 0);
-            return Date.now() > endAt.getTime();
-        },
         eventListMeta(ev) {
             const d = String(ev.date || '').slice(0, 10);
             const t = this.todayIso();
             const datePart = d === t ? 'Today' : this.displayDateShort(d);
             const cat = ev.category_name ? ev.category_name + ' · ' : '';
-            const done = this.isPastEvent(ev) ? 'Done · ' : '';
-            return done + cat + datePart + ' · ' + this.formatTime(ev.startTime) + ' — ' + this.formatTime(ev.endTime);
+            return cat + datePart + ' · ' + this.formatTime(ev.startTime) + ' — ' + this.formatTime(ev.endTime);
+        },
+        categoryColor(category) {
+            const color = String(category?.color || '').trim();
+            return /^#[0-9a-f]{6}$/i.test(color) ? color : '#0d2a7a';
         },
         changeMonth(dir) {
             this.month += dir;
@@ -1068,6 +1064,7 @@ document.addEventListener('alpine:init', () => {
                 this.$nextTick(() => this.$refs.newCatInput?.focus());
             } else {
                 this.newCategory = '';
+                this.newCategoryColor = '#0369a1';
             }
         },
         async addCategory() {
@@ -1077,7 +1074,7 @@ document.addEventListener('alpine:init', () => {
                 const res = await fetch('/dcs/api/calendar/categories', {
                     method: 'POST',
                     headers: this.headers(true),
-                    body: JSON.stringify({ name }),
+                    body: JSON.stringify({ name, color: this.newCategoryColor }),
                 });
                 const data = await res.json();
                 if (!res.ok) {
@@ -1087,6 +1084,7 @@ document.addEventListener('alpine:init', () => {
                 this.categories.push(data);
                 this.form.category_id = data.id;
                 this.newCategory = '';
+                this.newCategoryColor = '#0369a1';
                 this.addingCategory = false;
             } catch (e) {
                 alert('Could not add category.');

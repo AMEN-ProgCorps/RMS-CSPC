@@ -52,18 +52,18 @@ new #[Layout('layouts.dcs')] #[Title('My DRF — CSPC DCS')] class extends Compo
             <table class="ofi-table">
                 <thead>
                     <tr>
-                        <th>DRF No.</th>
-                        <th>Date</th>
                         <th>Title</th>
+                        <th>Date</th>
+                        <th>Date Created</th>
                         <th style="width:160px;">Actions</th>
                     </tr>
                 </thead>
                 <tbody>
                     @forelse($rows as $row)
                         <tr>
-                            <td>{{ $row->drf_no ?: '—' }}</td>
-                            <td>{{ $row->drf_date ? \Carbon\Carbon::parse($row->drf_date)->format('M d, Y') : '—' }}</td>
                             <td>{{ $row->doc_title ?: '—' }}</td>
+                            <td>{{ $row->drf_date ? \Carbon\Carbon::parse($row->drf_date)->format('M d, Y') : '—' }}</td>
+                            <td>{{ $row->created_at ? \Carbon\Carbon::parse($row->created_at)->format('M d, Y g:i A') : '—' }}</td>
                             <td class="ofi-actions">
                                 <a href="{{ route('dcs.office.drf.show', $row->id, absolute: false) }}" title="View"><i class="fa-solid fa-eye"></i></a>
                                 <a href="{{ route('dcs.office.drf.print', $row->id, absolute: false) }}" target="_blank" title="Print"><i class="fa-solid fa-print"></i></a>

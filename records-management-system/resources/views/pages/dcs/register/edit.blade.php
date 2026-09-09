@@ -102,25 +102,6 @@ window.__registerCatalog = @json($catalog);
 
                 <div class="reg-panel-bottom">
                     <div id="dynamicCheckboxes" class="reg-checklist"></div>
-                    <div class="reg-approval-toggle">
-                        <span class="reg-toggle-label">Approval</span>
-                        <div class="reg-toggle-options">
-                            <label class="reg-radio">
-                                <input type="radio" name="approval_status" value="applicable"
-                                    {{ $docRequest->approval_status === 'applicable' ? 'checked' : '' }}
-                                    disabled
-                                    onchange="handleApprovalToggle(true)">
-                                Applicable
-                            </label>
-                            <label class="reg-radio">
-                                <input type="radio" name="approval_status" value="not_applicable"
-                                    {{ $docRequest->approval_status !== 'applicable' ? 'checked' : '' }}
-                                    disabled
-                                    onchange="handleApprovalToggle(false)">
-                                Not Applicable
-                            </label>
-                        </div>
-                    </div>
                 </div>
             </div>
 
@@ -431,6 +412,31 @@ window.__registerCatalog = @json($catalog);
                             <i class="fa-solid fa-cloud-arrow-up"></i>
                             <span>{{ $drf && $drf->scanned_drf ? 'Replace file' : 'Choose scanned PDF' }}</span>
                         </label>
+                    </div>
+                </div>
+            </section>
+
+            <!-- ═══ APPROVAL (before Masterlist) ═══ -->
+            <section class="reg-card reg-approval-bar" id="section-approval-toggle" style="display: {{ $masterlist ? 'block' : 'none' }};">
+                <div class="reg-card-body reg-approval-bar-body">
+                    <div class="reg-approval-toggle {{ $docRequest->approval_status ? 'is-locked' : '' }}">
+                        <span class="reg-toggle-label">Approval</span>
+                        <div class="reg-toggle-options">
+                            <label class="reg-radio">
+                                <input type="radio" name="approval_status" value="applicable"
+                                    {{ $docRequest->approval_status === 'applicable' ? 'checked' : '' }}
+                                    disabled
+                                    onchange="handleApprovalToggle(true)">
+                                <span>Applicable</span>
+                            </label>
+                            <label class="reg-radio">
+                                <input type="radio" name="approval_status" value="not_applicable"
+                                    {{ $docRequest->approval_status !== 'applicable' ? 'checked' : '' }}
+                                    disabled
+                                    onchange="handleApprovalToggle(false)">
+                                <span>Not Applicable</span>
+                            </label>
+                        </div>
                     </div>
                 </div>
             </section>
@@ -811,11 +817,15 @@ window.__registerCatalog = @json($catalog);
                                     autocomplete="off">
                                 <div id="distResults" class="reg-search-dropdown" style="display:none;"></div>
                             </div>
+                            @include('pages.dcs.register.partials.dist-office-toolbar')
                         </div>
                         <div class="reg-office-table-wrap">
                             <table class="reg-dist-table">
                                 <thead>
                                     <tr>
+                                        <th class="reg-dist-check-head" style="width:36px;">
+                                            <input type="checkbox" id="distSelectAllHeader" title="Select all" onchange="toggleSelectAllDistOffices()">
+                                        </th>
                                         <th>Receiving Office(s)</th>
                                         <th style="width:110px; text-align:center;">No. of Copies</th>
                                         <th style="width:40px;"></th>
@@ -825,9 +835,13 @@ window.__registerCatalog = @json($catalog);
                                     @forelse($distributionOffices as $distOff)
                                     
                                     <tr class="reg-office-added" draggable="true">
+                                        <td class="reg-dist-check-cell">
+                                            <input type="checkbox" class="dist-office-check" onchange="onDistOfficeCheckChange()" title="Select to reorder">
+                                        </td>
                                         <td>
                                             <input type="hidden" name="distOffice[]" value="{{ $distOff->office_id }}">
                                             <div class="reg-office-name">
+                                                <span class="reg-dist-drag-handle" title="Drag to reorder"><i class="fa-solid fa-grip-vertical"></i></span>
                                                 <div class="reg-office-icon"><i class="fa-solid fa-building"></i></div>
                                                 <span class="reg-office-text">{{ $distOff->office_name ?? 'Unknown' }}</span>
                                             </div>
@@ -843,7 +857,7 @@ window.__registerCatalog = @json($catalog);
                                     </tr>
                                     @empty
                                     <tr class="reg-empty-row">
-                                        <td colspan="3">
+                                        <td colspan="4">
                                             <div class="reg-empty-state">
                                                 <i class="fa-solid fa-building-circle-xmark"></i>
                                                 <span>No offices added yet</span>
@@ -854,6 +868,7 @@ window.__registerCatalog = @json($catalog);
                                 </tbody>
                                 <tfoot>
                                     <tr>
+                                        <td class="reg-dist-check-foot"></td>
                                         <td>Total No. of Copies</td>
                                         <td id="distTotal" style="text-align:center; font-weight:700;">{{ $distributionOffices->sum('copies') }}</td>
                                         <td></td>
@@ -1064,12 +1079,13 @@ function officeMatchesQuery(o, q) {
 }
 
 function findOfficeByLabelOrCode(part, list) {
-    const n = (part || '').trim().toLowerCase();
+    const n = String(part ?? '').trim().toLowerCase();
     if (!n) return null;
     const haystack = list || allOffices;
     return haystack.find(o =>
         (o.office_name || '').toLowerCase() === n ||
-        (o.office_code || '').toLowerCase() === n
+        (o.office_code || '').toLowerCase() === n ||
+        String(o.office_id ?? o.id ?? '') === n
     ) || null;
 }
 
@@ -1081,7 +1097,7 @@ function filterOffices(query) {
 
 function emptyOfficeRowHTML(tbodyId) {
     const isRetrieval = tbodyId === 'retrievalBody';
-    const cols = isRetrieval ? 4 : 3;
+    const cols = (isRetrieval || tbodyId === 'distBody') ? 4 : 3;
     return '<tr class="reg-empty-row"><td colspan="' + cols + '"><div class="reg-empty-state"><i class="fa-solid fa-building-circle-xmark"></i><span>No offices added yet</span></div></td></tr>';
 }
 
@@ -1351,11 +1367,16 @@ function seedOfficeRow(tbodyId, totalId, officeId, officeName, copies) {
     const tr = document.createElement("tr");
     tr.className = "reg-office-added";
     tr.draggable = true;
-    tr.innerHTML = `
-        <td><input type="hidden" name="${officeNameAttr}" value="${officeId}"><div class="reg-office-name"><div class="reg-office-icon"><i class="fa-solid fa-building"></i></div><span class="reg-office-text">${escapeHtml(officeName)}</span></div></td>
+    if (typeof buildDistOfficeRowHTML === 'function') {
+        tr.innerHTML = buildDistOfficeRowHTML(officeId, officeName, copies, totalId);
+    } else {
+        tr.innerHTML = `
+        <td class="reg-dist-check-cell"><input type="checkbox" class="dist-office-check" onchange="onDistOfficeCheckChange()" title="Select to reorder"></td>
+        <td><input type="hidden" name="${officeNameAttr}" value="${officeId}"><div class="reg-office-name"><span class="reg-dist-drag-handle" title="Drag to reorder"><i class="fa-solid fa-grip-vertical"></i></span><div class="reg-office-icon"><i class="fa-solid fa-building"></i></div><span class="reg-office-text">${escapeHtml(officeName)}</span></div></td>
         <td style="text-align:center;"><input type="number" name="${copiesNameAttr}" value="${copies}" min="1" oninput="updateTotal('${totalId}', '${tbodyId}')"></td>
         <td><button type="button" class="btn-remove" onclick="removeOffice(this, '${totalId}', '${tbodyId}')"><i class="fa-solid fa-xmark"></i></button></td>
     `;
+    }
     tbody.appendChild(tr);
 }
 
@@ -1673,7 +1694,7 @@ document.addEventListener("DOMContentLoaded", async function () {
                     initialState[key] = el.value;
                 }
             });
-            ['section-1', 'section-2', 'section-3', 'section-4', 'section-5', 'section-approval', 'section-syllabi'].forEach(id => {
+            ['section-1', 'section-2', 'section-3', 'section-4', 'section-5', 'section-approval', 'section-approval-toggle', 'section-syllabi'].forEach(id => {
                 const el = document.getElementById(id);
                 if (el) initialState['visible|' + id] = el.style.display !== 'none';
             });
@@ -1705,7 +1726,7 @@ document.addEventListener("DOMContentLoaded", async function () {
                     if (initialState[key] !== undefined && el.value !== initialState[key]) dirty = true;
                 }
             });
-            ['section-1', 'section-2', 'section-3', 'section-4', 'section-5', 'section-approval', 'section-syllabi'].forEach(id => {
+            ['section-1', 'section-2', 'section-3', 'section-4', 'section-5', 'section-approval', 'section-approval-toggle', 'section-syllabi'].forEach(id => {
                 if (dirty) return;
                 const el = document.getElementById(id);
                 if (el && initialState['visible|' + id] !== undefined) {
@@ -2805,7 +2826,7 @@ function createSourceUnitWidget(opts) {
                 || getList().find(o => o[labelKey].toLowerCase() === part.toLowerCase());
             if (office && office[idKey]) {
                 selected.push({ type: 'office', id: office[idKey], label: office[labelKey] });
-            } else if (!office) {
+            } else if (!office && opts.allowFreeText) {
                 idCounter++;
                 selected.push({ type: 'name', id: 'n' + idCounter, label: part });
             }
@@ -3258,18 +3279,36 @@ function triggerScanExtraction(input, file) {
         .then(async r => {
             const data = await r.json().catch(() => ({}));
             if (label) label.textContent = originalLabelText;
-            if (!r.ok || !data.extracted) {
-                showUploadFieldError(container, 'Could not read DRF fields from this scan. Fill them in manually.');
-                return;
+            container?.classList.remove('reg-upload-error');
+            container?.classList.add('reg-upload-success');
+
+            if (data.extracted) {
+                const filled = autofillDrfFields(data.fields || {});
+                if (filled) {
+                    removeExistingError(container);
+                    return;
+                }
+                if (data.fields && (data.fields.drfNo || data.fields.drfTitle || data.fields.drfDate
+                    || (data.fields.sourceOffices || []).length)) {
+                    removeExistingError(container);
+                    return;
+                }
             }
-            const filled = autofillDrfFields(data.fields || {});
-            if (!filled) {
-                showUploadFieldError(container, 'Could not read DRF No, date, title, or source unit from this scan.');
-            }
+
+            showOcrSoftHint(
+                container,
+                data.message
+                    || 'Could not auto-fill DRF fields from this scan. Upload kept — fill them in manually.'
+            );
         })
         .catch(err => {
             if (label) label.textContent = originalLabelText;
-            showUploadFieldError(container, 'Could not read DRF fields from this scan. Fill them in manually.');
+            container?.classList.remove('reg-upload-error');
+            container?.classList.add('reg-upload-success');
+            showOcrSoftHint(
+                container,
+                'Could not auto-fill DRF fields from this scan. Upload kept — fill them in manually.'
+            );
             console.error('Extraction request failed:', err);
         });
 }
@@ -3280,7 +3319,7 @@ function autofillDrfFields(fields) {
     Object.entries(map).forEach(([fieldKey, elId]) => {
         const value = fields[fieldKey];
         const el = document.getElementById(elId);
-        if (value && el && !el.value) {
+        if (value && el && (!el.value || el.classList.contains('reg-autofilled'))) {
             el.value = value;
             el.classList.add('reg-autofilled');
             filled = true;
@@ -3291,15 +3330,56 @@ function autofillDrfFields(fields) {
         }
     });
     if (window.__sourceWidgets?.drf) {
-        if (fields.sourceOfficeId) {
-            window.__sourceWidgets.drf.pick(fields.sourceOfficeId);
-            filled = true;
-        } else if (fields.sourceOfficeCode || fields.sourceUnit) {
-            window.__sourceWidgets.drf.seedFromString(fields.sourceOfficeCode || fields.sourceUnit);
-            filled = true;
+        try {
+            const items = resolveActiveSourceUnitItems(fields);
+            if (items.length > 0) {
+                window.__sourceWidgets.drf.setSelectedItems(items);
+                syncSourceUnitsAcrossSections(items, 'drf');
+                filled = true;
+            }
+        } catch (err) {
+            console.error('Source Unit autofill failed:', err);
         }
     }
     return filled;
+}
+
+/** Map OCR office payload → active catalog offices only (no free-text / inactive). */
+function resolveActiveSourceUnitItems(fields) {
+    const items = [];
+    const seen = new Set();
+    const pushFromCatalog = (office) => {
+        if (!office) return;
+        const id = office.office_id ?? office.id;
+        const key = String(id);
+        if (!key || seen.has(key)) return;
+        seen.add(key);
+        items.push({ type: 'office', id: office.office_id ?? office.id, label: office.office_name });
+    };
+    const findActive = (needle) => findOfficeByLabelOrCode(needle, allOffices)
+        || allOffices.find(o => String(o.office_id) === String(needle));
+
+    const offices = Array.isArray(fields.sourceOffices) ? fields.sourceOffices : [];
+    offices.forEach((office) => {
+        const id = office?.id ?? office?.sourceOfficeId;
+        const code = office?.office_code || office?.office_name;
+        pushFromCatalog(findActive(id) || (code ? findActive(code) : null));
+    });
+
+    if (items.length === 0 && Array.isArray(fields.sourceOfficeCodes)) {
+        fields.sourceOfficeCodes.forEach((code) => pushFromCatalog(findActive(code)));
+    }
+    if (items.length === 0 && fields.sourceOfficeId) {
+        pushFromCatalog(findActive(fields.sourceOfficeId));
+    }
+    if (items.length === 0 && (fields.sourceOfficeCode || fields.sourceUnit)) {
+        String(fields.sourceOfficeCode || fields.sourceUnit)
+            .split(/[,;\/|]+/)
+            .map(s => s.trim())
+            .filter(Boolean)
+            .forEach((part) => pushFromCatalog(findActive(part)));
+    }
+    return items;
 }
 
 function showUploadFieldError(container, message) {
@@ -3314,6 +3394,16 @@ function showUploadFieldError(container, message) {
     container.style.animation = 'none';
     container.offsetHeight;
     container.style.animation = 'shake 0.4s ease';
+}
+
+function showOcrSoftHint(container, message) {
+    removeExistingError(container);
+    const parent = container?.closest('.reg-field') || container?.parentElement;
+    if (!parent) return;
+    const hint = document.createElement('div');
+    hint.className = 'reg-ocr-hint';
+    hint.innerHTML = '<i class="fa-solid fa-circle-info"></i> ' + escapeHtml(message);
+    parent.appendChild(hint);
 }
 
 function resetUploadArea(container, icon, label, originalText) {
@@ -3406,7 +3496,12 @@ function closeFilePreviewModal() {
 }
 
 function removeExistingRemoveBtn(c) { const o = c.querySelector('.reg-file-remove'); if (o) o.remove(); }
-function removeExistingError(c) { const o = c.querySelector('.reg-file-error'); if (o) o.remove(); }
+function removeExistingError(c) {
+    if (!c) return;
+    c.querySelectorAll('.reg-file-error, .reg-ocr-hint').forEach(el => el.remove());
+    const parent = c.closest('.reg-field') || c.parentElement;
+    parent?.querySelectorAll(':scope > .reg-file-error, :scope > .reg-ocr-hint').forEach(el => el.remove());
+}
 
 function processUploadCellFile(input, cell) {
     const label = cell.querySelector('span');
@@ -3579,6 +3674,20 @@ window.toggleSection = function (checklistId, show) {
     if (el) {
         el.style.display = show ? "block" : "none";
         if (show) setTimeout(initFileInputs, 50);
+    }
+    if (checklistId === 3) {
+        const toggleBar = document.getElementById("section-approval-toggle");
+        if (toggleBar) toggleBar.style.display = show ? "block" : "none";
+        if (!show) {
+            const approval = document.getElementById("section-approval");
+            if (approval) approval.style.display = "none";
+        } else {
+            const applicable = document.querySelector('input[name="approval_status"][value="applicable"]');
+            if (applicable?.checked) {
+                const approval = document.getElementById("section-approval");
+                if (approval) approval.style.display = "block";
+            }
+        }
     }
     if (checklistId === 3 && window.__isSyllabiMode) {
         const syllabiSection = document.getElementById("section-syllabi");
@@ -4985,9 +5094,15 @@ function calcTimeDiff(sDateId, sTimeId, eDateId, eTimeId, dispId, hidId) {
     hid.value = String(result.totalMinutes);
 }
 
-window.calcMasterlistTimeSpent = () => calcTimeDiff("masterlistReceiptDate", "masterlistReceiptTime", "masterlistRegisteredDate", "masterlistRegisteredTime", "masterlistTimeSpentDisplay", "masterlistTimeSpent");
+window.calcMasterlistTimeSpent = () => {
+    calcTimeDiff("masterlistReceiptDate", "masterlistReceiptTime", "masterlistRegisteredDate", "masterlistRegisteredTime", "masterlistTimeSpentDisplay", "masterlistTimeSpent");
+    // Distribution time spent also starts from masterlist document receipt.
+    if (typeof window.calcDistributionTimeSpent === 'function') {
+        window.calcDistributionTimeSpent();
+    }
+};
 window.calcRetrievalTimeSpent = () => calcTimeDiff("retrievalFormDate", "retrievalFormTime", "retrievalDate", "retrievalTime", "retrievalTimeSpentDisplay", "retrievalTimeSpent");
-window.calcDistributionTimeSpent = () => calcTimeDiff("distributionFormDate", "distributionFormTime", "distributionDate", "distributionTime", "distributionTimeSpentDisplay", "distributionTimeSpent");
+window.calcDistributionTimeSpent = () => calcTimeDiff("masterlistReceiptDate", "masterlistReceiptTime", "distributionDate", "distributionTime", "distributionTimeSpentDisplay", "distributionTimeSpent");
 
 window.generateDistributionTemplate = function () {
     const btn = document.getElementById('btnGenerateDistribution');
@@ -5281,7 +5396,12 @@ function validateTimeSpentFields(errors) {
     if (sectionVisible("section-5")) {
         const dist = document.getElementById("distributionTimeSpentDisplay");
         if (dist && dist.value === "Invalid") {
-            errors.push({ field: "distributionDate", message: "Distribution: Distribution Date must be after Form Date." });
+            errors.push({
+                field: "distributionDate",
+                message: "Distribution: Distribution Date/Time must be after Masterlist Document Receipt."
+            });
+            ["masterlistReceiptDate", "masterlistReceiptTime", "distributionDate", "distributionTime"]
+                .forEach(id => document.getElementById(id)?.classList.add("reg-input-error"));
         }
     }
 }
@@ -5639,8 +5759,8 @@ window.confirmSave = function () {
     buildSyllabiRowsReview(reviewContent);
     buildDrfReview(reviewContent);
     buildDcnReview(reviewContent);
-    buildMasterlistReview(reviewContent);
     buildApprovalReview(reviewContent);
+    buildMasterlistReview(reviewContent);
     buildRetrievalReview(reviewContent);
     buildDistributionReview(reviewContent);
 
@@ -5899,7 +6019,11 @@ window.addOffice = function (officeId, officeName, bodyId, totalId, resultsId) {
     const tr = document.createElement("tr");
     tr.className = "reg-office-added";
     tr.draggable = true;
-    tr.innerHTML = `<td><input type="hidden" name="${officeNameAttr}" value="${officeId}"><div class="reg-office-name"><div class="reg-office-icon"><i class="fa-solid fa-building"></i></div><span class="reg-office-text">${safeDisplay}</span></div></td><td style="text-align:center;"><input type="number" name="${copiesNameAttr}" value="1" min="1" oninput="updateTotal('${totalId}', '${bodyId}')"></td><td><button type="button" class="btn-remove" onclick="removeOffice(this, '${totalId}', '${bodyId}')"><i class="fa-solid fa-xmark"></i></button></td>`;
+    if (typeof buildDistOfficeRowHTML === 'function') {
+        tr.innerHTML = buildDistOfficeRowHTML(officeId, officeName, 1, totalId);
+    } else {
+        tr.innerHTML = `<td class="reg-dist-check-cell"><input type="checkbox" class="dist-office-check" onchange="onDistOfficeCheckChange()" title="Select to reorder"></td><td><input type="hidden" name="${officeNameAttr}" value="${officeId}"><div class="reg-office-name"><span class="reg-dist-drag-handle" title="Drag to reorder"><i class="fa-solid fa-grip-vertical"></i></span><div class="reg-office-icon"><i class="fa-solid fa-building"></i></div><span class="reg-office-text">${safeDisplay}</span></div></td><td style="text-align:center;"><input type="number" name="${copiesNameAttr}" value="1" min="1" oninput="updateTotal('${totalId}', '${bodyId}')"></td><td><button type="button" class="btn-remove" onclick="removeOffice(this, '${totalId}', '${bodyId}')"><i class="fa-solid fa-xmark"></i></button></td>`;
+    }
     tbody.appendChild(tr);
     updateTotal(totalId, bodyId);
     if (dropdown) {
@@ -5949,4 +6073,5 @@ document.addEventListener("click", function (e) {
     });
 });
 </script>
+@include('pages.dcs.register.partials.dist-office-groups-script')
 @endif

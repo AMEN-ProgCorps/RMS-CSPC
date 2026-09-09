@@ -9,6 +9,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         postgresql-client \
         ghostscript \
         imagemagick \
+        poppler-utils \
         python3 \
         python3-pip \
         python3-venv \
@@ -56,7 +57,7 @@ RUN python3 -m venv /opt/paddle-venv \
 ENV OCR_ENGINE=paddle \
     OCR_PYTHON=/opt/paddle-venv/bin/python \
     OCR_PADDLE_SCRIPT=/var/www/html/scripts/ocr/paddle_ocr.py \
-    OCR_TIMEOUT=120 \
+    OCR_TIMEOUT=180 \
     PADDLEOCR_HOME=/opt/paddleocr
 
 # ── Composer ──────────────────────────────────────────────────────────────────

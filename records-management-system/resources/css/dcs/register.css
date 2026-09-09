@@ -174,8 +174,17 @@ body {
     display: flex;
     align-items: center;
     gap: 14px;
-    padding-left: 16px;
-    border-left: 1px solid var(--reg-border);
+    padding-left: 0;
+    border-left: none;
+}
+
+.reg-approval-bar .reg-approval-toggle {
+    padding-left: 0;
+    border-left: none;
+}
+
+.reg-approval-bar-body {
+    padding: 14px 24px !important;
 }
 
 .reg-approval-toggle.is-locked {
@@ -328,6 +337,125 @@ body {
 }
 #distBody tr.reg-office-added.is-dragging {
     opacity: 0.45;
+}
+#distBody tr.reg-office-added.is-selected {
+    background: color-mix(in srgb, var(--reg-accent) 8%, transparent);
+}
+.reg-dist-check-head,
+.reg-dist-check-cell,
+.reg-dist-check-foot {
+    width: 36px;
+    text-align: center;
+    vertical-align: middle;
+}
+.reg-dist-check-cell input,
+.reg-dist-check-head input {
+    width: 15px;
+    height: 15px;
+    cursor: pointer;
+    accent-color: var(--reg-accent);
+}
+.reg-dist-drag-handle {
+    color: #94a3b8;
+    margin-right: 6px;
+    cursor: grab;
+    display: inline-flex;
+}
+.reg-dist-toolbar {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    margin: 8px 0 10px;
+}
+.reg-dist-toolbar-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+}
+.reg-dist-tool-btn {
+    border: 1px solid var(--reg-border);
+    background: var(--reg-surface, #fff);
+    color: var(--reg-text, #334155);
+    font: inherit;
+    font-size: 0.72rem;
+    font-weight: 600;
+    padding: 5px 9px;
+    border-radius: 8px;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+}
+.reg-dist-tool-btn:hover,
+.reg-dist-tool-btn.is-active {
+    border-color: var(--reg-accent);
+    color: var(--reg-accent);
+}
+.reg-dist-tool-btn--accent {
+    border-color: var(--reg-accent);
+    color: var(--reg-accent);
+}
+.reg-dist-groups {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px 8px;
+}
+.reg-dist-groups-label {
+    font-size: 0.72rem;
+    font-weight: 700;
+    color: #64748b;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+}
+.reg-dist-groups-empty {
+    font-size: 0.75rem;
+    color: #94a3b8;
+}
+.reg-dist-group-chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+}
+.reg-dist-group-chip {
+    display: inline-flex;
+    align-items: stretch;
+    border: 1px solid var(--reg-border);
+    border-radius: 999px;
+    overflow: hidden;
+    background: var(--reg-surface, #fff);
+}
+.reg-dist-group-apply,
+.reg-dist-group-delete {
+    border: 0;
+    background: transparent;
+    font: inherit;
+    cursor: pointer;
+    color: var(--reg-accent);
+}
+.reg-dist-group-apply {
+    font-size: 0.72rem;
+    font-weight: 600;
+    padding: 4px 10px;
+}
+.reg-dist-group-apply small {
+    opacity: 0.7;
+    font-weight: 500;
+}
+.reg-dist-group-delete {
+    padding: 4px 8px;
+    border-left: 1px solid var(--reg-border);
+    color: #94a3b8;
+}
+.reg-dist-group-chip:hover {
+    border-color: var(--reg-accent);
+}
+.reg-dist-group-delete:hover {
+    color: var(--reg-error, #dc2626);
+    background: #fef2f2;
+}
+#distOfficeGroupModal.is-open {
+    display: flex;
 }
 
 .reg-card-header i {
@@ -1228,6 +1356,23 @@ body {
 
 .reg-file-error i {
     font-size: 0.7rem;
+}
+
+/* Soft OCR auto-fill hint (upload still succeeds) */
+.reg-ocr-hint {
+    display: flex;
+    align-items: flex-start;
+    gap: 6px;
+    font-size: 0.75rem;
+    color: #0369a1;
+    margin-top: 4px;
+    line-height: 1.35;
+    animation: fadeSlideUp 0.2s ease;
+}
+
+.reg-ocr-hint i {
+    font-size: 0.7rem;
+    margin-top: 2px;
 }
 
 /* ══════════════════════════════════════════════

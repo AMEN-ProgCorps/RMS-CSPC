@@ -11,6 +11,15 @@ class CalendarHelper
 {
     private const CUSTOM_COLORS = ['#0369a1', '#7c3aed', '#be123c', '#0f766e', '#c2410c', '#4338ca'];
 
+    /** Recognizable colors for the standard attendance/event categories. */
+    private const NAMED_CATEGORY_COLORS = [
+        'suspension' => '#dc2626',
+        'leave' => '#16a34a',
+        'wfj' => '#2563eb',
+        // Keep the existing WFH category aligned with the requested WFJ color.
+        'wfh' => '#2563eb',
+    ];
+
     public static function categories(): JsonResponse
     {
         return response()->json(self::categoryRows());
@@ -48,6 +57,7 @@ class CalendarHelper
         RegisterQueryHelper::assertFullDcsUser('settings');
         $data = $request->validate([
             'name' => 'required|string|max:80',
+            'color' => ['nullable', 'string', 'regex:/^#[0-9A-Fa-f]{6}$/'],
         ]);
 
         $name = trim($data['name']);
@@ -59,8 +69,11 @@ class CalendarHelper
             throw ValidationException::withMessages(['name' => 'That category already exists.']);
         }
 
+        $selectedColor = trim((string) ($data['color'] ?? ''));
         $used = DB::table('dcs_calendar_categories')->pluck('color')->all();
-        $color = collect(self::CUSTOM_COLORS)->first(fn ($c) => !in_array($c, $used, true)) ?: self::CUSTOM_COLORS[0];
+        $color = $selectedColor !== ''
+            ? mb_strtolower($selectedColor)
+            : self::colorForCategory($name, $used);
 
         $id = DB::table('dcs_calendar_categories')->insertGetId([
             'name' => $name,
@@ -201,6 +214,22 @@ class CalendarHelper
                 'color' => $row->color,
                 'is_system' => (bool) $row->is_system,
             ]);
+    }
+
+    /**
+     * Standard categories retain their meaning wherever they are created;
+     * custom categories receive the next available palette color.
+     */
+    private static function colorForCategory(string $name, array $used): string
+    {
+        $key = mb_strtolower(trim($name));
+        if (isset(self::NAMED_CATEGORY_COLORS[$key])) {
+            return self::NAMED_CATEGORY_COLORS[$key];
+        }
+
+        return collect(self::CUSTOM_COLORS)
+            ->first(fn ($color) => !in_array($color, $used, true))
+            ?: self::CUSTOM_COLORS[0];
     }
 
     private static function eventById(int $id): array

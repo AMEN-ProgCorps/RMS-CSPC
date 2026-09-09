@@ -5775,6 +5775,7 @@ class RegisterQueryHelper
                 ])
                 ->values()
                 ->all(),
+            'distributionOfficeGroups' => \App\Helpers\DistributionOfficeGroupHelper::listForCatalog(),
             'docTypes' => $docTypes,
             'versionTypes' => DB::table('dcs_version_type')
                 ->orderBy('version_name')

@@ -28,7 +28,7 @@ const TOKEN_CAP = 4000;
 /** When content alignment finds nothing but docs share vocabulary, pair by page index. */
 const DOC_SIMILARITY_INDEX_FALLBACK = 0.18;
 /** Bump whenever highlight algorithm changes so stale IndexedDB caches are discarded. */
-const CACHE_VERSION = 43;
+const CACHE_VERSION = 44;
 /**
  * Pixel diff below this ⇒ candidate for identical (must also pass text check).
  */
@@ -123,6 +123,53 @@ function normalizeWord(w) {
     return s;
 }
 
+/** Paddle has used both 0–1 and 0–100 confidence scales across releases. */
+function ocrConfidence(value) {
+    if (value === null || value === undefined || value === '') return null;
+    const confidence = Number(value);
+    if (!Number.isFinite(confidence) || confidence < 0) return null;
+    return confidence <= 1 ? confidence * 100 : confidence;
+}
+
+/**
+ * Estimate a word's visual width when OCR gives one box for a whole phrase.
+ * Equal slices visibly shift highlights for short words beside long ones.
+ */
+function visualTextWidth(text) {
+    let width = 0;
+    for (const char of String(text || '')) {
+        if (/[ilI1|!.,:;'`]/.test(char)) width += 0.48;
+        else if (/[mwMW@%&]/.test(char)) width += 1.35;
+        else if (/[A-Z0-9]/.test(char)) width += 1.08;
+        else width += 0.95;
+    }
+    return Math.max(width, 0.5);
+}
+
+/** Return proportional word boxes while reserving a small amount for spaces. */
+function splitPhraseBox(box, parts) {
+    if (!box || !parts?.length) return [];
+    const weights = parts.map(visualTextWidth);
+    const gap = 0.30;
+    const total = weights.reduce((sum, weight) => sum + weight, 0)
+        + gap * Math.max(parts.length - 1, 0);
+    if (!Number.isFinite(total) || total <= 0) return [];
+
+    const unit = box.w / total;
+    let cursor = box.x;
+    return parts.map((part, index) => {
+        const fullWidth = Math.max(unit * weights[index], 0.002);
+        const wordBox = {
+            x: cursor,
+            y: box.y,
+            w: Math.max(fullWidth * 0.98, 0.002),
+            h: box.h,
+        };
+        cursor += fullWidth + (index < parts.length - 1 ? unit * gap : 0);
+        return wordBox;
+    });
+}
+
 function tokensFromItems(items) {
     return items
         .map((item) => ({ t: (item.str || '').trim(), item, norm: normalizeWord(item.str), box: null }))
@@ -143,7 +190,7 @@ function isValidOcrWord(w) {
     const t = String(w?.t || '').trim();
     if (!t) return false;
 
-    const conf = Number(w?.conf);
+    const conf = ocrConfidence(w?.conf);
     if (Number.isFinite(conf) && conf >= 0 && conf < 20) return false;
 
     const x = Number(w?.x);
@@ -174,7 +221,7 @@ function tokensFromOcrLines(lines) {
         const words = text.split(/\s+/).filter(Boolean);
         if (!words.length) continue;
 
-        const sliceW = lw / words.length;
+        const boxes = splitPhraseBox({ x, y, w: lw, h: lh }, words);
         words.forEach((t, idx) => {
             const norm = normalizeWord(t);
             if (!norm) return;
@@ -183,12 +230,7 @@ function tokensFromOcrLines(lines) {
                 norm,
                 ocr: true,
                 item: null,
-                box: {
-                    x: x + sliceW * idx,
-                    y,
-                    w: Math.max(sliceW * 0.92, 0.002),
-                    h: lh,
-                },
+                box: boxes[idx] || null,
             });
         });
     }
@@ -234,6 +276,7 @@ function tokensFromOcrWords(words) {
                 t,
                 norm: normalizeWord(t),
                 ocr: true,
+                conf: ocrConfidence(w.conf),
                 synthetic: false,
                 item: null,
                 box: { x, y, w: bw, h: bh },
@@ -256,7 +299,7 @@ function explodePhraseToken(token) {
 
     const box = token.box;
     if (box && Number.isFinite(box.x) && Number.isFinite(box.w)) {
-        const sliceW = box.w / parts.length;
+        const boxes = splitPhraseBox(box, parts);
         return parts.map((part, idx) => {
             const norm = normalizeWord(part);
             if (!norm) return null;
@@ -265,12 +308,7 @@ function explodePhraseToken(token) {
                 t: part,
                 norm,
                 item: null,
-                box: {
-                    x: box.x + sliceW * idx,
-                    y: box.y,
-                    w: Math.max(sliceW * 0.92, 0.002),
-                    h: box.h,
-                },
+                box: boxes[idx] || null,
             };
         }).filter(Boolean);
     }
@@ -725,6 +763,20 @@ function significantWordSet(sentence) {
     return set;
 }
 
+/** Related blocks can only be updates when they belong to the same section. */
+function sectionKeysCompatible(left, right) {
+    const leftKey = String(left?.sectionSoftKey || 'doc-front');
+    const rightKey = String(right?.sectionSoftKey || 'doc-front');
+    if (leftKey === rightKey) return true;
+
+    // A renamed Section 2 is still Section 2; its title should be highlighted
+    // as an edit instead of presenting the complete section as delete/add.
+    const sectionNumber = (key) => key.match(/^section:(\d+)(?::|$)/)?.[1] || null;
+    const leftSection = sectionNumber(leftKey);
+    const rightSection = sectionNumber(rightKey);
+    return Boolean(leftSection && leftSection === rightSection);
+}
+
 /**
  * How alike two sentences are for "updated" pairing.
  * Bag overlap + significant-word Jaccard + same-role template boosts.
@@ -810,6 +862,7 @@ function annotateSectionLinesDiff(leftLines, rightLines) {
             let bestScore = 0;
             for (let ri = 0; ri < rightLines.length; ri++) {
                 if (usedRight.has(ri)) continue;
+                if (!sectionKeysCompatible(leftLines[li], rightLines[ri])) continue;
                 const raw = sentenceUpdateSimilarity(leftLines[li], rightLines[ri]);
                 const pageGap = Math.abs((leftLines[li].page || 0) - (rightLines[ri].page || 0));
                 const score = raw - Math.min(pageGap, 8) * 0.015;
@@ -1146,6 +1199,18 @@ function tokensEqual(a, b) {
     const x = a.norm;
     const y = b.norm;
     if (!x || !y) return false;
+
+    // Accept common scan substitutions only when at least one side was OCR.
+    // Numeric-only values deliberately remain exact: 2025 → 2026 is a real edit.
+    if ((a.ocr || b.ocr) && /\p{L}/u.test(x) && /\p{L}/u.test(y)) {
+        const skeleton = (word) => word.replace(/[0158]/g, (char) => ({
+            0: 'o',
+            1: 'l',
+            5: 's',
+            8: 'b',
+        }[char]));
+        if (skeleton(x) === skeleton(y)) return true;
+    }
     if (x.length < 4 || y.length < 4) return false;
 
     // Plural / stem: excerpt↔excerpts, guideline↔guidelines, minute↔minutes.
@@ -1863,7 +1928,7 @@ function annotateTokenSequentialDiff(leftTokens, rightTokens) {
 /** Mark every token in a sentence (including short words) for continuous bands. */
 function annotateTokensAsKind(tokens, kind) {
     for (const t of tokens || []) {
-        if (t?.norm) {
+        if (t?.norm && !isUnreliableOcrToken(t)) {
             t.__diff = kind;
         }
     }
@@ -2123,10 +2188,20 @@ function wordDiffMarksSectionAware(leftTokens, rightTokens, leftBags, rightBags)
     return pairUnmatchedTokens(leftUnmatched, rightSurplus);
 }
 
-/** Tiny function words clutter highlights without helping reviewers. */
+/** Low-confidence OCR is retained for matching but should not create a diff alone. */
+function isUnreliableOcrToken(token) {
+    if (!token?.ocr) return false;
+    const confidence = ocrConfidence(token.conf);
+    if (confidence === null) return false;
+    const length = String(token.norm || '').length;
+    return confidence < 30 || (confidence < 42 && length <= 3);
+}
+
+/** Tiny function words and unreliable OCR clutter highlights without helping reviewers. */
 function isNoiseDiffToken(token) {
     const n = token?.norm || '';
     if (!n) return true;
+    if (isUnreliableOcrToken(token)) return true;
     if (n.length <= 2) return true;
     if (NOISE_DIFF_WORDS.has(n)) return true;
     // Pure digits / bullets rarely help policy review.

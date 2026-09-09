@@ -174,8 +174,7 @@ class OfficeIntakeHelper
         self::assertCanAccessIntake();
 
         $data = $request->validate([
-            'drfNo' => 'required|string|max:100',
-            'drfDate' => 'required|date',
+            'drfDate' => 'nullable|date',
             'drfTitle' => 'required|string|max:255',
             'originatorName' => 'nullable|string|max:255',
             'docTypeKind' => 'nullable|in:internal,external',
@@ -199,8 +198,8 @@ class OfficeIntakeHelper
             $id = DB::transaction(function () use ($data, $officeIds, $userId, $now, $drfFile) {
                 $row = array_merge([
                     'request_id' => null,
-                    'drf_no' => $data['drfNo'],
-                    'drf_date' => $data['drfDate'],
+                    'drf_no' => null,
+                    'drf_date' => $data['drfDate'] ?? null,
                     'drf_receipt_date' => null,
                     'drf_receipt_time' => null,
                     'doc_title' => $data['drfTitle'],
@@ -212,8 +211,7 @@ class OfficeIntakeHelper
                 if (Schema::hasColumn('dcs_document_request_form', 'is_office_intake')) {
                     $row['is_office_intake'] = true;
                     $row['prepared_by_name'] = RegisterQueryHelper::currentUserDisplayName();
-                    $row['originator_name'] = trim((string) ($data['originatorName'] ?? ''))
-                        ?: RegisterQueryHelper::currentUserDisplayName();
+                    $row['originator_name'] = trim((string) ($data['originatorName'] ?? '')) ?: null;
                     if (Schema::hasColumn('dcs_document_request_form', 'doc_type_kind')) {
                         $row['doc_type_kind'] = $data['docTypeKind'] ?? null;
                     }
@@ -251,14 +249,14 @@ class OfficeIntakeHelper
         }
 
         RegisterPersistHelper::logAdminChange(
-            'Created office DRF #' . $id . ' — ' . $data['drfNo'] . ': ' . $data['drfTitle']
+            'Created office DRF #' . $id . ': ' . $data['drfTitle']
         );
 
         if (! RegisterQueryHelper::isRfioOffice()) {
             DcsNotificationService::notifyOfficeDrfSubmitted(
                 DcsNotificationService::RFIO_OFFICE_CODE,
                 RegisterQueryHelper::currentUserDisplayName(),
-                $data['drfNo'],
+                '',
                 $data['drfTitle'],
                 $id
             );
@@ -275,7 +273,6 @@ class OfficeIntakeHelper
         self::assertCanAccessIntake();
 
         $data = $request->validate([
-            'dcnNumber' => 'required|string|max:100',
             'documentNo' => 'required|string|max:150',
             'documentTitle' => 'nullable|string|max:255',
             'changeFrom' => 'nullable|string|max:5000',
@@ -309,7 +306,7 @@ class OfficeIntakeHelper
             $id = DB::transaction(function () use ($data, $docNo, $docTitle, $userId, $now) {
                 $row = [
                     'request_id' => null,
-                    'dcn_no' => $data['dcnNumber'],
+                    'dcn_no' => null,
                     'dcn_date' => now()->toDateString(),
                     'dcn_receipt_date' => null,
                     'dcn_receipt_time' => null,
@@ -363,7 +360,6 @@ class OfficeIntakeHelper
 
         RegisterPersistHelper::logAdminChange(
             'Created office DCN #' . $id
-            . ' — ' . $data['dcnNumber']
             . ($docNo !== '' ? ' for ' . $docNo : '')
             . ($docTitle !== '' ? ': ' . $docTitle : '')
         );
@@ -372,7 +368,7 @@ class OfficeIntakeHelper
             DcsNotificationService::notifyOfficeDcnSubmitted(
                 DcsNotificationService::RFIO_OFFICE_CODE,
                 RegisterQueryHelper::currentUserDisplayName(),
-                $data['dcnNumber'],
+                '',
                 $docNo,
                 $id
             );
